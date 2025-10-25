@@ -60,7 +60,7 @@ export default function HomePage() {
               </div>
               <div className="flex flex-wrap items-center gap-3 reveal-text">
                 <Link href="https://x.com/oprai_" target="_blank" className="btn btn-primary">
-                  Join the waitlist
+                  Follow us on X
                 </Link>
               </div>
             </div>
