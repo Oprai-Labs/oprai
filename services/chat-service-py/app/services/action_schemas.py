@@ -491,6 +491,9 @@ class QueryType(str, Enum):
     RELAY_INTENT_STATUS = "relay_intent_status"
     RELAY_GET_APP_FEE_BALANCES = "relay_get_app_fee_balances"
     RELAY_GET_SWAP_SOURCES = "relay_get_swap_sources"
+    # Magic Eden — NFT marketplace queries
+    ME_TOKEN_LISTINGS = "me_token_listings"
+    ME_TOKEN_OFFERS_RECEIVED = "me_token_offers_received"
 
 
 # ---------------------------------------------------------------------------
@@ -907,28 +910,6 @@ OPRAI_TOOLS: list[dict] = [
                     },
                 },
                 "required": ["category", "question", "options"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "text_response",
-            "description": (
-                "Send a plain conversational reply. Use ONLY for greetings, general explanations, "
-                "or when no DeFi action or query is needed. "
-                "Do NOT use instead of execute_action or query_onchain."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "message": {
-                        "type": "string",
-                        "description": "The text message to send to the user.",
-                    }
-                },
-                "required": ["message"],
                 "additionalProperties": False,
             },
         },

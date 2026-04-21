@@ -12,7 +12,6 @@ Tool calling is supported for both paths:
 - Responses API: flat tool format, parsed from function_call_arguments.done events
 """
 
-import json
 import logging
 from collections.abc import AsyncGenerator
 from typing import Literal
@@ -265,15 +264,7 @@ class LLMService:
                     fn = fn_calls.pop(item_id)
                     # Use final arguments from the .done event (authoritative)
                     args = getattr(event, "arguments", fn["arguments"])
-                    if fn["name"] == "text_response" and args:
-                        try:
-                            msg = json.loads(args).get("message", "")
-                            if msg:
-                                logger.info("text_response tool called (responses_api) | len=%d", len(msg))
-                                yield ("text", msg)
-                        except Exception:
-                            pass
-                    elif fn["name"] and args:
+                    if fn["name"] and args:
                         yield ("tool_call", fn["name"], args)
 
         if reasoning_started and not reasoning_done:
@@ -388,15 +379,7 @@ class LLMService:
         for tc in tool_calls_buf.values():
             name = tc["name"]
             args = tc["arguments"]
-            if name == "text_response" and args:
-                try:
-                    msg = json.loads(args).get("message", "")
-                    if msg:
-                        logger.info("text_response tool called (chat_completions) | len=%d", len(msg))
-                        yield ("text", msg)
-                except Exception:
-                    pass
-            elif name and args:
+            if name and args:
                 yield ("tool_call", name, args)
 
 
