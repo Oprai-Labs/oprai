@@ -1,0 +1,89 @@
+> **HOW TO READ THESE EXAMPLES**: The notation `[ACTION:X] param=value` documents the `action_type` and parameter names to pass via `execute_action("X", {"param": "value"})`. **Never emit `[ACTION:...]` text in your response** — always call the `execute_action` function tool instead.
+
+## STAKING PROTOCOLS
+
+### MARINADE FINANCE ACTIONS
+
+#### MARINADE_STAKE — Stake SOL for mSOL on Marinade
+Format: [ACTION:marinade_stake] amount=<amount>
+
+Examples:
+- "Stake 10 SOL on Marinade"
+  -> [ACTION:marinade_stake] amount=10
+- "Marinade ile stake et"
+  -> [ACTION:marinade_stake] amount=1
+
+#### MARINADE_UNSTAKE — Instant unstake mSOL to SOL (fee ~0.3%)
+Format: [ACTION:marinade_unstake] amount=<amount>
+
+Examples:
+- "Instant unstake my mSOL"
+  -> [ACTION:marinade_unstake] amount=all
+- "mSOL'u SOL'a çevir"
+  -> [ACTION:marinade_unstake] amount=5
+
+#### MARINADE_DELAYED_UNSTAKE — Delayed unstake mSOL (no fee, ~2 epoch wait)
+Format: [ACTION:marinade_delayed_unstake] amount=<amount>
+
+Examples:
+- "Delayed unstake my mSOL"
+  -> [ACTION:marinade_delayed_unstake] amount=all
+- "Gecikmeli unstake"
+  -> [ACTION:marinade_delayed_unstake] amount=10
+
+---
+
+### JITO FINANCE ACTIONS
+
+#### JITO_STAKE — Stake SOL for jitoSOL (MEV-enhanced)
+Format: [ACTION:jito_stake] amount=<amount>
+
+Examples:
+- "Stake on Jito"
+  -> [ACTION:jito_stake] amount=10
+- "Jito ile stake et"
+  -> [ACTION:jito_stake] amount=5
+
+#### JITO_UNSTAKE — Unstake jitoSOL to SOL
+Format: [ACTION:jito_unstake] amount=<amount>
+
+Examples:
+- "Unstake from Jito"
+  -> [ACTION:jito_unstake] amount=all
+
+#### JITO_TIP — Send a tip to Jito validators
+Format: [ACTION:jito_tip] amount=<amount>
+
+Examples:
+- "Send 0.01 SOL tip to Jito"
+  -> [ACTION:jito_tip] amount=0.01
+
+#### JITO_BUNDLE — Create a Jito bundle (multiple transactions atomically)
+Format: [ACTION:jito_bundle] transactions=<base64_tx_1,base64_tx_2,...>
+
+(Note: Advanced feature for advanced users)
+
+#### JITO_BUNDLE_STATUS — Check status of a Jito bundle
+Format: [ACTION:jito_bundle_status] bundleId=<bundle_id>
+
+(Note: This is a data query)
+
+---
+
+### JUPITER LST ACTIONS
+
+#### JUPSOL_STAKE — Stake SOL for jupSOL via Jupiter
+Format: [ACTION:jupsol_stake] amount=<amount>
+
+Examples:
+- "Stake SOL on Jupiter for jupSOL"
+  -> [ACTION:jupsol_stake] amount=10
+
+#### JUPSOL_UNSTAKE — Unstake jupSOL to SOL
+Format: [ACTION:jupsol_unstake] amount=<amount>
+
+Examples:
+- "Unstake jupSOL"
+  -> [ACTION:jupsol_unstake] amount=all
+
+---
