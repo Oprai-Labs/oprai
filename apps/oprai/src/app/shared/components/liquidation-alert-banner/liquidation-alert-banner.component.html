@@ -1,0 +1,47 @@
+@if (visible()) {
+  <div class="alert-banner" [class.alert-banner--danger]="bannerLevel() === 'danger'" [class.alert-banner--warning]="bannerLevel() === 'warning'">
+    <div class="alert-inner">
+      <!-- Icon -->
+      <div class="alert-icon">
+        @if (bannerLevel() === 'danger') {
+          <lucide-icon name="triangle-alert" [size]="16" />
+        } @else {
+          <lucide-icon name="alert-circle" [size]="16" />
+        }
+      </div>
+
+      <!-- Main text -->
+      <div class="alert-body">
+        @if (primaryPosition(); as pos) {
+          @if (bannerLevel() === 'danger') {
+            <span class="alert-title">Liquidation Risk</span>
+            <span class="alert-detail">
+              {{ formatProtocol(pos.protocol) }} position · HF {{ formatHf(pos.healthFactor) }}
+              @if (extraCount() > 0) {
+                <span class="alert-extra"> +{{ extraCount() }} more</span>
+              }
+            </span>
+          } @else {
+            <span class="alert-title">Health Factor Warning</span>
+            <span class="alert-detail">
+              {{ formatProtocol(pos.protocol) }} position · HF {{ formatHf(pos.healthFactor) }}
+              @if (extraCount() > 0) {
+                <span class="alert-extra"> +{{ extraCount() }} more</span>
+              }
+            </span>
+          }
+        }
+      </div>
+
+      <!-- Actions -->
+      <div class="alert-actions">
+        <button class="alert-btn alert-btn--view" (click)="navigateToPortfolio()">
+          View positions
+        </button>
+        <button class="alert-btn alert-btn--refresh" (click)="refresh()" [class.spinning]="summary().polling" title="Refresh">
+          <lucide-icon name="refresh-cw" [size]="13" />
+        </button>
+      </div>
+    </div>
+  </div>
+}

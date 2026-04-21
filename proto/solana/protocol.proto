@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package oprai.solana;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/solanapb";
+
+import "proto/common/types.proto";
+
+// ─── Solana Protocol Service ─────────────────────────────────────────────────
+
+service SolanaProtocolService {
+  // List all supported DeFi protocols.
+  rpc ListProtocols (ListProtocolsRequest) returns (ListProtocolsResponse);
+
+  // Look up a single token by mint address or symbol.
+  rpc GetTokenInfo (GetTokenInfoRequest) returns (TokenInfo);
+
+  // Return the curated list of commonly used tokens (COMMON_TOKENS registry).
+  rpc ListCommonTokens (ListCommonTokensRequest) returns (ListCommonTokensResponse);
+}
+
+// ─── DeFiProtocol enum ───────────────────────────────────────────────────────
+
+enum DeFiProtocol {
+  DEFI_PROTOCOL_UNSPECIFIED = 0;
+  DEFI_PROTOCOL_JUPITER     = 1;
+  DEFI_PROTOCOL_PUMP_FUN    = 2;
+  DEFI_PROTOCOL_RAYDIUM     = 3;
+  DEFI_PROTOCOL_MARINADE    = 4;
+  DEFI_PROTOCOL_JITO        = 5;
+  DEFI_PROTOCOL_ORCA        = 6;
+  DEFI_PROTOCOL_METEORA     = 7;
+  DEFI_PROTOCOL_DRIFT       = 8;
+  DEFI_PROTOCOL_MARGINFI    = 9;
+  DEFI_PROTOCOL_KAMINO      = 10;
+}
+
+// ─── TokenInfo ───────────────────────────────────────────────────────────────
+
+message TokenInfo {
+  string address   = 1; // mint address
+  string symbol    = 2;
+  string name      = 3;
+  int32  decimals  = 4;
+  string logo_uri  = 5; // optional
+}
+
+// ─── ListProtocols ───────────────────────────────────────────────────────────
+
+message ListProtocolsRequest {}
+
+message ProtocolInfo {
+  DeFiProtocol protocol    = 1;
+  string       name        = 2;
+  string       description = 3;
+  string       website     = 4;
+
+  // Which action types this protocol supports
+  repeated string supported_actions = 5;
+}
+
+message ListProtocolsResponse {
+  repeated ProtocolInfo protocols = 1;
+}
+
+// ─── GetTokenInfo ────────────────────────────────────────────────────────────
+
+message GetTokenInfoRequest {
+  // Supply exactly one identifier.
+  oneof identifier {
+    string address = 1; // mint address
+    string symbol  = 2;
+  }
+}
+
+// ─── ListCommonTokens ────────────────────────────────────────────────────────
+
+message ListCommonTokensRequest {
+  // Optional filter by network (defaults to mainnet-beta).
+  string network = 1;
+}
+
+message ListCommonTokensResponse {
+  repeated TokenInfo tokens = 1;
+}

@@ -1,0 +1,100 @@
+<aside class="sidebar">
+  <!-- Header -->
+  <div class="sidebar-header">
+    <span class="sidebar-brand gradient-text-static">OPRAI</span>
+    <button class="sidebar-new-btn" (click)="onNewChat()" aria-label="New chat">
+      <lucide-icon name="plus" [size]="16" />
+      New Chat
+    </button>
+  </div>
+
+  <!-- Session List -->
+  <div class="sidebar-body sidebar-scroll scrollbar-thin">
+    @if (sessionsLoading()) {
+      @for (i of [1,2,3,4,5,6]; track i) {
+        <div class="sk-session">
+          <div class="sk" [style.width.px]="60 + (i * 22) % 80" style="height: 12px;"></div>
+        </div>
+      }
+    } @else if (sessions().length === 0) {
+      <div class="sidebar-empty">
+        <p>No conversations yet</p>
+      </div>
+    } @else {
+      @for (group of groupedSessions(); track group.label) {
+        <div class="session-group" [class.session-group--pinned]="group.label === 'Pinned'">
+          @if (group.label === 'Pinned') {
+            <div class="session-group-label session-group-label--pinned">
+              Pinned
+            </div>
+          } @else {
+            <div class="session-group-label">{{ group.label }}</div>
+          }
+          @for (session of group.sessions; track session.id) {
+            @if (deleteConfirmId() === session.id) {
+              <div class="delete-confirm">
+                <p>Delete this chat?</p>
+                <div class="delete-confirm-actions">
+                  <button class="btn-sm btn-danger" (click)="confirmDelete(session.id)">Delete</button>
+                  <button class="btn-sm btn-ghost" (click)="cancelDelete()">Cancel</button>
+                </div>
+              </div>
+            } @else if (editingSessionId() === session.id) {
+              <div class="rename-wrap">
+                <input
+                  type="text"
+                  class="rename-input"
+                  [(ngModel)]="editingTitle"
+                  (keydown.enter)="confirmRename(session.id)"
+                  (keydown.escape)="cancelRename()"
+                  (blur)="confirmRename(session.id)"
+                  autofocus
+                />
+              </div>
+            } @else {
+              <div
+                class="session-item"
+                [class.active]="session.id === activeSessionId()"
+                (click)="onSelect(session)"
+                (contextmenu)="onContextMenu($event, session.id)"
+              >
+<span class="session-title truncate">{{ session.title }}</span>
+                <button
+                  class="session-menu-btn"
+                  (click)="openMenu($event, session.id)"
+                  aria-label="Session options"
+                >
+                  <lucide-icon name="ellipsis" [size]="14" />
+                </button>
+              </div>
+            }
+          }
+        </div>
+      }
+    }
+  </div>
+</aside>
+
+<!-- Dropdown Menu -->
+@if (menuSessionId()) {
+  <div
+    class="session-dropdown"
+    [style.top.px]="menuPosition.top"
+    [style.left.px]="menuPosition.left"
+    (click)="$event.stopPropagation()"
+  >
+    <button class="dropdown-item" (click)="startRename(menuSessionId()!)">
+      <lucide-icon name="pencil" [size]="14" />
+      Rename
+    </button>
+    <button class="dropdown-item" (click)="togglePin(menuSessionId()!)">
+      <lucide-icon [name]="sessionStorage.isPinned(menuSessionId()!) ? 'pin-off' : 'pin'" [size]="14" />
+      {{ sessionStorage.isPinned(menuSessionId()!) ? 'Unpin' : 'Pin' }}
+    </button>
+    <div class="dropdown-divider"></div>
+    <button class="dropdown-item dropdown-item--danger" (click)="requestDelete(menuSessionId()!)">
+      <lucide-icon name="trash-2" [size]="14" />
+      Delete
+    </button>
+  </div>
+}

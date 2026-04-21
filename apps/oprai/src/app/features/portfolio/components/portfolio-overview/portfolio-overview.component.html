@@ -1,0 +1,56 @@
+<!-- Profile Hero — wallet info + chart side by side -->
+<div class="profile-hero">
+  <div class="hero-left">
+    <div class="wallet-row">
+      <div class="wallet-avatar">
+        <img
+          src="https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
+          alt="Solana"
+          width="32"
+          height="32"
+        />
+      </div>
+      <button class="wallet-address" (click)="copyAddress()" title="Copy address">
+        {{ summary.walletAddress | truncateAddress:6:4 }}
+        <lucide-icon class="copy-icon" name="copy" [size]="14" />
+      </button>
+    </div>
+    <div class="total-value">{{ totalValue | currency:'USD':'symbol':'1.2-2' }}</div>
+    @if (portfolioChange) {
+      <div class="value-change" [class]="portfolioChange.change24hUsd >= 0 ? 'change-positive' : 'change-negative'">
+        {{ portfolioChange.change24hUsd >= 0 ? '+' : '' }}{{ portfolioChange.change24hUsd | currency:'USD':'symbol':'1.2-2' }}
+        ({{ portfolioChange.change24hPercent >= 0 ? '+' : '' }}{{ portfolioChange.change24hPercent | number:'1.2-2' }}%)
+        <span class="change-label">24h</span>
+      </div>
+    }
+  </div>
+  @if (allocationSegments.length > 0) {
+    <div class="hero-right">
+      <app-allocation-chart
+        [segments]="allocationSegments"
+        [totalValue]="totalValue"
+      />
+    </div>
+  }
+</div>
+
+<!-- Protocol Summary Cards -->
+<div class="protocol-cards-row">
+  @for (card of protocolCards; track card.id) {
+    <div class="protocol-card">
+      <div class="card-icon" [class]="getCardIconClass(card.id)">
+        @if (card.iconUrl) {
+          <img [src]="card.iconUrl" [alt]="card.name" width="24" height="24" class="card-logo" />
+        } @else if (card.id === 'wallet') {
+          <lucide-icon name="wallet" [size]="16" />
+        } @else {
+          <lucide-icon name="clock" [size]="16" />
+        }
+      </div>
+      <div class="card-body">
+        <span class="card-name">{{ card.name }}</span>
+        <span class="card-value">{{ card.usdValue | currency:'USD':'symbol':'1.2-2' }}</span>
+      </div>
+    </div>
+  }
+</div>

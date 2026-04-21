@@ -1,0 +1,226 @@
+syntax = "proto3";
+
+package oprai.stream.v1;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/streampb";
+option python_generic_services = true;
+
+// ============================================================================
+// Stream Service - Real-time bidirectional streaming
+// ============================================================================
+
+service StreamService {
+  // Subscribe to price updates for specific tokens
+  rpc SubscribePrices(PriceSubscribeRequest) returns (stream PriceUpdate);
+
+  // Subscribe to portfolio position updates
+  rpc SubscribePositions(PositionSubscribeRequest) returns (stream PositionUpdate);
+
+  // Subscribe to notifications/alerts
+  rpc SubscribeNotifications(NotificationSubscribeRequest) returns (stream Notification);
+
+  // Subscribe to transaction status updates
+  rpc SubscribeTransactions(TxSubscribeRequest) returns (stream TxStatusUpdate);
+
+  // Bidirectional stream for chat messages
+  rpc ChatStream(stream ChatMessage) returns (stream ChatMessage);
+
+  // Subscribe to market events (trades, liquidity changes)
+  rpc SubscribeMarketEvents(MarketEventSubscribeRequest) returns (stream MarketEvent);
+}
+
+// ============================================================================
+// Price Streaming
+// ============================================================================
+
+message PriceSubscribeRequest {
+  repeated string token_addresses = 1;
+  int64 interval_ms = 2;  // Update interval in milliseconds (default: 1000)
+}
+
+message PriceUpdate {
+  string token_address = 1;
+  double price = 2;
+  double price_change_24h = 3;
+  double volume_24h = 4;
+  int64 timestamp = 5;
+}
+
+// Batch price update for multiple tokens in a single stream message.
+message PriceBatchUpdate {
+  repeated PriceUpdate prices = 1;
+  int64 timestamp = 2;
+}
+
+// ============================================================================
+// Position Streaming
+// ============================================================================
+
+message PositionSubscribeRequest {
+  string wallet_address = 1;
+  repeated string protocols = 2;  // Filter by protocols
+}
+
+message PositionUpdate {
+  string wallet_address = 1;
+  string protocol = 2;
+  string token_address = 3;
+  string token_symbol = 4;
+  double amount = 5;
+  double value_usd = 6;
+  double apy = 7;
+  PositionChange change = 8;
+  int64 timestamp = 9;
+
+  enum PositionChange {
+    CHANGE_UNSPECIFIED = 0;
+    CHANGE_DEPOSIT = 1;
+    CHANGE_WITHDRAW = 2;
+    CHANGE_PROFIT = 3;
+    CHANGE_LOSS = 4;
+    CHANGE_REWARD = 5;
+  }
+}
+
+// ============================================================================
+// Notification Streaming
+// ============================================================================
+
+message NotificationSubscribeRequest {
+  string wallet_address = 1;
+  repeated NotificationType types = 2;
+
+  enum NotificationType {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_PRICE_ALERT = 1;
+    TYPE_POSITION_ALERT = 2;
+    TYPE_TRANSACTION = 3;
+    TYPE_AIRDROP = 4;
+    TYPE_SYSTEM = 5;
+    TYPE_WHALE = 6;
+  }
+}
+
+message Notification {
+  string id = 1;
+  NotificationType type = 2;
+  string title = 3;
+  string body = 4;
+  string data = 5;  // JSON string for extra data
+  int64 timestamp = 6;
+  Priority priority = 7;
+  bool read = 8;
+
+  enum NotificationType {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_PRICE_ALERT = 1;
+    TYPE_POSITION_ALERT = 2;
+    TYPE_TRANSACTION = 3;
+    TYPE_AIRDROP = 4;
+    TYPE_SYSTEM = 5;
+    TYPE_WHALE = 6;
+  }
+
+  enum Priority {
+    PRIORITY_UNSPECIFIED = 0;
+    PRIORITY_LOW = 1;
+    PRIORITY_NORMAL = 2;
+    PRIORITY_HIGH = 3;
+    PRIORITY_URGENT = 4;
+  }
+}
+
+// ============================================================================
+// Transaction Status Streaming
+// ============================================================================
+
+message TxSubscribeRequest {
+  repeated string transaction_signatures = 1;
+}
+
+message TxStatusUpdate {
+  string signature = 1;
+  TxStatus status = 2;
+  int64 block_time = 3;
+  int64 confirmations = 4;
+  string error_message = 5;
+
+  enum TxStatus {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_PENDING = 1;
+    STATUS_CONFIRMED = 2;
+    STATUS_FAILED = 3;
+    STATUS_PROCESSED = 4;
+  }
+}
+
+// ============================================================================
+// Chat Streaming (Bidirectional)
+// ============================================================================
+
+message ChatMessage {
+  string id = 1;
+  string session_id = 2;
+  string wallet_address = 3;
+  string content = 4;
+  MessageType type = 5;
+  int64 timestamp = 6;
+  map<string, string> metadata = 7;
+
+  enum MessageType {
+    MESSAGE_TYPE_UNSPECIFIED = 0;
+    MESSAGE_TYPE_USER = 1;
+    MESSAGE_TYPE_ASSISTANT = 2;
+    MESSAGE_TYPE_SYSTEM = 3;
+    MESSAGE_TYPE_ACTION = 4;
+  }
+}
+
+// ============================================================================
+// Market Events Streaming
+// ============================================================================
+
+message MarketEventSubscribeRequest {
+  repeated string token_addresses = 1;
+  repeated MarketEventType event_types = 2;
+
+  enum MarketEventType {
+    EVENT_TYPE_UNSPECIFIED = 0;
+    EVENT_TYPE_TRADE = 1;
+    EVENT_TYPE_LIQUIDITY_CHANGE = 2;
+    EVENT_TYPE_NEW_POOL = 3;
+    EVENT_TYPE_BIG_TRADE = 4;  // Whale trade
+  }
+}
+
+message MarketEvent {
+  string id = 1;
+  MarketEventType type = 2;
+  string token_address = 3;
+  string pool_address = 4;
+  double price = 5;
+  double amount = 6;
+  string from_address = 7;
+  string to_address = 8;
+  int64 timestamp = 9;
+
+  enum MarketEventType {
+    EVENT_TYPE_UNSPECIFIED = 0;
+    EVENT_TYPE_TRADE = 1;
+    EVENT_TYPE_LIQUIDITY_CHANGE = 2;
+    EVENT_TYPE_NEW_POOL = 3;
+    EVENT_TYPE_BIG_TRADE = 4;
+  }
+}
+
+// ============================================================================
+// Health Check
+// ============================================================================
+
+message StreamHealthCheckRequest {}
+
+message StreamHealthCheckResponse {
+  bool healthy = 1;
+  int64 active_streams = 2;
+  int64 messages_per_second = 3;
+}

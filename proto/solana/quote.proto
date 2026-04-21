@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package oprai.solana;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/solanapb";
+
+// ─── Solana Quote Service ────────────────────────────────────────────────────
+
+service SolanaQuoteService {
+  // Fetch a real-time swap quote from the Jupiter aggregator.
+  rpc GetSwapQuote (GetSwapQuoteRequest) returns (SwapQuote);
+}
+
+// ─── GetSwapQuote ────────────────────────────────────────────────────────────
+
+message GetSwapQuoteRequest {
+  string input_mint        = 1;
+  string output_mint       = 2;
+  string amount            = 3; // raw lamports / token units
+  int32  slippage_bps      = 4; // 0 = use default (50 bps)
+  bool   only_direct_routes = 5;
+}
+
+// ─── SwapQuote ───────────────────────────────────────────────────────────────
+
+message SwapQuote {
+  string input_mint              = 1;
+  string output_mint             = 2;
+  string in_amount               = 3;
+  string out_amount              = 4;
+  string other_amount_threshold  = 5;
+  string swap_mode               = 6; // "ExactIn" | "ExactOut"
+  int32  slippage_bps            = 7;
+  string price_impact_pct        = 8;
+
+  repeated RoutePlanStep route_plan = 9;
+
+  PlatformFee platform_fee = 10; // optional
+}
+
+message RoutePlanStep {
+  SwapInfo swap_info = 1;
+  int32    percent   = 2; // share of total route (0-100)
+}
+
+message SwapInfo {
+  string amm_key     = 1;
+  string label       = 2;
+  string input_mint  = 3;
+  string output_mint = 4;
+  string in_amount   = 5;
+  string out_amount  = 6;
+  string fee_amount  = 7;
+  string fee_mint    = 8;
+}
+
+message PlatformFee {
+  string amount  = 1;
+  int32  fee_bps = 2;
+}

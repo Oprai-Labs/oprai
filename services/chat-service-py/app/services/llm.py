@@ -271,6 +271,7 @@ class LLMService:
                         try:
                             msg = json.loads(args).get("message", "")
                             if msg:
+                                logger.info("text_response tool called (responses_api) | len=%d", len(msg))
                                 yield ("text", msg)
                         except Exception:
                             pass
@@ -393,6 +394,7 @@ class LLMService:
                 try:
                     msg = json.loads(args).get("message", "")
                     if msg:
+                        logger.info("text_response tool called (chat_completions) | len=%d", len(msg))
                         yield ("text", msg)
                 except Exception:
                     pass

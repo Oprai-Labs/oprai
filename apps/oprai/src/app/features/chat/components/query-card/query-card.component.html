@@ -1,0 +1,655 @@
+<div class="query-card">
+  <div class="query-accent"></div>
+
+  <div class="query-header">
+    <div class="query-icon-wrap">
+      @if (protocolIcon) {
+        <img [src]="protocolIcon" [alt]="queryLabel" class="query-protocol-icon" />
+      } @else {
+        <lucide-icon [name]="queryIcon" [size]="14" />
+      }
+    </div>
+    <div class="query-header-text">
+      <span class="query-badge">QUERY</span>
+      <span class="query-label">{{ queryLabel }}</span>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="query-loading">
+      <span class="status-spinner"></span>
+      <span>Fetching data...</span>
+    </div>
+  } @else if (error()) {
+    <div class="query-error">
+      <lucide-icon name="alert-circle" [size]="14" />
+      <span>{{ error() }}</span>
+    </div>
+  } @else {
+    <div class="query-results">
+
+      <!-- Balance / Portfolio results -->
+      @if (query.type === 'balance' || query.type === 'portfolio' || query.type === 'risk') {
+        <div class="result-table">
+          <div class="result-table__header result-table__header--4col">
+            <span>Token</span>
+            <span class="text-right">Balance</span>
+            <span class="text-right">Value</span>
+            <span class="text-right">24h</span>
+          </div>
+          @for (row of balanceResults; track row.symbol) {
+            <div class="result-table__row result-table__row--4col">
+              <span class="token-cell">
+                <span class="token-symbol">{{ row.symbol }}</span>
+                <span class="token-name">{{ row.token }}</span>
+              </span>
+              <span class="text-right mono">{{ formatBalance(row.balance) }}</span>
+              <span class="text-right mono">{{ formatUsd(row.value) }}</span>
+              <span class="text-right" [class.change-up]="row.change24h >= 0" [class.change-down]="row.change24h < 0">
+                {{ row.change24h >= 0 ? '+' : '' }}{{ row.change24h.toFixed(2) }}%
+              </span>
+            </div>
+          }
+        </div>
+        @if (query.type === 'portfolio' || query.type === 'risk') {
+          <div class="result-summary">
+            <span class="result-summary__label">Total Value</span>
+            <span class="result-summary__value mono">{{ totalPortfolioValue }}</span>
+          </div>
+        }
+      }
+
+      <!-- Price / Token Info results -->
+      @if ((query.type === 'price' || query.type === 'token_info') && priceResult) {
+        <div class="price-card">
+          <div class="price-main">
+            <span class="price-symbol">{{ priceResult.symbol }}</span>
+            <span class="price-value">{{ formatPrice(priceResult.price) }}</span>
+            <span [class.change-up]="priceResult.change24h >= 0" [class.change-down]="priceResult.change24h < 0">
+              {{ priceResult.change24h >= 0 ? '+' : '' }}{{ priceResult.change24h.toFixed(2) }}%
+            </span>
+          </div>
+          <div class="price-stats">
+            <div class="price-stat">
+              <span class="price-stat__label">Volume (24h)</span>
+              <span class="price-stat__value mono">${{ formatNumber(priceResult.volume24h) }}</span>
+            </div>
+            <div class="price-stat">
+              <span class="price-stat__label">Market Cap</span>
+              <span class="price-stat__value mono">${{ formatNumber(priceResult.marketCap) }}</span>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- Positions results -->
+      @if (query.type === 'positions') {
+        <div class="result-table">
+          <div class="result-table__header result-table__header--4col">
+            <span>Protocol</span>
+            <span>Type</span>
+            <span class="text-right">Value</span>
+            <span class="text-right">APY</span>
+          </div>
+          @for (pos of positionResults; track pos.protocol + pos.token) {
+            <div class="result-table__row result-table__row--4col">
+              <span class="token-cell">
+                <span class="token-symbol">{{ pos.protocol }}</span>
+                <span class="token-name">{{ pos.token }}</span>
+              </span>
+              <span class="type-badge">{{ pos.type }}</span>
+              <span class="text-right mono">{{ formatUsd(pos.value) }}</span>
+              <span class="text-right change-up">{{ pos.apy.toFixed(1) }}%</span>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Transaction results -->
+      @if (query.type === 'transactions') {
+        <div class="tx-list">
+          @for (tx of transactionResults; track tx.description) {
+            <div class="tx-row">
+              <div class="tx-row__icon" [class]="'tx-row__icon--' + tx.type">
+                <lucide-icon
+                  [name]="tx.type === 'swap' ? 'arrow-right-left' : tx.type === 'transfer' ? 'send' : tx.type === 'stake' ? 'lock' : 'arrow-down-left'"
+                  [size]="12"
+                />
+              </div>
+              <div class="tx-row__info">
+                <span class="tx-row__desc">{{ tx.description }}</span>
+                <span class="tx-row__time">{{ tx.time }}</span>
+              </div>
+              <span class="tx-row__amount mono" [class.change-up]="tx.amount.startsWith('+')" [class.change-down]="tx.amount.startsWith('-')">
+                {{ tx.amount }}
+              </span>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Trending results -->
+      @if (query.type === 'trending') {
+        <div class="result-table">
+          <div class="result-table__header result-table__header--4col">
+            <span>#</span>
+            <span>Token</span>
+            <span class="text-right">Price</span>
+            <span class="text-right">24h</span>
+          </div>
+          @for (item of trendingResults; track item.rank) {
+            <div class="result-table__row result-table__row--4col">
+              <span class="rank">{{ item.rank }}</span>
+              <span class="token-cell">
+                <span class="token-symbol">{{ item.symbol }}</span>
+                <span class="token-name">{{ item.name }}</span>
+              </span>
+              <span class="text-right mono">{{ formatPrice(item.price) }}</span>
+              <span class="text-right" [class.change-up]="item.change24h >= 0" [class.change-down]="item.change24h < 0">
+                {{ item.change24h >= 0 ? '+' : '' }}{{ item.change24h.toFixed(2) }}%
+              </span>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Network results -->
+      @if (query.type === 'network' && networkResult) {
+        <div class="network-grid">
+          <div class="network-stat">
+            <span class="network-stat__label">TPS</span>
+            <span class="network-stat__value mono">{{ formatNumber(networkResult.tps) }}</span>
+          </div>
+          <div class="network-stat">
+            <span class="network-stat__label">Slot</span>
+            <span class="network-stat__value mono">{{ formatNumber(networkResult.slot) }}</span>
+          </div>
+          <div class="network-stat">
+            <span class="network-stat__label">Epoch</span>
+            <span class="network-stat__value mono">{{ networkResult.epoch }}</span>
+          </div>
+          <div class="network-stat">
+            <span class="network-stat__label">Validators</span>
+            <span class="network-stat__value mono">{{ formatNumber(networkResult.validators) }}</span>
+          </div>
+          <div class="network-stat network-stat--wide">
+            <span class="network-stat__label">Epoch Progress</span>
+            <div class="epoch-bar">
+              <div class="epoch-bar__fill" [style.width.%]="networkResult.epochProgress"></div>
+            </div>
+            <span class="network-stat__value mono">{{ networkResult.epochProgress.toFixed(1) }}%</span>
+          </div>
+        </div>
+      }
+
+      <!-- Yield results -->
+      @if (query.type === 'yield') {
+        <div class="result-table">
+          <div class="result-table__header result-table__header--5col">
+            <span>Protocol</span>
+            <span>Token</span>
+            <span class="text-right">APY</span>
+            <span class="text-right">TVL</span>
+            <span class="text-right">Risk</span>
+          </div>
+          @for (y of yieldResults; track y.protocol + y.token) {
+            <div class="result-table__row result-table__row--5col">
+              <span>{{ y.protocol }}</span>
+              <span class="mono">{{ y.token }}</span>
+              <span class="text-right change-up mono">{{ y.apy.toFixed(1) }}%</span>
+              <span class="text-right mono">${{ formatNumber(y.tvl) }}</span>
+              <span class="text-right">
+                <span class="risk-badge" [class]="riskBadgeClass(y.risk)">{{ y.risk }}</span>
+              </span>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Analytics / PnL results -->
+      @if (query.type === 'analytics' && analyticsResult) {
+        <div class="analytics-grid">
+          <div class="analytics-stat analytics-stat--highlight">
+            <span class="analytics-stat__label">Total PnL</span>
+            <span class="analytics-stat__value mono" [class.change-up]="analyticsResult.totalPnl >= 0" [class.change-down]="analyticsResult.totalPnl < 0">
+              {{ analyticsResult.totalPnl >= 0 ? '+' : '' }}{{ formatUsd(analyticsResult.totalPnl) }}
+            </span>
+            <span class="analytics-stat__sub" [class.change-up]="analyticsResult.pnlPercent >= 0" [class.change-down]="analyticsResult.pnlPercent < 0">
+              {{ analyticsResult.pnlPercent >= 0 ? '+' : '' }}{{ analyticsResult.pnlPercent.toFixed(1) }}%
+            </span>
+          </div>
+          <div class="analytics-stat">
+            <span class="analytics-stat__label">Win Rate</span>
+            <span class="analytics-stat__value mono">{{ analyticsResult.winRate.toFixed(1) }}%</span>
+          </div>
+          <div class="analytics-stat">
+            <span class="analytics-stat__label">Total Trades</span>
+            <span class="analytics-stat__value mono">{{ analyticsResult.totalTrades }}</span>
+          </div>
+          <div class="analytics-stat">
+            <span class="analytics-stat__label">Avg Hold Time</span>
+            <span class="analytics-stat__value mono">{{ analyticsResult.avgHoldTime }}</span>
+          </div>
+        </div>
+        <div class="analytics-trades">
+          <div class="analytics-trade">
+            <span class="analytics-trade__label">Best Trade</span>
+            <span class="analytics-trade__value change-up mono">{{ analyticsResult.bestTrade }}</span>
+          </div>
+          <div class="analytics-trade">
+            <span class="analytics-trade__label">Worst Trade</span>
+            <span class="analytics-trade__value change-down mono">{{ analyticsResult.worstTrade }}</span>
+          </div>
+        </div>
+        <div class="result-table" style="margin-top: 8px">
+          <div class="result-table__header result-table__header--4col">
+            <span>Token</span>
+            <span class="text-right">PnL</span>
+            <span class="text-right">Trades</span>
+            <span></span>
+          </div>
+          @for (t of analyticsResult.topTokens; track t.symbol) {
+            <div class="result-table__row result-table__row--4col">
+              <span class="token-symbol">{{ t.symbol }}</span>
+              <span class="text-right mono" [class.change-up]="t.pnl >= 0" [class.change-down]="t.pnl < 0">
+                {{ t.pnl >= 0 ? '+' : '' }}{{ formatUsd(t.pnl) }}
+              </span>
+              <span class="text-right mono">{{ t.trades }}</span>
+              <span></span>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- NFT Collection results -->
+      @if (query.type === 'nft_collection') {
+        <div class="nft-grid">
+          @for (nft of nftResults; track nft.name) {
+            <div class="nft-item">
+              <div class="nft-item__image">{{ nft.image }}</div>
+              <div class="nft-item__info">
+                <span class="nft-item__name">{{ nft.name }}</span>
+                <span class="nft-item__collection">{{ nft.collection }}</span>
+              </div>
+              <div class="nft-item__meta">
+                <span class="nft-item__floor">Floor: {{ nft.floorPrice }} SOL</span>
+                <span class="nft-item__rarity">{{ nft.rarity }}</span>
+              </div>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Airdrop results -->
+      @if (query.type === 'airdrops') {
+        <div class="result-table">
+          <div class="result-table__header result-table__header--5col">
+            <span>Protocol</span>
+            <span>Token</span>
+            <span class="text-right">Amount</span>
+            <span class="text-right">Status</span>
+            <span class="text-right">Deadline</span>
+          </div>
+          @for (a of airdropResults; track a.protocol) {
+            <div class="result-table__row result-table__row--5col">
+              <span>{{ a.protocol }}</span>
+              <span class="mono">{{ a.token }}</span>
+              <span class="text-right mono">{{ a.amount }}</span>
+              <span class="text-right">
+                <span class="airdrop-badge" [class.airdrop-badge--claimable]="a.status === 'Claimable'"
+                      [class.airdrop-badge--upcoming]="a.status === 'Upcoming'"
+                      [class.airdrop-badge--expired]="a.status === 'Expired'">{{ a.status }}</span>
+              </span>
+              <span class="text-right mono">{{ a.deadline }}</span>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Gas / Fees results -->
+      @if (query.type === 'gas' && gasResult) {
+        <div class="gas-grid">
+          <div class="gas-tier">
+            <span class="gas-tier__label">Low Priority</span>
+            <span class="gas-tier__value mono">{{ gasResult.priorityLow }} SOL</span>
+          </div>
+          <div class="gas-tier gas-tier--recommended">
+            <span class="gas-tier__label">Medium Priority</span>
+            <span class="gas-tier__value mono">{{ gasResult.priorityMedium }} SOL</span>
+            <span class="gas-tier__tag">Recommended</span>
+          </div>
+          <div class="gas-tier">
+            <span class="gas-tier__label">High Priority</span>
+            <span class="gas-tier__value mono">{{ gasResult.priorityHigh }} SOL</span>
+          </div>
+        </div>
+        <div class="gas-estimates">
+          <div class="gas-estimate">
+            <span>Transfer cost</span>
+            <span class="mono">{{ gasResult.transferCost }}</span>
+          </div>
+          <div class="gas-estimate">
+            <span>Swap cost</span>
+            <span class="mono">{{ gasResult.swapCost }}</span>
+          </div>
+          <div class="gas-estimate">
+            <span>Base fee</span>
+            <span class="mono">{{ gasResult.baseFee }} SOL</span>
+          </div>
+        </div>
+      }
+
+      <!-- Wallet Info results -->
+      @if (query.type === 'wallet_info' && walletInfoResult) {
+        <div class="wallet-info">
+          <div class="wallet-info__address">
+            <span class="wallet-info__label">Address</span>
+            <span class="wallet-info__value mono">{{ walletInfoResult.address.slice(0, 8) }}...{{ walletInfoResult.address.slice(-6) }}</span>
+          </div>
+          <div class="wallet-info__grid">
+            <div class="wallet-info__stat">
+              <span class="wallet-info__stat-label">SOL Balance</span>
+              <span class="wallet-info__stat-value mono">{{ walletInfoResult.solBalance.toFixed(2) }}</span>
+            </div>
+            <div class="wallet-info__stat">
+              <span class="wallet-info__stat-label">Tokens</span>
+              <span class="wallet-info__stat-value mono">{{ walletInfoResult.tokenCount }}</span>
+            </div>
+            <div class="wallet-info__stat">
+              <span class="wallet-info__stat-label">NFTs</span>
+              <span class="wallet-info__stat-value mono">{{ walletInfoResult.nftCount }}</span>
+            </div>
+            <div class="wallet-info__stat">
+              <span class="wallet-info__stat-label">Total TXs</span>
+              <span class="wallet-info__stat-value mono">{{ formatNumber(walletInfoResult.totalTxs) }}</span>
+            </div>
+          </div>
+          <div class="wallet-info__footer">
+            <span>First transaction: {{ walletInfoResult.firstTx }}</span>
+            <span>Label: {{ walletInfoResult.label }}</span>
+          </div>
+        </div>
+      }
+
+      <!-- Tax Report results -->
+      @if (query.type === 'tax_report' && taxResult) {
+        <div class="tax-summary">
+          <div class="tax-summary__header">
+            <span class="tax-summary__year">Tax Year {{ taxResult.year }}</span>
+            <span class="tax-summary__txs mono">{{ taxResult.totalTxs }} transactions</span>
+          </div>
+          <div class="tax-summary__grid">
+            <div class="tax-summary__stat">
+              <span class="tax-summary__label">Total Gains</span>
+              <span class="tax-summary__value change-up mono">+{{ formatUsd(taxResult.totalGains) }}</span>
+            </div>
+            <div class="tax-summary__stat">
+              <span class="tax-summary__label">Total Losses</span>
+              <span class="tax-summary__value change-down mono">-{{ formatUsd(taxResult.totalLosses) }}</span>
+            </div>
+            <div class="tax-summary__stat tax-summary__stat--highlight">
+              <span class="tax-summary__label">Net Gains</span>
+              <span class="tax-summary__value mono" [class.change-up]="taxResult.netGains >= 0" [class.change-down]="taxResult.netGains < 0">
+                {{ taxResult.netGains >= 0 ? '+' : '' }}{{ formatUsd(taxResult.netGains) }}
+              </span>
+            </div>
+          </div>
+          <div class="tax-breakdown">
+            <div class="tax-breakdown__row">
+              <span>Short-term gains</span>
+              <span class="mono">{{ formatUsd(taxResult.shortTermGains) }}</span>
+            </div>
+            <div class="tax-breakdown__row">
+              <span>Long-term gains</span>
+              <span class="mono">{{ formatUsd(taxResult.longTermGains) }}</span>
+            </div>
+          </div>
+          <div class="result-table" style="margin-top: 8px">
+            <div class="result-table__header result-table__header--4col">
+              <span>Category</span>
+              <span class="text-right">Amount</span>
+              <span class="text-right">TXs</span>
+              <span></span>
+            </div>
+            @for (cat of taxResult.categories; track cat.type) {
+              <div class="result-table__row result-table__row--4col">
+                <span>{{ cat.type }}</span>
+                <span class="text-right mono change-up">+{{ formatUsd(cat.amount) }}</span>
+                <span class="text-right mono">{{ cat.count }}</span>
+                <span></span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- DCA Orders results -->
+      @if (query.type === 'dca') {
+        @if (dcaResults.length === 0) {
+          <div class="empty-state">
+            <lucide-icon name="trending-up" [size]="20" />
+            <span>No active DCA orders</span>
+          </div>
+        } @else {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--6col">
+              <span>Pair</span>
+              <span class="text-right">Per Cycle</span>
+              <span class="text-right">Freq</span>
+              <span class="text-right">Progress</span>
+              <span class="text-right">Next</span>
+              <span class="text-right"></span>
+            </div>
+            @for (order of dcaResults; track order.id) {
+              <div class="result-table__row result-table__row--6col">
+                <span class="token-cell">
+                  <span class="token-symbol">{{ order.inputToken }} → {{ order.outputToken }}</span>
+                  <span class="token-name">{{ order.status }}</span>
+                </span>
+                <span class="text-right mono">{{ formatBalance(order.amount) }} {{ order.inputToken }}</span>
+                <span class="text-right">{{ order.frequency }}</span>
+                <span class="text-right mono">{{ order.total - order.remaining }}/{{ order.total }}</span>
+                <span class="text-right mono">{{ order.nextExecution }}</span>
+                <span class="text-right">
+                  @if (order.status === 'active' && order.id) {
+                    <button class="cancel-btn" (click)="onCancelDcaOrder(order.id)" title="Cancel DCA">
+                      <lucide-icon name="x" [size]="11" />
+                    </button>
+                  }
+                </span>
+              </div>
+            }
+          </div>
+        }
+      }
+
+      <!-- Limit Orders results -->
+      @if (query.type === 'limit_orders') {
+        <!-- Status filter tabs -->
+        <div class="filter-tabs">
+          <button class="filter-tab" [class.filter-tab--active]="limitOrderStatusFilter === 'open'"
+                  (click)="onLimitOrderFilterChange('open')">Open</button>
+          <button class="filter-tab" [class.filter-tab--active]="limitOrderStatusFilter === 'history'"
+                  (click)="onLimitOrderFilterChange('history')">History</button>
+        </div>
+        @if (limitOrderResults.length === 0) {
+          <div class="empty-state">
+            <lucide-icon name="book-open" [size]="20" />
+            <span>{{ limitOrderStatusFilter === 'open' ? 'No open limit orders' : 'No order history' }}</span>
+          </div>
+        } @else {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--7col">
+              <span>Pair</span>
+              <span class="text-right">Amount</span>
+              <span class="text-right">Target</span>
+              <span class="text-right">Current</span>
+              <span class="text-right">Created</span>
+              <span class="text-right">Status</span>
+              <span class="text-right"></span>
+            </div>
+            @for (order of limitOrderResults; track order.id) {
+              <div class="result-table__row result-table__row--7col">
+                <span class="token-cell">
+                  <span class="token-symbol">{{ order.inputToken }} → {{ order.outputToken }}</span>
+                </span>
+                <span class="text-right mono">{{ formatBalance(order.amount) }} {{ order.inputToken }}</span>
+                <span class="text-right mono">{{ formatPrice(order.targetPrice) }}</span>
+                <span class="text-right mono"
+                      [class.text-green]="order.currentPrice > 0 && order.currentPrice >= order.targetPrice"
+                      [class.text-muted]="order.currentPrice === 0">
+                  {{ order.currentPrice > 0 ? formatPrice(order.currentPrice) : '—' }}
+                </span>
+                <span class="text-right mono">{{ order.createdAt }}</span>
+                <span class="text-right">
+                  <span class="airdrop-badge"
+                        [class.airdrop-badge--claimable]="order.status === 'filled'"
+                        [class.airdrop-badge--upcoming]="order.status === 'open'"
+                        [class.airdrop-badge--expired]="order.status === 'cancelled'">{{ order.status }}</span>
+                </span>
+                <span class="text-right">
+                  @if (order.status === 'open' && order.id) {
+                    <button class="cancel-btn" (click)="onCancelLimitOrder(order.id)" title="Cancel order">
+                      <lucide-icon name="x" [size]="11" />
+                    </button>
+                  }
+                </span>
+              </div>
+            }
+          </div>
+        }
+      }
+
+      <!-- Jupiter Perp Positions results -->
+      @if (query.type === 'perp_positions') {
+        @if (perpPositions.length === 0) {
+          <div class="empty-state">
+            <lucide-icon name="trending-up" [size]="20" />
+            <span>No open perpetual positions on Jupiter</span>
+          </div>
+        } @else {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--7col">
+              <span>Market</span>
+              <span>Side</span>
+              <span class="text-right">Size</span>
+              <span class="text-right">Entry</span>
+              <span class="text-right">Current</span>
+              <span class="text-right">PnL</span>
+              <span class="text-right"></span>
+            </div>
+            @for (pos of perpPositions; track pos.market + pos.side) {
+              <div class="result-table__row result-table__row--7col">
+                <span class="token-cell">
+                  <span class="token-symbol">{{ pos.market }}-PERP</span>
+                  <span class="token-name">{{ pos.leverage.toFixed(1) }}x lev · Liq: {{ formatPrice(pos.liquidationPrice) }}</span>
+                </span>
+                <span>
+                  <span class="type-badge" [class.change-up]="pos.side === 'long'" [class.change-down]="pos.side === 'short'">{{ pos.side }}</span>
+                </span>
+                <span class="text-right mono">{{ formatUsd(pos.sizeUsd) }}</span>
+                <span class="text-right mono">{{ formatPrice(pos.entryPrice) }}</span>
+                <span class="text-right mono">{{ formatPrice(pos.currentPrice) }}</span>
+                <span class="text-right mono"
+                      [class.change-up]="pos.unrealizedPnl >= 0"
+                      [class.change-down]="pos.unrealizedPnl < 0">
+                  {{ pos.unrealizedPnl >= 0 ? '+' : '' }}{{ formatUsd(pos.unrealizedPnl) }}
+                </span>
+                <span class="text-right">
+                  <button class="cancel-btn" (click)="onClosePerpPosition(pos.market, pos.side)" title="Close position">
+                    <lucide-icon name="x" [size]="11" />
+                  </button>
+                </span>
+              </div>
+            }
+          </div>
+        }
+      }
+
+      <!-- Jupiter Lend Positions results -->
+      @if (query.type === 'lend_positions') {
+        @if (lendEarnPositions.length === 0 && lendBorrowPositions.length === 0) {
+          <div class="empty-state">
+            <lucide-icon name="landmark" [size]="20" />
+            <span>No active lending positions on Jupiter</span>
+          </div>
+        } @else {
+          @if (lendEarnPositions.length > 0) {
+            <div class="lend-section-label">Deposits (Earn)</div>
+            <div class="result-table">
+              <div class="result-table__header result-table__header--3col">
+                <span>Asset</span>
+                <span class="text-right">Deposited</span>
+                <span class="text-right">APY</span>
+              </div>
+              @for (pos of lendEarnPositions; track pos.asset.symbol) {
+                <div class="result-table__row result-table__row--3col">
+                  <span class="token-symbol">{{ pos.asset.symbol }}</span>
+                  <span class="text-right mono">{{ formatBalance(pos.depositedAmount) }}</span>
+                  <span class="text-right change-up mono">{{ pos.apy.toFixed(2) }}%</span>
+                </div>
+              }
+            </div>
+          }
+          @if (lendBorrowPositions.length > 0) {
+            <div class="lend-section-label" style="margin-top: 10px">Borrows</div>
+            <div class="result-table">
+              <div class="result-table__header result-table__header--5col">
+                <span>Collateral</span>
+                <span>Debt</span>
+                <span class="text-right">LTV</span>
+                <span class="text-right">Liq.</span>
+                <span class="text-right">Health</span>
+              </div>
+              @for (pos of lendBorrowPositions; track pos.collateralAsset.symbol + pos.debtAsset.symbol) {
+                <div class="result-table__row result-table__row--5col">
+                  <span class="token-cell">
+                    <span class="token-symbol">{{ pos.collateralAsset.symbol }}</span>
+                    <span class="token-name">{{ formatBalance(pos.collateralAmount) }}</span>
+                  </span>
+                  <span class="token-cell">
+                    <span class="token-symbol">{{ pos.debtAsset.symbol }}</span>
+                    <span class="token-name">{{ formatBalance(pos.debtAmount) }}</span>
+                  </span>
+                  <span class="text-right mono">{{ (pos.ltv * 100).toFixed(1) }}%</span>
+                  <span class="text-right mono">{{ (pos.liquidationThreshold * 100).toFixed(1) }}%</span>
+                  <span class="text-right mono"
+                        [class.change-up]="pos.healthFactor >= 1.2"
+                        [class.change-down]="pos.healthFactor < 1.1">{{ pos.healthFactor > 100 ? '∞' : pos.healthFactor.toFixed(2) }}</span>
+                </div>
+              }
+            </div>
+          }
+        }
+      }
+
+      <!-- Alerts results -->
+      @if (query.type === 'alerts') {
+        <div class="result-table">
+          <div class="result-table__header result-table__header--5col">
+            <span>Type</span>
+            <span>Token</span>
+            <span class="text-right">Target</span>
+            <span class="text-right">Current</span>
+            <span class="text-right">Status</span>
+          </div>
+          @for (alert of alertResults; track alert.id) {
+            <div class="result-table__row result-table__row--5col">
+              <span>{{ alert.type }}</span>
+              <span class="token-symbol">{{ alert.token }}</span>
+              <span class="text-right mono">{{ alert.targetValue }}</span>
+              <span class="text-right mono">{{ alert.currentValue }}</span>
+              <span class="text-right">
+                <span class="airdrop-badge"
+                      [class.airdrop-badge--claimable]="alert.status === 'triggered'"
+                      [class.airdrop-badge--upcoming]="alert.status === 'active'"
+                      [class.airdrop-badge--expired]="alert.status === 'expired'">{{ alert.status }}</span>
+              </span>
+            </div>
+          }
+        </div>
+      }
+
+    </div>
+  }
+</div>

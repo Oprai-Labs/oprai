@@ -1,0 +1,60 @@
+<div class="chart-container">
+  <div class="donut-wrap">
+    <svg class="donut-svg" viewBox="0 0 200 200">
+      <!-- Background ring (subtle, shows through if segments don't fill 100%) -->
+      <circle
+        cx="100" cy="100"
+        [attr.r]="svgRadius"
+        fill="none"
+        stroke="var(--op-bg-surface-2)"
+        stroke-width="28"
+      />
+      <!-- Data segments -->
+      @for (arc of svgArcs(); track $index) {
+        <circle
+          class="donut-segment"
+          cx="100" cy="100"
+          [attr.r]="svgRadius"
+          fill="none"
+          [attr.stroke]="arc.color"
+          stroke-width="28"
+          stroke-linecap="butt"
+          [attr.stroke-dasharray]="arc.dashArray"
+          [attr.stroke-dashoffset]="arc.dashOffset"
+        />
+      }
+    </svg>
+    <div class="donut-center">
+      <span class="center-value">{{ totalValue | currency:'USD':'symbol':'1.0-0' }}</span>
+    </div>
+  </div>
+  @if (displaySegments().length > 0) {
+    <div class="chart-legend">
+      @for (seg of displaySegments(); track seg.label) {
+        <div class="legend-item">
+          <span class="legend-icon-wrap">
+            @if (seg.logoUri) {
+              <img
+                class="legend-coin-icon"
+                [src]="seg.logoUri"
+                [alt]="seg.label"
+                width="20"
+                height="20"
+                (error)="onImageError($event)"
+              />
+              <span
+                class="legend-dot-fallback"
+                [style.background]="seg.color"
+                style="display:none"
+              ></span>
+            } @else {
+              <span class="legend-dot" [style.background]="seg.color"></span>
+            }
+          </span>
+          <span class="legend-label">{{ seg.label }}</span>
+          <span class="legend-percent">{{ seg.percent | number:'1.1-1' }}%</span>
+        </div>
+      }
+    </div>
+  }
+</div>

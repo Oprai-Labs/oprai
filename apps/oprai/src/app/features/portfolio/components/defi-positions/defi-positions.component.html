@@ -1,0 +1,125 @@
+@if (groupedPositions().length > 0) {
+  @for (group of groupedPositions(); track group.category) {
+    <div class="category-group">
+      <div class="category-header">
+        <span class="category-badge">{{ group.category | categoryLabel }}</span>
+        <span class="category-total">{{ group.totalValue | currency:'USD':'symbol':'1.2-2' }}</span>
+      </div>
+
+      @for (protocol of group.protocols; track protocol.protocolId) {
+        <!-- Protocol Header -->
+        <div class="protocol-header">
+          <div class="protocol-left">
+            <div class="protocol-logo">
+              @if (protocol.protocolLogoUri) {
+                <img [src]="protocol.protocolLogoUri" [alt]="protocol.protocolName" width="22" height="22" />
+              } @else {
+                <svg width="22" height="22" viewBox="0 0 128 128" fill="none">
+                  <defs>
+                    <linearGradient [attr.id]="'grad-' + protocol.protocolId" x1="0" y1="0" x2="128" y2="128">
+                      <stop offset="0%" stop-color="#9945FF"/>
+                      <stop offset="100%" stop-color="#14F195"/>
+                    </linearGradient>
+                  </defs>
+                  <circle cx="64" cy="64" r="64" [attr.fill]="'url(#grad-' + protocol.protocolId + ')'"/>
+                  <text x="64" y="80" text-anchor="middle" fill="white" font-size="50" font-weight="bold">
+                    {{ protocol.protocolName.charAt(0) }}
+                  </text>
+                </svg>
+              }
+            </div>
+            <span class="protocol-name-text">{{ protocol.protocolName }}</span>
+          </div>
+          <span class="protocol-value">{{ protocol.totalUsdValue | currency:'USD':'symbol':'1.2-2' }}</span>
+        </div>
+
+        <!-- Protocol Card Body -->
+        <div class="protocol-card">
+          @if (protocol.category === 'native-staking') {
+            <!-- Native staking uses the original table layout -->
+            <table class="position-table">
+              <thead>
+                <tr>
+                  <th class="col-label">Validator</th>
+                  <th class="col-balance">Balance</th>
+                  <th class="col-status">Status</th>
+                  <th class="col-value">USD Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (pos of positions.stakePositions; track pos.pubkey) {
+                  <tr class="position-row">
+                    <td class="col-label">
+                      <a
+                        class="validator-link"
+                        [href]="'https://solscan.io/account/' + pos.validatorVoteAccount"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {{ pos.validatorVoteAccount | truncateAddress:6:4 }}
+                      </a>
+                    </td>
+                    <td class="col-balance">
+                      <span class="balance-amount">{{ pos.stakedSol | number:'1.4-4' }} SOL</span>
+                    </td>
+                    <td class="col-status">
+                      <span class="status-badge" [class]="'status-' + pos.status">{{ pos.status }}</span>
+                    </td>
+                    <td class="col-value">
+                      @if (pos.usdValue !== null) {
+                        {{ pos.usdValue | currency:'USD':'symbol':'1.2-2' }}
+                      } @else {
+                        <span class="no-data">--</span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <!-- Generic position table for LST, LP, Lending -->
+            <table class="position-table">
+              <thead>
+                <tr>
+                  <th class="col-label">Position</th>
+                  <th class="col-tokens">Tokens</th>
+                  <th class="col-value">USD Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (pos of protocol.positions; track pos.label) {
+                  <tr class="position-row">
+                    <td class="col-label">
+                      <span class="position-label">{{ pos.label }}</span>
+                    </td>
+                    <td class="col-tokens">
+                      <div class="token-list">
+                        @for (token of pos.tokens; track token.symbol) {
+                          <span class="token-amount">
+                            {{ token.amount | number:'1.4-4' }} {{ token.symbol }}
+                          </span>
+                        }
+                      </div>
+                    </td>
+                    <td class="col-value">
+                      @if (pos.totalUsdValue !== null) {
+                        {{ pos.totalUsdValue | currency:'USD':'symbol':'1.2-2' }}
+                      } @else {
+                        <span class="no-data">--</span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </div>
+      }
+    </div>
+  }
+} @else {
+  <div class="empty-state">
+    <lucide-icon name="layers" [size]="40" />
+    <p>No DeFi positions found</p>
+  </div>
+}

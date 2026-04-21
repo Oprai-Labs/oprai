@@ -1,0 +1,114 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Go Services CI - auth-service-go, admin-service-go, gateway-go
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Go Services CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/auth-service-go/**"
+      - "services/admin-service-go/**"
+      - "services/gateway-go/**"
+      - "proto/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/auth-service-go/**"
+      - "services/admin-service-go/**"
+      - "services/gateway-go/**"
+      - "proto/**"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  GO_VERSION: "1.22"
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/oprai
+
+jobs:
+  build:
+    name: Build & Test (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth-service-go
+          - admin-service-go
+          - gateway-go
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+
+      - name: Install Go protoc plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Generate proto stubs
+        run: |
+          chmod +x scripts/build-protos.sh
+          ./scripts/build-protos.sh go
+
+      - name: Go vet
+        working-directory: services/${{ matrix.service }}
+        run: go vet ./...
+
+      - name: Go test
+        working-directory: services/${{ matrix.service }}
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Go build
+        working-directory: services/${{ matrix.service }}
+        run: go build -o bin/${{ matrix.service }} ./cmd/...
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service }}
+          path: services/${{ matrix.service }}/coverage.out
+
+      # ── Docker ──────────────────────────────────────────────────────────
+
+      - name: Log in to Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

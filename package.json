@@ -1,0 +1,24 @@
+{
+  "name": "oprai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OPRAI - DeFi-native conversational AI assistant for Solana",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --filter=!oprai-web",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean",
+    "test": "turbo run test",
+    "db:bootstrap": "pnpm --filter @oprai/auth-service run db:bootstrap",
+    "dev:admin": "turbo run dev --filter=@oprai/admin-service --filter=@oprai/admin-panel"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

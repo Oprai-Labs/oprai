@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package oprai.admin;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/adminpb";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "proto/common/types.proto";
+
+// ─── Admin Audit Service ─────────────────────────────────────────────────────
+
+service AdminAuditService {
+  // List audit log entries with filtering and pagination.
+  rpc ListAuditLogs (ListAuditLogsRequest) returns (ListAuditLogsResponse);
+
+  // Export audit logs as a downloadable stream (CSV or JSON).
+  rpc ExportAuditLogs (ExportAuditLogsRequest) returns (stream ExportAuditLogsChunk);
+
+  // List IP-based login logs (for multi-account detection).
+  rpc ListIpLogs (ListIpLogsRequest) returns (ListIpLogsResponse);
+
+  // List transactions (admin view with cross-schema data).
+  rpc ListTransactions (ListTransactionsRequest) returns (ListTransactionsResponse);
+
+  // List chat sessions (admin view).
+  rpc ListSessions (ListSessionsRequest) returns (ListSessionsResponse);
+}
+
+// ─── AuditLogEntry ───────────────────────────────────────────────────────────
+
+message AuditLogEntry {
+  string id         = 1;
+  string admin_id   = 2;
+  string admin_name = 3;
+  string action     = 4; // e.g. "user.suspend", "admin.create", "password.reset"
+
+  string target_type = 5; // "user" | "admin" | "session" | "transaction"
+  string target_id   = 6;
+
+  google.protobuf.Struct metadata = 7; // arbitrary JSON details
+
+  string ip_address = 8;
+  string user_agent = 9;
+
+  google.protobuf.Timestamp created_at = 10;
+}
+
+// ─── ListAuditLogs ───────────────────────────────────────────────────────────
+
+message ListAuditLogsRequest {
+  oprai.common.Pagination pagination = 1;
+  oprai.common.DateRange  date_range = 2;
+
+  string admin       = 3; // filter by admin username
+  string action      = 4; // filter by action type
+  string target_type = 5; // filter by target entity type
+  string search      = 6; // free-text search
+}
+
+message ListAuditLogsResponse {
+  repeated AuditLogEntry            logs       = 1;
+  oprai.common.PaginatedResponse    pagination = 2;
+}
+
+// ─── ExportAuditLogs ─────────────────────────────────────────────────────────
+
+message ExportAuditLogsRequest {
+  oprai.common.DateRange date_range = 1;
+  ExportFormat           format     = 2;
+}
+
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;
+  EXPORT_FORMAT_CSV         = 1;
+  EXPORT_FORMAT_JSON        = 2;
+}
+
+message ExportAuditLogsChunk {
+  bytes data = 1; // chunk of the exported file
+}
+
+// ─── IP Logs ─────────────────────────────────────────────────────────────────
+
+message IpLogEntry {
+  string id             = 1;
+  string wallet_address = 2;
+  string ip_address     = 3;
+  string user_agent     = 4;
+  string country        = 5;
+
+  google.protobuf.Timestamp logged_at = 6;
+
+  // Number of distinct wallets seen from this IP (for multi-account detection)
+  int32 wallets_from_ip = 7;
+}
+
+message ListIpLogsRequest {
+  oprai.common.Pagination pagination = 1;
+  oprai.common.DateRange  date_range = 2;
+
+  string wallet              = 3; // filter by wallet
+  string ip                  = 4; // filter by IP address
+  bool   multi_account_only  = 5; // only show IPs with >1 wallet
+}
+
+message ListIpLogsResponse {
+  repeated IpLogEntry               logs       = 1;
+  oprai.common.PaginatedResponse    pagination = 2;
+}
+
+// ─── Transactions (admin view) ───────────────────────────────────────────────
+
+message AdminTransactionEntry {
+  string id             = 1;
+  string wallet_address = 2;
+  string session_id     = 3;
+  string action         = 4; // "transfer", "swap", etc.
+  string status         = 5; // "pending", "confirmed", etc.
+  string protocol       = 6; // "jupiter", "marinade", etc.
+  string signature      = 7;
+  string error_message  = 8;
+
+  google.protobuf.Struct params = 9; // action-specific parameters
+
+  google.protobuf.Timestamp created_at   = 10;
+  google.protobuf.Timestamp confirmed_at = 11;
+}
+
+message ListTransactionsRequest {
+  oprai.common.Pagination pagination = 1;
+  oprai.common.DateRange  date_range = 2;
+
+  string status   = 3; // filter by transaction status
+  string action   = 4; // filter by action type
+  string protocol = 5; // filter by protocol
+  string search   = 6; // free-text search (wallet, signature)
+}
+
+message ListTransactionsResponse {
+  repeated AdminTransactionEntry     transactions = 1;
+  oprai.common.PaginatedResponse     pagination   = 2;
+}
+
+// ─── Sessions (admin view) ───────────────────────────────────────────────────
+
+message AdminSessionEntry {
+  string id             = 1;
+  string wallet_address = 2;
+  string title          = 3;
+  int32  message_count  = 4;
+
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListSessionsRequest {
+  oprai.common.Pagination pagination = 1;
+  oprai.common.DateRange  date_range = 2;
+
+  string search = 3; // free-text search (wallet, title)
+}
+
+message ListSessionsResponse {
+  repeated AdminSessionEntry         sessions   = 1;
+  oprai.common.PaginatedResponse     pagination = 2;
+}

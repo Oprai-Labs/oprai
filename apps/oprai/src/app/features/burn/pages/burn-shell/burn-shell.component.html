@@ -1,0 +1,385 @@
+<div class="burn-shell">
+
+  <!-- Header -->
+  <div class="burn-header">
+    <div class="burn-header__title">
+      <span class="burn-icon">🔥</span>
+      <div>
+        <h1>Token Manager</h1>
+        <p class="burn-header__sub">Close empty accounts &amp; reclaim SOL · Burn unwanted tokens</p>
+      </div>
+    </div>
+    <button class="btn-faq" (click)="toggleFaq()">
+      {{ faqOpen() ? 'Hide' : 'How does it work?' }}
+    </button>
+  </div>
+
+  <!-- FAQ Panel -->
+  @if (faqOpen()) {
+    <div class="faq-panel">
+      <h3>How does it work?</h3>
+      <div class="faq-grid">
+        <div class="faq-item">
+          <div class="faq-item__icon faq-item__icon--safe">🔓</div>
+          <div>
+            <strong>Close Empty Accounts</strong>
+            <p>Every SPL token account locks ~<strong>0.002 SOL</strong> in rent. When you close an
+              account with zero balance, that SOL is returned to your wallet. This is <strong>completely
+              safe and reversible</strong> — your wallet will automatically re-create the account
+              the next time you receive that token.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-item__icon faq-item__icon--danger">🔥</div>
+          <div>
+            <strong>Burn Tokens</strong>
+            <p>Burning destroys tokens permanently by sending them to the
+              <code>TokenkegQfeZyiNwAJb…</code> burn address. <strong>This cannot be undone.</strong>
+              Only burn tokens you no longer want. You can optionally close the account at the same
+              time to also reclaim the rent SOL.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-item__icon">💡</div>
+          <div>
+            <strong>Why do I have so many accounts?</strong>
+            <p>Every time you interact with a token for the first time (swap, airdrop, transfer),
+              Solana creates a token account for it. Over time these accumulate. Closing empty
+              ones is a free way to clean up your wallet and recover locked SOL.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-item__icon">💰</div>
+          <div>
+            <strong>How much SOL can I recover?</strong>
+            <p>Each empty account returns approximately <strong>0.00203928 SOL</strong>.
+              If you have 10 empty accounts, you can recover ~<strong>0.02 SOL</strong>.
+              The exact amount shown is the actual rent locked in each account.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Wallet not connected -->
+  @if (!isWalletConnected()) {
+    <div class="empty-state">
+      <span class="empty-state__icon">🔌</span>
+      <p>Connect your wallet to manage token accounts</p>
+    </div>
+  } @else {
+
+    <!-- Tabs -->
+    <div class="burn-tabs">
+      <button
+        class="burn-tab"
+        [class.burn-tab--active]="activeTab() === 'close'"
+        (click)="setTab('close')"
+      >
+        🔓 Close Empty Accounts
+        @if (emptyAccounts().length > 0) {
+          <span class="tab-badge tab-badge--safe">{{ emptyAccounts().length }}</span>
+        }
+      </button>
+      <button
+        class="burn-tab"
+        [class.burn-tab--active]="activeTab() === 'burn'"
+        (click)="setTab('burn')"
+      >
+        🔥 Burn Tokens
+        @if (nonEmptyAccounts().length > 0) {
+          <span class="tab-badge tab-badge--danger">{{ nonEmptyAccounts().length }}</span>
+        }
+      </button>
+    </div>
+
+    <!-- Loading accounts -->
+    @if (phase() === 'loading' && accounts().length === 0) {
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <p>Loading token accounts…</p>
+      </div>
+    }
+
+    <!-- Load error -->
+    @if (loadError()) {
+      <div class="error-banner">
+        <span>⚠️ {{ loadError() }}</span>
+        <button (click)="loadAccounts()">Retry</button>
+      </div>
+    }
+
+    <!-- ──────── CLOSE EMPTY ACCOUNTS TAB ──────── -->
+    @if (activeTab() === 'close' && accounts().length > 0 && phase() !== 'preview' && phase() !== 'signing' && phase() !== 'success') {
+      <div class="tab-content">
+        <div class="tab-description tab-description--safe">
+          <span>✅ Safe &amp; Reversible</span>
+          <p>Closing empty accounts reclaims locked SOL rent. Your wallet recreates accounts automatically when needed.</p>
+        </div>
+
+        @if (emptyAccounts().length === 0) {
+          <div class="empty-state empty-state--small">
+            <p>No empty token accounts found.</p>
+            <button class="btn-secondary" (click)="loadAccounts()">Refresh</button>
+          </div>
+        } @else {
+          <div class="account-list-header">
+            <label class="checkbox-row">
+              <input
+                type="checkbox"
+                [checked]="selectedClose().length === emptyAccounts().length && emptyAccounts().length > 0"
+                [indeterminate]="selectedClose().length > 0 && selectedClose().length < emptyAccounts().length"
+                (change)="selectAllClose($any($event.target).checked)"
+              />
+              Select all ({{ emptyAccounts().length }} accounts)
+            </label>
+            @if (selectedClose().length > 0) {
+              <div class="refund-summary">
+                <span class="refund-label">Estimated refund:</span>
+                <span class="refund-amount">+{{ formatSol(totalRefundLamports()) }} SOL</span>
+                <span class="refund-sub">({{ selectedClose().length }} accounts × ~0.002 SOL)</span>
+              </div>
+            }
+          </div>
+
+          <div class="account-list">
+            @for (acct of emptyAccounts(); track acct.mint) {
+              <div
+                class="account-row"
+                [class.account-row--selected]="acct.selected"
+                (click)="toggleSelectClose(acct.mint)"
+              >
+                <input
+                  type="checkbox"
+                  [checked]="acct.selected"
+                  (click)="$event.stopPropagation()"
+                  (change)="toggleSelectClose(acct.mint)"
+                />
+                @if (acct.logoUri) {
+                  <img class="token-logo" [src]="acct.logoUri" [alt]="acct.symbol" />
+                } @else {
+                  <div class="token-logo token-logo--placeholder">{{ acct.symbol.slice(0,2) }}</div>
+                }
+                <div class="account-info">
+                  <span class="account-symbol">{{ acct.symbol }}</span>
+                  <span class="account-mint">{{ acct.mint.slice(0,8) }}…</span>
+                </div>
+                <div class="account-balance">
+                  <span class="balance-zero">Empty</span>
+                </div>
+                <div class="account-refund">
+                  <span class="refund-pill">+{{ formatSol(acct.rentLamports) }} SOL</span>
+                </div>
+              </div>
+            }
+          </div>
+
+          @if (closeOverLimit()) {
+            <div class="limit-warning">
+              ⚠️ Maximum {{ MAX_CLOSE_PER_TX }} accounts per transaction. Only the first {{ MAX_CLOSE_PER_TX }} selected will be closed. Deselect some or run multiple transactions.
+            </div>
+          }
+
+          @if (actionError()) {
+            <div class="error-banner">⚠️ {{ actionError() }}</div>
+          }
+
+          <div class="action-footer">
+            <button
+              class="btn-action btn-action--safe"
+              [disabled]="selectedClose().length === 0 || phase() === 'loading'"
+              (click)="previewClose()"
+            >
+              @if (phase() === 'loading') {
+                <div class="spinner spinner--sm"></div>
+              }
+              Close {{ selectedClose().length || '' }} Account{{ selectedClose().length === 1 ? '' : 's' }}
+              @if (selectedClose().length > 0) {
+                &nbsp;→ Reclaim +{{ formatSol(totalRefundLamports()) }} SOL
+              }
+            </button>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- ──────── BURN TOKENS TAB ──────── -->
+    @if (activeTab() === 'burn' && accounts().length > 0 && phase() !== 'preview' && phase() !== 'signing' && phase() !== 'success') {
+      <div class="tab-content">
+        <div class="tab-description tab-description--danger">
+          <span>⚠️ Permanent &amp; Irreversible</span>
+          <p>Burned tokens cannot be recovered. Double-check before confirming.</p>
+        </div>
+
+        @if (nonEmptyAccounts().length === 0) {
+          <div class="empty-state empty-state--small">
+            <p>No tokens with balance found.</p>
+            <button class="btn-secondary" (click)="loadAccounts()">Refresh</button>
+          </div>
+        } @else {
+          <div class="burn-form">
+            <div class="form-group">
+              <label>Select Token to Burn</label>
+              <div class="token-select-list">
+                @for (acct of nonEmptyAccounts(); track acct.mint) {
+                  <div
+                    class="token-select-row"
+                    [class.token-select-row--active]="burnMint() === acct.mint"
+                    (click)="selectBurnToken(acct.mint)"
+                  >
+                    @if (acct.logoUri) {
+                      <img class="token-logo token-logo--sm" [src]="acct.logoUri" [alt]="acct.symbol" />
+                    } @else {
+                      <div class="token-logo token-logo--placeholder token-logo--sm">{{ acct.symbol.slice(0,2) }}</div>
+                    }
+                    <div class="account-info">
+                      <span class="account-symbol">{{ acct.symbol }}</span>
+                      <span class="account-mint">{{ acct.mint.slice(0,8) }}…</span>
+                    </div>
+                    <div class="account-balance">
+                      <span class="balance-value">{{ formatBalance(acct.balance) }}</span>
+                    </div>
+                    @if (acct.rentLamports > 0) {
+                      <div class="account-refund">
+                        <span class="refund-pill refund-pill--faint">+{{ formatSol(acct.rentLamports) }}</span>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+
+            @if (burnMint()) {
+              <div class="form-group">
+                <label>Amount to Burn</label>
+                <div class="amount-input-wrap">
+                  <input
+                    type="text"
+                    class="amount-input"
+                    [value]="burnAmount()"
+                    (input)="burnAmount.set($any($event.target).value)"
+                    placeholder="0.00 or 'all'"
+                    inputmode="decimal"
+                    autocomplete="off"
+                  />
+                  <button
+                    class="btn-max"
+                    (click)="setBurnAmountAll()"
+                  >MAX</button>
+                </div>
+                @if (selectedBurnAccount()) {
+                  <div class="balance-hint">
+                    Available: {{ formatBalance(selectedBurnAccount()!.balance) }} {{ selectedBurnAccount()!.symbol }}
+                  </div>
+                }
+              </div>
+
+              <div class="form-group form-group--checkbox">
+                <label class="checkbox-row">
+                  <input type="checkbox" [checked]="burnCloseAfter()" (change)="burnCloseAfter.set($any($event.target).checked)" />
+                  Close account after burning (reclaim ~{{ formatSol(selectedBurnAccount()?.rentLamports ?? 2039280) }} SOL)
+                </label>
+              </div>
+
+              <div class="burn-warning-box">
+                <div class="burn-warning-box__icon">🔥</div>
+                <div class="burn-warning-box__text">
+                  <strong>This action is permanent and cannot be undone.</strong>
+                  <p>You are about to burn tokens. Once confirmed, they are destroyed forever and cannot be recovered. Make sure you're burning the right token and amount.</p>
+                </div>
+              </div>
+            }
+          </div>
+
+          @if (actionError()) {
+            <div class="error-banner">⚠️ {{ actionError() }}</div>
+          }
+
+          <div class="action-footer">
+            <button
+              class="btn-action btn-action--danger"
+              [disabled]="!burnMint() || !burnAmount() || phase() === 'loading'"
+              (click)="previewBurn()"
+            >
+              @if (phase() === 'loading') {
+                <div class="spinner spinner--sm"></div>
+              }
+              Preview Burn
+            </button>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- ──────── PREVIEW / SIGNING ──────── -->
+    @if ((phase() === 'preview' || phase() === 'signing') && preview()) {
+      <div class="preview-panel">
+        <h3 class="preview-title">Confirm Action</h3>
+        <p class="preview-description">{{ preview()!.description }}</p>
+
+        <div class="preview-fees">
+          <div class="preview-fee-row">
+            <span>Network fee</span>
+            <span>{{ preview()!.estimatedFee }}</span>
+          </div>
+          @if (preview()!.estimatedRefund) {
+            <div class="preview-fee-row preview-fee-row--refund">
+              <span>SOL refund</span>
+              <span class="refund-amount">{{ preview()!.estimatedRefund }}</span>
+            </div>
+          }
+        </div>
+
+        @if (preview()!.warnings.length > 0) {
+          <div class="warnings-list">
+            @for (w of preview()!.warnings; track w) {
+              <div class="warning-item" [class.warning-item--danger]="w.includes('PERMANENT') || w.includes('irreversible') || w.includes('cannot be recovered')">
+                {{ w }}
+              </div>
+            }
+          </div>
+        }
+
+        @if (actionError()) {
+          <div class="error-banner">⚠️ {{ actionError() }}</div>
+        }
+
+        <div class="preview-actions">
+          <button class="btn-secondary" [disabled]="phase() === 'signing'" (click)="cancelPreview()">Cancel</button>
+          <button
+            class="btn-action"
+            [class.btn-action--danger]="activeTab() === 'burn'"
+            [class.btn-action--safe]="activeTab() === 'close'"
+            [disabled]="phase() === 'signing'"
+            (click)="confirmAction()"
+          >
+            @if (phase() === 'signing') {
+              <div class="spinner spinner--sm"></div> Signing…
+            } @else {
+              Confirm
+            }
+          </button>
+        </div>
+      </div>
+    }
+
+    <!-- ──────── SUCCESS ──────── -->
+    @if (phase() === 'success') {
+      <div class="success-panel">
+        <div class="success-icon">✅</div>
+        <h3>Transaction Confirmed!</h3>
+        @if (txSig()) {
+          <a
+            class="tx-link"
+            [href]="'https://solscan.io/tx/' + txSig()"
+            target="_blank"
+            rel="noopener noreferrer"
+          >View on Solscan ↗</a>
+        }
+        <button class="btn-secondary" (click)="phase.set('idle')">Done</button>
+      </div>
+    }
+
+  }
+</div>
+

@@ -1,0 +1,410 @@
+// ──── Host: fill parent ────
+
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+// ──── Message List ────
+
+.message-list {
+  position: relative;             // offsetParent for user-message scroll calc
+  flex: 1;
+  overflow-y: auto;
+  overflow-anchor: none;          // disable browser scroll anchoring
+  padding: var(--op-space-4) var(--op-space-4) 0;
+}
+
+.messages-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-space-5);
+  max-width: 768px;
+  margin: 0 auto;
+  padding-bottom: var(--op-space-6);
+}
+
+// Dynamic spacer — height set by JS. Starts at 0, expands when we need to
+// scroll a user message to the top, then shrinks as AI content grows.
+.scroll-spacer {
+  flex-shrink: 0;
+}
+
+// ──── Message Row ────
+
+.message-row {
+  display: flex;
+  width: 100%;
+
+  &--user { justify-content: flex-end; }
+  &--assistant { justify-content: flex-start; }
+}
+
+// ──── Bubbles ────
+
+.bubble--user {
+  max-width: 75%;
+  padding: 10px 16px;
+  border-radius: 20px;
+  border-bottom-right-radius: 4px;
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-primary);
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.bubble--assistant {
+  width: 100%;
+  color: var(--op-text-primary);
+  font-size: 15px;
+  line-height: 1.7;
+
+  &.bubble--error {
+    .prose { color: var(--op-text-secondary); }
+  }
+}
+
+// ──── Message Footer (timestamp + copy) ────
+
+.msg-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+
+  .bubble--user:hover &,
+  .bubble--assistant:hover & { opacity: 1; }
+}
+
+.msg-timestamp {
+  font-size: 11px;
+  color: var(--op-text-tertiary);
+  user-select: none;
+}
+
+.bubble--user .msg-timestamp {
+  display: block;
+  margin-top: 4px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--op-text-tertiary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.bubble--user:hover .msg-timestamp { opacity: 1; }
+
+.msg-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--op-text-tertiary);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s, background 0.15s;
+
+  &:hover {
+    color: var(--op-text-secondary);
+    background: var(--op-bg-surface-2);
+  }
+}
+
+.msg-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 5px 12px;
+  border: 1px solid var(--op-border);
+  border-radius: 6px;
+  background: var(--op-bg-surface-1);
+  color: var(--op-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+
+  &:hover {
+    border-color: var(--op-brand);
+    color: var(--op-brand);
+  }
+}
+
+// ──── Markdown Prose ────
+
+.prose {
+  ::ng-deep {
+    > *:first-child { margin-top: 0; }
+    > *:last-child { margin-bottom: 0; }
+
+    p {
+      margin: 0 0 12px;
+      &:last-child { margin-bottom: 0; }
+    }
+
+    h1, h2, h3, h4 {
+      margin: 20px 0 8px;
+      font-weight: 600;
+      color: var(--op-text-primary);
+      line-height: 1.3;
+    }
+    h1 { font-size: 22px; }
+    h2 { font-size: 18px; }
+    h3 { font-size: 16px; }
+    h4 { font-size: 15px; }
+
+    strong { font-weight: 600; }
+    em { font-style: italic; }
+
+    ul, ol {
+      margin: 8px 0 12px;
+      padding-left: 24px;
+    }
+    li {
+      margin-bottom: 4px;
+      &::marker { color: var(--op-text-tertiary); }
+    }
+
+    code {
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 13px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--op-bg-surface-2);
+      color: var(--op-text-primary);
+    }
+
+    pre {
+      margin: 12px 0;
+      padding: 14px 16px;
+      border-radius: var(--op-radius-lg);
+      background: var(--op-bg-surface-2);
+      overflow-x: auto;
+
+      code {
+        padding: 0;
+        background: transparent;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+    }
+
+    blockquote {
+      margin: 8px 0;
+      padding: 8px 16px;
+      border-left: 3px solid var(--op-border-default);
+      color: var(--op-text-secondary);
+    }
+
+    a {
+      color: var(--op-brand);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      &:hover { opacity: 0.8; }
+    }
+
+    hr {
+      border: none;
+      border-top: 1px solid var(--op-border-subtle);
+      margin: 16px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 14px;
+
+      th, td {
+        padding: 8px 12px;
+        border: 1px solid var(--op-border-subtle);
+        text-align: left;
+      }
+      th {
+        background: var(--op-bg-surface-2);
+        font-weight: 600;
+      }
+    }
+  }
+}
+
+// ──── Thinking Dots ────
+
+.thinking-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 0;
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--op-text-tertiary);
+    animation: dotBounce 1.4s ease-in-out infinite;
+    &:nth-child(2) { animation-delay: 0.15s; }
+    &:nth-child(3) { animation-delay: 0.3s; }
+  }
+}
+
+@keyframes dotBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-6px); opacity: 1; }
+}
+
+// ──── Simple Loading ────
+
+.thinking-simple {
+  padding: var(--op-space-2) 0;
+}
+
+.thinking-simple-text {
+  font-size: 14px;
+  color: var(--op-text-tertiary);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+// ──── Thinking Content (Real LLM thinking) ────
+
+.thinking-content {
+  padding: var(--op-space-3);
+  background: var(--op-bg-surface-2);
+  border-radius: var(--op-radius-lg);
+  border-left: 3px solid var(--op-brand);
+  margin-bottom: var(--op-space-3);
+}
+
+.thinking-label {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--op-brand);
+  margin-bottom: var(--op-space-2);
+  opacity: 0.8;
+}
+
+.thinking-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--op-text-secondary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+// ──── Streaming Cursor ────
+
+.streaming-text {
+  animation: text-fade-in 0.15s ease-out;
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--op-brand);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: cursor-blink 0.8s step-end infinite;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes text-fade-in {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+
+// ──── Inline Cards ────
+
+.inline-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-space-3);
+  width: 100%;
+  max-width: 768px;
+  animation: cards-slide-up 0.3s ease-out;
+}
+
+@keyframes cards-slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+// ──── Batch Execution Controls ────
+
+.run-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  align-self: flex-start;
+
+  &:hover {
+    background: var(--op-bg-surface-3);
+    color: var(--op-text-primary);
+    border-color: var(--op-brand);
+  }
+
+  svg {
+    flex-shrink: 0;
+    color: var(--op-brand);
+  }
+}
+
+.run-all-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--op-brand);
+  background: rgba(99, 102, 241, 0.06);
+  color: var(--op-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  align-self: flex-start;
+}
+
+.run-all-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--op-brand);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin-batch 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin-batch {
+  to { transform: rotate(360deg); }
+}

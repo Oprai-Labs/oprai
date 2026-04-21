@@ -1,0 +1,293 @@
+<div class="page scrollbar-thin">
+  <div class="container">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <h1 class="header-title">
+          <lucide-icon name="bot" [size]="22" class="header-icon" />
+          Yield Optimizer
+        </h1>
+        <p class="header-sub">AI-powered yield analysis across Solana DeFi protocols</p>
+      </div>
+      <div class="header-actions">
+        @if (status() === 'ready' || status() === 'error') {
+          <button class="btn-secondary" (click)="reset()">
+            <lucide-icon name="rotate-ccw" [size]="14" />
+            Reset
+          </button>
+        }
+        <button
+          class="btn-primary"
+          [disabled]="isScanning() || !isConnected()"
+          (click)="runScan()"
+        >
+          @if (isScanning()) {
+            <lucide-icon name="loader-circle" [size]="16" class="spin" />
+            Scanning...
+          } @else {
+            <lucide-icon name="scan-search" [size]="16" />
+            Run Scan
+          }
+        </button>
+      </div>
+    </header>
+
+    <!-- Wallet not connected -->
+    @if (!isConnected()) {
+      <div class="empty-state">
+        <lucide-icon name="wallet" [size]="40" class="empty-icon" />
+        <p class="empty-title">Connect your wallet</p>
+        <p class="empty-sub">Connect your Solana wallet to scan for yield opportunities.</p>
+      </div>
+    } @else {
+
+      <!-- Tabs -->
+      <nav class="tabs">
+        <button class="tab" [class.tab--active]="activeTab() === 'opportunities'" (click)="setTab('opportunities')">
+          <lucide-icon name="trending-up" [size]="14" />
+          Opportunities
+          @if (pendingProposals().length > 0) {
+            <span class="tab-badge">{{ pendingProposals().length }}</span>
+          }
+        </button>
+        <button class="tab" [class.tab--active]="activeTab() === 'yields'" (click)="setTab('yields')">
+          <lucide-icon name="bar-chart-3" [size]="14" />
+          All Yields
+        </button>
+        <button class="tab" [class.tab--active]="activeTab() === 'history'" (click)="setTab('history')">
+          <lucide-icon name="history" [size]="14" />
+          History
+        </button>
+      </nav>
+
+      <!-- ── Opportunities Tab ──────────────────────────────────────────────── -->
+      @if (activeTab() === 'opportunities') {
+        @if (status() === 'idle') {
+          <!-- Pre-scan state -->
+          <div class="prescan">
+            <div class="prescan-icon">
+              <lucide-icon name="scan-search" [size]="36" />
+            </div>
+            <h2 class="prescan-title">Ready to scan</h2>
+            <p class="prescan-sub">The agent will analyze your portfolio and surface the highest-yield moves available across Kamino, MarginFi, Solend, Jito, and Marinade.</p>
+
+            <!-- Config -->
+            <div class="config-card">
+              <h3 class="config-title">Scan settings</h3>
+              <div class="config-row">
+                <span class="config-label">Min APY gain</span>
+                <div class="config-input-wrap">
+                  <input
+                    type="number" min="0.1" max="20" step="0.5"
+                    class="config-input"
+                    [value]="config().minGainPct"
+                    (change)="setMinGain($event)"
+                  />
+                  <span class="config-unit">%</span>
+                </div>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Max risk level</span>
+                <select
+                  class="config-select"
+                  [value]="config().maxRisk"
+                  (change)="setMaxRisk($event)"
+                >
+                  <option value="1">Very Low (staking only)</option>
+                  <option value="2">Low (+ established lending)</option>
+                  <option value="3">Medium (+ leveraged lending)</option>
+                  <option value="4">High (+ leveraged protocols)</option>
+                </select>
+              </div>
+            </div>
+
+            <button class="btn-primary btn-primary--large" (click)="runScan()">
+              <lucide-icon name="play" [size]="18" />
+              Start Scan
+            </button>
+          </div>
+
+        } @else if (status() === 'scanning') {
+          <!-- Scanning -->
+          <div class="scanning-state">
+            <div class="scanning-pulse">
+              <lucide-icon name="scan-search" [size]="32" class="spin" />
+            </div>
+            <p class="scanning-text">Scanning protocols for yield opportunities...</p>
+            <div class="scanning-protocols">
+              @for (p of ['Kamino', 'MarginFi', 'Solend', 'Jito', 'Marinade']; track p) {
+                <span class="scanning-chip">{{ p }}</span>
+              }
+            </div>
+          </div>
+
+        } @else if (status() === 'error') {
+          <div class="empty-state">
+            <lucide-icon name="alert-circle" [size]="40" class="empty-icon error-icon" />
+            <p class="empty-title">Scan failed</p>
+            <p class="empty-sub">{{ currentRun()?.error ?? 'Unknown error' }}</p>
+            <button class="btn-primary" (click)="runScan()">Retry</button>
+          </div>
+
+        } @else if (status() === 'ready') {
+          @if (proposals().length === 0) {
+            <div class="empty-state">
+              <lucide-icon name="check-circle-2" [size]="40" class="empty-icon success-icon" />
+              <p class="empty-title">Your yield is already optimized</p>
+              <p class="empty-sub">No significant opportunities found with current settings. Try lowering the min APY gain or connecting your wallet with actual holdings.</p>
+            </div>
+          } @else {
+            <div class="proposals-list">
+              <p class="proposals-header">
+                Found {{ proposals().length }} opportunity{{ proposals().length !== 1 ? 's' : '' }}
+              </p>
+
+              @for (proposal of proposals(); track proposal.id) {
+                <div class="proposal-card" [class.proposal-card--approved]="proposal.status === 'approved' || proposal.status === 'executed'" [class.proposal-card--rejected]="proposal.status === 'rejected'">
+                  <div class="proposal-header">
+                    <div class="proposal-token">
+                      <div class="token-dot">{{ proposal.opportunity.token[0] }}</div>
+                      <div>
+                        <span class="token-name">{{ proposal.opportunity.token }}</span>
+                        <span class="token-sub">{{ proposal.opportunity.currentProtocol }}</span>
+                      </div>
+                    </div>
+                    <div class="proposal-gain">
+                      <span class="gain-label">+{{ formatApy(proposal.opportunity.apyGain) }} APY</span>
+                      @if (proposal.opportunity.estimatedAnnualGainUsd) {
+                        <span class="gain-usd">+{{ formatUsd(proposal.opportunity.estimatedAnnualGainUsd) }}/yr</span>
+                      }
+                    </div>
+                  </div>
+
+                  <div class="proposal-body">
+                    <div class="apy-flow">
+                      <div class="apy-box apy-box--from">
+                        <span class="apy-proto">{{ proposal.opportunity.currentProtocol }}</span>
+                        <span class="apy-val">{{ formatApy(proposal.opportunity.currentApy) }}</span>
+                      </div>
+                      <lucide-icon name="arrow-right" [size]="16" class="apy-arrow" />
+                      <div class="apy-box apy-box--to">
+                        <span class="apy-proto">{{ proposal.opportunity.bestProtocol.protocolLabel }}</span>
+                        <span class="apy-val best">{{ formatApy(proposal.opportunity.bestProtocol.supplyApy) }}</span>
+                      </div>
+                    </div>
+
+                    <div class="proposal-meta">
+                      <span class="meta-chip" [style.color]="riskColor(proposal.opportunity.bestProtocol.riskScore)">
+                        <lucide-icon name="shield" [size]="11" />
+                        Risk: {{ riskLabel(proposal.opportunity.bestProtocol.riskScore) }}
+                      </span>
+                      @if (proposal.opportunity.bestProtocol.tvlUsd) {
+                        <span class="meta-chip">
+                          <lucide-icon name="database" [size]="11" />
+                          TVL: {{ formatUsd(proposal.opportunity.bestProtocol.tvlUsd) }}
+                        </span>
+                      }
+                    </div>
+                  </div>
+
+                  <!-- Actions -->
+                  @if (proposal.status === 'pending') {
+                    <div class="proposal-actions">
+                      <button class="btn-reject" (click)="rejectProposal(proposal)">
+                        <lucide-icon name="x" [size]="14" />
+                        Skip
+                      </button>
+                      <button class="btn-execute" (click)="executeProposal(proposal)">
+                        <lucide-icon name="check" [size]="14" />
+                        Execute
+                      </button>
+                    </div>
+                  } @else if (proposal.status === 'approved' || proposal.status === 'executed') {
+                    <div class="proposal-executed">
+                      <lucide-icon name="check-circle-2" [size]="16" />
+                      {{ proposal.status === 'executed' ? 'Executed' : 'Approved' }}
+                      @if (proposal.txSignature) {
+                        <span class="tx-sig">{{ proposal.txSignature.slice(0, 8) }}...</span>
+                      }
+                    </div>
+                  } @else if (proposal.status === 'rejected') {
+                    <div class="proposal-rejected">
+                      <lucide-icon name="x-circle" [size]="16" />
+                      Skipped
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        }
+      }
+
+      <!-- ── Yields Tab ──────────────────────────────────────────────────────── -->
+      @if (activeTab() === 'yields') {
+        @if (allYieldsLoading()) {
+          <div class="loading-row">
+            <lucide-icon name="loader-circle" [size]="20" class="spin" />
+            Loading yields...
+          </div>
+        } @else {
+          <div class="yields-table">
+            <div class="yields-thead">
+              <span>Protocol</span>
+              <span>Token</span>
+              <span>Type</span>
+              <span class="text-right">Supply APY</span>
+              <span class="text-right">TVL</span>
+              <span class="text-right">Risk</span>
+            </div>
+            @for (y of allYields(); track $index) {
+              <div class="yields-row">
+                <span class="proto-cell">
+                  <lucide-icon [name]="protocolIcon(y.protocol)" [size]="14" class="proto-icon" />
+                  {{ y.protocolLabel }}
+                </span>
+                <span class="token-badge">{{ y.token }}</span>
+                <span class="type-badge type-badge--{{ y.type }}">{{ y.type }}</span>
+                <span class="apy-cell">{{ formatApy(y.supplyApy) }}</span>
+                <span class="tvl-cell">{{ y.tvlUsd ? formatUsd(y.tvlUsd) : '—' }}</span>
+                <span class="risk-cell" [style.color]="riskColor(y.riskScore)">{{ riskLabel(y.riskScore) }}</span>
+              </div>
+            }
+          </div>
+        }
+      }
+
+      <!-- ── History Tab ─────────────────────────────────────────────────────── -->
+      @if (activeTab() === 'history') {
+        @if (history().length === 0) {
+          <div class="empty-state">
+            <lucide-icon name="history" [size]="40" class="empty-icon" />
+            <p class="empty-title">No scan history yet</p>
+            <p class="empty-sub">Run a scan to see your optimization history.</p>
+          </div>
+        } @else {
+          <div class="history-list">
+            @for (run of history(); track run.id) {
+              <div class="history-card">
+                <div class="history-row">
+                  <span class="history-date">{{ run.startedAt | date:'MMM d, HH:mm' }}</span>
+                  <div class="history-stats">
+                    <span class="history-chip">{{ historyProposalCount(run) }} found</span>
+                    @if (historyExecutedCount(run) > 0) {
+                      <span class="history-chip history-chip--success">{{ historyExecutedCount(run) }} executed</span>
+                    }
+                    @if (run.error) {
+                      <span class="history-chip history-chip--error">Error</span>
+                    }
+                  </div>
+                </div>
+                <div class="history-config">
+                  Min gain: {{ run.config.minGainPct }}% &middot; Risk: &le;{{ run.config.maxRisk }}
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
+
+    }
+  </div>
+</div>

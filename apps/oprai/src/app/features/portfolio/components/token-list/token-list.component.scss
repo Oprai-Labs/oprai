@@ -1,0 +1,333 @@
+// ──── Section Header (DeBank style) ────
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 12px;
+}
+
+.section-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--op-radius-md);
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--op-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  :host-context(html.dark) & {
+    background: rgba(148, 163, 184, 0.1);
+    color: var(--op-text-secondary);
+  }
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-family: var(--op-font-body);
+  margin: 0;
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.section-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-family: var(--op-font-body);
+}
+
+.filter-btn {
+  padding: 4px 12px;
+  background: none;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-md);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--op-text-secondary);
+  cursor: pointer;
+  transition: all var(--op-fast);
+
+  &:hover {
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-primary);
+  }
+}
+
+// ──── Token Card (DeBank style) ────
+.token-card {
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--op-shadow-sm);
+}
+
+.token-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th, td {
+    padding: 0 24px;
+    text-align: left;
+    font-size: 13px;
+    height: 52px;
+    vertical-align: middle;
+  }
+
+  thead tr {
+    height: 40px;
+    border-bottom: 1px solid var(--op-border-subtle);
+  }
+
+  th {
+    font-weight: 500;
+    color: var(--op-text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    height: 40px;
+
+    &.sortable {
+      cursor: pointer;
+      user-select: none;
+      transition: color var(--op-fast);
+
+      &:hover {
+        color: var(--op-text-primary);
+      }
+    }
+  }
+}
+
+.token-table th.col-price,
+.token-table th.col-change,
+.token-table th.col-amount {
+  font-family: var(--op-font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.token-row {
+  border-bottom: 1px solid var(--op-border-subtle);
+  transition: background var(--op-fast);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: var(--op-hover);
+  }
+}
+
+.col-token {
+  width: 30%;
+}
+
+.col-price {
+  width: 16%;
+  font-family: var(--op-font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.1px;
+  color: var(--op-text-primary);
+}
+
+.col-change {
+  width: 12%;
+  font-family: var(--op-font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.1px;
+}
+
+.col-amount {
+  width: 16%;
+  font-family: var(--op-font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.1px;
+  color: var(--op-text-secondary);
+}
+
+.col-alloc {
+  width: 10%;
+  font-family: var(--op-font-mono);
+  font-size: 13px;
+  color: var(--op-text-secondary);
+}
+
+.col-value {
+  width: 16%;
+  text-align: right;
+  font-family: var(--op-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--op-text-primary);
+}
+
+// ──── Price Change Colors ────
+.change-positive {
+  color: var(--op-gain);
+}
+
+.change-negative {
+  color: var(--op-loss);
+}
+
+// ──── Token Cell (DeBank style — logo + name/symbol stack) ────
+.token-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.token-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--op-radius-full);
+  flex-shrink: 0;
+  overflow: hidden;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: var(--op-radius-full);
+  }
+
+  &.sol-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.token-fallback {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--op-radius-full);
+  background: var(--op-brand-subtle);
+  color: var(--op-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--op-font-body);
+}
+
+.token-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.token-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--op-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.token-symbol {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--op-text-secondary);
+}
+
+.no-data {
+  color: var(--op-text-secondary);
+  opacity: 0.4;
+}
+
+// ──── Show More (DeBank style) ────
+.show-more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--op-border-subtle);
+  color: var(--op-brand);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--op-fast);
+
+  &:hover {
+    background: var(--op-hover);
+  }
+}
+
+.empty-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--op-text-secondary);
+  font-size: 14px;
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+}
+
+// ──── Responsive ────
+@media (max-width: 640px) {
+  .token-table th,
+  .token-table td {
+    padding: 0 14px;
+    height: 48px;
+  }
+
+  .col-price,
+  th.col-price,
+  .col-change,
+  th.col-change,
+  .col-alloc,
+  th.col-alloc {
+    display: none;
+  }
+
+  .col-token {
+    width: 50%;
+  }
+
+  .col-amount {
+    width: 25%;
+  }
+
+  .col-value {
+    width: 25%;
+  }
+
+  .section-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .filter-btn {
+    order: 3;
+    font-size: 11px;
+  }
+}

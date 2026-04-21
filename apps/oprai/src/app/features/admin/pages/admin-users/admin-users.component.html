@@ -1,0 +1,200 @@
+<app-admin-layout activePage="admin-users" (logoutClick)="logout()">
+  <header class="admin-header">
+    <h1>Admin Users</h1>
+    <span class="header-count">{{ admins().length }} admins</span>
+    <div class="header-actions">
+      <button class="btn-primary" (click)="openCreate()">
+        <lucide-icon name="user-plus" [size]="14" />
+        New Admin
+      </button>
+    </div>
+  </header>
+
+  <div class="admin-content">
+    @if (loading()) {
+      <app-skeleton-table [rows]="5" [columnWidths]="['120px', '80px', '100px', '140px', '100px']" />
+    } @else if (error()) {
+      <div class="error-state">
+        <lucide-icon name="alert-circle" [size]="20" />
+        <span>{{ error() }}</span>
+        <button class="btn-ghost btn-sm" (click)="load()">Retry</button>
+      </div>
+    } @else {
+      <div class="content-fade-in">
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Must Change PW</th>
+                <th>Last Login</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (admin of admins(); track admin.id) {
+                <tr>
+                  <td>
+                    <div class="admin-identity">
+                      <div class="admin-avatar">{{ admin.username.charAt(0).toUpperCase() }}</div>
+                      <span class="admin-username">{{ admin.username }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="badge" [ngClass]="roleClass(admin.role)">{{ admin.role }}</span>
+                  </td>
+                  <td>
+                    @if (admin.mustChangePassword) {
+                      <span class="badge badge--warning">Yes</span>
+                    } @else {
+                      <span class="text-muted">No</span>
+                    }
+                  </td>
+                  <td>{{ admin.lastLoginAt ? (admin.lastLoginAt | timeAgo) : 'Never' }}</td>
+                  <td>{{ admin.createdAt | timeAgo }}</td>
+                  <td>
+                    <div class="action-buttons">
+                      <button class="btn-ghost btn-sm" (click)="openReset(admin)">
+                        <lucide-icon name="key" [size]="13" />
+                        Reset PW
+                      </button>
+                      <button class="btn-ghost btn-sm btn-danger-ghost" (click)="confirmDelete(admin)">
+                        <lucide-icon name="trash-2" [size]="13" />
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6" class="empty-row">
+                    <lucide-icon name="users" [size]="24" />
+                    <p>No admin users found</p>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- Create admin modal -->
+  @if (createOpen()) {
+    <div class="modal-backdrop" (click)="closeCreate()">
+      <div class="modal-center" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h2>Create Admin User</h2>
+          <button class="btn-ghost btn-icon" (click)="closeCreate()">
+            <lucide-icon name="x" [size]="16" />
+          </button>
+        </div>
+        <div class="modal-body">
+          @if (createdPassword()) {
+            <div class="success-card">
+              <lucide-icon name="check-circle" [size]="20" class="success-icon" />
+              <p class="success-title">Admin created!</p>
+              <p class="success-sub">Share this generated password with the new admin. It will not be shown again.</p>
+              <div class="password-display">
+                <span class="password-text">{{ createdPassword() }}</span>
+                <button class="btn-ghost btn-sm" (click)="copyToClipboard(createdPassword()!)">
+                  <lucide-icon name="copy" [size]="13" />
+                  Copy
+                </button>
+              </div>
+              <p class="success-username">Username: <strong>{{ createdAdmin()?.username }}</strong></p>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-primary" (click)="closeCreate()">Done</button>
+            </div>
+          } @else {
+            <div class="form-group">
+              <label class="form-label" for="new-username">Username</label>
+              <input
+                id="new-username"
+                type="text"
+                class="input"
+                placeholder="Enter username..."
+                [(ngModel)]="newUsername"
+                (keyup.enter)="submitCreate()"
+                [disabled]="creating()"
+                autocomplete="off"
+              />
+            </div>
+            @if (createError()) {
+              <div class="form-error">{{ createError() }}</div>
+            }
+            <div class="create-info">
+              A secure password will be generated automatically. The admin must change it on first login.
+            </div>
+            <div class="modal-footer">
+              <button class="btn-ghost" (click)="closeCreate()" [disabled]="creating()">Cancel</button>
+              <button class="btn-primary" (click)="submitCreate()" [disabled]="creating()">
+                @if (creating()) {
+                  <lucide-icon name="loader-2" [size]="14" class="spin" />
+                  Creating...
+                } @else {
+                  <lucide-icon name="user-plus" [size]="14" />
+                  Create Admin
+                }
+              </button>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Reset password modal -->
+  @if (resetTarget()) {
+    <div class="modal-backdrop" (click)="closeReset()">
+      <div class="modal-center" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h2>Reset Password</h2>
+          <button class="btn-ghost btn-icon" (click)="closeReset()">
+            <lucide-icon name="x" [size]="16" />
+          </button>
+        </div>
+        <div class="modal-body">
+          @if (resetPassword()) {
+            <div class="success-card">
+              <lucide-icon name="check-circle" [size]="20" class="success-icon" />
+              <p class="success-title">Password reset!</p>
+              <p class="success-sub">New password for <strong>{{ resetTarget()?.username }}</strong>. Share this once only.</p>
+              <div class="password-display">
+                <span class="password-text">{{ resetPassword() }}</span>
+                <button class="btn-ghost btn-sm" (click)="copyToClipboard(resetPassword()!)">
+                  <lucide-icon name="copy" [size]="13" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-primary" (click)="closeReset()">Done</button>
+            </div>
+          } @else {
+            <p class="reset-confirm">
+              Reset the password for <strong>{{ resetTarget()?.username }}</strong>?
+              A new secure password will be generated.
+            </p>
+            <div class="modal-footer">
+              <button class="btn-ghost" (click)="closeReset()" [disabled]="resetting()">Cancel</button>
+              <button class="btn-danger" (click)="confirmReset()" [disabled]="resetting()">
+                @if (resetting()) {
+                  <lucide-icon name="loader-2" [size]="14" class="spin" />
+                  Resetting...
+                } @else {
+                  <lucide-icon name="key" [size]="14" />
+                  Reset Password
+                }
+              </button>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+</app-admin-layout>

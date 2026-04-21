@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ── Surfaces ── */
+  --bg-base: 220 16% 4%;
+  --bg-surface: 220 14% 7%;
+  --bg-elevated: 220 13% 10%;
+  --bg-hover: 220 12% 13%;
+  --bg-active: 220 12% 16%;
+  --bg-overlay: 220 20% 4%;
+
+  /* ── Text ── */
+  --fg-default: 0 0% 93%;
+  --fg-muted: 220 10% 56%;
+  --fg-subtle: 220 8% 36%;
+  --fg-on-accent: 0 0% 100%;
+
+  /* ── Borders ── */
+  --border-default: 220 12% 14%;
+  --border-muted: 220 12% 10%;
+
+  /* ── Accent ── */
+  --accent: 250 80% 64%;
+  --accent-hover: 250 80% 58%;
+  --accent-muted: 250 80% 64%;
+  --accent-subtle: 250 60% 16%;
+
+  /* ── Semantic ── */
+  --success: 152 60% 52%;
+  --warning: 38 95% 56%;
+  --danger: 0 72% 58%;
+  --info: 210 90% 60%;
+}
+
+@layer base {
+  body {
+    background-color: hsl(var(--bg-base));
+    color: hsl(var(--fg-default));
+    font-feature-settings: "ss01", "ss02", "cv01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: hsl(var(--accent) / 0.25);
+    color: hsl(var(--fg-default));
+  }
+
+  * {
+    border-color: hsl(var(--border-default));
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border-default));
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--fg-subtle));
+}
+
+/* ── Focus ── */
+:focus-visible {
+  outline: 2px solid hsl(var(--accent) / 0.5);
+  outline-offset: 2px;
+}

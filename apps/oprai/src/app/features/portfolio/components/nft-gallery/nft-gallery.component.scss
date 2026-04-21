@@ -1,0 +1,241 @@
+// ──── Header ────
+.nft-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 12px;
+}
+
+.nft-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--op-text-secondary);
+}
+
+.view-toggle {
+  padding: 6px 14px;
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-md);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--op-text-secondary);
+  cursor: pointer;
+  transition: all var(--op-fast);
+
+  &:hover {
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-primary);
+  }
+}
+
+// ──── NFT Grid ────
+.nft-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.nft-card {
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  overflow: hidden;
+  transition: all var(--op-fast);
+  box-shadow: var(--op-shadow-sm);
+
+  &:hover {
+    box-shadow: var(--op-shadow-md);
+    transform: translateY(-2px);
+  }
+}
+
+.nft-image-wrapper {
+  position: relative;
+  width: 100%;
+  padding-top: 100%; // 1:1 aspect ratio
+  background: var(--op-bg-surface-2);
+  overflow: hidden;
+
+  img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.nft-fallback {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(6, 182, 212, 0.15));
+  color: var(--op-text-secondary);
+  font-size: 32px;
+  font-weight: 700;
+  font-family: var(--op-font-body);
+}
+
+.nft-info {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.nft-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--op-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nft-collection {
+  font-size: 11px;
+  color: var(--op-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nft-floor {
+  font-size: 11px;
+  font-family: var(--op-font-mono);
+  color: var(--op-text-secondary);
+}
+
+// ──── Collection Groups ────
+.collection-group {
+  margin-bottom: 24px;
+}
+
+.collection-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0 8px;
+}
+
+.collection-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+}
+
+.collection-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  background: var(--op-bg-surface-2);
+  border-radius: var(--op-radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--op-text-secondary);
+}
+
+.collection-floor {
+  margin-left: auto;
+  font-size: 12px;
+  font-family: var(--op-font-mono);
+  color: var(--op-text-secondary);
+}
+
+// ──── Skeleton Loading ────
+.nft-loading {
+  padding: 16px 0;
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.skeleton-card {
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  overflow: hidden;
+}
+
+.skeleton-image {
+  width: 100%;
+  padding-top: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--op-bg-surface-2) 25%,
+    var(--op-bg-surface-1) 50%,
+    var(--op-bg-surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+.skeleton-text {
+  height: 14px;
+  margin: 12px 12px 0;
+  border-radius: var(--op-radius-sm);
+  background: var(--op-bg-surface-2);
+  animation: skeleton-shimmer 1.5s infinite;
+
+  &.short {
+    width: 60%;
+    height: 10px;
+    margin-bottom: 12px;
+    margin-top: 6px;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+// ──── Empty State ────
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+  gap: 16px;
+  color: var(--op-text-secondary);
+  text-align: center;
+
+  svg {
+    opacity: 0.3;
+  }
+
+  p {
+    font-size: 14px;
+    margin: 0;
+  }
+}
+
+// ──── Responsive ────
+@media (max-width: 768px) {
+  .nft-grid,
+  .skeleton-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .nft-grid,
+  .skeleton-grid {
+    grid-template-columns: 1fr;
+  }
+}

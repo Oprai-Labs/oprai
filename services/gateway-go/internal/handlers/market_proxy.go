@@ -1,0 +1,1579 @@
+package handlers
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+)
+
+// solanaAddrRe matches valid Solana base-58 encoded public keys / mint addresses.
+// Solana addresses are 32–44 characters using the Bitcoin base-58 alphabet
+// (no 0, O, I or l).
+var solanaAddrRe = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]{32,44}$`)
+
+// isValidSolanaAddress returns true when addr looks like a valid Solana public
+// key / mint address. Used to reject clearly-malformed inputs before they reach
+// external APIs or get interpolated into request payloads.
+func isValidSolanaAddress(addr string) bool {
+	return solanaAddrRe.MatchString(addr)
+}
+
+// Simple in-memory TTL cache (will be replaced with Redis later)
+type cacheEntry struct {
+	data      []byte
+	expiresAt time.Time
+}
+
+type memCache struct {
+	mu    sync.RWMutex
+	items map[string]cacheEntry
+}
+
+func newMemCache(ctx context.Context) *memCache {
+	c := &memCache{items: make(map[string]cacheEntry)}
+	go c.cleanup(ctx)
+	return c
+}
+
+func (c *memCache) Get(key string) ([]byte, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	entry, ok := c.items[key]
+	if !ok || time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+	return entry.data, true
+}
+
+func (c *memCache) Set(key string, data []byte, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items[key] = cacheEntry{data: data, expiresAt: time.Now().Add(ttl)}
+}
+
+func (c *memCache) cleanup(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.mu.Lock()
+			now := time.Now()
+			for k, v := range c.items {
+				if now.After(v.expiresAt) {
+					delete(c.items, k)
+				}
+			}
+			c.mu.Unlock()
+		}
+	}
+}
+
+// MarketProxy handles proxied market data requests to external APIs.
+type MarketProxy struct {
+	birdeyeAPIKey string
+	jupiterAPIKey string
+	heliusAPIKey  string
+	cache         *memCache
+	client        *http.Client
+}
+
+// NewMarketProxy creates a new MarketProxy with the given API keys.
+// ctx is the application root context; the cache cleanup goroutine stops when
+// ctx is cancelled.
+func NewMarketProxy(ctx context.Context, birdeyeAPIKey, jupiterAPIKey, heliusAPIKey string) *MarketProxy {
+	return &MarketProxy{
+		birdeyeAPIKey: birdeyeAPIKey,
+		jupiterAPIKey: jupiterAPIKey,
+		heliusAPIKey:  heliusAPIKey,
+		cache:         newMemCache(ctx),
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+		},
+	}
+}
+
+// Cache TTLs
+const (
+	priceCacheTTL       = 10 * time.Second
+	tokenCacheTTL       = 30 * time.Minute
+	ohlcvCacheTTL       = 60 * time.Second
+	trendingCacheTTL    = 60 * time.Second
+	analyticsCacheTTL   = 2 * time.Minute
+	pairsCacheTTL       = 60 * time.Second
+	searchCacheTTL      = 5 * time.Minute
+	tradesCacheTTL      = 15 * time.Second
+	holdersCacheTTL     = 2 * time.Minute
+	securityCacheTTL    = 5 * time.Minute
+	latestPairsCacheTTL = 30 * time.Second
+	txnsCacheTTL        = 30 * time.Second
+	accountTxCacheTTL   = 10 * time.Second
+)
+
+const lamportsPerSOL = 1_000_000_000
+
+// GetPrices proxies GET /market/prices?ids={mints} to Jupiter Price API v3.
+func (m *MarketProxy) GetPrices(w http.ResponseWriter, r *http.Request) {
+	ids := r.URL.Query().Get("ids")
+	if ids == "" {
+		writeError(w, http.StatusBadRequest, "ids parameter required")
+		return
+	}
+
+	cacheKey := "prices:" + ids
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://api.jup.ag/price/v3?ids=%s", ids)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	if m.jupiterAPIKey != "" {
+		req.Header.Set("x-api-key", m.jupiterAPIKey)
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("jupiter price API error", "error", err)
+		writeError(w, http.StatusBadGateway, "price service unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read price response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, priceCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// SearchTokens proxies GET /market/tokens/search?q={query} to Jupiter Token API.
+func (m *MarketProxy) SearchTokens(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "q parameter required")
+		return
+	}
+
+	cacheKey := "token-search:" + strings.ToLower(query)
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://api.jup.ag/tokens/v2/search?query=%s&limit=10", query)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("jupiter token search error", "error", err)
+		writeError(w, http.StatusBadGateway, "token search unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read token response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, searchCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetTokenList proxies GET /market/tokens/strict to Jupiter strict token list.
+func (m *MarketProxy) GetTokenList(w http.ResponseWriter, r *http.Request) {
+	cacheKey := "token-list:strict"
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := "https://api.jup.ag/tokens/v2/recent?limit=50"
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("jupiter token list error", "error", err)
+		writeError(w, http.StatusBadGateway, "token list unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read token list")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, tokenCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetTokenInfo proxies GET /market/tokens/{mint} to Jupiter token API.
+func (m *MarketProxy) GetTokenInfo(w http.ResponseWriter, r *http.Request) {
+	mint := chi.URLParam(r, "mint")
+	if mint == "" {
+		writeError(w, http.StatusBadRequest, "mint parameter required")
+		return
+	}
+	if !isValidSolanaAddress(mint) {
+		writeError(w, http.StatusBadRequest, "invalid mint address")
+		return
+	}
+
+	cacheKey := "token-info:" + mint
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://api.jup.ag/tokens/v2/search?query=%s&limit=1", mint)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("jupiter token info error", "error", err)
+		writeError(w, http.StatusBadGateway, "token info unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read token info")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, tokenCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetOHLCV proxies GET /market/ohlcv?address={mint}&type={interval}&time_from={}&time_to={} to Birdeye.
+func (m *MarketProxy) GetOHLCV(w http.ResponseWriter, r *http.Request) {
+	address := r.URL.Query().Get("address")
+	if address == "" {
+		writeError(w, http.StatusBadRequest, "address parameter required")
+		return
+	}
+	if !isValidSolanaAddress(address) {
+		writeError(w, http.StatusBadRequest, "invalid address")
+		return
+	}
+
+	intervalType := r.URL.Query().Get("type")
+	if intervalType == "" {
+		intervalType = "15m"
+	}
+	timeFrom := r.URL.Query().Get("time_from")
+	timeTo := r.URL.Query().Get("time_to")
+
+	cacheKey := fmt.Sprintf("ohlcv:%s:%s:%s:%s", address, intervalType, timeFrom, timeTo)
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://public-api.birdeye.so/defi/ohlcv?address=%s&type=%s", address, intervalType)
+	if timeFrom != "" {
+		apiURL += "&time_from=" + timeFrom
+	}
+	if timeTo != "" {
+		apiURL += "&time_to=" + timeTo
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	req.Header.Set("X-API-KEY", m.birdeyeAPIKey)
+	req.Header.Set("x-chain", "solana")
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("birdeye OHLCV error", "error", err)
+		writeError(w, http.StatusBadGateway, "chart data unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read OHLCV response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, ohlcvCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetTrending proxies GET /market/trending to DexScreener boosted tokens.
+func (m *MarketProxy) GetTrending(w http.ResponseWriter, r *http.Request) {
+	cacheKey := "trending:solana"
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	// Fetch both boosted and top traders in parallel
+	type result struct {
+		key  string
+		data json.RawMessage
+	}
+
+	results := make(map[string]json.RawMessage)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	endpoints := map[string]string{
+		"boosted":  "https://api.dexscreener.com/token-boosts/top/v1",
+		"trending": "https://api.dexscreener.com/token-profiles/latest/v1",
+	}
+
+	for key, url := range endpoints {
+		wg.Add(1)
+		go func(k, u string) {
+			defer wg.Done()
+			req, err := http.NewRequestWithContext(r.Context(), "GET", u, nil)
+			if err != nil {
+				return
+			}
+			resp, err := m.client.Do(req)
+			if err != nil {
+				slog.Error("dexscreener trending error", "endpoint", k, "error", err)
+				return
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			results[k] = json.RawMessage(body)
+			mu.Unlock()
+		}(key, url)
+	}
+	wg.Wait()
+
+	combined, _ := json.Marshal(results)
+	m.cache.Set(cacheKey, combined, trendingCacheTTL)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.Write(combined)
+}
+
+// GetAnalytics proxies GET /market/analytics/{mint} to DexScreener + Birdeye composite.
+func (m *MarketProxy) GetAnalytics(w http.ResponseWriter, r *http.Request) {
+	mint := chi.URLParam(r, "mint")
+	if mint == "" {
+		writeError(w, http.StatusBadRequest, "mint parameter required")
+		return
+	}
+	if !isValidSolanaAddress(mint) {
+		writeError(w, http.StatusBadRequest, "invalid mint address")
+		return
+	}
+
+	cacheKey := "analytics:" + mint
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	// Fetch from DexScreener and Birdeye in parallel
+	type apiResult struct {
+		source string
+		data   json.RawMessage
+	}
+	ch := make(chan apiResult, 2)
+
+	// DexScreener token data
+	go func() {
+		apiURL := fmt.Sprintf("https://api.dexscreener.com/tokens/v1/solana/%s", mint)
+		req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+		if err != nil {
+			ch <- apiResult{source: "dexscreener"}
+			return
+		}
+		resp, err := m.client.Do(req)
+		if err != nil {
+			slog.Error("dexscreener analytics error", "error", err)
+			ch <- apiResult{source: "dexscreener"}
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		ch <- apiResult{source: "dexscreener", data: json.RawMessage(body)}
+	}()
+
+	// Birdeye token overview
+	go func() {
+		apiURL := fmt.Sprintf("https://public-api.birdeye.so/defi/token_overview?address=%s", mint)
+		req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+		if err != nil {
+			ch <- apiResult{source: "birdeye"}
+			return
+		}
+		req.Header.Set("X-API-KEY", m.birdeyeAPIKey)
+		req.Header.Set("x-chain", "solana")
+		resp, err := m.client.Do(req)
+		if err != nil {
+			slog.Error("birdeye analytics error", "error", err)
+			ch <- apiResult{source: "birdeye"}
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		ch <- apiResult{source: "birdeye", data: json.RawMessage(body)}
+	}()
+
+	composite := make(map[string]json.RawMessage)
+	for i := 0; i < 2; i++ {
+		res := <-ch
+		if res.data != nil {
+			composite[res.source] = res.data
+		}
+	}
+
+	combined, _ := json.Marshal(composite)
+	m.cache.Set(cacheKey, combined, analyticsCacheTTL)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.Write(combined)
+}
+
+// GetPairs proxies GET /market/pairs/{mint} to DexScreener pairs.
+func (m *MarketProxy) GetPairs(w http.ResponseWriter, r *http.Request) {
+	mint := chi.URLParam(r, "mint")
+	if mint == "" {
+		writeError(w, http.StatusBadRequest, "mint parameter required")
+		return
+	}
+	if !isValidSolanaAddress(mint) {
+		writeError(w, http.StatusBadRequest, "invalid mint address")
+		return
+	}
+
+	cacheKey := "pairs:" + mint
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://api.dexscreener.com/tokens/v1/solana/%s", mint)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("dexscreener pairs error", "error", err)
+		writeError(w, http.StatusBadGateway, "pairs data unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read pairs response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, pairsCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetTrades proxies GET /market/trades/{mint} to Birdeye token transactions.
+func (m *MarketProxy) GetTrades(w http.ResponseWriter, r *http.Request) {
+	mint := chi.URLParam(r, "mint")
+	if mint == "" {
+		writeError(w, http.StatusBadRequest, "mint parameter required")
+		return
+	}
+	if !isValidSolanaAddress(mint) {
+		writeError(w, http.StatusBadRequest, "invalid mint address")
+		return
+	}
+
+	cacheKey := "trades:" + mint
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://public-api.birdeye.so/defi/txs/token?address=%s&limit=50&sort_type=desc", mint)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	req.Header.Set("X-API-KEY", m.birdeyeAPIKey)
+	req.Header.Set("x-chain", "solana")
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("birdeye trades error", "error", err)
+		writeError(w, http.StatusBadGateway, "trades data unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read trades response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, tradesCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetHolders proxies GET /market/holders/{mint} to Helius getTokenAccounts.
+func (m *MarketProxy) GetHolders(w http.ResponseWriter, r *http.Request) {
+	mint := chi.URLParam(r, "mint")
+	if mint == "" {
+		writeError(w, http.StatusBadRequest, "mint parameter required")
+		return
+	}
+	if !isValidSolanaAddress(mint) {
+		writeError(w, http.StatusBadRequest, "invalid mint address")
+		return
+	}
+
+	cacheKey := "holders:" + mint
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	if m.heliusAPIKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "helius API key not configured")
+		return
+	}
+
+	// Build the JSON-RPC payload with json.Marshal to prevent injection if the
+	// mint ever contained characters that could break a raw string interpolation.
+	type rpcOptions struct {
+		ShowZeroBalance bool `json:"showZeroBalance"`
+	}
+	type rpcParams struct {
+		Mint    string     `json:"mint"`
+		Limit   int        `json:"limit"`
+		Options rpcOptions `json:"options"`
+	}
+	type rpcRequest struct {
+		JSONRPC string    `json:"jsonrpc"`
+		ID      int       `json:"id"`
+		Method  string    `json:"method"`
+		Params  rpcParams `json:"params"`
+	}
+	payloadBytes, err := json.Marshal(rpcRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "getTokenAccounts",
+		Params: rpcParams{
+			Mint:    mint,
+			Limit:   20,
+			Options: rpcOptions{ShowZeroBalance: false},
+		},
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to build request")
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), "POST", "https://mainnet.helius-rpc.com", bytes.NewReader(payloadBytes))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("helius holders error", "error", err)
+		writeError(w, http.StatusBadGateway, "holders data unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read holders response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, holdersCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetSecurity proxies GET /market/security/{mint} to RugCheck token report.
+func (m *MarketProxy) GetSecurity(w http.ResponseWriter, r *http.Request) {
+	mint := chi.URLParam(r, "mint")
+	if mint == "" {
+		writeError(w, http.StatusBadRequest, "mint parameter required")
+		return
+	}
+	if !isValidSolanaAddress(mint) {
+		writeError(w, http.StatusBadRequest, "invalid mint address")
+		return
+	}
+
+	cacheKey := "security:" + mint
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://api.rugcheck.xyz/v1/tokens/%s/report/summary", mint)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("rugcheck security error", "error", err)
+		writeError(w, http.StatusBadGateway, "security data unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read security response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, securityCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetLatestPairs proxies GET /market/latest-pairs to DexScreener latest Solana pairs.
+func (m *MarketProxy) GetLatestPairs(w http.ResponseWriter, r *http.Request) {
+	cacheKey := "latest-pairs:solana"
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := "https://api.dexscreener.com/latest/dex/pairs/solana"
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("dexscreener latest pairs error", "error", err)
+		writeError(w, http.StatusBadGateway, "latest pairs unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read latest pairs response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, latestPairsCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetMintTransactions proxies GET /market/txns/{mint} to Helius enhanced transactions.
+func (m *MarketProxy) GetMintTransactions(w http.ResponseWriter, r *http.Request) {
+	mint := chi.URLParam(r, "mint")
+	if mint == "" {
+		writeError(w, http.StatusBadRequest, "mint parameter required")
+		return
+	}
+	if !isValidSolanaAddress(mint) {
+		writeError(w, http.StatusBadRequest, "invalid mint address")
+		return
+	}
+
+	cacheKey := "txns:" + mint
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	if m.heliusAPIKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "helius API key not configured")
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://api.helius.xyz/v0/addresses/%s/transactions?limit=50", mint)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("helius transactions error", "error", err)
+		writeError(w, http.StatusBadGateway, "transaction data unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read transactions response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, txnsCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+type heliusTransfer struct {
+	Amount          int64  `json:"amount"`
+	FromUserAccount string `json:"fromUserAccount"`
+	ToUserAccount   string `json:"toUserAccount"`
+}
+
+type heliusTx struct {
+	Signature        string           `json:"signature"`
+	Timestamp        int64            `json:"timestamp"`
+	Type             string           `json:"type"`
+	Source           string           `json:"source"`
+	Description      string           `json:"description"`
+	Fee              int64            `json:"fee"`
+	TransactionError any              `json:"transactionError"`
+	NativeTransfers  []heliusTransfer `json:"nativeTransfers"`
+	Instructions     []struct {
+		ProgramID string `json:"programId"`
+	} `json:"instructions"`
+	InnerInstructions []struct {
+		Instructions []struct {
+			ProgramID string `json:"programId"`
+		} `json:"instructions"`
+	} `json:"innerInstructions"`
+}
+
+type accountTxItem struct {
+	Signature   string   `json:"signature"`
+	BlockTime   int64    `json:"blockTime"`
+	Success     bool     `json:"success"`
+	Type        string   `json:"type"`
+	Platform    string   `json:"platform"`
+	Programs    []string `json:"programs"`
+	Description string   `json:"description"`
+	ValueSol    float64  `json:"valueSol"`
+	FeeLamports int64    `json:"feeLamports"`
+	FeeSol      float64  `json:"feeSol"`
+}
+
+func parseBoolParam(raw string, fallback bool) bool {
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func parseIntParam(raw string, fallback, min, max int) int {
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
+
+func splitCSVLower(raw string) map[string]struct{} {
+	out := make(map[string]struct{})
+	if raw == "" {
+		return out
+	}
+	for _, part := range strings.Split(raw, ",") {
+		item := strings.ToLower(strings.TrimSpace(part))
+		if item == "" {
+			continue
+		}
+		out[item] = struct{}{}
+	}
+	return out
+}
+
+func timeRangeCutoff(rangeKey string, now time.Time) int64 {
+	switch strings.ToLower(strings.TrimSpace(rangeKey)) {
+	case "24h":
+		return now.Add(-24 * time.Hour).Unix()
+	case "7d":
+		return now.AddDate(0, 0, -7).Unix()
+	case "30d":
+		return now.AddDate(0, 0, -30).Unix()
+	default:
+		return 0
+	}
+}
+
+func normalizeHeliusTx(tx heliusTx, walletLower string) accountTxItem {
+	netLamports := int64(0)
+	for _, transfer := range tx.NativeTransfers {
+		from := strings.ToLower(strings.TrimSpace(transfer.FromUserAccount))
+		to := strings.ToLower(strings.TrimSpace(transfer.ToUserAccount))
+		if from == walletLower {
+			netLamports -= transfer.Amount
+		}
+		if to == walletLower {
+			netLamports += transfer.Amount
+		}
+	}
+
+	programs := inferPrograms(tx)
+
+	return accountTxItem{
+		Signature:   tx.Signature,
+		BlockTime:   tx.Timestamp,
+		Success:     tx.TransactionError == nil,
+		Type:        strings.ToLower(strings.TrimSpace(tx.Type)),
+		Platform:    strings.ToLower(strings.TrimSpace(tx.Source)),
+		Programs:    programs,
+		Description: tx.Description,
+		ValueSol:    float64(netLamports) / lamportsPerSOL,
+		FeeLamports: tx.Fee,
+		FeeSol:      float64(tx.Fee) / lamportsPerSOL,
+	}
+}
+
+func programNameFromID(programID string) string {
+	switch strings.TrimSpace(programID) {
+	case "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4":
+		return "jupiter"
+	case "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8":
+		return "raydium"
+	case "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc":
+		return "orca"
+	case "LBUZKhRxPF3XUpBCjp4YzTKgLccF8UDM5B2YfpT91fM":
+		return "meteora"
+	case "MarBmsSgKXdrN1egZf5sqe1TMai9K1rChYNDJgjq7aD":
+		return "marinade"
+	case "Jito4APyf642JPZPx3hGc6WWJ8zPKtRbRs4P815Awbb":
+		return "jito"
+	case "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P":
+		return "pumpfun"
+	default:
+		return ""
+	}
+}
+
+func inferPrograms(tx heliusTx) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, 4)
+	addProgram := func(name string) {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+
+	addProgram(tx.Source)
+
+	for _, instruction := range tx.Instructions {
+		addProgram(programNameFromID(instruction.ProgramID))
+	}
+	for _, group := range tx.InnerInstructions {
+		for _, instruction := range group.Instructions {
+			addProgram(programNameFromID(instruction.ProgramID))
+		}
+	}
+
+	if len(out) == 0 {
+		addProgram("system")
+	}
+	return out
+}
+
+func shouldHideSpamTx(item accountTxItem) bool {
+	desc := strings.ToLower(item.Description)
+	if strings.Contains(desc, "spam") {
+		return true
+	}
+	if item.Type == "nft_airdrop" || item.Type == "compressed_nft_airdrop" {
+		return true
+	}
+	return false
+}
+
+// GetAccountTransactions proxies account transactions via Helius and returns
+// a normalized Solscan-style payload with optional server-side filtering.
+func (m *MarketProxy) GetAccountTransactions(w http.ResponseWriter, r *http.Request) {
+	wallet := strings.TrimSpace(chi.URLParam(r, "wallet"))
+	if wallet == "" {
+		writeError(w, http.StatusBadRequest, "wallet parameter required")
+		return
+	}
+	if !isValidSolanaAddress(wallet) {
+		writeError(w, http.StatusBadRequest, "invalid wallet address")
+		return
+	}
+
+	if m.heliusAPIKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "helius API key not configured")
+		return
+	}
+
+	limit := parseIntParam(r.URL.Query().Get("limit"), 50, 1, 100)
+	before := strings.TrimSpace(r.URL.Query().Get("before"))
+	sortOrder := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort")))
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+
+	allowedTypes := splitCSVLower(r.URL.Query().Get("type"))
+	allowedProtocols := splitCSVLower(r.URL.Query().Get("protocol"))
+	hideFailed := parseBoolParam(r.URL.Query().Get("hideFailed"), false)
+	hideSpam := parseBoolParam(r.URL.Query().Get("hideSpam"), true)
+	cutoff := timeRangeCutoff(r.URL.Query().Get("timeRange"), time.Now())
+
+	cacheKey := fmt.Sprintf(
+		"account-tx:%s:%d:%s:%s:%s:%s:%t:%t:%d",
+		wallet,
+		limit,
+		before,
+		r.URL.Query().Get("type"),
+		r.URL.Query().Get("protocol"),
+		sortOrder,
+		hideFailed,
+		hideSpam,
+		cutoff,
+	)
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	values := url.Values{}
+	values.Set("limit", strconv.Itoa(limit))
+	if before != "" {
+		values.Set("before", before)
+	}
+
+	apiURL := fmt.Sprintf(
+		"https://api.helius.xyz/v0/addresses/%s/transactions?%s",
+		wallet,
+		values.Encode(),
+	)
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("helius account transactions error", "error", err, "wallet", wallet)
+		writeError(w, http.StatusBadGateway, "account transactions unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read account transactions response")
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		w.Write(body)
+		return
+	}
+
+	var heliusTxs []heliusTx
+	if err := json.Unmarshal(body, &heliusTxs); err != nil {
+		slog.Error("failed to decode helius account transactions", "error", err)
+		writeError(w, http.StatusBadGateway, "invalid account transaction payload")
+		return
+	}
+
+	walletLower := strings.ToLower(wallet)
+	items := make([]accountTxItem, 0, len(heliusTxs))
+	for _, tx := range heliusTxs {
+		item := normalizeHeliusTx(tx, walletLower)
+		if hideFailed && !item.Success {
+			continue
+		}
+		if hideSpam && shouldHideSpamTx(item) {
+			continue
+		}
+		if cutoff > 0 && item.BlockTime > 0 && item.BlockTime < cutoff {
+			continue
+		}
+		if len(allowedTypes) > 0 {
+			if _, ok := allowedTypes[item.Type]; !ok {
+				continue
+			}
+		}
+		if len(allowedProtocols) > 0 {
+			if _, ok := allowedProtocols[item.Platform]; !ok {
+				continue
+			}
+		}
+		items = append(items, item)
+	}
+
+	if sortOrder == "asc" {
+		for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+			items[i], items[j] = items[j], items[i]
+		}
+	}
+
+	nextBefore := ""
+	if len(items) > 0 {
+		nextBefore = items[len(items)-1].Signature
+	}
+
+	response := map[string]any{
+		"wallet":       wallet,
+		"count":        len(items),
+		"nextBefore":   nextBefore,
+		"transactions": items,
+	}
+	normalizedBody, err := json.Marshal(response)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to serialize transactions")
+		return
+	}
+
+	m.cache.Set(cacheKey, normalizedBody, accountTxCacheTTL)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(http.StatusOK)
+	w.Write(normalizedBody)
+}
+
+// GetJitoTipFloor proxies GET /market/jito/tip-floor to Jito bundles API.
+// Avoids CORS issues when called directly from the browser.
+func (m *MarketProxy) GetJitoTipFloor(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "jito:tip-floor"
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		"https://bundles.jito.wtf/api/v1/bundles/tip_floor", nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("jito tip floor error", "error", err)
+		writeError(w, http.StatusBadGateway, "jito tip floor unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read jito tip floor response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, 30*time.Second)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetJitoBundleStatus proxies GET /market/jito/bundle/{bundleId} to Jito Block Engine.
+func (m *MarketProxy) GetJitoBundleStatus(w http.ResponseWriter, r *http.Request) {
+	bundleId := chi.URLParam(r, "bundleId")
+	if bundleId == "" {
+		writeError(w, http.StatusBadRequest, "bundleId parameter required")
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/bundles/%s", bundleId)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("jito bundle status error", "error", err)
+		writeError(w, http.StatusBadGateway, "jito bundle status unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read bundle status response")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kobe Analytics API — kobe.mainnet.jito.network
+// All kobe endpoints are public and require no authentication.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const jitoKobeAPI = "https://kobe.mainnet.jito.network"
+
+// forwardKobe proxies a GET or POST request to the Jito kobe analytics API.
+// For POST requests, the entire request body is forwarded verbatim.
+// If cacheKey is non-empty and the response is HTTP 200, the response is cached
+// for cacheTTL. Use an empty cacheKey to disable caching (e.g. user-specific queries).
+func (m *MarketProxy) forwardKobe(w http.ResponseWriter, r *http.Request, kobePath, cacheKey string, cacheTTL time.Duration) {
+	if cacheKey != "" {
+		if data, ok := m.cache.Get(cacheKey); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write(data)
+			return
+		}
+	}
+
+	var reqBody io.Reader
+	if r.Method == http.MethodPost {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "failed to read request body")
+			return
+		}
+		reqBody = bytes.NewReader(body)
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, jitoKobeAPI+kobePath, reqBody)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	if r.Method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("kobe API error", "path", kobePath, "error", err)
+		writeError(w, http.StatusBadGateway, "kobe API unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read kobe response")
+		return
+	}
+
+	if cacheKey != "" && resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, respBody, cacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(respBody)
+}
+
+// GetJitoStakePoolStats proxies POST /market/jito/stake-pool-stats to kobe API.
+// Returns TVL, APY, supply, and validator count time series.
+func (m *MarketProxy) GetJitoStakePoolStats(w http.ResponseWriter, r *http.Request) {
+	m.forwardKobe(w, r, "/api/v1/stake_pool_stats", "", 0)
+}
+
+// GetJitosolSolRatio proxies POST /market/jito/jitosol-sol-ratio to kobe API.
+// Returns jitoSOL/SOL exchange rate history.
+func (m *MarketProxy) GetJitosolSolRatio(w http.ResponseWriter, r *http.Request) {
+	m.forwardKobe(w, r, "/api/v1/jitosol_sol_ratio", "", 0)
+}
+
+// PostJitoStakerRewards proxies POST /market/jito/staker-rewards to kobe API.
+// Not cached: responses depend on request body parameters (wallet, epoch, etc.).
+func (m *MarketProxy) PostJitoStakerRewards(w http.ResponseWriter, r *http.Request) {
+	m.forwardKobe(w, r, "/api/v1/staker_rewards", "", 0)
+}
+
+// PostJitoValidatorRewards proxies POST /market/jito/validator-rewards to kobe API.
+func (m *MarketProxy) PostJitoValidatorRewards(w http.ResponseWriter, r *http.Request) {
+	m.forwardKobe(w, r, "/api/v1/validator_rewards", "", 0)
+}
+
+// PostJitoValidators proxies POST /market/jito/validators to kobe API.
+// Returns all Solana validators with MEV metrics.
+func (m *MarketProxy) PostJitoValidators(w http.ResponseWriter, r *http.Request) {
+	m.forwardKobe(w, r, "/api/v1/validators", "", 0)
+}
+
+// PostJitosolValidators proxies POST /market/jito/jitosol-validators to kobe API.
+// Returns validators in the JitoSOL stake pool.
+func (m *MarketProxy) PostJitosolValidators(w http.ResponseWriter, r *http.Request) {
+	m.forwardKobe(w, r, "/api/v1/jitosol_validators", "", 0)
+}
+
+// GetJitoValidatorHistory proxies GET /market/jito/validators/{voteAccount} to kobe API.
+// Returns historical MEV reward data for a single validator.
+func (m *MarketProxy) GetJitoValidatorHistory(w http.ResponseWriter, r *http.Request) {
+	voteAccount := chi.URLParam(r, "voteAccount")
+	if !isValidSolanaAddress(voteAccount) {
+		writeError(w, http.StatusBadRequest, "invalid vote account address")
+		return
+	}
+	cacheKey := "jito:validator-history:" + voteAccount
+	m.forwardKobe(w, r, "/api/v1/validators/"+voteAccount, cacheKey, 60*time.Second)
+}
+
+// GetJitoMevRewards proxies GET or POST /market/jito/mev-rewards to kobe API.
+// GET returns latest epoch; POST body may contain { "epoch": N }.
+func (m *MarketProxy) GetJitoMevRewards(w http.ResponseWriter, r *http.Request) {
+	m.forwardKobe(w, r, "/api/v1/mev_rewards", "", 0)
+}
+
+// GetJitoDailyMevRewards proxies GET /market/jito/daily-mev-rewards to kobe API.
+// Returns MEV tips aggregated by calendar day.
+func (m *MarketProxy) GetJitoDailyMevRewards(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "jito:daily-mev-rewards"
+	m.forwardKobe(w, r, "/api/v1/daily_mev_rewards", cacheKey, 5*time.Minute)
+}
+
+// GetJitoStakeOverTime proxies GET /market/jito/stake-over-time to kobe API.
+// Returns fraction of Solana stake on Jito validators per epoch.
+func (m *MarketProxy) GetJitoStakeOverTime(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "jito:stake-over-time"
+	m.forwardKobe(w, r, "/api/v1/jito_stake_over_time", cacheKey, 5*time.Minute)
+}
+
+// GetJitoPreferredWithdrawValidators proxies GET /market/jito/preferred-withdraw-validators
+// to kobe API. Supports query params: limit, min_stake_threshold, randomized.
+func (m *MarketProxy) GetJitoPreferredWithdrawValidators(w http.ResponseWriter, r *http.Request) {
+	queryStr := r.URL.RawQuery
+	path := "/api/v1/preferred_withdraw_validator_list"
+	if queryStr != "" {
+		path += "?" + queryStr
+	}
+	cacheKey := "jito:preferred-validators:" + queryStr
+	m.forwardKobe(w, r, path, cacheKey, 30*time.Second)
+}
+
+// GetJitoMevCommissionAverageOverTime proxies GET /market/jito/mev-commission-avg to kobe API.
+// Returns stake-weighted average MEV commission rates by epoch.
+func (m *MarketProxy) GetJitoMevCommissionAverageOverTime(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "jito:mev-commission-avg"
+	m.forwardKobe(w, r, "/api/v1/mev_commission_average_over_time", cacheKey, 5*time.Minute)
+}
+
+// PostJitoStewardEvents proxies POST /market/jito/steward-events to kobe API.
+// Supports filtering by event_type, vote_account, epoch, limit, skip.
+func (m *MarketProxy) PostJitoStewardEvents(w http.ResponseWriter, r *http.Request) {
+	m.forwardKobe(w, r, "/api/v1/steward_events", "", 0)
+}
+
+// GetJitoBamEpochMetrics proxies GET /market/jito/bam-epoch-metrics?epoch=N to kobe API.
+func (m *MarketProxy) GetJitoBamEpochMetrics(w http.ResponseWriter, r *http.Request) {
+	epoch := r.URL.Query().Get("epoch")
+	path := "/api/v1/bam_epoch_metrics"
+	if epoch != "" {
+		if _, err := strconv.ParseUint(epoch, 10, 64); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid epoch parameter")
+			return
+		}
+		path += "?epoch=" + epoch
+	}
+	cacheKey := "jito:bam-epoch-metrics:" + epoch
+	m.forwardKobe(w, r, path, cacheKey, 60*time.Second)
+}
+
+// GetJitoBamValidators proxies GET /market/jito/bam-validators?epoch=N to kobe API.
+func (m *MarketProxy) GetJitoBamValidators(w http.ResponseWriter, r *http.Request) {
+	epoch := r.URL.Query().Get("epoch")
+	path := "/api/v1/bam_validators"
+	if epoch != "" {
+		if _, err := strconv.ParseUint(epoch, 10, 64); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid epoch parameter")
+			return
+		}
+		path += "?epoch=" + epoch
+	}
+	cacheKey := "jito:bam-validators:" + epoch
+	m.forwardKobe(w, r, path, cacheKey, 60*time.Second)
+}
+
+// GetJitoBamDelegationBlacklist proxies GET /market/jito/bam-delegation-blacklist to kobe API.
+func (m *MarketProxy) GetJitoBamDelegationBlacklist(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "jito:bam-blacklist"
+	m.forwardKobe(w, r, "/api/v1/bam_delegation_blacklist", cacheKey, 5*time.Minute)
+}
+
+// GetJitoBamValidatorScore proxies GET /market/jito/bam-validator-score?epoch=N&vote_account=X
+// to kobe API. Returns scoring components for a specific validator.
+func (m *MarketProxy) GetJitoBamValidatorScore(w http.ResponseWriter, r *http.Request) {
+	epoch := r.URL.Query().Get("epoch")
+	voteAccount := r.URL.Query().Get("vote_account")
+	if epoch != "" {
+		if _, err := strconv.ParseUint(epoch, 10, 64); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid epoch parameter")
+			return
+		}
+	}
+	if voteAccount != "" && !isValidSolanaAddress(voteAccount) {
+		writeError(w, http.StatusBadRequest, "invalid vote_account parameter")
+		return
+	}
+	queryStr := r.URL.RawQuery
+	path := "/api/v1/bam_validator_score"
+	if queryStr != "" {
+		path += "?" + queryStr
+	}
+	cacheKey := "jito:bam-score:" + epoch + ":" + voteAccount
+	m.forwardKobe(w, r, path, cacheKey, 60*time.Second)
+}
+
+// PostRpc proxies Solana JSON-RPC POST requests to Helius RPC.
+// This keeps the Helius API key server-side and never exposes it to the client.
+func (m *MarketProxy) PostRpc(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB limit
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+
+	rpcURL := "https://api.mainnet-beta.solana.com"
+	if m.heliusAPIKey != "" {
+		rpcURL = "https://mainnet.helius-rpc.com"
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, rpcURL, strings.NewReader(string(body)))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create RPC request")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if m.heliusAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("helius RPC proxy error", "error", err)
+		writeError(w, http.StatusBadGateway, "RPC service unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read RPC response")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(respBody)
+}
+
+// PostHeliusTransactions proxies POST /market/helius/transactions to Helius Enhanced Transactions API.
+// Accepts: { "transactions": ["sig1", "sig2", ...] }
+func (m *MarketProxy) PostHeliusTransactions(w http.ResponseWriter, r *http.Request) {
+	if m.heliusAPIKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "Helius service not configured")
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+
+	apiURL := "https://api.helius.xyz/v0/transactions"
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, apiURL, strings.NewReader(string(body)))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create Helius request")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("helius transactions proxy error", "error", err)
+		writeError(w, http.StatusBadGateway, "Helius service unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read Helius response")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(respBody)
+}

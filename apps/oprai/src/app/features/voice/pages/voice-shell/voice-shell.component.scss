@@ -1,0 +1,369 @@
+// ============================================================================
+// OPRAI Voice — Transcript-based conversation UI
+// ============================================================================
+
+:host {
+  display: block;
+  height: 100%;
+}
+
+.voice-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--op-bg-base);
+  overflow: hidden;
+}
+
+// ============================================================================
+// Top bar (active state)
+// ============================================================================
+
+.voice-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--op-border-subtle);
+  animation: fadeIn 300ms ease;
+}
+
+.top-bar-back,
+.top-bar-close {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--op-radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--op-text-tertiary);
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 150ms ease;
+
+  &:hover {
+    color: var(--op-text-primary);
+    background: var(--op-bg-surface-3);
+    border-color: var(--op-border-default);
+  }
+}
+
+.top-bar-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timer-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--op-gain);
+  animation: dotPulse 2s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.timer-text {
+  font-family: var(--op-font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--op-text-tertiary);
+  letter-spacing: 0.05em;
+}
+
+// ============================================================================
+// Transcript area
+// ============================================================================
+
+.voice-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  animation: fadeIn 400ms ease;
+}
+
+// ============================================================================
+// Status line
+// ============================================================================
+
+.voice-status-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--op-text-secondary);
+  flex-shrink: 0;
+}
+
+.status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--op-text-disabled);
+  transition: background 300ms ease;
+
+  &.indicator--listening {
+    background: var(--op-brand);
+    animation: dotPulse 1.5s ease-in-out infinite;
+  }
+
+  &.indicator--speaking {
+    background: var(--op-gain);
+    animation: dotPulse 1s ease-in-out infinite;
+  }
+}
+
+.status--shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--op-text-tertiary) 0%,
+    var(--op-text-primary) 50%,
+    var(--op-text-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmerText 2.5s ease-in-out infinite;
+}
+
+@keyframes shimmerText {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+// ============================================================================
+// Controls
+// ============================================================================
+
+.voice-controls {
+  padding: 12px 16px 24px;
+  flex-shrink: 0;
+}
+
+.voice-active-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  animation: fadeInUp 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ctrl-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--op-text-secondary);
+  transition: color 150ms ease;
+
+  &:hover {
+    color: var(--op-text-primary);
+  }
+
+  lucide-icon {
+    width: 52px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--op-bg-surface-2);
+    border: 1px solid var(--op-border-subtle);
+    transition: all 150ms ease;
+  }
+
+  &:hover lucide-icon {
+    background: var(--op-bg-surface-3);
+    border-color: var(--op-border-default);
+  }
+
+  &.ctrl--muted lucide-icon {
+    background: var(--op-loss-subtle);
+    border-color: var(--op-loss);
+    color: var(--op-loss);
+  }
+
+  &.ctrl--off {
+    color: var(--op-text-disabled);
+  }
+
+  &.ctrl--end lucide-icon {
+    background: var(--op-loss);
+    border-color: var(--op-loss);
+    color: #fff;
+  }
+
+  &.ctrl--end:hover lucide-icon {
+    filter: brightness(1.1);
+  }
+}
+
+.ctrl-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+// ============================================================================
+// Idle state
+// ============================================================================
+
+.voice-back {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--op-radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--op-text-tertiary);
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  text-decoration: none;
+  transition: all 150ms ease;
+  z-index: 10;
+
+  &:hover {
+    color: var(--op-text-primary);
+    background: var(--op-bg-surface-3);
+    border-color: var(--op-border-default);
+  }
+}
+
+.voice-idle {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  animation: fadeIn 400ms ease;
+}
+
+.idle-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--op-radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--op-brand-subtle);
+  color: var(--op-brand);
+  margin-bottom: 8px;
+}
+
+.idle-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--op-text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.idle-subtitle {
+  font-size: 14px;
+  color: var(--op-text-tertiary);
+  margin: 0;
+}
+
+.voice-start-btn {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--op-gradient);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  margin-top: 16px;
+  transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 200ms ease;
+  box-shadow: var(--op-shadow-lg), var(--op-shadow-glow);
+
+  &:hover {
+    transform: scale(1.06);
+    box-shadow: var(--op-shadow-xl), 0 0 32px -4px rgba(99, 102, 241, 0.4);
+  }
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+.start-btn-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--op-brand);
+  opacity: 0.2;
+  animation: ringBreath 3s ease-in-out infinite;
+}
+
+@keyframes ringBreath {
+  0%, 100% { transform: scale(1); opacity: 0.2; }
+  50% { transform: scale(1.08); opacity: 0.1; }
+}
+
+// ============================================================================
+// Animations
+// ============================================================================
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+// ============================================================================
+// Responsive
+// ============================================================================
+
+@media (max-width: 640px) {
+  .voice-start-btn {
+    width: 64px;
+    height: 64px;
+  }
+
+  .ctrl-btn lucide-icon {
+    width: 46px;
+    height: 46px;
+  }
+
+  .voice-active-controls {
+    gap: 20px;
+  }
+
+  .voice-controls {
+    padding: 10px 12px 20px;
+  }
+
+  .idle-title {
+    font-size: 18px;
+  }
+}

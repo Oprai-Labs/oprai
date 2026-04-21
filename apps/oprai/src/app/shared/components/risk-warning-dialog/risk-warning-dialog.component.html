@@ -1,0 +1,52 @@
+@if (payload(); as p) {
+  <!-- Backdrop -->
+  <div class="dialog-backdrop" (click)="cancel()"></div>
+
+  <!-- Dialog -->
+  <div
+    class="dialog"
+    role="alertdialog"
+    aria-modal="true"
+    [class.dialog--warning]="p.severity === 'warning'"
+    [class.dialog--danger]="p.severity === 'danger'"
+    [class.dialog--info]="p.severity === 'info'"
+  >
+    <!-- Header -->
+    <div class="dialog-header">
+      <div class="dialog-icon">
+        @switch (p.severity) {
+          @case ('danger')  { <lucide-icon name="triangle-alert" [size]="20" /> }
+          @case ('warning') { <lucide-icon name="alert-circle"   [size]="20" /> }
+          @default          { <lucide-icon name="info"            [size]="20" /> }
+        }
+      </div>
+      <h3 class="dialog-title">{{ p.title }}</h3>
+    </div>
+
+    <!-- Message -->
+    <p class="dialog-message">{{ p.message }}</p>
+
+    <!-- Risk items -->
+    @if (p.items.length > 0) {
+      <ul class="dialog-items">
+        @for (item of p.items; track $index) {
+          <li class="dialog-item">
+            <lucide-icon [name]="item.icon" [size]="14" class="item-icon" />
+            <span>{{ item.text }}</span>
+          </li>
+        }
+      </ul>
+    }
+
+    <!-- Actions -->
+    <div class="dialog-actions">
+      <button class="btn-cancel" (click)="cancel()">Cancel</button>
+      <button
+        class="btn-confirm"
+        [class.btn-confirm--danger]="p.severity === 'danger'"
+        [class.btn-confirm--warning]="p.severity === 'warning'"
+        (click)="confirm()"
+      >{{ p.confirmLabel }}</button>
+    </div>
+  </div>
+}

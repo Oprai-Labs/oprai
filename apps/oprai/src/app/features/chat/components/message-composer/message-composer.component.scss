@@ -1,0 +1,413 @@
+.composer {
+  max-width: 768px;
+  margin: 0 auto;
+  width: 100%;
+  border-radius: var(--op-radius-2xl);
+  border: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-surface-1);
+  padding: 6px;
+  transition: border-color var(--op-fast);
+
+  &:focus-within {
+    border-color: var(--op-border-default);
+  }
+}
+
+// ──── Hidden File Input ────
+
+.file-input-hidden {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+// ──── Attached Files ────
+
+.composer-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 6px 4px;
+}
+
+.composer-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--op-radius-md);
+  background: var(--op-bg-surface-2);
+  font-size: 12px;
+  color: var(--op-text-secondary);
+  max-width: 200px;
+}
+
+.upload-spinner {
+  animation: spin 1s linear infinite;
+  color: var(--op-brand);
+}
+
+.upload-error {
+  color: var(--op-loss);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.composer-file-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--op-radius-full);
+  color: var(--op-text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--op-fast);
+
+  &:hover {
+    background: var(--op-hover);
+    color: var(--op-text-primary);
+  }
+}
+
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--op-space-2);
+  padding: 2px 2px;
+}
+
+.composer-spacer {
+  flex: 1;
+}
+
+// ──── Mode Chip ────
+
+.mode-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px 5px 10px;
+  border-radius: var(--op-radius-full);
+  background: var(--op-bg-surface-3);
+  border: 1px solid var(--op-border-subtle);
+  font-size: 13px;
+  color: var(--op-text-secondary);
+  white-space: nowrap;
+  transition: border-color var(--op-fast);
+
+  &:hover {
+    border-color: var(--op-border-default);
+
+    .mode-chip-remove {
+      opacity: 1;
+    }
+  }
+}
+
+.mode-chip-icon {
+  color: var(--op-text-tertiary);
+}
+
+.mode-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--op-radius-full);
+  color: var(--op-text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: all var(--op-fast);
+
+  &:hover {
+    background: var(--op-hover);
+    color: var(--op-text-primary);
+  }
+}
+
+// ──── Plus Menu Anchor ────
+
+.plus-menu-anchor {
+  position: relative;
+}
+
+// ──── Attach Button ────
+
+.composer-attach-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--op-radius-full);
+  color: var(--op-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--op-fast);
+
+  &:hover:not(:disabled) {
+    background: var(--op-hover);
+    color: var(--op-text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+// ──── Plus Menu ────
+
+.plus-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
+.plus-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 240px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  padding: var(--op-space-1) 0;
+  box-shadow: var(--op-shadow-lg);
+  z-index: 100;
+  animation: plusMenuIn 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes plusMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.plus-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--op-space-3);
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--op-text-primary);
+  cursor: pointer;
+  transition: background var(--op-fast);
+  position: relative;
+  border: none;
+  background: none;
+  text-align: left;
+
+  &:hover {
+    background: var(--op-hover);
+  }
+
+  span {
+    flex: 1;
+    white-space: nowrap;
+  }
+}
+
+.plus-menu-item--has-sub {
+  .plus-submenu {
+    display: none;
+  }
+
+  &:hover .plus-submenu {
+    display: block;
+  }
+}
+
+.plus-menu-chevron {
+  margin-left: auto;
+  color: var(--op-text-tertiary);
+}
+
+.plus-menu-check {
+  margin-left: auto;
+  color: var(--op-brand);
+}
+
+.plus-menu-divider {
+  height: 1px;
+  background: var(--op-border-default);
+  margin: var(--op-space-1) 0;
+}
+
+// ──── Plus Submenu ────
+
+.plus-submenu {
+  position: absolute;
+  left: calc(100% + 4px);
+  bottom: -4px;
+  min-width: 220px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  padding: var(--op-space-2);
+  box-shadow: var(--op-shadow-lg);
+  animation: plusMenuIn 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.plus-submenu-search {
+  display: flex;
+  align-items: center;
+  gap: var(--op-space-2);
+  padding: 6px 10px;
+  border-radius: var(--op-radius-md);
+  background: var(--op-bg-surface-3);
+  margin-bottom: var(--op-space-2);
+  color: var(--op-text-tertiary);
+}
+
+.plus-submenu-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: var(--op-text-primary);
+
+  &::placeholder {
+    color: var(--op-text-tertiary);
+  }
+}
+
+.plus-submenu-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.plus-submenu-empty {
+  padding: 12px 10px;
+  font-size: 13px;
+  color: var(--op-text-tertiary);
+  text-align: center;
+}
+
+// ──── Textarea ────
+
+.composer-textarea {
+  width: 100%;
+  max-height: 200px;
+  resize: none;
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  padding: 8px 10px 4px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--op-text-primary);
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+
+  &::placeholder {
+    color: var(--op-text-tertiary);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+// ──── Send Button ────
+
+.composer-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--op-radius-full);
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--op-fast);
+
+  &:not(:disabled) {
+    background: var(--op-text-primary);
+    color: var(--op-bg-base);
+
+    &:hover {
+      opacity: 0.85;
+    }
+  }
+
+  &:disabled {
+    background: var(--op-bg-surface-3);
+    color: var(--op-text-disabled);
+    cursor: not-allowed;
+  }
+}
+
+@media (max-width: 768px) {
+  .composer {
+    border-radius: var(--op-radius-xl);
+    padding: 6px;
+  }
+}
+
+// ──── Char Counter ────
+
+.composer-char-count {
+  text-align: right;
+  padding: 2px 14px 0;
+  font-size: 11px;
+  color: var(--op-text-tertiary);
+  transition: color var(--op-fast);
+
+  &--warning {
+    color: var(--op-warning, #f59e0b);
+  }
+
+  &--over {
+    color: var(--op-loss, #ef4444);
+    font-weight: 500;
+  }
+}
+
+// ──── Chat Limit Banner ────
+
+.composer-limit-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--op-text-secondary);
+
+  .limit-icon {
+    flex-shrink: 0;
+    color: var(--op-text-tertiary);
+  }
+}
+
+.composer--limit-reached {
+  opacity: 0.7;
+  pointer-events: none;
+
+  // Allow the toolbar buttons to still work (e.g., if we add "new chat" button later)
+  .composer-toolbar {
+    pointer-events: auto;
+    opacity: 1;
+  }
+}

@@ -1,0 +1,105 @@
+@if (loadingState === 'loading') {
+  <div class="nft-loading">
+    <div class="skeleton-grid">
+      @for (i of [1,2,3,4,5,6]; track i) {
+        <div class="skeleton-card">
+          <div class="skeleton-image"></div>
+          <div class="skeleton-text"></div>
+          <div class="skeleton-text short"></div>
+        </div>
+      }
+    </div>
+  </div>
+} @else if (loadingState === 'loaded' && nfts.length === 0) {
+  <div class="empty-state">
+    <lucide-icon name="image" [size]="40" />
+    <p>No NFTs found in this wallet</p>
+  </div>
+} @else if (loadingState === 'loaded') {
+  <div class="nft-header">
+    <span class="nft-count">{{ nfts.length }} NFTs</span>
+    <button class="view-toggle" (click)="toggleView()">
+      @if (viewMode() === 'all') {
+        <lucide-icon name="grid-2x2" [size]="16" />
+        By Collection
+      } @else {
+        <lucide-icon name="layout-grid" [size]="16" />
+        All
+      }
+    </button>
+  </div>
+
+  @if (viewMode() === 'all') {
+    <div class="nft-grid">
+      @for (nft of nfts; track nft.id) {
+        <div class="nft-card">
+          <div class="nft-image-wrapper">
+            @if (nft.imageUri) {
+              <img
+                [src]="nft.imageUri"
+                [alt]="nft.name"
+                loading="lazy"
+                (error)="onImageError($event)"
+              />
+            }
+            <div class="nft-fallback" [style.display]="nft.imageUri ? 'none' : 'flex'">
+              {{ nft.name.charAt(0) }}
+            </div>
+          </div>
+          <div class="nft-info">
+            <span class="nft-name">{{ nft.name }}</span>
+            @if (nft.collectionName) {
+              <span class="nft-collection">{{ nft.collectionName }}</span>
+            }
+            @if (nft.floorPrice !== null) {
+              <span class="nft-floor">Floor: {{ nft.floorPrice | number:'1.2-2' }} SOL</span>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  } @else {
+    @for (collection of collections; track collection.id) {
+      <div class="collection-group">
+        <div class="collection-header">
+          <span class="collection-name">{{ collection.name }}</span>
+          <span class="collection-count">{{ collection.items.length }}</span>
+          @if (collection.floorPrice !== null) {
+            <span class="collection-floor">Floor: {{ collection.floorPrice | number:'1.2-2' }} SOL</span>
+          }
+        </div>
+        <div class="nft-grid">
+          @for (nft of collection.items; track nft.id) {
+            <div class="nft-card">
+              <div class="nft-image-wrapper">
+                @if (nft.imageUri) {
+                  <img
+                    [src]="nft.imageUri"
+                    [alt]="nft.name"
+                    loading="lazy"
+                    (error)="onImageError($event)"
+                  />
+                }
+                <div class="nft-fallback" [style.display]="nft.imageUri ? 'none' : 'flex'">
+                  {{ nft.name.charAt(0) }}
+                </div>
+              </div>
+              <div class="nft-info">
+                <span class="nft-name">{{ nft.name }}</span>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  }
+} @else if (loadingState === 'error') {
+  <div class="empty-state">
+    <p>Failed to load NFTs. Try refreshing.</p>
+  </div>
+} @else {
+  <!-- idle: waiting for tab activation -->
+  <div class="empty-state">
+    <p>Click to load NFTs</p>
+  </div>
+}

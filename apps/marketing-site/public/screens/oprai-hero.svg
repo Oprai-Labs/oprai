@@ -1,0 +1,42 @@
+<svg width="1500" height="800" viewBox="0 0 1500 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1500" y2="800" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14F1C2"/>
+      <stop offset="0.5" stop-color="#6A5CFF"/>
+      <stop offset="1" stop-color="#A855F7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1500" height="800" rx="24" fill="#0B0F15"/>
+  <g opacity="0.3">
+    <circle cx="1200" cy="-50" r="400" fill="url(#g1)"/>
+    <circle cx="-30" cy="650" r="300" fill="url(#g1)"/>
+  </g>
+  <rect x="60" y="60" width="1380" height="680" rx="18" fill="#0F1722" stroke="#1F2937"/>
+  <g>
+    <rect x="96" y="106" width="508" height="208" rx="16" fill="#0B1220" stroke="#273244"/>
+    <rect x="106" y="116" width="488" height="188" rx="12" fill="#0F1524" stroke="#223049"/>
+    <text x="126" y="160" fill="#E5E7EB" font-size="26" font-family="Manrope, Inter, ui-sans-serif" font-weight="800">Chat</text>
+    <rect x="126" y="175" width="440" height="32" rx="8" fill="#0B0F15" stroke="#223049"/>
+    <text x="140" y="197" fill="#9CA3AF" font-size="16" font-family="Inter, ui-sans-serif">“Snipe top 3 trending tokens under 500 USDC with tight stops.”</text>
+  </g>
+  <g>
+    <rect x="646" y="106" width="708" height="208" rx="16" fill="#0B1220" stroke="#273244"/>
+    <rect x="656" y="116" width="688" height="188" rx="12" fill="#0F1524" stroke="#223049"/>
+    <text x="676" y="160" fill="#E5E7EB" font-size="26" font-family="Manrope, Inter, ui-sans-serif" font-weight="800">Plan</text>
+    <text x="676" y="196" fill="#9CA3AF" font-size="16" font-family="Inter, ui-sans-serif">• Smart routing  • Guarded entries  • Stops/TP  • Risk checks</text>
+  </g>
+  <g>
+    <rect x="100" y="350" width="1240" height="330" rx="16" fill="#0B1220" stroke="#273244"/>
+    <text x="120" y="400" fill="#E5E7EB" font-size="28" font-family="Inter, ui-sans-serif" font-weight="700">Execution Preview</text>
+    <text x="120" y="440" fill="#9CA3AF" font-size="18" font-family="Inter, ui-sans-serif">3 positions • Max 500 USDC • Slippage 0.5% • Risk OK</text>
+    <rect x="120" y="470" width="380" height="170" rx="12" fill="#0F1722" stroke="#273244"/>
+    <rect x="520" y="470" width="380" height="170" rx="12" fill="#0F1722" stroke="#273244"/>
+    <rect x="920" y="470" width="380" height="170" rx="12" fill="#0F1722" stroke="#273244"/>
+    <text x="140" y="510" fill="#E5E7EB" font-size="18" font-family="Inter, ui-sans-serif" font-weight="700">Token A</text>
+    <text x="540" y="510" fill="#E5E7EB" font-size="18" font-family="Inter, ui-sans-serif" font-weight="700">Token B</text>
+    <text x="940" y="510" fill="#E5E7EB" font-size="18" font-family="Inter, ui-sans-serif" font-weight="700">Token C</text>
+    <rect x="1180" y="380" width="140" height="44" rx="10" fill="url(#g1)"/>
+    <text x="1205" y="410" fill="#0B0F15" font-size="16" font-family="Manrope, Inter, ui-sans-serif" font-weight="800">Confirm</text>
+  </g>
+</svg>
+

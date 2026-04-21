@@ -1,0 +1,128 @@
+<app-admin-layout activePage="audit-logs" (logoutClick)="logout()">
+  <header class="admin-header">
+    <h1>Audit Logs</h1>
+    <span class="header-count">{{ totalCount() }} total</span>
+    <div class="header-actions">
+      <button class="btn-ghost" (click)="exportCSV()" [disabled]="exporting()">
+        @if (exporting()) {
+          <lucide-icon name="loader-2" [size]="14" class="spin" />
+        } @else {
+          <lucide-icon name="download" [size]="14" />
+        }
+        Export CSV
+      </button>
+    </div>
+  </header>
+
+  <div class="admin-content">
+    <!-- Filters -->
+    <div class="toolbar">
+      <input
+        type="text"
+        class="input"
+        placeholder="Filter by admin username..."
+        [(ngModel)]="filterAdmin"
+        (keyup.enter)="onFilterChange()"
+        style="max-width: 220px;"
+      />
+      <select class="input filter-select" [(ngModel)]="filterAction" (change)="onFilterChange()">
+        <option value="">All Actions</option>
+        @for (a of actionOptions.slice(1); track a) {
+          <option [value]="a">{{ a | titlecase }}</option>
+        }
+      </select>
+      <div class="date-range">
+        <input type="date" class="input date-input" [(ngModel)]="dateFrom" (change)="onFilterChange()" />
+        <span class="date-sep">–</span>
+        <input type="date" class="input date-input" [(ngModel)]="dateTo" (change)="onFilterChange()" />
+      </div>
+      <button class="btn-ghost" (click)="onFilterChange()">
+        <lucide-icon name="filter" [size]="14" />
+        Apply
+      </button>
+    </div>
+
+    @if (loading()) {
+      <app-skeleton-table [rows]="10" [columnWidths]="['140px', '100px', '120px', '100px', '100px', '120px']" />
+    } @else if (error()) {
+      <div class="error-state">
+        <lucide-icon name="alert-circle" [size]="20" />
+        <span>{{ error() }}</span>
+        <button class="btn-ghost btn-sm" (click)="load()">Retry</button>
+      </div>
+    } @else {
+      <div class="content-fade-in">
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Admin</th>
+                <th>Action</th>
+                <th>Target Type</th>
+                <th>Target ID</th>
+                <th>IP Address</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (log of logs(); track log.id) {
+                <tr>
+                  <td>
+                    <span class="timestamp">{{ log.createdAt | timeAgo }}</span>
+                    <span class="timestamp-full">{{ log.createdAt | date:'short' }}</span>
+                  </td>
+                  <td>
+                    <span class="admin-name">{{ log.adminUsername || '-' }}</span>
+                  </td>
+                  <td>
+                    <span class="badge" [ngClass]="actionBadgeClass(log.action)">{{ log.action }}</span>
+                  </td>
+                  <td>{{ log.targetType || '-' }}</td>
+                  <td>
+                    @if (log.targetId) {
+                      <span class="mono-text">{{ log.targetId.length > 12 ? (log.targetId | slice:0:12) + '…' : log.targetId }}</span>
+                    } @else {
+                      <span>-</span>
+                    }
+                  </td>
+                  <td>
+                    <span class="mono-text ip-text">{{ log.ipAddress || '-' }}</span>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6" class="empty-row">
+                    <lucide-icon name="shield" [size]="24" />
+                    <p>No audit logs found</p>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        @if (totalPages > 1) {
+          <div class="pagination">
+            <button
+              class="btn-ghost btn-sm"
+              [disabled]="page() === 1"
+              (click)="onPageChange(page() - 1)"
+            >
+              <lucide-icon name="chevron-left" [size]="14" />
+              Previous
+            </button>
+            <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
+            <button
+              class="btn-ghost btn-sm"
+              [disabled]="page() >= totalPages"
+              (click)="onPageChange(page() + 1)"
+            >
+              Next
+              <lucide-icon name="chevron-right" [size]="14" />
+            </button>
+          </div>
+        }
+      </div>
+    }
+  </div>
+</app-admin-layout>

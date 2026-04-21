@@ -1,0 +1,8 @@
+gateway: cd services/gateway-go && PORT=3001 go run ./cmd/gateway
+auth: cd services/auth-service-go && PORT=3010 go run ./cmd/auth-service
+admin: cd services/admin-service-go && PORT=3050 go run ./cmd/admin-service
+chat: cd services/chat-service-py && .venv/bin/uvicorn app.main:app --reload --port 3020
+memory: cd services/memory-service-py && .venv/bin/uvicorn app.main:app --reload --port 3040
+solana: cd services/solana-service-rs && cargo run
+solana-ts: cd services/solana-service-ts && PORT=3031 npx ts-node-dev --respawn --transpile-only src/index.ts
+frontend: cd apps/oprai && npx ng serve --port 3000

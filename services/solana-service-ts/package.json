@@ -1,0 +1,52 @@
+{
+  "name": "@oprai/solana-service-ts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OPRAI Solana service — TypeScript rewrite using official protocol SDKs",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc --project tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "eslint src/**/*.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@drift-labs/sdk": "^2.163.0-beta.0",
+    "@jup-ag/api": "^6.0.31",
+    "@kamino-finance/klend-sdk": "^7.3.22",
+    "@marinade.finance/marinade-ts-sdk": "^5.0.18",
+    "@meteora-ag/dlmm": "^1.9.4",
+    "@mrgnlabs/marginfi-client-v2": "^6.4.1",
+    "@mrgnlabs/mrgn-common": "^2.0.7",
+    "@orca-so/common-sdk": "^0.6.4",
+    "@orca-so/whirlpools-sdk": "^0.20.0",
+    "@raydium-io/raydium-sdk-v2": "^0.2.41-alpha",
+    "@solana/spl-memo": "^0.2.5",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.95.4",
+    "@streamflow/stream": "^11.3.1",
+    "axios": "^1.6.0",
+    "bn.js": "^5.2.1",
+    "bs58": "^6.0.0",
+    "cors": "^2.8.5",
+    "decimal.js": "^10.4.3",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.5.1",
+    "helmet": "^7.1.0",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.11.0",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/uuid": "^10.0.0",
+    "ts-node": "^10.9.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
+  }
+}

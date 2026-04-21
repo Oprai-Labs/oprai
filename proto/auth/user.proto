@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package oprai.auth;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/authpb";
+
+import "google/protobuf/timestamp.proto";
+import "proto/common/types.proto";
+
+// ─── User Service ────────────────────────────────────────────────────────────
+
+service UserService {
+  // Retrieve a single user by wallet address or ID.
+  rpc GetUser (GetUserRequest) returns (UserProfile);
+
+  // Update mutable user profile fields.
+  rpc UpdateUser (UpdateUserRequest) returns (UserProfile);
+
+  // Admin-facing paginated user listing with filters.
+  rpc ListUsers (ListUsersRequest) returns (ListUsersResponse);
+}
+
+// ─── UserProfile ─────────────────────────────────────────────────────────────
+
+message UserProfile {
+  string id              = 1;
+  string wallet_address  = 2;
+  string chain           = 3;  // e.g. "solana"
+
+  string display_name    = 4;  // optional
+  string risk_tolerance  = 5;  // optional: "low" | "medium" | "high"
+
+  repeated string preferred_protocols    = 6;
+  bool            auto_suggestions_allowed = 7;
+
+  string role = 8; // e.g. "user", "admin"
+
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// ─── GetUser ─────────────────────────────────────────────────────────────────
+
+message GetUserRequest {
+  // Supply exactly one identifier.
+  oneof identifier {
+    string id             = 1;
+    string wallet_address = 2;
+  }
+}
+
+// ─── UpdateUser ──────────────────────────────────────────────────────────────
+
+message UpdateUserRequest {
+  string wallet_address = 1; // identifies the user
+
+  // Only non-empty fields are applied.
+  optional string display_name             = 2;
+  optional string risk_tolerance           = 3;
+  repeated string preferred_protocols      = 4;
+  optional bool   auto_suggestions_allowed = 5;
+}
+
+// ─── ListUsers ───────────────────────────────────────────────────────────────
+
+message ListUsersRequest {
+  oprai.common.Pagination pagination = 1;
+  oprai.common.DateRange  date_range = 2;
+
+  string search = 3; // free-text search (wallet, display name)
+
+  // Sort field: "created_at" | "wallet_address" | "display_name" | "role" | "status"
+  string                   sort  = 4;
+  oprai.common.SortOrder   order = 5;
+
+  string status = 6; // "active" | "suspended" | "banned"
+  string role   = 7;
+}
+
+message ListUsersResponse {
+  repeated UserProfile               users      = 1;
+  oprai.common.PaginatedResponse     pagination = 2;
+}

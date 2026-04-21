@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="kmno-grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7FE7DC"/>
+      <stop offset="100%" stop-color="#2DD4BF"/>
+    </linearGradient>
+    <linearGradient id="kmno-grad2" x1="32" y1="0" x2="0" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2DD4BF"/>
+      <stop offset="100%" stop-color="#0D9488"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <circle cx="16" cy="16" r="16" fill="#091A1A"/>
+  <!-- Kamino K letterform — geometric lines -->
+  <!-- Vertical bar -->
+  <rect x="9" y="7" width="3.5" height="18" rx="1.75" fill="url(#kmno-grad)"/>
+  <!-- Upper diagonal -->
+  <path d="M12.5 16L21 8H25L16 16L12.5 16Z" fill="url(#kmno-grad)"/>
+  <!-- Lower diagonal -->
+  <path d="M12.5 16L21 24H25L16 16L12.5 16Z" fill="url(#kmno-grad2)"/>
+  <!-- Center shine -->
+  <circle cx="16" cy="16" r="1" fill="#FFFFFF" opacity="0.4"/>
+</svg>

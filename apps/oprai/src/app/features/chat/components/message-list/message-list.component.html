@@ -1,0 +1,131 @@
+<div class="message-list scrollbar-thin" #scrollContainer (scroll)="onScroll()">
+  <div class="messages-wrapper">
+    @for (message of messages; track message.id) {
+        <div
+          class="message-row"
+          [class.message-row--user]="message.role === 'user'"
+          [class.message-row--assistant]="message.role !== 'user'"
+        >
+          <!-- User bubble -->
+          @if (message.role === 'user') {
+            <div class="bubble bubble--user">
+              {{ message.content }}
+              <span class="msg-timestamp">{{ formatTimestamp(message.createdAt) }}</span>
+            </div>
+          } @else {
+            <!-- Assistant content -->
+            <div class="bubble bubble--assistant" [class.bubble--error]="message.isError">
+              <!-- Show LLM thinking if available and no content yet -->
+              @if (isLastAssistantMessage(message) && currentThinking && !message.content) {
+                <div class="thinking-content">
+                  <span class="thinking-label">Thinking</span>
+                  <div class="thinking-text">{{ currentThinking }}</div>
+                </div>
+              }
+
+              <!-- No content and no thinking = simple loading indicator -->
+              @if (isLastAssistantMessage(message) && !message.content && !currentThinking) {
+                <div class="thinking-simple">
+                  <span class="thinking-simple-text">Generating response...</span>
+                </div>
+              }
+
+              <!-- Main content with markdown -->
+              @if (message.content) {
+                <div
+                  class="prose"
+                  [class.streaming-text]="isLastAssistantMessage(message) && message.content"
+                  [innerHTML]="getDisplayContent(message) | markdown"
+                ></div>
+                @if (isLastAssistantMessage(message) && message.content) {
+                  <span class="streaming-cursor"></span>
+                }
+              }
+
+              <!-- Message footer: timestamp + copy button -->
+              @if (message.content && !isLastAssistantMessage(message)) {
+                <div class="msg-footer">
+                  <span class="msg-timestamp">{{ formatTimestamp(message.createdAt) }}</span>
+                  <button class="msg-copy-btn" (click)="copyMessage(message)" title="Copy">
+                    @if (copiedMessageId() === message.id) {
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    } @else {
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    }
+                  </button>
+                </div>
+              }
+
+              <!-- Retry button for error messages -->
+              @if (message.isError) {
+                <button class="msg-retry-btn" (click)="retryLast.emit()">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.87"/></svg>
+                  Retry
+                </button>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- Inline query cards -->
+        @if (message.role === 'assistant' && getQueriesForMessage(message.id).length > 0) {
+          <div class="inline-cards">
+            @for (query of getQueriesForMessage(message.id); track $index) {
+              <app-query-card
+                [query]="query"
+                [sessionId]="message.sessionId"
+                [messageId]="message.id"
+                [snapshot]="message.metadata?.query_snapshots?.[query.raw] ?? null"
+                (cancelAction)="onCancelAction($event)">
+              </app-query-card>
+            }
+          </div>
+        }
+
+        <!-- Inline action cards -->
+        @if (message.role === 'assistant' && getActionsForMessage(message.id).length > 0) {
+          <div class="inline-cards">
+            @if (getActionsForMessage(message.id).length >= 2 && !isBatchRunning(message.id)) {
+              <button class="run-all-btn" (click)="startBatchRun(message.id)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Run All in Sequence
+              </button>
+            }
+            @if (isBatchRunning(message.id)) {
+              <div class="run-all-progress">
+                <span class="run-all-spinner"></span>
+                Running {{ (batchIndex().get(message.id) ?? 0) + 1 }} of {{ getActionsForMessage(message.id).length }}…
+              </div>
+            }
+            @for (action of getActionsForMessage(message.id); track $index; let i = $index) {
+              <app-action-card
+                [action]="action"
+                [allActions]="getActionsForMessage(message.id)"
+                [sessionId]="message.sessionId"
+                [messageId]="message.id"
+                [cachedResult]="message.metadata?.action_results?.[action.raw] ?? null"
+                [cachedQsResult]="message.metadata?.action_results?.[action.raw + ':qs'] ?? null"
+                [autoApprove]="isBatchAction(message.id, i)"
+                (requestChat)="onRequestChat($event)"
+                (executionComplete)="onBatchStepComplete(message.id, $event)">
+              </app-action-card>
+            }
+          </div>
+        }
+
+        <!-- Clarify cards — protocol selection -->
+        @if (message.role === 'assistant' && getClarificationsForMessage(message.id).length > 0) {
+          <div class="inline-cards">
+            @for (clarify of getClarificationsForMessage(message.id); track $index) {
+              <app-clarify-card
+                [clarify]="clarify"
+                (actionSelected)="onClarifySelected($event)">
+              </app-clarify-card>
+            }
+          </div>
+        }
+      }
+    <!-- Dynamic spacer: sized by JS to allow scroll-to-user-message -->
+    <div class="scroll-spacer" #scrollSpacer></div>
+    </div>
+  </div>
