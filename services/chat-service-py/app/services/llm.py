@@ -179,8 +179,6 @@ class LLMService:
         }
         if instructions:
             kwargs["instructions"] = instructions
-        if responses_tools:
-            kwargs["tool_choice"] = "required"
         return kwargs
 
     async def _astream_responses(
@@ -357,7 +355,7 @@ class LLMService:
             model=model,
             messages=messages,  # type: ignore[arg-type]
             tools=tools,  # type: ignore[arg-type]
-            tool_choice="required",
+            tool_choice="auto",
             temperature=0.3,
             max_tokens=settings.OPRAI_GPT_MAX_TOKENS,
             stream=True,

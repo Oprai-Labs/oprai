@@ -23,7 +23,7 @@ Examples:
 - "Send 500 tokens of DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 to HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6"
   -> execute_action("transfer", {"to": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6", "amount": "500", "token": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"})
 
-**CLARIFICATION RULE**: If the user requests a transfer but does NOT provide the recipient wallet address (`to`), you MUST ask for it before emitting the action block. Never guess or make up an address.
+**CLARIFICATION RULE**: If the user requests a transfer but does NOT provide a valid Solana wallet address (`to`), you MUST ask for it. A valid address is 32–44 base58 characters. Words like "someone", "my friend", "them", "it" are NOT valid addresses — treat them as missing and ask for the real address.
 
 Example flow:
 - User: "Transfer 0.1 SOL" → Ask: "What is the recipient's Solana wallet address?"
@@ -50,7 +50,10 @@ Examples:
   -> [ACTION:swap] inputMint=SOL outputMint=USDC amount=1
 
 - "Exchange 100 USDC for SOL with 1% slippage"
-  -> [ACTION:swap] inputMint=USDC outputMint=SOL amount=100 slippageBps=100
+  -> execute_action("swap", {"inputMint": "USDC", "outputMint": "SOL", "amount": "100", "slippageBps": "100"})
+
+- "Swap 5 SOL to USDC with 1% slippage"
+  -> execute_action("swap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "5", "slippageBps": "100"})
 
 - "Tüm jupSOL'unu SOL'a takasla" / "Swap all my jupSOL to SOL"
   -> [ACTION:swap] inputMint=jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v outputMint=SOL amount=all
