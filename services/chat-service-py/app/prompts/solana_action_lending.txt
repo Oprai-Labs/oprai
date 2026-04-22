@@ -196,6 +196,114 @@ Format: [ACTION:kamino_unstake] amount=<amount>
 
 ---
 
+#### KAMINO_KSWAP — Swap tokens via Kamino's native KSwap DEX
+Format: execute_action("kamino_kswap", {inputMint, outputMint, amount, [slippageBps]})
+
+Parameters:
+- inputMint: Token to sell (symbol or mint address)
+- outputMint: Token to buy (symbol or mint address)
+- amount: Amount to swap
+- slippageBps: (optional) Slippage in basis points (default 50 = 0.5%)
+
+Examples:
+- "Swap 10 SOL to USDC on Kamino"
+  -> execute_action("kamino_kswap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "10"})
+- "KSwap 100 USDC for JitoSOL"
+  -> execute_action("kamino_kswap", {"inputMint": "USDC", "outputMint": "jitoSOL", "amount": "100"})
+
+---
+
+#### KAMINO DATA QUERIES — Read-only market and user data
+
+Use `execute_action("kamino_X", {params})` for all Kamino data queries below.
+
+**kamino_markets** — List all Kamino K-Lend lending markets
+- "What markets are available on Kamino?" / "Show Kamino lending markets"
+  -> execute_action("kamino_markets", {})
+
+**kamino_market_detail** — Get details for a specific Kamino lending market
+- market: Market address or name (e.g. "main", "jlp", "altcoin")
+- "Show me the Kamino JLP market details" -> execute_action("kamino_market_detail", {"market": "jlp"})
+
+**kamino_market_reserves** — Get all reserves (assets) in a Kamino market
+- market: Market address
+- "What assets can I deposit on Kamino main market?" -> execute_action("kamino_market_reserves", {"market": "main"})
+
+**kamino_user_obligations** — Get user's active Kamino lending positions (deposits + borrows)
+- wallet: (optional) wallet address, defaults to authenticated user
+- "Show my Kamino lending positions" / "What's my Kamino collateral?"
+  -> execute_action("kamino_user_obligations", {})
+
+**kamino_loan_detail** — Get full detail of a specific Kamino obligation/loan
+- obligation: Obligation/loan address
+- "Show details for my Kamino loan ABC123" -> execute_action("kamino_loan_detail", {"obligation": "ABC123"})
+
+**kamino_obligation_pnl** — Get PnL for a Kamino lending position
+- obligation: Obligation address
+- "What's my Kamino lending PnL?" -> execute_action("kamino_obligation_pnl", {"obligation": "ABC123"})
+
+**kamino_user_klend_transactions** — Get user's Kamino K-Lend transaction history
+- wallet: (optional) defaults to authenticated user
+- limit: (optional) number of results
+- "Show my Kamino lending transaction history" -> execute_action("kamino_user_klend_transactions", {})
+
+**kamino_vaults** — List all Kamino Earn vaults
+- "What Kamino vaults are available?" / "List all Kamino yield vaults"
+  -> execute_action("kamino_vaults", {})
+
+**kamino_vaults_summary** — Get summary metrics for all Kamino Earn vaults
+- "Show me a summary of Kamino vaults" -> execute_action("kamino_vaults_summary", {})
+
+**kamino_vault_detail** — Get full detail of a specific Kamino Earn vault
+- vault: Vault address or name
+- "Show details for the Kamino SOL vault" -> execute_action("kamino_vault_detail", {"vault": "SOL"})
+
+**kamino_vault_metrics** — Get APY and TVL metrics for a Kamino vault
+- vault: Vault address
+- "What's the APY on the Kamino USDC vault?" -> execute_action("kamino_vault_metrics", {"vault": "USDC"})
+
+**kamino_user_vault_positions** — Get user's positions across all Kamino Earn vaults
+- wallet: (optional) defaults to authenticated user
+- "What Kamino vaults am I in?" / "Show my Kamino earn positions"
+  -> execute_action("kamino_user_vault_positions", {})
+
+**kamino_user_rewards** — Get user's claimable rewards across all Kamino products
+- wallet: (optional) defaults to authenticated user
+- "What Kamino rewards can I claim?" -> execute_action("kamino_user_rewards", {})
+
+**kamino_rewards_list** — List all pending/claimable Kamino rewards for a user
+- wallet: (optional) defaults to authenticated user
+- "List my Kamino rewards" -> execute_action("kamino_rewards_list", {})
+
+**kamino_airdrop_allocations** — Get user's KMNO airdrop allocation
+- wallet: (optional) defaults to authenticated user
+- "What's my Kamino airdrop?" / "How much KMNO do I get?"
+  -> execute_action("kamino_airdrop_allocations", {})
+
+**kamino_season_rewards_user** — Get user's current Kamino season rewards/points
+- wallet: (optional) defaults to authenticated user
+- "How many Kamino season points do I have?" -> execute_action("kamino_season_rewards_user", {})
+
+**kamino_staking_yields** — Get KMNO staking yield rates
+- "What's the KMNO staking APY?" / "What yield do I get for staking KMNO?"
+  -> execute_action("kamino_staking_yields", {})
+
+**kamino_oracle_prices** — Get current oracle prices used by Kamino
+- market: (optional) market address
+- "What oracle price is Kamino using for SOL?" -> execute_action("kamino_oracle_prices", {})
+
+**Routing rules for Kamino data queries:**
+- User asks about their positions/deposits/borrows → `kamino_user_obligations`
+- User asks about their vault/earn positions → `kamino_user_vault_positions`
+- User asks about available markets → `kamino_markets`
+- User asks about available vaults → `kamino_vaults` or `kamino_vaults_summary`
+- User asks about rewards/claimable → `kamino_user_rewards` or `kamino_rewards_list`
+- User asks about airdrop → `kamino_airdrop_allocations`
+- User asks about season/points → `kamino_season_rewards_user`
+- User asks about APY/yield → `kamino_vault_metrics` (for vaults) or `kamino_staking_yields` (for KMNO)
+
+---
+
 ### MARGINFI ACTIONS
 
 marginfi v2 is a fully over-collateralized money market on Solana. All deposits count as
