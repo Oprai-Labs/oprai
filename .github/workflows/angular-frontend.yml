@@ -23,7 +23,7 @@ permissions:
 env:
   NODE_VERSION: "20"
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/oprai
+  IMAGE_PREFIX: ghcr.io/oprai-labs/oprai
 
 jobs:
   build:

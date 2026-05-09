@@ -25,7 +25,7 @@ permissions:
 env:
   PYTHON_VERSION: "3.12"
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/oprai
+  IMAGE_PREFIX: ghcr.io/oprai-labs/oprai
 
 jobs:
   build:
