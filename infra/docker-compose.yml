@@ -102,13 +102,14 @@ services:
     volumes:
       - qdrant-storage:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      # qdrant image has bash but not curl; bash /dev/tcp probes the port.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   prometheus:
-    image: prom/prometheus:v2.51.0
+    image: prom/prometheus:v3.0.0
     container_name: oprai-prometheus
     restart: unless-stopped
     ports:
@@ -165,7 +166,7 @@ services:
       MEMORY_SERVICE_GRPC: memory-service-py:50054
       REDIS_URL: redis://redis:6379
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3001/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -196,10 +197,10 @@ services:
       GRPC_PORT: 50051
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
-      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
       REDIS_URL: redis://redis:6379
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3010/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3010/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -225,9 +226,9 @@ services:
       GRPC_PORT: 50055
       OPRAI_ADMIN_JWT_SECRET: ${OPRAI_ADMIN_JWT_SECRET:?OPRAI_ADMIN_JWT_SECRET is required}
       ADMIN_CORS_ORIGIN: ${ADMIN_CORS_ORIGIN:-http://localhost:3200}
-      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3050/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3050/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -252,13 +253,21 @@ services:
       GRPC_PORT: 50052
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
-      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      # asyncpg driver — chat-service-py uses SQLAlchemy async engine
+      DATABASE_URL: postgresql+asyncpg://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
+      OPRAI_LLM_PROVIDER: ${OPRAI_LLM_PROVIDER:-openai}
       OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
-      OPRAI_OPENAI_MODEL: ${OPRAI_OPENAI_MODEL:-gpt-4o-mini}
+      OPRAI_ANTHROPIC_API_KEY: ${OPRAI_ANTHROPIC_API_KEY:-}
+      OPRAI_RESPONDER_MODEL_OPENAI: ${OPRAI_RESPONDER_MODEL_OPENAI:-gpt-4o-mini}
+      OPRAI_RESPONDER_MODEL_ANTHROPIC: ${OPRAI_RESPONDER_MODEL_ANTHROPIC:-claude-haiku-4-5}
       MEMORY_SERVICE_URL: http://memory-service-py:3040
       MEMORY_SERVICE_GRPC: memory-service-py:50054
+    # `python -m app.main` loads main.py as __main__, then uvicorn re-imports it
+    # as app.main, double-registering Prometheus Counters. `python -m uvicorn`
+    # only loads app.main once.
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3020"]
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3020/health || exit 1"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3020/health').read()"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -281,11 +290,14 @@ services:
       GRPC_PORT: 50054
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
-      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      # asyncpg driver — memory-service-py uses SQLAlchemy async engine
+      DATABASE_URL: postgresql+asyncpg://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
       QDRANT_URL: http://qdrant:6333
       OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
+    # See chat-service-py — same rationale.
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3040"]
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3040/health || exit 1"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3040/health').read()"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -310,13 +322,17 @@ services:
     environment:
       PORT: 3030
       GRPC_PORT: 50053
+      # Inside docker network — bind 0.0.0.0 so other containers can reach
+      BIND_HOST: 0.0.0.0
+      GRPC_BIND_HOST: 0.0.0.0
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
-      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
       SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
       SOLANA_NETWORK: ${SOLANA_NETWORK:-mainnet-beta}
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3030/health || exit 1"]
+      # solana-service-rs runtime is debian-slim without wget/curl; bash /dev/tcp probe.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3030"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -335,7 +351,8 @@ services:
     expose:
       - "80"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      # nginx:alpine ships with wget (busybox); use 127.0.0.1 to avoid IPv6 mismatch
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

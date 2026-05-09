@@ -1176,10 +1176,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     // bin_step is in basis points (1 bp = 0.01%), e.g. 8 → 0.08% per bin.
     const binStep = p.pool_config?.bin_step ?? 0;
     const currentPrice = p.current_price ?? 0;
+    const decX = p.token_x?.decimals ?? 9;
+    const decY = p.token_y?.decimals ?? 9;
     let activeBinId = 0;
     if (binStep > 0 && currentPrice > 0) {
+      // current_price is human-units; the bin formula speaks in raw units,
+      // so scale by 10^(decX-decY) before solving for the bin id.
       activeBinId = Math.round(
-        Math.log(currentPrice) / Math.log(1 + binStep / 10_000),
+        Math.log(currentPrice * Math.pow(10, decX - decY)) /
+          Math.log(1 + binStep / 10_000),
       );
     }
     const params: Record<string, string> = {

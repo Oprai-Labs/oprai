@@ -586,11 +586,27 @@ async def build_llm_context(
     # Token balances are critical: prompts like "add as much as my entire
     # jitoSOL" can't be resolved without seeing the user's jitoSOL holding,
     # and the LLM otherwise hallucinates "insufficient balance" answers.
+    #
+    # Cached at 30s TTL to avoid blocking RPC calls on every message.
+    # The cache is invalidated by post-action flows that change the balance.
     import asyncio as _asyncio
-    sol_balance, token_balances = await _asyncio.gather(
-        _fetch_sol_balance(wallet),
-        _fetch_token_balances(wallet),
-    )
+    from app.services.cache import get_cache_service as _get_cache
+    _cache = await _get_cache()
+    _cached_balances = await _cache.get("wallet_balances", wallet)
+    if _cached_balances is not None:
+        sol_balance = _cached_balances.get("sol")
+        token_balances = _cached_balances.get("tokens")
+    else:
+        sol_balance, token_balances = await _asyncio.gather(
+            _fetch_sol_balance(wallet),
+            _fetch_token_balances(wallet),
+        )
+        await _cache.set(
+            "wallet_balances",
+            {"sol": sol_balance, "tokens": token_balances},
+            wallet,
+            ttl=30,
+        )
     balance_line = (
         f"SOL balance: {sol_balance:.4f} SOL\n" if sol_balance is not None else ""
     )

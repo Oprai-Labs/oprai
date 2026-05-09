@@ -94,6 +94,10 @@ CACHE_CONFIGS = {
     # backstop. 25h TTL so stale rows expire without a sweep job.
     "session:llm_daily": CacheConfig(ttl_seconds=90000, prefix="llmcost"),
 
+    # Wallet SOL + SPL token balances. 30s TTL: saves one RPC round-trip per
+    # message. Stale by at most 30s; real shortfalls surface at wallet signing.
+    "wallet_balances": CacheConfig(ttl_seconds=30, prefix="walbal"),
+
     # Generic - default cache time
     "default": CacheConfig(ttl_seconds=60, prefix="default"),
 }

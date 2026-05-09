@@ -2221,12 +2221,15 @@ export class SolanaActionService {
         // / `amountY`. Accept either so a form-submit and a model-emitted
         // action both reach the Rust handler with the right keys.
         //
-        // Rust requires (minBinId + maxBinId) OR (minPrice + maxPrice). The
-        // form only collects `binSpread` (± bins around the active bin) — so
-        // derive the ids here from `activeBinId` + `binSpread` when the
-        // explicit ids aren't set. The QueryCard "Use this pool" CTA always
-        // embeds `activeBinId` for DLMM rows; LLM-emitted DLMM actions are
-        // expected to do the same.
+        // Range resolution priority (this order matters):
+        //   1. Explicit minBinId+maxBinId (LLM's most precise input)
+        //   2. binSpread + activeBinId (the form's current value — always
+        //      present as the user-visible "± N bins" control). This wins
+        //      over an inherited minPrice/maxPrice from a prior LLM turn,
+        //      because the form is the user's latest decision.
+        //   3. minPrice + maxPrice (last resort: a wide range here can
+        //      explode into thousands of bins for low bin_step pools and
+        //      blow past Solana's 1232 B tx-size limit).
         let minBinId = p['minBinId'] ? parseInt(p['minBinId']) : undefined;
         let maxBinId = p['maxBinId'] ? parseInt(p['maxBinId']) : undefined;
         if (minBinId === undefined && maxBinId === undefined) {
@@ -2237,12 +2240,20 @@ export class SolanaActionService {
             maxBinId = active + spread;
           }
         }
+        // If we resolved the range from binSpread, drop any LLM-supplied
+        // price hints so the Rust side doesn't see both and pick the wrong
+        // one.
+        const resolvedFromSpread = minBinId !== undefined && maxBinId !== undefined;
         return {
           pool: p['pool'] ?? p['poolId'],
           amountX: p['amountX'] ?? p['amountA'],
           amountY: p['amountY'] ?? p['amountB'],
           minBinId,
           maxBinId,
+          ...(resolvedFromSpread ? {} : {
+            minPrice: p['minPrice'] ? parseFloat(p['minPrice']) : undefined,
+            maxPrice: p['maxPrice'] ? parseFloat(p['maxPrice']) : undefined,
+          }),
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
           strategy: p['strategy'],
         };
@@ -2280,14 +2291,14 @@ export class SolanaActionService {
       case 'meteora_open_position': {
         // Same range derivation as meteora_add_liquidity: prefer explicit
         // bin ids, fall back to (activeBinId ± binSpread), then prices.
+        // Range resolution priority — same as meteora_add_liquidity above:
+        // explicit ids > form's binSpread (current user choice) > LLM's
+        // price hints. Skipping the form's binSpread when the LLM emitted
+        // wide minPrice/maxPrice translates to thousands of bins on small
+        // bin_step pools and a 25 KB tx that the RPC rejects.
         let minBinId = p['minBinId'] ? parseInt(p['minBinId']) : undefined;
         let maxBinId = p['maxBinId'] ? parseInt(p['maxBinId']) : undefined;
-        const minPrice = p['minPrice'] ? parseFloat(p['minPrice']) : undefined;
-        const maxPrice = p['maxPrice'] ? parseFloat(p['maxPrice']) : undefined;
-        if (
-          minBinId === undefined && maxBinId === undefined &&
-          minPrice === undefined && maxPrice === undefined
-        ) {
+        if (minBinId === undefined && maxBinId === undefined) {
           const active = parseInt(p['activeBinId'] ?? '');
           const spread = parseInt(p['binSpread'] ?? '15');
           if (Number.isFinite(active) && Number.isFinite(spread) && spread > 0) {
@@ -2295,14 +2306,17 @@ export class SolanaActionService {
             maxBinId = active + spread;
           }
         }
+        const resolvedFromSpread = minBinId !== undefined && maxBinId !== undefined;
         return {
           pool: p['pool'] ?? p['poolId'],
           amountX: p['amountX'] ?? p['amountA'],
           amountY: p['amountY'] ?? p['amountB'],
           minBinId,
           maxBinId,
-          minPrice,
-          maxPrice,
+          ...(resolvedFromSpread ? {} : {
+            minPrice: p['minPrice'] ? parseFloat(p['minPrice']) : undefined,
+            maxPrice: p['maxPrice'] ? parseFloat(p['maxPrice']) : undefined,
+          }),
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
           strategy: p['strategy'],
         };

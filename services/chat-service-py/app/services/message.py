@@ -433,31 +433,28 @@ def _sanitize_user_input(content: str, wallet: str = "unknown") -> str:
 
 async def _build_recent_context_from_db(db, session_id: str) -> str:
     """
-    Pull the last assistant turn (+ user turn before it) directly from the
-    chat-message table, formatted for the intent classifier.
+    Pull the last 4 turns (2 user+assistant pairs) from the chat-message table
+    for the intent classifier.
 
-    The classifier runs BEFORE `build_llm_context()`, so we cannot use the
-    full LLM-formatted message list (it doesn't exist yet at that point).
-    Reading the last 2-3 rows from the DB is cheap and enough — the
-    classifier only needs context to resolve referential phrases like
-    "tamamını" / "kapat onu" against the prior assistant turn.
-
-    Stays small on purpose: 2 turns × ~400 chars cap = ~800 chars total.
+    Expanded from 2 → 4 turns so referential phrases that point back 2-3 turns
+    ("it", "that token", "the one we discussed") resolve correctly.
+    Each message is capped at 300 chars to keep the classifier payload small.
+    4 turns × 300 chars = ~1200 chars total, well within gpt-5.4-nano limits.
     """
     try:
         result = await db.execute(
             select(ChatMessage.role, ChatMessage.content)
             .where(ChatMessage.session_id == uuid.UUID(session_id))
             .order_by(ChatMessage.created_at.desc())
-            .limit(4)
+            .limit(8)
         )
         rows = list(result.all())
     except Exception:
         return ""
 
     pieces: list[str] = []
-    seen_assistant = False
-    seen_user = False
+    turn_count = 0
+    prev_role: str | None = None
     for role, content in rows:
         if role not in ("assistant", "user"):
             continue
@@ -466,14 +463,14 @@ async def _build_recent_context_from_db(db, session_id: str) -> str:
         text = content.strip()
         if not text:
             continue
-        if role == "assistant" and not seen_assistant:
-            pieces.append(f"Assistant: {text[:400]}")
-            seen_assistant = True
-        elif role == "user" and seen_assistant and not seen_user:
-            pieces.append(f"User: {text[:400]}")
-            seen_user = True
-        if seen_assistant and seen_user:
+        # Count a "turn" each time the role flips (user→assistant or vice versa)
+        if prev_role is not None and role != prev_role:
+            turn_count += 1
+        if turn_count >= 4:
             break
+        pieces.append(f"{role.capitalize()}: {text[:300]}")
+        prev_role = role
+
     # Order chronologically (older first) for the classifier prompt.
     return "\n".join(reversed(pieces))
 
@@ -650,14 +647,12 @@ async def stream_chat_response(
     # separately after streaming completes (step 8).
     await db.commit()
 
-    # ── 4. Summarise previous block if needed ────────────────────────────
-    await maybe_create_summary(db, session_id, wallet, new_count)
-
-    # ── 5. Classify intent + pre-fetch knowledge in parallel (~100–200 ms) ──
-    # Intent classification (gpt-4o-mini, ~100 ms) and Qdrant RAG pre-fetch
-    # (~50–150 ms) overlap completely — both fire at the same time. The KB
-    # block is passed into build_llm_context; injection is conditioned on
-    # intent (action turns skip KB to protect prompt-cache hit-rate).
+    # ── 4+5. Summarise + classify intent + pre-fetch knowledge in parallel ──
+    # All three are independent: summarize previous block, classify intent,
+    # and pre-fetch RAG knowledge all fire concurrently. This cuts ~200-400ms
+    # off the critical path vs. running summarize first then the other two.
+    # Note: build_llm_context fetches summaries from DB; if summarization just
+    # wrote a new one it will be visible (same DB session, flush happened above).
     from app.services.intent_router import IntentRouter, filter_tools_by_intent
 
     async def _rag_prefetch() -> str | None:
@@ -674,7 +669,8 @@ async def stream_chat_response(
             return None
 
     recent_context = await _build_recent_context_from_db(db, session_id)
-    intent_result, prefetched_knowledge = await asyncio.gather(
+    _, intent_result, prefetched_knowledge = await asyncio.gather(
+        maybe_create_summary(db, session_id, wallet, new_count),
         IntentRouter().classify(user_content, recent_context),
         _rag_prefetch(),
     )

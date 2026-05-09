@@ -235,21 +235,36 @@ export class MeteoraService {
       const tokenY = resp.token_y ?? {};
       const cfg = resp.pool_config ?? {};
       const vol = resp.volume ?? {};
+      const decX = tokenX.decimals ?? 9;
+      const decY = tokenY.decimals ?? 6;
+      const binStep = cfg.bin_step ?? resp.bin_step ?? 0;
+      const currentPrice = parseFloat(resp.current_price ?? '0');
+      // datapi /pools omits active_id, so derive it from the inverse of the
+      // DLMM bin formula:  humanPrice = (1 + binStep/10000)^activeBinId * 10^(decY-decX)
+      // Without this the action card defaults activeBinId to 0 and shows a
+      // bogus "1 X = 1 Y" ratio regardless of true pool price.
+      const activeBinId = resp.active_id ??
+        (binStep > 0 && currentPrice > 0
+          ? Math.round(
+              Math.log(currentPrice * Math.pow(10, decX - decY)) /
+              Math.log(1 + binStep / 10000)
+            )
+          : 0);
       return {
         address: resp.address,
         tokenXMint: tokenX.address ?? resp.mint_x ?? '',
         tokenYMint: tokenY.address ?? resp.mint_y ?? '',
         tokenXSymbol: tokenX.symbol ?? '',
         tokenYSymbol: tokenY.symbol ?? '',
-        tokenXDecimals: tokenX.decimals ?? 9,
-        tokenYDecimals: tokenY.decimals ?? 6,
-        currentPrice: parseFloat(resp.current_price ?? '0'),
+        tokenXDecimals: decX,
+        tokenYDecimals: decY,
+        currentPrice,
         baseFee: parseFloat(cfg.base_fee_pct ?? resp.base_fee_percentage ?? '0'),
         tvl: parseFloat(resp.tvl ?? resp.liquidity ?? '0'),
         volume24h: parseFloat(vol['24h'] ?? resp.trade_volume_24h ?? '0'),
         apr: parseFloat(resp.apr ?? '0'),
-        binStep: cfg.bin_step ?? resp.bin_step ?? 0,
-        activeBinId: resp.active_id ?? 0,
+        binStep,
+        activeBinId,
       };
     } catch (err) {
       console.error('Failed to fetch Meteora pool:', err);

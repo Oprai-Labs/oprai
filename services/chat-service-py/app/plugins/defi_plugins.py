@@ -255,7 +255,7 @@ class MeteoraDlmmGetPairsAction(BuildableAction):
     @property
     def name(self) -> str: return "meteora_dlmm_get_pairs"
     @property
-    def description(self) -> str: return "List Meteora DLMM pairs with optional filtering and sorting"
+    def description(self) -> str: return "List Meteora DLMM liquidity pairs (LP fee APY, TVL, volume). Use only when the user asks about DLMM pools or liquidity provision. NOT for native staking APR of jitoSOL/mSOL/jupSOL — use query_onchain('yield') for that."
     @property
     def parameters(self) -> dict[str, dict[str, Any]]:
         return {

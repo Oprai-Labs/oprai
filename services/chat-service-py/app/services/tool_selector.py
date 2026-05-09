@@ -787,30 +787,29 @@ class ToolSelector:
     """
     Builds the tool schema passed to the LLM for each request.
 
-    Hybrid filtering policy (chosen after the regex blind-spot bugs of early
-    May 2026 — e.g. "DLMM" not mapping to Meteora left the model unable to
-    call `meteora_dlmm_get_pairs` and forced silent fallbacks to
-    `jup_token_search`):
+    Hybrid filtering policy:
 
-      • **query_onchain** — read-only, no funds at risk, model is good at
-        picking among 144 queries by tool description. ALWAYS send the full
-        query catalogue. This eliminates the entire class of "regex missed
-        the venue" bugs (DLMM/CLMM/Whirlpool/K-Lend/MMM…). Cost is amortised
-        by Anthropic prompt caching (5-min ephemeral, 1-hour with cache_
-        control); incremental input cost on a cache hit is near zero.
+      • **query_onchain** — read-only, no funds at risk. When the detected
+        protocols are staking-only (jito/marinade/native_stake) with no DEX
+        venue named, DEX pool query tools are excluded — the model cannot
+        confuse LP pool APY with native staking APR. For all other protocol
+        combinations the full query catalogue is sent.
 
-      • **execute_action** — moves funds, signs transactions; tighter blast
-        radius needed. Keep the protocol-scoped filter so the model can
-        only emit actions for venues the user actually named (regex +
-        explicit @-tags). When the message mentions no protocol at all,
-        fall through to "everything"; the prompt's clarification rule
-        kicks in for genuinely ambiguous TX intents.
+      • **execute_action** — moves funds, signs transactions. Scoped to the
+        detected protocols so the model can only emit actions for the venues
+        the user actually named.
 
-      • **request_clarification** — uses `action_types` enum (TX-side), so
-        it follows the action filter automatically.
+      • **request_clarification** — follows the action enum automatically.
     """
 
     _ALWAYS = _A({"always"})
+
+    # Protocols whose queries are staking/lending only — no DEX pool tools.
+    _STAKING_PROTOCOLS: frozenset[str] = frozenset({"jito", "marinade", "native_stake"})
+    # Protocols that imply DEX/LP context — always send full query catalogue.
+    _DEX_PROTOCOLS: frozenset[str] = frozenset({
+        "meteora", "raydium", "orca", "jupiter", "pumpfun", "tensor", "magic_eden",
+    })
 
     def build(
         self,
@@ -818,25 +817,27 @@ class ToolSelector:
     ) -> list[dict[str, Any]]:
         """Return the tool catalogue for this request.
 
-        *protocols* is the canonical-id list produced by `IntentRouter`
-        (LLM-driven, multilingual). Pass an empty list / None when no
-        protocol signal is available — callers should NOT rebuild this set
-        with regex; the classifier is the single source of truth.
-
-        Filtering policy:
-          • Queries — always the full 266-entry catalogue. Read-only, no
-            funds at risk; the model picks among them by description.
-          • Actions — scoped to the supplied protocols when non-empty
-            (TX-side blast-radius control). Empty list → full action set
-            (the model itself disambiguates via prompt rules / clarification).
-          • request_clarification — uses the action enum, follows it.
+        *protocols* is the canonical-id list produced by `IntentRouter`.
         """
         active_protos: set[str] = {
             proto.lower().replace("-", "_") for proto in (protocols or [])
         }
 
-        # Queries: full catalogue, no filter.
-        sel_queries = _ALL_QUERY_VALUES
+        # Query filtering: if ALL detected protocols are staking-only and no
+        # DEX venue was named, remove DEX pool query tools so the model cannot
+        # route "jitoSOL APR?" to `meteora_dlmm_get_pairs` instead of `yield`.
+        staking_only = (
+            bool(active_protos)
+            and active_protos <= self._STAKING_PROTOCOLS
+            and not (active_protos & self._DEX_PROTOCOLS)
+        )
+        if staking_only:
+            sel_queries = [
+                v for v in _ALL_QUERY_VALUES
+                if "dex" not in QUERY_TAGS.get(v, _A())
+            ]
+        else:
+            sel_queries = _ALL_QUERY_VALUES
 
         # Actions: scope to the supplied protocols, or full set when empty.
         if active_protos:
@@ -844,14 +845,11 @@ class ToolSelector:
             for proto in active_protos:
                 active |= PROTOCOL_TO_TAGS.get(proto, set())
             sel_actions = [v for v in _ALL_ACTION_VALUES if ACTION_TAGS.get(v, _A()) & active]
-            logger.debug(
-                "ToolSelector: protocols=%s → actions=%d queries=%d (full)",
-                sorted(active_protos), len(sel_actions), len(sel_queries),
-            )
         else:
             sel_actions = _ALL_ACTION_VALUES
-            logger.debug(
-                "ToolSelector: no protocol signal → actions=%d (full) queries=%d (full)",
-                len(sel_actions), len(sel_queries),
-            )
+
+        logger.debug(
+            "ToolSelector: protocols=%s staking_only=%s → actions=%d queries=%d",
+            sorted(active_protos), staking_only, len(sel_actions), len(sel_queries),
+        )
         return _build_tools(sel_actions, sel_queries)

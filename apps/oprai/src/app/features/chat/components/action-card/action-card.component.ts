@@ -1374,14 +1374,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
     void this.meteoraService.getPool(poolId).then(pool => {
       if (!pool) return;
+      // String '0' is truthy, so a stale `activeBinId: '0'` would survive
+      // `ep[k] || fallback`. Treat '0' / '' / missing as unset and prefer
+      // the freshly-fetched pool value when it's a real (non-zero) number.
+      const pick = (cur: string | undefined, next: number | undefined): string => {
+        const n = Number(cur);
+        if (cur && Number.isFinite(n) && n !== 0) return cur;
+        return next != null && next !== 0 ? String(next) : (cur ?? '');
+      };
       this.editParams.update(ep => ({
         ...ep,
         tokenA: ep['tokenA'] || pool.tokenXMint,
         tokenB: ep['tokenB'] || pool.tokenYMint,
         // Carry the active bin id along so the DLMM ratio engine has a price
         // anchor when the LLM emitted minPrice/maxPrice instead of binIds.
-        binStep: ep['binStep'] || String(pool.binStep ?? ''),
-        activeBinId: ep['activeBinId'] || String(pool.activeBinId ?? ''),
+        binStep: pick(ep['binStep'], pool.binStep),
+        activeBinId: pick(ep['activeBinId'], pool.activeBinId),
+        tokenADecimals: pick(ep['tokenADecimals'], pool.tokenXDecimals),
+        tokenBDecimals: pick(ep['tokenBDecimals'], pool.tokenYDecimals),
       }));
     });
   }, { allowSignalWrites: true });

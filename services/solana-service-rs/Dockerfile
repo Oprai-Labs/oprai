@@ -1,21 +1,34 @@
 # ─── Stage 1: Build ──────────────────────────────────────────────────────────
-FROM rust:1.85-slim AS builder
+FROM rust:1.89-slim AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     protobuf-compiler \
     libpq-dev \
+    perl \
+    make \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
+
+# Force use of system OpenSSL instead of vendored build
+ENV OPENSSL_NO_VENDOR=1
+ENV PKG_CONFIG_ALLOW_CROSS=1
 
 WORKDIR /app
 
 # Copy proto files first (for tonic-build).
 COPY proto/ /app/proto/
 
+# Copy shared assets referenced via include_str! at compile time.
+COPY shared/ /app/shared/
+
 # Copy Cargo files for dependency caching.
 COPY services/solana-service-rs/Cargo.toml services/solana-service-rs/Cargo.lock* /app/services/solana-service-rs/
 COPY services/solana-service-rs/build.rs /app/services/solana-service-rs/
+
+# Migrations are include_str!'d into the binary at compile time.
+COPY services/solana-service-rs/migrations/ /app/services/solana-service-rs/migrations/
 
 # Create a dummy main.rs for dependency pre-build.
 RUN mkdir -p /app/services/solana-service-rs/src && \

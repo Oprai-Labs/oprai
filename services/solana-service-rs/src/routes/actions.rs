@@ -744,7 +744,13 @@ pub async fn post_simulate(
             },
         )
         .await
-        .map_err(|e| AppError::SolanaRpcError(format!("Simulation RPC error: {e}")))?;
+        .map_err(|e| {
+            // Use Debug instead of Display — the JSON-RPC inner error message
+            // (which carries the actual reason like "too large: 1450 bytes")
+            // is truncated by Display but preserved by Debug.
+            let tx_size = tx_bytes.len();
+            AppError::SolanaRpcError(format!("Simulation RPC error (tx_size={tx_size}B): {e:?}"))
+        })?;
 
     let value = sim_result.value;
     let success = value.err.is_none();
