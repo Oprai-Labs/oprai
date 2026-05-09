@@ -10,6 +10,8 @@ import json
 import logging
 import os
 import uuid
+
+import httpx
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from typing import Any, Dict, List, Optional
@@ -18,7 +20,7 @@ from typing import Any, Dict, List, Optional
 from app.logging_config import configure_logging
 configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"), fmt=os.environ.get("LOG_FORMAT", "json"))
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -31,7 +33,7 @@ from prometheus_client import (
     CONTENT_TYPE_LATEST,
 )
 from starlette.responses import Response, StreamingResponse
-from sqlalchemy import text as sa_text
+from sqlalchemy import select, text as sa_text, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -135,6 +137,20 @@ class StreamMessageRequest(BaseModel):
     attachments: list[Attachment] = Field(default_factory=list)
     # thinking: reserved — accepted to avoid frontend errors, currently unused
     thinking: bool = Field(default=False)
+    protocols: list[str] | None = Field(default=None)
+
+    model_config = {"populate_by_name": True}
+
+
+class EditMessageRequest(BaseModel):
+    """Edit-and-resend payload. The frontend sends `messageId` of the user
+    message being edited, the new `content`, and optionally a fresh set of
+    `protocols`. The backend supersedes that message and every message after
+    it, then streams a brand-new assistant turn over SSE."""
+    session_id: str = Field(..., alias="sessionId")
+    message_id: str = Field(..., alias="messageId")
+    content: str = Field(..., min_length=1, max_length=2000)
+    protocols: list[str] | None = Field(default=None)
 
     model_config = {"populate_by_name": True}
 
@@ -682,6 +698,938 @@ async def get_token_endpoint(
 
 
 # ---------------------------------------------------------------------------
+# Magic Eden NFT Routes
+# ---------------------------------------------------------------------------
+
+@app.get("/nft/magic-eden/instructions/withdraw")
+async def me_withdraw(
+    buyer: str = Query(..., description="Buyer wallet address"),
+    amount: float = Query(..., description="Amount in SOL to withdraw from escrow"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned escrow withdraw transaction via Magic Eden."""
+    from app.clients.magic_eden import get_withdraw_instruction
+    try:
+        tx = await get_withdraw_instruction(buyer, amount, auctionHouseAddress, priorityFee)
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME withdraw failed buyer=%s amount=%s", buyer, amount, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden withdraw transaction")
+
+
+@app.get("/nft/magic-eden/instructions/deposit")
+async def me_deposit(
+    buyer: str = Query(..., description="Buyer wallet address"),
+    amount: float = Query(..., description="Amount in SOL to deposit into escrow"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned escrow deposit transaction via Magic Eden."""
+    from app.clients.magic_eden import get_deposit_instruction
+    try:
+        tx = await get_deposit_instruction(buyer, amount, auctionHouseAddress, priorityFee)
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME deposit failed buyer=%s amount=%s", buyer, amount, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden deposit transaction")
+
+
+@app.get("/nft/magic-eden/instructions/sell_cancel")
+async def me_sell_cancel(
+    seller: str = Query(..., description="Seller wallet address"),
+    tokenMint: str = Query(..., description="Token mint address"),
+    tokenAccount: str = Query(..., description="Token account holding the NFT"),
+    price: float = Query(..., description="Listed price in SOL (must match original listing)"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    sellerReferral: str | None = Query(None, description="Seller referral wallet"),
+    expiry: int | None = Query(None, description="Expiry timestamp in seconds (0 = no expiry)"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned cancel-listing transaction via Magic Eden."""
+    from app.clients.magic_eden import get_sell_cancel_instruction
+    try:
+        tx = await get_sell_cancel_instruction(
+            seller, tokenMint, tokenAccount, price,
+            auctionHouseAddress, sellerReferral, expiry, priorityFee,
+        )
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME sell_cancel failed seller=%s mint=%s", seller, tokenMint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden sell-cancel transaction")
+
+
+@app.get("/nft/magic-eden/instructions/sell_now")
+async def me_sell_now(
+    buyer: str = Query(..., description="Buyer wallet address"),
+    seller: str = Query(..., description="Seller wallet address"),
+    tokenMint: str = Query(..., description="Token mint address"),
+    tokenATA: str = Query(..., description="Associate token account"),
+    price: float = Query(..., description="Current price in SOL"),
+    newPrice: float = Query(..., description="New price in SOL"),
+    sellerExpiry: int = Query(..., description="Seller expiry timestamp in seconds (0 = no expiry)"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    buyerReferral: str | None = Query(None, description="Buyer referral wallet"),
+    sellerReferral: str | None = Query(None, description="Seller referral wallet"),
+    buyerExpiry: int | None = Query(None, description="Buyer expiry timestamp (0 = no expiry)"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned sell-now (accept offer) transaction via Magic Eden."""
+    from app.clients.magic_eden import get_sell_now_instruction
+    try:
+        tx = await get_sell_now_instruction(
+            buyer, seller, tokenMint, tokenATA, price, newPrice, sellerExpiry,
+            auctionHouseAddress, buyerReferral, sellerReferral, buyerExpiry, priorityFee,
+        )
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME sell_now failed seller=%s mint=%s", seller, tokenMint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden sell-now transaction")
+
+
+@app.get("/nft/magic-eden/instructions/sell_change_price")
+async def me_sell_change_price(
+    seller: str = Query(..., description="Seller wallet address"),
+    tokenMint: str = Query(..., description="Token mint address"),
+    tokenAccount: str = Query(..., description="Token account holding the NFT"),
+    price: float = Query(..., description="Current (old) listing price in SOL"),
+    newPrice: float = Query(..., description="New listing price in SOL"),
+    expiry: int = Query(..., description="Expiry timestamp in seconds (0 = no expiry)"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    sellerReferral: str | None = Query(None, description="Seller referral wallet"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned sell-change-price transaction via Magic Eden."""
+    from app.clients.magic_eden import get_sell_change_price_instruction
+    try:
+        tx = await get_sell_change_price_instruction(
+            seller, tokenMint, tokenAccount, price, newPrice, expiry,
+            auctionHouseAddress, sellerReferral, priorityFee,
+        )
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME sell_change_price failed seller=%s mint=%s", seller, tokenMint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden sell-change-price transaction")
+
+
+@app.get("/nft/magic-eden/instructions/sell")
+async def me_sell(
+    seller: str = Query(..., description="Seller wallet address"),
+    tokenMint: str = Query(..., description="Token mint address"),
+    tokenAccount: str = Query(..., description="Token account holding the NFT"),
+    price: float = Query(..., description="Listing price in SOL"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    sellerReferral: str | None = Query(None, description="Seller referral wallet"),
+    expiry: int | None = Query(None, description="Expiry timestamp in seconds (0 = no expiry)"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned sell/list NFT transaction via Magic Eden."""
+    from app.clients.magic_eden import get_sell_instruction
+    try:
+        tx = await get_sell_instruction(
+            seller, tokenMint, tokenAccount, price,
+            auctionHouseAddress, sellerReferral, expiry, priorityFee,
+        )
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME sell failed seller=%s mint=%s", seller, tokenMint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden sell transaction")
+
+
+@app.get("/nft/magic-eden/instructions/buy_change_price")
+async def me_buy_change_price(
+    buyer: str = Query(..., description="Buyer wallet address"),
+    tokenMint: str = Query(..., description="Token mint address"),
+    price: float = Query(..., description="Current (old) offer price in SOL"),
+    newPrice: float = Query(..., description="New offer price in SOL"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    buyerReferral: str | None = Query(None, description="Buyer referral wallet"),
+    expiry: int | None = Query(None, description="Expiry timestamp in seconds (0 = no expiry)"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned change-offer-price transaction via Magic Eden."""
+    from app.clients.magic_eden import get_buy_change_price_instruction
+    try:
+        tx = await get_buy_change_price_instruction(
+            buyer, tokenMint, price, newPrice, auctionHouseAddress, buyerReferral, expiry, priorityFee,
+        )
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME buy_change_price failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden change-price transaction")
+
+
+@app.get("/nft/magic-eden/instructions/buy_cancel")
+async def me_buy_cancel(
+    buyer: str = Query(..., description="Buyer wallet address"),
+    tokenMint: str = Query(..., description="Token mint address"),
+    price: float = Query(..., description="Price in SOL (must match original offer)"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    buyerReferral: str | None = Query(None, description="Buyer referral wallet"),
+    expiry: int | None = Query(None, description="Expiry timestamp in seconds (0 = no expiry)"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned cancel-buy-offer transaction via Magic Eden."""
+    from app.clients.magic_eden import get_buy_cancel_instruction
+    try:
+        tx = await get_buy_cancel_instruction(
+            buyer, tokenMint, price, auctionHouseAddress, buyerReferral, expiry, priorityFee,
+        )
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME buy_cancel failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden cancel-buy transaction")
+
+
+@app.get("/nft/magic-eden/instructions/buy_now")
+async def me_buy_now(
+    buyer: str = Query(..., description="Buyer wallet address"),
+    seller: str = Query(..., description="Seller wallet address"),
+    tokenMint: str = Query(..., description="Token mint address"),
+    tokenATA: str = Query(..., description="Seller's Associated Token Account"),
+    price: float = Query(..., description="Price in SOL"),
+    sellerExpiry: int = Query(..., description="Seller expiry timestamp in seconds (0 = no expiry)"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    buyerReferral: str | None = Query(None, description="Buyer referral wallet"),
+    sellerReferral: str | None = Query(None, description="Seller referral wallet"),
+    buyerExpiry: int | None = Query(None, description="Buyer expiry timestamp (0 = no expiry)"),
+    buyerCreatorRoyaltyPercent: int | None = Query(None, ge=0, le=100, description="Creator royalty percent (0-100)"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    splPrice: str | None = Query(None, description="SPL token price information (JSON string)"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned buy-now NFT transaction via Magic Eden."""
+    from app.clients.magic_eden import get_buy_now_instruction
+    try:
+        tx = await get_buy_now_instruction(
+            buyer, seller, tokenMint, tokenATA, price, sellerExpiry,
+            auctionHouseAddress, buyerReferral, sellerReferral,
+            buyerExpiry, buyerCreatorRoyaltyPercent, priorityFee, splPrice,
+        )
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME buy_now failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden buy-now transaction")
+
+
+@app.get("/nft/magic-eden/instructions/buy_now_transfer_nft")
+async def me_buy_now_transfer_nft(
+    buyer: str = Query(..., description="Buyer wallet address"),
+    seller: str = Query(..., description="Seller wallet address"),
+    tokenMint: str = Query(..., description="Token mint address"),
+    tokenATA: str = Query(..., description="Associated Token Account of the token"),
+    price: float = Query(..., description="Price in SOL"),
+    destinationATA: str = Query(..., description="ATA to send the bought NFT to"),
+    destinationOwner: str = Query(..., description="Owner of the destination ATA"),
+    createATA: bool = Query(..., description="Whether to include create ATA instructions"),
+    sellerExpiry: int = Query(..., description="Seller expiry timestamp in seconds (0 = no expiry)"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    buyerReferral: str | None = Query(None, description="Buyer referral wallet"),
+    sellerReferral: str | None = Query(None, description="Seller referral wallet"),
+    buyerExpiry: int | None = Query(None, description="Buyer expiry timestamp (0 = no expiry)"),
+    buyerCreatorRoyaltyPercent: int | None = Query(None, ge=0, le=100, description="Creator royalty percent (0-100)"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned buy-and-transfer NFT transaction via Magic Eden."""
+    from app.clients.magic_eden import get_buy_now_transfer_nft_instruction
+    try:
+        tx = await get_buy_now_transfer_nft_instruction(
+            buyer, seller, tokenMint, tokenATA, price,
+            destinationATA, destinationOwner, createATA, sellerExpiry,
+            auctionHouseAddress, buyerReferral, sellerReferral,
+            buyerExpiry, buyerCreatorRoyaltyPercent, priorityFee,
+        )
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME buy_now_transfer failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden buy-transfer transaction")
+
+
+@app.get("/nft/magic-eden/instructions/buy")
+async def me_buy_instruction(
+    buyer: str = Query(..., description="Buyer wallet address"),
+    tokenMint: str = Query(..., description="Token mint address"),
+    price: float = Query(..., description="Price in SOL"),
+    auctionHouseAddress: str | None = Query(None, description="Auction house address"),
+    buyerReferral: str | None = Query(None, description="Buyer referral wallet"),
+    buyerCreatorRoyaltyPercent: int | None = Query(None, ge=0, le=100, description="Creator royalty percent (0-100)"),
+    expiry: int | None = Query(None, description="Expiry timestamp in seconds (0 = 7 days)"),
+    priorityFee: int | None = Query(None, description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned NFT buy transaction via Magic Eden."""
+    from app.clients.magic_eden import get_buy_instruction
+    try:
+        tx = await get_buy_instruction(
+            buyer, tokenMint, price, auctionHouseAddress, buyerReferral,
+            buyerCreatorRoyaltyPercent, expiry, priorityFee,
+        )
+        return {"success": True, "transaction": tx}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME buy instruction failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden buy transaction")
+
+
+@app.get("/nft/magic-eden/launchpad/collections")
+async def me_launchpad_collections(
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(200, ge=1, le=500, description="Number of items to return (max 500)"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get launchpad collections from Magic Eden."""
+    from app.clients.magic_eden import get_launchpad_collections
+    try:
+        collections = await get_launchpad_collections(offset, limit)
+        return {"success": True, "collections": collections, "count": len(collections)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME launchpad collections failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden launchpad collections")
+
+
+@app.get("/nft/magic-eden/collections/{symbol}/leaderboard")
+async def me_collection_leaderboard(
+    symbol: str,
+    limit: int = Query(100, ge=1, le=100, description="Number of top holders to return (max 100)"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get holder leaderboard for a collection from Magic Eden."""
+    from app.clients.magic_eden import get_collection_leaderboard
+    try:
+        data = await get_collection_leaderboard(symbol, limit)
+        return {"success": True, **data}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME leaderboard failed symbol=%s", symbol, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden leaderboard")
+
+
+@app.get("/nft/magic-eden/collections/{symbol}/holder_stats")
+async def me_collection_holder_stats(
+    symbol: str,
+    _wallet: str = Depends(require_auth),
+):
+    """Get holder statistics for a collection from Magic Eden."""
+    from app.clients.magic_eden import get_collection_holder_stats
+    try:
+        stats = await get_collection_holder_stats(symbol)
+        return {"success": True, **stats}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME holder stats failed symbol=%s", symbol, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden holder stats")
+
+
+@app.post("/nft/magic-eden/collections/batch/listings")
+async def me_collections_batch_listings(
+    body: dict = Body(..., examples=[{"symbols": ["degods", "magicticket"]}]),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Number of items to return (max 100)"),
+    min_price: float | None = Query(None, description="Filter listings below this price (SOL)"),
+    max_price: float | None = Query(None, description="Filter listings above this price (SOL)"),
+    sort: str = Query("listPrice", description="Sort field: listPrice or updatedAt"),
+    sort_direction: str = Query("asc", description="Sort direction: asc or desc"),
+    listingAggMode: bool = Query(False, description="Aggregate listings from all marketplaces"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get active listings for multiple collections in batch from Magic Eden."""
+    from app.clients.magic_eden import get_collections_batch_listings
+    symbols = body.get("symbols", [])
+    if not symbols:
+        raise HTTPException(status_code=422, detail="'symbols' array is required in request body")
+    try:
+        listings = await get_collections_batch_listings(
+            symbols, offset, limit, min_price, max_price, sort, sort_direction, listingAggMode
+        )
+        return {"success": True, "symbols": symbols, "listings": listings, "count": len(listings)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME batch listings failed symbols=%s", symbols, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden batch listings")
+
+
+@app.get("/nft/magic-eden/collections/{symbol}/listings")
+async def me_collection_listings(
+    symbol: str,
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Number of items to return (max 100)"),
+    min_price: float | None = Query(None, description="Filter listings below this price (SOL)"),
+    max_price: float | None = Query(None, description="Filter listings above this price (SOL)"),
+    sort: str = Query("listPrice", description="Sort field: listPrice or updatedAt"),
+    sort_direction: str = Query("asc", description="Sort direction: asc or desc"),
+    listingAggMode: bool = Query(False, description="Aggregate listings from all marketplaces"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get active listings for a collection from Magic Eden."""
+    from app.clients.magic_eden import get_collection_listings
+    try:
+        listings = await get_collection_listings(
+            symbol, offset, limit, min_price, max_price, sort, sort_direction, listingAggMode
+        )
+        return {"success": True, "symbol": symbol, "listings": listings, "count": len(listings)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME collection listings failed symbol=%s", symbol, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collection listings")
+
+
+@app.get("/nft/magic-eden/collections")
+async def me_collections(
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(200, ge=1, le=500, description="Number of items to return (max 500)"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get a paginated list of NFT collections from Magic Eden."""
+    from app.clients.magic_eden import get_collections
+    try:
+        collections, paging = await get_collections(offset, limit)
+        return {"success": True, "collections": collections, "count": len(collections), "paging": paging}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME collections list failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collections")
+
+
+@app.get("/nft/magic-eden/collections/{collection_symbol}/attributes")
+async def me_collection_attributes(
+    collection_symbol: str,
+    _wallet: str = Depends(require_auth),
+):
+    """Get trait attributes and floor prices for a collection from Magic Eden."""
+    from app.clients.magic_eden import get_collection_attributes
+    try:
+        data = await get_collection_attributes(collection_symbol)
+        return {"success": True, **data}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME collection attributes failed symbol=%s", collection_symbol, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collection attributes")
+
+
+@app.get("/nft/magic-eden/collections/{symbol}/stats")
+async def me_collection_stats(
+    symbol: str,
+    timeWindow: str | None = Query(None, description="Time window: 24h, 7d, 30d, all"),
+    listingAggMode: bool = Query(False, description="Aggregate listings from all marketplaces"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get stats for a collection from Magic Eden."""
+    from app.clients.magic_eden import get_collection_stats
+    try:
+        stats = await get_collection_stats(symbol, timeWindow, listingAggMode)
+        return {"success": True, "stats": stats}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME collection stats failed symbol=%s", symbol, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collection stats")
+
+
+@app.get("/nft/magic-eden/collections/{symbol}/activities")
+async def me_collection_activities(
+    symbol: str,
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Number of items to return (max 1000)"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get trading activities for a collection from Magic Eden."""
+    from app.clients.magic_eden import get_collection_activities
+    try:
+        activities = await get_collection_activities(symbol, offset, limit)
+        return {"success": True, "symbol": symbol, "activities": activities, "count": len(activities)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME collection activities failed symbol=%s", symbol, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collection activities")
+
+
+@app.get("/nft/magic-eden/wallets/{wallet_address}/escrow_balance")
+async def me_wallet_escrow_balance(
+    wallet_address: str,
+    _wallet: str = Depends(require_auth),
+):
+    """Get Magic Eden escrow balance for a wallet."""
+    from app.clients.magic_eden import get_wallet_escrow_balance
+    try:
+        data = await get_wallet_escrow_balance(wallet_address)
+        return {"success": True, "walletAddress": wallet_address, **data}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME escrow balance failed wallet=%s", wallet_address, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden escrow balance")
+
+
+@app.get("/nft/magic-eden/wallets/{wallet_address}/offers_received")
+async def me_wallet_offers_received(
+    wallet_address: str,
+    min_price: float | None = Query(None, description="Filter offers below this price (SOL)"),
+    max_price: float | None = Query(None, description="Filter offers above this price (SOL)"),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of items to return (max 500)"),
+    sort: str = Query("updatedAt", description="Sort field: updatedAt or bidAmount"),
+    sort_direction: str = Query("desc", description="Sort direction: asc or desc"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get offers received on NFTs owned by a wallet from Magic Eden."""
+    from app.clients.magic_eden import get_wallet_offers_received
+    try:
+        offers = await get_wallet_offers_received(
+            wallet_address, min_price, max_price, offset, limit, sort, sort_direction
+        )
+        return {"success": True, "walletAddress": wallet_address, "offers": offers, "count": len(offers)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME wallet offers_received failed wallet=%s", wallet_address, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden offers received")
+
+
+@app.get("/nft/magic-eden/wallets/{wallet_address}/offers_made")
+async def me_wallet_offers_made(
+    wallet_address: str,
+    min_price: float | None = Query(None, description="Filter offers below this price (SOL)"),
+    max_price: float | None = Query(None, description="Filter offers above this price (SOL)"),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of items to return (max 500)"),
+    sort: str = Query("bidAmount", description="Sort field: updatedAt or bidAmount"),
+    sort_direction: str = Query("desc", description="Sort direction: asc or desc"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get offers made by a wallet from Magic Eden."""
+    from app.clients.magic_eden import get_wallet_offers_made
+    try:
+        offers = await get_wallet_offers_made(
+            wallet_address, min_price, max_price, offset, limit, sort, sort_direction
+        )
+        return {"success": True, "walletAddress": wallet_address, "offers": offers, "count": len(offers)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME wallet offers_made failed wallet=%s", wallet_address, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden offers made")
+
+
+@app.get("/nft/magic-eden/wallets/owner/activities")
+async def me_owner_activities(
+    owner: str = Query(..., description="Wallet address (required)"),
+    createdAt: str | None = Query(None, description="Filter activities created after this time"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get trading activities for a wallet by owner query param from Magic Eden."""
+    from app.clients.magic_eden import get_owner_activities
+    try:
+        activities = await get_owner_activities(owner, createdAt)
+        return {"success": True, "owner": owner, "activities": activities, "count": len(activities)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME owner activities failed owner=%s", owner, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden owner activities")
+
+
+@app.get("/nft/magic-eden/wallets/{wallet_address}/activities")
+async def me_wallet_activities(
+    wallet_address: str,
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of items to return (max 500)"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get trading activities for a wallet from Magic Eden."""
+    from app.clients.magic_eden import get_wallet_activities
+    try:
+        activities = await get_wallet_activities(wallet_address, offset, limit)
+        return {"success": True, "walletAddress": wallet_address, "activities": activities, "count": len(activities)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME wallet activities failed wallet=%s", wallet_address, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden wallet activities")
+
+
+@app.get("/nft/magic-eden/wallets/{wallet_address}")
+async def me_wallet(
+    wallet_address: str,
+    _wallet: str = Depends(require_auth),
+):
+    """Get Magic Eden profile for a wallet."""
+    from app.clients.magic_eden import get_wallet
+    try:
+        profile = await get_wallet(wallet_address)
+        return {"success": True, "wallet": profile}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME wallet profile failed wallet=%s", wallet_address, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden wallet profile")
+
+
+@app.get("/nft/magic-eden/wallets/{wallet_address}/tokens")
+async def me_wallet_tokens(
+    wallet_address: str,
+    collection_symbol: str | None = Query(None, description="Filter by collection symbol"),
+    mcc_address: str | None = Query(None, description="Filter by Metaplex Certified Collection address"),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of items to return (max 500)"),
+    min_price: float | None = Query(None, description="Filter listings below this price (SOL)"),
+    max_price: float | None = Query(None, description="Filter listings above this price (SOL)"),
+    listStatus: str | None = Query(None, description="listed, unlisted, or both"),
+    sort: str = Query("updatedAt", description="Sort field: updatedAt or listPrice"),
+    sort_direction: str = Query("desc", description="Sort direction: asc or desc"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get NFT tokens owned by a wallet from Magic Eden."""
+    from app.clients.magic_eden import get_wallet_tokens
+    try:
+        tokens = await get_wallet_tokens(
+            wallet_address, collection_symbol, mcc_address,
+            offset, limit, min_price, max_price, listStatus, sort, sort_direction,
+        )
+        return {"success": True, "walletAddress": wallet_address, "tokens": tokens, "count": len(tokens)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME wallet tokens failed wallet=%s", wallet_address, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden wallet tokens")
+
+
+@app.get("/nft/magic-eden/tokens/{token_mint}")
+async def me_token(
+    token_mint: str,
+    _wallet: str = Depends(require_auth),
+):
+    """Get metadata for a specific NFT token from Magic Eden."""
+    from app.clients.magic_eden import get_token
+    try:
+        token = await get_token(token_mint)
+        return {"success": True, "token": token}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME token metadata failed token_mint=%s", token_mint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden token")
+
+
+@app.get("/nft/magic-eden/tokens/{token_mint}/listings")
+async def me_token_listings(
+    token_mint: str,
+    listingAggMode: bool = Query(False, description="True to return aggregated marketplace listings (Tensor, ME, etc.), False for Magic Eden only"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get active listings for a specific NFT token on Magic Eden."""
+    from app.clients.magic_eden import get_token_listings
+    try:
+        listings = await get_token_listings(token_mint, listingAggMode)
+        return {"success": True, "tokenMint": token_mint, "listings": listings, "count": len(listings)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME token listings failed token_mint=%s", token_mint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden listings")
+
+
+@app.get("/nft/magic-eden/tokens/{token_mint}/offers_received")
+async def me_token_offers_received(
+    token_mint: str,
+    min_price: float | None = Query(None, description="Filter offers below this price (SOL)"),
+    max_price: float | None = Query(None, description="Filter offers above this price (SOL)"),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of items to return (max 500)"),
+    sort: str = Query("updatedAt", description="Sort field: updatedAt or bidAmount"),
+    sort_direction: str = Query("desc", description="Sort direction: asc or desc"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get offers received on a specific NFT token from Magic Eden."""
+    from app.clients.magic_eden import get_token_offers_received
+    try:
+        offers = await get_token_offers_received(
+            token_mint, min_price, max_price, offset, limit, sort, sort_direction
+        )
+        return {"success": True, "tokenMint": token_mint, "offers": offers, "count": len(offers)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME token offers failed token_mint=%s", token_mint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden offers")
+
+
+@app.get("/nft/magic-eden/tokens/{token_mint}/activities")
+async def me_token_activities(
+    token_mint: str,
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of items to return (max 500)"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get trading activities for a specific NFT token from Magic Eden."""
+    from app.clients.magic_eden import get_token_activities
+    try:
+        activities = await get_token_activities(token_mint, offset, limit)
+        return {"success": True, "tokenMint": token_mint, "activities": activities, "count": len(activities)}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME token activities failed token_mint=%s", token_mint, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden activities")
+
+
+@app.get("/nft/magic-eden/instructions/mmm/sol-fulfill-sell")
+async def me_mmm_sol_fulfill_sell(
+    pool: str = Query(..., description="Public key of pool to interact with"),
+    asset_amount: float = Query(..., alias="assetAmount", description="Amount of asset to transact"),
+    max_payment_amount: float = Query(..., alias="maxPaymentAmount", description="Maximum payment amount to be paid by the buyer, in SOL"),
+    buyside_creator_royalty_bp: int = Query(..., alias="buysideCreatorRoyaltyBp", description="Creator royalty in basis points"),
+    buyer: str = Query(..., description="Public key of buyer of asset"),
+    asset_mint: str = Query(..., alias="assetMint", description="Public key of mint account of asset"),
+    allowlist_aux_account: str | None = Query(None, alias="allowlistAuxAccount", description="Allowlist aux account for token authentication"),
+    priority_fee: int | None = Query(None, alias="priorityFee", description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned transaction for a buyer to fulfill an MMM pool sell order."""
+    from app.clients.magic_eden import get_mmm_sol_fulfill_sell_instruction
+    try:
+        result = await get_mmm_sol_fulfill_sell_instruction(
+            pool, asset_amount, max_payment_amount, buyside_creator_royalty_bp,
+            buyer, asset_mint, allowlist_aux_account, priority_fee,
+        )
+        return {"success": True, "pool": pool, "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME MMM sol-fulfill-sell failed pool=%s buyer=%s", pool, buyer, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-fulfill-sell transaction")
+
+
+@app.get("/nft/magic-eden/instructions/mmm/sol-fulfill-buy")
+async def me_mmm_sol_fulfill_buy(
+    pool: str = Query(..., description="Public key of pool to interact with"),
+    asset_amount: float = Query(..., alias="assetAmount", description="Amount of asset to transact"),
+    min_payment_amount: float = Query(..., alias="minPaymentAmount", description="Minimum payment amount acceptable by the seller, in SOL"),
+    seller: str = Query(..., description="Public key of seller of asset"),
+    asset_mint: str = Query(..., alias="assetMint", description="Public key of mint account of asset"),
+    asset_token_account: str = Query(..., alias="assetTokenAccount", description="Public key of token account of asset"),
+    allowlist_aux_account: str | None = Query(None, alias="allowlistAuxAccount", description="Token authentication auxiliary account for allowlist verification"),
+    skip_delist: bool | None = Query(None, alias="skipDelist", description="Whether to skip attempting to delist a detected listed NFT"),
+    priority_fee: int | None = Query(None, alias="priorityFee", description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned transaction for a seller to fulfill an MMM pool buy order."""
+    from app.clients.magic_eden import get_mmm_sol_fulfill_buy_instruction
+    try:
+        result = await get_mmm_sol_fulfill_buy_instruction(
+            pool, asset_amount, min_payment_amount, seller, asset_mint,
+            asset_token_account, allowlist_aux_account, skip_delist, priority_fee,
+        )
+        return {"success": True, "pool": pool, "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME MMM sol-fulfill-buy failed pool=%s seller=%s", pool, seller, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-fulfill-buy transaction")
+
+
+@app.get("/nft/magic-eden/instructions/mmm/sol-close-pool")
+async def me_mmm_sol_close_pool(
+    pool: str = Query(..., description="Public key of pool to close"),
+    priority_fee: int | None = Query(None, alias="priorityFee", description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned transaction to close an MMM pool and reclaim funds."""
+    from app.clients.magic_eden import get_mmm_sol_close_pool_instruction
+    try:
+        result = await get_mmm_sol_close_pool_instruction(pool, priority_fee)
+        return {"success": True, "pool": pool, "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME MMM sol-close-pool failed pool=%s", pool, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-close-pool transaction")
+
+
+@app.get("/nft/magic-eden/instructions/mmm/sol-withdraw-buy")
+async def me_mmm_sol_withdraw_buy(
+    pool: str = Query(..., description="Public key of pool to withdraw from"),
+    sol_amount: float = Query(..., alias="solAmount", description="Amount of SOL to withdraw"),
+    priority_fee: int | None = Query(None, alias="priorityFee", description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned transaction to withdraw SOL from an MMM pool's buy-side."""
+    from app.clients.magic_eden import get_mmm_sol_withdraw_buy_instruction
+    try:
+        result = await get_mmm_sol_withdraw_buy_instruction(pool, sol_amount, priority_fee)
+        return {"success": True, "pool": pool, "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME MMM sol-withdraw-buy failed pool=%s", pool, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-withdraw-buy transaction")
+
+
+@app.get("/nft/magic-eden/instructions/mmm/sol-deposit-buy")
+async def me_mmm_sol_deposit_buy(
+    pool: str = Query(..., description="Public key of pool to deposit into"),
+    sol_amount: float = Query(..., alias="solAmount", description="Amount of SOL to deposit"),
+    priority_fee: int | None = Query(None, alias="priorityFee", description="Priority fee in microlamports"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned transaction to deposit SOL into an MMM pool's buy-side."""
+    from app.clients.magic_eden import get_mmm_sol_deposit_buy_instruction
+    try:
+        result = await get_mmm_sol_deposit_buy_instruction(pool, sol_amount, priority_fee)
+        return {"success": True, "pool": pool, "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME MMM sol-deposit-buy failed pool=%s", pool, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-deposit-buy transaction")
+
+
+@app.get("/nft/magic-eden/instructions/mmm/update-pool")
+async def me_mmm_update_pool(
+    pool: str = Query(..., description="Public key of the pool to modify"),
+    spot_price: float = Query(..., alias="spotPrice", description="Pool spot price in SOL"),
+    curve_type: str = Query(..., alias="curveType", description="Curve type: 'linear' or 'exp'"),
+    curve_delta: float = Query(..., alias="curveDelta", description="Curve delta used to change price after a fill"),
+    reinvest_buy: bool = Query(..., alias="reinvestBuy", description="Must remain unchanged from pool creation"),
+    reinvest_sell: bool = Query(..., alias="reinvestSell", description="Must remain unchanged from pool creation"),
+    expiry: int = Query(..., description="Expiry timestamp in seconds (0 = no expiry)"),
+    lp_fee_bp: int = Query(..., alias="lpFeeBp", description="LP fee in basis points"),
+    buyside_creator_royalty_bp: int = Query(..., alias="buysideCreatorRoyaltyBp", description="Creator royalty in basis points"),
+    priority_fee: int | None = Query(None, alias="priorityFee", description="Priority fee in microlamports"),
+    shared_escrow_count: int | None = Query(None, alias="sharedEscrowCount", description="Number of pools sharing the escrow account"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned transaction to update an existing Magic Eden MMM pool."""
+    from app.clients.magic_eden import get_mmm_update_pool_instruction
+    try:
+        result = await get_mmm_update_pool_instruction(
+            pool, spot_price, curve_type, curve_delta, reinvest_buy, reinvest_sell,
+            expiry, lp_fee_bp, buyside_creator_royalty_bp, priority_fee, shared_escrow_count,
+        )
+        return {"success": True, "pool": pool, "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME MMM update-pool failed pool=%s", pool, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM update-pool transaction")
+
+
+@app.get("/nft/magic-eden/instructions/mmm/create-pool")
+async def me_mmm_create_pool(
+    spot_price: float = Query(..., alias="spotPrice", description="Pool initial spot price in SOL"),
+    curve_type: str = Query(..., alias="curveType", description="Curve type: 'linear', 'exp', or 'xyk'"),
+    curve_delta: float = Query(..., alias="curveDelta", description="Curve delta used to change price after a fill"),
+    reinvest_buy: bool = Query(..., alias="reinvestBuy", description="Whether to reinvest bought asset or transfer to owner"),
+    reinvest_sell: bool = Query(..., alias="reinvestSell", description="Whether to reinvest payment from sale or transfer to owner"),
+    lp_fee_bp: int = Query(..., alias="lpFeeBp", description="Liquidity provider fee in basis points"),
+    buyside_creator_royalty_bp: int = Query(..., alias="buysideCreatorRoyaltyBp", description="Creator royalty the pool should pay in basis points"),
+    payment_mint: str = Query(..., alias="paymentMint", description="Mint address of payment (default for SOL)"),
+    collection_symbol: str = Query(..., alias="collectionSymbol", description="Collection symbol for which the pool will be valid"),
+    owner: str = Query(..., description="Owner of the pool"),
+    expiry: int | None = Query(None, description="Expiry timestamp in seconds (0 = no expiry)"),
+    sol_deposit: float | None = Query(None, alias="solDeposit", description="Optional SOL amount to deposit with pool creation"),
+    priority_fee: int | None = Query(None, alias="priorityFee", description="Priority fee in microlamports"),
+    shared_escrow_count: int | None = Query(None, alias="sharedEscrowCount", description="Number of pools that will share the escrow account"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build an unsigned transaction to create a new Magic Eden MMM pool."""
+    from app.clients.magic_eden import get_mmm_create_pool_instruction
+    try:
+        result = await get_mmm_create_pool_instruction(
+            spot_price, curve_type, curve_delta, reinvest_buy, reinvest_sell,
+            lp_fee_bp, buyside_creator_royalty_bp, payment_mint, collection_symbol,
+            owner, expiry, sol_deposit, priority_fee, shared_escrow_count,
+        )
+        return {"success": True, "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME MMM create-pool failed collection=%s owner=%s", collection_symbol, owner, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM create-pool transaction")
+
+
+@app.get("/nft/magic-eden/mmm/token/{mint_address}/pools")
+async def me_mmm_token_pools(
+    mint_address: str,
+    limit: int = Query(1, ge=1, le=5, description="Total best offers to return (max 5). Best offer comes first."),
+    _wallet: str = Depends(require_auth),
+):
+    """Get best MMM buy pools for a specific NFT mint from Magic Eden."""
+    from app.clients.magic_eden import get_mmm_token_pools
+    try:
+        result = await get_mmm_token_pools(mint_address, limit)
+        return {"success": True, "mintAddress": mint_address, "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME MMM token pools failed mint=%s", mint_address, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden MMM token pools")
+
+
+@app.get("/nft/magic-eden/mmm/pools")
+async def me_mmm_pools(
+    collection_symbol: str | None = Query(None, description="Collection symbol (at least this or owner required)"),
+    pools: list[str] | None = Query(None, description="Pool keys to filter by"),
+    owner: str | None = Query(None, description="Pool owner public key (at least this or collectionSymbol required)"),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of items to return (max 500)"),
+    field: str | None = Query(None, description="Sort field: 0=NONE, 1=ADDRESS, 2=SPOT_PRICE, 5=BUYSIDE_ADJUSTED_PRICE"),
+    direction: str | None = Query(None, description="Sort direction: 0=NONE, 1=DESC, 2=INC"),
+    _wallet: str = Depends(require_auth),
+):
+    """Get Magic Eden MMM (market maker) pools for a collection or owner."""
+    if not collection_symbol and not owner:
+        raise HTTPException(status_code=422, detail="At least one of 'collectionSymbol' or 'owner' is required")
+    from app.clients.magic_eden import get_mmm_pools
+    try:
+        result = await get_mmm_pools(collection_symbol, pools, owner, offset, limit, field, direction)
+        return {"success": True, "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME MMM pools failed collection=%s owner=%s", collection_symbol, owner, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden MMM pools")
+
+
+# ---------------------------------------------------------------------------
 # Streaming Routes (SSE - Server-Sent Events)
 # ---------------------------------------------------------------------------
 @app.get("/stream/prices")
@@ -1193,6 +2141,71 @@ class PatchMessageMetaRequest(BaseModel):
     query_snapshots: dict | None = None
 
 
+class FeedbackRequest(BaseModel):
+    """Body for POST /messages/{message_id}/feedback."""
+
+    rating: int  # +1 = thumbs up, -1 = thumbs down
+    note: str | None = None
+
+
+@app.post("/messages/{message_id}/feedback")
+async def post_message_feedback(
+    message_id: str,
+    body: FeedbackRequest,
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+):
+    """Record a thumbs-up / thumbs-down on an assistant message.
+
+    A second click from the same wallet on the same message updates the
+    existing row instead of inserting a duplicate (UNIQUE constraint).
+    Negative ratings power the admin review queue and the alert when
+    overall thumbs-down rate exceeds X% of recent messages.
+    """
+    if body.rating not in (-1, 1):
+        raise HTTPException(status_code=400, detail="rating must be -1 or 1")
+
+    note = (body.note or "").strip()
+    if len(note) > 4000:
+        note = note[:4000]
+
+    try:
+        msg_uuid = uuid.UUID(message_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid message_id")
+
+    # Verify message exists & belongs to a session this wallet can write to.
+    # Defence in depth — middleware already attached `wallet`, but we don't
+    # let one wallet drown another wallet's message in negative feedback.
+    from app.models.message import ChatMessage as _ChatMessageORM
+
+    msg_q = await db.execute(
+        select(_ChatMessageORM).where(_ChatMessageORM.id == msg_uuid)
+    )
+    msg = msg_q.scalar_one_or_none()
+    if msg is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    if msg.wallet_address != wallet:
+        raise HTTPException(status_code=403, detail="not your conversation")
+
+    # Upsert: one row per (message, wallet).
+    await db.execute(
+        sa_text(
+            f"""
+            INSERT INTO {settings.DB_SCHEMA}.message_feedback
+                (id, message_id, wallet, rating, note)
+            VALUES (gen_random_uuid(), :mid, :wallet, :rating, :note)
+            ON CONFLICT (message_id, wallet) DO UPDATE
+              SET rating = EXCLUDED.rating,
+                  note   = EXCLUDED.note
+            """
+        ),
+        {"mid": msg_uuid, "wallet": wallet, "rating": body.rating, "note": note or None},
+    )
+    await db.commit()
+    return {"ok": True}
+
+
 @app.patch("/sessions/{session_id}/messages/{message_id}/metadata")
 async def patch_message_metadata(
     session_id: str,
@@ -1356,12 +2369,181 @@ async def stream_message(
                     stream_db, actual_session_id, wallet, content,
                     is_first_message=is_first_message,
                     attachments=attachments,
+                    protocols=body.protocols,
                 ):
                     yield chunk
                 await stream_db.commit()
             except Exception:
                 await stream_db.rollback()
                 raise
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/messages/edit")
+async def edit_message_stream(
+    body: EditMessageRequest,
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+):
+    """Edit a previously-sent user message and stream a fresh response.
+
+    Industry-standard "branch-on-edit" semantics implemented as a soft-delete:
+    every message at or after the edited target gets `metadata.superseded_at`
+    stamped, so it is filtered out of both the chat UI feed and the LLM
+    history. The edited content is persisted as a brand-new user message and
+    the assistant response streams normally — the SSE format matches
+    `/messages/stream` so the client can reuse the same parser.
+    """
+    from app.models.message import ChatMessage as _ChatMessageORM
+    import uuid as _uuid
+    from datetime import datetime as _dt, timezone as _tz
+
+    content = body.content.strip()
+    session_id = body.session_id
+
+    # Local sessions never reached the DB — reject up front rather than
+    # invent a session here. Editing only makes sense in a persisted thread.
+    if session_id.startswith("local:"):
+        raise HTTPException(status_code=400, detail="Cannot edit messages in an unpersisted session")
+
+    session = await session_svc.get_session(db, wallet, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Look up the target message and verify ownership + role.
+    try:
+        target_uuid = _uuid.UUID(body.message_id)
+        session_uuid = _uuid.UUID(session_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid id format")
+
+    target_stmt = (
+        select(_ChatMessageORM)
+        .where(
+            _ChatMessageORM.id == target_uuid,
+            _ChatMessageORM.session_id == session_uuid,
+            _ChatMessageORM.wallet_address == wallet,
+        )
+    )
+    target = (await db.execute(target_stmt)).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if target.role != "user":
+        raise HTTPException(status_code=400, detail="Only user messages can be edited")
+    if (target.metadata_ or {}).get("superseded_at"):
+        raise HTTPException(status_code=400, detail="Message has already been superseded")
+
+    # Soft-delete: stamp superseded_at on the target AND every message
+    # ordered at-or-after it. We pull then update each row so JSONB merging
+    # is explicit and we don't depend on an `||` operator the dialect may
+    # not expose through the ORM.
+    affected_stmt = (
+        select(_ChatMessageORM)
+        .where(
+            _ChatMessageORM.session_id == session_uuid,
+            _ChatMessageORM.wallet_address == wallet,
+            _ChatMessageORM.created_at >= target.created_at,
+        )
+    )
+    affected = (await db.execute(affected_stmt)).scalars().all()
+    now_iso = _dt.now(_tz.utc).isoformat()
+    for m in affected:
+        meta = dict(m.metadata_ or {})
+        if meta.get("superseded_at"):
+            continue  # already gone — skip
+        meta["superseded_at"] = now_iso
+        meta["superseded_by_edit_of"] = str(target.id)
+        m.metadata_ = meta
+        # SQLAlchemy with JSONB needs the attribute marked dirty for the
+        # in-place dict mutation to be flushed. Re-assign the whole field.
+
+    await db.commit()
+
+    _audit(db, AuditEvent(
+        event_type=AuditEventType.ACTION_EXECUTED,
+        severity=AuditEventSeverity.INFO,
+        entity_type=AuditEntityType.SESSION,
+        entity_id=session_id,
+        wallet_address=wallet,
+        session_id=session_id,
+        event_data={
+            "action": "message_edited",
+            "edited_message_id": body.message_id,
+            "superseded_count": len(affected),
+            "new_content_length": len(content),
+        },
+    ))
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        # Tell the client which messages to drop locally, so the UI matches
+        # the DB before the new assistant turn streams in.
+        yield f"data: {json.dumps({'edit': {'editedMessageId': body.message_id, 'supersededCount': len(affected)}})}\n\n"
+
+        # TEMP DEBUG — record edit-stream lifecycle so we can diagnose
+        # the "first try fails, retry works" intermittent. Remove once stable.
+        try:
+            with open("/tmp/oprai-debug.log", "a") as _df:
+                _df.write(
+                    f"\n[EDIT] stream-open session={session_id[:8]} "
+                    f"target={body.message_id[:8]} content={content[:80]!r}\n"
+                )
+        except Exception:
+            pass
+
+        async with async_session_factory() as stream_db:
+            try:
+                async for chunk in message_svc.stream_chat_response(
+                    stream_db, session_id, wallet, content,
+                    is_first_message=False,
+                    attachments=[],
+                    protocols=body.protocols,
+                    # Stamp the new user message so the bubble keeps its
+                    # "(edited)" indicator after page reload, and so audit
+                    # trails can distinguish original vs edited turns.
+                    extra_user_metadata={
+                        "edited_at": now_iso,
+                        "edit_replaces": body.message_id,
+                    },
+                ):
+                    yield chunk
+                await stream_db.commit()
+                try:
+                    with open("/tmp/oprai-debug.log", "a") as _df:
+                        _df.write(f"[EDIT] stream-done session={session_id[:8]}\n")
+                except Exception:
+                    pass
+            except Exception as exc:
+                # Capture the exception details into our debug log so we can see
+                # WHY the first attempt fails. The bare `raise` re-raises into
+                # FastAPI/uvicorn which turns it into an HTTP-level error the
+                # frontend renders as "Sorry, something went wrong".
+                import traceback as _tb
+                try:
+                    with open("/tmp/oprai-debug.log", "a") as _df:
+                        _df.write(
+                            f"[EDIT-ERR] session={session_id[:8]} "
+                            f"err={type(exc).__name__}: {str(exc)[:400]}\n"
+                            f"{_tb.format_exc()[:2000]}\n"
+                        )
+                except Exception:
+                    pass
+                # Surface the failure to the client as an in-stream error event
+                # rather than letting the connection drop. The frontend's SSE
+                # parser already handles `{error, errorType}` gracefully.
+                err_label = type(exc).__name__
+                yield f"data: {json.dumps({'error': f'Edit failed ({err_label}). Please try again.', 'errorType': 'edit_stream'})}\n\n"
+                yield "data: [DONE]\n\n"
+                await stream_db.rollback()
+                return
 
     return StreamingResponse(
         event_generator(),
@@ -1720,7 +2902,7 @@ async def get_audit_statistics(
 async def export_audit_events(
     body: AuditQueryRequest,
     wallet: str = Depends(require_auth),
-    format: str = Query("json", regex="^(json|csv)$"),
+    format: str = Query("json", pattern="^(json|csv)$"),
 ):
     """
     Export audit events in specified format.
@@ -1785,7 +2967,7 @@ class FeeEstimateRequest(BaseModel):
 
 @app.get("/mev/priority-fee")
 async def get_priority_fee(
-    priority: str = Query("medium", regex="^(low|medium|high|urgent)$"),
+    priority: str = Query("medium", pattern="^(low|medium|high|urgent)$"),
     use_jito: bool = Query(True),
     _wallet: str = Depends(require_auth),
 ):
@@ -1815,7 +2997,7 @@ async def get_priority_fee(
 
 @app.get("/mev/jito-tip")
 async def get_jito_tip(
-    priority: str = Query("medium", regex="^(low|medium|high|urgent)$"),
+    priority: str = Query("medium", pattern="^(low|medium|high|urgent)$"),
     _wallet: str = Depends(require_auth),
 ):
     """
@@ -1910,7 +3092,7 @@ async def apply_mev_protection(
 
 @app.get("/mev/config/default")
 async def get_default_mev_config(
-    risk_tolerance: str = Query("moderate", regex="^(conservative|moderate|aggressive)$"),
+    risk_tolerance: str = Query("moderate", pattern="^(conservative|moderate|aggressive)$"),
     _wallet: str = Depends(require_auth),
 ):
     """
@@ -1934,7 +3116,7 @@ async def get_default_mev_config(
 @app.get("/mev/bundle-params")
 async def get_bundle_params(
     transaction_count: int = Query(1, ge=1, le=5),
-    priority: str = Query("medium", regex="^(low|medium|high|urgent)$"),
+    priority: str = Query("medium", pattern="^(low|medium|high|urgent)$"),
     _wallet: str = Depends(require_auth),
 ):
     """
@@ -2502,7 +3684,7 @@ async def generate_tax_report(
 async def export_tax_report(
     body: TaxReportRequest,
     wallet: str = Depends(require_auth),
-    format: str = Query("json", regex="^(json|csv)$"),
+    format: str = Query("json", pattern="^(json|csv)$"),
 ):
     """
     Export tax report in specified format.
@@ -2576,6 +3758,42 @@ async def get_available_years(
         "success": True,
         "years": years,
     }
+
+
+@app.get("/nft/magic-eden/instructions/magic-ticket/burns")
+async def me_magic_ticket_burns(
+    wallet_address: str = Query(..., alias="walletAddress", description="Wallet address that owns the tickets"),
+    mint_addresses: str = Query(..., alias="mintAddresses", description="Comma-separated list of mint addresses to burn"),
+    _wallet: str = Depends(require_auth),
+):
+    """Build burn transactions for given Magic Ticket mint addresses."""
+    from app.clients.magic_eden import get_magic_ticket_burn_instructions
+    mints = [m.strip() for m in mint_addresses.split(",") if m.strip()]
+    try:
+        result = await get_magic_ticket_burn_instructions(wallet_address, mints)
+        return {"success": True, "walletAddress": wallet_address, "mintCount": len(mints), "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME magic ticket burns failed wallet=%s", wallet_address, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build Magic Eden magic ticket burn transactions")
+
+
+@app.get("/nft/magic-eden/marketplace/popular-collections")
+async def me_marketplace_popular_collections(
+    time_range: str | None = Query(None, alias="timeRange", description="Time range: 1h, 1d, 7d, 30d. Default 1d."),
+    _wallet: str = Depends(require_auth),
+):
+    """Return popular NFT collections on Magic Eden for a given time range."""
+    from app.clients.magic_eden import get_marketplace_popular_collections
+    try:
+        result = await get_marketplace_popular_collections(time_range)
+        return {"success": True, "timeRange": time_range or "1d", "data": result}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+    except Exception:
+        logger.error("ME marketplace popular collections failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden popular collections")
 
 
 # ---------------------------------------------------------------------------

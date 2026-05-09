@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/oprai/oprai/services/gateway-go/internal/config"
 	"github.com/oprai/oprai/services/gateway-go/internal/proxy"
@@ -72,8 +73,40 @@ func main() {
 	}
 	defer grpcClients.Close()
 
+	// Initialize Redis client for the JWT revocation blocklist. We connect
+	// best-effort — if Redis is unreachable in dev, the blocklist degrades to
+	// in-memory only. In production, the URL must resolve and the ping must
+	// succeed; otherwise we refuse to start (revoked tokens would silently come
+	// back to life on restart).
+	var rdb *redis.Client
+	if cfg.RedisURL != "" {
+		opts, parseErr := redis.ParseURL(cfg.RedisURL)
+		if parseErr != nil {
+			slog.Error("invalid REDIS_URL", "error", parseErr)
+			os.Exit(1)
+		}
+		client := redis.NewClient(opts)
+		pingCtx, pingCancel := context.WithTimeout(rootCtx, 2*time.Second)
+		if pingErr := client.Ping(pingCtx).Err(); pingErr != nil {
+			pingCancel()
+			if isProd {
+				slog.Error("Redis unreachable, refusing to start in production",
+					"redis_url", cfg.RedisURL, "error", pingErr)
+				os.Exit(1)
+			}
+			slog.Warn("Redis unreachable — JWT blocklist will be in-memory only",
+				"redis_url", cfg.RedisURL, "error", pingErr)
+			_ = client.Close()
+		} else {
+			pingCancel()
+			rdb = client
+			slog.Info("Redis connected for JWT blocklist", "redis_url", cfg.RedisURL)
+			defer func() { _ = client.Close() }()
+		}
+	}
+
 	// Create HTTP router
-	router := server.NewRouter(rootCtx, cfg, grpcClients)
+	router := server.NewRouter(rootCtx, cfg, grpcClients, rdb)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),

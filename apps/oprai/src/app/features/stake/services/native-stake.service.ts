@@ -70,7 +70,8 @@ export class NativeStakeService {
     try {
       const res = await fetch(rpcUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'include',
         signal: controller.signal,
         body: JSON.stringify({
           jsonrpc: '2.0',
@@ -152,7 +153,7 @@ export class NativeStakeService {
 
   async signAndSubmit(transaction: string): Promise<string> {
     const web3 = await import('@solana/web3.js');
-    const connection = new web3.Connection(environment.solanaRpc, 'confirmed');
+    const connection = new web3.Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
 
     const txBuffer = Uint8Array.from(atob(transaction), (c) => c.charCodeAt(0));
     const tx = web3.Transaction.from(txBuffer);

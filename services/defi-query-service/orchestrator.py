@@ -1,6 +1,7 @@
 """
-OPRAI DeFi Intelligence — gpt-5.4-nano + OpenAI Responses API
+OPRAI DeFi Intelligence — dynamic tool selection + multi-provider support.
 Calls real protocol APIs, interprets data, returns formatted HTML.
+Providers: OpenAI Responses API (default) | OpenRouter Chat Completions (set OPENROUTER_API_KEY).
 """
 
 import asyncio
@@ -14,16 +15,184 @@ from tools import TOOL_SCHEMAS, dispatch
 
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-nano")
 
+# ── Provider config ────────────────────────────────────────────────────────────
+# Set OPENROUTER_API_KEY to use OpenRouter (Qwen3-32B, etc.)
+# Set OPENROUTER_MODEL to override model (default: qwen/qwen3-32b)
+_OPENROUTER_KEY  = os.environ.get("OPENROUTER_API_KEY", "")
+_OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "qwen/qwen3-32b")
+_USE_OPENROUTER  = bool(_OPENROUTER_KEY)
+
+# ── Dynamic tool selection ─────────────────────────────────────────────────────
+
+# Always included regardless of query — lightweight universal tools
+_ALWAYS_INCLUDE: set[str] = {
+    "jup_prices", "jup_search", "jup_quote", "jup_trending", "jup_recent",
+    "birdeye_token_overview", "birdeye_price", "birdeye_search",
+    "birdeye_token_security", "birdeye_price_volume",
+    "dex_search", "dex_token", "dex_trending",
+    "token_security",
+}
+
+# Curated bundles — specific tools for each intent, not entire prefixes
+_BUNDLES: dict[str, set[str]] = {
+    "price": {
+        "jup_prices", "birdeye_price", "birdeye_multi_price",
+        "birdeye_token_overview", "birdeye_price_stats", "birdeye_history_price",
+        "birdeye_token_market_data", "birdeye_token_market_data_multi",
+        "raydium_prices", "dex_token", "dex_search",
+    },
+    "swap": {
+        "jup_quote", "jup_prices", "raydium_swap_quote",
+        "raydium_prices", "dex_search",
+    },
+    "token_info": {
+        "jup_search", "jup_verify_eligibility", "jup_tokens_tag",
+        "birdeye_token_overview", "birdeye_token_metadata",
+        "birdeye_token_market_data", "birdeye_token_security",
+        "birdeye_new_listings", "birdeye_token_trending",
+        "dex_token", "dex_search", "token_security",
+    },
+    "trending": {
+        "jup_trending", "jup_recent", "birdeye_token_trending",
+        "birdeye_new_listings", "birdeye_token_list", "dex_trending",
+    },
+    "wallet": {
+        "birdeye_wallet_current_net_worth", "birdeye_wallet_token_list",
+        "birdeye_wallet_pnl_summary", "birdeye_wallet_pnl_details",
+        "birdeye_wallet_net_worth_history", "birdeye_wallet_net_worth_details",
+        "birdeye_wallet_tx_list", "birdeye_wallet_single_token_balance",
+        "helius_wallet_tokens", "helius_wallet_txs",
+        "wallet_balance", "user_transactions",
+    },
+    "holders": {
+        "birdeye_token_holders", "birdeye_holder_distribution",
+        "birdeye_holder_profile", "birdeye_holder_batch",
+        "helius_token_holders", "helius_token_supply",
+    },
+    "ohlcv": {
+        "birdeye_ohlcv", "birdeye_ohlcv_v1", "birdeye_ohlcv_pair",
+        "birdeye_price_at_time", "birdeye_history_price",
+    },
+    "pairs": {
+        "birdeye_pair_overview", "birdeye_pair_overview_multi",
+        "birdeye_pair_txs", "birdeye_token_markets",
+        "dex_search", "dex_token", "raydium_pool_by_mint",
+    },
+    "solend": {s["name"] for s in [] },   # filled below
+    "kamino": {s["name"] for s in [] },
+    "marginfi": {s["name"] for s in [] },
+    "marinade": {s["name"] for s in [] },
+    "jito": {s["name"] for s in [] },
+    "raydium": {s["name"] for s in [] },
+    "orca": {s["name"] for s in [] },
+    "helius": {s["name"] for s in [] },
+    "meteora": {s["name"] for s in [] },
+    "dex": {s["name"] for s in [] },
+    "tensor": {s["name"] for s in [] },
+    "birdeye_block": {"birdeye_latest_block"},
+    "birdeye_misc": {"birdeye_networks", "birdeye_latest_block", "birdeye_credits"},
+    "token_creation": {"birdeye_token_creation_info"},
+    "meme": {"birdeye_meme_token_detail", "birdeye_meme_token_list"},
+    "smart_money": {"birdeye_smart_money_tokens"},
+    "all_time_trades": {"birdeye_all_time_trades_single", "birdeye_all_time_trades_multi"},
+}
+
+# Fill protocol bundles from TOOL_SCHEMAS at import time
+for _s in TOOL_SCHEMAS:
+    _pfx = _s["name"].split("_")[0]
+    if _pfx in _BUNDLES:
+        _BUNDLES[_pfx].add(_s["name"])
+
+# Keyword → bundle mapping
+_KEYWORD_BUNDLES: list[tuple[list[str], list[str]]] = [
+    # Protocol names
+    (["solend", "save finance", "slnd"],                  ["solend"]),
+    (["kamino", "klend"],                                 ["kamino"]),
+    (["marginfi", "mrgn"],                                ["marginfi"]),
+    (["marinade", "msol", "mnde", "vemnde"],              ["marinade"]),
+    (["jito", "jitosol", "mev", "tip floor", "bundle"],   ["jito"]),
+    (["raydium", "clmm", "cpmm", "launchlab"],            ["raydium"]),
+    (["orca", "whirlpool"],                               ["orca"]),
+    (["meteora", "dlmm"],                                 ["meteora"]),
+    (["helius"],                                          ["helius"]),
+    (["dexscreener", "dex screen"],                       ["dex"]),
+    (["tensor", "tensor bid", "nft bid", "edit bid", "tensor_edit_bid"], ["tensor"]),
+    (["latest block", "current block", "block number", "birdeye_latest_block"], ["birdeye_block"]),
+    (["birdeye network", "birdeye_networks", "supported network", "which chain", "birdeye support"], ["birdeye_misc"]),
+    (["birdeye credit", "api credit", "credit balance", "credit quota", "birdeye_credits", "api usage", "credit consumption", "credit left", "credit remain"], ["birdeye_misc"]),
+    (["token creation", "who created", "when deployed", "deployer", "token_creation_info", "birdeye_token_creation_info"], ["token_creation"]),
+    (["meme token", "bonding curve", "graduated", "pump.fun", "meme detail", "birdeye_meme_token_detail", "birdeye_meme_token_list"], ["meme"]),
+    (["smart money", "smart trader", "whale buying", "institutional", "birdeye_smart_money_tokens", "trencher", "risk_averse", "risk_balancer"], ["smart_money"]),
+    (["all time trade", "all-time trade", "trade stat", "trade count", "trade volume", "total trade", "birdeye_all_time_trades_single", "birdeye_all_time_trades_multi", "alltime", "time_frame"], ["all_time_trades"]),
+    # Intent-based
+    (["swap", "quote", "convert", "exchange", "how much",
+      "for sol", "to sol",
+      "to usdc", "best route", "price impact", "slippage"],          ["swap"]),
+    (["ohlcv", "candle", "chart", "price history", "historical"],    ["ohlcv"]),
+    (["holder", "distribution", "who holds", "top wallet"],          ["holders"]),
+    (["pnl", "profit", "loss", "net worth", "portfolio value",
+      "wallet balance", "my token", "wallet"],                        ["wallet"]),
+    (["trending", "new token", "latest token", "pump.fun",
+      "viral", "launched"],                                           ["trending"]),
+    (["pair", "trading pair", "liquidity pair", "dex pair"],         ["pairs"]),
+    (["price", "worth", "market cap", "mcap", "usd value"],          ["price"]),
+    (["mint address", "contract address", "token address",
+      "token info", "audit", "safe", "verified", "organic"],         ["token_info"]),
+]
+
+_WALLET_KW = ["wallet", "my position", "my deposit", "my borrow"]
+_COMPARE_KW = ["compare", "vs ", "versus", "best yield",
+               "highest apy", "best rate", "which is better", "which protocol"]
+
+
+def _select_tools(question: str) -> list[dict]:
+    """Return only relevant tool schemas — reduces input tokens ~70%."""
+    q = question.lower()
+
+    active: set[str] = set(_ALWAYS_INCLUDE)
+
+    # Match keyword → bundle
+    for keywords, bundles in _KEYWORD_BUNDLES:
+        if any(kw in q for kw in keywords):
+            for b in bundles:
+                active.update(_BUNDLES.get(b, set()))
+
+    # Wallet query → add cross-protocol wallet tools
+    if any(kw in q for kw in _WALLET_KW):
+        active.update(_BUNDLES["wallet"])
+        active.update(_BUNDLES.get("solend", set()))
+        active.update(_BUNDLES.get("kamino", set()))
+
+    # Comparison → add all lending protocols
+    if any(kw in q for kw in _COMPARE_KW):
+        for proto in ["solend", "kamino", "marginfi", "jito", "marinade", "raydium", "orca"]:
+            active.update(_BUNDLES.get(proto, set()))
+
+    # Nothing matched → broad default
+    if len(active) <= len(_ALWAYS_INCLUDE):
+        for proto in ["solend", "kamino", "marginfi", "jito", "marinade",
+                      "raydium", "orca", "price", "trending"]:
+            active.update(_BUNDLES.get(proto, set()))
+
+    # Return schemas in original order, filtered to active set
+    seen: set[str] = set()
+    result = []
+    for s in TOOL_SCHEMAS:
+        if s["name"] in active and s["name"] not in seen:
+            result.append(s)
+            seen.add(s["name"])
+    return result
+
+
+def _tool_stats(question: str) -> str:
+    selected = _select_tools(question)
+    total = len(TOOL_SCHEMAS)
+    return f"{len(selected)}/{total} tools selected"
+
 SYSTEM_PROMPT = """You are OPRAI DeFi Intelligence — the AI analysis layer for OPRAI, a Solana DeFi assistant.
 
-## Language Rule (CRITICAL — apply before everything else)
-English is the default language. If the user writes in any other language, respond entirely in that language.
-- User writes in English (or language is ambiguous) → respond in English.
-- User writes in Turkish → respond 100% in Turkish.
-- User writes in Spanish → respond 100% in Spanish.
-- Same rule for any other language: always mirror the user's language.
-- This applies to every word in the HTML output: headings, descriptions, labels, insight boxes, warnings.
-- Token symbols, on-chain addresses, protocol names, and numbers are language-neutral — keep them as-is in every language.
+## Language Rule
+Always respond in English regardless of the language the user writes in.
 
 You have live access to data from these protocols via tools:
 
@@ -43,6 +212,7 @@ You have live access to data from these protocols via tools:
 | Birdeye    | birdeye_price, birdeye_multi_price, birdeye_ohlcv, birdeye_ohlcv_v1, birdeye_ohlcv_pair, birdeye_ohlcv_pair_v1, birdeye_ohlcv_base_quote, birdeye_history_price, birdeye_price_at_time, birdeye_price_volume, birdeye_price_volume_multi, birdeye_token_overview, birdeye_token_metadata, birdeye_token_metadata_multi, birdeye_token_market_data, birdeye_token_market_data_multi, birdeye_token_trade_data, birdeye_token_trade_data_multi, birdeye_exit_liquidity, birdeye_exit_liquidity_multi, birdeye_pair_overview, birdeye_pair_overview_multi, birdeye_price_stats, birdeye_price_stats_multi, birdeye_token_list, birdeye_token_list_scroll, birdeye_tokenlist_v1, birdeye_new_listings, birdeye_token_markets, birdeye_token_txs, birdeye_txs_all, birdeye_txs_recent, birdeye_token_txs_v1, birdeye_pair_txs, birdeye_token_txs_by_time, birdeye_pair_txs_by_time, birdeye_trader_txs, birdeye_token_txs_by_volume, birdeye_mint_burn_txs, birdeye_wallet_current_net_worth, birdeye_wallet_net_worth_history, birdeye_wallet_net_worth_multi, birdeye_wallet_net_worth_details, birdeye_wallet_pnl_summary, birdeye_wallet_pnl_details, birdeye_wallet_pnl_token, birdeye_wallet_pnl_multi, birdeye_wallet_first_funded, birdeye_token_top_traders, birdeye_trader_gainers_losers, birdeye_wallet_supported_chains, birdeye_wallet_tx_list, birdeye_wallet_token_list, birdeye_token_holders, birdeye_holder_batch, birdeye_holder_distribution, birdeye_holder_profile, birdeye_holder_positions, birdeye_wallet_balance_change, birdeye_wallet_token_balance, birdeye_token_transfers, birdeye_token_transfer_total, birdeye_wallet_transfers, birdeye_wallet_transfer_total, birdeye_wallet_single_token_balance, birdeye_latest_block, birdeye_token_creation_info, birdeye_token_trending, birdeye_meme_token_detail, birdeye_meme_token_list, birdeye_token_security, birdeye_smart_money_tokens, birdeye_all_time_trades_single, birdeye_all_time_trades_multi, birdeye_search, birdeye_credits |
 | Security   | token_security                                                       |
 | Portfolio  | wallet_balance, user_transactions, limit_orders, dca_orders          |
+| Tensor     | tensor_edit_bid                                                      |
 
 ## Well-Known Mint Addresses
 - SOL:     So11111111111111111111111111111111111111112
@@ -329,6 +499,8 @@ You have live access to data from these protocols via tools:
    - **birdeye_token_security is the best single-call rug check for any chain; birdeye_holder_positions adds label detail for Solana**
    - **birdeye_smart_money_tokens is the best signal for institutional/smart money accumulation on Solana**
    - **birdeye_search is the most flexible token lookup — use when user gives a name/symbol rather than an address**
+   - "Edit / update / change a Tensor bid price / quantity / expiry" → tensor_edit_bid (NO auth required — pure data fetch, returns serialized tx)
+   - **IMPORTANT: tensor_edit_bid is a read-only data fetch (GET request) — call it directly, never treat it as an auth-required action**
 
 2. **Interpret — never dump raw data.** Numbers need context:
    - "SOL is $84.89, down 3.2% in 24h" + "this is still within normal daily variance"
@@ -996,7 +1168,7 @@ General rules:
 """
 
 
-def _to_responses_tools() -> list[dict]:
+def _to_responses_tools(schemas: list[dict]) -> list[dict]:
     return [
         {
             "type": "function",
@@ -1004,28 +1176,138 @@ def _to_responses_tools() -> list[dict]:
             "description": s["description"],
             "parameters": s["input_schema"],
         }
-        for s in TOOL_SCHEMAS
+        for s in schemas
     ]
 
 
-async def query(user_question: str, jwt_token: str = None) -> dict[str, Any]:
+def _to_chat_tools(schemas: list[dict]) -> list[dict]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": s["name"],
+                "description": s["description"],
+                "parameters": s["input_schema"],
+            },
+        }
+        for s in schemas
+    ]
+
+
+# ── OpenRouter (Chat Completions) path ────────────────────────────────────────
+
+async def _query_openrouter(
+    user_question: str,
+    jwt_token: str | None,
+    selected_schemas: list[dict],
+) -> dict[str, Any]:
+    client = OpenAI(
+        api_key=_OPENROUTER_KEY,
+        base_url="https://openrouter.ai/api/v1",
+    )
+    tools_called: list[str] = []
+    tools = _to_chat_tools(selected_schemas)
+    _tool_call_counts: dict[str, int] = {}
+    _MAX_CALLS_PER_TOOL = 2
+    _MAX_ITERATIONS = 20
+    _iteration = 0
+
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": user_question},
+    ]
+
+    while _iteration < _MAX_ITERATIONS:
+        _iteration += 1
+        for _attempt in range(3):
+            try:
+                response = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: client.chat.completions.create(
+                        model=_OPENROUTER_MODEL,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice="auto",
+                        temperature=0.1,
+                    ),
+                )
+                break
+            except Exception as _e:
+                _msg = str(_e)
+                if ("429" in _msg or "rate_limit" in _msg.lower()) and _attempt < 2:
+                    await asyncio.sleep(8 * (2 ** _attempt))
+                elif _attempt < 2:
+                    await asyncio.sleep(5)
+                else:
+                    return {
+                        "html": "<p>The AI service is temporarily unavailable. Please try again in a moment.</p>",
+                        "plain": "The AI service is temporarily unavailable. Please try again in a moment.",
+                        "tools_called": tools_called,
+                    }
+
+        msg = response.choices[0].message
+
+        if not msg.tool_calls:
+            html = msg.content or ""
+            return {
+                "html": html,
+                "plain": _strip_html(html),
+                "tools_called": tools_called,
+            }
+
+        messages.append({"role": "assistant", "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+            }
+            for tc in msg.tool_calls
+        ]})
+
+        for tc in msg.tool_calls:
+            name = tc.function.name
+            _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
+            tool_input = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
+
+            if _tool_call_counts[name] >= _MAX_CALLS_PER_TOOL:
+                result = {"error": "already_called", "message": f"{name} was already called — use the data already returned."}
+            else:
+                tools_called.append(name)
+                result = await dispatch(name, tool_input, jwt_token)
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": json.dumps(result, default=str),
+            })
+
+
+# ── OpenAI Responses API path ─────────────────────────────────────────────────
+
+async def _query_openai(
+    user_question: str,
+    jwt_token: str | None,
+    selected_schemas: list[dict],
+) -> dict[str, Any]:
     api_key = os.environ.get("OPRAI_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPRAI_OPENAI_API_KEY environment variable is required")
 
     client = OpenAI(api_key=api_key)
     tools_called: list[str] = []
-    tools = _to_responses_tools()
-    # Per-tool call counter — prevent pagination loops
+    tools = _to_responses_tools(selected_schemas)
     _tool_call_counts: dict[str, int] = {}
     _MAX_CALLS_PER_TOOL = 2
+    _MAX_ITERATIONS = 20
+    _iteration = 0
 
     input_items: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_question},
+        {"role": "user",   "content": user_question},
     ]
 
-    while True:
+    while _iteration < _MAX_ITERATIONS:
+        _iteration += 1
         for _attempt in range(3):
             try:
                 response = await asyncio.get_event_loop().run_in_executor(
@@ -1077,8 +1359,7 @@ async def query(user_question: str, jwt_token: str = None) -> dict[str, Any]:
             _tool_call_counts[fc.name] = _tool_call_counts.get(fc.name, 0) + 1
             tool_input = json.loads(fc.arguments) if isinstance(fc.arguments, str) else fc.arguments
 
-            if _tool_call_counts[fc.name] > _MAX_CALLS_PER_TOOL:
-                # Cap exceeded — return cached hint so the LLM stops retrying
+            if _tool_call_counts[fc.name] >= _MAX_CALLS_PER_TOOL:
                 result = {"error": "already_called", "message": f"{fc.name} was already called — use the data already returned, do not call it again."}
             else:
                 tools_called.append(fc.name)
@@ -1089,6 +1370,15 @@ async def query(user_question: str, jwt_token: str = None) -> dict[str, Any]:
                 "call_id": fc.call_id,
                 "output": json.dumps(result, default=str),
             })
+
+
+# ── Public entry point ────────────────────────────────────────────────────────
+
+async def query(user_question: str, jwt_token: str = None) -> dict[str, Any]:
+    selected_schemas = _select_tools(user_question)
+    if _USE_OPENROUTER:
+        return await _query_openrouter(user_question, jwt_token, selected_schemas)
+    return await _query_openai(user_question, jwt_token, selected_schemas)
 
 
 def _strip_html(text: str) -> str:

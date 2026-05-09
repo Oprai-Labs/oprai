@@ -1,0 +1,25 @@
+id: defillama_methodology
+source_type: docs
+base_url: https://docs.llama.fi
+protocol: null
+category: analytics
+license: proprietary-fair-use
+language: en
+schedule_cron: "0 7 * * *"
+crawl_delay_s: 2.0
+max_pages: 80
+tags:
+  - defillama
+  - tvl-methodology
+  - analytics
+  - defi
+  - protocol-evaluation
+notes: >
+  DeFiLlama's own documentation at docs.llama.fi. Key pages:
+  / (methodology overview — what counts as TVL),
+  /list-your-project/what-to-include-as-tvl (exclusions: non-circulating tokens,
+  borrowed assets, native-token staking, bridge TVL, smart-contract wallets,
+  unproductive pools). Also links to GitHub adapter source for per-protocol methodology.
+  Small Gitbook site; very high crawl confidence.
+  Companion: github.com/DefiLlama/DefiLlama-Adapters/discussions/434
+  (chain TVL methodology discussion, plain HTML).

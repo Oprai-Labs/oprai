@@ -17,8 +17,10 @@ export class HeliusService {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
             Authorization: `Bearer ${localStorage.getItem('oprai-auth-token') ?? ''}`,
           },
+          credentials: 'include',
           body: JSON.stringify({
             jsonrpc: '2.0',
             id: `assets-${page}`,

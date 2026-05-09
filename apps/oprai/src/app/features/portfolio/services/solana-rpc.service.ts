@@ -85,7 +85,11 @@ export class SolanaRpcService {
   private async rpcCall<T>(method: string, params: unknown[]): Promise<T> {
     const res = await fetch(this.rpcUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: ++this.id,
@@ -126,6 +130,33 @@ export class SolanaRpcService {
         };
       })
       .filter((t): t is NonNullable<typeof t> => t !== null && t.balance > 0);
+  }
+
+  /**
+   * Single-token balance — one RPC call, mint-filtered. Sums across multiple
+   * token accounts holding the same mint (rare but legal). Returns null when
+   * the wallet holds none of this mint.
+   */
+  async getTokenBalance(
+    walletAddress: string,
+    mint: string,
+  ): Promise<{ balance: number; decimals: number } | null> {
+    const result = await this.rpcCall<RpcValueWrapper<ParsedTokenAccount>>(
+      'getTokenAccountsByOwner',
+      [walletAddress, { mint }, { encoding: 'jsonParsed' }],
+    );
+    const accounts = result?.value ?? [];
+    if (accounts.length === 0) return null;
+    let total = 0;
+    let decimals = 0;
+    for (const acct of accounts) {
+      const info = acct?.account?.data?.parsed?.info;
+      if (info?.tokenAmount) {
+        total += info.tokenAmount.uiAmount ?? 0;
+        decimals = info.tokenAmount.decimals ?? decimals;
+      }
+    }
+    return total > 0 ? { balance: total, decimals } : null;
   }
 
   async getAllTokenAccounts(walletAddress: string): Promise<

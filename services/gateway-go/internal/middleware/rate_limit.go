@@ -134,7 +134,7 @@ func AuthRateLimit(store *rateLimiterStore, trustProxy bool) func(http.Handler) 
 // NewGlobalRateLimiterStore creates the per-IP store for the global (100/min) limiter.
 // Pass the application root context so the background cleanup goroutine stops on shutdown.
 func NewGlobalRateLimiterStore(ctx context.Context) *rateLimiterStore {
-	return newRateLimiterStore(ctx, rate.Limit(100.0/60.0), 10)
+	return newRateLimiterStore(ctx, rate.Limit(100.0/60.0), 30)
 }
 
 // NewAuthRateLimiterStore creates the per-IP store for the auth (20/min) limiter.
@@ -143,14 +143,16 @@ func NewAuthRateLimiterStore(ctx context.Context) *rateLimiterStore {
 	return newRateLimiterStore(ctx, rate.Limit(20.0/60.0), 5)
 }
 
-// NewWalletRateLimiterStore creates the per-wallet store for the wallet (60/min) limiter.
+// NewWalletRateLimiterStore creates the per-wallet store for the wallet (200/min) limiter.
 // Pass the application root context so the background cleanup goroutine stops on shutdown.
+// 200/min (≈3.3/s) with burst 60 accommodates portfolio page loads, which fire 15–25
+// parallel requests on mount (RPC, Helius, price feed, sessions, position monitor, etc.).
 func NewWalletRateLimiterStore(ctx context.Context) *rateLimiterStore {
-	return newRateLimiterStore(ctx, rate.Limit(60.0/60.0), 15)
+	return newRateLimiterStore(ctx, rate.Limit(200.0/60.0), 60)
 }
 
 // WalletRateLimit returns middleware that applies a per-wallet rate limit of
-// 60 requests/min. It only applies when a wallet is present in the context
+// 200 requests/min. It only applies when a wallet is present in the context
 // (i.e. after JWTAuth has run). Unauthenticated requests are not rate-limited
 // by this middleware (they are covered by GlobalRateLimit).
 func WalletRateLimit(store *rateLimiterStore) func(http.Handler) http.Handler {

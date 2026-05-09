@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, effect } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 import { Subject } from 'rxjs';
 
 export interface ChatSession {
@@ -18,8 +18,14 @@ export interface SessionGroup {
   sessions: ChatSession[];
 }
 
-const STORAGE_KEY = 'oprai-sessions';
-const ALIAS_KEY = 'oprai-session-aliases';
+const SESSIONS_KEY_PREFIX = 'oprai-sessions';
+const ALIAS_KEY_PREFIX = 'oprai-session-aliases';
+// Legacy unscoped keys (pre wallet-scope migration). Read once and cleared.
+const LEGACY_SESSIONS_KEY = 'oprai-sessions';
+const LEGACY_ALIAS_KEY = 'oprai-session-aliases';
+
+function sessionsKey(wallet: string): string { return `${SESSIONS_KEY_PREFIX}:${wallet}`; }
+function aliasKey(wallet: string): string { return `${ALIAS_KEY_PREFIX}:${wallet}`; }
 
 @Injectable({ providedIn: 'root' })
 export class SessionStorageService {
@@ -34,15 +40,30 @@ export class SessionStorageService {
   readonly activeSessionId = this._activeSessionId.asReadonly();
   readonly incognitoMode = this._incognitoMode.asReadonly();
 
-  constructor() {
-    // Load from localStorage on init
-    this.loadFromStorage();
+  // Wallet currently bound to the storage. null = unauthenticated → no persistence,
+  // sidebar shows nothing. AuthService calls setWallet() on login/restore/logout.
+  private boundWallet: string | null = null;
 
-    // Persist to localStorage whenever sessions change
-    effect(() => {
-      const sessions = this._sessions();
-      this.saveToStorage(sessions);
-    });
+  /**
+   * Bind storage to a wallet (call on login / session restore). Pass null on logout.
+   * Switching wallets reloads from the new wallet's namespace; logging out clears
+   * the in-memory state so the sidebar is empty until a wallet reconnects.
+   */
+  setWallet(wallet: string | null): void {
+    if (this.boundWallet === wallet) return;
+    this.boundWallet = wallet;
+
+    if (wallet === null) {
+      this._sessions.set([]);
+      this._activeSessionId.set(null);
+      this._aliasMap.clear();
+      return;
+    }
+
+    // First time we see a wallet: migrate any legacy unscoped sessions into this
+    // wallet's namespace (one-time best-effort). Then load.
+    this.migrateLegacyStorage(wallet);
+    this.loadFromStorage();
   }
 
   toggleIncognito(): void {
@@ -127,7 +148,7 @@ export class SessionStorageService {
    */
   createLocalSession(title: string = 'New Chat'): ChatSession {
     const id = `local:${crypto.randomUUID()}`;
-    const now = new Date().toISOString();
+    const now = this.nextTimestamp(this._sessions());
     const session: ChatSession = {
       id,
       title,
@@ -139,6 +160,7 @@ export class SessionStorageService {
 
     this._sessions.update((sessions) => [session, ...sessions]);
     this._activeSessionId.set(id);
+    this.persist();
     return session;
   }
 
@@ -154,6 +176,7 @@ export class SessionStorageService {
         s.id === localId ? { ...s, serverId, isLocal: false } : s
       )
     );
+    this.persist();
   }
 
   /**
@@ -212,13 +235,19 @@ export class SessionStorageService {
     const merged = [
       ...localOnly.filter(s => !serverIds.has(s.id)),
       ...mergedServerSessions,
-    ];
+    ].map((s) => ({
+      // Backfill updatedAt so callers that pass partial sessions still sort
+      // correctly and downstream code can rely on the field being present.
+      ...s,
+      updatedAt: s.updatedAt || s.createdAt || new Date().toISOString(),
+    }));
     // Sort by updatedAt descending
     merged.sort((a, b) =>
       new Date(b.updatedAt || b.createdAt).getTime() -
       new Date(a.updatedAt || a.createdAt).getTime()
     );
     this._sessions.set(merged);
+    this.persist();
   }
 
   /**
@@ -230,14 +259,15 @@ export class SessionStorageService {
       const newOnes = serverSessions.filter(s => !existingIds.has(s.id));
       return [...current, ...newOnes];
     });
+    this.persist();
   }
 
   /**
    * Update a session's title and bump its updatedAt timestamp
    */
   updateTitle(id: string, title: string): void {
-    const now = new Date().toISOString();
     this._sessions.update((sessions) => {
+      const now = this.nextTimestamp(sessions);
       const updated = sessions.map((s) =>
         s.id === id ? { ...s, title, updatedAt: now } : s
       );
@@ -248,14 +278,15 @@ export class SessionStorageService {
       );
       return updated;
     });
+    this.persist();
   }
 
   /**
    * Touch a session (update its updatedAt) to move it to top of list
    */
   touchSession(id: string): void {
-    const now = new Date().toISOString();
     this._sessions.update((sessions) => {
+      const now = this.nextTimestamp(sessions);
       const updated = sessions.map((s) =>
         s.id === id ? { ...s, updatedAt: now } : s
       );
@@ -266,6 +297,7 @@ export class SessionStorageService {
       );
       return updated;
     });
+    this.persist();
   }
 
   /**
@@ -277,6 +309,7 @@ export class SessionStorageService {
         s.id === id ? { ...s, pinned: !s.pinned } : s
       );
     });
+    this.persist();
   }
 
   /**
@@ -296,6 +329,7 @@ export class SessionStorageService {
       const remaining = this._sessions();
       this._activeSessionId.set(remaining.length > 0 ? remaining[0].id : null);
     }
+    this.persist();
   }
 
   /**
@@ -305,9 +339,10 @@ export class SessionStorageService {
     this._sessions.set([]);
     this._activeSessionId.set(null);
     this._aliasMap.clear();
+    if (!this.boundWallet) return;
     try {
-      localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem(ALIAS_KEY);
+      localStorage.removeItem(sessionsKey(this.boundWallet));
+      localStorage.removeItem(aliasKey(this.boundWallet));
     } catch (err) {
       console.warn('[SessionStorageService] Failed to clear localStorage', err);
     }
@@ -315,16 +350,33 @@ export class SessionStorageService {
 
   // ── LocalStorage Persistence ──
 
+  /**
+   * Produce a timestamp strictly greater than every existing session's updatedAt.
+   * Date#toISOString has only millisecond precision; without this, multiple
+   * mutations within the same ms tick produce equal timestamps and stable-sort
+   * leaves the touched session in its previous slot (sidebar order regresses).
+   */
+  private nextTimestamp(sessions: ChatSession[]): string {
+    let next = Date.now();
+    for (const s of sessions) {
+      const t = new Date(s.updatedAt || s.createdAt).getTime();
+      if (Number.isFinite(t) && t >= next) next = t + 1;
+    }
+    return new Date(next).toISOString();
+  }
+
+  private persist(): void {
+    this.saveToStorage(this._sessions());
+  }
+
   private loadFromStorage(): void {
+    if (!this.boundWallet) return;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const sessions: ChatSession[] = JSON.parse(raw);
-        if (Array.isArray(sessions) && sessions.length > 0) {
-          this._sessions.set(sessions);
-        }
-      }
-      const aliasRaw = localStorage.getItem(ALIAS_KEY);
+      const raw = localStorage.getItem(sessionsKey(this.boundWallet));
+      const sessions: ChatSession[] = raw ? JSON.parse(raw) : [];
+      this._sessions.set(Array.isArray(sessions) ? sessions : []);
+      this._aliasMap.clear();
+      const aliasRaw = localStorage.getItem(aliasKey(this.boundWallet));
       if (aliasRaw) {
         const aliases: Record<string, string> = JSON.parse(aliasRaw);
         for (const [k, v] of Object.entries(aliases)) {
@@ -337,24 +389,53 @@ export class SessionStorageService {
   }
 
   private saveToStorage(sessions: ChatSession[]): void {
+    // No-op when unauthenticated — prevents writing to a base/legacy key.
+    if (!this.boundWallet) return;
     try {
       // Don't persist incognito sessions
       const toSave = sessions.filter(s => !s.isIncognito);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+      localStorage.setItem(sessionsKey(this.boundWallet), JSON.stringify(toSave));
     } catch (err) {
       console.warn('[SessionStorageService] Failed to save sessions to localStorage', err);
     }
   }
 
   private saveAliases(): void {
+    if (!this.boundWallet) return;
     try {
       const obj: Record<string, string> = {};
       for (const [k, v] of this._aliasMap.entries()) {
         obj[k] = v;
       }
-      localStorage.setItem(ALIAS_KEY, JSON.stringify(obj));
+      localStorage.setItem(aliasKey(this.boundWallet), JSON.stringify(obj));
     } catch (err) {
       console.warn('[SessionStorageService] Failed to save session aliases to localStorage', err);
+    }
+  }
+
+  /**
+   * One-time migration: if legacy unscoped storage exists AND the new wallet-scoped
+   * key is empty, move the legacy data into this wallet's namespace. Always remove
+   * the legacy keys afterwards so the next wallet doesn't inherit them.
+   */
+  private migrateLegacyStorage(wallet: string): void {
+    try {
+      const legacySessions = localStorage.getItem(LEGACY_SESSIONS_KEY);
+      const legacyAliases = localStorage.getItem(LEGACY_ALIAS_KEY);
+      if (!legacySessions && !legacyAliases) return;
+      const newSessionsKey = sessionsKey(wallet);
+      const newAliasKey = aliasKey(wallet);
+      // Only fill the wallet-scoped slot if it's empty — never overwrite real data.
+      if (legacySessions && !localStorage.getItem(newSessionsKey)) {
+        localStorage.setItem(newSessionsKey, legacySessions);
+      }
+      if (legacyAliases && !localStorage.getItem(newAliasKey)) {
+        localStorage.setItem(newAliasKey, legacyAliases);
+      }
+      localStorage.removeItem(LEGACY_SESSIONS_KEY);
+      localStorage.removeItem(LEGACY_ALIAS_KEY);
+    } catch (err) {
+      console.warn('[SessionStorageService] Legacy migration failed', err);
     }
   }
 }

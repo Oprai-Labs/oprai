@@ -542,12 +542,38 @@ pub async fn get_jitosol_sol_ratio(
         .map_err(|e| AppError::Internal(format!("Kobe parse error: {e}")))
 }
 
-/// Convenience: get the current jitoSOL→SOL exchange rate with fallback.
-pub async fn get_exchange_rate(http: &reqwest::Client) -> f64 {
-    get_jitosol_sol_ratio(http, None, None)
+/// Compute the jitoSOL→SOL exchange rate directly from the on-chain stake pool
+/// account: `rate = total_lamports / pool_token_supply`. This is the same math
+/// the program runs on deposit/withdraw, so it is the authoritative source of
+/// truth (Jito's Kobe API is a cache layer over this same data).
+pub fn compute_onchain_exchange_rate(rpc: &SolanaRpc) -> Result<f64, AppError> {
+    let pool = fetch_stake_pool(rpc)?;
+    if pool.pool_token_supply == 0 {
+        return Err(AppError::Internal(
+            "Stake pool has zero supply; cannot compute rate".into(),
+        ));
+    }
+    Ok(pool.total_lamports as f64 / pool.pool_token_supply as f64)
+}
+
+/// Get the current jitoSOL→SOL exchange rate. Tries Jito's Kobe analytics API
+/// first (fast, cached); on failure falls back to the on-chain StakePool. Both
+/// are Jito's own services — no static constant is used as a fallback.
+pub async fn get_exchange_rate(
+    http: &reqwest::Client,
+    rpc: &SolanaRpc,
+) -> Result<f64, AppError> {
+    if let Ok(resp) = get_jitosol_sol_ratio(http, None, None).await {
+        let latest = resp.latest_rate();
+        if latest.is_finite() && latest > 0.0 {
+            return Ok(latest);
+        }
+    }
+    // Kobe unavailable or returned an invalid rate — read the chain directly.
+    let rpc = rpc.clone();
+    actix_web::web::block(move || compute_onchain_exchange_rate(&rpc))
         .await
-        .map(|r| r.latest_rate())
-        .unwrap_or(1.08)
+        .map_err(|e| AppError::Internal(format!("Blocking task error: {e}")))?
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -856,7 +882,12 @@ fn fetch_stake_pool(rpc: &SolanaRpc) -> Result<StakePool, AppError> {
         .client()
         .get_account(&stake_pool_pubkey)
         .map_err(|e| AppError::Internal(format!("Failed to fetch stake pool account: {e}")))?;
-    StakePool::try_from_slice(&account.data)
+    // The on-chain account is the program's allocated buffer (≈ 656 bytes) and
+    // is larger than the StakePool struct's serialized size. `try_from_slice`
+    // is strict and errors with "Not all bytes read" on the trailing zeros, so
+    // we use the streaming `deserialize` which stops once the struct is full.
+    let mut data: &[u8] = &account.data;
+    StakePool::deserialize(&mut data)
         .map_err(|e| AppError::Internal(format!("Failed to deserialize stake pool: {e}")))
 }
 
@@ -1477,9 +1508,10 @@ pub async fn build_jito_stake_action(
 
     let sol_amount: f64 = params.amount.parse().unwrap();
 
-    // Fetch analytics concurrently (best-effort; fall back to defaults on error).
-    let (exchange_rate, apy_pct) = tokio::join!(
-        get_exchange_rate(http),
+    // Fetch the live exchange rate (Kobe API → on-chain fallback) and APY in
+    // parallel. The rate is required (no static fallback); APY is best-effort.
+    let (rate_res, apy_pct) = tokio::join!(
+        get_exchange_rate(http, rpc),
         async {
             get_stake_pool_stats(http)
                 .await
@@ -1488,6 +1520,7 @@ pub async fn build_jito_stake_action(
                 .unwrap_or(7.5)
         }
     );
+    let exchange_rate = rate_res?;
 
     // Build transaction in blocking task (RpcClient is sync).
     let rpc = rpc.clone();
@@ -1543,7 +1576,7 @@ pub async fn build_jito_unstake_action(
     let jitosol_amount: f64 = params.amount.parse().unwrap();
     let instant = params.instant.unwrap_or(false);
 
-    let exchange_rate = get_exchange_rate(http).await;
+    let exchange_rate = get_exchange_rate(http, rpc).await?;
 
     let result = if instant {
         // ── Instant path: withdraw_sol ────────────────────────────────────────
@@ -1756,10 +1789,12 @@ pub async fn build_jito_withdraw_stake(
 /// `jito_get_stats` — fetch current APY, TVL, supply, exchange rate.
 pub async fn query_jito_stats(
     http: &reqwest::Client,
+    rpc: &SolanaRpc,
     _params: &JitoGetStatsParams,
 ) -> Result<BuildResponse, AppError> {
-    let (stats_result, rate) = tokio::join!(get_stake_pool_stats(http), get_exchange_rate(http));
+    let (stats_result, rate_res) = tokio::join!(get_stake_pool_stats(http), get_exchange_rate(http, rpc));
     let stats = stats_result?;
+    let rate = rate_res?;
     let apy = stats.current_apy_pct().unwrap_or(0.0);
     let tvl_sol = stats
         .current_tvl_lamports()
@@ -1799,9 +1834,10 @@ pub async fn query_jito_stats(
 /// `jito_get_exchange_rate` — fetch current jitoSOL/SOL exchange rate.
 pub async fn query_jito_exchange_rate(
     http: &reqwest::Client,
+    rpc: &SolanaRpc,
     _params: &JitoGetExchangeRateParams,
 ) -> Result<BuildResponse, AppError> {
-    let rate = get_exchange_rate(http).await;
+    let rate = get_exchange_rate(http, rpc).await?;
     let data = serde_json::json!({
         "exchangeRate": rate,
         "formattedRate": format!("{rate:.6}"),
@@ -1989,10 +2025,11 @@ pub async fn build_jito_deposit_stake_action(
     let deposit_stake_pubkey = Pubkey::from_str(&params.stake_account).unwrap();
 
     // Fetch exchange rate and preferred validator concurrently.
-    let (exchange_rate, preferred_list) = tokio::join!(
-        get_exchange_rate(http),
+    let (rate_res, preferred_list) = tokio::join!(
+        get_exchange_rate(http, rpc),
         get_preferred_withdraw_validators(http, Some(1), None, false)
     );
+    let exchange_rate = rate_res?;
 
     let preferred = preferred_list
         .map_err(|e| AppError::Internal(format!("Preferred validator fetch failed: {e}")))?

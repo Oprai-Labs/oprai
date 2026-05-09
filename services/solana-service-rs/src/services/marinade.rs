@@ -34,8 +34,9 @@ pub const MARINADE_STATE: &str = "8szGkuLTAux9XMgZ2vtY39jVSowEcpBfFfD8hXSEqdGC";
 /// Marinade Reserve SOL PDA — source account for claim transfers (from IDL: reservePda)
 pub const MARINADE_RESERVE: &str = "Du3Ysj1wKbxPKkuPPnvzQLQh8oMSVifs3jGZjJWXFmHN";
 
-/// Marinade API base URL (v2 - current)
-pub const MARINADE_API: &str = "https://mainnet-assets.marinade.finance/v1";
+/// Marinade public API base URL — served by Marinade's indexer.
+/// Note: the older `mainnet-assets.marinade.finance` host has been retired.
+pub const MARINADE_API: &str = "https://api.marinade.finance";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -165,24 +166,60 @@ pub fn validate_marinade_delayed_unstake_params(params: &MarinadeDelayedUnstakeP
 // API Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Fetch Marinade stats from the public API.
+/// Fetch Marinade stats from the public API. Returns None if the upstream
+/// endpoint is unavailable — callers MUST treat this as a hard failure rather
+/// than substituting defaults.
 pub async fn get_marinade_stats(http: &reqwest::Client) -> Option<MarinadeStats> {
-    let resp = http.get(format!("{MARINADE_API}/stats")).send().await.ok()?;
+    // /tlv carries the real-time totals; we map them into the legacy
+    // MarinadeStats shape so existing callers (apy/stats descriptions) keep
+    // working. Note: /tlv doesn't expose an APY field, so apy stays None.
+    let resp = http.get(format!("{MARINADE_API}/tlv")).send().await.ok()?;
     if !resp.status().is_success() {
         return None;
     }
-    resp.json().await.ok()
+    resp.json::<serde_json::Value>().await.ok().map(|v| MarinadeStats {
+        msol_price: None, // populated separately by get_msol_exchange_rate
+        total_sol_staked: v.get("total_sol").and_then(|n| n.as_f64()).map(|n| n.to_string()),
+        apy: None,
+    })
 }
 
-/// Get the current mSOL/SOL exchange rate.
-pub async fn get_msol_exchange_rate(http: &reqwest::Client) -> f64 {
-    match get_marinade_stats(http).await {
-        Some(stats) => stats
-            .msol_price
-            .and_then(|p| p.parse::<f64>().ok())
-            .unwrap_or(1.0),
-        None => 1.0,
+/// Get the current mSOL/SOL exchange rate from Marinade's own indexer.
+///
+/// Source: `https://api.marinade.finance/msol/price_sol` — returns the rate
+/// as a bare numeric body, recomputed by Marinade's indexer on every Solana
+/// slot. This is the live spot price, NOT a daily APY rollup.
+///
+/// Returns an error if the rate cannot be obtained — there is intentionally
+/// **no static fallback constant** because using one would silently mislead
+/// the user (e.g. previewing 0.1 SOL → 0.1 mSOL when the true rate is ~0.73).
+/// Build paths must propagate the error so the UI can display a clear message
+/// and the user can retry.
+pub async fn get_msol_exchange_rate(http: &reqwest::Client) -> Result<f64, AppError> {
+    let resp = http
+        .get(format!("{MARINADE_API}/msol/price_sol"))
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Marinade rate fetch failed: {e}")))?;
+    if !resp.status().is_success() {
+        return Err(AppError::Internal(format!(
+            "Marinade rate upstream HTTP {}",
+            resp.status()
+        )));
     }
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| AppError::Internal(format!("Marinade rate read failed: {e}")))?;
+    let v: f64 = body.trim().parse().map_err(|e| {
+        AppError::Internal(format!("Marinade rate parse failed: {e} (body={body:?})"))
+    })?;
+    if !v.is_finite() || v <= 0.0 {
+        return Err(AppError::Internal(format!(
+            "Marinade rate out of range: {v}"
+        )));
+    }
+    Ok(v)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -199,7 +236,7 @@ pub async fn build_marinade_stake(
 
     let wallet_pubkey = Pubkey::from_str(user_pubkey_str)
         .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {}", e)))?;
-    let exchange_rate = get_msol_exchange_rate(http).await;
+    let exchange_rate = get_msol_exchange_rate(http).await?;
     let slippage = params.slippage_bps.unwrap_or(50);
     let amount_lamports = (params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * 1_000_000_000.0) as u64;
     let expected_msol = params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? / exchange_rate;
@@ -271,7 +308,7 @@ pub async fn build_marinade_unstake(
 
     let wallet_pubkey = Pubkey::from_str(user_pubkey_str)
         .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {}", e)))?;
-    let exchange_rate = get_msol_exchange_rate(http).await;
+    let exchange_rate = get_msol_exchange_rate(http).await?;
     let slippage = params.slippage_bps.unwrap_or(50);
     let amount_lamports = (params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * 1_000_000_000.0) as u64;
     let expected_sol = params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * exchange_rate;
@@ -337,7 +374,7 @@ pub async fn build_marinade_delayed_unstake(
 
     let wallet_pubkey = Pubkey::from_str(user_pubkey_str)
         .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {}", e)))?;
-    let exchange_rate = get_msol_exchange_rate(http).await;
+    let exchange_rate = get_msol_exchange_rate(http).await?;
     let amount_lamports = (params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * 1_000_000_000.0) as u64;
     let expected_sol = params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * exchange_rate;
 

@@ -430,6 +430,32 @@ export class WalletService {
     return this._adapter.signTransaction(transaction);
   }
 
+  /**
+   * Sign and send a transaction in one call, optionally skipping preflight simulation.
+   * Supported by Phantom; falls back to null for wallets that don't expose this method.
+   * Returns the transaction signature on success, or null if the wallet doesn't support it.
+   */
+  async signAndSendTransaction(
+    transaction: unknown,
+    options?: { skipPreflight?: boolean },
+  ): Promise<string | null> {
+    if (!this._adapter) throw new Error('No wallet connected');
+    const fn = (this._adapter as any).signAndSendTransaction;
+    if (typeof fn !== 'function') return null;
+    const result = await fn.call(this._adapter, transaction, options ?? {});
+    if (typeof result === 'string') return result;
+    if (result?.signature && typeof result.signature === 'string') return result.signature;
+    if (result?.publicKey === undefined && result?.signature === undefined) {
+      // Some adapters return { signature: Uint8Array } — encode to base58
+      const sig = result?.signature as Uint8Array | undefined;
+      if (sig instanceof Uint8Array) {
+        const bs58 = await import('bs58');
+        return bs58.default.encode(sig);
+      }
+    }
+    return null;
+  }
+
   // ── Private ──────────────────────────────────────────────────
 
   private getAdapter(walletName: string): WalletAdapter | null {

@@ -1,0 +1,122 @@
+# Prometheus alerting rules for OPRAI.
+#
+# Wire into prometheus.yml with:
+#
+#   rule_files:
+#     - /etc/prometheus/alerts.yml
+#
+# Alertmanager routes these to whatever sink you configure — the docker-compose
+# overlay below ships a Slack/Discord-compatible Alertmanager out of the box.
+#
+# Conventions:
+#   • Alerts are de-duplicated by (alertname, service).
+#   • Every alert sets `summary` (one-line) and `description` (with metric
+#     values + a hint about what to check first).
+#   • `severity` is `page` (wakes someone up), `warn` (fix during business
+#     hours), or `info` (FYI).
+#
+# These rules assume the metrics emitted by the polyglot services (Go via
+# prometheus/client_golang, Python via prometheus_fastapi_instrumentator, Rust
+# via actix-web-prom). If you change a metric name in code, update it here.
+
+groups:
+  # ─── Service health ─────────────────────────────────────────────────────────
+  - name: oprai.health
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.job }} is DOWN"
+          description: |
+            Prometheus has not been able to scrape {{ $labels.job }} (instance
+            {{ $labels.instance }}) for over 2 minutes. Check the container,
+            its logs, and whether the gateway can still reach it.
+
+  # ─── HTTP error budgets ─────────────────────────────────────────────────────
+  - name: oprai.errors
+    interval: 30s
+    rules:
+      - alert: GatewayHigh5xxRate
+        # Tune the metric name to whatever your gateway exporter emits.
+        # The default chi/promhttp exporter uses `http_requests_total`.
+        expr: |
+          (
+            sum by (job) (rate(http_requests_total{job="gateway", code=~"5.."}[5m]))
+            /
+            sum by (job) (rate(http_requests_total{job="gateway"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.job }} 5xx rate >5% for 5m"
+          description: |
+            Gateway is returning 5xx for >5% of requests over the last 5
+            minutes. First check upstream service health (auth/chat/solana
+            /memory). Likely culprits: pgbouncer pool, Redis, OpenAI quota.
+
+      - alert: AuthFailureSpike
+        expr: |
+          rate(auth_failures_total[5m])
+            > 5 * (avg_over_time(rate(auth_failures_total[5m])[1d:5m]) + 1)
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Auth failures running 5× the daily baseline"
+          description: |
+            Could be a credential-stuffing run, a frontend bug spamming
+            /auth/nonce, or the JWT-secret rotation playbook misapplied.
+            Check the auth-service logs first.
+
+  # ─── DB / queue saturation ──────────────────────────────────────────────────
+  - name: oprai.saturation
+    interval: 30s
+    rules:
+      - alert: PostgresPoolExhaustion
+        # Replace with the actual exporter metric. SQLAlchemy doesn't expose
+        # one by default; expose `db_pool_in_use / db_pool_size` from the
+        # service or scrape pgbouncer's stats with the `pgbouncer_exporter`.
+        expr: pg_pool_in_use / pg_pool_size > 0.9
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Postgres pool >90% saturated for 5m"
+          description: |
+            We saw this live during heavy parallel writes. Check whether KB
+            ingestion or a streaming endpoint is holding sessions open. Bump
+            OPRAI_CHAT_DB_POOL_SIZE temporarily; root-cause the stuck session.
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Redis is DOWN — JWT blocklist + caches degraded"
+          description: |
+            JWT revocation falls back to in-memory only and the QueryCard
+            cross-turn cache stops persisting. Restart Redis ASAP.
+
+  # ─── Cost / abuse ───────────────────────────────────────────────────────────
+  - name: oprai.cost
+    interval: 1m
+    rules:
+      - alert: LLMDailyTokenSpike
+        # Sum across all wallets — catches a single bad actor or a runaway
+        # agentic loop before the OpenAI bill rolls in.
+        expr: sum(increase(llm_tokens_total[1h])) > 5e6
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "LLM token spend >5M tokens/hr"
+          description: |
+            Investigate which wallet drove the surge:
+              topk(5, sum by (wallet) (increase(llm_tokens_total[1h])))
+            Then either lower OPRAI_LLM_DAILY_TOKEN_CAP or block the wallet.

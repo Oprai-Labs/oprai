@@ -136,9 +136,31 @@ func (p *ChatProxy) StreamMessages(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PatchMessageMeta proxies PATCH /chat/sessions/{id}/messages/{msgId}/metadata
+func (p *ChatProxy) PatchMessageMeta(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	msgID := chi.URLParam(r, "msgId")
+	r.URL.Path = "/sessions/" + id + "/messages/" + msgID + "/metadata"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PostMessageFeedback proxies POST /chat/messages/{msgId}/feedback to the
+// chat-service. Body: {"rating": -1|1, "note"?: string}.
+func (p *ChatProxy) PostMessageFeedback(w http.ResponseWriter, r *http.Request) {
+	msgID := chi.URLParam(r, "msgId")
+	r.URL.Path = "/messages/" + msgID + "/feedback"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // StreamMessagesPost proxies POST /chat/messages/stream
 func (p *ChatProxy) StreamMessagesPost(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/messages/stream"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// EditMessage proxies POST /chat/messages/edit (edit-and-resend a previous user message).
+func (p *ChatProxy) EditMessage(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/messages/edit"
 	p.proxy.ServeHTTP(w, r)
 }
 

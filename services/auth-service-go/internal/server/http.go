@@ -118,6 +118,18 @@ func NewHTTPServer(
 		r.Patch("/{wallet}", userHandler.HandlePatchByWallet)
 	})
 
+	// ── Internal routes (gated by X-Internal-Api-Key) ─────────────────
+	// solana-service-rs calls /internal/spending/check before building
+	// any fund-moving transaction (hard-stop) and /internal/spending/commit
+	// after /actions/submit succeeds. Frontend never hits these.
+	r.Route("/internal/spending", func(r chi.Router) {
+		r.Use(func(next http.Handler) http.Handler {
+			return internalKeyGate(cfg.InternalAPIKey, next)
+		})
+		r.Post("/check", spendingHandler.HandleCheckSpending)
+		r.Post("/commit", spendingHandler.HandleCommitSpending)
+	})
+
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		Handler:      r,

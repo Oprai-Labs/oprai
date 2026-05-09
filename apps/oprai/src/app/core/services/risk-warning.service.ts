@@ -2,7 +2,7 @@
  * RiskWarningService
  *
  * Shows risk warnings to the user before executing a transaction.
- * RiskWarningDialogComponent bu servisin state'ini dinler ve resolve/reject eder.
+ * RiskWarningDialogComponent listens to this service's state and resolves/rejects the promise.
  *
  * Usage:
  *   const confirmed = await this.riskWarning.confirm(action, amountUsd);
@@ -38,11 +38,11 @@ const BORROW_TYPES = new Set([
 ]);
 
 const LAUNCH_TYPES = new Set([
-  'launch_token', 'bonkfun_launch',
+  'launch_token', 'pumpfun_launch', 'token_launch',
 ]);
 
 const VOLATILE_BUY_TYPES = new Set([
-  'pumpfun_buy', 'bonkfun_buy',
+  'pumpfun_buy', 'pumpswap_buy',
 ]);
 
 // High-value thresholds
@@ -64,6 +64,32 @@ export class RiskWarningService {
 
     return new Promise<boolean>(resolve => {
       this.warning$.next({ ...payload, resolve });
+    });
+  }
+
+  /**
+   * Force the user to acknowledge a mint that Jupiter knows about but is not
+   * in our verified `shared/tokens.json` registry. Surfaces the *real* symbol
+   * Jupiter returned so a vanity-prefix imposter (`J1toso1u…<garbage>`) can't
+   * masquerade as JitoSOL through prompt manipulation.
+   */
+  async confirmUnverifiedMint(symbol: string, name: string): Promise<boolean> {
+    return new Promise<boolean>(resolve => {
+      this.warning$.next({
+        title: 'Unverified Token',
+        message:
+          `This token is not in the OPRAI verified registry. ` +
+          `Jupiter recognises it as “${symbol}${name && name !== symbol ? ` (${name})` : ''}” — ` +
+          `make sure that is what you intended to trade.`,
+        severity: 'danger',
+        confirmLabel: 'I understand, proceed',
+        items: [
+          { icon: 'shield-alert', text: `Symbol returned by Jupiter: ${symbol}` },
+          { icon: 'alert-circle', text: 'Vanity-prefix scams can mimic well-known tokens.' },
+          { icon: 'rotate-ccw', text: 'Once signed, the swap cannot be reversed.' },
+        ],
+        resolve,
+      });
     });
   }
 
@@ -97,7 +123,7 @@ export class RiskWarningService {
         const liqBuffer = (1 / leverage * 100).toFixed(1);
         items.push({ icon: 'target', text: `Position liquidated if price moves ~${liqBuffer}% against you` });
       }
-      const collateral = Number(action.params['collateral'] ?? action.params['amount']);
+      const collateral = Number(action.params['collateralAmount'] ?? action.params['collateral'] ?? action.params['amount']);
       if (collateral > 0 && leverage > 0) {
         const maxLoss = collateral.toFixed(collateral < 1 ? 4 : 2);
         items.push({ icon: 'shield-alert', text: `Up to ${maxLoss} ${action.params['token'] ?? 'SOL'} at risk if liquidated` });
@@ -118,19 +144,7 @@ export class RiskWarningService {
       );
     }
 
-    // ── Token launch ────────────────────────────────────────────────────────
-    else if (LAUNCH_TYPES.has(action.type)) {
-      needsWarning = true;
-      title = 'Token Launch';
-      message = 'You are about to launch a new token on a bonding curve.';
-      severity = 'warning';
-      confirmLabel = 'Launch token';
-      items.push(
-        { icon: 'rocket',        text: 'Token will be listed on the bonding curve immediately' },
-        { icon: 'users',         text: 'Trading opens to all users upon launch' },
-        { icon: 'info',          text: 'Liquidity migrates to DEX at graduation threshold' },
-      );
-    }
+    // ── Token launch — no confirmation dialog needed; action card is the UX ──
 
     // ── Volatile meme token buy ─────────────────────────────────────────────
     else if (VOLATILE_BUY_TYPES.has(action.type) && amountUsd >= WARN_THRESHOLD_USD) {
@@ -143,6 +157,24 @@ export class RiskWarningService {
         { icon: 'trending-down', text: 'Price can drop to zero at any time' },
         { icon: 'alert-circle',  text: 'No fundamental value guarantee' },
         { icon: 'flame',         text: 'Bonding curve slippage may be high' },
+      );
+    }
+
+    // ── Swap all SOL (no fee reserve) ──────────────────────────────────────
+    else if (
+      action.type === 'swap' &&
+      String(action.params['inputMint']).toUpperCase() === 'SOL' &&
+      String(action.params['amount']).toLowerCase() === 'all'
+    ) {
+      needsWarning = true;
+      title = 'Swapping All SOL';
+      message = 'You are swapping your entire SOL balance. You may not have enough SOL left to pay transaction fees.';
+      severity = 'warning';
+      confirmLabel = 'Proceed anyway';
+      items.push(
+        { icon: 'alert-circle', text: 'Transaction fees require a small SOL balance (~0.01 SOL)' },
+        { icon: 'info',         text: 'Consider keeping at least 0.01 SOL for future fees' },
+        { icon: 'rotate-ccw',   text: 'Swaps are irreversible once signed' },
       );
     }
 

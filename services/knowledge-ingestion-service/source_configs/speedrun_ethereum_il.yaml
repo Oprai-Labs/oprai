@@ -1,0 +1,26 @@
+id: speedrun_ethereum_il
+source_type: docs
+base_url: https://speedrunethereum.com/guides
+protocol: null
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "20 9 * * *"
+crawl_delay_s: 2.0
+max_pages: 30
+include_patterns:
+  - "impermanent-loss"
+  - "amm"
+  - "liquidity"
+tags:
+  - impermanent-loss
+  - amm-math
+  - apr-calculation
+  - il-formula
+  - defi-education
+notes: >
+  SpeedRunEthereum guides — static HTML, very high crawl confidence. Key page:
+  /guides/impermanent-loss-math-explained
+  Covers the IL formula (2√d/(1+d)-1), worked examples, APR adjustment methodology
+  (net APR = pool APR - IL%), and concentrated liquidity amplification of IL.
+  Ideal for teaching IL-adjusted APR calculation in a clean, non-SPA format.

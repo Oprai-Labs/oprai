@@ -277,8 +277,8 @@ export class PumpFunService {
         params: { mint, amount: String(amount), denominatedInSol, slippage, priorityFee },
       })
     ).catch(err => {
-      console.error('[PumpFun] buildBuy error:', err);
-      return null;
+      const msg = err?.error?.error ?? err?.message ?? 'Failed to build pump.fun transaction';
+      throw new Error(msg);
     });
   }
 
@@ -305,8 +305,8 @@ export class PumpFunService {
         params: { mint, amount: String(amount), denominatedInSol, slippage, priorityFee },
       })
     ).catch(err => {
-      console.error('[PumpFun] buildPumpSwap error:', err);
-      return null;
+      const msg = err?.error?.error ?? err?.message ?? 'Failed to build PumpSwap transaction';
+      throw new Error(msg);
     });
   }
 
@@ -331,8 +331,8 @@ export class PumpFunService {
         params: { mint, amount: String(amount), denominatedInSol, slippage, priorityFee },
       })
     ).catch(err => {
-      console.error('[PumpFun] buildSell error:', err);
-      return null;
+      const msg = err?.error?.error ?? err?.message ?? 'Failed to build pump.fun transaction';
+      throw new Error(msg);
     });
   }
 

@@ -1,418 +1,380 @@
 """
-RAG (Retrieval Augmented Generation) Integration
+Blockchain/DeFi/Solana Knowledge RAG — Read path (chat-service-py inline).
 
-Connects document ingestion to Qdrant vector store for knowledge retrieval.
+Queries the shared `oprai_blockchain_knowledge` Qdrant collection populated by
+knowledge-ingestion-service.  Phase 1: dense-only search.
+Phase 3: full hybrid (dense + sparse BM25 RRF + cross-encoder rerank).
 """
 
 from __future__ import annotations
 
-import asyncio
-import logging
 import hashlib
+import logging
+import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Any, Optional
 
+from openai import AsyncOpenAI
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
+from qdrant_client.http.models import (
+    Distance,
+    HnswConfigDiff,
+    PayloadSchemaType,
+    QuantizationConfig,
+    ScalarQuantization,
+    ScalarQuantizationConfig,
+    ScalarType,
+    SparseIndexParams,
+    SparseVectorParams,
+    VectorParams,
+    VectorsConfig,
+)
 
 from app.config import settings
-from app.llm import get_llm_service
 
 logger = logging.getLogger(__name__)
+
+COLLECTION_NAME = "oprai_blockchain_knowledge"
+EMBEDDING_DIM = 3072
+EMBEDDING_MODEL = "text-embedding-3-large"
+UUID_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # uuid.NAMESPACE_OID
 
 
 @dataclass
 class KnowledgeChunk:
-    """A chunk of knowledge for indexing"""
-    id: str
+    doc_id: str
+    chunk_id: int
     content: str
-    source: str
-    source_type: str  # pdf, url, video, etc.
-    chunk_index: int
-    embedding: Optional[list[float]] = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    title: str
+    section_path: str
+    source_url: str
+    source_type: str
+    protocol: Optional[str]
+    category: Optional[str]
+    language: str
+    published_at: Optional[int]
+    token_count: int
+    score: float = 0.0
+    tags: list[str] = field(default_factory=list)
 
 
-@dataclass
-class SearchResult:
-    """Result from knowledge search"""
-    chunk: KnowledgeChunk
-    score: float
-    highlights: list[str] = field(default_factory=list)
+class _EmbeddingCache:
+    """Simple LRU cache for query embeddings — avoids redundant OpenAI calls."""
+
+    def __init__(self, maxsize: int = 1024):
+        self._cache: dict[str, list[float]] = {}
+        self._order: list[str] = []
+        self._maxsize = maxsize
+
+    def get(self, key: str) -> Optional[list[float]]:
+        return self._cache.get(key)
+
+    def set(self, key: str, value: list[float]) -> None:
+        if key in self._cache:
+            self._order.remove(key)
+        elif len(self._cache) >= self._maxsize:
+            oldest = self._order.pop(0)
+            del self._cache[oldest]
+        self._cache[key] = value
+        self._order.append(key)
 
 
 class RAGService:
     """
-    Retrieval Augmented Generation service.
+    Read path for the blockchain knowledge RAG.
 
-    Manages:
-    - Document chunking and embedding
-    - Vector storage in Qdrant
-    - Semantic search
-    - Context building for LLM
+    This service is intentionally stateless between requests — it connects to
+    the shared Qdrant collection and returns a formatted [Knowledge Context]
+    block suitable for direct inclusion as a system message.
     """
 
-    COLLECTION_NAME = "oprai_knowledge"
-    EMBEDDING_DIMENSION = 1536  # OpenAI text-embedding-3-large
-
-    def __init__(
-        self,
-        qdrant_url: Optional[str] = None,
-        embedding_model: str = "text-embedding-3-large",
-    ):
-        self.qdrant_url = qdrant_url or settings.QDRANT_URL
-        self.embedding_model = embedding_model
+    def __init__(self, qdrant_url: Optional[str] = None) -> None:
+        self._qdrant_url = qdrant_url or settings.QDRANT_URL
         self._client: Optional[AsyncQdrantClient] = None
-        self._llm = None
+        self._openai: Optional[AsyncOpenAI] = None
+        self._embed_cache = _EmbeddingCache()
 
-    async def _get_client(self) -> AsyncQdrantClient:
-        """Get Qdrant client"""
+    # ── Lazy clients ─────────────────────────────────────────────────────────
+
+    def _get_openai(self) -> AsyncOpenAI:
+        if self._openai is None:
+            self._openai = AsyncOpenAI(api_key=settings.OPRAI_OPENAI_API_KEY)
+        return self._openai
+
+    async def _get_qdrant(self) -> AsyncQdrantClient:
         if self._client is None:
-            self._client = AsyncQdrantClient(url=self.qdrant_url)
+            self._client = AsyncQdrantClient(url=self._qdrant_url)
             await self._ensure_collection()
         return self._client
 
-    async def _get_llm(self):
-        """Get LLM service"""
-        if self._llm is None:
-            self._llm = get_llm_service()
-        return self._llm
+    # ── Collection bootstrap ──────────────────────────────────────────────────
 
     async def _ensure_collection(self) -> None:
-        """Ensure the knowledge collection exists"""
-        client = await self._get_client()
-
+        """Idempotently create the knowledge collection and payload indexes."""
+        assert self._client is not None
         try:
-            await client.get_collection(self.COLLECTION_NAME)
-        except UnexpectedResponse:
-            # Collection doesn't exist, create it
-            await client.create_collection(
-                collection_name=self.COLLECTION_NAME,
-                vectors_config=models.VectorParams(
-                    size=self.EMBEDDING_DIMENSION,
-                    distance=models.Distance.COSINE,
-                ),
+            await self._client.get_collection(COLLECTION_NAME)
+            logger.info("Qdrant collection '%s' exists", COLLECTION_NAME)
+        except (UnexpectedResponse, Exception):
+            logger.info("Creating Qdrant collection '%s'", COLLECTION_NAME)
+            await self._client.create_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config={
+                    "dense": VectorParams(
+                        size=EMBEDDING_DIM,
+                        distance=Distance.COSINE,
+                        on_disk=True,
+                        hnsw_config=HnswConfigDiff(m=16, ef_construct=200),
+                        quantization_config=QuantizationConfig(
+                            scalar=ScalarQuantization(
+                                scalar=ScalarQuantizationConfig(
+                                    type=ScalarType.INT8,
+                                    always_ram=True,
+                                )
+                            )
+                        ),
+                    ),
+                },
+                sparse_vectors_config={
+                    "sparse": SparseVectorParams(
+                        index=SparseIndexParams(on_disk=False),
+                        modifier=models.Modifier.IDF,
+                    ),
+                },
             )
-            logger.info(f"Created collection: {self.COLLECTION_NAME}")
+        await self._ensure_payload_indexes()
 
-    async def ingest_document(
+    async def _ensure_payload_indexes(self) -> None:
+        assert self._client is not None
+        keyword_fields = (
+            "doc_id", "source_id", "source_type", "protocol", "category",
+            "language", "content_hash", "tags",
+        )
+        range_fields = ("published_at", "fetched_at")
+
+        for fname in keyword_fields:
+            try:
+                await self._client.create_payload_index(
+                    collection_name=COLLECTION_NAME,
+                    field_name=fname,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+            except Exception:
+                pass  # already exists
+
+        for fname in range_fields:
+            try:
+                await self._client.create_payload_index(
+                    collection_name=COLLECTION_NAME,
+                    field_name=fname,
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+            except Exception:
+                pass
+
+    # ── Embedding ─────────────────────────────────────────────────────────────
+
+    async def _embed(self, text: str) -> list[float]:
+        cache_key = hashlib.sha256(text.encode()).hexdigest()
+        cached = self._embed_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        resp = await self._get_openai().embeddings.create(
+            model=EMBEDDING_MODEL,
+            input=text,
+            dimensions=EMBEDDING_DIM,
+        )
+        vec = resp.data[0].embedding
+        self._embed_cache.set(cache_key, vec)
+        return vec
+
+    # ── Search ───────────────────────────────────────────────────────────────
+
+    async def _search_dense(
         self,
-        content: str,
-        source: str,
-        source_type: str,
-        owner_wallet: Optional[str] = None,
-        chunk_size: int = 500,
-        chunk_overlap: int = 100,
-        metadata: Optional[dict[str, Any]] = None,
+        query_vec: list[float],
+        top_k: int,
+        language: Optional[str] = None,
     ) -> list[KnowledgeChunk]:
-        """
-        Ingest a document into the knowledge base.
-
-        Args:
-            content: Document text content
-            source: Source identifier (file path, URL, etc.)
-            source_type: Type of source (pdf, url, video, etc.)
-            owner_wallet: Owner's wallet address
-            chunk_size: Size of chunks in characters
-            chunk_overlap: Overlap between chunks
-            metadata: Additional metadata
-
-        Returns:
-            List of created chunks
-        """
-        client = await self._get_client()
-        llm = await self._get_llm()
-
-        # Split into chunks
-        chunks = self._chunk_text(content, chunk_size, chunk_overlap)
-
-        knowledge_chunks = []
-        points = []
-
-        for i, chunk_text in enumerate(chunks):
-            # Generate ID
-            chunk_id = hashlib.sha256(
-                f"{source}:{i}:{chunk_text[:50]}".encode()
-            ).hexdigest()
-
-            # Generate embedding
-            embedding = await llm.embed(chunk_text)
-
-            # Create chunk
-            chunk = KnowledgeChunk(
-                id=chunk_id,
-                content=chunk_text,
-                source=source,
-                source_type=source_type,
-                chunk_index=i,
-                embedding=embedding,
-                metadata={
-                    **(metadata or {}),
-                    "owner_wallet": owner_wallet,
-                    "ingested_at": datetime.utcnow().isoformat(),
-                },
-            )
-            knowledge_chunks.append(chunk)
-
-            # Create point for Qdrant
-            points.append(models.PointStruct(
-                id=chunk_id,
-                vector=embedding,
-                payload={
-                    "content": chunk_text,
-                    "source": source,
-                    "source_type": source_type,
-                    "chunk_index": i,
-                    "owner_wallet": owner_wallet,
-                    "metadata": metadata or {},
-                },
-            ))
-
-        # Batch upload to Qdrant
-        if points:
-            await client.upsert(
-                collection_name=self.COLLECTION_NAME,
-                points=points,
-            )
-
-        logger.info(f"Ingested {len(points)} chunks from {source}")
-        return knowledge_chunks
-
-    async def search(
-        self,
-        query: str,
-        limit: int = 5,
-        owner_wallet: Optional[str] = None,
-        source_types: Optional[list[str]] = None,
-        min_score: float = 0.5,
-    ) -> list[SearchResult]:
-        """
-        Search the knowledge base.
-
-        Args:
-            query: Search query
-            limit: Maximum results
-            owner_wallet: Filter by owner
-            source_types: Filter by source types
-            min_score: Minimum similarity score
-
-        Returns:
-            List of search results
-        """
-        client = await self._get_client()
-        llm = await self._get_llm()
-
-        # Generate query embedding
-        query_embedding = await llm.embed(query)
-
-        # Build filter
-        filter_conditions = []
-
-        if owner_wallet:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="owner_wallet",
-                    match=models.MatchValue(value=owner_wallet),
-                )
-            )
-
-        if source_types:
-            filter_conditions.append(
-                models.FieldCondition(
-                    key="source_type",
-                    match=models.MatchAny(any=source_types),
-                )
-            )
+        client = await self._get_qdrant()
 
         query_filter = None
-        if filter_conditions:
-            query_filter = models.Filter(must=filter_conditions)
+        if language and language != "en":
+            query_filter = models.Filter(
+                should=[
+                    models.FieldCondition(key="language", match=models.MatchValue(value=language)),
+                    models.FieldCondition(key="language", match=models.MatchValue(value="en")),
+                ]
+            )
 
-        # Search
-        results = await client.search(
-            collection_name=self.COLLECTION_NAME,
-            query_vector=query_embedding,
-            limit=limit,
+        response = await client.query_points(
+            collection_name=COLLECTION_NAME,
+            query=query_vec,
+            using="dense",
+            limit=top_k,
             query_filter=query_filter,
-            score_threshold=min_score,
+            with_payload=True,
+            score_threshold=0.3,
         )
 
-        # Convert to SearchResult
-        search_results = []
-        for result in results:
-            chunk = KnowledgeChunk(
-                id=str(result.id),
-                content=result.payload.get("content", ""),
-                source=result.payload.get("source", ""),
-                source_type=result.payload.get("source_type", ""),
-                chunk_index=result.payload.get("chunk_index", 0),
-            )
-            search_results.append(SearchResult(
-                chunk=chunk,
-                score=result.score,
-            ))
+        return [self._to_chunk(r.payload or {}, r.score) for r in response.points if r.payload]
 
-        return search_results
+    def _to_chunk(self, payload: dict[str, Any], score: float) -> KnowledgeChunk:
+        return KnowledgeChunk(
+            doc_id=payload.get("doc_id", "unknown"),
+            chunk_id=payload.get("chunk_id", 0),
+            content=payload.get("content", ""),
+            title=payload.get("title", ""),
+            section_path=payload.get("section_path", ""),
+            source_url=payload.get("source_url", ""),
+            source_type=payload.get("source_type", "docs"),
+            protocol=payload.get("protocol"),
+            category=payload.get("category"),
+            language=payload.get("language", "en"),
+            published_at=payload.get("published_at"),
+            token_count=payload.get("token_count", len(payload.get("content", "").split())),
+            score=score,
+            tags=payload.get("tags") or [],
+        )
+
+    # ── Diversity + budget ────────────────────────────────────────────────────
+
+    def _apply_diversity_and_budget(
+        self,
+        chunks: list[KnowledgeChunk],
+        top_n: int,
+        token_budget: int,
+    ) -> list[KnowledgeChunk]:
+        seen_docs: dict[str, int] = {}
+        selected: list[KnowledgeChunk] = []
+        used_tokens = 0
+
+        for chunk in chunks:
+            if len(selected) >= top_n:
+                break
+            count = seen_docs.get(chunk.doc_id, 0)
+            if count >= 2:
+                continue
+            if used_tokens + chunk.token_count > token_budget:
+                continue
+            seen_docs[chunk.doc_id] = count + 1
+            used_tokens += chunk.token_count
+            selected.append(chunk)
+
+        return selected
+
+    # ── Context formatting ────────────────────────────────────────────────────
+
+    def _format_context_block(self, chunks: list[KnowledgeChunk]) -> str:
+        if not chunks:
+            return ""
+
+        header = (
+            "[Knowledge Context]\n"
+            "The following reference material was retrieved from OPRAI's knowledge base. "
+            "Cite each fact you use as [doc_id:chunk_id] (e.g. [jupiter_dca:2]). "
+            "If the answer is not covered here, say so — do NOT fabricate citations.\n"
+        )
+
+        parts = [header]
+        for chunk in chunks:
+            ts = ""
+            if chunk.published_at:
+                try:
+                    dt = datetime.fromtimestamp(chunk.published_at / 1000, tz=timezone.utc)
+                    ts = dt.strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+
+            meta_parts = [p for p in [chunk.protocol, chunk.source_type, ts] if p]
+            meta = " / ".join(meta_parts) if meta_parts else ""
+
+            citation_id = f"{chunk.doc_id}:{chunk.chunk_id}"
+            section = f"Section: {chunk.section_path}" if chunk.section_path else ""
+            title_line = chunk.title if chunk.title else chunk.doc_id
+
+            block = (
+                f"---\n"
+                f"[{citation_id}]"
+                + (f" ({meta})" if meta else "")
+                + (f" — {title_line}" if title_line != chunk.doc_id else "")
+                + "\n"
+                + (f"{section}\n" if section else "")
+                + chunk.content.strip()
+                + "\n"
+            )
+            parts.append(block)
+
+        return "\n".join(parts)
+
+    # ── Public API ────────────────────────────────────────────────────────────
 
     async def get_context_for_query(
         self,
         query: str,
-        max_tokens: int = 2000,
-        owner_wallet: Optional[str] = None,
+        max_tokens: int = 1500,
     ) -> str:
         """
-        Get relevant context for a query to use in LLM prompt.
+        Retrieve relevant blockchain knowledge chunks and return a formatted
+        [Knowledge Context] system block ready for LLM injection.
 
-        Args:
-            query: User query
-            max_tokens: Approximate max tokens for context
-            owner_wallet: Filter by owner
-
-        Returns:
-            Context string for LLM
+        Returns empty string if no relevant chunks found or if the collection
+        is unreachable — callers should treat empty as "no context available".
         """
-        results = await self.search(
-            query,
-            limit=10,
-            owner_wallet=owner_wallet,
-        )
-
-        if not results:
+        try:
+            query_vec = await self._embed(query)
+        except Exception:
+            logger.warning("RAG: embedding failed", exc_info=True)
             return ""
 
-        context_parts = []
-        current_length = 0
-
-        for result in results:
-            content = result.chunk.content
-            source = result.chunk.source
-
-            part = f"[Source: {source}]\n{content}\n"
-            part_length = len(part.split())  # Rough token estimate
-
-            if current_length + part_length > max_tokens:
-                break
-
-            context_parts.append(part)
-            current_length += part_length
-
-        return "\n---\n".join(context_parts)
-
-    async def delete_document(
-        self,
-        source: str,
-        owner_wallet: Optional[str] = None,
-    ) -> int:
-        """
-        Delete all chunks from a document.
-
-        Args:
-            source: Source identifier
-            owner_wallet: Owner filter
-
-        Returns:
-            Number of deleted chunks
-        """
-        client = await self._get_client()
-
-        # Build filter
-        conditions = [
-            models.FieldCondition(
-                key="source",
-                match=models.MatchValue(value=source),
+        try:
+            chunks = await self._search_dense(
+                query_vec,
+                top_k=settings.KNOWLEDGE_RAG_TOP_K,
             )
-        ]
+        except Exception:
+            logger.warning("RAG: Qdrant search failed", exc_info=True)
+            return ""
 
-        if owner_wallet:
-            conditions.append(
-                models.FieldCondition(
-                    key="owner_wallet",
-                    match=models.MatchValue(value=owner_wallet),
-                )
-            )
-
-        # Delete by filter
-        await client.delete(
-            collection_name=self.COLLECTION_NAME,
-            points_selector=models.FilterSelector(
-                filter=models.Filter(must=conditions),
-            ),
+        top_chunks = self._apply_diversity_and_budget(
+            chunks,
+            top_n=settings.KNOWLEDGE_RAG_RERANK_TOP_N,
+            token_budget=max_tokens,
         )
 
-        logger.info(f"Deleted chunks from: {source}")
-        return 0  # Qdrant doesn't return count
-
-    async def clear_all(self, owner_wallet: Optional[str] = None) -> None:
-        """Clear all knowledge (optionally filtered by owner)"""
-        client = await self._get_client()
-
-        if owner_wallet:
-            await client.delete(
-                collection_name=self.COLLECTION_NAME,
-                points_selector=models.FilterSelector(
-                    filter=models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key="owner_wallet",
-                                match=models.MatchValue(value=owner_wallet),
-                            )
-                        ]
-                    )
-                ),
-            )
-        else:
-            # Delete entire collection and recreate
-            await client.delete_collection(self.COLLECTION_NAME)
-            await self._ensure_collection()
-
-        logger.info("Cleared knowledge base")
+        return self._format_context_block(top_chunks)
 
     async def get_stats(self) -> dict[str, Any]:
-        """Get knowledge base statistics"""
-        client = await self._get_client()
-
-        info = await client.get_collection(self.COLLECTION_NAME)
-
+        client = await self._get_qdrant()
+        info = await client.get_collection(COLLECTION_NAME)
         return {
-            "total_chunks": info.points_count,
-            "collection_name": self.COLLECTION_NAME,
-            "vector_size": info.config.params.vectors.size,
-            "status": info.status.value,
+            "collection": COLLECTION_NAME,
+            "points": info.points_count,
+            "status": info.status.value if info.status else "unknown",
+            "embedding_model": EMBEDDING_MODEL,
+            "embedding_dim": EMBEDDING_DIM,
         }
 
-    def _chunk_text(
-        self,
-        text: str,
-        chunk_size: int = 500,
-        chunk_overlap: int = 100,
-    ) -> list[str]:
-        """Split text into overlapping chunks"""
-        words = text.split()
-        chunks = []
 
-        start = 0
-        while start < len(words):
-            end = start + chunk_size
-            chunk_words = words[start:end]
-            chunks.append(" ".join(chunk_words))
+# ── Singleton ─────────────────────────────────────────────────────────────────
 
-            start += chunk_size - chunk_overlap
-            if start >= len(words):
-                break
-
-        return chunks
-
-
-# Global RAG service
 _rag_service: Optional[RAGService] = None
 
 
 def get_rag_service() -> RAGService:
-    """Get the global RAG service"""
     global _rag_service
     if _rag_service is None:
         _rag_service = RAGService()
     return _rag_service
+
+
+# ── Stable point-ID helper (used by ingestion-service too) ───────────────────
+
+def make_point_id(doc_id: str, chunk_id: int) -> str:
+    """Deterministic UUID5 from (doc_id, chunk_id) — upsert = replace."""
+    return str(uuid.uuid5(UUID_NAMESPACE, f"{doc_id}:{chunk_id}"))

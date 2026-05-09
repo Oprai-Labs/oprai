@@ -16,6 +16,7 @@
 import { Injectable, inject } from '@angular/core';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
+import { SolanaErrorDecoderService } from './solana-error-decoder.service';
 import { environment } from '../../../environments/environment';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -52,6 +53,7 @@ interface CreateTransactionBody {
   chain?: string;
   chatSessionId?: string;
   chatMessageId?: string;
+  estUsd?: number;
 }
 
 interface CreateTransactionResponse {
@@ -61,6 +63,23 @@ interface CreateTransactionResponse {
 @Injectable({ providedIn: 'root' })
 export class TransactionTrackerService {
   private readonly api = inject(ApiService);
+  private readonly errorDecoder = inject(SolanaErrorDecoderService);
+
+  /**
+   * Translate an on-chain or RPC error into a user-facing message via
+   * SolanaErrorDecoderService. Falls back to the original string when the
+   * decoder has nothing useful to add (extra-paranoid: never throw away
+   * the raw error — append it as a debug suffix when we found no match).
+   */
+  private formatError(raw: string): string {
+    const decoded = this.errorDecoder.decode(raw);
+    let out = decoded.summary;
+    if (decoded.hint) out += ` ${decoded.hint}`;
+    if (decoded.rawCode && decoded.summary === 'Transaction reverted on-chain.') {
+      out += ` (raw: ${decoded.rawCode})`;
+    }
+    return out;
+  }
 
   /** Status of all active/recent TXs — components can subscribe */
   readonly transactions$ = new BehaviorSubject<Map<string, TrackedTransaction>>(new Map());
@@ -83,6 +102,10 @@ export class TransactionTrackerService {
       params?: Record<string, unknown>;
       chatSessionId?: string;
       chatMessageId?: string;
+      /** USD value of the transaction at quote/build time. Forwarded to
+       *  the backend so the daily spending counter increments with the
+       *  same number that gated the original /actions/quote check. */
+      estUsd?: number;
     } = {}
   ): Promise<string> {
     // 1. Create DB record (in submitted state)
@@ -107,8 +130,9 @@ export class TransactionTrackerService {
    * Mark an existing TX as 'failed' (e.g. user dismissed the wallet).
    */
   async markFailed(txId: string, error: string): Promise<void> {
-    this.upsert(txId, { status: 'failed', error });
-    await this.updateStatus(txId, 'failed', { errorMessage: error });
+    const decoded = this.formatError(error);
+    this.upsert(txId, { status: 'failed', error: decoded });
+    await this.updateStatus(txId, 'failed', { errorMessage: decoded });
   }
 
   /**
@@ -122,7 +146,7 @@ export class TransactionTrackerService {
 
   private async waitForConfirmation(txId: string, signature: string): Promise<void> {
     const { Connection } = await import('@solana/web3.js');
-    const connection = new Connection(environment.solanaRpc, CONFIRMATION_COMMITMENT);
+    const connection = new Connection(environment.solanaRpc, { commitment: CONFIRMATION_COMMITMENT, httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
 
     let attempt = 0;
 
@@ -137,7 +161,7 @@ export class TransactionTrackerService {
 
         if (result.value.err) {
           // On-chain error — TX landed but failed
-          const errMsg = JSON.stringify(result.value.err);
+          const errMsg = this.formatError(JSON.stringify(result.value.err));
           this.upsert(txId, { status: 'failed', error: errMsg });
           await this.updateStatus(txId, 'failed', { errorMessage: errMsg });
           return;
@@ -175,8 +199,9 @@ export class TransactionTrackerService {
         }
 
         // Unrecoverable error or retry limit reached
-        this.upsert(txId, { status: 'failed', error: errMsg });
-        await this.updateStatus(txId, 'failed', { errorMessage: errMsg });
+        const decoded = this.formatError(errMsg);
+        this.upsert(txId, { status: 'failed', error: decoded });
+        await this.updateStatus(txId, 'failed', { errorMessage: decoded });
         return;
       }
     }
@@ -192,6 +217,7 @@ export class TransactionTrackerService {
       params?: Record<string, unknown>;
       chatSessionId?: string;
       chatMessageId?: string;
+      estUsd?: number;
     }
   ): Promise<string> {
     try {
@@ -203,6 +229,7 @@ export class TransactionTrackerService {
         chain: 'solana',
         chatSessionId: options.chatSessionId,
         chatMessageId: options.chatMessageId,
+        estUsd: options.estUsd,
       };
 
       const resp = await firstValueFrom(
@@ -224,6 +251,10 @@ export class TransactionTrackerService {
       txHash?: string;
       actualFee?: string;
       errorMessage?: string;
+      /** USD value at quote time. The backend pipes this into the daily
+       *  spending counter on status="submitted" so the cap reflects what was
+       *  actually broadcast (not the quotes the user backed out of). */
+      estUsd?: number;
     } = {}
   ): Promise<void> {
     if (txId.startsWith('local-')) return; // No record in DB
@@ -235,6 +266,7 @@ export class TransactionTrackerService {
           txHash: extra.txHash,
           actualFee: extra.actualFee,
           errorMessage: extra.errorMessage,
+          estUsd: extra.estUsd,
         })
       );
     } catch {

@@ -9,8 +9,18 @@ import { ParsedAction } from './intent-parser.service';
 import { JupiterLendService } from '@core/services/market/jupiter-lend.service';
 import { PumpFunService } from '@core/services/market/pumpfun.service';
 import { JitoService } from '@core/services/market/jito.service';
+import { PriceFeedService } from '@core/services/market/price-feed.service';
 import { environment } from '../../../../environments/environment';
+import { Keypair } from '@solana/web3.js';
 import type { Transaction, VersionedTransaction } from '@solana/web3.js';
+
+export interface ValidatorInfo {
+  voteAccount: string;
+  commission: number;
+  activatedStakeSol: number;
+  apyEstimatePct: number;
+  epochCreditsRecent: number;
+}
 
 export interface ActionCallbacks {
   onQuote?: () => void;
@@ -29,7 +39,24 @@ interface QuoteResponse {
   inAmount: string;
   outAmount: string;
   priceImpact: string;
+  // Backend-attached mint provenance from `services::mint_security`. Lets the
+  // UI tell the user "you're swapping for a token Jupiter recognises but we
+  // haven't verified" so a vanity-prefix look-alike can't ride on the symbol
+  // alone.
+  mintProvenance?: {
+    input?: MintProvenance;
+    output?: MintProvenance;
+    warnUser?: boolean;
+  };
+  /** Backend's USD estimate. Use this for the daily-cap commit so the
+   *  number on the counter matches the number that gated the /quote. */
+  estUsd?: number;
 }
+
+export type MintProvenance =
+  | { trust: 'verified'; symbol: string; name: string; decimals: number }
+  | { trust: 'jupiter_known'; symbol: string; name: string; decimals: number }
+  | { trust: 'unknown' };
 
 interface BuildResponse {
   transaction?: string | null; // base64-encoded serialized transaction (null for data-only actions)
@@ -61,22 +88,99 @@ const DATA_ONLY_ACTION_TYPES_LIST: string[] = [
   'me_collection_info', 'me_nft_info', 'me_wallet_nfts',
   'me_collection_activity', 'me_listings', 'me_offers', 'me_collection_nfts',
   // MarginFi data queries
-  'marginfi_account_info', 'marginfi_banks', 'marginfi_health', 'marginfi_points',
+  'marginfi_account_info', 'marginfi_banks', 'marginfi_bank_detail', 'marginfi_health',
+  'marginfi_points', 'marginfi_user_accounts',
   // Solend data queries
   'solend_user_info', 'solend_reserves', 'solend_market',
+  // Jito — bundle submits directly to Jito API; transaction field is null from Rust
+  'jito_bundle',
   // Jito status check
   'jito_bundle_status',
   // Squid status check (returns data, no transaction)
   'squid_status',
   // Tensor NFT data queries
   'tensor_collection_info', 'tensor_nft_info', 'tensor_wallet_nfts', 'tensor_listings',
-  // Generic governance & reward actions (return protocol-specific guidance, no transaction)
-  'claim', 'vote',
   // Pump.fun data queries (no transaction — backend returns JSON data in preview.description)
   'pumpfun_token_info', 'pumpfun_trending', 'pumpfun_new', 'pumpfun_graduating',
   'pumpfun_search', 'pumpfun_koth', 'pumpfun_comments', 'pumpfun_user', 'pumpfun_bonding_curve',
   // PumpSwap AMM data queries
   'pumpswap_pool_info',
+  // Streamflow — stream details fetch (returns data, no transaction)
+  'streamflow_get_one', 'streamflow_list',
+  // Jupiter data queries
+  'jup_dca_orders', 'jup_limit_orders', 'jup_price', 'jup_token_search',
+  'jup_tokens_tag', 'jup_tokens_recent', 'jup_tokens_trending',
+  'jup_portfolio_positions', 'jup_staked_jup', 'jup_lend_positions',
+  'jup_lend_earnings', 'jup_pending_invites', 'jup_lend_markets', 'jup_platforms',
+  // Raydium data queries
+  'raydium_get_pools', 'raydium_search_pools', 'raydium_swap_quote',
+  'raydium_get_pool_info', 'raydium_get_user_positions', 'raydium_get_clmm_positions',
+  'raydium_get_token_info', 'raydium_get_platform_stats', 'raydium_get_clmm_configs',
+  'raydium_get_pools_by_lp', 'raydium_get_pools_v2', 'raydium_get_pool_keys',
+  'raydium_get_pool_liquidity_history', 'raydium_get_pool_position_history',
+  'raydium_get_token_list', 'raydium_get_token_prices', 'raydium_get_farm_info',
+  'raydium_get_farm_by_lp', 'raydium_get_farm_keys', 'raydium_get_ido_keys',
+  'raydium_get_main_version', 'raydium_get_rpcs', 'raydium_get_chain_time',
+  'raydium_get_stake_pools', 'raydium_get_migrate_lp', 'raydium_get_auto_fee',
+  'raydium_get_cpmm_configs',
+  // Orca data queries
+  'orca_get_pools', 'orca_search_pools', 'orca_get_pool', 'orca_get_locked_liquidity',
+  'orca_get_protocol_stats', 'orca_get_orca_token', 'orca_get_circulating_supply',
+  'orca_get_total_supply', 'orca_get_tokens', 'orca_search_tokens', 'orca_get_token',
+  'orca_get_user_positions', 'orca_get_pool_positions',
+  // Meteora DLMM data queries
+  'meteora_dlmm_get_pairs', 'meteora_dlmm_get_pair', 'meteora_dlmm_get_user_positions',
+  'meteora_dlmm_get_active_bin', 'meteora_dlmm_get_pool_groups',
+  'meteora_dlmm_get_pool_group', 'meteora_dlmm_get_pool_ohlcv',
+  'meteora_dlmm_get_pool_volume_history', 'meteora_dlmm_get_protocol_stats',
+  // Meteora DAMM v2 data queries
+  'meteora_dammv2_get_pools', 'meteora_dammv2_get_pool_groups',
+  'meteora_dammv2_get_pool_group', 'meteora_dammv2_get_pool',
+  'meteora_dammv2_get_pool_ohlcv', 'meteora_dammv2_get_pool_volume_history',
+  'meteora_dammv2_get_protocol_metrics',
+  // Meteora DAMM v1 data queries
+  'meteora_dammv1_get_pools', 'meteora_dammv1_get_pool_configs',
+  'meteora_dammv1_search_pools', 'meteora_dammv1_get_farms',
+  'meteora_dammv1_get_pools_metrics', 'meteora_dammv1_get_alpha_vaults',
+  'meteora_dammv1_get_alpha_vault_configs', 'meteora_dammv1_get_pools_by_vault_lp',
+  'meteora_dammv1_get_fee_config',
+  // Meteora Dynamic Vault data queries
+  'meteora_vault_get_info', 'meteora_vault_get_addresses', 'meteora_vault_get_state',
+  'meteora_vault_get_apy', 'meteora_vault_get_apy_history', 'meteora_vault_get_virtual_price',
+  // Meteora Stake2Earn data queries
+  'meteora_s2e_get_analytics', 'meteora_s2e_get_all_vaults',
+  'meteora_s2e_filter_vaults', 'meteora_s2e_get_vault',
+  // Kamino data queries — market/lending
+  'kamino_vaults', 'kamino_markets', 'kamino_market_reserves',
+  'kamino_user_vault_positions', 'kamino_user_obligations',
+  'kamino_oracle_prices', 'kamino_usd_benchmark_rates',
+  'kamino_market_metrics_history', 'kamino_reserve_borrow_apy_history',
+  'kamino_reserve_borrow_apy_median', 'kamino_obligation_interest_earned',
+  'kamino_obligation_interest_paid', 'kamino_obligation_transactions',
+  'kamino_user_klend_transactions_all', 'kamino_user_klend_transactions',
+  'kamino_borrow_order_fills', 'kamino_open_borrow_orders',
+  'kamino_yield_history', 'kamino_principal_token_yields',
+  'kamino_airdrop_allocations', 'kamino_airdrop_metrics',
+  'kamino_staking_yields', 'kamino_staking_yields_median', 'kamino_staking_yields_mean',
+  'kamino_user_staking_boosts', 'kamino_season_rewards_user',
+  'kamino_season_rewards_vesting_pool', 'kamino_private_credit_metrics',
+  'kamino_private_credit_metrics_history', 'kamino_user_farm_transactions',
+  'kamino_farm_transactions',
+  // Kamino data queries — earn vault
+  'kamino_vault_detail', 'kamino_vault_metrics', 'kamino_vault_metrics_history',
+  'kamino_vault_allocation_history', 'kamino_vaults_rewards', 'kamino_vaults_summary',
+  'kamino_vault_mint_metadata', 'kamino_vault_mint_image',
+  'kamino_user_metrics_history', 'kamino_user_transactions', 'kamino_user_kvault_rewards',
+  'kamino_user_vault_position', 'kamino_user_vault_metrics_history',
+  'kamino_user_vault_pnl', 'kamino_user_vault_pnl_history', 'kamino_vault_transactions',
+  'kamino_vault_deposit_instructions', 'kamino_vault_withdraw_instructions',
+  // Kamino data queries — borrow market
+  'kamino_market_detail', 'kamino_market_reserve_history',
+  'kamino_market_leverage_metrics', 'kamino_market_reserves_account',
+  'kamino_user_rewards', 'kamino_loan_detail', 'kamino_obligation_pnl',
+  'kamino_obligation_metrics_history', 'kamino_rewards_list', 'kamino_rewards_history',
+  'kamino_borrow_instructions', 'kamino_repay_instructions',
+  'kamino_deposit_instructions', 'kamino_withdraw_instructions',
 ];
 
 // Actions that get a quote step first (swap uses Jupiter quote API)
@@ -118,6 +222,7 @@ const VERSIONED_TX_TYPES: string[] = [
   'raydium_decrease_position',
   // Orca Whirlpool API → versioned
   'orca_swap',
+  'orca_create_pool',
   'orca_add_liquidity',
   'orca_remove_liquidity',
   'orca_open_position',
@@ -144,10 +249,9 @@ const VERSIONED_TX_TYPES: string[] = [
   'kamino_vault_withdraw',
   'kamino_stake',
   'kamino_unstake',
-  // Jito Finance API → versioned
-  'jito_stake',
-  'jito_unstake',
-  'jito_tip',
+  'kamino_kswap',
+  // Jito Finance API — all Jito TXs are legacy bincode (Transaction::new_unsigned),
+  // so none are listed here. jito_bundle goes through DATA_ONLY (Jito API direct).
   // ── Tensor NFT (stub until SDK integrated)
   'tensor_buy',
   'tensor_list',
@@ -167,12 +271,47 @@ const VERSIONED_TX_TYPES: string[] = [
   'meteora_stake',
   'meteora_unstake',
   'meteora_harvest',
+  // Meteora DAMM v1 — build_vtx_b64 versioned (swap routes through Jupiter)
+  'meteora_dammv1_swap',
+  'meteora_dammv1_deposit',
+  'meteora_dammv1_withdraw',
+  // Meteora DAMM v2 — build_vtx_b64 versioned (swap routes through Jupiter)
+  'meteora_dammv2_swap',
+  'meteora_dammv2_add_liquidity',
+  'meteora_dammv2_remove_liquidity',
+  // Meteora Dynamic Vault — build_vtx_b64 versioned
+  'meteora_vault_deposit',
+  'meteora_vault_withdraw',
+  // Meteora Stake-to-Earn (m3m3) — build_vtx_b64 versioned
+  'meteora_s2e_stake',
+  'meteora_s2e_unstake',
+  'meteora_s2e_claim_fee',
+  'meteora_s2e_cancel_unstake',
+  'meteora_s2e_withdraw',
 ];
+
+// Actions where the Rust backend embeds partial signatures (e.g. mint keypair).
+// Pre-flight simulation would fail because the blockhash and partial sigs cannot be
+// reproduced locally — skip it entirely and let the RPC node validate on submit.
+const SKIP_SIMULATION_TYPES = new Set(['launch_token', 'token_launch', 'pumpfun_launch']);
 
 // Actions handled locally by Angular services (not through the Rust backend)
 // These build transactions on the frontend and sign+submit directly,
 // OR are purely local (config stored in localStorage, no on-chain TX).
+
+/**
+ * Safely parse a boolean param that may arrive as a native JS boolean (from Python's
+ * preserve-types fix) or as the legacy strings 'true'/'false'.
+ * `defaultWhenAbsent` applies when the value is undefined / null / unrecognised.
+ */
+function parseBoolParam(val: unknown, defaultWhenAbsent = false): boolean {
+  if (val === true  || val === 'true')  return true;
+  if (val === false || val === 'false') return false;
+  return defaultWhenAbsent;
+}
+
 const FRONTEND_ACTION_TYPES = [
+  // Jupiter Lend SDK — Rust only returns preview, frontend builds actual TX
   'lend', 'withdraw_lend', 'borrow', 'repay',
   // pump.fun bonding curve trades (direct pumpportal.fun API)
   'pumpfun_buy', 'pumpfun_sell',
@@ -193,6 +332,7 @@ export class SolanaActionService {
   private readonly lendService = inject(JupiterLendService);
   private readonly pumpFunService = inject(PumpFunService);
   private readonly jitoService = inject(JitoService);
+  private readonly priceFeed = inject(PriceFeedService);
 
   /**
    * Idempotency guard: tracks actions currently being executed.
@@ -215,13 +355,45 @@ export class SolanaActionService {
     localStorage.setItem('oprai_jito_routing', enabled ? 'true' : 'false');
   }
 
+  /** Pick a Helius priority level based on what we're doing.
+   *  Time-sensitive / MEV-prone actions get HIGH; routine ones get MEDIUM;
+   *  no-rush data-only actions can use LOW. The level is forwarded to
+   *  Helius `getPriorityFeeEstimate` which prices it against current
+   *  mempool congestion, so MEDIUM at peak-load > MEDIUM at idle.
+   */
+  private pickHeliusPriorityLevel(actionType: string, params: Record<string, string> = {}): 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH' {
+    const t = actionType.toLowerCase();
+    // Time-sensitive: liquidations, perp closes, MEV-prone swaps on volatile tokens.
+    if (t.includes('liquidate') || t.includes('perp_close') || t.includes('emergency')) {
+      return 'VERY_HIGH';
+    }
+    // Volatile-token swaps need to land before the price moves.
+    if (t === 'swap' && this.isVolatileToken(params['outputMint'] ?? params['inputMint'] ?? '')) {
+      return 'HIGH';
+    }
+    // Pump.fun / launch / sniping — competitive blockspace.
+    if (t.includes('pumpfun') || t.includes('launch')) {
+      return 'HIGH';
+    }
+    // Bridges + cross-chain — long-tail, retry-friendly.
+    if (t.includes('bridge') || t.includes('relay_')) {
+      return 'LOW';
+    }
+    return 'MEDIUM';
+  }
+
   /** Optimize tx compute units + priority fee via Helius. Falls back to original on error. */
-  private async optimizeWithHelius(txBase64: string): Promise<string> {
+  private async optimizeWithHelius(
+    txBase64: string,
+    actionType: string,
+    params: Record<string, string> = {},
+  ): Promise<string> {
     try {
+      const priority_level = this.pickHeliusPriorityLevel(actionType, params);
       const result = await firstValueFrom(
         this.api.post<BuildResponse>('/actions/build', {
           type: 'helius_smart_send',
-          params: { transaction: txBase64, priority_level: 'MEDIUM' },
+          params: { transaction: txBase64, priority_level },
         }).pipe(timeout(10_000))
       );
       return result.transaction ?? txBase64;
@@ -483,7 +655,7 @@ export class SolanaActionService {
     // Stake outputs → can be used as input for chained stake actions
     // Addresses verified against on-chain program registries.
     'jupsol_stake':    { token: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', symbol: 'JupSOL'  },
-    'jito_stake':      { token: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kongC', symbol: 'jitoSOL' },
+    'jito_stake':      { token: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', symbol: 'jitoSOL' },
     'marinade_stake':  { token: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', symbol: 'mSOL'    },
   };
 
@@ -568,11 +740,22 @@ export class SolanaActionService {
    * Resolve the wallet's full balance for a given mint.
    * Used when `amount=all` / `amount=max` is specified.
    */
+  async getTopValidators(): Promise<ValidatorInfo[]> {
+    try {
+      const resp = await firstValueFrom(
+        this.api.get<{ validators: ValidatorInfo[] }>('/validators/top').pipe(timeout(15_000))
+      );
+      return resp.validators ?? [];
+    } catch {
+      return [];
+    }
+  }
+
   async getTokenBalance(mint: string): Promise<number> {
     const wallet = this.walletService.publicKey();
     if (!wallet) return 0;
     const { Connection, PublicKey } = await import('@solana/web3.js');
-    const connection = new Connection(environment.solanaRpc, 'confirmed');
+    const connection = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
     const isSol = !mint || mint === 'SOL' || mint === SolanaActionService.SOL_MINT;
     if (isSol) {
       return (await connection.getBalance(new PublicKey(wallet))) / 1e9;
@@ -690,28 +873,7 @@ export class SolanaActionService {
     // Only protocol=jupiter (or unspecified) stays on the frontend Jupiter Lend path.
     action = this.remapLendingAction(action);
 
-    // ── Remap nft_buy → tensor_buy or me_buy based on marketplace ──
-    if (action.type === 'nft_buy') {
-      const marketplace = (action.params['marketplace'] ?? 'tensor').toLowerCase();
-      if (marketplace === 'magic-eden' || marketplace === 'magiceden' || marketplace === 'me') {
-        action = { ...action, type: 'me_buy' };
-      } else {
-        action = { ...action, type: 'tensor_buy' };
-      }
-    }
-
-    // ── Remap nft_list → tensor_list or me_list based on marketplace ──
-    if (action.type === 'nft_list') {
-      const marketplace = (action.params['marketplace'] ?? 'tensor').toLowerCase();
-      if (marketplace === 'magic-eden' || marketplace === 'magiceden' || marketplace === 'me') {
-        action = { ...action, type: 'me_list' };
-      } else {
-        action = { ...action, type: 'tensor_list' };
-      }
-    }
-
-    // ── nft_mint: Remap to launch_token for token launches ──
-    // For NFT minting, we'd need Candy Machine integration - for now map to launch_token
+    // ── nft_mint: Remap to launch_token for legacy compatibility ──
     if (action.type === 'nft_mint') {
       action = {
         ...action,
@@ -824,7 +986,7 @@ export class SolanaActionService {
     }
 
     // ── Pre-flight: spending limit + risk warning ──────────────────────────
-    const amountUsd = this.estimateAmountUsd(action);
+    const amountUsd = await this.estimateAmountUsd(action);
 
     try {
     // 1. Spending limit check (hard block)
@@ -863,7 +1025,22 @@ export class SolanaActionService {
     if (rawAmount === 'all' || rawAmount === 'max') {
       const mint = action.params['inputMint'] ?? action.params['mint'] ?? action.params['token'] ?? '';
       const resolved = await this.getTokenBalance(mint);
-      action = { ...action, params: { ...action.params, amount: resolved.toString() } };
+      // SOL needs to keep a small reserve for the tx fee + any token-account
+      // rent we'll create in this transaction. Without this, "swap all SOL"
+      // turns into "swap all but 0 SOL" → the tx fails simulation. The
+      // reserve is intentionally generous: 0.005 SOL covers the priority
+      // fee at urgent levels, and 0.00204 SOL × 2 covers two new ATAs.
+      const SOL_MINT = 'So11111111111111111111111111111111111111112';
+      const isSol = !mint || mint === 'SOL' || mint === SOL_MINT;
+      const SOL_RESERVE = 0.01; // ~$1.5 today; safer than minimums.
+      const adjusted = isSol ? Math.max(resolved - SOL_RESERVE, 0) : resolved;
+      if (isSol && resolved <= SOL_RESERVE) {
+        throw new Error(
+          `Not enough SOL to cover transaction fee + rent (you have ${resolved.toFixed(4)} SOL, ` +
+          `need at least ${SOL_RESERVE} SOL reserved). Top up your wallet first.`,
+        );
+      }
+      action = { ...action, params: { ...action.params, amount: adjusted.toString() } };
     }
 
     // ── Backend-handled actions (Rust service) ───────────────────────────
@@ -871,35 +1048,75 @@ export class SolanaActionService {
 
     // Step 1: Get quote (swap only)
     let quoteId: string | undefined;
+    // Backend-computed USD estimate from /quote. Forwarded into
+    // /transactions on broadcast so the daily-cap counter stays in sync
+    // with the number the gateway gated on. For non-swap actions we fall
+    // back to the frontend's `amountUsd` estimate.
+    let backendEstUsd: number | undefined;
     if (isSwap) {
       callbacks.onQuote?.();
       try {
         const quote = await firstValueFrom(
           this.api.post<QuoteResponse>('/actions/quote', {
-            input_mint: action.params['inputMint'],
-            output_mint: action.params['outputMint'],
+            input_mint: action.params['inputMint'] ?? action.params['input_mint'],
+            output_mint: action.params['outputMint'] ?? action.params['output_mint'],
             amount: action.params['amount'],
-            slippage_bps: action.params['slippageBps'] ?? 50,
+            slippage_bps: parseInt(action.params['slippageBps'] ?? '50', 10),
             ...(action.params['swapMode']                ? { swap_mode: action.params['swapMode'] } : {}),
-            ...(action.params['onlyDirectRoutes'] != null ? { only_direct_routes: action.params['onlyDirectRoutes'] === 'true' } : {}),
-            ...(action.params['restrictIntermediateTokens'] != null ? { restrict_intermediate_tokens: action.params['restrictIntermediateTokens'] === 'true' } : {}),
+            ...(action.params['onlyDirectRoutes'] != null ? { only_direct_routes: parseBoolParam(action.params['onlyDirectRoutes']) } : {}),
+            ...(action.params['restrictIntermediateTokens'] != null ? { restrict_intermediate_tokens: parseBoolParam(action.params['restrictIntermediateTokens']) } : {}),
           }).pipe(timeout(30_000))
         );
         quoteId = quote.quoteId;
+        backendEstUsd = quote.estUsd;
         // Dynamically raise slippage if price impact is significant
         action = this.adjustSlippageForImpact(action, quote);
-      } catch (err) {
+
+        // Force the user to acknowledge a mint we cannot verify against our
+        // compile-time registry. Jupiter knows the token, so it's tradeable,
+        // but we haven't whitelisted it — this is the line of defence that
+        // catches a vanity-prefix imposter ("JitoSOL"-lookalike etc.).
+        if (quote.mintProvenance?.warnUser) {
+          const { input, output } = quote.mintProvenance;
+          const unverified =
+            input?.trust === 'jupiter_known'  ? input
+            : output?.trust === 'jupiter_known' ? output
+            : null;
+          if (unverified && unverified.trust === 'jupiter_known') {
+            const confirmed = await this.riskWarning.confirmUnverifiedMint(
+              unverified.symbol,
+              unverified.name,
+            );
+            if (!confirmed) {
+              throw new Error('Swap cancelled — token is not in the verified registry.');
+            }
+          }
+        }
+      } catch (err: any) {
         if (err instanceof TimeoutError) {
           throw new Error('Quote request timed out. Check your connection and try again.');
         }
+        const serverMsg = err?.error?.error ?? err?.error?.message;
+        if (serverMsg) throw new Error(serverMsg);
         throw err;
       }
     }
 
     // Step 2: Build transaction via Rust backend
+    // For launch_token: generate mint keypair here in the browser.
+    // The mint pubkey is sent to the backend; the backend builds the transaction
+    // WITHOUT signing it with the mint keypair. After the user signs via Phantom,
+    // we add the mint signature client-side. This way Phantom simulates the
+    // transaction with NO pre-existing partial signatures — avoiding the stale-
+    // blockhash invalidation that caused the simulation warning.
+    const isLaunchAction = action.type === 'launch_token' || action.type === 'pumpfun_launch';
+    const mintKeypair = isLaunchAction ? Keypair.generate() : null;
+
     const buildBody: Record<string, unknown> = {
       type: action.type,
-      params: this.normalizeParams(action),
+      params: mintKeypair
+        ? { ...this.normalizeParams(action), mintPubkey: mintKeypair.publicKey.toBase58() }
+        : this.normalizeParams(action),
     };
     if (quoteId) {
       buildBody['quote_id'] = quoteId;
@@ -910,10 +1127,12 @@ export class SolanaActionService {
       buildResult = await firstValueFrom(
         this.api.post<BuildResponse>('/actions/build', buildBody).pipe(timeout(30_000))
       );
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof TimeoutError) {
         throw new Error('Build request timed out. Check your connection and try again.');
       }
+      const serverMsg = err?.error?.error ?? err?.error?.message;
+      if (serverMsg) throw new Error(serverMsg);
       throw err;
     }
 
@@ -992,14 +1211,19 @@ export class SolanaActionService {
       return desc;
     }
 
-    // Step 3: Optional Helius CU/fee optimization (silent, fallback-safe)
+    // Step 3: Optional Helius CU/fee optimization (silent, fallback-safe).
+    // Priority level is picked dynamically per action type so liquidations
+    // and volatile swaps don't sit in mempool while MEDIUM-tier txs land.
     if (this.heliusOptimizationEnabled && buildResult.transaction) {
-      buildResult = { ...buildResult, transaction: await this.optimizeWithHelius(buildResult.transaction) };
+      buildResult = {
+        ...buildResult,
+        transaction: await this.optimizeWithHelius(buildResult.transaction, action.type, action.params ?? {}),
+      };
     }
 
     // Step 3b: Deserialize tx + precise fee check — must happen before wallet dialog
     const web3 = await import('@solana/web3.js');
-    const connection = new web3.Connection(environment.solanaRpc, 'confirmed');
+    const connection = new web3.Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
 
     const txBuffer = this.base64ToUint8Array(buildResult.transaction!);
     const isVersioned = isSwap || VERSIONED_TX_TYPES.includes(action.type);
@@ -1031,29 +1255,57 @@ export class SolanaActionService {
       throw new Error(`insufficient_fee:need=${needSol},have=${haveSol}`);
     }
 
-    // Pre-flight simulation — same path for versioned and legacy TX
-    try {
-      let sim: Awaited<ReturnType<typeof connection.simulateTransaction>>;
+    // Pre-flight simulation — mandatory before sign, with backend fallback.
+    // Order: local RPC simulate → if RPC errors, fall back to backend
+    // /actions/simulate so a single-provider hiccup can't bypass simulation.
+    // Skipped only for launch_token (mint keypair signs post-build).
+    if (!SKIP_SIMULATION_TYPES.has(action.type)) {
+      let simErr: { err: unknown; logs: string[] } | null = null;
+      let rpcFailed = false;
 
-      if (isVersioned) {
-        sim = await connection.simulateTransaction(
-          deserializedTx as VersionedTransaction,
-          { sigVerify: false, replaceRecentBlockhash: true }
-        );
-      } else {
-        // Legacy Transaction — send as Message (sigVerify not supported)
-        const legacyTx = deserializedTx as Transaction;
-        legacyTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-        sim = await connection.simulateTransaction(legacyTx.compileMessage());
+      try {
+        let sim: Awaited<ReturnType<typeof connection.simulateTransaction>>;
+        if (isVersioned) {
+          sim = await connection.simulateTransaction(
+            deserializedTx as VersionedTransaction,
+            { sigVerify: false, replaceRecentBlockhash: true }
+          );
+        } else {
+          const legacyTx = deserializedTx as Transaction;
+          sim = await connection.simulateTransaction(legacyTx.compileMessage());
+        }
+        if (sim.value.err) simErr = { err: sim.value.err, logs: sim.value.logs ?? [] };
+      } catch {
+        rpcFailed = true;
       }
 
-      if (sim.value.err) {
-        throw new Error(SolanaActionService.parseSimulationError(sim.value.err, sim.value.logs ?? []));
+      // Local RPC failed — try backend simulation as defense-in-depth.
+      if (rpcFailed) {
+        try {
+          const resp = await firstValueFrom(
+            this.api.post<{ success: boolean; logs?: string[]; error?: unknown; errorMessage?: string }>(
+              '/actions/simulate',
+              { transaction: buildResult.transaction! }
+            ).pipe(timeout(15_000))
+          );
+          if (!resp.success) simErr = { err: resp.error ?? resp.errorMessage ?? 'unknown', logs: resp.logs ?? [] };
+          rpcFailed = false;
+        } catch (err: any) {
+          // Both local + backend simulation unavailable — fail closed BUT
+          // surface the underlying reason so the user / debugger can act on
+          // it. Previously the bare catch collapsed everything to a flat
+          // "sim:unavailable" with no signal about whether the gateway 404'd,
+          // the backend 500'd, the JWT expired, or the request timed out.
+          const status = err?.status ?? err?.error?.status;
+          const detail = err?.error?.error ?? err?.error?.message ?? err?.message ?? 'unknown';
+          console.warn('[simulate] backend fallback failed', { status, detail, err });
+          throw new Error(`sim:unavailable (${status ?? 'no-status'}: ${String(detail).slice(0, 120)})`);
+        }
       }
-    } catch (simErr: any) {
-      // Only re-throw errors we intentionally created
-      if (simErr.message?.startsWith('sim:')) throw simErr;
-      // Ignore RPC/network errors — don't block the user
+
+      if (simErr) {
+        throw new Error(SolanaActionService.parseSimulationError(simErr.err, simErr.logs));
+      }
     }
 
     callbacks.onSign?.();
@@ -1061,16 +1313,59 @@ export class SolanaActionService {
     // Wallet sign with a 2-minute timeout — prevents a hung wallet dialog from
     // leaving the action permanently in "signing" state.
     const SIGN_TIMEOUT_MS = 120_000;
+    // Step 3b (launch only): for launch_token, partial-sign with the browser-generated
+    // mint keypair BEFORE handing to Phantom, then use signAndSendTransaction with
+    // skipPreflight=true so Phantom never runs its internal simulation.
+    let signature: string;
+    if (mintKeypair) {
+      const tx = deserializedTx as { partialSign?: (...signers: Keypair[]) => void; serialize?(): Uint8Array };
+      if (typeof tx.partialSign === 'function') {
+        try { tx.partialSign(mintKeypair); } catch { /* backend signed with its own keypair — skip */ }
+      }
+
+      const directSig = await Promise.race([
+        this.walletService.signAndSendTransaction(deserializedTx, { skipPreflight: true }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Wallet signing timed out. Please try again.')), SIGN_TIMEOUT_MS)
+        ),
+      ]);
+
+      if (directSig) {
+        // Wallet signed + sent atomically — skip the separate sendRawTransaction step.
+        callbacks.onSubmit?.(directSig);
+        if (amountUsd > 0) this.spendingLimit.record(amountUsd);
+        callbacks.onConfirm?.(directSig);
+        return directSig;
+      }
+      // Wallet doesn't support signAndSendTransaction — fall through to standard flow.
+    }
+
     const signedTx = (await Promise.race([
       this.walletService.signTransaction(deserializedTx),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Wallet signing timed out. Please try again.')), SIGN_TIMEOUT_MS)
       ),
-    ])) as { serialize(): Uint8Array };
+    ])) as { serialize(): Uint8Array; partialSign?: (...signers: Keypair[]) => void };
 
-    // Step 4: Submit — via Jito block engine (MEV protection) or standard RPC
-    let signature: string;
-    if (this.jitoAutoRoutingEnabled) {
+    // Fallback: add mint signature after wallet signing (for wallets without signAndSendTransaction).
+    if (mintKeypair && typeof signedTx.partialSign === 'function') {
+      try { signedTx.partialSign(mintKeypair); } catch { /* backend signed with its own keypair — skip */ }
+    }
+
+    // Step 4: Submit — via Jito block engine (MEV protection) or standard RPC.
+    // Jito is forced ON for MEV-sensitive types regardless of the user toggle:
+    // sandwich risk on volatile swaps and pump.fun trades is high enough that
+    // a sub-second front-run can wipe the slippage buffer. The toggle still
+    // governs the routine path (regular swaps, transfers).
+    const mevSensitive =
+      action.type === 'pumpfun_buy' ||
+      action.type === 'pumpfun_sell' ||
+      action.type === 'launch_token' ||
+      action.type === 'liquidate' ||
+      (action.type === 'swap' && this.isVolatileToken((action.params ?? {})['outputMint'] ?? ''));
+    const useJito = this.jitoAutoRoutingEnabled || mevSensitive;
+
+    if (useJito) {
       try {
         signature = await this.submitViaJito(signedTx.serialize());
       } catch {
@@ -1118,11 +1413,38 @@ export class SolanaActionService {
       }
     }
 
+    // For streamflow_create_multiple: sign and submit all stream transactions sequentially.
+    // The Rust backend returns data.transactions = [tx0, tx1, ...] (all streams);
+    // buildResult.transaction == tx0 (already signed above). Sign tx1..txN here.
+    if (action.type === 'streamflow_create_multiple') {
+      const allTxs: string[] = (buildResult as any).data?.['transactions'] ?? [];
+      const extraTxs = allTxs.slice(1); // skip tx0, already handled above
+      for (let i = 0; i < extraTxs.length; i++) {
+        try {
+          const buf = this.base64ToUint8Array(extraTxs[i]);
+          const streamTx = web3.Transaction.from(buf);
+          streamTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+          const signedStream = (await Promise.race([
+            this.walletService.signTransaction(streamTx),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Sign timeout')), 60_000)),
+          ])) as { serialize(): Uint8Array };
+          const sig = await connection.sendRawTransaction(signedStream.serialize(), {
+            skipPreflight: false,
+            preflightCommitment: 'confirmed',
+          });
+          this.tracker.track(sig, 'streamflow_create', {}).catch(() => {});
+        } catch (e) {
+          console.warn(`[streamflow_create_multiple] Failed to sign/submit stream ${i + 1}:`, e);
+        }
+      }
+    }
+
     // Step 5: Track via TransactionTracker (retry + DB sync)
     this.tracker
       .track(signature, action.type, {
         protocol: action.params['protocol'],
         params: action.params as Record<string, unknown>,
+        estUsd: backendEstUsd ?? (amountUsd > 0 ? amountUsd : undefined),
       })
       .then(txId => {
         // Call onConfirm callback when tracker confirms
@@ -1159,25 +1481,43 @@ export class SolanaActionService {
    * Uses the 'amount' param; returns 0 when amount is unknown or non-numeric.
    * For data-only actions returns 0 (they have no on-chain value transfer).
    */
-  private estimateAmountUsd(action: ParsedAction): number {
+  private async estimateAmountUsd(action: ParsedAction): Promise<number> {
     if (SolanaActionService.DATA_ONLY_TYPES.has(action.type)) return 0;
-    const raw = action.params['amount'] ?? action.params['amountUsd'] ?? action.params['collateral'] ?? '0';
+    const p = action.params;
+    const SOL_MINT = 'So11111111111111111111111111111111111111112';
+    const _NFT_PRICE_ACTIONS = new Set([
+      'me_buy', 'me_buy_now', 'tensor_buy', 'me_make_offer', 'me_accept_offer',
+      'tensor_make_offer', 'me_list', 'tensor_list',
+    ]);
+    const raw = _NFT_PRICE_ACTIONS.has(action.type)
+      ? (p['price'] ?? p['amount'] ?? '0')
+      : (p['amount'] ?? p['amountUsd'] ?? p['collateralAmount'] ?? p['collateral']
+        ?? p['inputAmount'] ?? p['amountIn'] ?? p['totalAmount'] ?? p['amountA']
+        ?? p['amountB'] ?? p['lpAmount'] ?? p['liquidity'] ?? '0');
     const n = parseFloat(String(raw));
     if (!isFinite(n) || n <= 0) return 0;
-    // If the token is SOL, apply a rough ~$150 multiplier for limit purposes.
-    // Real USD value is only known after getting a quote; this is a conservative gate.
-    // Pump.fun buy / PumpSwap buy — amount is in SOL when denominatedInSol != false
-    if ((action.type === 'pumpfun_buy' || action.type === 'pumpswap_buy') &&
-        action.params['denominatedInSol'] !== 'false') {
-      return n * 150;
+
+    // Resolve the mint to look up a real-time price
+    const tokenParam = (p['token'] ?? p['inputMint'] ?? p['mint'] ?? '').toUpperCase();
+    const isUsdc = /^(USD|USDC|USDT|DAI)/i.test(tokenParam);
+    if (isUsdc) return n;
+
+    const isSol = tokenParam === 'SOL' || tokenParam === SOL_MINT
+      || _NFT_PRICE_ACTIONS.has(action.type)
+      || ((action.type === 'pumpfun_buy' || action.type === 'pumpswap_buy')
+          && parseBoolParam(p['denominatedInSol'], true));
+
+    const mintForPrice = isSol ? SOL_MINT
+      : (tokenParam.length > 20 ? tokenParam : null); // only look up real mints, not symbols
+
+    if (mintForPrice) {
+      try {
+        const price = await this.priceFeed.getPrice(mintForPrice);
+        if (price && price > 0) return n * price;
+      } catch { /* fall through to fallback */ }
     }
-    const token = (action.params['token'] ?? action.params['inputMint'] ?? '').toUpperCase();
-    if (token === 'SOL' || token === 'So11111111111111111111111111111111111111112') {
-      return n * 150; // rough SOL price floor for limit checking
-    }
-    // USDC/USDT/USD* tokens → 1:1
-    if (/^USD|USDC|USDT|DAI/i.test(token)) return n;
-    // Unknown token → assume non-trivial only if amount is large-ish
+
+    // Fallback: 1:1 for unknown tokens (conservative)
     return n;
   }
 
@@ -1284,13 +1624,18 @@ export class SolanaActionService {
         if (!mint || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
           throw new Error('Invalid or missing mint address. Please provide a valid Solana token address.');
         }
-        const amount = parseFloat(action.params['amount'] ?? '0');
+        let rawAmt = action.params['amount'] ?? '0';
+        if (rawAmt === 'all' || rawAmt === 'max') {
+          const bal = await this.getTokenBalance(mint);
+          rawAmt = bal.toString();
+        }
+        const amount = parseFloat(rawAmt);
         if (!isFinite(amount) || amount <= 0) {
           throw new Error('Invalid amount. Please specify a positive number.');
         }
         const denominatedInSol = action.type === 'pumpfun_buy'
-          ? action.params['denominatedInSol'] !== 'false'  // buy: default true (SOL-denominated)
-          : action.params['denominatedInSol'] === 'true';  // sell: default false (token-denominated)
+          ? parseBoolParam(action.params['denominatedInSol'], true)   // buy: default true (SOL-denominated)
+          : parseBoolParam(action.params['denominatedInSol'], false);  // sell: default false (token-denominated)
         const slippage = action.params['slippage'] ? parseFloat(action.params['slippage']) : 10;
         const priorityFee = action.params['priorityFee'] ? parseFloat(action.params['priorityFee']) : 0.0005;
 
@@ -1330,7 +1675,7 @@ export class SolanaActionService {
             const vtx = VersionedTransaction.deserialize(txBytes);
             callbacks.onSign?.();
             const signedVtx = await this.walletService.signTransaction(vtx) as InstanceType<typeof VersionedTransaction>;
-            const rpcConn = new Connection(environment.solanaRpc, 'confirmed');
+            const rpcConn = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
             const sig = await rpcConn.sendRawTransaction(signedVtx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
             callbacks.onSubmit?.(sig);
             this.tracker
@@ -1363,7 +1708,7 @@ export class SolanaActionService {
           ? await this.pumpFunService.buildBuy(wallet, mint, amount, denominatedInSol, slippage, priorityFee)
           : await this.pumpFunService.buildSell(wallet, mint, amount, denominatedInSol, slippage, priorityFee);
 
-        if (!resp?.transaction) throw new Error('Failed to build pump.fun transaction');
+        if (!resp?.transaction) throw new Error(`Failed to build pump.fun transaction for ${mint.slice(0, 8)}`);
         const { Transaction } = await import('@solana/web3.js');
         const txBytes = Buffer.from(resp.transaction, 'base64');
         transaction = Transaction.from(txBytes);
@@ -1377,11 +1722,12 @@ export class SolanaActionService {
     // Pre-flight simulation (frontend actions — legacy TX)
     try {
       const { Connection } = await import('@solana/web3.js');
-      const feCon = new Connection(environment.solanaRpc, 'confirmed');
+      const feCon = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
       const { blockhash } = await feCon.getLatestBlockhash();
       transaction.recentBlockhash = blockhash;
       const sim = await feCon.simulateTransaction(transaction.compileMessage());
       if (sim.value.err) {
+        console.error('[Sim] err:', JSON.stringify(sim.value.err), '\nlogs:', sim.value.logs);
         throw new Error(SolanaActionService.parseSimulationError(sim.value.err, sim.value.logs ?? []));
       }
     } catch (simErr: any) {
@@ -1427,9 +1773,9 @@ export class SolanaActionService {
           ...(p['swapMode'] ? {
             swapMode: (p['swapMode'] === 'out' || p['swapMode'] === 'ExactOut') ? 'ExactOut' : 'ExactIn'
           } : {}),
-          ...(p['onlyDirectRoutes'] != null ? { onlyDirectRoutes: p['onlyDirectRoutes'] === 'true' } : {}),
+          ...(p['onlyDirectRoutes'] != null ? { onlyDirectRoutes: parseBoolParam(p['onlyDirectRoutes']) } : {}),
           ...(p['priorityFee'] ? { priorityFee: p['priorityFee'] } : {}),
-          ...(p['restrictIntermediateTokens'] != null ? { restrictIntermediateTokens: p['restrictIntermediateTokens'] === 'true' } : {}),
+          ...(p['restrictIntermediateTokens'] != null ? { restrictIntermediateTokens: parseBoolParam(p['restrictIntermediateTokens']) } : {}),
         };
       case 'limit_order': {
         // Normalize legacy param names from older LLM outputs:
@@ -1502,7 +1848,30 @@ export class SolanaActionService {
         return {
           amount: p['amount'],
           protocol: p['protocol'] ?? 'marinade',
-          instantUnstake: p['instantUnstake'] === 'true',
+          instantUnstake: parseBoolParam(p['instantUnstake']),
+        };
+      // ── Native Validator Staking (direct SOL stake, no LST) ─────────────────
+      case 'native_stake':
+        return {
+          amount: p['amount'],
+          validatorVoteAccount: p['validatorVoteAccount'] ?? p['validator'] ?? p['voteAccount'],
+        };
+      case 'native_stake_deactivate':
+        return { stakeAccount: p['stakeAccount'] ?? p['account'] };
+      case 'native_stake_withdraw':
+        return {
+          stakeAccount: p['stakeAccount'] ?? p['account'],
+          amount: p['amount'] ?? 'all',
+        };
+      case 'native_stake_split':
+        return {
+          stakeAccount: p['stakeAccount'] ?? p['account'],
+          amount: p['amount'],
+        };
+      case 'native_stake_merge':
+        return {
+          destinationStakeAccount: p['destinationStakeAccount'] ?? p['destinationStake'] ?? p['destAccount'],
+          sourceStakeAccount: p['sourceStakeAccount'] ?? p['sourceStake'] ?? p['srcAccount'],
         };
       // ── Raydium Actions ─────────────────────────────────────────────────────
       case 'raydium_swap':
@@ -1523,6 +1892,7 @@ export class SolanaActionService {
             amount: p['amount'],
             inputMint: p['inputMint'],
             slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
+            ...(p['baseIn'] !== undefined ? { baseIn: parseBoolParam(p['baseIn']) } : {}),
           };
         } else if (hasTokenPair) {
           // Token-pair mode: tokenA + tokenB + amountA + amountB
@@ -1544,6 +1914,7 @@ export class SolanaActionService {
           amountB: p['amountB'],
           inputMint: p['inputMint'],
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
+          ...(p['baseIn'] !== undefined ? { baseIn: parseBoolParam(p['baseIn']) } : {}),
         };
       }
       case 'raydium_remove_liquidity':
@@ -1595,6 +1966,25 @@ export class SolanaActionService {
           liquidity: p['liquidity'],
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
+      // ── Raydium data queries — page/pageSize must be int (Option<u32> in Rust) ──
+      case 'raydium_get_pools':
+      case 'raydium_get_pools_v2':
+        return {
+          ...p,
+          ...(p['page'] ? { page: parseInt(p['page'] as string) } : {}),
+          ...(p['pageSize'] ? { pageSize: parseInt(p['pageSize'] as string) } : {}),
+        };
+      case 'raydium_search_pools':
+        return {
+          ...p,
+          ...(p['pageSize'] ? { pageSize: parseInt(p['pageSize'] as string) } : {}),
+        };
+      case 'raydium_get_farm_by_lp':
+        return {
+          ...p,
+          ...(p['page'] ? { page: parseInt(p['page'] as string) } : {}),
+          ...(p['pageSize'] ? { pageSize: parseInt(p['pageSize'] as string) } : {}),
+        };
       // ── Orca Whirlpools Actions ─────────────────────────────────────────────────
       case 'orca_swap':
         return {
@@ -1618,6 +2008,13 @@ export class SolanaActionService {
           liquidity: p['liquidity'],
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
+      case 'orca_create_pool':
+        return {
+          tokenA: p['tokenA'] ?? p['token_a'] ?? p['tokenIn'],
+          tokenB: p['tokenB'] ?? p['token_b'] ?? p['tokenOut'],
+          initialPrice: p['initialPrice'] ? parseFloat(p['initialPrice']) : undefined,
+          tickSpacing: p['tickSpacing'] ? parseInt(p['tickSpacing']) : undefined,
+        };
       case 'orca_open_position':
         return {
           // Direct mode
@@ -1637,6 +2034,7 @@ export class SolanaActionService {
       case 'orca_close_position':
         return {
           position: p['position'],
+          slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
       case 'orca_increase_position':
         return {
@@ -1648,7 +2046,9 @@ export class SolanaActionService {
       case 'orca_decrease_position':
         return {
           position: p['position'],
-          liquidity: p['liquidity'],
+          ...(p['liquidity'] ? { liquidity: p['liquidity'] } : {}),
+          ...(p['inputMint'] ? { inputMint: p['inputMint'] } : {}),
+          ...(p['inputAmount'] ? { inputAmount: p['inputAmount'] } : {}),
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
       case 'orca_collect_fees':
@@ -1663,45 +2063,39 @@ export class SolanaActionService {
       // ── Kamino Finance Actions ─────────────────────────────────────────────────
       case 'kamino_deposit':
         return {
-          token: p['token'] ?? p['reserve'],
+          reserve: p['reserve'] ?? p['token'],
           amount: p['amount'],
           market: p['market'],
-          obligation: p['obligation'],
         };
       case 'kamino_withdraw':
         return {
-          token: p['token'] ?? p['reserve'],
+          reserve: p['reserve'] ?? p['token'],
           amount: p['amount'],
           market: p['market'],
-          obligation: p['obligation'],
         };
       case 'kamino_borrow':
         return {
-          token: p['token'] ?? p['reserve'],
+          reserve: p['reserve'] ?? p['token'],
           amount: p['amount'],
           market: p['market'],
-          obligation: p['obligation'],
         };
       case 'kamino_repay':
         return {
-          token: p['token'] ?? p['reserve'],
+          reserve: p['reserve'] ?? p['token'],
           amount: p['amount'],
           market: p['market'],
-          obligation: p['obligation'],
         };
       case 'kamino_add_collateral':
         return {
-          token: p['token'] ?? p['reserve'],
+          reserve: p['reserve'] ?? p['token'],
           amount: p['amount'],
           market: p['market'],
-          obligation: p['obligation'],
         };
       case 'kamino_withdraw_collateral':
         return {
-          token: p['token'] ?? p['reserve'],
+          reserve: p['reserve'] ?? p['token'],
           amount: p['amount'],
           market: p['market'],
-          obligation: p['obligation'],
         };
       case 'kamino_multiply_open':
         return {
@@ -1735,6 +2129,7 @@ export class SolanaActionService {
           collateralAmount: p['collateralAmount'] ?? p['amount'],
           leverage: p['leverage'] ? parseFloat(p['leverage']) : 2.0,
           debtToken: p['debtToken'],
+          ...(p['market'] ? { market: p['market'] } : {}),
           sizeUsd: p['sizeUsd'] ? parseFloat(p['sizeUsd']) : undefined,
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
@@ -1744,6 +2139,7 @@ export class SolanaActionService {
           collateralAmount: p['collateralAmount'] ?? p['amount'],
           leverage: p['leverage'] ? parseFloat(p['leverage']) : 2.0,
           debtToken: p['debtToken'],
+          ...(p['market'] ? { market: p['market'] } : {}),
           sizeUsd: p['sizeUsd'] ? parseFloat(p['sizeUsd']) : undefined,
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
@@ -1769,7 +2165,6 @@ export class SolanaActionService {
       case 'kamino_stake':
         return {
           amount: p['amount'],
-          lockupSeconds: p['lockupSeconds'] ? parseInt(p['lockupSeconds']) : undefined,
         };
       case 'kamino_unstake':
         return {
@@ -1785,6 +2180,7 @@ export class SolanaActionService {
         return {
           amount: p['amount'],
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 50,
+          ...(p['instant'] !== undefined ? { instant: parseBoolParam(p['instant']) } : {}),
         };
       case 'jito_tip':
         return {
@@ -1792,8 +2188,17 @@ export class SolanaActionService {
           transaction: p['transaction'],
         };
       case 'jito_bundle': {
-        let bundleTxs: unknown[] = [];
-        try { bundleTxs = p['transactions'] ? JSON.parse(p['transactions'] as string) : []; } catch { /* malformed JSON → send empty */ }
+        const rawTxs = p['transactions'];
+        let bundleTxs: string[] = [];
+        if (Array.isArray(rawTxs)) {
+          bundleTxs = rawTxs.map(String);
+        } else if (typeof rawTxs === 'string' && rawTxs.trim()) {
+          if (rawTxs.startsWith('[')) {
+            try { bundleTxs = JSON.parse(rawTxs); } catch { /* malformed */ }
+          } else {
+            bundleTxs = rawTxs.split(',').map(t => t.trim()).filter(Boolean);
+          }
+        }
         return { transactions: bundleTxs, tipAmount: p['tipAmount'] };
       }
       case 'jito_bundle_status':
@@ -1810,19 +2215,57 @@ export class SolanaActionService {
           swapMode: p['swapMode'] ?? 'in',
           pool: p['pool'],
         };
-      case 'meteora_add_liquidity':
+      case 'meteora_add_liquidity': {
+        // The form uses `poolId` / `amountA` / `amountB`; older LLM outputs
+        // and the QueryCard "Use this pool" CTA also pass `pool` / `amountX`
+        // / `amountY`. Accept either so a form-submit and a model-emitted
+        // action both reach the Rust handler with the right keys.
+        //
+        // Rust requires (minBinId + maxBinId) OR (minPrice + maxPrice). The
+        // form only collects `binSpread` (± bins around the active bin) — so
+        // derive the ids here from `activeBinId` + `binSpread` when the
+        // explicit ids aren't set. The QueryCard "Use this pool" CTA always
+        // embeds `activeBinId` for DLMM rows; LLM-emitted DLMM actions are
+        // expected to do the same.
+        let minBinId = p['minBinId'] ? parseInt(p['minBinId']) : undefined;
+        let maxBinId = p['maxBinId'] ? parseInt(p['maxBinId']) : undefined;
+        if (minBinId === undefined && maxBinId === undefined) {
+          const active = parseInt(p['activeBinId'] ?? '');
+          const spread = parseInt(p['binSpread'] ?? '15');
+          if (Number.isFinite(active) && Number.isFinite(spread) && spread > 0) {
+            minBinId = active - spread;
+            maxBinId = active + spread;
+          }
+        }
         return {
-          pool: p['pool'],
-          amountX: p['amountX'],
-          amountY: p['amountY'],
-          minBinId: p['minBinId'] ? parseInt(p['minBinId']) : undefined,
-          maxBinId: p['maxBinId'] ? parseInt(p['maxBinId']) : undefined,
+          pool: p['pool'] ?? p['poolId'],
+          amountX: p['amountX'] ?? p['amountA'],
+          amountY: p['amountY'] ?? p['amountB'],
+          minBinId,
+          maxBinId,
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
+          strategy: p['strategy'],
         };
+      }
       case 'meteora_remove_liquidity': {
         let parsedBinIds: number[] | undefined;
-        try { parsedBinIds = p['binIds'] ? JSON.parse(p['binIds'] as string) : undefined; } catch { /* ignore */ }
-        return { position: p['position'], binIds: parsedBinIds, slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100 };
+        const rawBinIds = p['binIds'];
+        if (Array.isArray(rawBinIds)) {
+          parsedBinIds = rawBinIds.map(Number);
+        } else if (rawBinIds) {
+          const s = String(rawBinIds).trim();
+          if (s.startsWith('[')) {
+            try { parsedBinIds = JSON.parse(s); } catch { /* ignore */ }
+          } else if (s) {
+            parsedBinIds = s.split(',').map(v => parseInt(v.trim())).filter(n => !isNaN(n));
+          }
+        }
+        return {
+          position: p['position'],
+          ...(parsedBinIds !== undefined ? { binIds: parsedBinIds } : {}),
+          ...(p['bpsToRemove'] ? { bpsToRemove: parseInt(p['bpsToRemove'] as string) } : {}),
+          slippageBps: p['slippageBps'] ? parseInt(p['slippageBps'] as string) : 100,
+        };
       }
       case 'meteora_create_pool':
         return {
@@ -1834,17 +2277,36 @@ export class SolanaActionService {
           amountY: p['amountY'],
           baseFee: p['baseFee'] ? parseFloat(p['baseFee']) : 0.01,
         };
-      case 'meteora_open_position':
+      case 'meteora_open_position': {
+        // Same range derivation as meteora_add_liquidity: prefer explicit
+        // bin ids, fall back to (activeBinId ± binSpread), then prices.
+        let minBinId = p['minBinId'] ? parseInt(p['minBinId']) : undefined;
+        let maxBinId = p['maxBinId'] ? parseInt(p['maxBinId']) : undefined;
+        const minPrice = p['minPrice'] ? parseFloat(p['minPrice']) : undefined;
+        const maxPrice = p['maxPrice'] ? parseFloat(p['maxPrice']) : undefined;
+        if (
+          minBinId === undefined && maxBinId === undefined &&
+          minPrice === undefined && maxPrice === undefined
+        ) {
+          const active = parseInt(p['activeBinId'] ?? '');
+          const spread = parseInt(p['binSpread'] ?? '15');
+          if (Number.isFinite(active) && Number.isFinite(spread) && spread > 0) {
+            minBinId = active - spread;
+            maxBinId = active + spread;
+          }
+        }
         return {
-          pool: p['pool'],
-          amountX: p['amountX'],
-          amountY: p['amountY'],
-          minBinId: p['minBinId'] ? parseInt(p['minBinId']) : undefined,
-          maxBinId: p['maxBinId'] ? parseInt(p['maxBinId']) : undefined,
-          minPrice: p['minPrice'] ? parseFloat(p['minPrice']) : undefined,
-          maxPrice: p['maxPrice'] ? parseFloat(p['maxPrice']) : undefined,
+          pool: p['pool'] ?? p['poolId'],
+          amountX: p['amountX'] ?? p['amountA'],
+          amountY: p['amountY'] ?? p['amountB'],
+          minBinId,
+          maxBinId,
+          minPrice,
+          maxPrice,
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
+          strategy: p['strategy'],
         };
+      }
       case 'meteora_close_position':
         return {
           position: p['position'],
@@ -1853,9 +2315,10 @@ export class SolanaActionService {
       case 'meteora_add_to_position':
         return {
           position: p['position'],
-          amountX: p['amountX'],
-          amountY: p['amountY'],
+          amountX: p['amountX'] ?? p['amountA'],
+          amountY: p['amountY'] ?? p['amountB'],
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
+          strategy: p['strategy'],
         };
       case 'meteora_claim_fees':
         return {
@@ -1898,6 +2361,7 @@ export class SolanaActionService {
           bannerUrl:        p['bannerUrl'] ?? p['banner_url'] ?? undefined,
           mayhemMode:       p['mayhemMode'] ?? undefined,
           cashback:         p['cashback'] ?? undefined,
+          tokenizedAgent:   p['tokenizedAgent'] ?? undefined,
         };
       case 'pumpswap_pool_info':
       case 'pumpfun_token_info':
@@ -1923,8 +2387,16 @@ export class SolanaActionService {
         return {
           mint:      p['mint'] ?? p['token'],
           amount:    p['amount'],
-          closeMint: p['closeMint'] === 'true',
+          closeMint: parseBoolParam(p['closeMint']),
         };
+      case 'close_accounts': {
+        const mints = p['mints'];
+        return {
+          mints: typeof mints === 'string'
+            ? mints.split(',').map((m: string) => m.trim()).filter(Boolean)
+            : Array.isArray(mints) ? mints : [mints].filter(Boolean),
+        };
+      }
       case 'transfer':
         return {
           to:            p['to'] ?? p['recipient'] ?? p['address'],
@@ -1947,23 +2419,34 @@ export class SolanaActionService {
         return {
           amount: p['amount'],
         };
+      case 'marinade_claim_ticket':
+      case 'marinade_claim':
+        return {
+          ticketAccount: p['ticketAccount'] ?? p['ticket_account'] ?? p['ticket'],
+        };
       // ── marginfi Protocol Actions ────────────────────────────────────────────────
       case 'marginfi_create_account':
         return {
           referralCode: p['referralCode'],
+        };
+      case 'marginfi_create_account_pda':
+        return {
+          ...(p['accountIndex'] !== undefined ? { accountIndex: parseInt(p['accountIndex'] as string) } : {}),
+          ...(p['thirdPartyId'] !== undefined ? { thirdPartyId: parseInt(p['thirdPartyId'] as string) } : {}),
         };
       case 'marginfi_deposit':
         return {
           bank: p['bank'] ?? p['token'],
           amount: p['amount'],
           account: p['account'],
+          depositUpToLimit: p['depositUpToLimit'] !== undefined ? parseBoolParam(p['depositUpToLimit']) : undefined,
         };
       case 'marginfi_withdraw':
         return {
           bank: p['bank'] ?? p['token'],
           amount: p['amount'],
           account: p['account'],
-          allowBorrow: p['allowBorrow'] === 'true' ? true : p['allowBorrow'] === 'false' ? false : undefined,
+          withdrawAll: p['withdrawAll'] !== undefined ? parseBoolParam(p['withdrawAll']) : undefined,
         };
       case 'marginfi_borrow':
         return {
@@ -1976,8 +2459,9 @@ export class SolanaActionService {
           bank: p['bank'] ?? p['token'],
           amount: p['amount'],
           account: p['account'],
+          repayAll: p['repayAll'] !== undefined ? parseBoolParam(p['repayAll']) : undefined,
         };
-      case 'marginfi_deposit_collateral':
+      case 'marginfi_add_collateral':
         return {
           bank: p['bank'] ?? p['token'],
           amount: p['amount'],
@@ -1999,6 +2483,105 @@ export class SolanaActionService {
         return { wallet: p['wallet'] };
       case 'marginfi_close_account':
         return { account: p['account'] };
+      case 'marginfi_liquidate':
+        return {
+          account: p['account'],
+          liquidateeAccount: p['liquidateeAccount'] ?? p['liquidatee'],
+          assetBank: p['assetBank'],
+          liabBank: p['liabBank'],
+          assetAmount: p['assetAmount'] ?? p['amount'],
+        };
+      case 'marginfi_bank_detail':
+        return { bank: p['bank'] ?? p['token'] };
+      case 'marginfi_user_accounts':
+        return {
+          wallet: p['wallet'],
+          maxIndex: p['maxIndex'] ? parseInt(p['maxIndex']) : undefined,
+        };
+      // ── MarginFi advanced operations (arrays + integer params) ────────────────
+      case 'marginfi_flashloan_start':
+        return {
+          ...(p['account'] ? { account: p['account'] } : {}),
+          endIndex: parseInt(p['endIndex'] ?? p['end_index'] ?? '0'),
+        };
+      case 'marginfi_place_order': {
+        const banks = p['banks'];
+        return {
+          ...(p['account'] ? { account: p['account'] } : {}),
+          limit: p['limit'],
+          banks: typeof banks === 'string'
+            ? banks.split(',').map((b: string) => b.trim()).filter(Boolean)
+            : Array.isArray(banks) ? banks : [],
+          maxDebtCoverage: p['maxDebtCoverage'] ?? p['max_debt_coverage'],
+          orderSide: parseInt(p['orderSide'] ?? p['order_side'] ?? '0'),
+        };
+      }
+      case 'marginfi_set_keeper_flags': {
+        const kfBanks = p['banks'];
+        return {
+          ...(p['account'] ? { account: p['account'] } : {}),
+          ...(kfBanks !== undefined ? {
+            banks: typeof kfBanks === 'string'
+              ? kfBanks.split(',').map((b: string) => b.trim()).filter(Boolean)
+              : Array.isArray(kfBanks) ? kfBanks : [],
+          } : {}),
+        };
+      }
+      // ── MarginFi additional TX actions ───────────────────────────────────────
+      case 'marginfi_claim_emissions':
+      case 'marginfi_settle_emissions':
+      case 'marginfi_clear_emissions':
+        return {
+          bank: p['bank'] ?? p['token'],
+          ...(p['account'] ? { account: p['account'] } : {}),
+          ...(p['emissionsMint'] ? { emissionsMint: p['emissionsMint'] } : {}),
+        };
+      case 'marginfi_withdraw_emissions_permissionless':
+        return {
+          account: p['account'],
+          bank: p['bank'] ?? p['token'],
+          ...(p['emissionsMint'] ? { emissionsMint: p['emissionsMint'] } : {}),
+        };
+      case 'marginfi_update_emissions_destination':
+        return {
+          destination: p['destination'],
+          ...(p['account'] ? { account: p['account'] } : {}),
+        };
+      case 'marginfi_close_balance':
+        return {
+          bank: p['bank'] ?? p['token'],
+          ...(p['account'] ? { account: p['account'] } : {}),
+        };
+      case 'marginfi_transfer_account':
+        return {
+          sourceAccount: p['sourceAccount'] ?? p['source_account'],
+          destinationAccount: p['destinationAccount'] ?? p['destination_account'],
+        };
+      case 'marginfi_flashloan_end':
+        return {
+          ...(p['account'] ? { account: p['account'] } : {}),
+        };
+      case 'marginfi_close_order':
+        return {
+          order: p['order'],
+          feeRecipient: p['feeRecipient'] ?? p['fee_recipient'],
+          ...(p['account'] ? { account: p['account'] } : {}),
+        };
+      // ── Relay advanced TX actions ────────────────────────────────────────────
+      case 'relay_claim_app_fees':
+        return {
+          chainId: p['chainId'] ? parseInt(p['chainId']) : undefined,
+          currency: p['currency'],
+          recipient: p['recipient'],
+          ...(p['wallet'] ? { wallet: p['wallet'] } : {}),
+          ...(p['amount'] ? { amount: String(p['amount']) } : {}),
+        };
+      case 'relay_single_transaction':
+        return {
+          requestId: p['requestId'],
+          chainId: p['chainId'],
+          tx: p['tx'],
+        };
       // ── Solend Protocol Actions (data queries only) ────────────────────────────
       case 'solend_user_info':
         return { wallet: p['wallet'] ?? p['walletAddress'] };
@@ -2009,12 +2592,12 @@ export class SolanaActionService {
       case 'tensor_buy':
         return {
           mintAddress: p['mintAddress'] ?? p['mint'],
-          maxPrice: p['maxPrice'] ? parseFloat(p['maxPrice']) : 0,
+          maxPrice: p['maxPrice'] ?? '0',
         };
       case 'tensor_list':
         return {
           mintAddress: p['mintAddress'] ?? p['mint'],
-          price: p['price'] ? parseFloat(p['price']) : 0,
+          price: p['price'] ?? '0',
         };
       case 'tensor_cancel_listing':
         return {
@@ -2023,7 +2606,7 @@ export class SolanaActionService {
       case 'tensor_make_offer':
         return {
           collectionSlug: p['collectionSlug'] ?? p['collection'] ?? p['slug'],
-          price: p['price'] ? parseFloat(p['price']) : 0,
+          price: p['price'] ?? '0',
           quantity: p['quantity'] ? String(p['quantity']) : undefined,
         };
       case 'tensor_cancel_offer':
@@ -2045,39 +2628,42 @@ export class SolanaActionService {
       case 'me_list':
         return {
           mintAddress: p['mintAddress'],
-          price: p['price'] ? parseFloat(p['price']) : 0,
+          price: p['price'] ?? '0',
           expiry: p['expiry'] ? parseInt(p['expiry']) : undefined,
         };
       case 'me_buy':
         return {
           mintAddress: p['mintAddress'],
-          price: p['price'] ? parseFloat(p['price']) : 0,
+          price: p['price'] ?? '0',
           tokenAddress: p['tokenAddress'],
           seller: p['seller'],
         };
       case 'me_cancel_listing':
         return {
           mintAddress: p['mintAddress'],
+          price: p['price'] ?? '0',
+          tokenAddress: p['tokenAddress'],
         };
       case 'me_make_offer':
         return {
           mintAddress: p['mintAddress'],
-          price: p['price'] ? parseFloat(p['price']) : 0,
+          price: p['price'] ?? '0',
           expiry: p['expiry'] ? parseInt(p['expiry']) : undefined,
         };
       case 'me_accept_offer':
         return {
           mintAddress: p['mintAddress'],
           buyer: p['buyer'],
-          price: p['price'] ? parseFloat(p['price']) : undefined,
+          price: p['price'],
         };
       case 'me_cancel_offer':
         return {
           mintAddress: p['mintAddress'],
+          price: p['price'] ?? '0',
         };
       case 'me_collection_info':
         return {
-          collectionSymbol: p['collectionSymbol'],
+          symbol: p['collectionSymbol'] ?? p['symbol'],
         };
       case 'me_nft_info':
         return {
@@ -2090,22 +2676,22 @@ export class SolanaActionService {
         };
       case 'me_collection_activity':
         return {
-          collectionSymbol: p['collectionSymbol'],
+          symbol: p['collectionSymbol'] ?? p['symbol'],
           limit: p['limit'] ? parseInt(p['limit']) : 20,
         };
       case 'me_listings':
         return {
-          collectionSymbol: p['collectionSymbol'],
+          symbol: p['collectionSymbol'] ?? p['symbol'],
           limit: p['limit'] ? parseInt(p['limit']) : 20,
         };
       case 'me_offers':
         return {
           mintAddress: p['mintAddress'],
-          collectionSymbol: p['collectionSymbol'],
+          collectionSymbol: p['collectionSymbol'] ?? p['symbol'],
         };
       case 'me_collection_nfts':
         return {
-          collectionSymbol: p['collectionSymbol'],
+          symbol: p['collectionSymbol'] ?? p['symbol'],
           limit: p['limit'] ? parseInt(p['limit']) : 20,
         };
       // ── Cross-Chain Swap (Relay) Actions ────────────────────────────────────────
@@ -2144,6 +2730,21 @@ export class SolanaActionService {
           base['slippage'] = rawSlippage != null
             ? parseFloat(String(rawSlippage))
             : (base['slippageBps'] as number) / 100;
+          // Squid optional bool flags
+          if (p['enableExpress'] !== undefined) base['enableExpress'] = parseBoolParam(p['enableExpress']);
+          if (p['receiveGasOnDestination'] !== undefined) base['receiveGasOnDestination'] = parseBoolParam(p['receiveGasOnDestination']);
+          if (p['quoteOnly'] !== undefined) base['quoteOnly'] = parseBoolParam(p['quoteOnly']);
+          if (p['enableBoost'] !== undefined) base['enableBoost'] = parseBoolParam(p['enableBoost'], true);
+          // Squid optional Vec<String> fields (prefer / bypass bridge types)
+          const parseStrArray = (v: unknown): string[] | undefined => {
+            if (Array.isArray(v)) return v.map(String);
+            if (typeof v === 'string' && v.trim()) return v.split(',').map(s => s.trim()).filter(Boolean);
+            return undefined;
+          };
+          const prefer = parseStrArray(p['prefer']);
+          const bypass  = parseStrArray(p['bypass']);
+          if (prefer) base['prefer'] = prefer;
+          if (bypass)  base['bypass']  = bypass;
         }
         return base;
       }
@@ -2187,7 +2788,7 @@ export class SolanaActionService {
         return {
           mint: p['mint'],
           amount: p['amount'],
-          denominatedInSol: p['denominatedInSol'] !== 'false',
+          denominatedInSol: parseBoolParam(p['denominatedInSol'], true),
           slippage: p['slippage'] ? parseFloat(p['slippage']) : 10,
           priorityFee: p['priorityFee'] ? parseFloat(p['priorityFee']) : 0.0005,
         };
@@ -2195,7 +2796,7 @@ export class SolanaActionService {
         return {
           mint: p['mint'],
           amount: p['amount'],
-          denominatedInSol: p['denominatedInSol'] === 'true',
+          denominatedInSol: parseBoolParam(p['denominatedInSol'], false),
           slippage: p['slippage'] ? parseFloat(p['slippage']) : 10,
           priorityFee: p['priorityFee'] ? parseFloat(p['priorityFee']) : 0.0005,
         };
@@ -2204,7 +2805,7 @@ export class SolanaActionService {
         return {
           mint: p['mint'],
           amount: p['amount'],
-          denominatedInSol: p['denominatedInSol'] !== 'false',
+          denominatedInSol: parseBoolParam(p['denominatedInSol'], true),
           slippage: p['slippage'] ? parseFloat(p['slippage']) : 10,
           priorityFee: p['priorityFee'] ? parseFloat(p['priorityFee']) : 0.0005,
         };
@@ -2212,9 +2813,379 @@ export class SolanaActionService {
         return {
           mint: p['mint'],
           amount: p['amount'],
-          denominatedInSol: p['denominatedInSol'] === 'true',
+          denominatedInSol: parseBoolParam(p['denominatedInSol'], false),
           slippage: p['slippage'] ? parseFloat(p['slippage']) : 10,
           priorityFee: p['priorityFee'] ? parseFloat(p['priorityFee']) : 0.0005,
+        };
+
+      // ── SNS (Solana Name Service) write actions ───────────────────────────────
+      case 'sns_register':
+        return {
+          domain: (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+          space: p['space'] ? parseInt(p['space']) : 1,
+          token: p['token'] ?? 'USDC',
+        };
+      case 'sns_transfer':
+        return {
+          domain: (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+          newOwner: p['newOwner'],
+        };
+      case 'sns_buy':
+        return {
+          domain: (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+          token: p['token'] ?? 'USDC',
+        };
+      case 'sns_make_offer':
+        return {
+          domain: (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+          amount: p['amount'] ? parseFloat(p['amount']) : 0,
+          token: p['token'] ?? 'USDC',
+        };
+      case 'sns_accept_offer':
+        return {
+          domain: (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+          offerKey: p['offerKey'],
+          token: p['token'] ?? 'USDC',
+        };
+      case 'sns_cancel_offer':
+        return {
+          domain: (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+          offerKey: p['offerKey'],
+          token: p['token'] ?? 'USDC',
+        };
+      case 'sns_set_record':
+        return {
+          domain: (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+          record: p['record'] ?? p['type'] ?? p['key'],
+          value: p['value'],
+        };
+      case 'sns_delete':
+        return { domain: (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase() };
+      case 'sns_create_subdomain':
+        return {
+          subdomain: p['subdomain'] ?? (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+        };
+      case 'sns_set_favorite':
+        return { domain: (p['domain'] as string)?.replace(/\.sol$/i, '').toLowerCase() };
+
+      // ── Streamflow token streaming & vesting ──────────────────────────────────
+      case 'streamflow_create':
+        return {
+          recipient: p['recipient'],
+          mint: p['mint'],
+          amount: p['amount'],
+          period: p['period'] ? parseInt(p['period']) : 86400,
+          amountPerPeriod: p['amountPerPeriod'],
+          ...(p['start'] ? { start: parseInt(p['start']) } : {}),
+          ...(p['cliff'] ? { cliff: parseInt(p['cliff']) } : {}),
+          ...(p['cliffAmount'] ? { cliffAmount: p['cliffAmount'] } : {}),
+          ...(p['name'] ? { name: p['name'] } : {}),
+          ...(p['canTopup'] !== undefined ? { canTopup: parseBoolParam(p['canTopup']) } : {}),
+          ...(p['cancelableBySender'] !== undefined ? { cancelableBySender: parseBoolParam(p['cancelableBySender'], true) } : {}),
+          ...(p['cancelableByRecipient'] !== undefined ? { cancelableByRecipient: parseBoolParam(p['cancelableByRecipient']) } : {}),
+          ...(p['transferableBySender'] !== undefined ? { transferableBySender: parseBoolParam(p['transferableBySender'], true) } : {}),
+          ...(p['transferableByRecipient'] !== undefined ? { transferableByRecipient: parseBoolParam(p['transferableByRecipient']) } : {}),
+          ...(p['automaticWithdrawal'] !== undefined ? { automaticWithdrawal: parseBoolParam(p['automaticWithdrawal']) } : {}),
+          ...(p['withdrawalFrequency'] ? { withdrawalFrequency: parseInt(p['withdrawalFrequency']) } : {}),
+          ...(p['partner'] ? { partner: p['partner'] } : {}),
+          ...(p['isNative'] !== undefined ? { isNative: parseBoolParam(p['isNative']) } : {}),
+        };
+      case 'streamflow_create_multiple':
+        return {
+          recipients: (() => {
+            const r = p['recipients'];
+            if (Array.isArray(r)) return r;
+            if (typeof r === 'string' && r.startsWith('[')) {
+              try { return JSON.parse(r); } catch { return []; }
+            }
+            return [];
+          })(),
+          mint: p['mint'],
+          period: p['period'] ? parseInt(p['period']) : 86400,
+          ...(p['start'] ? { start: parseInt(p['start']) } : {}),
+          ...(p['cliff'] ? { cliff: parseInt(p['cliff']) } : {}),
+          ...(p['canTopup'] !== undefined ? { canTopup: parseBoolParam(p['canTopup']) } : {}),
+          ...(p['cancelableBySender'] !== undefined ? { cancelableBySender: parseBoolParam(p['cancelableBySender'], true) } : {}),
+          ...(p['cancelableByRecipient'] !== undefined ? { cancelableByRecipient: parseBoolParam(p['cancelableByRecipient']) } : {}),
+          ...(p['transferableBySender'] !== undefined ? { transferableBySender: parseBoolParam(p['transferableBySender'], true) } : {}),
+          ...(p['transferableByRecipient'] !== undefined ? { transferableByRecipient: parseBoolParam(p['transferableByRecipient']) } : {}),
+          ...(p['automaticWithdrawal'] !== undefined ? { automaticWithdrawal: parseBoolParam(p['automaticWithdrawal']) } : {}),
+          ...(p['withdrawalFrequency'] ? { withdrawalFrequency: parseInt(p['withdrawalFrequency']) } : {}),
+          ...(p['partner'] ? { partner: p['partner'] } : {}),
+          ...(p['isNative'] !== undefined ? { isNative: parseBoolParam(p['isNative']) } : {}),
+        };
+      case 'streamflow_cancel':
+        return { streamId: p['streamId'] };
+      case 'streamflow_withdraw':
+        return {
+          streamId: p['streamId'],
+          ...(p['amount'] ? { amount: p['amount'] } : {}),
+        };
+      case 'streamflow_transfer':
+        return { streamId: p['streamId'], newRecipient: p['newRecipient'] };
+      case 'streamflow_topup':
+        return { streamId: p['streamId'], amount: p['amount'] };
+      case 'streamflow_update':
+        return {
+          streamId: p['streamId'],
+          ...(p['automaticWithdrawal'] !== undefined ? { automaticWithdrawal: parseBoolParam(p['automaticWithdrawal']) } : {}),
+          ...(p['withdrawalFrequency'] ? { withdrawalFrequency: parseInt(p['withdrawalFrequency']) } : {}),
+          ...(p['transferableBySender'] !== undefined ? { transferableBySender: parseBoolParam(p['transferableBySender'], true) } : {}),
+          ...(p['transferableByRecipient'] !== undefined ? { transferableByRecipient: parseBoolParam(p['transferableByRecipient']) } : {}),
+        };
+
+      // ── Meteora DAMM v1 ───────────────────────────────────────────────────────
+      case 'meteora_dammv1_swap':
+        return {
+          inputMint: p['inputMint'],
+          outputMint: p['outputMint'],
+          amount: p['amount'],
+          ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
+          ...(p['pool'] ? { pool: p['pool'] } : {}),
+        };
+      case 'meteora_dammv1_deposit':
+        return {
+          pool: p['pool'] ?? p['poolId'],
+          tokenAAmount: p['tokenAAmount'] ?? p['amountA'],
+          tokenBAmount: p['tokenBAmount'] ?? p['amountB'],
+          ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
+        };
+      case 'meteora_dammv1_withdraw':
+        return {
+          pool: p['pool'] ?? p['poolId'],
+          lpAmount: p['lpAmount'] ?? p['amount'],
+          ...(p['minAAmount'] ? { minAAmount: p['minAAmount'] } : {}),
+          ...(p['minBAmount'] ? { minBAmount: p['minBAmount'] } : {}),
+        };
+
+      // ── Meteora DAMM v2 ───────────────────────────────────────────────────────
+      case 'meteora_dammv2_swap':
+        return {
+          inputMint: p['inputMint'],
+          outputMint: p['outputMint'],
+          amount: p['amount'],
+          ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
+          ...(p['pool'] ? { pool: p['pool'] } : {}),
+        };
+      case 'meteora_dammv2_add_liquidity':
+        return {
+          pool: p['pool'] ?? p['poolId'],
+          maxAmountA: p['maxAmountA'] ?? p['tokenAAmount'] ?? p['amountA'],
+          maxAmountB: p['maxAmountB'] ?? p['tokenBAmount'] ?? p['amountB'],
+          ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
+        };
+      case 'meteora_dammv2_remove_liquidity':
+        return {
+          pool: p['pool'] ?? p['poolId'],
+          lpAmount: p['lpAmount'] ?? p['amount'],
+          positionNft: p['positionNft'] ?? p['positionId'],
+          ...(p['minAmountA'] ? { minAmountA: p['minAmountA'] } : {}),
+          ...(p['minAmountB'] ? { minAmountB: p['minAmountB'] } : {}),
+        };
+
+      // ── Meteora Dynamic Vault ─────────────────────────────────────────────────
+      case 'meteora_vault_deposit':
+        return {
+          tokenMint: p['tokenMint'] ?? p['mint'] ?? p['token'],
+          amount: p['amount'],
+        };
+      case 'meteora_vault_withdraw':
+        return {
+          tokenMint: p['tokenMint'] ?? p['mint'] ?? p['token'],
+          unmintAmount: p['unmintAmount'] ?? p['lpAmount'] ?? p['amount'],
+        };
+
+      // ── Meteora Stake-to-Earn (m3m3) ──────────────────────────────────────────
+      case 'meteora_s2e_stake':
+        return { vault: p['vault'], amount: p['amount'] };
+      case 'meteora_s2e_unstake':
+        return { vault: p['vault'], amount: p['amount'] };
+      case 'meteora_s2e_claim_fee':
+        return {
+          vault: p['vault'],
+          ...(p['maxAmount'] ? { maxAmount: p['maxAmount'] } : {}),
+        };
+      case 'meteora_s2e_cancel_unstake':
+        return { vault: p['vault'], escrow: p['escrow'] };
+      case 'meteora_s2e_withdraw':
+        return { vault: p['vault'], escrow: p['escrow'] };
+
+      // ── Solend lending protocol ───────────────────────────────────────────────
+      case 'solend_deposit':
+      case 'solend_withdraw':
+      case 'solend_borrow':
+      case 'solend_repay':
+        return {
+          token: p['token'] ?? p['mint'],
+          amount: p['amount'],
+        };
+      case 'solend_add_collateral':
+      case 'solend_withdraw_collateral':
+        return {
+          token: p['token'] ?? p['mint'],
+          amount: p['amount'] ?? p['collateral'],
+        };
+
+      // ── Kamino data query normalisations ─────────────────────────────────────
+      case 'kamino_loan_detail':
+        // Rust uses `loan` (not `obligation`) as the required field name
+        return { loan: p['loan'] ?? p['obligation'], ...(p['market'] ? { market: p['market'] } : {}) };
+      case 'kamino_vaults':
+        return { ...(p['limit'] ? { limit: parseInt(p['limit'] as string) } : {}) };
+
+      // ── Kamino KSwap ──────────────────────────────────────────────────────────
+      case 'kamino_kswap':
+        return {
+          tokenIn: p['tokenIn'],
+          tokenOut: p['tokenOut'],
+          amountIn: p['amountIn'],
+          maxSlippageBps: p['maxSlippageBps'] ? parseInt(p['maxSlippageBps']) : 50,
+          ...(p['includeSetupIxs'] !== undefined ? { includeSetupIxs: parseBoolParam(p['includeSetupIxs']) } : {}),
+          ...(p['wrapAndUnwrapSol'] !== undefined ? { wrapAndUnwrapSol: parseBoolParam(p['wrapAndUnwrapSol']) } : {}),
+        };
+
+      // ── Cross-chain bridges ───────────────────────────────────────────────────
+      case 'debridge':
+        return {
+          originChainId: p['originChainId'] ? parseInt(p['originChainId']) : 7565164,
+          destinationChainId: p['destinationChainId'] ? parseInt(p['destinationChainId']) : 1,
+          originCurrency: p['originCurrency'] ?? p['fromToken'] ?? p['token'],
+          destinationCurrency: p['destinationCurrency'] ?? p['toToken'],
+          amount: p['amount'],
+          ...(p['recipient'] ? { recipient: p['recipient'] } : {}),
+          ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
+        };
+      case 'squid':
+      case 'squid_bridge': {
+        const squidParseArr = (v: unknown): string[] | undefined => {
+          if (Array.isArray(v)) return v.map(String);
+          if (typeof v === 'string' && v.trim()) return v.split(',').map(s => s.trim()).filter(Boolean);
+          return undefined;
+        };
+        const squidPrefer = squidParseArr(p['prefer']);
+        const squidBypass = squidParseArr(p['bypass']);
+        return {
+          originChainId: p['originChainId'] ? parseInt(p['originChainId']) : 0,
+          destinationChainId: p['destinationChainId'] ? parseInt(p['destinationChainId']) : 1,
+          originToken: p['originToken'] ?? p['fromToken'] ?? p['token'],
+          destinationToken: p['destinationToken'] ?? p['toToken'],
+          amount: p['amount'],
+          ...(p['recipient'] ? { recipient: p['recipient'] } : {}),
+          ...(p['slippage'] ? { slippage: parseFloat(p['slippage']) } : {}),
+          ...(p['enableExpress'] !== undefined ? { enableExpress: parseBoolParam(p['enableExpress']) } : {}),
+          ...(p['receiveGasOnDestination'] !== undefined ? { receiveGasOnDestination: parseBoolParam(p['receiveGasOnDestination']) } : {}),
+          ...(p['enableBoost'] !== undefined ? { enableBoost: parseBoolParam(p['enableBoost']) } : {}),
+          ...(p['quoteOnly'] !== undefined ? { quoteOnly: parseBoolParam(p['quoteOnly']) } : {}),
+          ...(squidPrefer ? { prefer: squidPrefer } : {}),
+          ...(squidBypass ? { bypass: squidBypass } : {}),
+          ...(p['postHook'] !== undefined ? { postHook: p['postHook'] } : {}),
+        };
+      }
+      case 'relay_bridge':
+        return {
+          originChainId: p['originChainId'] ? parseInt(p['originChainId']) : 900,
+          destinationChainId: p['destinationChainId'] ? parseInt(p['destinationChainId']) : 1,
+          originCurrency: p['originCurrency'] ?? p['fromToken'] ?? p['token'],
+          destinationCurrency: p['destinationCurrency'] ?? p['toToken'],
+          amount: p['amount'],
+          tradeType: p['tradeType'] ?? 'EXACT_INPUT',
+          ...(p['recipient'] ? { recipient: p['recipient'] } : {}),
+          ...(p['refundTo'] ? { refundTo: p['refundTo'] } : {}),
+          ...(p['refundType'] ? { refundType: p['refundType'] } : {}),
+          ...(p['slippageTolerance'] ? { slippageTolerance: parseInt(p['slippageTolerance']) } : {}),
+          ...(p['topupGas'] !== undefined ? { topupGas: parseBoolParam(p['topupGas']) } : {}),
+          ...(p['topupGasAmount'] ? { topupGasAmount: String(p['topupGasAmount']) } : {}),
+          ...(p['subsidizeFees'] !== undefined ? { subsidizeFees: parseBoolParam(p['subsidizeFees']) } : {}),
+          ...(p['referrer'] ? { referrer: String(p['referrer']) } : {}),
+          ...(p['referrerAddress'] ? { referrerAddress: String(p['referrerAddress']) } : {}),
+          ...(p['useDepositAddress'] !== undefined ? { useDepositAddress: parseBoolParam(p['useDepositAddress']) } : {}),
+          ...(p['disableOriginSwaps'] !== undefined ? { disableOriginSwaps: parseBoolParam(p['disableOriginSwaps']) } : {}),
+          ...(p['forceSolverExecution'] !== undefined ? { forceSolverExecution: parseBoolParam(p['forceSolverExecution']) } : {}),
+          ...(p['fixedRate'] !== undefined ? { fixedRate: parseBoolParam(p['fixedRate']) } : {}),
+          ...(p['strict'] !== undefined ? { strict: parseBoolParam(p['strict']) } : {}),
+          ...(p['maxRouteLength'] ? { maxRouteLength: parseInt(p['maxRouteLength']) } : {}),
+          ...(p['overridePriceImpact'] !== undefined ? { overridePriceImpact: parseBoolParam(p['overridePriceImpact']) } : {}),
+          ...(p['includeComputeUnitLimit'] !== undefined ? { includeComputeUnitLimit: parseBoolParam(p['includeComputeUnitLimit']) } : {}),
+        };
+      // ── Jupiter data queries — limit must be int not string for Rust u32 ────
+      case 'jup_price':
+        return { tokens: p['tokens'] ?? p['ids'] ?? p['token'] };
+      case 'jup_token_search':
+        return {
+          query: p['query'] ?? p['q'] ?? p['search'],
+          ...(p['limit'] ? { limit: parseInt(p['limit'] as string) } : {}),
+        };
+      case 'jup_tokens_tag':
+        return {
+          tag: p['tag'],
+          ...(p['limit'] ? { limit: parseInt(p['limit'] as string) } : {}),
+        };
+      case 'jup_tokens_recent':
+        return { ...(p['limit'] ? { limit: parseInt(p['limit'] as string) } : {}) };
+      case 'jup_tokens_trending':
+        return {
+          ...(p['category'] ? { category: p['category'] } : {}),
+          ...(p['interval'] ? { interval: p['interval'] } : {}),
+          ...(p['limit'] ? { limit: parseInt(p['limit'] as string) } : {}),
+        };
+      case 'jup_dca_orders':
+        return {
+          ...(p['status'] ? { status: p['status'] } : {}),
+          ...(p['wallet'] ? { wallet: p['wallet'] } : {}),
+          ...(p['inputToken'] ? { inputToken: p['inputToken'] } : {}),
+          ...(p['outputToken'] ? { outputToken: p['outputToken'] } : {}),
+        };
+      case 'jup_limit_orders':
+        return {
+          ...(p['status'] ? { status: p['status'] } : {}),
+          ...(p['wallet'] ? { wallet: p['wallet'] } : {}),
+          ...(p['inputToken'] ? { inputToken: p['inputToken'] } : {}),
+          ...(p['outputToken'] ? { outputToken: p['outputToken'] } : {}),
+        };
+      case 'jup_pending_invites':
+        return {
+          ...(p['wallet'] ? { wallet: p['wallet'] } : {}),
+          ...(p['page'] ? { page: parseInt(p['page'] as string) } : {}),
+        };
+      // ── Meteora data queries — page/pageSize/startTime/endTime must be int ──
+      case 'meteora_dlmm_get_pairs':
+      case 'meteora_dlmm_get_pool_groups':
+      case 'meteora_dlmm_get_pool_group':
+      case 'meteora_dammv2_get_pools':
+      case 'meteora_dammv2_get_pool_groups':
+      case 'meteora_dammv2_get_pool_group':
+      case 'meteora_dammv1_get_pools':
+      case 'meteora_dammv1_get_pool_configs':
+        return {
+          ...p,
+          ...(p['page'] ? { page: parseInt(p['page'] as string) } : {}),
+          ...(p['pageSize'] ? { pageSize: parseInt(p['pageSize'] as string) } : {}),
+        };
+      case 'meteora_dammv1_search_pools':
+        return {
+          ...p,
+          page: p['page'] !== undefined ? parseInt(p['page'] as string) : 0,
+          size: p['size'] ? parseInt(p['size'] as string) : (p['pageSize'] ? parseInt(p['pageSize'] as string) : 10),
+        };
+      case 'meteora_dlmm_get_pool_ohlcv':
+      case 'meteora_dlmm_get_pool_volume_history':
+      case 'meteora_dammv2_get_pool_ohlcv':
+      case 'meteora_dammv2_get_pool_volume_history':
+        return {
+          ...p,
+          ...(p['startTime'] ? { startTime: parseInt(p['startTime'] as string) } : {}),
+          ...(p['endTime'] ? { endTime: parseInt(p['endTime'] as string) } : {}),
+        };
+      // ── SNS subdomain operations ───────────────────────────────────────────
+      case 'sns_subdomains':
+        return {
+          parentDomain: (p['parentDomain'] ?? p['domain'] ?? p['parent'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+        };
+      case 'sns_transfer_subdomain':
+        return {
+          subdomain: (p['subdomain'] as string)?.replace(/\.sol$/i, '').toLowerCase(),
+          newOwner: p['newOwner'],
+          ...(p['parentOwnerSigns'] !== undefined ? { parentOwnerSigns: parseBoolParam(p['parentOwnerSigns']) } : {}),
         };
       default:
         return p as Record<string, unknown>;

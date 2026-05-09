@@ -9,7 +9,23 @@ import httpx
 import logging
 from typing import Optional
 
+from .tokens_generated import get_verified_token_by_symbol
+
 logger = logging.getLogger(__name__)
+
+
+def _verified_mint(symbol: str) -> str:
+    """Resolve a symbol to its verified mint address.
+
+    Centralized so every yield-aggregator entry pulls from the single
+    source-of-truth registry (shared/tokens.json, CI-verified against Jupiter).
+    Raises at module import if a symbol is unknown — fail-closed.
+    """
+    t = get_verified_token_by_symbol(symbol)
+    if t is None:
+        raise RuntimeError(f"yield_aggregator references unknown token symbol: {symbol!r}")
+    return t["address"]
+
 
 # Protocol registry — add new protocols here
 PROTOCOLS: dict[str, dict] = {
@@ -17,19 +33,19 @@ PROTOCOLS: dict[str, dict] = {
         "name": "Jito (jitoSOL)",
         "url": "https://kobe.mainnet.jito.network/api/v1/validators",
         "category": "liquid_staking",
-        "mint": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kongC",
+        "mint": _verified_mint("JitoSOL"),
     },
     "marinade": {
         "name": "Marinade (mSOL)",
         "url": "https://api.marinade.finance/v1/stats",
         "category": "liquid_staking",
-        "mint": "mSoLzYCx24dS9o7u4BMfKb5QZ6eE6a7pE2d7Y8Z9w0x1",
+        "mint": _verified_mint("mSOL"),
     },
     "jupsol": {
         "name": "Jupiter (jupSOL)",
         "url": "https://worker.jup.ag/sol-stake-pool-stats",
         "category": "liquid_staking",
-        "mint": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+        "mint": _verified_mint("jupSOL"),
     },
     # Lending protocols
     "kamino_sol": {

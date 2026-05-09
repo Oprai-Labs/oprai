@@ -1,0 +1,31 @@
+id: uniswap_blog
+source_type: docs
+base_url: https://blog.uniswap.org
+protocol: uniswap
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "10 6 * * *"
+crawl_delay_s: 2.0
+max_pages: 150
+tags:
+  - uniswap
+  - amm
+  - liquidity-provision
+  - impermanent-loss
+  - apr-decomposition
+  - concentrated-liquidity
+  - fee-returns
+  - stable-pools
+  - volatile-pairs
+  - defi
+notes: >
+  Uniswap's official blog — rendered server-side, crawlable. Key articles:
+  /how-liquidity-provision-in-defi-works (APR decomposition fundamentals),
+  /fee-returns (fee income vs IL for v2 vs v3 passive LPs),
+  /uniswap-v3 (concentrated liquidity introduction),
+  /jit-liquidity (JIT liquidity dynamics),
+  /uniswap-v3-dominance (v3 capital efficiency for stable pools).
+  Medium confidence — React-rendered blog, may need JS fallback.
+  Also crawl: docs.uniswap.org/contracts/v2/concepts/advanced-topics/understanding-returns
+  (static Docusaurus, very high confidence — covers fee APR formula).

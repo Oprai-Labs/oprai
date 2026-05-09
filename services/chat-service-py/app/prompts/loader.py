@@ -2,21 +2,11 @@
 Prompt loader module for OPRAI Chat Service.
 
 Loads and caches modular prompt files at startup.
-Optimized for performance - reads files once and caches in memory.
-
-Usage:
-    from app.prompts.loader import get_prompt_loader, get_system_prompt
-
-    # Get the cached prompt (fast - no disk I/O)
-    prompt = get_system_prompt()
-
-Performance:
-    - Disk I/O happens only once at application startup
-    - Subsequent calls use in-memory cache
-    - Singleton pattern ensures single instance across the application
+Supports protocol-scoped prompts to minimize token usage.
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -24,123 +14,193 @@ __all__ = ["PromptLoader", "get_prompt_loader", "get_system_prompt"]
 
 logger = logging.getLogger(__name__)
 
+# Protocol → prompt files that must be included (in addition to _always files).
+# Files are merged in PROMPT_FILES order so context stays coherent.
+PROTOCOL_FILE_MAP: dict[str, list[str]] = {
+    # DEX / Swap
+    "jupiter":      ["solana_action_core.txt", "solana_action_dex.txt", "solana_action_market_data.txt"],
+    "raydium":      ["solana_action_core.txt", "solana_action_dex.txt"],
+    "orca":         ["solana_action_core.txt", "solana_action_dex.txt"],
+    "meteora":      ["solana_action_core.txt", "solana_action_dex.txt"],
+    # Liquid Staking
+    "marinade":     ["solana_action_staking.txt"],
+    "jito":         ["solana_action_staking.txt"],
+    "jupsol":       ["solana_action_staking.txt"],
+    "native_stake": ["solana_action_staking.txt"],
+    # Lending / Borrowing
+    "kamino":       ["solana_action_queries.txt", "solana_action_lending.txt"],
+    "marginfi":     ["solana_action_queries.txt", "solana_action_lending.txt"],
+    "solend":       ["solana_action_queries.txt", "solana_action_lending.txt"],
+    # NFT / Token launches
+    "tensor":       ["solana_action_nft.txt"],
+    "magic_eden":   ["solana_action_nft.txt"],
+    "pumpfun":      ["solana_action_nft.txt"],
+    # Cross-chain bridges
+    "relay":        ["solana_action_crosschain.txt"],
+    "debridge":     ["solana_action_crosschain.txt"],
+    "squid":        ["solana_action_crosschain.txt"],
+    # Token streaming / vesting
+    "streamflow":   ["solana_action_streamflow.txt"],
+}
+
+# Always loaded — personality, formatting, base action grammar
+_ALWAYS_FILES = ["solana_action_base.txt"]
+
+# Fallback when an unknown protocol is selected
+_FALLBACK_FILES = ["solana_action_core.txt", "solana_action_queries.txt"]
+
 
 class PromptLoader:
     """
-    Singleton prompt loader with startup caching.
+    Singleton prompt loader with mtime-based hot-reload.
 
-    Loads all modular prompt files once at initialization and caches
-    the combined system prompt in memory for fast access.
+    Caches individual prompt files and the combined full prompt.
+    Automatically reloads if any prompt file changes on disk — no service
+    restart required after editing .txt files.
     """
 
-    _instance: Optional['PromptLoader'] = None
-    _cached_prompt: Optional[str] = None
+    _instance: Optional["PromptLoader"] = None
     _initialized: bool = False
 
-    # Prompt files in loading order (order matters for context)
+    # Ordered file list (order matters for LLM context)
     PROMPT_FILES = [
-        "solana_action_base.txt",          # Core personality, expertise, formatting
-        "solana_action_queries.txt",       # QUERY definitions
-        "solana_action_core.txt",          # Transfer, swap, stake, burn, etc.
-        "solana_action_dex.txt",           # Jupiter, Raydium, Orca, Meteora
-        "solana_action_lending.txt",       # Kamino, MarginFi, Solend
-        "solana_action_staking.txt",       # Marinade, Jito
-        "solana_action_nft.txt",           # Tensor, Magic Eden, PumpFun
-        "solana_action_crosschain.txt",    # Bridge, Wormhole, Relay
-        "solana_action_streamflow.txt",    # Streamflow token streaming & vesting
+        "solana_action_base.txt",
+        "solana_action_queries.txt",
+        "solana_action_core.txt",
+        "solana_action_dex.txt",
+        "solana_action_lending.txt",
+        "solana_action_staking.txt",
+        "solana_action_nft.txt",
+        "solana_action_crosschain.txt",
+        "solana_action_streamflow.txt",
+        "solana_action_market_data.txt",
+        "solana_action_knowledge.txt",
+        "solana_action_strategy.txt",
     ]
 
-    def __new__(cls) -> 'PromptLoader':
-        """Singleton pattern - only one instance exists."""
+    def __new__(cls) -> "PromptLoader":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
-        """Initialize only once."""
+    def __init__(self) -> None:
         if not PromptLoader._initialized:
+            self._file_cache: dict[str, str] = {}
+            self._full_prompt: str = ""
+            self._mtimes: dict[str, float] = {}
             self._load_prompts()
             PromptLoader._initialized = True
 
     def _load_prompts(self) -> None:
-        """Load and cache all prompt files at startup."""
-        # Files are in the same directory as this loader module
         prompts_dir = Path(__file__).parent
-        loaded_parts: list[tuple[str, str]] = []
-        missing_files: list[str] = []
+        missing: list[str] = []
 
         for filename in self.PROMPT_FILES:
-            file_path = prompts_dir / filename
-            if file_path.exists():
+            path = prompts_dir / filename
+            if path.exists():
                 try:
-                    content = file_path.read_text(encoding="utf-8")
-                    loaded_parts.append((filename, content))
-                    logger.debug(f"Loaded prompt file: {filename} ({len(content)} chars)")
-                except Exception as e:
-                    logger.error("Failed to load {filename}", exc_info=True)
-                    missing_files.append(filename)
+                    self._file_cache[filename] = path.read_text(encoding="utf-8")
+                    self._mtimes[filename] = os.path.getmtime(path)
+                except Exception:
+                    logger.error("Failed to load %s", filename, exc_info=True)
+                    missing.append(filename)
             else:
-                logger.warning(f"Prompt file not found: {filename}")
-                missing_files.append(filename)
+                logger.warning("Prompt file not found: %s", filename)
+                missing.append(filename)
 
-        if missing_files:
-            logger.error(f"Missing prompt files: {missing_files}")
-            # Fallback to legacy file if it exists
-            legacy_path = prompts_dir / "solana_action.txt"
-            if legacy_path.exists():
-                logger.info("Falling back to legacy solana_action.txt")
-                self._cached_prompt = legacy_path.read_text(encoding="utf-8")
-            else:
-                logger.critical("No prompt files available!")
-                self._cached_prompt = ""
-            return
+        if missing:
+            raise FileNotFoundError(f"Missing prompt files: {missing}")
 
-        # Combine all parts with double newlines
-        self._cached_prompt = "\n\n".join(content for _, content in loaded_parts)
+        self._full_prompt = "\n\n".join(
+            self._file_cache[f] for f in self.PROMPT_FILES if f in self._file_cache
+        )
+        total_kb = len(self._full_prompt) / 1024
         logger.info(
-            f"Prompts loaded successfully: {len(loaded_parts)} files, "
-            f"{len(self._cached_prompt)} total chars"
+            "Prompts loaded: %d files, %.1f KB total",
+            len(self._file_cache),
+            total_kb,
         )
 
-    def get_system_prompt(self) -> str:
-        """
-        Get the cached system prompt.
+    def _check_reload(self) -> None:
+        """Reload any prompt files that have changed on disk since last load."""
+        prompts_dir = Path(__file__).parent
+        changed = False
+        for filename in self.PROMPT_FILES:
+            path = prompts_dir / filename
+            if not path.exists():
+                continue
+            mtime = os.path.getmtime(path)
+            if mtime != self._mtimes.get(filename):
+                try:
+                    self._file_cache[filename] = path.read_text(encoding="utf-8")
+                    self._mtimes[filename] = mtime
+                    changed = True
+                    logger.info("Prompt hot-reloaded: %s", filename)
+                except Exception:
+                    logger.error("Failed to hot-reload %s", filename, exc_info=True)
+        if changed:
+            self._full_prompt = "\n\n".join(
+                self._file_cache[f] for f in self.PROMPT_FILES if f in self._file_cache
+            )
+            logger.info("Prompt cache rebuilt after hot-reload")
 
-        Returns:
-            Combined system prompt string from all modular files.
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def get_system_prompt(self) -> str:
+        """Full prompt — all sections combined."""
+        self._check_reload()
+        return self._full_prompt
+
+    def get_prompt_for_protocols(self, protocols: list[str]) -> str:
         """
-        if self._cached_prompt is None:
-            # Should not happen, but handle gracefully
-            logger.warning("Prompt cache empty, reloading...")
-            self._load_prompts()
-        return self._cached_prompt or ""
+        Return a minimal prompt containing only the sections needed for the
+        given protocol list.  Always includes the base personality file.
+
+        If protocols is empty, returns the full prompt.
+        """
+        self._check_reload()
+        if not protocols:
+            return self._full_prompt
+
+        files_needed: set[str] = set(_ALWAYS_FILES)
+
+        for proto in protocols:
+            key = proto.lower().replace("-", "_").replace(" ", "_")
+            mapped = PROTOCOL_FILE_MAP.get(key)
+            if mapped:
+                files_needed.update(mapped)
+            else:
+                # Unknown protocol — include core + queries as safe fallback
+                files_needed.update(_FALLBACK_FILES)
+                logger.debug("Unknown protocol '%s', using fallback files", proto)
+
+        # Build in canonical order
+        parts = [
+            self._file_cache[f]
+            for f in self.PROMPT_FILES
+            if f in files_needed and f in self._file_cache
+        ]
+        prompt = "\n\n".join(parts)
+        logger.debug(
+            "Protocol prompt built: protocols=%s files=%s size=%.1f KB",
+            protocols,
+            [f for f in self.PROMPT_FILES if f in files_needed],
+            len(prompt) / 1024,
+        )
+        return prompt
 
     @property
     def prompt_length(self) -> int:
-        """Get total character count of cached prompt."""
-        return len(self._cached_prompt) if self._cached_prompt else 0
+        return len(self._full_prompt)
 
     @property
     def is_loaded(self) -> bool:
-        """Check if prompts are loaded successfully."""
-        return self._cached_prompt is not None and len(self._cached_prompt) > 0
+        return bool(self._full_prompt)
 
 
 def get_prompt_loader() -> PromptLoader:
-    """
-    Get the singleton prompt loader instance.
-
-    Returns:
-        The cached PromptLoader instance.
-    """
     return PromptLoader()
 
 
 def get_system_prompt() -> str:
-    """
-    Convenience function to get the system prompt.
-
-    Returns:
-        Combined system prompt string.
-    """
     return get_prompt_loader().get_system_prompt()

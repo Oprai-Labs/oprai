@@ -48,7 +48,12 @@ The LLM returns action blocks that the frontend parses:
 | `OPRAI_INTERNAL_API_KEY` | Yes | Service-to-service auth |
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `OPRAI_OPENAI_API_KEY` | Yes | OpenAI API key |
-| `OPRAI_OPENAI_MODEL` | No | Chat model (default: `gpt-4o-mini`) |
+| `OPRAI_ANTHROPIC_API_KEY` | If using Anthropic | Anthropic API key |
+| `OPRAI_LLM_PROVIDER` | No | `openai` (default) or `anthropic` |
+| `OPRAI_RESPONDER_MODEL_OPENAI` | No | Main chat model when provider=openai (default: `gpt-5.4-nano`) |
+| `OPRAI_RESPONDER_MODEL_ANTHROPIC` | No | Main chat model when provider=anthropic (default: `claude-haiku-4-5`) |
+| `OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI` | No | OpenAI fallback on rate limit / 5xx (default: `gpt-4o-mini`) |
+| `OPRAI_INTENT_CLASSIFIER_MODEL` | No | Pre-classifier (always OpenAI; default: `gpt-5.4-nano`) |
 | `MEMORY_SERVICE_URL` | No | Memory service for context |
 | `MEMORY_SERVICE_GRPC` | No | Memory service gRPC address |
 

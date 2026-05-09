@@ -40,8 +40,18 @@ const cookieName = "oprai-auth-token"
 //   - Token present but invalid/expired → 401 Unauthorized (RFC 6750).
 //   - Token jti present in blocklist → 401 Unauthorized (logged-out token).
 //   - Token valid → wallet injected into context + X-User-Wallet header set.
-func JWTAuth(jwtSecret string, blocklist *TokenBlocklist) func(http.Handler) http.Handler {
+//
+// previousSecret is used for rolling JWT-secret rotation: if the current
+// secret fails signature verification AND the failure was a signature
+// mismatch (not expiry / malformed), the validator retries against the
+// previous secret. This lets tokens issued before a rotation continue to
+// work for the rest of their natural TTL. Empty when no rotation is active.
+func JWTAuth(jwtSecret, previousSecret string, blocklist *TokenBlocklist) func(http.Handler) http.Handler {
 	secret := []byte(jwtSecret)
+	var prevSecret []byte
+	if previousSecret != "" {
+		prevSecret = []byte(previousSecret)
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,12 +74,18 @@ func JWTAuth(jwtSecret string, blocklist *TokenBlocklist) func(http.Handler) htt
 				next.ServeHTTP(w, r)
 				return
 			}
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, jwt.ErrSignatureInvalid
-				}
-				return secret, nil
-			})
+			parseWith := func(s []byte) (*jwt.Token, error) {
+				return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+					if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+						return nil, jwt.ErrSignatureInvalid
+					}
+					return s, nil
+				})
+			}
+			token, err := parseWith(secret)
+			if err != nil && len(prevSecret) > 0 && strings.Contains(err.Error(), "signature is invalid") {
+				token, err = parseWith(prevSecret)
+			}
 
 			if err != nil || !token.Valid {
 				// Token was supplied but is invalid or expired — reject per RFC 6750.

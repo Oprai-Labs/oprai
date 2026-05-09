@@ -2458,21 +2458,65 @@ pub async fn build_helius_smart_send(
         .unwrap_or(1_000)
         .max(1);
 
-    let cu_limit = params.compute_unit_limit.unwrap_or(200_000u32);
+    // 5. Pick CU limit. If the caller fixed it, honour the override; otherwise
+    //    measure via simulation: build a probe tx with the wide-open 1.4M
+    //    ceiling, simulate, take `units_consumed × 1.2` as the actual limit.
+    //    The 1.2× margin absorbs legitimate variance (oracle-account state,
+    //    associated-token-account creation) without overpaying for blockspace.
+    let cu_limit: u32 = if let Some(explicit) = params.compute_unit_limit {
+        explicit
+    } else {
+        let blockhash_for_probe = rpc
+            .get_latest_blockhash_with_retry()
+            .map_err(|e| AppError::Internal(format!("Blockhash error: {e}")))?;
+        let mut probe_ixs: Vec<Instruction> = vec![
+            ComputeBudgetInstruction::set_compute_unit_limit(1_400_000u32),
+            ComputeBudgetInstruction::set_compute_unit_price(microlamports),
+        ];
+        probe_ixs.extend(non_budget_ixs.clone());
+        let probe_msg = Message::new_with_blockhash(&probe_ixs, Some(&fee_payer), &blockhash_for_probe);
+        let probe_tx = Transaction::new_unsigned(probe_msg);
+        let probe_versioned: solana_sdk::transaction::VersionedTransaction = probe_tx.into();
 
-    // 5. Build optimized instruction list: [CU limit, CU price, ...original]
+        match rpc.client().simulate_transaction_with_config(
+            &probe_versioned,
+            solana_client::rpc_config::RpcSimulateTransactionConfig {
+                sig_verify: false,
+                replace_recent_blockhash: true,
+                commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
+                encoding: None,
+                accounts: None,
+                min_context_slot: None,
+                inner_instructions: false,
+            },
+        ) {
+            Ok(sim) => match sim.value.units_consumed {
+                // 1.2× margin, clamp to [50_000, 1_400_000] so a wildly cheap
+                // tx still gets a usable floor and we never exceed Solana's
+                // per-tx ceiling.
+                Some(units) if units > 0 => {
+                    let scaled = ((units as f64) * 1.2).ceil() as u64;
+                    scaled.clamp(50_000, 1_400_000) as u32
+                }
+                _ => 200_000u32,
+            },
+            Err(_) => 200_000u32, // Sim failed — fall back to a safe default.
+        }
+    };
+
+    // 6. Build optimized instruction list: [CU limit, CU price, ...original]
     let mut new_ixs: Vec<Instruction> = vec![
         ComputeBudgetInstruction::set_compute_unit_limit(cu_limit),
         ComputeBudgetInstruction::set_compute_unit_price(microlamports),
     ];
     new_ixs.extend(non_budget_ixs);
 
-    // 6. Fresh blockhash
+    // 7. Fresh blockhash for the final tx (probe blockhash is no longer used)
     let blockhash = rpc
         .get_latest_blockhash_with_retry()
         .map_err(|e| AppError::Internal(format!("Blockhash error: {e}")))?;
 
-    // 7. Rebuild unsigned transaction
+    // 8. Rebuild unsigned transaction
     let new_msg = Message::new_with_blockhash(&new_ixs, Some(&fee_payer), &blockhash);
     let new_tx = Transaction::new_unsigned(new_msg);
 

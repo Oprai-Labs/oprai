@@ -1,0 +1,58 @@
+name: Token Registry
+
+# Verifies shared/tokens.json against the Jupiter token API and ensures the
+# generated TS/Python modules stay in sync with it. Catches mint typos and
+# vanity-prefix collisions before they reach mainnet wallets.
+
+on:
+  push:
+    paths:
+      - "shared/tokens.json"
+      - "scripts/verify-tokens.mjs"
+      - "scripts/sync-tokens.mjs"
+      - "apps/oprai/src/app/core/services/market/tokens.generated.ts"
+      - "services/chat-service-py/app/services/tokens_generated.py"
+      - "services/solana-service-rs/src/solana/tokens.rs"
+      - ".github/workflows/token-registry.yml"
+  pull_request:
+    paths:
+      - "shared/tokens.json"
+      - "scripts/verify-tokens.mjs"
+      - "scripts/sync-tokens.mjs"
+      - "apps/oprai/src/app/core/services/market/tokens.generated.ts"
+      - "services/chat-service-py/app/services/tokens_generated.py"
+      - "services/solana-service-rs/src/solana/tokens.rs"
+      - ".github/workflows/token-registry.yml"
+  schedule:
+    # Daily safety net: catches upstream changes (delisting, decimal changes)
+    # even when no PR touches the registry.
+    - cron: "17 7 * * *"
+
+jobs:
+  verify:
+    name: Verify mints against Jupiter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Cross-check shared/tokens.json against Jupiter + Birdeye
+        env:
+          # Optional: when set, the verifier corroborates every mint with
+          # Birdeye as a second independent source. If missing, only Jupiter
+          # is consulted (a warning is emitted). Add BIRDEYE_API_KEY to repo
+          # secrets to make two-source verification mandatory in CI.
+          BIRDEYE_API_KEY: ${{ secrets.BIRDEYE_API_KEY }}
+        run: node scripts/verify-tokens.mjs
+
+  sync-check:
+    name: Generated files in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Re-generate token modules from shared/tokens.json
+        run: node scripts/sync-tokens.mjs --check

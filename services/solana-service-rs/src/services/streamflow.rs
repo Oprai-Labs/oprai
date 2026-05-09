@@ -71,29 +71,34 @@ pub struct StreamflowCreateMultipleParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamflowCancelParams {
     pub stream_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamflowWithdrawParams {
     pub stream_id: String,
     pub amount: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamflowTransferParams {
     pub stream_id: String,
     pub new_recipient: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamflowTopupParams {
     pub stream_id: String,
     pub amount: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamflowUpdateParams {
     pub stream_id: String,
     pub automatic_withdrawal: Option<bool>,
@@ -103,6 +108,7 @@ pub struct StreamflowUpdateParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamflowGetOneParams {
     pub stream_id: String,
 }

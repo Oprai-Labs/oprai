@@ -35,6 +35,24 @@
       <span>Conversation limit reached. Start a new chat to continue.</span>
     </div>
   } @else {
+    <!-- Protocol picker dropdown -->
+    @if (pickerOpen() && filteredProtocols().length > 0) {
+      <div class="protocol-picker">
+        @for (proto of filteredProtocols(); track proto.id; let i = $index) {
+          <button
+            class="protocol-picker-item"
+            [class.protocol-picker-item--active]="i === pickerActiveIndex()"
+            (mousedown)="$event.preventDefault(); selectProtocol(proto)"
+            (mousemove)="pickerActiveIndex.set(i)"
+          >
+            <img class="protocol-logo" [src]="proto.logo" [alt]="proto.label" />
+            <span class="protocol-picker-label">{{ proto.label }}</span>
+            <span class="protocol-picker-desc">{{ proto.description }}</span>
+          </button>
+        }
+      </div>
+    }
+
     <!-- Textarea -->
     <textarea
       #textareaRef
@@ -43,7 +61,7 @@
       (keydown)="onKeydown($event)"
       (input)="onInput()"
       [disabled]="disabled"
-      placeholder="Ask anything"
+      placeholder="Ask anything — type @ to select a protocol"
       rows="1"
       maxlength="2000"
       aria-label="Message input"
@@ -127,6 +145,17 @@
         />
         <span>{{ activeMode() === 'thinking' ? 'Think' : 'Search' }}</span>
         <button class="mode-chip-remove" (click)="clearActiveMode()" aria-label="Remove mode">
+          <lucide-icon name="x" [size]="12" />
+        </button>
+      </div>
+    }
+
+    <!-- Selected protocol chips -->
+    @for (proto of selectedProtocols(); track proto.id) {
+      <div class="protocol-chip">
+        <img class="protocol-chip-logo" [src]="proto.logo" [alt]="proto.label" />
+        <span>{{ proto.label }}</span>
+        <button class="mode-chip-remove" (click)="removeProtocol(proto)" [attr.aria-label]="'Remove ' + proto.label">
           <lucide-icon name="x" [size]="12" />
         </button>
       </div>

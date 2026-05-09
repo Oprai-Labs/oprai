@@ -49,25 +49,25 @@ Use `relay_bridge` when the user wants to move tokens between chains. Relay.link
 
 **Examples:**
 - "Bridge 1 SOL from Solana to Ethereum"
-  → execute_action("relay_bridge", {originChainId: 900, destinationChainId: 1, originCurrency: "So11111111111111111111111111111111111111112", destinationCurrency: "0x0000000000000000000000000000000000000000", amount: "1", tradeType: "EXACT_INPUT"})
+  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "1", "originCurrency": "So11111111111111111111111111111111111111112", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_INPUT"})
 
 - "Bridge 100 USDC from Solana to Arbitrum"
-  → execute_action("relay_bridge", {originChainId: 900, destinationChainId: 42161, originCurrency: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", destinationCurrency: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", amount: "100", tradeType: "EXACT_INPUT"})
+  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "42161", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "100", "tradeType": "EXACT_INPUT"})
 
 - "I want to receive exactly 50 USDC on Base, paying from ETH on Ethereum"
-  → execute_action("relay_bridge", {originChainId: 1, destinationChainId: 8453, originCurrency: "0x0000000000000000000000000000000000000000", destinationCurrency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount: "50", tradeType: "EXACT_OUTPUT"})
+  → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "8453", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "amount": "50", "tradeType": "EXACT_OUTPUT"})
 
 - "Bridge 0.5 ETH from Ethereum to Base and airdrop gas on destination"
-  → execute_action("relay_bridge", {originChainId: 1, destinationChainId: 8453, originCurrency: "0x0000000000000000000000000000000000000000", destinationCurrency: "0x0000000000000000000000000000000000000000", amount: "0.5", tradeType: "EXACT_INPUT", topupGas: true})
+  → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "8453", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.5", "tradeType": "EXACT_INPUT", "topupGas": "true"})
 
 - "Bridge 100 USDC from Solana to Arbitrum, also send me some gas on Arbitrum"
-  → execute_action("relay_bridge", {originChainId: 900, destinationChainId: 42161, originCurrency: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", destinationCurrency: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", amount: "100", tradeType: "EXACT_INPUT", topupGas: true})
+  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "42161", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "100", "tradeType": "EXACT_INPUT", "topupGas": "true"})
 
 - "Bridge 200 USDC to Optimism for my other wallet 0xABC...123, with 1% slippage"
-  → execute_action("relay_bridge", {originChainId: 900, destinationChainId: 10, originCurrency: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", destinationCurrency: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", amount: "200", tradeType: "EXACT_INPUT", recipient: "0xABC...123", slippageTolerance: 100})
+  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "10", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "amount": "200", "tradeType": "EXACT_INPUT", "recipient": "0xABC...123", "slippageTolerance": "100"})
 
 - "Use deposit address to bridge 1 ETH from Ethereum to Solana"
-  → execute_action("relay_bridge", {originChainId: 1, destinationChainId: 900, originCurrency: "0x0000000000000000000000000000000000000000", destinationCurrency: "So11111111111111111111111111111111111111112", amount: "1", tradeType: "EXACT_INPUT", useDepositAddress: true})
+  → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "900", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "So11111111111111111111111111111111111111112", "amount": "1", "tradeType": "EXACT_INPUT", "useDepositAddress": "true"})
 
 ---
 
@@ -83,19 +83,19 @@ Use when user says "how much", "what's the rate", "preview the bridge", "estimat
 
 **Examples:**
 - "What's the rate for bridging 1 SOL to ETH on Ethereum?"
-  → query_onchain("relay_get_quote", {originChainId: 900, destinationChainId: 1, originCurrency: "So11111111111111111111111111111111111111112", destinationCurrency: "0x0000000000000000000000000000000000000000", amount: "1", tradeType: "EXACT_INPUT"})
+  → query_onchain("relay_get_quote", {"originChainId": "900", "destinationChainId": "1", "originCurrency": "So11111111111111111111111111111111111111112", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_INPUT"})
 
 - "How much USDC will I receive on Base if I send 100 USDC from Solana?"
-  → query_onchain("relay_get_quote", {originChainId: 900, destinationChainId: 8453, originCurrency: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", destinationCurrency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount: "100", tradeType: "EXACT_INPUT"})
+  → query_onchain("relay_get_quote", {"originChainId": "900", "destinationChainId": "8453", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "amount": "100", "tradeType": "EXACT_INPUT"})
 
 - "Show me a fixed-rate quote for bridging 0.5 ETH from Ethereum to Arbitrum"
-  → query_onchain("relay_get_quote", {originChainId: 1, destinationChainId: 42161, originCurrency: "0x0000000000000000000000000000000000000000", destinationCurrency: "0x0000000000000000000000000000000000000000", amount: "0.5", tradeType: "EXACT_INPUT", fixedRate: true})
+  → query_onchain("relay_get_quote", {"originChainId": "1", "destinationChainId": "42161", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.5", "tradeType": "EXACT_INPUT", "fixedRate": "true"})
 
 - "Get a Relay quote — I want to receive exactly 1 ETH on Ethereum, bridging from Base. Use EXACT_OUTPUT mode."
-  → query_onchain("relay_get_quote", {originChainId: 8453, destinationChainId: 1, originCurrency: "0x0000000000000000000000000000000000000000", destinationCurrency: "0x0000000000000000000000000000000000000000", amount: "1", tradeType: "EXACT_OUTPUT"})
+  → query_onchain("relay_get_quote", {"originChainId": "8453", "destinationChainId": "1", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_OUTPUT"})
 
 - "Relay quote: I want to receive exactly 500 USDC on Arbitrum, paying from Ethereum"
-  → query_onchain("relay_get_quote", {originChainId: 1, destinationChainId: 42161, originCurrency: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", destinationCurrency: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", amount: "500", tradeType: "EXACT_OUTPUT"})
+  → query_onchain("relay_get_quote", {"originChainId": "1", "destinationChainId": "42161", "originCurrency": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "500", "tradeType": "EXACT_OUTPUT"})
 
 ---
 
@@ -118,10 +118,10 @@ Use when user asks "which chains does Relay support?", "can I bridge to X chain?
   → query_onchain("relay_get_chains", {})
 
 - "Show me Relay chain info for Solana, Ethereum, and Base"
-  → query_onchain("relay_get_chains", {includeChains: "900,1,8453"})
+  → query_onchain("relay_get_chains", {"includeChains": "900,1,8453"})
 
 - "What are the fees and status for Arbitrum on Relay?"
-  → query_onchain("relay_get_chains", {includeChains: "42161"})
+  → query_onchain("relay_get_chains", {"includeChains": "42161"})
 
 ---
 
@@ -146,19 +146,19 @@ Use when user wants to find tokens available for bridging, search by name/symbol
 
 **Examples:**
 - "What USDC versions can I bridge with Relay?"
-  → query_onchain("relay_get_currencies", {term: "USDC"})
+  → query_onchain("relay_get_currencies", {"term": "USDC"})
 
 - "Show me the default Relay token list for Solana"
-  → query_onchain("relay_get_currencies", {chainIds: [900], defaultList: true})
+  → query_onchain("relay_get_currencies", {"chainIds": "[900]", "defaultList": "true"})
 
 - "Find bridgeable tokens on Arbitrum"
-  → query_onchain("relay_get_currencies", {chainIds: [42161], verified: true, limit: 20})
+  → query_onchain("relay_get_currencies", {"chainIds": "[42161]", "verified": "true", "limit": "20"})
 
 - "Is 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 available for bridging on Arbitrum?"
-  → query_onchain("relay_get_currencies", {chainIds: [42161], address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"})
+  → query_onchain("relay_get_currencies", {"chainIds": "[42161]", "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"})
 
 - "Look up these two specific tokens for bridging: ETH on Ethereum and USDC on Base"
-  → query_onchain("relay_get_currencies", {tokens: ["1:0x0000000000000000000000000000000000000000", "8453:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"]})
+  → query_onchain("relay_get_currencies", {"tokens": "[\"1:0x0000000000000000000000000000000000000000\",\"8453:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\"]"})
 
 ---
 
@@ -173,13 +173,13 @@ Use when user asks "how much liquidity does Relay have on X chain?", "can Relay 
 
 **Examples:**
 - "How much liquidity does Relay have on Base?"
-  → query_onchain("relay_get_chains_liquidity", {chainId: 8453})
+  → query_onchain("relay_get_chains_liquidity", {"chainId": "8453"})
 
 - "Check Relay solver liquidity on Arbitrum before I bridge $50k"
-  → query_onchain("relay_get_chains_liquidity", {chainId: 42161})
+  → query_onchain("relay_get_chains_liquidity", {"chainId": "42161"})
 
 - "What's the USDC solver depth on Ethereum?"
-  → query_onchain("relay_get_chains_liquidity", {chainId: 1})
+  → query_onchain("relay_get_chains_liquidity", {"chainId": "1"})
 
 ---
 
@@ -193,13 +193,13 @@ Use when user asks for the price of a token on a specific chain via Relay's pric
 
 **Examples:**
 - "What's the Relay price for USDC on Arbitrum?"
-  → query_onchain("relay_get_token_price", {address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", chainId: 42161})
+  → query_onchain("relay_get_token_price", {"address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "chainId": "42161"})
 
 - "Get the price of ETH on Ethereum via Relay"
-  → query_onchain("relay_get_token_price", {address: "0x0000000000000000000000000000000000000000", chainId: 1})
+  → query_onchain("relay_get_token_price", {"address": "0x0000000000000000000000000000000000000000", "chainId": "1"})
 
 - "How much is SOL worth according to Relay?"
-  → query_onchain("relay_get_token_price", {address: "So11111111111111111111111111111111111111112", chainId: 900})
+  → query_onchain("relay_get_token_price", {"address": "So11111111111111111111111111111111111111112", "chainId": "900"})
 
 ---
 
@@ -224,13 +224,13 @@ Use when user asks "is my bridge done?", "what's the status of my relay tx?", "c
 
 **Examples:**
 - "Is my Relay bridge done? requestId: abc-123-xyz"
-  → query_onchain("relay_intent_status", {requestId: "abc-123-xyz"})
+  → query_onchain("relay_intent_status", {"requestId": "abc-123-xyz"})
 
 - "Check the status of my Relay bridge request abc-123"
-  → query_onchain("relay_intent_status", {requestId: "abc-123"})
+  → query_onchain("relay_intent_status", {"requestId": "abc-123"})
 
 - "My bridge is taking forever, what's the status? Request ID: def-456"
-  → query_onchain("relay_intent_status", {requestId: "def-456"})
+  → query_onchain("relay_intent_status", {"requestId": "def-456"})
 
 ---
 
@@ -263,25 +263,25 @@ For live status polling of a single known intent, prefer `relay_intent_status`.
 
 **Examples:**
 - "Show my Relay bridge history"
-  → query_onchain("relay_get_requests", {user: "<wallet>"})
+  → query_onchain("relay_get_requests", {"user": "<wallet>"})
 
 - "Show my pending Relay bridges"
-  → query_onchain("relay_get_requests", {status: "pending"})
+  → query_onchain("relay_get_requests", {"status": "pending"})
 
 - "Look up Relay request ID abc-123"
-  → query_onchain("relay_get_requests", {id: "abc-123"})
+  → query_onchain("relay_get_requests", {"id": "abc-123"})
 
 - "Show my failed Relay bridges from Solana to Ethereum"
-  → query_onchain("relay_get_requests", {status: "failure", originChainId: 900, destinationChainId: 1})
+  → query_onchain("relay_get_requests", {"status": "failure", "originChainId": "900", "destinationChainId": "1"})
 
 - "Find the Relay bridge with tx hash 0xabc...def"
-  → query_onchain("relay_get_requests", {hash: "0xabc...def"})
+  → query_onchain("relay_get_requests", {"hash": "0xabc...def"})
 
 - "Show last 5 successful bridges to Base with order details"
-  → query_onchain("relay_get_requests", {status: "success", destinationChainId: 8453, limit: 5, includeOrderData: true})
+  → query_onchain("relay_get_requests", {"status": "success", "destinationChainId": "8453", "limit": "5", "includeOrderData": "true"})
 
 - "Show my bridges sorted by last updated, newest first"
-  → query_onchain("relay_get_requests", {sortBy: "updatedAt", sortDirection: "desc"})
+  → query_onchain("relay_get_requests", {"sortBy": "updatedAt", "sortDirection": "desc"})
 
 ---
 
@@ -299,7 +299,7 @@ Format: query_onchain("relay_get_swap_sources", {[chainId]})
 
 Examples:
 - "What swap sources does Relay support on Ethereum?"
-  → query_onchain("relay_get_swap_sources", {chainId: 1})
+  → query_onchain("relay_get_swap_sources", {"chainId": "1"})
 
 - "List all Relay swap sources"
   → query_onchain("relay_get_swap_sources", {})
@@ -354,10 +354,10 @@ Format: execute_action("relay_fast_fill", {requestId, [solverInputCurrencyAmount
 
 Examples:
 - "Fast fill request req-123"
-  → execute_action("relay_fast_fill", {requestId: "req-123"})
+  → execute_action("relay_fast_fill", {"requestId": "req-123"})
 
 - "Fast fill req-456 with max $500 spend"
-  → execute_action("relay_fast_fill", {requestId: "req-456", maxFillAmountUsd: 500})
+  → execute_action("relay_fast_fill", {"requestId": "req-456", "maxFillAmountUsd": "500"})
 
 ---
 
@@ -384,10 +384,10 @@ Format: execute_action("relay_claim_app_fees", {chainId, currency, recipient, [w
 
 Examples:
 - "Claim all my USDC app fees on Ethereum to my wallet"
-  → execute_action("relay_claim_app_fees", {chainId: 1, currency: "USDC", recipient: "<user_wallet>"})
+  → execute_action("relay_claim_app_fees", {"chainId": "1", "currency": "USDC", "recipient": "<user_wallet>"})
 
 - "Claim 50 USDC in fees from Base to 0xabc..."
-  → execute_action("relay_claim_app_fees", {chainId: 8453, currency: "USDC", recipient: "0xabc...", amount: "50"})
+  → execute_action("relay_claim_app_fees", {"chainId": "8453", "currency": "USDC", "recipient": "0xabc...", "amount": "50"})
 
 ---
 
@@ -411,10 +411,10 @@ Format: query_onchain("relay_get_app_fee_balances", {wallet})
 
 Examples:
 - "Show my Relay app fee earnings"
-  → query_onchain("relay_get_app_fee_balances", {wallet: "<caller_wallet>"})
+  → query_onchain("relay_get_app_fee_balances", {"wallet": "<caller_wallet>"})
 
 - "Check app fee balance for 0xabc..."
-  → query_onchain("relay_get_app_fee_balances", {wallet: "0xabc..."})
+  → query_onchain("relay_get_app_fee_balances", {"wallet": "0xabc..."})
 
 ---
 
@@ -443,13 +443,13 @@ Format: execute_action("relay_deposit_address_reindex", {chainId, depositAddress
 
 Examples:
 - "Reindex my deposit address 0xabc on Ethereum"
-  → execute_action("relay_deposit_address_reindex", {chainId: 1, depositAddress: "0xabc..."})
+  → execute_action("relay_deposit_address_reindex", {"chainId": "1", "depositAddress": "0xabc..."})
 
 - "Scan my Solana deposit address 3xK... for pending balances"
-  → execute_action("relay_deposit_address_reindex", {chainId: 900, depositAddress: "3xK..."})
+  → execute_action("relay_deposit_address_reindex", {"chainId": "900", "depositAddress": "3xK..."})
 
 - "Reindex deposit address 0xdef on Base and sweep to Arbitrum"
-  → execute_action("relay_deposit_address_reindex", {chainId: 8453, depositAddress: "0xdef...", sweep: true, targetChainId: 42161})
+  → execute_action("relay_deposit_address_reindex", {"chainId": "8453", "depositAddress": "0xdef...", "sweep": "true", "targetChainId": "42161"})
 
 ---
 
@@ -475,13 +475,10 @@ Format: execute_action("relay_single_transaction", {requestId, chainId, tx})
 
 Examples:
 - "Index TX 0xabc on Ethereum for request req-123"
-  → execute_action("relay_single_transaction", {requestId: "req-123", chainId: "1", tx: "0xabc..."})
+  → execute_action("relay_single_transaction", {"requestId": "req-123", "chainId": "1", "tx": "0xabc..."})
 
 - "My Solana wrap TX is 3xK..., request ID req-456, please notify Relay"
-  → execute_action("relay_single_transaction", {requestId: "req-456", chainId: "900", tx: "3xK..."})
-
-- "Relay istek req-123 için 0xabc işlemini Ethereum'da indeksle" (Turkish: Index transaction for Relay request)
-  → execute_action("relay_single_transaction", {requestId: "req-123", chainId: "1", tx: "0xabc..."})
+  → execute_action("relay_single_transaction", {"requestId": "req-456", "chainId": "900", "tx": "3xK..."})
 
 ---
 
@@ -505,16 +502,13 @@ Format: execute_action("relay_index_transaction", {chainId, txHash, [requestId]}
 
 Examples:
 - "Index my transaction 5xK...abc on Ethereum"
-  → execute_action("relay_index_transaction", {chainId: "1", txHash: "0x5xK...abc"})
+  → execute_action("relay_index_transaction", {"chainId": "1", "txHash": "0x5xK...abc"})
 
 - "Tell Relay to index my Solana deposit transaction 3aB..."
-  → execute_action("relay_index_transaction", {chainId: "900", txHash: "3aB..."})
+  → execute_action("relay_index_transaction", {"chainId": "900", "txHash": "3aB..."})
 
 - "My TX is 0xdef...123 on Base, request ID is req-789, please index it"
-  → execute_action("relay_index_transaction", {chainId: "8453", txHash: "0xdef...123", requestId: "req-789"})
-
-- "Relay'e 0xabc işlemimi Ethereum'da indeksle" (Turkish: Index my transaction on Ethereum for Relay)
-  → execute_action("relay_index_transaction", {chainId: "1", txHash: "0xabc..."})
+  → execute_action("relay_index_transaction", {"chainId": "8453", "txHash": "0xdef...123", "requestId": "req-789"})
 
 ---
 
@@ -527,7 +521,7 @@ Format: execute_action("cross_chain_swap", {fromToken, toToken, amount, fromChai
 - provider: "wormhole" | "debridge" | "mayan" (do NOT use "relay" here — use relay_bridge instead)
 
 Examples:
-- "Bridge via Wormhole" → execute_action("cross_chain_swap", {fromToken: "SOL", toToken: "ETH", amount: "1", fromChain: 900, toChain: 1, provider: "wormhole"})
+- "Bridge via Wormhole" → execute_action("cross_chain_swap", {"fromToken": "SOL", "toToken": "ETH", "amount": "1", "fromChain": "900", "toChain": "1", "provider": "wormhole"})
 
 ---
 
@@ -558,16 +552,16 @@ Format: execute_action("squid_bridge", {originChainId, destinationChainId, origi
 
 Examples:
 - "Bridge 100 USDC from Solana to Arbitrum via Squid"
-  → execute_action("squid_bridge", {originChainId: 7565164, destinationChainId: 42161, originToken: "USDC", destinationToken: "USDC", amount: "100"})
+  → execute_action("squid_bridge", {"originChainId": "7565164", "destinationChainId": "42161", "originToken": "USDC", "destinationToken": "USDC", "amount": "100"})
 
 - "Squid bridge 1 SOL to ETH on Ethereum, express mode"
-  → execute_action("squid_bridge", {originChainId: 7565164, destinationChainId: 1, originToken: "SOL", destinationToken: "ETH", amount: "1", enableExpress: true})
+  → execute_action("squid_bridge", {"originChainId": "7565164", "destinationChainId": "1", "originToken": "SOL", "destinationToken": "ETH", "amount": "1", "enableExpress": "true"})
 
 - "Bridge 100 USDC from Ethereum to Arbitrum using squid_bridge with a postHook for auto-staking"
-  → execute_action("squid_bridge", {originChainId: 1, destinationChainId: 42161, originToken: "USDC", destinationToken: "USDC", amount: "100", postHook: {}})
+  → execute_action("squid_bridge", {"originChainId": "1", "destinationChainId": "42161", "originToken": "USDC", "destinationToken": "USDC", "amount": "100", "postHook": "{}"})
 
 - "Use Squid router to bridge 200 USDC from Ethereum to Arbitrum, with a destination call post-hook"
-  → execute_action("squid_bridge", {originChainId: 1, destinationChainId: 42161, originToken: "USDC", destinationToken: "USDC", amount: "200", postHook: {}})
+  → execute_action("squid_bridge", {"originChainId": "1", "destinationChainId": "42161", "originToken": "USDC", "destinationToken": "USDC", "amount": "200", "postHook": "{}"})
 
 ---
 

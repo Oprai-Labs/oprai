@@ -13,10 +13,12 @@ Tool calling is supported for both paths:
 """
 
 import logging
+import re
 from collections.abc import AsyncGenerator
 from typing import Literal
 
 from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -46,15 +48,37 @@ type StreamEvent = tuple[Literal["text"], str] | tuple[Literal["tool_call"], str
 
 
 class LLMService:
-    """Thin wrapper supporting both Chat Completions and Responses API."""
+    """Thin wrapper supporting OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages.
+
+    Provider is selected by `OPRAI_LLM_PROVIDER`:
+      - "openai"    → OpenAI (Chat Completions or Responses API based on model)
+      - "anthropic" → Claude Messages API
+    """
 
     def __init__(self) -> None:
+        self._provider = settings.OPRAI_LLM_PROVIDER.lower()
+
+        if self._provider == "anthropic":
+            if not settings.OPRAI_ANTHROPIC_API_KEY:
+                raise RuntimeError("LLM provider=anthropic but OPRAI_ANTHROPIC_API_KEY is empty")
+            self._model = settings.OPRAI_RESPONDER_MODEL_ANTHROPIC
+            self._anthropic = AsyncAnthropic(api_key=settings.OPRAI_ANTHROPIC_API_KEY)
+            # Unused for Anthropic but referenced by sibling methods — keep set
+            # to None so accidental access fails loudly instead of silently.
+            self._client = None
+            self._llm = None
+            self._use_responses_api = False
+            logger.info("LLMService initialized provider=anthropic model=%s", self._model)
+            return
+
+        # Default: OpenAI
         if not settings.OPRAI_OPENAI_API_KEY:
             raise RuntimeError("LLM integration is not configured: OPRAI_OPENAI_API_KEY is empty")
 
-        self._model = settings.OPRAI_OPENAI_MODEL
+        self._model = settings.OPRAI_RESPONDER_MODEL_OPENAI
         self._use_responses_api = self._model in _RESPONSES_API_MODELS
         self._client = AsyncOpenAI(api_key=settings.OPRAI_OPENAI_API_KEY)
+        self._anthropic = None
 
         if not self._use_responses_api:
             primary = ChatOpenAI(
@@ -64,7 +88,7 @@ class LLMService:
                 max_tokens=settings.OPRAI_GPT_MAX_TOKENS,
                 streaming=True,
             )
-            fallback_model = settings.OPRAI_OPENAI_FALLBACK_MODEL
+            fallback_model = settings.OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI
             if fallback_model and fallback_model != self._model:
                 fallback = ChatOpenAI(
                     model=fallback_model,
@@ -76,13 +100,18 @@ class LLMService:
                 self._llm = primary.with_fallbacks([fallback])
             else:
                 self._llm = primary
+        logger.info("LLMService initialized provider=openai model=%s responses_api=%s",
+                    self._model, self._use_responses_api)
 
     async def astream(
         self,
         messages: list[dict[str, str]],
     ) -> AsyncGenerator[str, None]:
         """Async-stream LLM token chunks (text only, no tool calling)."""
-        if self._use_responses_api:
+        if self._provider == "anthropic":
+            async for chunk in self._astream_anthropic(messages):
+                yield chunk
+        elif self._use_responses_api:
             async for chunk in self._astream_responses(messages):
                 yield chunk
         else:
@@ -93,6 +122,7 @@ class LLMService:
         self,
         messages: list[dict[str, str]],
         tools: list[dict],
+        tool_choice: str = "auto",
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Stream with function calling.
@@ -101,14 +131,26 @@ class LLMService:
           ("text", content)               — a text delta chunk
           ("tool_call", name, args_json)  — a complete tool call
 
-        Supports both Chat Completions (gpt-4o-*) and Responses API (gpt-5.4-nano, o-series).
+        Args:
+            tool_choice: "auto" (default — model decides), "required" (model
+                MUST call at least one tool), or "none" (model MUST answer
+                with text). Used to override Haiku 4.5's documented tool-
+                avoidance on action/query intents — see Anthropic issue
+                anthropics/claude-code#10029. When tools is empty, the
+                value is ignored and a plain text completion is requested.
+
+        Supports OpenAI (Chat Completions + Responses API) and Anthropic Messages.
         """
+        if self._provider == "anthropic":
+            async for event in self._astream_anthropic_with_tools(messages, tools, tool_choice):
+                yield event
+            return
         if self._use_responses_api:
-            async for event in self._astream_responses_with_tools(messages, tools):
+            async for event in self._astream_responses_with_tools(messages, tools, tool_choice):
                 yield event
             return
 
-        async for event in self._astream_chat_with_tools(messages, tools):
+        async for event in self._astream_chat_with_tools(messages, tools, tool_choice):
             yield event
 
     async def acomplete(
@@ -116,6 +158,8 @@ class LLMService:
         messages: list[dict[str, str]],
     ) -> str:
         """Non-streaming completion that returns the full response text."""
+        if self._provider == "anthropic":
+            return await self._acomplete_anthropic(messages)
         if self._use_responses_api:
             return await self._acomplete_responses(messages)
         lc_messages = _to_langchain(messages)
@@ -169,13 +213,18 @@ class LLMService:
             },
             "reasoning": {
                 "effort": settings.OPRAI_GPT_REASONING_EFFORT,
-                "summary": "auto",
+                "summary": "concise",
             },
             "tools": responses_tools,
             "store": True,
             "include": _RESPONSES_INCLUDE,
             "stream": stream,
         }
+        # Set tool_choice explicitly when tools are provided. Without this, reasoning
+        # models can leak Harmony-format tool-call syntax (e.g. `{"tool":"..."}to=...`)
+        # into the text channel instead of emitting proper function_call items.
+        if responses_tools:
+            kwargs["tool_choice"] = "auto"
         if instructions:
             kwargs["instructions"] = instructions
         return kwargs
@@ -190,6 +239,12 @@ class LLMService:
 
         reasoning_started = False
         reasoning_done = False
+        # Buffer + sanitize text deltas so the same Harmony / tool-call leakage
+        # filter that protects the tool-dispatch path also runs on no-tool calls
+        # like the market_data_followup interpretation step. gpt-5.4-nano can
+        # emit `{"name":"query_onchain",...}` and `to=query_onchain` markers
+        # even on a pure prose call when the prior turn used tools.
+        text_buffer = ""
 
         async for event in stream:
             if event.type == "response.reasoning_summary_text.delta":
@@ -201,16 +256,26 @@ class LLMService:
                 if reasoning_started and not reasoning_done:
                     yield "</think>"
                     reasoning_done = True
-                yield event.delta
+                text_buffer += event.delta
+                clean, text_buffer = _strip_tool_call_leakage(text_buffer)
+                if clean:
+                    yield clean
 
         # Close thinking tag if model produced only reasoning (edge case)
         if reasoning_started and not reasoning_done:
             yield "</think>"
 
+        # Flush remaining buffered text through one final sanitize pass.
+        if text_buffer:
+            tail, _ = _strip_tool_call_leakage(text_buffer, flush=True)
+            if tail:
+                yield tail
+
     async def _astream_responses_with_tools(
         self,
         messages: list[dict[str, str]],
         tools: list[dict],
+        tool_choice: str = "auto",
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Stream Responses API with tool calling support.
@@ -218,15 +283,25 @@ class LLMService:
         Parses both text deltas and function_call events from the stream.
         Function names are tracked via output_item.added events, arguments
         are assembled from function_call_arguments.delta and yielded on .done.
+
+        Tool-call JSON / Harmony channel markers that leak into the text channel
+        are filtered out so they never reach the user.
         """
-        stream = await self._client.responses.create(
-            **self._build_responses_kwargs(messages, stream=True, tools=tools)
-        )
+        kwargs = self._build_responses_kwargs(messages, stream=True, tools=tools)
+        # Override the default "auto" baked in by _build_responses_kwargs when
+        # the caller wants to force a tool call. "required" makes the model
+        # emit at least one function_call item — used for action/query intents
+        # so the model can't punt to a hallucinated text answer.
+        if tools and tool_choice in ("required", "none"):
+            kwargs["tool_choice"] = tool_choice
+        stream = await self._client.responses.create(**kwargs)
 
         reasoning_started = False
         reasoning_done = False
         # Map item_id -> {"name": str, "arguments": str}
         fn_calls: dict[str, dict] = {}
+        # Buffer text output so we can sanitize tool-call JSON before yielding.
+        text_buffer = ""
 
         async for event in stream:
             etype = event.type
@@ -243,7 +318,10 @@ class LLMService:
                 if reasoning_started and not reasoning_done:
                     yield ("text", "</think>")
                     reasoning_done = True
-                yield ("text", event.delta)
+                text_buffer += event.delta
+                clean, text_buffer = _strip_tool_call_leakage(text_buffer)
+                if clean:
+                    yield ("text", clean)
 
             # ── Function call item started — capture the name ──
             elif etype == "response.output_item.added":
@@ -270,6 +348,12 @@ class LLMService:
         if reasoning_started and not reasoning_done:
             yield ("text", "</think>")
 
+        # Flush any remaining buffered text (one final sanitize pass, no holdback this time).
+        if text_buffer:
+            tail, _ = _strip_tool_call_leakage(text_buffer, flush=True)
+            if tail:
+                yield ("text", tail)
+
     async def _acomplete_responses(
         self,
         messages: list[dict[str, str]],
@@ -292,15 +376,28 @@ class LLMService:
         messages: list[dict[str, str]],
     ) -> AsyncGenerator[str, None]:
         lc_messages = _to_langchain(messages)
+        # Same leakage filter as _astream_responses — Chat Completions can
+        # leak Harmony/tool-call patterns too when the prior turn used tools
+        # (most often on the followup-interpretation step).
+        text_buffer = ""
         async for chunk in self._llm.astream(lc_messages):
             text = chunk.content if isinstance(chunk.content, str) else ""
-            if text:
-                yield text
+            if not text:
+                continue
+            text_buffer += text
+            clean, text_buffer = _strip_tool_call_leakage(text_buffer)
+            if clean:
+                yield clean
+        if text_buffer:
+            tail, _ = _strip_tool_call_leakage(text_buffer, flush=True)
+            if tail:
+                yield tail
 
     async def _astream_chat_with_tools(
         self,
         messages: list[dict[str, str]],
         tools: list[dict],
+        tool_choice: str = "auto",
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Stream Chat Completions with function calling.
@@ -311,7 +408,7 @@ class LLMService:
 
         If the primary model fails, retries once with the fallback model.
         """
-        fallback_model = settings.OPRAI_OPENAI_FALLBACK_MODEL
+        fallback_model = settings.OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI
         models_to_try = [self._model]
         if fallback_model and fallback_model != self._model:
             models_to_try.append(fallback_model)
@@ -319,7 +416,7 @@ class LLMService:
         last_error: Exception | None = None
         for model in models_to_try:
             try:
-                async for event in self._astream_with_model(messages, tools, model):
+                async for event in self._astream_with_model(messages, tools, model, tool_choice):
                     yield event
                 return  # success — stop trying further models
             except Exception as exc:
@@ -337,16 +434,20 @@ class LLMService:
         messages: list[dict[str, str]],
         tools: list[dict],
         model: str,
+        tool_choice: str = "auto",
     ) -> AsyncGenerator[StreamEvent, None]:
         """Internal: stream a single Chat Completions model with tool calling."""
         # Assembled tool calls indexed by tool_call delta index
         tool_calls_buf: dict[int, dict] = {}
 
+        # OpenAI Chat Completions doesn't allow tool_choice when tools is empty.
+        effective_choice = tool_choice if tools else "none"
+
         stream = await self._client.chat.completions.create(
             model=model,
             messages=messages,  # type: ignore[arg-type]
             tools=tools,  # type: ignore[arg-type]
-            tool_choice="auto",
+            tool_choice=effective_choice,
             temperature=0.3,
             max_tokens=settings.OPRAI_GPT_MAX_TOKENS,
             stream=True,
@@ -382,6 +483,153 @@ class LLMService:
             if name and args:
                 yield ("tool_call", name, args)
 
+    # ── Anthropic Messages API ──────────────────────────────────────────────
+
+    async def _astream_anthropic(
+        self,
+        messages: list[dict[str, str]],
+    ) -> AsyncGenerator[str, None]:
+        """No-tool prose stream via Anthropic Messages API.
+
+        Used by `astream()` on text-only follow-up calls (e.g. the
+        market_data_followup interpretation pass after a query_onchain
+        returned its data). Claude's text deltas are clean — no Harmony
+        markers can appear because Claude doesn't have that channel format
+        — but we still pipe through `_strip_tool_call_leakage` for symmetry
+        with the OpenAI paths.
+        """
+        system_blocks, non_system = _anthropic_split_system(messages)
+        text_buffer = ""
+        async with self._anthropic.messages.stream(
+            model=self._model,
+            max_tokens=settings.OPRAI_GPT_MAX_TOKENS,
+            system=system_blocks,
+            messages=non_system,
+        ) as stream:
+            async for chunk in stream.text_stream:
+                if not chunk:
+                    continue
+                text_buffer += chunk
+                clean, text_buffer = _strip_tool_call_leakage(text_buffer)
+                if clean:
+                    yield clean
+        if text_buffer:
+            tail, _ = _strip_tool_call_leakage(text_buffer, flush=True)
+            if tail:
+                yield tail
+
+    async def _astream_anthropic_with_tools(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict],
+        tool_choice: str = "auto",
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Tool-calling stream via Anthropic Messages API.
+
+        Mirrors the OpenAI path's contract: yields ("text", chunk) for prose
+        deltas and ("tool_call", name, args_json) for completed tool_use
+        blocks. Claude emits tool args as `input_json_delta` events (partial
+        JSON strings); we accumulate them per-block_id and emit on
+        content_block_stop.
+
+        tool_choice maps to Anthropic's structured form:
+          "auto"     -> {"type": "auto"} (model decides)
+          "required" -> {"type": "any"}  (any tool MUST be called — we use
+                          this to defeat Haiku 4.5's documented avoidance
+                          behaviour on action/query intents)
+          "none"     -> drop tools entirely so Claude won't try to call any
+        """
+        system_blocks, non_system = _anthropic_split_system(messages)
+        anthropic_tools = _convert_tools_openai_to_anthropic(tools)
+
+        # Per content-block accumulator: index → {name, input_json}.
+        # Claude streams tool_use as a new content block with its own index;
+        # text blocks share index 0 typically.
+        tool_buf: dict[int, dict[str, str]] = {}
+        text_buffer = ""
+
+        # Translate to Anthropic's tool_choice schema. Anthropic does NOT accept
+        # the OpenAI string literals — must be a dict {"type": ...}.
+        stream_kwargs: dict = {
+            "model": self._model,
+            "max_tokens": settings.OPRAI_GPT_MAX_TOKENS,
+            "system": system_blocks,
+            "messages": non_system,
+        }
+        if tool_choice == "none" or not anthropic_tools:
+            # No tools at all — Claude can't call anything regardless.
+            pass
+        elif tool_choice == "required":
+            stream_kwargs["tools"] = anthropic_tools
+            # disable_parallel_tool_use=False keeps Claude's parallel-call
+            # behaviour intact while still forcing at least one call.
+            stream_kwargs["tool_choice"] = {"type": "any", "disable_parallel_tool_use": False}
+        else:
+            stream_kwargs["tools"] = anthropic_tools
+            stream_kwargs["tool_choice"] = {"type": "auto"}
+
+        async with self._anthropic.messages.stream(**stream_kwargs) as stream:
+            async for event in stream:
+                etype = getattr(event, "type", None)
+
+                if etype == "content_block_start":
+                    block = getattr(event, "content_block", None)
+                    if block is not None and getattr(block, "type", None) == "tool_use":
+                        tool_buf[event.index] = {
+                            "name": getattr(block, "name", ""),
+                            "input_json": "",
+                        }
+
+                elif etype == "content_block_delta":
+                    delta = getattr(event, "delta", None)
+                    dtype = getattr(delta, "type", None) if delta is not None else None
+                    if dtype == "text_delta":
+                        text_chunk = getattr(delta, "text", "")
+                        if text_chunk:
+                            text_buffer += text_chunk
+                            clean, text_buffer = _strip_tool_call_leakage(text_buffer)
+                            if clean:
+                                yield ("text", clean)
+                    elif dtype == "input_json_delta":
+                        idx = event.index
+                        if idx in tool_buf:
+                            tool_buf[idx]["input_json"] += getattr(delta, "partial_json", "") or ""
+
+                elif etype == "content_block_stop":
+                    idx = event.index
+                    if idx in tool_buf:
+                        entry = tool_buf.pop(idx)
+                        if entry["name"]:
+                            # Anthropic returns valid JSON (or empty) — pass
+                            # through verbatim; downstream validate_tool_call
+                            # already json.loads + schema-checks.
+                            args = entry["input_json"] or "{}"
+                            yield ("tool_call", entry["name"], args)
+
+        if text_buffer:
+            tail, _ = _strip_tool_call_leakage(text_buffer, flush=True)
+            if tail:
+                yield ("text", tail)
+
+    async def _acomplete_anthropic(
+        self,
+        messages: list[dict[str, str]],
+    ) -> str:
+        """Non-streaming completion via Anthropic Messages API."""
+        system_blocks, non_system = _anthropic_split_system(messages)
+        resp = await self._anthropic.messages.create(
+            model=self._model,
+            max_tokens=settings.OPRAI_GPT_MAX_TOKENS,
+            system=system_blocks,
+            messages=non_system,
+        )
+        # Claude returns content as a list of blocks; concat all text blocks.
+        out: list[str] = []
+        for block in resp.content:
+            if getattr(block, "type", None) == "text":
+                out.append(getattr(block, "text", ""))
+        return "".join(out)
+
 
 def _to_langchain(
     messages: list[dict[str, str]],
@@ -398,3 +646,269 @@ def _to_langchain(
         else:
             result.append(HumanMessage(content=content))
     return result
+
+
+# ── Anthropic Messages API ───────────────────────────────────────────────────
+# Claude doesn't use Harmony channels — text and tool_use are first-class
+# content blocks emitted in the proper structured form, so the Harmony leak
+# filter that wraps the OpenAI paths is unnecessary here. We still pipe text
+# through `_strip_tool_call_leakage` on the off chance Claude ever writes
+# tool-name vocabulary in prose, but in practice it never does.
+
+def _anthropic_split_system(messages: list[dict[str, str]]) -> tuple[list[dict], list[dict]]:
+    """Split into Anthropic system blocks and a non-system message list.
+
+    The system text is wrapped in a single text block with `cache_control`
+    set so prompt caching kicks in (10% of input price on cache hits, 1.25x
+    on the first write). The system prompt + tool definitions are the largest
+    repeated input — caching them turns a 15K-token prefix from a bottleneck
+    into a near-zero-cost prefix on every subsequent turn within 5 minutes.
+    """
+    system_text = "\n\n".join(
+        m["content"] for m in messages if m.get("role") == "system" and m.get("content")
+    )
+    system_blocks: list[dict] = []
+    if system_text:
+        system_blocks.append({
+            "type": "text",
+            "text": system_text,
+            "cache_control": {"type": "ephemeral"},
+        })
+
+    non_system: list[dict] = []
+    for m in messages:
+        if m.get("role") == "system":
+            continue
+        # Anthropic only accepts user/assistant roles. Tool result messages
+        # arriving as role="tool" must be reshaped into a user message with
+        # tool_result content blocks — but our current callers don't pass any
+        # role="tool" entries (tool results are inlined as system data) so a
+        # passthrough is fine.
+        role = m["role"]
+        if role not in ("user", "assistant"):
+            role = "user"
+        non_system.append({"role": role, "content": m.get("content", "")})
+    # Anthropic requires the first message to be from "user". If callers handed
+    # us only system prompts (no real turn yet), inject a noop user prompt to
+    # keep the API happy.
+    if not non_system:
+        non_system.append({"role": "user", "content": " "})
+    return system_blocks, non_system
+
+
+def _convert_tools_openai_to_anthropic(tools: list[dict]) -> list[dict]:
+    """OpenAI Chat Completions tool format → Anthropic tool format.
+
+    OpenAI: {"type": "function", "function": {"name", "description", "parameters"}}
+    Claude:  {"name", "description", "input_schema"}
+    """
+    out: list[dict] = []
+    for t in tools:
+        if t.get("type") == "function" and "function" in t:
+            fn = t["function"]
+            out.append({
+                "name": fn.get("name", ""),
+                "description": fn.get("description", ""),
+                "input_schema": fn.get("parameters", {}),
+            })
+        elif "name" in t and "input_schema" in t:
+            # Already Anthropic-shaped
+            out.append(t)
+    # Cache control on the LAST tool block caches all preceding tool defs +
+    # the system block above. One marker covers the whole prefix.
+    if out:
+        out[-1] = {**out[-1], "cache_control": {"type": "ephemeral"}}
+    return out
+
+
+# ── Tool-call leakage filter ────────────────────────────────────────────────
+# Reasoning models occasionally emit Harmony-format tool-call syntax into the
+# user-facing text channel instead of the function_call channel. Examples seen:
+#   {"query_type":"top_validators","params":{}}to=query_onchain
+#   {"tool":"query_onchain","query_type":"top_validators","params":{}}
+#   to=request_clarification
+# These patterns must never reach the chat UI — they're internal model artifacts.
+
+# Channel marker like `to=query_onchain` (with optional trailing words).
+_HARMONY_CHANNEL_RE = re.compile(r"\s*to=[a-zA-Z_][a-zA-Z0-9_]*\b[^\n]*")
+# JSON keys that signal a tool-call leakage object.
+_LEAK_JSON_KEYS = ("tool", "type", "query_type", "action", "category", "name", "function", "arguments")
+# Common self-talk / scratchpad phrases the model leaks when confused.
+_SELFTALK_RE = re.compile(
+    r"(?im)^\s*(Ok\s+I[' ]?ll output|Actually use tool call syntax|hmm|code\?|Let me try)[^\n]*\n?"
+)
+
+# Distinctive tool-call vocabulary that should never appear in user-facing
+# prose — the system prompt explicitly forbids the model from naming its own
+# tools or call mechanism. When the model gets confused (most often under
+# tool_choice="auto"), it starts narrating its own tool dispatch ("I'll
+# proceed assuming tool call works with syntax query_onchain(...)"), and
+# those whole lines need to be dropped.
+#
+# Each pattern below matches a phrase that is ~impossible in a legitimate
+# DeFi-assistant reply. Any line hitting this regex is treated as leakage
+# and removed.
+_TECHNICAL_LEAK_RE = re.compile(
+    r"\b("
+    r"query_onchain|execute_action|request_clarification|dex_token|"
+    r"info_query|action_type|"
+    r"tool call|tool calls|tool invocation|tool result|tool results|"
+    r"function call|function calling|function calls|"
+    r"commentary channel|meta tool|the wrapper|"
+    r"OpenAI function|Harmony format|Harmony tool|"
+    r"system prompt|earlier message from system|"
+    r"produced garbage|correct format|in this interface|in this environment|"
+    r"proceed assuming|as tool invocation|tool call (?:not )?possible|"
+    r"untrusted data"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _drop_leak_lines(text: str) -> str:
+    """Drop any line that contains technical tool-call leakage vocabulary."""
+    return "\n".join(ln for ln in text.split("\n") if not _TECHNICAL_LEAK_RE.search(ln))
+
+
+def _find_balanced_brace(s: str, start: int) -> int:
+    """Return index just past the matching `}` for the `{` at `start`, or -1 if unmatched.
+
+    Tracks string literals so braces inside JSON strings don't throw off the count.
+    """
+    depth = 0
+    in_str = False
+    escape = False
+    i = start
+    while i < len(s):
+        ch = s[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+        i += 1
+    return -1
+
+
+def _strip_leak_json_blocks(s: str) -> str:
+    """Remove balanced `{...}` blocks whose first key matches a known leakage key.
+
+    Also strips empty `{}` blocks — the model emits these as malformed Harmony
+    parameter placeholders when it tries (and fails) to call a tool inline,
+    e.g. `{}to=query_onchain`. Empty braces never appear in legitimate prose.
+    """
+    out = []
+    i = 0
+    while i < len(s):
+        if s[i] == "{":
+            end = _find_balanced_brace(s, i)
+            if end != -1:
+                block = s[i:end]
+                # Empty `{}` (or whitespace-only) — always a malformed leak.
+                if block.strip("{}") == "":
+                    i = end
+                    continue
+                # Look at the first quoted key after the opening brace.
+                key_match = re.match(r'\{\s*"([^"]+)"\s*:', block)
+                if key_match and key_match.group(1) in _LEAK_JSON_KEYS:
+                    i = end
+                    continue
+        out.append(s[i])
+        i += 1
+    return "".join(out)
+
+
+def _strip_tool_call_leakage(buffer: str, *, flush: bool = False) -> tuple[str, str]:
+    """
+    Strip Harmony tool-call leakage from a streaming text buffer.
+
+    Returns (text_to_yield, holdback). The holdback is the trailing portion that
+    might still be the start of a leakage pattern — yield it on the next call when
+    more bytes arrive. Pass flush=True at end-of-stream to release everything.
+
+    Three layers of stripping run in order:
+      1. `to=...` Harmony channel markers (whole-segment until newline).
+      2. Balanced JSON blocks whose first key is in `_LEAK_JSON_KEYS`
+         (e.g. `{"tool":"query_onchain",...}`).
+      3. Whole lines containing distinctive technical leak vocabulary
+         (`tool call`, `query_onchain`, `proceed assuming`, etc.) — the
+         model narrating its own dispatch logic.
+
+    During streaming we only line-filter COMPLETE lines (those that end in
+    a newline already in the buffer). The trailing partial is held back if
+    it already shows leak vocabulary, so growing leakage doesn't briefly
+    flash into the UI before being deleted on the next chunk.
+    """
+    cleaned = buffer
+    cleaned = _HARMONY_CHANNEL_RE.sub("", cleaned)
+    cleaned = _strip_leak_json_blocks(cleaned)
+    cleaned = _SELFTALK_RE.sub("", cleaned)
+
+    if flush:
+        cleaned = _drop_leak_lines(cleaned)
+        return cleaned.strip(), ""
+
+    # Apply the line-level technical-leak filter to complete lines only;
+    # split off any trailing partial line for further holdback evaluation.
+    last_nl = cleaned.rfind("\n")
+    if last_nl == -1:
+        # Whole buffer is one in-progress line. If it's already showing a
+        # leak token, hold the entire thing — we'll either drop it after
+        # the next newline or flush-strip it at end of stream.
+        partial_tail = cleaned
+        if _TECHNICAL_LEAK_RE.search(partial_tail):
+            return "", buffer
+        cleaned_complete = ""
+    else:
+        complete_part = cleaned[: last_nl + 1]
+        partial_tail = cleaned[last_nl + 1 :]
+        cleaned_complete = _drop_leak_lines(complete_part)
+        # If the partial tail itself already shows a leak token, hold it
+        # so the user never sees the half-formed leak line.
+        if _TECHNICAL_LEAK_RE.search(partial_tail):
+            return cleaned_complete, partial_tail
+
+    visible = cleaned_complete + partial_tail
+
+    # Hold back trailing content that may still be growing into a leakage pattern.
+    # If the buffer ends with an unclosed `{` whose first key is suspicious, OR a
+    # partial `to=` marker without a newline yet, hold from there.
+    last_open = visible.rfind("{")
+    last_to = visible.rfind("to=")
+    cuts: list[int] = []
+    if last_open != -1 and _find_balanced_brace(visible, last_open) == -1:
+        cuts.append(last_open)
+    if last_to != -1 and "\n" not in visible[last_to:]:
+        cuts.append(last_to)
+
+    # Stream-chunk lookahead: even when no in-progress leak is yet detectable,
+    # a Harmony marker like `to=query_onchain` can arrive split across chunks
+    # (e.g. `{}t` then `o=query_onchain code:`). Neither chunk matches the
+    # `to=word` regex on its own, so the leak slips through. Hold the trailing
+    # `t` / `to` / `{` / `{"…` if it sits right after a boundary (whitespace,
+    # closing brace, newline, or start-of-string) — those are the contexts a
+    # real leak marker starts in. Words like "but"/"hot" don't trigger because
+    # the `t` follows letters, not a boundary.
+    if not cuts and not flush:
+        suspicious_tail = re.search(
+            r'(?:[}\s\n]|^)(\{["a-zA-Z]*|to?)\Z',
+            visible,
+        )
+        if suspicious_tail:
+            cuts.append(suspicious_tail.start(1))
+
+    if not cuts:
+        return visible, ""
+    cut = min(cuts)
+    return visible[:cut], visible[cut:]

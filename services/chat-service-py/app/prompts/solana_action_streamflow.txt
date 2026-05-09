@@ -20,22 +20,22 @@ Optional: start, cliff, cliffAmount, name, canTopup, cancelableBySender, cancela
 
 Examples:
 - "Stream 1000 USDC to HwM...abc over 30 days (daily unlocks)"
-  -> [ACTION:streamflow_create] recipient=HwM...abc mint=USDC amount=1000 period=86400 amountPerPeriod=33.33 name="Monthly salary"
+  -> execute_action("streamflow_create", {"recipient": "HwM...abc", "mint": "USDC", "amount": "1000", "period": "86400", "amountPerPeriod": "33.33", "name": "Monthly salary"})
 
 - "Create a 12-month linear vesting for 100000 JUP to investor wallet, starting next month"
-  -> [ACTION:streamflow_create] recipient=<wallet> mint=JUP amount=100000 period=2592000 amountPerPeriod=8333.33 start=<next_month_unix> name="Investor vesting"
+  -> execute_action("streamflow_create", {"recipient": "<wallet>", "mint": "JUP", "amount": "100000", "period": "2592000", "amountPerPeriod": "8333.33", "start": "<next_month_unix>", "name": "Investor vesting"})
 
 - "Vest 50000 BONK to dev with 3-month cliff then monthly unlocks, 5000 BONK at cliff"
-  -> [ACTION:streamflow_create] recipient=<wallet> mint=BONK amount=50000 period=2592000 amountPerPeriod=5000 cliff=<3_months_unix> cliffAmount=5000 name="Dev grant"
+  -> execute_action("streamflow_create", {"recipient": "<wallet>", "mint": "BONK", "amount": "50000", "period": "2592000", "amountPerPeriod": "5000", "cliff": "<3_months_unix>", "cliffAmount": "5000", "name": "Dev grant"})
 
 - "Set up weekly USDT payroll of 500 USDT to HwM...abc, auto-send each week"
-  -> [ACTION:streamflow_create] recipient=HwM...abc mint=USDT amount=2000 period=604800 amountPerPeriod=500 automaticWithdrawal=true name="Weekly payroll"
+  -> execute_action("streamflow_create", {"recipient": "HwM...abc", "mint": "USDT", "amount": "2000", "period": "604800", "amountPerPeriod": "500", "automaticWithdrawal": "true", "name": "Weekly payroll"})
 
 - "Stream SOL to wallet, allow recipient to cancel, topup enabled"
-  -> [ACTION:streamflow_create] recipient=<wallet> mint=SOL amount=10 period=86400 amountPerPeriod=0.333 cancelableByRecipient=true canTopup=true
+  -> execute_action("streamflow_create", {"recipient": "<wallet>", "mint": "SOL", "amount": "10", "period": "86400", "amountPerPeriod": "0.333", "cancelableByRecipient": "true", "canTopup": "true"})
 
 - "Stream native SOL (not wSOL) to HwM...abc"
-  -> [ACTION:streamflow_create] recipient=HwM...abc mint=SOL amount=5 period=86400 amountPerPeriod=0.166 isNative=true
+  -> execute_action("streamflow_create", {"recipient": "HwM...abc", "mint": "SOL", "amount": "5", "period": "86400", "amountPerPeriod": "0.166", "isNative": "true"})
 
 ---
 
@@ -48,10 +48,10 @@ Each recipient object: { recipient, amount, amountPerPeriod, name?, cliffAmount?
 
 Examples:
 - "Create monthly USDC vesting streams for 3 team members: Alice 5000, Bob 3000, Carol 4000 USDC"
-  -> [ACTION:streamflow_create_multiple] mint=USDC period=2592000 recipients=[{"recipient":"<alice_wallet>","amount":"5000","amountPerPeriod":"416.67","name":"Alice salary"},{"recipient":"<bob_wallet>","amount":"3000","amountPerPeriod":"250","name":"Bob salary"},{"recipient":"<carol_wallet>","amount":"4000","amountPerPeriod":"333.33","name":"Carol salary"}]
+  -> execute_action("streamflow_create_multiple", {"mint": "USDC", "period": "2592000", "recipients": "[{\"recipient\":\"<alice_wallet>\",\"amount\":\"5000\",\"amountPerPeriod\":\"416.67\",\"name\":\"Alice\"},{\"recipient\":\"<bob_wallet>\",\"amount\":\"3000\",\"amountPerPeriod\":\"250\",\"name\":\"Bob\"},{\"recipient\":\"<carol_wallet>\",\"amount\":\"4000\",\"amountPerPeriod\":\"333.33\",\"name\":\"Carol\"}]"})
 
 - "Batch vest 10000 JUP each to 5 contributors with weekly unlocks"
-  -> [ACTION:streamflow_create_multiple] mint=JUP period=604800 recipients=[...each with amount=10000, amountPerPeriod=192.31...]
+  -> execute_action("streamflow_create_multiple", {"mint": "JUP", "period": "604800", "recipients": "[{\"recipient\":\"<wallet1>\",\"amount\":\"10000\",\"amountPerPeriod\":\"192.31\"}, ...one entry per contributor]"})
 
 ---
 
@@ -61,7 +61,7 @@ Required: streamId
 
 Examples:
 - "Cancel my Streamflow stream ABC123..."
-  -> [ACTION:streamflow_cancel] streamId=ABC123...
+  -> execute_action("streamflow_cancel", {"streamId": "ABC123..."})
 
 - "Stop the stream to HwM...abc"
   -> First call streamflow_list to find the streamId, then: [ACTION:streamflow_cancel] streamId=<found_id>
@@ -77,13 +77,13 @@ Optional: amount (omit = withdraw all unlocked)
 
 Examples:
 - "Withdraw all unlocked tokens from stream ABC123..."
-  -> [ACTION:streamflow_withdraw] streamId=ABC123...
+  -> execute_action("streamflow_withdraw", {"streamId": "ABC123..."})
 
 - "Withdraw 500 USDC from my vesting stream ABC123..."
-  -> [ACTION:streamflow_withdraw] streamId=ABC123... amount=500
+  -> execute_action("streamflow_withdraw", {"streamId": "ABC123...", "amount": "500"})
 
 - "Claim my vested tokens from stream XYZ..."
-  -> [ACTION:streamflow_withdraw] streamId=XYZ...
+  -> execute_action("streamflow_withdraw", {"streamId": "XYZ..."})
 
 ---
 
@@ -93,10 +93,10 @@ Required: streamId, newRecipient
 
 Examples:
 - "Transfer stream ABC123... to new wallet HwM...xyz"
-  -> [ACTION:streamflow_transfer] streamId=ABC123... newRecipient=HwM...xyz
+  -> execute_action("streamflow_transfer", {"streamId": "ABC123...", "newRecipient": "HwM...xyz"})
 
-- "Change the recipient of my stream to HwM...xyz"
-  -> [ACTION:streamflow_transfer] streamId=<from list> newRecipient=HwM...xyz
+- "Change the recipient of my stream" (streamId unknown — query first)
+  -> First call streamflow_list, then execute_action("streamflow_transfer", {"streamId": "<from list>", "newRecipient": "<new wallet>"})
 
 Note: Stream must have transferableBySender=true (set at creation).
 
@@ -108,10 +108,10 @@ Required: streamId, amount
 
 Examples:
 - "Add 1000 USDC to my stream ABC123... to extend it"
-  -> [ACTION:streamflow_topup] streamId=ABC123... amount=1000
+  -> execute_action("streamflow_topup", {"streamId": "ABC123...", "amount": "1000"})
 
-- "Top up the salary stream with 500 more USDT"
-  -> [ACTION:streamflow_topup] streamId=<from list> amount=500
+- "Top up the salary stream with 500 more USDT" (streamId unknown — query first)
+  -> First call streamflow_list, then execute_action("streamflow_topup", {"streamId": "<from list>", "amount": "500"})
 
 Note: Stream must have canTopup=true. Tokens added extend at the same amountPerPeriod rate.
 
@@ -124,13 +124,13 @@ Optional: automaticWithdrawal, withdrawalFrequency, transferableBySender, transf
 
 Examples:
 - "Enable automatic withdrawal on stream ABC123..."
-  -> [ACTION:streamflow_update] streamId=ABC123... automaticWithdrawal=true
+  -> execute_action("streamflow_update", {"streamId": "ABC123...", "automaticWithdrawal": "true"})
 
 - "Change auto-withdrawal frequency of stream ABC123... to weekly (604800 seconds)"
-  -> [ACTION:streamflow_update] streamId=ABC123... withdrawalFrequency=604800
+  -> execute_action("streamflow_update", {"streamId": "ABC123...", "withdrawalFrequency": "604800"})
 
-- "Disable transfer by sender on my stream"
-  -> [ACTION:streamflow_update] streamId=<from list> transferableBySender=false
+- "Disable transfer by sender on my stream" (streamId unknown — query first)
+  -> First call streamflow_list, then execute_action("streamflow_update", {"streamId": "<from list>", "transferableBySender": "false"})
 
 ---
 
@@ -140,13 +140,13 @@ Required: streamId
 
 Examples:
 - "Show details of stream ABC123..."
-  -> [ACTION:streamflow_get_one] streamId=ABC123...
+  -> execute_action("streamflow_get_one", {"streamId": "ABC123..."})
 
 - "What's the status of my Streamflow stream XYZ...?"
-  -> [ACTION:streamflow_get_one] streamId=XYZ...
+  -> execute_action("streamflow_get_one", {"streamId": "XYZ..."})
 
 - "How much is left in stream ABC123...?"
-  -> [ACTION:streamflow_get_one] streamId=ABC123...
+  -> execute_action("streamflow_get_one", {"streamId": "ABC123..."})
 
 ---
 
@@ -157,31 +157,22 @@ Optional: direction — filter by stream role: "incoming" (recipient), "outgoing
 
 Examples:
 - "Show my Streamflow streams"
-  -> [ACTION:streamflow_list]
+  -> execute_action("streamflow_list", {})
 
 - "List all my vesting schedules"
-  -> [ACTION:streamflow_list]
+  -> execute_action("streamflow_list", {})
 
 - "What streams am I receiving?"
-  -> [ACTION:streamflow_list] direction=incoming
+  -> execute_action("streamflow_list", {"direction": "incoming"})
 
 - "Show streams I'm sending to others"
-  -> [ACTION:streamflow_list] direction=outgoing
+  -> execute_action("streamflow_list", {"direction": "outgoing"})
 
 - "List only the vesting streams where I'm the sender"
-  -> [ACTION:streamflow_list] direction=outgoing
+  -> execute_action("streamflow_list", {"direction": "outgoing"})
 
 - "What tokens am I receiving via Streamflow?"
-  -> [ACTION:streamflow_list] direction=incoming
-
-- "Streamflow'daki streamlerimi göster"
-  -> [ACTION:streamflow_list]
-
-- "Hangi streamleri alıyorum?"
-  -> [ACTION:streamflow_list] direction=incoming
-
-- "Gönderdiğim streamleri listele"
-  -> [ACTION:streamflow_list] direction=outgoing
+  -> execute_action("streamflow_list", {"direction": "incoming"})
 
 Direction values: "incoming" = streams where you are recipient, "outgoing" = streams where you are sender, "all" = both (default when direction not specified).
 

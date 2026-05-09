@@ -102,7 +102,7 @@ const TOKENS = {
   USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
   JupSOL: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v',
-  JitoSOL: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kongC',
+  JitoSOL: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn',
   mSOL: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3zZKhtXDH4yYga',
   bSOL: 'bSo13r4TkiE4KumL71rHT1xr1yVRmF5CUnrS9QNZvuK',
   cSOL: 'Cf4hUSKun1oJVqNusAWWvCkrWnQdWbKNRV3tS7S6ygi',

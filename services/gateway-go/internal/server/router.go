@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/subtle"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/oprai/oprai/services/gateway-go/internal/config"
 	"github.com/oprai/oprai/services/gateway-go/internal/handlers"
@@ -19,7 +21,10 @@ import (
 // NewRouter creates and configures the Chi router with all gateway routes.
 // ctx is the application root context; background goroutines started by the
 // router (rate-limiter cleanup, cache cleanup) will stop when ctx is cancelled.
-func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCClients) http.Handler {
+// rdb is optional — when non-nil, the JWT revocation blocklist persists to
+// Redis (so revoked tokens survive a gateway restart and are visible to all
+// instances).
+func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCClients, rdb *redis.Client) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -38,7 +43,9 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 
 	// JWT revocation blocklist — revoked jtis are added here on logout so that
 	// copied Bearer tokens are rejected immediately without waiting for expiry.
-	tokenBlocklist := middleware.NewTokenBlocklist(ctx)
+	// Backed by Redis (when configured) so that revocations survive a gateway
+	// restart and are visible across multiple gateway instances.
+	tokenBlocklist := middleware.NewTokenBlocklist(ctx, rdb)
 
 	// Custom middleware
 	r.Use(middleware.SecurityHeaders)
@@ -52,7 +59,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	//   invalid/expired token → 401 Unauthorized (RFC 6750)
 	//   revoked jti → 401 Unauthorized (logged-out token)
 	//   valid token → wallet set in context + X-User-Wallet header injected
-	r.Use(middleware.JWTAuth(cfg.JWTSecret, tokenBlocklist))
+	r.Use(middleware.JWTAuth(cfg.JWTSecret, cfg.JWTPreviousSecret, tokenBlocklist))
 
 	// Per-wallet rate limit applied after JWTAuth (so wallet is in context).
 	// 60 req/min per authenticated wallet — prevents a single wallet from
@@ -110,6 +117,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.With(defaultTimeout).Post("/", chatProxy.SendChat)
 		r.With(streamingTimeout).Get("/stream", chatProxy.StreamChat)
 		r.With(streamingTimeout).Post("/messages/stream", chatProxy.StreamMessagesPost)
+		r.With(streamingTimeout).Post("/messages/edit", chatProxy.EditMessage)
 
 		r.Route("/sessions", func(r chi.Router) {
 			r.Use(defaultTimeout)
@@ -122,7 +130,13 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 			r.Get("/{id}/messages", chatProxy.GetMessages)
 			r.Post("/{id}/messages", chatProxy.SendMessage)
 			r.With(streamingTimeout).Get("/{id}/messages/stream", chatProxy.StreamMessages)
+			r.Patch("/{id}/messages/{msgId}/metadata", chatProxy.PatchMessageMeta)
 		})
+
+		// Per-message thumbs feedback. The chat-service exposes this at
+		// the top level (no session_id needed) — it derives the session
+		// from message ownership and the wallet from auth.
+		r.With(defaultTimeout).Post("/messages/{msgId}/feedback", chatProxy.PostMessageFeedback)
 	})
 
 	// Tax report — proxied to chat-service (requires wallet auth)
@@ -145,6 +159,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Get("/{id}/messages", chatProxy.GetMessages)
 		r.Post("/{id}/messages", chatProxy.SendMessage)
 		r.With(streamingTimeout).Get("/{id}/messages/stream", chatProxy.StreamMessages)
+		r.Patch("/{id}/messages/{msgId}/metadata", chatProxy.PatchMessageMeta)
 	})
 
 	// Solana proxy — wallet auth required for all transaction-building routes
@@ -155,6 +170,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/quote", solanaProxy.PostQuote)
 		r.Post("/build", solanaProxy.PostBuild)
 		r.Post("/submit", solanaProxy.PostSubmit)
+		r.Post("/simulate", solanaProxy.PostSimulate)
 		r.Get("/limit-orders", solanaProxy.GetLimitOrders)
 		r.Get("/dca-orders", solanaProxy.GetDcaOrders)
 	})
@@ -167,6 +183,11 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Use(defaultTimeout)
 		r.Get("/", solanaProxy.ListTokens)
 		r.Get("/{symbol}", solanaProxy.GetToken)
+	})
+	r.Route("/validators", func(r chi.Router) {
+		r.Use(defaultTimeout)
+		r.Use(middleware.RequireWallet) // requires user auth (JWT)
+		r.Get("/top", solanaProxy.GetTopValidators)
 	})
 	r.Route("/transactions", func(r chi.Router) {
 		r.Use(defaultTimeout)
@@ -201,12 +222,13 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// RequireWallet prevents unauthenticated callers from exhausting paid API quotas
 	// (Birdeye, Helius, Jupiter keys are kept server-side).
 	marketProxy := handlers.NewMarketProxy(ctx, cfg.BirdeyeAPIKey, cfg.JupiterAPIKey, cfg.HeliusAPIKey)
+	// Token list is public data — no auth needed, served from Jupiter CDN with server-side caching.
+	r.With(defaultTimeout).Get("/market/tokens/strict", marketProxy.GetTokenList)
 	r.Route("/market", func(r chi.Router) {
 		r.Use(defaultTimeout)
 		r.Use(middleware.RequireWallet)
 		r.Get("/prices", marketProxy.GetPrices)
 		r.Get("/tokens/search", marketProxy.SearchTokens)
-		r.Get("/tokens/strict", marketProxy.GetTokenList)
 		r.Get("/tokens/{mint}", marketProxy.GetTokenInfo)
 		r.Get("/account/{wallet}/transactions", marketProxy.GetAccountTransactions)
 		r.Get("/ohlcv", marketProxy.GetOHLCV)
@@ -236,6 +258,12 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Get("/jito/bam-validators", marketProxy.GetJitoBamValidators)
 		r.Get("/jito/bam-delegation-blacklist", marketProxy.GetJitoBamDelegationBlacklist)
 		r.Get("/jito/bam-validator-score", marketProxy.GetJitoBamValidatorScore)
+		// Marinade real-time stats — proxied to avoid CORS, returns the live
+		// msolPrice (mSOL/SOL spot rate) Marinade's own dashboard uses.
+		r.Get("/marinade/exchange-rate", marketProxy.GetMarinadeExchangeRate)
+		// JupSOL real-time conversion rate — Jupiter quote API probe so the
+		// preview matches what the actual stake swap will pay out.
+		r.Get("/jupsol/exchange-rate", marketProxy.GetJupSolExchangeRate)
 		r.Get("/security/{mint}", marketProxy.GetSecurity)
 		r.Get("/latest-pairs", marketProxy.GetLatestPairs)
 		r.Get("/txns/{mint}", marketProxy.GetMintTransactions)
@@ -257,6 +285,8 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// Serve uploaded files as static assets (public, no auth required)
 	staticHandler := handlers.NewStaticHandler(cfg.UploadDir, cfg.PublicBaseURL)
 	r.Get("/uploads/*", staticHandler.ServeFile)
+	// Short-URL route for token metadata — keeps the on-chain URI ≤39 chars so it fits in a Solana tx.
+	r.Get("/m/*", staticHandler.ServeMetadata)
 
 	// Pump.fun proxy — proxies pump.fun data APIs through our backend.
 	// Token data (GET) is public; transaction-building (POST) requires wallet auth.
@@ -291,11 +321,24 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 // X-Internal-Api-Key header are forwarded. Used to restrict /metrics to
 // internal Prometheus scrapers. When key is empty (dev with no key set)
 // the check is skipped so local development still works without configuration.
+//
+// During key rotation, OPRAI_INTERNAL_API_KEY_OLD lets the service accept
+// the previous value too. Procedure:
+//
+//	1. Set OPRAI_INTERNAL_API_KEY_OLD = current OPRAI_INTERNAL_API_KEY on
+//	   every service. Restart. Both keys now accepted.
+//	2. Set OPRAI_INTERNAL_API_KEY = new value on every service. Restart. The
+//	   new key is the primary; the old still validates inbound traffic.
+//	3. Update the gateway to send the new key as well. Restart it.
+//	4. After all caller traffic uses the new key, unset OPRAI_INTERNAL_API_KEY_OLD
+//	   and restart services to retire the old key.
 func internalKeyGate(key string, h http.Handler) http.Handler {
+	prev := os.Getenv("OPRAI_INTERNAL_API_KEY_OLD")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if key != "" {
 			provided := r.Header.Get("X-Internal-Api-Key")
-			if subtle.ConstantTimeCompare([]byte(provided), []byte(key)) != 1 {
+			if subtle.ConstantTimeCompare([]byte(provided), []byte(key)) != 1 &&
+				(prev == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(prev)) != 1) {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}

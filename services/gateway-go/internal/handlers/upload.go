@@ -50,6 +50,8 @@ type MetadataUploadRequest struct {
 	Website     string `json:"website,omitempty"`
 	Banner      string `json:"banner,omitempty"`
 	ShowName    bool   `json:"showName"`
+	// createdOn is set server-side to "https://pump.fun" so their indexer recognises the token
+	CreatedOn   string `json:"createdOn,omitempty"`
 }
 
 // MetadataUploadResponse is returned from POST /upload/metadata.
@@ -179,9 +181,10 @@ func (u *UploadHandler) UploadMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normalise symbol to uppercase
+	// Normalise symbol to uppercase; stamp createdOn for pump.fun indexer
 	req.Symbol = strings.ToUpper(req.Symbol)
 	req.ShowName = true
+	req.CreatedOn = "https://pump.fun"
 
 	dir := filepath.Join(u.uploadDir, "metadata")
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -190,7 +193,10 @@ func (u *UploadHandler) UploadMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	generatedName := randomHex(16) + ".json"
+	// 5 random bytes → 10-char hex filename.
+	// Short enough that the full URL (https://api.oprai.xyz/m/<name>.json = 39 chars)
+	// fits inside a Solana legacy transaction even for max-length token names and symbols.
+	generatedName := randomHex(5) + ".json"
 	destPath := filepath.Join(dir, generatedName)
 
 	data, err := json.MarshalIndent(req, "", "  ")
@@ -204,7 +210,8 @@ func (u *UploadHandler) UploadMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	publicURL := u.publicBaseURL + "/uploads/metadata/" + generatedName
+	// Serve via /m/ (short alias) — same file, shorter URL for on-chain storage.
+	publicURL := u.publicBaseURL + "/m/" + generatedName
 	slog.Info("Metadata uploaded", "filename", generatedName, "url", publicURL)
 
 	writeJSON(w, http.StatusOK, MetadataUploadResponse{

@@ -1,0 +1,31 @@
+id: marinade_docs
+source_type: docs
+base_url: https://docs.marinade.finance
+protocol: marinade
+category: protocol_documentation
+license: proprietary-fair-use
+language: en
+schedule_cron: "10 4 * * *"
+crawl_delay_s: 1.0
+max_pages: 300
+tags:
+  - marinade
+  - liquid-staking
+  - msol
+  - validator-selection
+  - delegation-strategy
+  - stake-auction
+  - decentralization
+  - defi
+  - solana
+notes: >
+  Gitbook docs. Key pages:
+  /marinade-protocol/protocol-overview (delegation algorithm overview),
+  /marinade-protocol/protocol-overview/marinade-select (vetted validator set),
+  /marinade-protocol/system-overview/liquid-staking (mSOL mechanics),
+  /marinade-products/directed-stake (MNDE-enhanced stake direction),
+  /marinade-protocol/protocol-overview/protected-staking-rewards.
+  Validator selection: stake distributed across 100+ validators; explicit per-validator
+  concentration cap; algorithm rewards smaller validators meeting performance thresholds.
+  Stake Auction Market (SAM): validators must post bond to be eligible.
+  Static HTML; very high crawl confidence.

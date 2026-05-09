@@ -1,0 +1,14 @@
+id: coindesk_rss
+source_type: rss
+base_url: https://www.coindesk.com/arc/outboundfeeds/rss/
+protocol: null
+category: news
+license: proprietary-fair-use
+language: en
+schedule_cron: "5 * * * *"
+crawl_delay_s: 2.0
+max_pages: 100
+tags:
+  - crypto
+  - news
+  - coindesk

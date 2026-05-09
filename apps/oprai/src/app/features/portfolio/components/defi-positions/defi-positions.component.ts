@@ -54,4 +54,14 @@ export class DefiPositionsComponent {
   get hasPositions(): boolean {
     return this._protocolPositions().length > 0 || this.positions.stakePositions.length > 0;
   }
+
+  /** Bucket a health factor into UI risk tiers. hf is the liquidation ratio:
+   *  ≥1 means safe; below 1 the position is liquidatable. We add headroom
+   *  (1.5/2.0) so the badge warns *before* hitting the cliff. */
+  riskTier(hf: number | null | undefined): 'safe' | 'warn' | 'danger' | 'unknown' {
+    if (hf == null || !isFinite(hf)) return 'unknown';
+    if (hf < 1.2) return 'danger';
+    if (hf < 1.6) return 'warn';
+    return 'safe';
+  }
 }

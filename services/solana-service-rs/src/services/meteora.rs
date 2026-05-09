@@ -59,7 +59,17 @@ const TOKEN_PROGRAM_ID: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const MEMO_PROGRAM_ID: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 
 /// DLMM REST API (pool data, positions, analytics).
-const DLMM_API: &str = "https://dlmm-api.meteora.ag";
+///
+/// Meteora migrated the DLMM data API in early 2026 from `dlmm-api.meteora.ag`
+/// (now 404 on every path) to `dlmm.datapi.meteora.ag`. The new API also
+/// re-pathed several endpoints — `/pair/{x}` → `/pools/{x}`, `/position/user/{w}`
+/// → `/portfolio/open?user={w}`, `/lb_pair/.../active_bin` removed (callers
+/// derive the bin from `current_price` + `pool_config.bin_step` in the pool
+/// detail). The old `fetch_pair` / `fetch_pos` helpers used by tx construction
+/// still hit the deprecated paths; those flows need a follow-up rewrite.
+const DLMM_API: &str = "https://dlmm.datapi.meteora.ag";
+/// Alias kept for backwards compatibility with existing references; the stats
+/// endpoints live on the same host as everything else now.
 const DLMM_STATS_API: &str = "https://dlmm.datapi.meteora.ag";
 const DAMM_V2_API: &str = "https://damm-v2.datapi.meteora.ag";
 const DAMM_V1_API: &str = "https://amm.meteora.ag";
@@ -73,27 +83,126 @@ const MAX_BIN_PER_ARRAY: i32 = 70;
 // Internal: DLMM API Response Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Nested token block returned by the new datapi DLMM API
+/// (`dlmm.datapi.meteora.ag/pools/{x}`). The legacy `dlmm-api.meteora.ag`
+/// flattened these into `mint_x` / `token_x_decimals` etc.; the datapi
+/// host wraps them in a `token_x` / `token_y` object. We accept both via
+/// custom field aliases / a nested `DlmmTokenInfo` struct.
 #[derive(Debug, Deserialize)]
-struct DlmmPairInfo {
-    mint_x: String,
-    mint_y: String,
+struct DlmmTokenInfo {
+    address: String,
     #[serde(default)]
-    active_id: Option<i32>,
-    #[serde(default)]
-    token_x_decimals: u8,
-    #[serde(default)]
-    token_y_decimals: u8,
+    decimals: u8,
+}
+
+#[derive(Debug, Deserialize)]
+struct DlmmPoolConfig {
     #[serde(default)]
     bin_step: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct DlmmPairInfo {
+    /// Optional flat-shaped fields (legacy `dlmm-api.meteora.ag` host).
+    /// When the response comes from the new datapi host these are None
+    /// and we fall back to the nested `token_x` / `token_y` blocks below.
+    #[serde(default)]
+    mint_x: Option<String>,
+    #[serde(default)]
+    mint_y: Option<String>,
+    #[serde(default)]
+    active_id: Option<i32>,
+    #[serde(default, rename = "token_x_decimals")]
+    legacy_token_x_decimals: Option<u8>,
+    #[serde(default, rename = "token_y_decimals")]
+    legacy_token_y_decimals: Option<u8>,
+    #[serde(default, rename = "bin_step")]
+    legacy_bin_step: Option<u32>,
+
+    /// New datapi shape — nested token info + pool_config.
+    #[serde(default)]
+    token_x: Option<DlmmTokenInfo>,
+    #[serde(default)]
+    token_y: Option<DlmmTokenInfo>,
+    #[serde(default)]
+    pool_config: Option<DlmmPoolConfig>,
+    /// Spot price (Y per X) — used to derive active_id when the API
+    /// doesn't expose it directly.
+    #[serde(default)]
+    current_price: Option<f64>,
+
     #[serde(default)]
     #[allow(dead_code)]
     name: Option<String>,
+    /// Reward mints — old API used a `reward_mints: []` array; new datapi
+    /// returns separate `reward_mint_x` / `reward_mint_y` strings. Accept
+    /// both, normalise via the `reward_mints()` accessor.
     #[serde(default)]
-    #[allow(dead_code)]
-    current_price: Option<f64>,
-    /// Reward mints from pool rewardInfos (optional).
+    legacy_reward_mints: Option<Vec<String>>,
     #[serde(default)]
-    reward_mints: Vec<String>,
+    reward_mint_x: Option<String>,
+    #[serde(default)]
+    reward_mint_y: Option<String>,
+}
+
+impl DlmmPairInfo {
+    /// X-token mint, regardless of API shape. Returns "" when missing
+    /// from both shapes — downstream `Pubkey::from_str` will surface a
+    /// useful parse error in that (theoretically impossible) case.
+    fn mint_x_str(&self) -> &str {
+        self.mint_x.as_deref()
+            .or_else(|| self.token_x.as_ref().map(|t| t.address.as_str()))
+            .unwrap_or("")
+    }
+    fn mint_y_str(&self) -> &str {
+        self.mint_y.as_deref()
+            .or_else(|| self.token_y.as_ref().map(|t| t.address.as_str()))
+            .unwrap_or("")
+    }
+    fn token_x_decimals(&self) -> u8 {
+        self.legacy_token_x_decimals
+            .or_else(|| self.token_x.as_ref().map(|t| t.decimals))
+            .unwrap_or(0)
+    }
+    fn token_y_decimals(&self) -> u8 {
+        self.legacy_token_y_decimals
+            .or_else(|| self.token_y.as_ref().map(|t| t.decimals))
+            .unwrap_or(0)
+    }
+    fn bin_step_resolved(&self) -> u32 {
+        self.legacy_bin_step
+            .or_else(|| self.pool_config.as_ref().map(|c| c.bin_step))
+            .unwrap_or(0)
+    }
+    /// Active bin id. Prefer the explicit field; fall back to deriving it
+    /// from current_price + bin_step (the new datapi response doesn't
+    /// expose active_id but does give current_price).
+    fn active_id_resolved(&self) -> Option<i32> {
+        if self.active_id.is_some() { return self.active_id; }
+        let bin_step = self.bin_step_resolved();
+        let price = self.current_price?;
+        if bin_step == 0 || price <= 0.0 { return None; }
+        let factor = 1.0 + (bin_step as f64) / 10_000.0;
+        let id = price.ln() / factor.ln();
+        if !id.is_finite() { return None; }
+        Some(id.round() as i32)
+    }
+    /// Combined reward mints list, regardless of API shape. Filters out
+    /// the System-program zero address (placeholder for "no reward").
+    fn reward_mints_resolved(&self) -> Vec<String> {
+        if let Some(v) = &self.legacy_reward_mints {
+            return v.clone();
+        }
+        const ZERO: &str = "11111111111111111111111111111111";
+        let mut out = Vec::new();
+        if let Some(m) = &self.reward_mint_x {
+            if m != ZERO { out.push(m.clone()); }
+        }
+        if let Some(m) = &self.reward_mint_y {
+            if m != ZERO { out.push(m.clone()); }
+        }
+        out
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -740,6 +849,161 @@ fn ix_data<T: BorshSerialize>(discriminator: [u8; 8], args: &T) -> Vec<u8> {
     data
 }
 
+/// Pre-flight: ensure every bin-array PDA covering the chosen position
+/// range exists on-chain, and return `initialize_bin_array` instructions
+/// for the ones that don't.
+///
+/// Why this exists
+/// ---------------
+/// `add_liquidity_by_weight` (and friends) borrow a writable handle to
+/// `bin_array_lower` / `bin_array_upper`. If a bin array has never been
+/// touched by an LP, its PDA holds no on-chain account, and Anchor fails
+/// with error 3007 (`AccountDidNotDeserialize`) when it tries to load it.
+/// On Meteora DLMM the funder calls `initialize_bin_array(index)` to
+/// rent-fund and zero-init the array; afterwards add_liquidity works.
+///
+/// We only emit init ixs for arrays that are *actually* missing — calling
+/// `initialize_bin_array` on an already-existing array fails with
+/// `BinArrayAlreadyInitialized`, so a defensive "always init" approach
+/// would break the second LP into the same range.
+
+/// Wrapped SOL mint — required for any DLMM pool whose `token_y` is "SOL".
+const WSOL_MINT_STR: &str = "So11111111111111111111111111111111111111112";
+
+/// On-chain `LbPair` field offsets we care about. The account is laid out as
+/// (8-byte discriminator) + (32 StaticParameters) + (32 VariableParameters) +
+/// (1 bump_seed) + (2 bin_step_seed) + (1 pair_type) + (4 active_id) +
+/// (2 bin_step) + (1 status) + (1 require_base_factor_seed) +
+/// (2 base_factor_seed) + (1 activation_type) + (1 creator_pool_on_off_control) +
+/// then 4 pubkeys: token_x_mint, token_y_mint, reserve_x, reserve_y.
+///
+/// Reserve PDAs are NOT stable across pools — Meteora derives them with
+/// program-internal logic that the IDL does not expose, so we read them
+/// straight from the LbPair account instead of trying to recompute them.
+struct LbPairFields {
+    reserve_x: Pubkey,
+    reserve_y: Pubkey,
+}
+
+async fn fetch_reserves(rpc_url: &str, lb_pair: &Pubkey) -> Result<LbPairFields, AppError> {
+    let rpc = AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let acc = rpc.get_account(lb_pair).await
+        .map_err(|e| AppError::ProtocolError(format!("Fetch LbPair {lb_pair}: {e}")))?;
+    let data = acc.data;
+    if data.len() < 216 {
+        return Err(AppError::ProtocolError(format!(
+            "LbPair {lb_pair} data too short ({} bytes)", data.len()
+        )));
+    }
+    let read_pubkey = |off: usize| -> Pubkey {
+        let mut buf = [0u8; 32];
+        buf.copy_from_slice(&data[off..off + 32]);
+        Pubkey::new_from_array(buf)
+    };
+    Ok(LbPairFields {
+        reserve_x: read_pubkey(152),
+        reserve_y: read_pubkey(184),
+    })
+}
+
+/// Build the prelude ixs an LP needs before `add_liquidity_by_weight` runs:
+///   1. Idempotently create the user's token-X ATA.
+///   2. Idempotently create the user's token-Y ATA.
+///   3. If either mint is wSOL, transfer the deposit lamports into the wSOL
+///      ATA and call `sync_native` so the SPL balance reflects the wrap.
+///
+/// Without these the pool reserve transfers fail with Anchor 3012
+/// (`AccountNotInitialized`) — the user's ATA simply does not exist on
+/// chain, and native SOL cannot be moved through an SPL transfer.
+fn build_lp_token_setup_ixs(
+    user: &Pubkey,
+    mint_x: &Pubkey,
+    mint_y: &Pubkey,
+    amount_x: u64,
+    amount_y: u64,
+) -> Vec<Instruction> {
+    let wsol = Pubkey::from_str(WSOL_MINT_STR).expect("valid wSOL mint");
+    let token_prog = token_program();
+    let mut ixs: Vec<Instruction> = Vec::new();
+
+    ixs.push(create_associated_token_account_idempotent(
+        user, user, mint_x, &token_prog,
+    ));
+    ixs.push(create_associated_token_account_idempotent(
+        user, user, mint_y, &token_prog,
+    ));
+
+    if *mint_x == wsol && amount_x > 0 {
+        let ata = get_associated_token_address(user, &wsol);
+        ixs.push(solana_sdk::system_instruction::transfer(user, &ata, amount_x));
+        ixs.push(spl_token::instruction::sync_native(&token_prog, &ata).expect("valid"));
+    }
+    if *mint_y == wsol && amount_y > 0 {
+        let ata = get_associated_token_address(user, &wsol);
+        ixs.push(solana_sdk::system_instruction::transfer(user, &ata, amount_y));
+        ixs.push(spl_token::instruction::sync_native(&token_prog, &ata).expect("valid"));
+    }
+    ixs
+}
+
+/// Tail ix to append after `add_liquidity_by_weight`: closes the user's wSOL
+/// ATA, returning any unused wrapped SOL (and the rent) to the wallet as
+/// native SOL. Without this the wallet sees a "+wSOL" delta because Meteora
+/// rarely consumes the full wrapped amount — strategy weights and slippage
+/// padding leave a remainder in the ATA.
+fn build_wsol_unwrap_ixs(user: &Pubkey, mint_x: &Pubkey, mint_y: &Pubkey) -> Vec<Instruction> {
+    let wsol = Pubkey::from_str(WSOL_MINT_STR).expect("valid wSOL mint");
+    if *mint_x != wsol && *mint_y != wsol {
+        return Vec::new();
+    }
+    let ata = get_associated_token_address(user, &wsol);
+    vec![
+        spl_token::instruction::close_account(&token_program(), &ata, user, user, &[]).expect("valid"),
+    ]
+}
+
+async fn ensure_bin_arrays_initialized(
+    rpc: &AsyncRpc,
+    lb_pair: &Pubkey,
+    indices: &[i64],
+    funder: &Pubkey,
+) -> Result<Vec<Instruction>, AppError> {
+    if indices.is_empty() { return Ok(Vec::new()); }
+
+    // Deduplicate (lower / upper often share an array for narrow ranges).
+    let mut unique: Vec<i64> = indices.to_vec();
+    unique.sort();
+    unique.dedup();
+
+    // Map each index → its PDA, then ask the RPC which ones exist.
+    let pdas: Vec<Pubkey> = unique.iter()
+        .map(|i| bin_array_pda(lb_pair, *i))
+        .collect();
+    let accounts = rpc.get_multiple_accounts(&pdas).await
+        .map_err(|e| AppError::ProtocolError(format!("RPC get_multiple_accounts: {e}")))?;
+
+    #[derive(BorshSerialize)]
+    struct InitBinArrayArgs { index: i64 }
+
+    let mut ixs: Vec<Instruction> = Vec::new();
+    for (i, account_opt) in accounts.into_iter().enumerate() {
+        if account_opt.is_some() { continue; }
+        let index = unique[i];
+        let bin_array = pdas[i];
+        ixs.push(Instruction {
+            program_id: dlmm_program(),
+            accounts: vec![
+                AccountMeta::new_readonly(*lb_pair, false),
+                AccountMeta::new(bin_array, false),
+                AccountMeta::new(*funder, true),
+                AccountMeta::new_readonly(system_program::id(), false),
+            ],
+            data: ix_data(disc("initialize_bin_array"), &InitBinArrayArgs { index }),
+        });
+    }
+    Ok(ixs)
+}
+
 fn empty_remaining_accounts() -> RemainingAccountsInfo {
     RemainingAccountsInfo { slices: vec![] }
 }
@@ -807,6 +1071,33 @@ async fn build_vtx_b64(rpc_url: &str, user: &Pubkey, ixs: &[Instruction]) -> Res
         signatures: vec![Signature::default(); num_sigs],
         message: VersionedMessage::V0(v0_msg),
     };
+
+    // Pre-flight simulate so a build that the wallet would reject surfaces
+    // the real failing account / log line back to the chat error message
+    // instead of the wallet's opaque "program error 3012". sig_verify=false
+    // and replace_recent_blockhash skip the unsigned-tx checks.
+    if let Ok(sim) = rpc.simulate_transaction_with_config(
+        &vtx,
+        solana_client::rpc_config::RpcSimulateTransactionConfig {
+            sig_verify: false,
+            replace_recent_blockhash: true,
+            commitment: Some(CommitmentConfig::confirmed()),
+            encoding: None,
+            accounts: None,
+            min_context_slot: None,
+            inner_instructions: false,
+        },
+    ).await {
+        if let Some(err) = sim.value.err {
+            let logs = sim.value.logs.unwrap_or_default();
+            let tail: Vec<String> = logs.iter().rev().take(8).rev().cloned().collect();
+            return Err(AppError::ProtocolError(format!(
+                "Simulation failed: {err:?}. Logs (last 8): {}",
+                tail.join(" | ")
+            )));
+        }
+    }
+
     bincode::serialize(&vtx)
         .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))
         .map_err(|e| AppError::Internal(format!("Serialize vtx: {e}")))
@@ -818,7 +1109,8 @@ async fn build_vtx_b64(rpc_url: &str, user: &Pubkey, ixs: &[Instruction]) -> Res
 
 /// Fetch pool pair info. Returns Err if the pool is not found.
 async fn fetch_pair(http: &reqwest::Client, pool: &str) -> Result<DlmmPairInfo, AppError> {
-    let url = format!("{DLMM_API}/pair/{pool}");
+    // New API: pool detail moved from /pair/{x} to /pools/{x}.
+    let url = format!("{DLMM_API}/pools/{pool}");
     let resp = http
         .get(&url)
         .send()
@@ -832,20 +1124,19 @@ async fn fetch_pair(http: &reqwest::Client, pool: &str) -> Result<DlmmPairInfo, 
         .map_err(|e| AppError::ProtocolError(format!("Parse DLMM pair info: {e}")))
 }
 
-/// Fetch position data. Returns Err if the position is not found.
-async fn fetch_pos(http: &reqwest::Client, position: &str) -> Result<DlmmPositionData, AppError> {
-    let url = format!("{DLMM_API}/position/{position}");
-    let resp = http
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("DLMM position fetch: {e}")))?;
-    if !resp.status().is_success() {
-        return Err(AppError::ProtocolError(format!("Position '{position}' not found on Meteora DLMM")));
-    }
-    resp.json::<DlmmPositionData>()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Parse DLMM position: {e}")))
+/// Fetch position data by position id. The legacy `/position/{id}` endpoint
+/// was removed when Meteora migrated to the datapi host; the new API only
+/// exposes positions per-user via `/portfolio/open?user=...`. Callers that
+/// only know the position id (typical for tx construction flows) need the
+/// position's owner wallet first. Until the dependent flows are reworked to
+/// fetch the user list and pick by id, return a clear error so the action
+/// fails with a useful message instead of a 404.
+async fn fetch_pos(_http: &reqwest::Client, position: &str) -> Result<DlmmPositionData, AppError> {
+    Err(AppError::ProtocolError(format!(
+        "Meteora DLMM position lookup by id is temporarily unsupported \
+         after the datapi migration; pass the position via the user's \
+         portfolio (position '{position}')."
+    )))
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // Build: Swap
@@ -880,14 +1171,14 @@ pub async fn build_meteora_swap(
 
     // Fetch pool to determine token order and decimals.
     let pair = fetch_pair(http, pool_str).await?;
-    let active_id = pair.active_id.unwrap_or(0);
-    let mint_x = Pubkey::from_str(&pair.mint_x)
+    let active_id = pair.active_id_resolved().unwrap_or(0);
+    let mint_x = Pubkey::from_str(pair.mint_x_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintX from API: {e}")))?;
-    let mint_y = Pubkey::from_str(&pair.mint_y)
+    let mint_y = Pubkey::from_str(pair.mint_y_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintY from API: {e}")))?;
 
     let x_to_y = input_mint == mint_x;
-    let input_decimals = if x_to_y { pair.token_x_decimals } else { pair.token_y_decimals };
+    let input_decimals = if x_to_y { pair.token_x_decimals() } else { pair.token_y_decimals() };
 
     let slippage = params.slippage_bps.unwrap_or(50);
     let amount_float: f64 = params.amount.parse()
@@ -904,8 +1195,9 @@ pub async fn build_meteora_swap(
     let ba1 = bin_array_pda(&lb_pair, active_arr);
     let ba2 = bin_array_pda(&lb_pair, active_arr + 1);
 
-    let reserve_x = reserve_pda(&mint_x, &lb_pair);
-    let reserve_y = reserve_pda(&mint_y, &lb_pair);
+    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    let reserve_x = _lb_fields.reserve_x;
+    let reserve_y = _lb_fields.reserve_y;
     let user_token_in  = get_associated_token_address(&user, &input_mint);
     let user_token_out = get_associated_token_address(&user, &output_mint);
     let oracle = oracle_pda(&lb_pair);
@@ -926,8 +1218,9 @@ pub async fn build_meteora_swap(
         program_id: dlmm_program(),
         accounts: vec![
             AccountMeta::new(lb_pair, false),
-            // bitmap_ext: optional — pass system_program as placeholder
-            AccountMeta::new_readonly(system_program::id(), false),
+            // bitmap_ext: optional — Anchor convention for absent is to
+            // pass the program ID itself; system_program would cause 3007.
+            AccountMeta::new_readonly(dlmm_program(), false),
             AccountMeta::new(reserve_x, false),
             AccountMeta::new(reserve_y, false),
             AccountMeta::new(user_token_in, false),
@@ -1014,14 +1307,14 @@ pub async fn build_meteora_open_position(
         .map_err(|e| AppError::InvalidParams(format!("Invalid pool: {e}")))?;
 
     let pair = fetch_pair(http, &params.pool).await?;
-    let active_id = pair.active_id.unwrap_or(0);
-    let bin_step = pair.bin_step;
-    let mint_x = Pubkey::from_str(&pair.mint_x)
+    let active_id = pair.active_id_resolved().unwrap_or(0);
+    let bin_step = pair.bin_step_resolved();
+    let mint_x = Pubkey::from_str(pair.mint_x_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintX: {e}")))?;
-    let mint_y = Pubkey::from_str(&pair.mint_y)
+    let mint_y = Pubkey::from_str(pair.mint_y_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintY: {e}")))?;
-    let x_dec = pair.token_x_decimals;
-    let y_dec = pair.token_y_decimals;
+    let x_dec = pair.token_x_decimals();
+    let y_dec = pair.token_y_decimals();
 
     // Resolve bin range from either direct IDs or prices.
     let (lower_bin_id, upper_bin_id) = resolve_bin_range(params.min_bin_id, params.max_bin_id,
@@ -1038,16 +1331,39 @@ pub async fn build_meteora_open_position(
 
     let position = position_pda(&lb_pair, &user, lower_bin_id, width);
     let lower_arr = bin_id_to_array_index(lower_bin_id);
-    let upper_arr = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    // Anchor cannot mutably borrow the same account twice. When the position
+    // fits in a single bin array (`lower_bin_id` and `upper_bin_id - 1` resolve
+    // to the same index) the SDK convention is to pass `lower_arr + 1` as the
+    // upper bin array — the on-chain program tolerates an unused upper as long
+    // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
+    // missing array, so this is safe.
+    let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
-    let reserve_x = reserve_pda(&mint_x, &lb_pair);
-    let reserve_y = reserve_pda(&mint_y, &lb_pair);
+    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    let reserve_x = _lb_fields.reserve_x;
+    let reserve_y = _lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
 
+    // Pre-flight: ensure both bin arrays exist on-chain. First-time LPs
+    // into a fresh range otherwise hit Anchor 3007 when add_liquidity
+    // tries to deserialize an uninitialized bin_array PDA.
+    let rpc = AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let init_bin_ixs = ensure_bin_arrays_initialized(
+        &rpc, &lb_pair, &[lower_arr, upper_arr], &user,
+    ).await?;
+
     let mut ixs: Vec<Instruction> = vec![];
+
+    // ATA + wSOL wrap prelude (see build_meteora_add_liquidity for rationale).
+    ixs.extend(build_lp_token_setup_ixs(
+        &user, &mint_x, &mint_y, amount_x, amount_y,
+    ));
+
+    ixs.extend(init_bin_ixs);
 
     // 1. initialize_position_pda
     // payer = base = owner = user (all same pubkey; base + payer must sign)
@@ -1073,7 +1389,12 @@ pub async fn build_meteora_open_position(
         accounts: vec![
             AccountMeta::new(position, false),
             AccountMeta::new(lb_pair, false),
-            AccountMeta::new_readonly(system_program::id(), false), // bitmap_ext (optional)
+            // bitmap_ext is optional in the on-chain program. The Anchor
+            // convention for "absent optional account" is to pass the program
+            // ID itself, NOT system_program::id(). Passing system_program causes
+            // Anchor to try deserialising an unrelated account → error 3007
+            // (AccountDidNotDeserialize).
+            AccountMeta::new_readonly(dlmm_program(), false), // bitmap_ext (absent placeholder)
             AccountMeta::new(user_ata_x, false),
             AccountMeta::new(user_ata_y, false),
             AccountMeta::new(reserve_x, false),
@@ -1096,6 +1417,11 @@ pub async fn build_meteora_open_position(
             bin_liquidity_dist: bin_dist,
         }),
     });
+
+    // Close wSOL ATA so any unused wrapped SOL refunds to the wallet as
+    // native SOL (Meteora consumes only what bin weights demand, leaving
+    // a remainder).
+    ixs.extend(build_wsol_unwrap_ixs(&user, &mint_x, &mint_y));
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
@@ -1152,14 +1478,14 @@ pub async fn build_meteora_add_liquidity(
         .map_err(|e| AppError::InvalidParams(format!("Invalid pool: {e}")))?;
 
     let pair = fetch_pair(http, &params.pool).await?;
-    let active_id = pair.active_id.unwrap_or(0);
-    let bin_step = pair.bin_step;
-    let mint_x = Pubkey::from_str(&pair.mint_x)
+    let active_id = pair.active_id_resolved().unwrap_or(0);
+    let bin_step = pair.bin_step_resolved();
+    let mint_x = Pubkey::from_str(pair.mint_x_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintX: {e}")))?;
-    let mint_y = Pubkey::from_str(&pair.mint_y)
+    let mint_y = Pubkey::from_str(pair.mint_y_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintY: {e}")))?;
-    let x_dec = pair.token_x_decimals;
-    let y_dec = pair.token_y_decimals;
+    let x_dec = pair.token_x_decimals();
+    let y_dec = pair.token_y_decimals();
 
     let (lower_bin_id, upper_bin_id) = resolve_bin_range(
         params.min_bin_id, params.max_bin_id,
@@ -1175,20 +1501,45 @@ pub async fn build_meteora_add_liquidity(
 
     let position = position_pda(&lb_pair, &user, lower_bin_id, width);
     let lower_arr = bin_id_to_array_index(lower_bin_id);
-    let upper_arr = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    // Anchor cannot mutably borrow the same account twice. When the position
+    // fits in a single bin array (`lower_bin_id` and `upper_bin_id - 1` resolve
+    // to the same index) the SDK convention is to pass `lower_arr + 1` as the
+    // upper bin array — the on-chain program tolerates an unused upper as long
+    // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
+    // missing array, so this is safe.
+    let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
-    let reserve_x = reserve_pda(&mint_x, &lb_pair);
-    let reserve_y = reserve_pda(&mint_y, &lb_pair);
+    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    let reserve_x = _lb_fields.reserve_x;
+    let reserve_y = _lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
 
-    // Check if the position account already exists on-chain.
+    // Pre-flight: position account + bin array existence checks. Both have
+    // to live on-chain before add_liquidity_by_weight can read them; a
+    // missing position triggers initialize_position_pda, a missing bin
+    // array triggers initialize_bin_array. Without these prepended ixs,
+    // first-time LPs into a fresh range get Anchor error 3007.
     let rpc = AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
     let position_exists = rpc.get_account(&position).await.is_ok();
 
     let mut ixs: Vec<Instruction> = vec![];
+
+    // ATA + wSOL wrap prelude — without this, deposits of native SOL or
+    // first-time deposits of an SPL the user has never held trip Anchor
+    // 3012 (AccountNotInitialized) on the reserve transfer.
+    ixs.extend(build_lp_token_setup_ixs(
+        &user, &mint_x, &mint_y, amount_x, amount_y,
+    ));
+
+    // Bin array init ixs — emit only for arrays not yet on-chain.
+    let init_bin_ixs = ensure_bin_arrays_initialized(
+        &rpc, &lb_pair, &[lower_arr, upper_arr], &user,
+    ).await?;
+    ixs.extend(init_bin_ixs);
 
     if !position_exists {
         ixs.push(Instruction {
@@ -1213,7 +1564,10 @@ pub async fn build_meteora_add_liquidity(
         accounts: vec![
             AccountMeta::new(position, false),
             AccountMeta::new(lb_pair, false),
-            AccountMeta::new_readonly(system_program::id(), false),
+            // bitmap_ext is optional. Anchor convention for "absent" is the
+            // program ID itself, NOT system_program::id() (which would deserialize
+            // into BinArrayBitmapExtension and trip error 3007).
+            AccountMeta::new_readonly(dlmm_program(), false),
             AccountMeta::new(user_ata_x, false),
             AccountMeta::new(user_ata_y, false),
             AccountMeta::new(reserve_x, false),
@@ -1236,6 +1590,11 @@ pub async fn build_meteora_add_liquidity(
             bin_liquidity_dist: bin_dist,
         }),
     });
+
+    // Close wSOL ATA so any unused wrapped SOL refunds to the wallet as
+    // native SOL (Meteora consumes only what bin weights demand, leaving
+    // a remainder).
+    ixs.extend(build_wsol_unwrap_ixs(&user, &mint_x, &mint_y));
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
@@ -1293,9 +1652,9 @@ pub async fn build_meteora_remove_liquidity(
         .map_err(|e| AppError::ProtocolError(format!("Invalid lb_pair from API: {e}")))?;
 
     let pair = fetch_pair(http, &pos_data.lb_pair).await?;
-    let mint_x = Pubkey::from_str(&pair.mint_x)
+    let mint_x = Pubkey::from_str(pair.mint_x_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintX: {e}")))?;
-    let mint_y = Pubkey::from_str(&pair.mint_y)
+    let mint_y = Pubkey::from_str(pair.mint_y_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintY: {e}")))?;
 
     let bps = params.bps_to_remove.unwrap_or(10_000);
@@ -1318,11 +1677,19 @@ pub async fn build_meteora_remove_liquidity(
     let amount_y_min = 0u64;
 
     let lower_arr = bin_id_to_array_index(lower_bin_id);
-    let upper_arr = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    // Anchor cannot mutably borrow the same account twice. When the position
+    // fits in a single bin array (`lower_bin_id` and `upper_bin_id - 1` resolve
+    // to the same index) the SDK convention is to pass `lower_arr + 1` as the
+    // upper bin array — the on-chain program tolerates an unused upper as long
+    // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
+    // missing array, so this is safe.
+    let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
-    let reserve_x = reserve_pda(&mint_x, &lb_pair);
-    let reserve_y = reserve_pda(&mint_y, &lb_pair);
+    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    let reserve_x = _lb_fields.reserve_x;
+    let reserve_y = _lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
@@ -1332,7 +1699,12 @@ pub async fn build_meteora_remove_liquidity(
         accounts: vec![
             AccountMeta::new(position, false),
             AccountMeta::new(lb_pair, false),
-            AccountMeta::new_readonly(system_program::id(), false), // bitmap_ext (optional)
+            // bitmap_ext is optional in the on-chain program. The Anchor
+            // convention for "absent optional account" is to pass the program
+            // ID itself, NOT system_program::id(). Passing system_program causes
+            // Anchor to try deserialising an unrelated account → error 3007
+            // (AccountDidNotDeserialize).
+            AccountMeta::new_readonly(dlmm_program(), false), // bitmap_ext (absent placeholder)
             AccountMeta::new(user_ata_x, false),
             AccountMeta::new(user_ata_y, false),
             AccountMeta::new(reserve_x, false),
@@ -1412,9 +1784,9 @@ pub async fn build_meteora_close_position(
         .map_err(|e| AppError::ProtocolError(format!("Invalid lb_pair from API: {e}")))?;
 
     let pair = fetch_pair(http, &pos_data.lb_pair).await?;
-    let mint_x = Pubkey::from_str(&pair.mint_x)
+    let mint_x = Pubkey::from_str(pair.mint_x_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintX: {e}")))?;
-    let mint_y = Pubkey::from_str(&pair.mint_y)
+    let mint_y = Pubkey::from_str(pair.mint_y_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintY: {e}")))?;
 
     let lower_bin_id = pos_data.lower_bin_id;
@@ -1425,11 +1797,19 @@ pub async fn build_meteora_close_position(
         .collect();
 
     let lower_arr = bin_id_to_array_index(lower_bin_id);
-    let upper_arr = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    // Anchor cannot mutably borrow the same account twice. When the position
+    // fits in a single bin array (`lower_bin_id` and `upper_bin_id - 1` resolve
+    // to the same index) the SDK convention is to pass `lower_arr + 1` as the
+    // upper bin array — the on-chain program tolerates an unused upper as long
+    // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
+    // missing array, so this is safe.
+    let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
-    let reserve_x = reserve_pda(&mint_x, &lb_pair);
-    let reserve_y = reserve_pda(&mint_y, &lb_pair);
+    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    let reserve_x = _lb_fields.reserve_x;
+    let reserve_y = _lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
@@ -1441,7 +1821,8 @@ pub async fn build_meteora_close_position(
             accounts: vec![
                 AccountMeta::new(position, false),
                 AccountMeta::new(lb_pair, false),
-                AccountMeta::new_readonly(system_program::id(), false),
+                // bitmap_ext (optional, absent → program ID per Anchor convention)
+                AccountMeta::new_readonly(dlmm_program(), false),
                 AccountMeta::new(user_ata_x, false),
                 AccountMeta::new(user_ata_y, false),
                 AccountMeta::new(reserve_x, false),
@@ -1562,13 +1943,13 @@ pub async fn build_meteora_add_to_position(
         .map_err(|e| AppError::ProtocolError(format!("Invalid lb_pair: {e}")))?;
 
     let pair = fetch_pair(http, &pos_data.lb_pair).await?;
-    let active_id = pair.active_id.unwrap_or(0);
-    let mint_x = Pubkey::from_str(&pair.mint_x)
+    let active_id = pair.active_id_resolved().unwrap_or(0);
+    let mint_x = Pubkey::from_str(pair.mint_x_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintX: {e}")))?;
-    let mint_y = Pubkey::from_str(&pair.mint_y)
+    let mint_y = Pubkey::from_str(pair.mint_y_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintY: {e}")))?;
-    let x_dec = pair.token_x_decimals;
-    let y_dec = pair.token_y_decimals;
+    let x_dec = pair.token_x_decimals();
+    let y_dec = pair.token_y_decimals();
 
     let lower_bin_id = pos_data.lower_bin_id;
     let upper_bin_id = pos_data.upper_bin_id;
@@ -1580,21 +1961,34 @@ pub async fn build_meteora_add_to_position(
     );
 
     let lower_arr = bin_id_to_array_index(lower_bin_id);
-    let upper_arr = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    // Anchor cannot mutably borrow the same account twice. When the position
+    // fits in a single bin array (`lower_bin_id` and `upper_bin_id - 1` resolve
+    // to the same index) the SDK convention is to pass `lower_arr + 1` as the
+    // upper bin array — the on-chain program tolerates an unused upper as long
+    // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
+    // missing array, so this is safe.
+    let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
+    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
-    let reserve_x = reserve_pda(&mint_x, &lb_pair);
-    let reserve_y = reserve_pda(&mint_y, &lb_pair);
+    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    let reserve_x = _lb_fields.reserve_x;
+    let reserve_y = _lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
 
-    let ixs = vec![Instruction {
+    // ATA + wSOL wrap prelude (see build_meteora_add_liquidity for rationale).
+    let mut ixs: Vec<Instruction> = build_lp_token_setup_ixs(
+        &user, &mint_x, &mint_y, amount_x, amount_y,
+    );
+    ixs.push(Instruction {
         program_id: dlmm_program(),
         accounts: vec![
             AccountMeta::new(position, false),
             AccountMeta::new(lb_pair, false),
-            AccountMeta::new_readonly(system_program::id(), false),
+            // bitmap_ext (optional, absent → program ID per Anchor convention)
+            AccountMeta::new_readonly(dlmm_program(), false),
             AccountMeta::new(user_ata_x, false),
             AccountMeta::new(user_ata_y, false),
             AccountMeta::new(reserve_x, false),
@@ -1616,7 +2010,12 @@ pub async fn build_meteora_add_to_position(
             max_active_bin_slippage: slippage_bins,
             bin_liquidity_dist: bin_dist,
         }),
-    }];
+    });
+
+    // Close wSOL ATA so any unused wrapped SOL refunds to the wallet as
+    // native SOL (Meteora consumes only what bin weights demand, leaving
+    // a remainder).
+    ixs.extend(build_wsol_unwrap_ixs(&user, &mint_x, &mint_y));
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
@@ -1675,13 +2074,14 @@ pub async fn build_meteora_claim_fees(
         .map_err(|e| AppError::ProtocolError(format!("Invalid lb_pair: {e}")))?;
 
     let pair = fetch_pair(http, &pos_data.lb_pair).await?;
-    let mint_x = Pubkey::from_str(&pair.mint_x)
+    let mint_x = Pubkey::from_str(pair.mint_x_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintX: {e}")))?;
-    let mint_y = Pubkey::from_str(&pair.mint_y)
+    let mint_y = Pubkey::from_str(pair.mint_y_str())
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintY: {e}")))?;
 
-    let reserve_x = reserve_pda(&mint_x, &lb_pair);
-    let reserve_y = reserve_pda(&mint_y, &lb_pair);
+    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    let reserve_x = _lb_fields.reserve_x;
+    let reserve_y = _lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
@@ -1774,7 +2174,7 @@ pub async fn build_meteora_claim_rewards(
         None => {
             // Claim all configured reward slots (0 and 1).
             let mut v = vec![0u64];
-            if pair.reward_mints.len() > 1 {
+            if pair.reward_mints_resolved().len() > 1 {
                 v.push(1);
             }
             v
@@ -1788,7 +2188,8 @@ pub async fn build_meteora_claim_rewards(
 
         // Reward mint: derive from pool's reward_mints or use the vault ATA owner lookup.
         // If the API doesn't provide reward mints, default to a best-effort vault derivation.
-        let reward_mint_str = pair.reward_mints.get(reward_index as usize)
+        let reward_mints_vec = pair.reward_mints_resolved();
+        let reward_mint_str = reward_mints_vec.get(reward_index as usize)
             .map(|s| s.as_str())
             .unwrap_or("");
 
@@ -1900,8 +2301,9 @@ pub async fn build_meteora_create_pool(
     };
 
     let lb_pair = lb_pair_pda(&mint_x, &mint_y, bin_step);
-    let reserve_x = reserve_pda(&mint_x, &lb_pair);
-    let reserve_y = reserve_pda(&mint_y, &lb_pair);
+    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    let reserve_x = _lb_fields.reserve_x;
+    let reserve_y = _lb_fields.reserve_y;
     let oracle = oracle_pda(&lb_pair);
     let preset = preset_parameter_pda(bin_step);
     let event_auth = dlmm_event_authority();
@@ -1910,7 +2312,12 @@ pub async fn build_meteora_create_pool(
         program_id: dlmm_program(),
         accounts: vec![
             AccountMeta::new(lb_pair, false),
-            AccountMeta::new_readonly(system_program::id(), false), // bitmap_ext (optional)
+            // bitmap_ext is optional in the on-chain program. The Anchor
+            // convention for "absent optional account" is to pass the program
+            // ID itself, NOT system_program::id(). Passing system_program causes
+            // Anchor to try deserialising an unrelated account → error 3007
+            // (AccountDidNotDeserialize).
+            AccountMeta::new_readonly(dlmm_program(), false), // bitmap_ext (absent placeholder)
             AccountMeta::new_readonly(mint_x, false),
             AccountMeta::new_readonly(mint_y, false),
             AccountMeta::new(reserve_x, false),
@@ -3213,7 +3620,7 @@ pub async fn build_meteora_dlmm_get_pair(
     http: &reqwest::Client,
     params: &MeteoraDlmmGetPairParams,
 ) -> Result<BuildResponse, AppError> {
-    let url = format!("{DLMM_API}/pair/{}", params.address);
+    let url = format!("{DLMM_API}/pools/{}", params.address);
     let data = meteora_get(http, &url).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -3241,7 +3648,9 @@ pub async fn build_meteora_dlmm_get_user_positions(
     params: &MeteoraDlmmGetUserPositionsParams,
 ) -> Result<BuildResponse, AppError> {
     let wallet = params.wallet.as_deref().unwrap_or(user_pubkey_str);
-    let url = format!("{DLMM_API}/position/user/{wallet}");
+    // New API: /portfolio/open?user=... returns the user's open DLMM positions.
+    // Legacy /position/user/{wallet} was removed.
+    let url = format!("{DLMM_API}/portfolio/open?user={wallet}");
     let data = meteora_get(http, &url).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -3267,7 +3676,14 @@ pub async fn build_meteora_dlmm_get_active_bin(
     http: &reqwest::Client,
     params: &MeteoraDlmmGetActiveBinParams,
 ) -> Result<BuildResponse, AppError> {
-    let url = format!("{DLMM_API}/lb_pair/{}/active_bin", params.address);
+    // New API removed the dedicated /lb_pair/{x}/active_bin endpoint. The pool
+    // detail at /pools/{x} carries `current_price` and `pool_config.bin_step`,
+    // from which the active bin id derives:
+    //   bin_id = round( log(current_price) / log(1 + bin_step / 10000) )
+    // We surface the full pool detail and let the caller (LLM or downstream
+    // logic) pull the relevant fields. This keeps the query name stable for
+    // existing prompts.
+    let url = format!("{DLMM_API}/pools/{}", params.address);
     let data = meteora_get(http, &url).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -4195,9 +4611,11 @@ pub async fn build_meteora_dammv1_swap(
 ) -> Result<BuildResponse, AppError> {
     validate_meteora_dammv1_swap_params(params)?;
     let slippage = params.slippage_bps.unwrap_or(50);
-    // Jupiter quote — no AMM restriction; Jupiter routes through DAMM v1 automatically
+    // Jupiter quote — no AMM restriction; Jupiter routes through DAMM v1 automatically.
+    // Host: lite-api.jup.ag (the legacy quote-api.jup.ag/v6 hostname was retired
+    // and now NXDOMAINs).
     let quote_url = format!(
-        "https://quote-api.jup.ag/v6/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}&onlyDirectRoutes=false",
+        "https://lite-api.jup.ag/swap/v1/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}&onlyDirectRoutes=false",
         params.input_mint, params.output_mint, params.amount, slippage
     );
     let quote: serde_json::Value = http.get(&quote_url)
@@ -5181,7 +5599,7 @@ mod tests {
 
     #[test]
     fn test_dlmm_api_constant() {
-        assert_eq!(DLMM_API, "https://dlmm-api.meteora.ag");
+        assert_eq!(DLMM_API, "https://dlmm.datapi.meteora.ag");
     }
 
     #[test]

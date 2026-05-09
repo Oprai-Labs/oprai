@@ -8,6 +8,7 @@ endif
 .PHONY: dev-infra dev-stop dev-go dev-rust dev-python dev-angular dev-solana-ts build-solana-ts
 .PHONY: migrate-py
 .PHONY: docker-build docker-up docker-down docker-logs
+.PHONY: tokens-verify tokens-sync
 
 BACKUP_DIR := backups
 TIMESTAMP  := $(shell date +%Y%m%d_%H%M%S)
@@ -24,6 +25,14 @@ help: ## Show this help
 proto: ## Generate gRPC code from proto definitions (Go, Python, Rust)
 	@./scripts/build-protos.sh
 
+# ──────────────── Token registry ────────────────
+
+tokens-verify: ## Cross-check shared/tokens.json against the Jupiter token API
+	@node scripts/verify-tokens.mjs
+
+tokens-sync: ## Regenerate language-specific token modules from shared/tokens.json
+	@node scripts/sync-tokens.mjs
+
 # ──────────────── Build (Polyglot) ────────────────
 
 build-go: ## Build all Go services (auth, admin, gateway)
@@ -34,9 +43,10 @@ build-go: ## Build all Go services (auth, admin, gateway)
 build-rust: ## Build Rust solana-service
 	cd services/solana-service-rs && cargo build --release
 
-build-python: ## Install Python dependencies (chat, memory) in venvs
+build-python: ## Install Python dependencies (chat, memory, knowledge-ingestion) in venvs
 	cd services/chat-service-py && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 	cd services/memory-service-py && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+	cd services/knowledge-ingestion-service && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 build-angular: ## Build Angular frontend
 	cd apps/oprai && npm install && npx ng build --configuration production
@@ -63,6 +73,12 @@ install: ## Install all dependencies (Node.js + Go + Rust + Python)
 
 test: ## Run all tests
 	pnpm test
+
+llm-eval: ## Run the full LLM regression eval (slow, costs API credits) — 200+ cases across all protocols
+	cd services/chat-service-py && .venv/bin/pytest tests/test_llm_*.py --maxfail=20 -q --tb=line
+
+llm-eval-fast: ## Run only the core-action LLM eval subset (~80 cases) — fastest sanity check
+	cd services/chat-service-py && .venv/bin/pytest tests/test_llm_core_actions.py -q --tb=line
 
 clean: ## Remove all build artifacts
 	pnpm clean

@@ -73,7 +73,7 @@ export class SpendingLimitService {
 
   /**
    * Check limits before executing a transaction.
-   * amountUsd = 0 veya negatif ise her zaman izin verir.
+   * amountUsd <= 0 always passes — callers must ensure non-zero for fund-moving actions.
    */
   check(amountUsd: number): LimitCheckResult {
     if (amountUsd <= 0) return { allowed: true };

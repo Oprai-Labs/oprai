@@ -1,6 +1,7 @@
-import { Component, Input, Output, EventEmitter, inject, signal, OnInit } from '@angular/core';
+import { Component, Input, Output, EventEmitter, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
+import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { ParsedQuery, ParsedAction, IntentParserService } from '../../services/intent-parser.service';
 import { ApiService } from '@core/services/api.service';
 import { ChatApiService, QuerySnapshot } from '../../services/chat-api.service';
@@ -9,10 +10,12 @@ import { PriceFeedService } from '@core/services/market/price-feed.service';
 import { WalletService } from '@core/services/wallet.service';
 import { PortfolioService } from '@features/portfolio/services/portfolio.service';
 import { SolanaRpcService } from '@features/portfolio/services/solana-rpc.service';
+import { BirdeyeService } from '@features/portfolio/services/birdeye.service';
 import { JupiterLendService, LendPosition, BorrowPosition } from '@core/services/market/jupiter-lend.service';
 import { JupiterPerpService, PerpPosition } from '@core/services/market/jupiter-perp.service';
+import { MeteoraService, DlmmPair, DammV2Pool, DammV1Pool } from '@core/services/market/meteora.service';
 import { environment } from '../../../../../environments/environment';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, debounceTime, distinctUntilChanged } from 'rxjs';
 
 /** Mock query result types */
 interface BalanceResult {
@@ -21,6 +24,8 @@ interface BalanceResult {
   balance: number;
   value: number;
   change24h: number;
+  logoUri?: string | null;
+  mint?: string;
 }
 
 interface PriceResult {
@@ -165,15 +170,23 @@ interface AlertItem {
   createdAt: string;
 }
 
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const SOL_LOGO = 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png';
+
 // Static lookup for the most common Solana tokens (avoids async registry for display)
 const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {
-  'So11111111111111111111111111111111111111112': { symbol: 'SOL', decimals: 9 },
+  // Wrapped SOL has the same mint string the SDK reports for native SOL
+  // (`So11…`), but in a balance list it MUST render as "wSOL" so the user
+  // can see their native SOL row separately from any wrapped balance left
+  // over after a swap / LP unwind. The fetchSol path below assigns "SOL" to
+  // the native lamport balance, leaving this entry to label the SPL token.
+  'So11111111111111111111111111111111111111112': { symbol: 'wSOL', decimals: 9 },
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { symbol: 'USDC', decimals: 6 },
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { symbol: 'USDT', decimals: 6 },
   'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN': { symbol: 'JUP', decimals: 6 },
   'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': { symbol: 'BONK', decimals: 5 },
   'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v': { symbol: 'JupSOL', decimals: 9 },
-  'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kongC': { symbol: 'jitoSOL', decimals: 9 },
+  'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': { symbol: 'jitoSOL', decimals: 9 },
   'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': { symbol: 'mSOL', decimals: 9 },
   'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1': { symbol: 'bSOL', decimals: 9 },
   '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs': { symbol: 'ETH', decimals: 8 },
@@ -188,30 +201,151 @@ const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {
   templateUrl: './query-card.component.html',
   styleUrl: './query-card.component.scss',
 })
-export class QueryCardComponent implements OnInit {
+export class QueryCardComponent implements OnInit, OnDestroy {
   @Input({ required: true }) query!: ParsedQuery;
   @Input() sessionId: string | null = null;
   @Input() messageId: string | null = null;
   /** DB-persisted snapshot from a previous fetch; if present, skip re-fetching. */
   @Input() snapshot: QuerySnapshot | null = null;
   @Output() cancelAction = new EventEmitter<ParsedAction>();
+  /**
+   * Emitted when the user clicks a "use this pool / use this row" CTA on a
+   * row of an interactive QueryCard (currently DLMM pool list). Carries a
+   * fully-formed ParsedAction with the pool / mint identifiers pre-filled
+   * so the chat-shell can append an action card to the same conversation,
+   * letting the user enter only the amounts.
+   */
+  @Output() useAction = new EventEmitter<ParsedAction>();
+  /**
+   * UI-only feedback: which pool address row was just copied. Cleared
+   * after a brief delay so the icon/label can flash "copied" state.
+   */
+  readonly copiedAddress = signal<string | null>(null);
 
   private readonly intentParser = inject(IntentParserService);
   private readonly api = inject(ApiService);
   private readonly chatApi = inject(ChatApiService);
   private readonly tokenRegistry = inject(TokenRegistryService);
   private readonly priceFeed = inject(PriceFeedService);
+  private readonly birdeye = inject(BirdeyeService);
   private readonly walletService = inject(WalletService);
   private readonly portfolioService = inject(PortfolioService);
   private readonly solanaRpc = inject(SolanaRpcService);
   private readonly jupiterLend = inject(JupiterLendService);
   private readonly jupiterPerp = inject(JupiterPerpService);
+  private readonly meteora = inject(MeteoraService);
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
 
+  private readonly BALANCE_PAGE_SIZE = 10;
+
   // Mock result data
   balanceResults: BalanceResult[] = [];
+
+  // ── Balance search (debounced) ────────────────────────────────────────────
+  readonly balanceSearchRaw = signal('');
+  // 200 ms debounce + distinctUntilChanged — prevents thrashing on fast typing
+  readonly balanceSearch = toSignal(
+    toObservable(this.balanceSearchRaw).pipe(
+      debounceTime(200),
+      distinctUntilChanged(),
+    ),
+    { initialValue: '' }
+  );
+
+  // ── Sort state — default: value descending ───────────────────────────────
+  readonly balanceSortField = signal<'value' | 'change24h'>('value');
+  readonly balanceSortDir   = signal<'asc' | 'desc'>('desc');
+
+  // ── Pagination ───────────────────────────────────────────────────────────
+  readonly balancePage = signal(0);
+
+  readonly filteredBalanceResults = computed(() => {
+    const q = (this.balanceSearch() ?? '').toLowerCase().trim();
+
+    // Filter: symbol, name, or mint prefix match
+    let results: BalanceResult[] = q
+      ? this.balanceResults.filter(r =>
+          r.symbol.toLowerCase().includes(q) ||
+          r.token.toLowerCase().includes(q) ||
+          (r.mint?.toLowerCase().startsWith(q) ?? false)
+        )
+      : [...this.balanceResults];
+
+    // Sort in place (copy already made above)
+    const field = this.balanceSortField();
+    const dir   = this.balanceSortDir();
+    results.sort((a, b) => {
+      const av = field === 'value' ? a.value : a.change24h;
+      const bv = field === 'value' ? b.value : b.change24h;
+      return dir === 'desc' ? bv - av : av - bv;
+    });
+
+    return results;
+  });
+
+  readonly balanceTotalPages = computed(() =>
+    Math.max(1, Math.ceil(this.filteredBalanceResults().length / this.BALANCE_PAGE_SIZE))
+  );
+
+  readonly pagedBalanceResults = computed(() => {
+    // Clamp page so stale page index never shows empty rows after a search
+    const page = Math.min(this.balancePage(), this.balanceTotalPages() - 1);
+    const all  = this.filteredBalanceResults();
+    return all.slice(page * this.BALANCE_PAGE_SIZE, (page + 1) * this.BALANCE_PAGE_SIZE);
+  });
+
+  // ── Meteora DLMM pool list (server-side pagination) ─────────────────────
+  // Each sort/page/search change triggers a refetch — the API can return
+  // 100+ pools across many pages, so we never hold them all client-side.
+  readonly DLMM_PAGE_SIZE = 10;
+  readonly DLMM_SORT_OPTIONS: { field: 'tvl' | 'volume' | 'fee_tvl_ratio'; label: string }[] = [
+    { field: 'tvl', label: 'TVL' },
+    { field: 'volume', label: 'Volume' },
+    { field: 'fee_tvl_ratio', label: 'Fee/TVL' },
+  ];
+  dlmmResults: DlmmPair[] = [];
+  readonly dlmmPage = signal(1);            // 1-based, matches API
+  readonly dlmmTotalPages = signal(1);
+  readonly dlmmTotal = signal(0);
+  readonly dlmmSortField = signal<'tvl' | 'volume' | 'fee_tvl_ratio'>('tvl');
+  readonly dlmmSortDir   = signal<'asc' | 'desc'>('desc');
+  readonly dlmmSearchRaw = signal('');
+  readonly dlmmFetching = signal(false);
+  private dlmmSearchDebounce: ReturnType<typeof setTimeout> | null = null;
+
+  // ── Meteora DAMM v2 (constant-product / dynamic AMM) ──────────────────────
+  readonly DAMMV2_PAGE_SIZE = 10;
+  readonly DAMMV2_SORT_OPTIONS: { field: 'tvl' | 'volume' | 'fee_tvl_ratio'; label: string }[] = [
+    { field: 'tvl', label: 'TVL' },
+    { field: 'volume', label: 'Volume' },
+    { field: 'fee_tvl_ratio', label: 'Fee/TVL' },
+  ];
+  dammV2Results: DammV2Pool[] = [];
+  readonly dammV2Page = signal(1);
+  readonly dammV2TotalPages = signal(1);
+  readonly dammV2Total = signal(0);
+  readonly dammV2SortField = signal<'tvl' | 'volume' | 'fee_tvl_ratio'>('tvl');
+  readonly dammV2SortDir   = signal<'asc' | 'desc'>('desc');
+  readonly dammV2SearchRaw = signal('');
+  readonly dammV2Fetching = signal(false);
+  private dammV2SearchDebounce: ReturnType<typeof setTimeout> | null = null;
+
+  // ── Meteora DAMM v1 (legacy AMM, flat array — client-paginated) ───────────
+  readonly DAMMV1_PAGE_SIZE = 10;
+  readonly DAMMV1_SORT_OPTIONS: { field: 'pool_tvl' | 'weekly_base_apy' | 'weekly_trading_volume'; label: string }[] = [
+    { field: 'pool_tvl', label: 'TVL' },
+    { field: 'weekly_base_apy', label: 'APY' },
+    { field: 'weekly_trading_volume', label: '7d Vol' },
+  ];
+  dammV1All: DammV1Pool[] = [];
+  readonly dammV1Page = signal(1);
+  readonly dammV1SortField = signal<'pool_tvl' | 'weekly_base_apy' | 'weekly_trading_volume'>('pool_tvl');
+  readonly dammV1SortDir   = signal<'asc' | 'desc'>('desc');
+  readonly dammV1SearchRaw = signal('');
+  readonly dammV1Fetching = signal(false);
+  private dammV1SearchDebounce: ReturnType<typeof setTimeout> | null = null;
   priceResult: PriceResult | null = null;
   positionResults: PositionResult[] = [];
   transactionResults: TransactionResult[] = [];
@@ -248,16 +382,79 @@ export class QueryCardComponent implements OnInit {
       case 'lend_positions':
       case 'perp_positions':
         return 'assets/icons/protocols/jupiter.webp';
+      case 'meteora_dlmm_get_pairs':
+      case 'meteora_dammv2_get_pools':
+      case 'meteora_dammv1_get_pools':
+        return 'assets/icons/protocols/meteora.webp';
       default:
         return null;
+    }
+  }
+
+  /** Periodic refetch so live pool listings (DLMM/DAMM) stay close to the
+   *  protocol's official site while the user is reading the card. Cleared
+   *  in ngOnDestroy so it never runs for a chat the user has navigated
+   *  away from. */
+  private livePollTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** True iff this query type renders live market data that goes stale by
+   *  the minute (TVL, 24h volume). */
+  private get isLivePoolList(): boolean {
+    return (
+      this.query.type === 'meteora_dlmm_get_pairs' ||
+      this.query.type === 'meteora_dammv2_get_pools' ||
+      this.query.type === 'meteora_dammv1_get_pools'
+    );
+  }
+
+  /** Refetch whichever live-pool listing this card represents. Used by both
+   *  the manual refresh button and the 30s auto-poll. */
+  refreshLiveData(): void {
+    switch (this.query.type) {
+      case 'meteora_dlmm_get_pairs':    void this.fetchDlmmPairs();   break;
+      case 'meteora_dammv2_get_pools':  void this.fetchDammV2Pools(); break;
+      case 'meteora_dammv1_get_pools':  void this.fetchDammV1Pools(); break;
     }
   }
 
   ngOnInit(): void {
     if (this.snapshot) {
       this.restoreSnapshot(this.snapshot);
+      // Snapshot freshness check — restored snapshots older than 60s are
+      // already drifting from the live API, so kick off a silent refetch.
+      // The snapshot still renders first so the user sees data, not a spinner.
+      const fetchedMs = this.snapshot.fetchedAt ? Date.parse(this.snapshot.fetchedAt) : 0;
+      const ageMs = Date.now() - (Number.isFinite(fetchedMs) ? fetchedMs : 0);
+      if (this.isLivePoolList && ageMs > 60_000) {
+        this.refreshLiveData();
+      }
     } else {
       this.simulateQuery();
+    }
+
+    // While the card is mounted (i.e. visible in the active chat), refresh
+    // every 30s. Only for live pool listings — other query types either
+    // don't change (token info) or have their own update flow. Naturally
+    // scoped to the active chat: navigating away triggers ngOnDestroy.
+    if (this.isLivePoolList) {
+      this.livePollTimer = setInterval(() => {
+        if (document.hidden) return; // skip when tab is in background
+        // Don't stack concurrent fetches — whichever fetching signal is
+        // relevant for this card type acts as the busy guard.
+        const busy =
+          (this.query.type === 'meteora_dlmm_get_pairs'   && this.dlmmFetching())   ||
+          (this.query.type === 'meteora_dammv2_get_pools' && this.dammV2Fetching()) ||
+          (this.query.type === 'meteora_dammv1_get_pools' && this.dammV1Fetching());
+        if (busy) return;
+        this.refreshLiveData();
+      }, 30_000);
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.livePollTimer) {
+      clearInterval(this.livePollTimer);
+      this.livePollTimer = null;
     }
   }
 
@@ -265,7 +462,16 @@ export class QueryCardComponent implements OnInit {
     const d = snap.data as Record<string, unknown>;
     if (d['limitOrderResults']) this.limitOrderResults = d['limitOrderResults'] as LimitOrder[];
     if (d['dcaResults'])        this.dcaResults        = d['dcaResults']        as DcaOrder[];
-    if (d['balanceResults'])    this.balanceResults    = d['balanceResults']    as BalanceResult[];
+    if (d['balanceResults']) {
+      // Old snapshots labelled wSOL as "SOL" — same as native SOL — because
+      // the registry path was authoritative back then. Re-label on restore so
+      // historical chats render correctly without forcing a refetch.
+      this.balanceResults = (d['balanceResults'] as BalanceResult[]).map(r =>
+        r.mint === SOL_MINT
+          ? { ...r, symbol: 'wSOL', token: 'Wrapped SOL' }
+          : r,
+      );
+    }
     if (d['priceResult'])       this.priceResult       = d['priceResult']       as PriceResult;
     if (d['positionResults'])   this.positionResults   = d['positionResults']   as PositionResult[];
     if (d['transactionResults'])this.transactionResults= d['transactionResults']as TransactionResult[];
@@ -279,6 +485,30 @@ export class QueryCardComponent implements OnInit {
     if (d['walletInfoResult'])  this.walletInfoResult  = d['walletInfoResult']  as WalletInfoResult;
     if (d['taxResult'])         this.taxResult         = d['taxResult']         as TaxResult;
     if (d['alertResults'])      this.alertResults      = d['alertResults']      as AlertItem[];
+    if (d['dlmmResults']) {
+      this.dlmmResults = d['dlmmResults'] as DlmmPair[];
+      this.dlmmTotal.set((d['dlmmTotal'] as number | undefined) ?? this.dlmmResults.length);
+      this.dlmmTotalPages.set((d['dlmmTotalPages'] as number | undefined) ?? 1);
+      this.dlmmPage.set((d['dlmmPage'] as number | undefined) ?? 1);
+      this.dlmmSortField.set((d['dlmmSortField'] as 'tvl' | 'volume' | 'fee_tvl_ratio' | undefined) ?? 'tvl');
+      this.dlmmSortDir.set((d['dlmmSortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
+    }
+    if (d['dammV2Results']) {
+      this.dammV2Results = d['dammV2Results'] as DammV2Pool[];
+      this.dammV2Total.set((d['dammV2Total'] as number | undefined) ?? this.dammV2Results.length);
+      this.dammV2TotalPages.set((d['dammV2TotalPages'] as number | undefined) ?? 1);
+      this.dammV2Page.set((d['dammV2Page'] as number | undefined) ?? 1);
+      this.dammV2SortField.set((d['dammV2SortField'] as 'tvl' | 'volume' | 'fee_tvl_ratio' | undefined) ?? 'tvl');
+      this.dammV2SortDir.set((d['dammV2SortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
+    }
+    if (d['dammV1All']) {
+      this.dammV1All = d['dammV1All'] as DammV1Pool[];
+      this.dammV1Page.set((d['dammV1Page'] as number | undefined) ?? 1);
+      this.dammV1SortField.set(
+        (d['dammV1SortField'] as 'pool_tvl' | 'weekly_base_apy' | 'weekly_trading_volume' | undefined)
+        ?? 'pool_tvl');
+      this.dammV1SortDir.set((d['dammV1SortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
+    }
     this.loading.set(false);
   }
 
@@ -300,7 +530,59 @@ export class QueryCardComponent implements OnInit {
     if (this.walletInfoResult)          d['walletInfoResult']   = this.walletInfoResult;
     if (this.taxResult)                 d['taxResult']          = this.taxResult;
     if (this.alertResults.length)       d['alertResults']       = this.alertResults;
+    if (this.dlmmResults.length) {
+      d['dlmmResults']    = this.dlmmResults;
+      d['dlmmTotal']      = this.dlmmTotal();
+      d['dlmmTotalPages'] = this.dlmmTotalPages();
+      d['dlmmPage']       = this.dlmmPage();
+      d['dlmmSortField']  = this.dlmmSortField();
+      d['dlmmSortDir']    = this.dlmmSortDir();
+    }
+    if (this.dammV2Results.length) {
+      d['dammV2Results']    = this.dammV2Results;
+      d['dammV2Total']      = this.dammV2Total();
+      d['dammV2TotalPages'] = this.dammV2TotalPages();
+      d['dammV2Page']       = this.dammV2Page();
+      d['dammV2SortField']  = this.dammV2SortField();
+      d['dammV2SortDir']    = this.dammV2SortDir();
+    }
+    if (this.dammV1All.length) {
+      d['dammV1All']       = this.dammV1All;
+      d['dammV1Page']      = this.dammV1Page();
+      d['dammV1SortField'] = this.dammV1SortField();
+      d['dammV1SortDir']   = this.dammV1SortDir();
+    }
     return d;
+  }
+
+  onBalanceSearch(e: Event): void {
+    const val = (e.target as HTMLInputElement).value.slice(0, 100);
+    this.balanceSearchRaw.set(val);
+    this.balancePage.set(0); // reset page immediately on any keystroke
+  }
+
+  toggleSort(field: 'value' | 'change24h'): void {
+    if (this.balanceSortField() === field) {
+      this.balanceSortDir.update(d => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      this.balanceSortField.set(field);
+      this.balanceSortDir.set('desc');
+    }
+    this.balancePage.set(0);
+  }
+
+  balancePrevPage(): void {
+    if (this.balancePage() > 0) this.balancePage.update(p => p - 1);
+  }
+
+  balanceNextPage(): void {
+    if (this.balancePage() < this.balanceTotalPages() - 1) this.balancePage.update(p => p + 1);
+  }
+
+  /** Stable key for snapshot lookup — type + sorted param pairs. */
+  private snapshotKey(): string {
+    const sorted = Object.entries(this.query.params ?? {}).sort((a, b) => a[0].localeCompare(b[0]));
+    return `${this.query.type}:${JSON.stringify(sorted)}`;
   }
 
   private persistSnapshot(): void {
@@ -311,7 +593,7 @@ export class QueryCardComponent implements OnInit {
       fetchedAt: new Date().toISOString(),
     };
     this.chatApi.updateMessageMeta(this.sessionId, this.messageId, {
-      query_snapshots: { [this.query.raw]: snap },
+      query_snapshots: { [this.snapshotKey()]: snap },
     });
   }
 
@@ -535,6 +817,503 @@ export class QueryCardComponent implements OnInit {
     }
   }
 
+  /**
+   * Fetch one server-side page of DLMM pools. Called on initial render and on
+   * every page/sort/search change. The API caps at ~10 rows per page and we
+   * just hand them to the template — no client-side filtering or trimming.
+   */
+  private async fetchDlmmPairs(): Promise<void> {
+    this.dlmmFetching.set(true);
+    this.error.set(null);
+
+    // The model can pre-seed `query` (e.g. "jupSOL"); the user's search box
+    // overrides it once they start typing.
+    const searchOverride = (this.dlmmSearchRaw() ?? '').trim();
+    const seedQuery = (this.query.params['query'] as string | undefined)?.trim();
+    const queryStr = searchOverride || seedQuery || undefined;
+
+    const sortBy = `${this.dlmmSortField()}:${this.dlmmSortDir()}`;
+
+    const page = await this.meteora.fetchDlmmPairs({
+      query: queryStr,
+      page: this.dlmmPage(),
+      pageSize: this.DLMM_PAGE_SIZE,
+      sortBy,
+    });
+
+    if (!page) {
+      // Network or server error — keep whatever rows we already had so the
+      // user isn't yanked back to a blank state on a transient failure.
+      this.error.set('Failed to load DLMM pools');
+      this.dlmmFetching.set(false);
+      this.loading.set(false);
+      return;
+    }
+
+    this.dlmmResults = page.data ?? [];
+    this.dlmmTotal.set(page.total ?? this.dlmmResults.length);
+    this.dlmmTotalPages.set(Math.max(1, page.pages ?? 1));
+    // Server clamps the page; mirror its echo so prev/next stays accurate.
+    if (page.current_page) this.dlmmPage.set(page.current_page);
+
+    this.dlmmFetching.set(false);
+    this.loading.set(false);
+    this.persistSnapshot();
+  }
+
+  onDlmmSearch(e: Event): void {
+    const val = (e.target as HTMLInputElement).value.slice(0, 100);
+    this.dlmmSearchRaw.set(val);
+    this.dlmmPage.set(1);
+    if (this.dlmmSearchDebounce) clearTimeout(this.dlmmSearchDebounce);
+    this.dlmmSearchDebounce = setTimeout(() => {
+      this.dlmmSearchDebounce = null;
+      void this.fetchDlmmPairs();
+    }, 250);
+  }
+
+  onDlmmSortChange(field: 'tvl' | 'volume' | 'fee_tvl_ratio'): void {
+    if (this.dlmmSortField() === field) {
+      this.dlmmSortDir.update(d => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      this.dlmmSortField.set(field);
+      this.dlmmSortDir.set('desc');
+    }
+    this.dlmmPage.set(1);
+    void this.fetchDlmmPairs();
+  }
+
+  dlmmPrevPage(): void {
+    if (this.dlmmPage() > 1) {
+      this.dlmmPage.update(p => p - 1);
+      void this.fetchDlmmPairs();
+    }
+  }
+
+  dlmmNextPage(): void {
+    if (this.dlmmPage() < this.dlmmTotalPages()) {
+      this.dlmmPage.update(p => p + 1);
+      void this.fetchDlmmPairs();
+    }
+  }
+
+  // ── DAMM v2 ─────────────────────────────────────────────────────────────
+  private async fetchDammV2Pools(): Promise<void> {
+    this.dammV2Fetching.set(true);
+    this.error.set(null);
+    const searchOverride = (this.dammV2SearchRaw() ?? '').trim();
+    const seedQuery = (this.query.params['query'] as string | undefined)?.trim();
+    const queryStr = searchOverride || seedQuery || undefined;
+    const sortBy = `${this.dammV2SortField()}:${this.dammV2SortDir()}`;
+    const page = await this.meteora.fetchDammV2Pools({
+      query: queryStr,
+      page: this.dammV2Page(),
+      pageSize: this.DAMMV2_PAGE_SIZE,
+      sortBy,
+    });
+    if (!page) {
+      this.error.set('Failed to load DAMM v2 pools');
+      this.dammV2Fetching.set(false);
+      this.loading.set(false);
+      return;
+    }
+    this.dammV2Results = page.data ?? [];
+    this.dammV2Total.set(page.total ?? this.dammV2Results.length);
+    this.dammV2TotalPages.set(Math.max(1, page.pages ?? 1));
+    if (page.current_page) this.dammV2Page.set(page.current_page);
+    this.dammV2Fetching.set(false);
+    this.loading.set(false);
+    this.persistSnapshot();
+  }
+
+  onDammV2Search(e: Event): void {
+    const val = (e.target as HTMLInputElement).value.slice(0, 100);
+    this.dammV2SearchRaw.set(val);
+    this.dammV2Page.set(1);
+    if (this.dammV2SearchDebounce) clearTimeout(this.dammV2SearchDebounce);
+    this.dammV2SearchDebounce = setTimeout(() => {
+      this.dammV2SearchDebounce = null;
+      void this.fetchDammV2Pools();
+    }, 250);
+  }
+
+  onDammV2SortChange(field: 'tvl' | 'volume' | 'fee_tvl_ratio'): void {
+    if (this.dammV2SortField() === field) {
+      this.dammV2SortDir.update(d => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      this.dammV2SortField.set(field);
+      this.dammV2SortDir.set('desc');
+    }
+    this.dammV2Page.set(1);
+    void this.fetchDammV2Pools();
+  }
+
+  dammV2PrevPage(): void {
+    if (this.dammV2Page() > 1) {
+      this.dammV2Page.update(p => p - 1);
+      void this.fetchDammV2Pools();
+    }
+  }
+
+  dammV2NextPage(): void {
+    if (this.dammV2Page() < this.dammV2TotalPages()) {
+      this.dammV2Page.update(p => p + 1);
+      void this.fetchDammV2Pools();
+    }
+  }
+
+  dammV2GoToPage(page: number): void {
+    const target = Math.max(1, Math.min(page, this.dammV2TotalPages()));
+    if (target === this.dammV2Page()) return;
+    this.dammV2Page.set(target);
+    void this.fetchDammV2Pools();
+  }
+
+  /** 24h volume for a DAMM v2 pool — handles either `volume.24h` or `volume["24h"]`. */
+  dammV2Volume24h(p: DammV2Pool): number {
+    return p.volume?.['24h'] ?? 0;
+  }
+
+  /** Computed APY for a DAMM v2 pool (display only). farm_apy + base/24h fee yield. */
+  dammV2Apy(p: DammV2Pool): number {
+    const farmApy = p.farm_apy ?? 0;
+    const fee24h = p.fees?.['24h'] ?? 0;
+    const tvl = p.tvl || 1;
+    const baseApy = (fee24h / tvl) * 365 * 100;
+    return baseApy + farmApy;
+  }
+
+  get dammV2ShowingRange(): { from: number; to: number; total: number } {
+    const total = this.dammV2Total();
+    const size = this.DAMMV2_PAGE_SIZE;
+    const from = total === 0 ? 0 : (this.dammV2Page() - 1) * size + 1;
+    const to = Math.min(this.dammV2Page() * size, total);
+    return { from, to, total };
+  }
+
+  // ── DAMM v1 ─────────────────────────────────────────────────────────────
+  // The legacy AMM API hands back a flat array (no server-side paging) so
+  // we sort/filter/page client-side over the cached `dammV1All`.
+  private async fetchDammV1Pools(): Promise<void> {
+    this.dammV1Fetching.set(true);
+    this.error.set(null);
+    const seedQuery = (this.query.params['query'] as string | undefined)?.trim();
+    const data = await this.meteora.fetchDammV1Pools({
+      query: this.dammV1SearchRaw() || seedQuery || undefined,
+      // The endpoint accepts `limit` but no real cursor — pull a generous
+      // slice once and page client-side.
+      limit: 500,
+    });
+    if (!data) {
+      this.error.set('Failed to load DAMM v1 pools');
+      this.dammV1Fetching.set(false);
+      this.loading.set(false);
+      return;
+    }
+    this.dammV1All = data;
+    this.dammV1Fetching.set(false);
+    this.loading.set(false);
+    this.persistSnapshot();
+  }
+
+  /** Sorted, filtered, sliced view of `dammV1All` — used by the template. */
+  get dammV1Visible(): DammV1Pool[] {
+    const q = this.dammV1SearchRaw().trim().toLowerCase();
+    let pool = this.dammV1All;
+    if (q) {
+      pool = pool.filter(p =>
+        (p.pool_name ?? '').toLowerCase().includes(q) ||
+        (p.pool_address ?? '').toLowerCase().includes(q),
+      );
+    }
+    const field = this.dammV1SortField();
+    const dir = this.dammV1SortDir() === 'desc' ? -1 : 1;
+    pool = [...pool].sort((a, b) => {
+      const va = parseFloat(a[field] as string) || 0;
+      const vb = parseFloat(b[field] as string) || 0;
+      return (va - vb) * dir;
+    });
+    const size = this.DAMMV1_PAGE_SIZE;
+    const start = (this.dammV1Page() - 1) * size;
+    return pool.slice(start, start + size);
+  }
+
+  get dammV1FilteredTotal(): number {
+    const q = this.dammV1SearchRaw().trim().toLowerCase();
+    if (!q) return this.dammV1All.length;
+    return this.dammV1All.filter(p =>
+      (p.pool_name ?? '').toLowerCase().includes(q) ||
+      (p.pool_address ?? '').toLowerCase().includes(q),
+    ).length;
+  }
+
+  get dammV1TotalPages(): number {
+    return Math.max(1, Math.ceil(this.dammV1FilteredTotal / this.DAMMV1_PAGE_SIZE));
+  }
+
+  get dammV1ShowingRange(): { from: number; to: number; total: number } {
+    const total = this.dammV1FilteredTotal;
+    const size = this.DAMMV1_PAGE_SIZE;
+    const from = total === 0 ? 0 : (this.dammV1Page() - 1) * size + 1;
+    const to = Math.min(this.dammV1Page() * size, total);
+    return { from, to, total };
+  }
+
+  onDammV1Search(e: Event): void {
+    const val = (e.target as HTMLInputElement).value.slice(0, 100);
+    this.dammV1SearchRaw.set(val);
+    this.dammV1Page.set(1);
+    if (this.dammV1SearchDebounce) clearTimeout(this.dammV1SearchDebounce);
+    this.dammV1SearchDebounce = setTimeout(() => {
+      this.dammV1SearchDebounce = null;
+      // No refetch needed — search is client-side over the cached set.
+    }, 100);
+  }
+
+  onDammV1SortChange(field: 'pool_tvl' | 'weekly_base_apy' | 'weekly_trading_volume'): void {
+    if (this.dammV1SortField() === field) {
+      this.dammV1SortDir.update(d => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      this.dammV1SortField.set(field);
+      this.dammV1SortDir.set('desc');
+    }
+    this.dammV1Page.set(1);
+  }
+
+  dammV1PrevPage(): void {
+    if (this.dammV1Page() > 1) this.dammV1Page.update(p => p - 1);
+  }
+
+  dammV1NextPage(): void {
+    if (this.dammV1Page() < this.dammV1TotalPages) this.dammV1Page.update(p => p + 1);
+  }
+
+  dammV1GoToPage(page: number): void {
+    const target = Math.max(1, Math.min(page, this.dammV1TotalPages));
+    this.dammV1Page.set(target);
+  }
+
+  /** Pretty-print numeric string from DAMM v1 raw API. */
+  dammV1Num(s: string | undefined): number {
+    return parseFloat(s ?? '0') || 0;
+  }
+
+  /**
+   * Plain string equality on `query.type`. Wraps the comparison in a
+   * non-discriminating function call so Angular's strict template type
+   * checker doesn't narrow `query.type` between sibling `@if` blocks.
+   * Without this wrapper, sequential `@if (query.type === 'X')` branches
+   * collapse to a single literal type and the subsequent comparison
+   * becomes "no overlap" → compile error.
+   */
+  isQueryType(t: string): boolean {
+    return this.query.type === t;
+  }
+
+  /** "JupSOL-INF" → ["JupSOL", "INF"]. Defensive against missing dash. */
+  dlmmPairTokens(p: DlmmPair): [string, string] {
+    const [a, b] = (p.name ?? '').split('-');
+    return [a ?? p.token_x?.symbol ?? '?', b ?? p.token_y?.symbol ?? '?'];
+  }
+
+  /** 24h volume for a pool — handles either `volume.24h` or `volume["24h"]`. */
+  dlmmVolume24h(p: DlmmPair): number {
+    return p.volume?.['24h'] ?? 0;
+  }
+
+  /** 24h fees for a pool. */
+  dlmmFees24h(p: DlmmPair): number {
+    return p.fees?.['24h'] ?? 0;
+  }
+
+  /**
+   * DLMM bin step → human percentage. The API returns bin step in basis
+   * points (1 bp = 0.01%), so bin=100 means 1% per price step.
+   */
+  dlmmBinStepPct(p: DlmmPair): number {
+    return (p.pool_config?.bin_step ?? 0) / 100;
+  }
+
+  /**
+   * Copy a pool address (or any string) to the clipboard and flash a brief
+   * "copied" indicator on the row. Falls back silently when the Clipboard
+   * API is unavailable (older browsers / insecure contexts).
+   */
+  async copyPoolAddress(address: string): Promise<void> {
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+    } catch {
+      // Best-effort fallback for browsers without async clipboard.
+      const ta = document.createElement('textarea');
+      ta.value = address;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch { /* noop */ }
+      document.body.removeChild(ta);
+    }
+    this.copiedAddress.set(address);
+    setTimeout(() => {
+      if (this.copiedAddress() === address) this.copiedAddress.set(null);
+    }, 1500);
+  }
+
+  /**
+   * Build a meteora_add_liquidity ParsedAction for a single DLMM pool row
+   * and emit it upward. The chat-shell appends it as an action card to the
+   * conversation, with the pool / token mints pre-filled — the user only
+   * has to enter amounts. Both `pool/poolId` and `tokenA/tokenB/tokenXMint/
+   * tokenYMint` aliases are emitted so the form fields and the downstream
+   * service-side normalizer both find what they expect.
+   */
+  useDlmmPool(p: DlmmPair): void {
+    // Compute active bin id from the current price so the action card can
+    // run ratio math without a second RPC roundtrip:
+    //   bin_price(id) = (1 + bin_step_bps/10000) ^ id
+    //   activeBinId  = ln(current_price) / ln(1 + bin_step_bps/10000)
+    // bin_step is in basis points (1 bp = 0.01%), e.g. 8 → 0.08% per bin.
+    const binStep = p.pool_config?.bin_step ?? 0;
+    const currentPrice = p.current_price ?? 0;
+    let activeBinId = 0;
+    if (binStep > 0 && currentPrice > 0) {
+      activeBinId = Math.round(
+        Math.log(currentPrice) / Math.log(1 + binStep / 10_000),
+      );
+    }
+    const params: Record<string, string> = {
+      pool: p.address,
+      poolId: p.address,
+      tokenA: p.token_x.address,
+      tokenB: p.token_y.address,
+      tokenXMint: p.token_x.address,
+      tokenYMint: p.token_y.address,
+      // Symbols help the action card's preview/title render nicely when
+      // the registry doesn't know one of the mints yet.
+      tokenASymbol: p.token_x.symbol,
+      tokenBSymbol: p.token_y.symbol,
+      // DLMM math inputs — embedded so the form can compute amountA↔amountB
+      // ratio, decide single-sided cases, and show the active price.
+      binStep: String(binStep),
+      currentPrice: String(currentPrice),
+      activeBinId: String(activeBinId),
+      tokenADecimals: String(p.token_x.decimals ?? 9),
+      tokenBDecimals: String(p.token_y.decimals ?? 9),
+      // Reasonable defaults — user can change these in the action card.
+      strategy: 'spot',
+      binSpread: '15',
+    };
+    this.useAction.emit({
+      type: 'meteora_add_liquidity',
+      params,
+      raw: `[ACTION:meteora_add_liquidity] ${JSON.stringify(params)}`,
+    });
+  }
+
+  /**
+   * Build a meteora_dammv2_add_liquidity ParsedAction from a DAMM v2 pool
+   * row and emit it. Reserves are embedded so the AMM ratio engine in the
+   * action card auto-fills the second amount on edit.
+   */
+  useDammV2Pool(p: DammV2Pool): void {
+    const params: Record<string, string> = {
+      pool: p.address,
+      poolId: p.address,
+      tokenA: p.token_x.address,
+      tokenB: p.token_y.address,
+      tokenXMint: p.token_x.address,
+      tokenYMint: p.token_y.address,
+      tokenASymbol: p.token_x.symbol,
+      tokenBSymbol: p.token_y.symbol,
+      tokenADecimals: String(p.token_x.decimals ?? 9),
+      tokenBDecimals: String(p.token_y.decimals ?? 9),
+      // Reserves drive the AMM ratio engine. Already in human units —
+      // the engine prefers `amountRatio` when present, otherwise reserves.
+      reserveA: String(p.token_x_amount ?? 0),
+      reserveB: String(p.token_y_amount ?? 0),
+      amountRatio: String(p.current_price ?? 0),
+    };
+    this.useAction.emit({
+      type: 'meteora_dammv2_add_liquidity',
+      params,
+      raw: `[ACTION:meteora_dammv2_add_liquidity] ${JSON.stringify(params)}`,
+    });
+  }
+
+  /**
+   * Build a meteora_dammv1_deposit ParsedAction from a DAMM v1 pool row.
+   * The legacy API hands reserves as parallel arrays of stringified raw
+   * integers — we lift them into reserveA/B and tell the action card the
+   * right decimals so the ratio engine can compute deposits.
+   */
+  useDammV1Pool(p: DammV1Pool): void {
+    const [mintA, mintB] = p.pool_token_mints ?? [];
+    const [rawA, rawB]   = p.pool_token_amounts ?? [];
+    // Decimals aren't on the pool row; look them up via the token registry
+    // so the AMM ratio comes out in human units. Fall through to 9 / 6 —
+    // the most common pairing on Solana — when the registry doesn't know.
+    const decA = this.tokenRegistry.getToken(mintA ?? '')?.decimals ?? 9;
+    const decB = this.tokenRegistry.getToken(mintB ?? '')?.decimals ?? 6;
+    const params: Record<string, string> = {
+      pool: p.pool_address,
+      poolId: p.pool_address,
+      tokenA: mintA ?? '',
+      tokenB: mintB ?? '',
+      tokenXMint: mintA ?? '',
+      tokenYMint: mintB ?? '',
+      tokenADecimals: String(decA),
+      tokenBDecimals: String(decB),
+      reserveA: String(rawA ?? '0'),
+      reserveB: String(rawB ?? '0'),
+    };
+    this.useAction.emit({
+      type: 'meteora_dammv1_deposit',
+      params,
+      raw: `[ACTION:meteora_dammv1_deposit] ${JSON.stringify(params)}`,
+    });
+  }
+
+  /**
+   * "Showing 1–10 of 155" — current page slice descriptor. Falls back
+   * gracefully when total/pages are still defaults.
+   */
+  get dlmmShowingRange(): { from: number; to: number; total: number } {
+    const total = this.dlmmTotal();
+    const size = this.DLMM_PAGE_SIZE;
+    const from = total === 0 ? 0 : (this.dlmmPage() - 1) * size + 1;
+    const to = Math.min(this.dlmmPage() * size, total);
+    return { from, to, total };
+  }
+
+  /**
+   * Smart-truncated page list for the pagination bar. Returns either page
+   * numbers or a literal '...' marker for ellipsis gaps. Pattern:
+   *   total ≤ 7 → all pages
+   *   otherwise → first, neighbours of current (±1), last, with ellipses
+   */
+  get dlmmPaginationItems(): (number | '...')[] {
+    const total = this.dlmmTotalPages();
+    const cur = this.dlmmPage();
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    const items: (number | '...')[] = [1];
+    const start = Math.max(2, cur - 1);
+    const end = Math.min(total - 1, cur + 1);
+    if (start > 2) items.push('...');
+    for (let i = start; i <= end; i++) items.push(i);
+    if (end < total - 1) items.push('...');
+    items.push(total);
+    return items;
+  }
+
+  dlmmGoToPage(page: number): void {
+    if (page < 1 || page > this.dlmmTotalPages() || page === this.dlmmPage()) return;
+    this.dlmmPage.set(page);
+    void this.fetchDlmmPairs();
+  }
+
   onClosePerpPosition(market: string, side: string): void {
     this.cancelAction.emit({
       type: 'perp_close',
@@ -607,6 +1386,15 @@ export class QueryCardComponent implements OnInit {
       case 'wallet_info':
         await this.fetchWalletInfo();
         return;
+      case 'meteora_dlmm_get_pairs':
+        await this.fetchDlmmPairs();
+        return;
+      case 'meteora_dammv2_get_pools':
+        await this.fetchDammV2Pools();
+        return;
+      case 'meteora_dammv1_get_pools':
+        await this.fetchDammV1Pools();
+        return;
       case 'solend_user_info':
       case 'solend_reserves':
       case 'solend_market':
@@ -662,7 +1450,6 @@ export class QueryCardComponent implements OnInit {
 
   /** Resolve token symbol or address to a mint address. */
   private resolveToMint(tokenParam: string): string {
-    const SOL_MINT = 'So11111111111111111111111111111111111111112';
     if (!tokenParam) return SOL_MINT;
     // Already looks like an address (>20 chars base58)
     if (tokenParam.length > 20 && !tokenParam.includes(' ')) return tokenParam;
@@ -673,10 +1460,8 @@ export class QueryCardComponent implements OnInit {
     return SOL_MINT;
   }
 
-  /** Ensure portfolio is loaded for the connected wallet. Returns summary or null. */
-  private async ensurePortfolio() {
-    const wallet = this.walletService.publicKey();
-    if (!wallet) return null;
+  /** Ensure portfolio is loaded for the given wallet. Returns summary or null. */
+  private async ensurePortfolio(wallet: string) {
     if (!this.portfolioService.isLoaded() || this.portfolioService.summary()?.walletAddress !== wallet) {
       await this.portfolioService.loadPortfolio(wallet);
     }
@@ -684,46 +1469,181 @@ export class QueryCardComponent implements OnInit {
   }
 
   private async fetchBalance(): Promise<void> {
-    const wallet = this.walletService.publicKey();
+    const paramWallet = this.query.params['wallet'] as string | undefined;
+    const resolvedParam = paramWallet && paramWallet !== 'self' ? paramWallet : null;
+    const wallet = resolvedParam || this.walletService.publicKey();
     if (!wallet) {
       this.error.set('Connect your wallet to see balances');
       this.loading.set(false);
       return;
     }
+
+    const tokenParam = (this.query.params['token'] as string | undefined)?.trim();
+    const wantsAll = !tokenParam || tokenParam.toUpperCase() === 'ALL';
+
     try {
-      const summary = await this.ensurePortfolio();
-      if (!summary) {
-        this.error.set('Failed to load portfolio data');
-        this.loading.set(false);
-        return;
-      }
-      const token = this.query.params['token']?.toUpperCase();
-      const solEntry: BalanceResult = {
-        token: 'Solana',
-        symbol: 'SOL',
-        balance: summary.solBalance.sol,
-        value: summary.solBalance.usdValue ?? 0,
-        change24h: summary.solBalance.priceChange24h ?? 0,
-      };
-      const tokenEntries: BalanceResult[] = summary.tokens
-        .filter(t => (t.usdValue ?? 0) > 0.01)
-        .map(t => ({
-          token: t.name,
-          symbol: t.symbol,
-          balance: t.balance,
-          value: t.usdValue ?? 0,
-          change24h: t.priceChange24h ?? 0,
-        }));
-      const all = [solEntry, ...tokenEntries];
-      this.balanceResults = (token && token !== 'ALL')
-        ? all.filter(b => b.symbol.toUpperCase() === token)
-        : all;
+      this.balanceResults = wantsAll
+        ? await this.fetchAllBalancesLean(wallet)
+        : await this.fetchSingleTokenBalance(wallet, tokenParam!);
       this.loading.set(false);
       this.persistSnapshot();
     } catch {
       this.error.set('Failed to load balances');
       this.loading.set(false);
     }
+  }
+
+  /**
+   * Fast path: user asked for ONE token's balance.
+   * One mint-filtered RPC call + one price lookup. ~500ms cold, ~50ms warm.
+   * Bypasses PortfolioService entirely — no DeFi scans, no TX history,
+   * no metadata sweep for unrelated tokens.
+   */
+  private async fetchSingleTokenBalance(
+    wallet: string,
+    tokenParam: string,
+  ): Promise<BalanceResult[]> {
+    const mint = this.tryResolveToMint(tokenParam);
+    if (!mint) {
+      // Symbol not in our registry — return empty so the card shows
+      // "You don't hold any <token>" via the empty-state branch.
+      return [];
+    }
+
+    // SOL has its own RPC method (lamports, not SPL).
+    if (mint === SOL_MINT) {
+      const [lamports, prices] = await Promise.all([
+        this.solanaRpc.getBalance(wallet).catch(() => 0),
+        this.birdeye.getTokenPrices([SOL_MINT]).catch(() => new Map()),
+      ]);
+      const sol = lamports / 1_000_000_000;
+      if (sol <= 0) return [];
+      const p = prices.get(SOL_MINT);
+      return [{
+        token: 'Solana',
+        symbol: 'SOL',
+        mint: SOL_MINT,
+        logoUri: SOL_LOGO,
+        balance: sol,
+        value: sol * (p?.price ?? 0),
+        change24h: p?.change24h ?? 0,
+      }];
+    }
+
+    const [acct, prices] = await Promise.all([
+      this.solanaRpc.getTokenBalance(wallet, mint).catch(() => null),
+      this.birdeye.getTokenPrices([mint]).catch(() => new Map()),
+    ]);
+    if (!acct || acct.balance <= 0) return [];
+
+    const meta = this.tokenRegistry.getToken(mint);
+    const symbol = meta?.symbol ?? KNOWN_TOKENS[mint]?.symbol ?? tokenParam.toUpperCase();
+    const name   = meta?.name   ?? symbol;
+    const p = prices.get(mint);
+    return [{
+      token: name,
+      symbol,
+      mint,
+      logoUri: meta?.logoURI ?? null,
+      balance: acct.balance,
+      value: acct.balance * (p?.price ?? 0),
+      change24h: p?.change24h ?? 0,
+    }];
+  }
+
+  /**
+   * Lean full-balance path: SOL + all SPL accounts + batch prices.
+   * Skips the heavy stuff `loadPortfolio` does: stake accounts, TX history,
+   * and 8 DeFi-protocol scans. Those belong to the Portfolio page, not to
+   * a "show me my tokens" chat query.
+   */
+  private async fetchAllBalancesLean(wallet: string): Promise<BalanceResult[]> {
+    const [lamports, rawTokens] = await Promise.all([
+      this.solanaRpc.getBalance(wallet).catch(() => 0),
+      this.solanaRpc.getTokenAccounts(wallet).catch(() => []),
+    ]);
+
+    const allMints = [SOL_MINT, ...rawTokens.map(t => t.mint)];
+    const prices = await this.birdeye.getTokenPrices(allMints).catch(() => new Map());
+
+    const sol = lamports / 1_000_000_000;
+    const solP = prices.get(SOL_MINT);
+    const out: BalanceResult[] = [];
+    if (sol > 0) {
+      out.push({
+        token: 'Solana',
+        symbol: 'SOL',
+        mint: SOL_MINT,
+        logoUri: SOL_LOGO,
+        balance: sol,
+        value: sol * (solP?.price ?? 0),
+        change24h: solP?.change24h ?? 0,
+      });
+    }
+
+    for (const t of rawTokens) {
+      const p = prices.get(t.mint);
+      const priceKnown = typeof p?.price === 'number' && p.price > 0;
+      const value = priceKnown ? t.balance * p!.price : 0;
+      // Drop dust ONLY when we have a price and it's genuinely <1¢. If the price
+      // lookup failed or the token isn't on Birdeye, still surface the holding —
+      // hiding a real balance because we can't price it has cost users their
+      // ability to act on real positions (this is what made jitoSOL invisible
+      // when Birdeye briefly omitted it).
+      if (priceKnown && value < 0.01) continue;
+      const meta = this.tokenRegistry.getToken(t.mint);
+      // Kick off a background metadata fetch for any mint we don't yet have a
+      // logo for. resolveAsync is idempotent and bumps the registry's version
+      // signal when it lands, which `logoFor()` re-reads from the template to
+      // swap in the icon without a full re-fetch (keeps WIF / new mints from
+      // showing the "W" letter fallback forever).
+      if (!meta?.logoURI) this.tokenRegistry.resolveAsync(t.mint);
+      // Wrapped SOL is reported by Jupiter's registry under symbol "SOL"
+      // (mint `So11…112`), but in a balance list we MUST distinguish it from
+      // native SOL — otherwise the user sees two indistinguishable "SOL"
+      // rows. Hard-override before the registry/known-tokens fallbacks.
+      const isWsol = t.mint === SOL_MINT;
+      const symbol = isWsol
+        ? 'wSOL'
+        : (meta?.symbol ?? KNOWN_TOKENS[t.mint]?.symbol ?? t.mint.slice(0, 4));
+      const tokenName = isWsol
+        ? 'Wrapped SOL'
+        : (meta?.name ?? KNOWN_TOKENS[t.mint]?.symbol ?? t.mint.slice(0, 4) + '…');
+      out.push({
+        token: tokenName,
+        symbol,
+        mint: t.mint,
+        logoUri: meta?.logoURI ?? null,
+        balance: t.balance,
+        value,
+        change24h: p?.change24h ?? 0,
+      });
+    }
+    out.sort((a, b) => b.value - a.value);
+    return out;
+  }
+
+  /** Resolve a row's icon URL live from the token registry. The registry's
+   *  `version()` signal is read inside this method, so when an async metadata
+   *  fetch lands, every template binding that calls `logoFor` re-renders and
+   *  the WIF / unknown-token "letter fallback" gets replaced with the real
+   *  logo without rerunning the balance pipeline. */
+  logoFor(row: BalanceResult): string | null {
+    void this.tokenRegistry.version(); // signal dependency for re-render
+    const fromRegistry = row.mint ? this.tokenRegistry.getToken(row.mint)?.logoURI : null;
+    return fromRegistry ?? row.logoUri ?? null;
+  }
+
+  /** Like resolveToMint but returns null on miss instead of falling back to SOL. */
+  private tryResolveToMint(tokenParam: string): string | null {
+    if (!tokenParam) return null;
+    if (tokenParam.length > 20 && !tokenParam.includes(' ')) return tokenParam;
+    for (const [mint, info] of Object.entries(KNOWN_TOKENS)) {
+      if (info.symbol.toUpperCase() === tokenParam.toUpperCase()) return mint;
+    }
+    const fromRegistry = this.tokenRegistry.getBySymbol?.(tokenParam);
+    if (fromRegistry?.address) return fromRegistry.address;
+    return null;
   }
 
   private async fetchPrice(): Promise<void> {
@@ -759,7 +1679,7 @@ export class QueryCardComponent implements OnInit {
       return;
     }
     try {
-      const summary = await this.ensurePortfolio();
+      const summary = await this.ensurePortfolio(wallet);
       if (!summary) {
         this.positionResults = this.getMockPositions();
         this.loading.set(false);
@@ -851,15 +1771,18 @@ export class QueryCardComponent implements OnInit {
   private async fetchNetwork(): Promise<void> {
     try {
       const rpcUrl = environment.solanaRpc;
+      const _rpcHeaders = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
       const [epochResp, perfResp] = await Promise.all([
         fetch(rpcUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _rpcHeaders,
+          credentials: 'include',
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getEpochInfo' }),
         }),
         fetch(rpcUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _rpcHeaders,
+          credentials: 'include',
           body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'getRecentPerformanceSamples', params: [1] }),
         }),
       ]);
@@ -886,7 +1809,6 @@ export class QueryCardComponent implements OnInit {
   private async fetchGas(): Promise<void> {
     try {
       const medianMicroLamports = await this.solanaRpc.getRecentPriorityFeeMicroLamports();
-      const SOL_MINT = 'So11111111111111111111111111111111111111112';
       const solPrice = await this.priceFeed.getPrice(SOL_MINT);
       const priceUsd = solPrice ?? 0;
       const microToSol = (µL: number) => µL / 1_000_000 / 1_000_000_000;
@@ -921,7 +1843,7 @@ export class QueryCardComponent implements OnInit {
       return;
     }
     try {
-      const summary = await this.ensurePortfolio();
+      const summary = await this.ensurePortfolio(wallet);
       if (!summary) {
         this.walletInfoResult = this.getMockWalletInfo();
         this.loading.set(false);

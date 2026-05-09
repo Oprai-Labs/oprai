@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../../environments/environment';
+import { ApiService } from '../api.service';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -60,6 +61,7 @@ export const MARINADE_STATE = '8szGkuLTAux9XMgZ2vtY39jVSowEcpBfFfD8hXSEqdGC';
 @Injectable({ providedIn: 'root' })
 export class MarinadeService {
   private readonly http = inject(HttpClient);
+  private readonly api = inject(ApiService);
 
   // ─── Stats Queries ────────────────────────────────────────────────────────────
 
@@ -83,10 +85,30 @@ export class MarinadeService {
     }
   }
 
-  /** Get mSOL/SOL exchange rate. */
-  async getExchangeRate(): Promise<number> {
-    const stats = await this.getStats();
-    return stats?.msolPrice ? parseFloat(stats.msolPrice) : 1.0;
+  /**
+   * Get the current mSOL/SOL exchange rate.
+   *
+   * Uses the gateway-proxied `/market/marinade/exchange-rate` route which hits
+   * `https://mainnet-assets.marinade.finance/v1/stats` — the live spot price
+   * Marinade's own staking dashboard polls (sub-block freshness from their
+   * indexer). The previous `/msol/apy/1d` endpoint returned an end-of-window
+   * snapshot up to a day stale, which is wrong for an "expected receive"
+   * preview shown next to the user's input.
+   *
+   * Returns null on upstream failure — callers must hide the preview rather
+   * than fall back to a static constant.
+   */
+  async getExchangeRate(): Promise<number | null> {
+    try {
+      const resp = await firstValueFrom(
+        this.api.get<{ msolPrice?: string | number }>('/market/marinade/exchange-rate')
+      );
+      const raw = resp?.msolPrice;
+      const v = typeof raw === 'string' ? parseFloat(raw) : (typeof raw === 'number' ? raw : NaN);
+      return Number.isFinite(v) && v > 0 ? v : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Get list of validators. */

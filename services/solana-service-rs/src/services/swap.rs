@@ -3,7 +3,53 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::services::amount::parse_amount_to_base_units;
-use crate::solana::tokens::{get_token_info, resolve_token_address};
+use crate::solana::tokens::{get_token_info, resolve_token_address, COMMON_TOKENS};
+
+
+/// Set of registry symbols we treat as "stable" for slippage purposes — pegs
+/// that should never need >100 bps of room except in extreme depegs. The
+/// actual ceiling is enforced by `slippage_ceiling_bps()` below.
+const STABLE_SYMBOLS: &[&str] = &["USDC", "USDT", "DAI", "USDS", "PYUSD"];
+
+/// Compute the per-pair slippage ceiling based on what we know about the
+/// tokens involved. The user (or LLM) can request anything they want up to
+/// MAX_SLIPPAGE_BPS, but we override that with this tighter bound when the
+/// pair tells us the request must be smaller. Applied in `validate_swap_params`.
+///
+/// Returns slippage in basis points.
+fn slippage_ceiling_bps(input_mint: &str, output_mint: &str) -> u32 {
+    fn registered(mint: &str) -> Option<&'static str> {
+        COMMON_TOKENS
+            .values()
+            .find(|t| t.address == mint || t.symbol.eq_ignore_ascii_case(mint))
+            .map(|t| t.symbol.as_str())
+    }
+    let in_sym = registered(input_mint);
+    let out_sym = registered(output_mint);
+
+    let is_stable = |s: Option<&str>| match s {
+        Some(sym) => STABLE_SYMBOLS.iter().any(|&t| t.eq_ignore_ascii_case(sym)),
+        None => false,
+    };
+
+    // Stable ↔ stable — 50 bps is generous; depegs aside, the AMM cost
+    // is essentially zero on these routes.
+    if is_stable(in_sym) && is_stable(out_sym) {
+        return 50;
+    }
+    // SOL ↔ stable, or stable ↔ blue-chip — 200 bps. Covers normal volatility.
+    if is_stable(in_sym) || is_stable(out_sym) {
+        return 200;
+    }
+    // Both sides registered (e.g. SOL → JUP) — 500 bps. Liquid pairs.
+    if in_sym.is_some() && out_sym.is_some() {
+        return 500;
+    }
+    // At least one side is unverified — most likely a memecoin or a freshly
+    // launched token. Allow up to 1500 bps; the registry-rejection on Unknown
+    // mints handles the truly unsafe case.
+    1500
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Jupiter API constants
@@ -16,8 +62,13 @@ pub const MAX_SLIPPAGE_BPS: u32 = 3000;
 const JUPITER_PAID_QUOTE: &str = "https://api.jup.ag/swap/v1/quote";
 const JUPITER_PAID_SWAP:  &str = "https://api.jup.ag/swap/v1/swap";
 /// Public API — no authentication required, lower rate limits.
-const JUPITER_PUB_QUOTE: &str = "https://quote-api.jup.ag/v6/quote";
-const JUPITER_PUB_SWAP:  &str = "https://quote-api.jup.ag/v6/swap";
+///
+/// NOTE: Jupiter retired the legacy `quote-api.jup.ag/v6/*` host (it now
+/// NXDOMAINs) and consolidated everything under `lite-api.jup.ag/swap/v1/*`.
+/// The path schema matches the paid API exactly, so callers don't need to
+/// branch on auth-mode for anything other than the host + header.
+const JUPITER_PUB_QUOTE: &str = "https://lite-api.jup.ag/swap/v1/quote";
+const JUPITER_PUB_SWAP:  &str = "https://lite-api.jup.ag/swap/v1/swap";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -166,6 +217,17 @@ pub fn validate_swap_params(params: &SwapParams) -> Result<(), AppError> {
                 slippage, MAX_SLIPPAGE_BPS
             )));
         }
+        // Per-pair ceiling — stricter than MAX_SLIPPAGE_BPS for liquid /
+        // stable pairs. A stable→stable swap with 1000 bps slippage is
+        // almost certainly a routing accident or sandwich-attack setup.
+        let ceiling = slippage_ceiling_bps(&input_addr, &output_addr);
+        if slippage > ceiling {
+            return Err(AppError::InvalidParams(format!(
+                "Slippage {} bps is too high for this pair — ceiling is {} bps. \
+                 Lower the slippage or pick a different route.",
+                slippage, ceiling
+            )));
+        }
     }
 
     Ok(())
@@ -178,7 +240,7 @@ pub fn validate_swap_params(params: &SwapParams) -> Result<(), AppError> {
 /// Fetch a swap quote from Jupiter API.
 ///
 /// Uses the paid endpoint (`api.jup.ag`) when an API key is provided,
-/// falling back to the official public endpoint (`quote-api.jup.ag/v6`).
+/// falling back to the official public endpoint (`lite-api.jup.ag/swap/v1`).
 pub async fn get_swap_quote(
     http: &reqwest::Client,
     jupiter_api_key: Option<&str>,
@@ -245,7 +307,7 @@ pub async fn get_swap_quote(
 /// Build a swap transaction via Jupiter /swap endpoint.
 ///
 /// Uses the paid endpoint (`api.jup.ag`) when an API key is provided,
-/// falling back to the official public endpoint (`quote-api.jup.ag/v6`).
+/// falling back to the official public endpoint (`lite-api.jup.ag/swap/v1`).
 pub async fn build_swap_transaction(
     http: &reqwest::Client,
     jupiter_api_key: Option<&str>,

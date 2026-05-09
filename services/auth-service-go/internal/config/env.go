@@ -11,6 +11,11 @@ type Config struct {
 	Port           int
 	GRPCPort       int
 	JWTSecret      string
+	// JWTPreviousSecret is the previous signing key during a rolling rotation.
+	// New tokens are signed with JWTSecret; tokens carrying the old signature
+	// are accepted via JWTPreviousSecret until they expire naturally. Empty
+	// when no rotation is in flight. See `services.JWTService` doc.
+	JWTPreviousSecret string
 	InternalAPIKey string
 	DatabaseURL    string
 	RedisURL       string
@@ -25,7 +30,7 @@ type Config struct {
 	TrustProxyHeaders bool
 
 	// Derived constants
-	SessionTTLSeconds int // 1 hour = 3600 (SEC-032: short-lived tokens)
+	SessionTTLSeconds int // configurable via SESSION_TTL_SECONDS; default 3 days
 	NonceTTLSeconds   int // 10 minutes = 600
 }
 
@@ -42,6 +47,7 @@ func Load() (*Config, error) {
 	grpcPort := getEnvInt("GRPC_PORT", 50051)
 
 	jwtSecret := getEnv("OPRAI_JWT_SECRET", InsecureDefaultJWTSecret)
+	jwtPreviousSecret := getEnv("OPRAI_JWT_SECRET_OLD", "")
 	internalAPIKey := getEnv("OPRAI_INTERNAL_API_KEY", InsecureDefaultInternalKey)
 	databaseURL := getEnv("DATABASE_URL", "")
 	redisURL := getEnv("REDIS_URL", "redis://localhost:6379")
@@ -59,6 +65,7 @@ func Load() (*Config, error) {
 		Port:              port,
 		GRPCPort:          grpcPort,
 		JWTSecret:         jwtSecret,
+		JWTPreviousSecret: jwtPreviousSecret,
 		InternalAPIKey:    internalAPIKey,
 		DatabaseURL:       databaseURL,
 		RedisURL:          redisURL,
@@ -66,8 +73,8 @@ func Load() (*Config, error) {
 		CORSOrigin:        corsOrigin,
 		Environment:       environment,
 		TrustProxyHeaders: trustProxy,
-		SessionTTLSeconds: 60 * 60, // 1 hour (SEC-032)
-		NonceTTLSeconds:   60 * 10, // 10 minutes
+		SessionTTLSeconds: getEnvInt("SESSION_TTL_SECONDS", 60*60*24*3), // 3 days default
+		NonceTTLSeconds:   60 * 10,                                       // 10 minutes
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -95,6 +102,17 @@ func (c *Config) validate() error {
 		}
 		if len(c.InternalAPIKey) < 32 {
 			return fmt.Errorf("FATAL: OPRAI_INTERNAL_API_KEY must be at least 32 characters in production")
+		}
+		// Reject obviously-broken rotation states. A previous secret equal to
+		// the current one means rotation forgot to update the new one;
+		// fail fast rather than silently accepting either.
+		if c.JWTPreviousSecret != "" {
+			if c.JWTPreviousSecret == c.JWTSecret {
+				return fmt.Errorf("FATAL: OPRAI_JWT_SECRET_OLD must differ from OPRAI_JWT_SECRET during rotation")
+			}
+			if len(c.JWTPreviousSecret) < 32 {
+				return fmt.Errorf("FATAL: OPRAI_JWT_SECRET_OLD must be at least 32 characters in production")
+			}
 		}
 		if c.DatabaseURL == "" {
 			return fmt.Errorf("FATAL: DATABASE_URL is required in production")

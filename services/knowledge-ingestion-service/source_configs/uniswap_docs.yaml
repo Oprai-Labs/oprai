@@ -1,0 +1,27 @@
+id: uniswap_docs
+source_type: docs
+base_url: https://docs.uniswap.org
+protocol: uniswap
+category: amm
+license: proprietary-fair-use
+language: en
+schedule_cron: "15 6 * * *"
+crawl_delay_s: 1.5
+max_pages: 300
+tags:
+  - uniswap
+  - v2
+  - v3
+  - v4
+  - amm
+  - concentrated-liquidity
+  - dynamic-fees
+  - impermanent-loss
+  - understanding-returns
+  - defi
+notes: >
+  Docusaurus static docs. Critical pages for yield strategy:
+  /contracts/v2/concepts/advanced-topics/understanding-returns (fee APR decomposition formula),
+  /contracts/v4/concepts/dynamic-fees,
+  /contracts/v3/ (v3 liquidity math).
+  Static HTML Docusaurus; very high crawl confidence.

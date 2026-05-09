@@ -8,24 +8,129 @@
         >
           <!-- User bubble -->
           @if (message.role === 'user') {
-            <div class="bubble bubble--user">
-              {{ message.content }}
-              <span class="msg-timestamp">{{ formatTimestamp(message.createdAt) }}</span>
+            <div class="user-bubble-stack">
+              @if (editingMessageId() === message.id) {
+                <!-- Inline edit mode: bubble swaps to a textarea + actions.
+                     Esc cancels, Cmd/Ctrl+Enter saves; matches ChatGPT/Claude. -->
+                <div class="bubble bubble--user bubble--editing">
+                  <textarea
+                    class="bubble-edit-textarea"
+                    [value]="editDraft()"
+                    (input)="editDraft.set($any($event.target).value)"
+                    (keydown)="onEditKeydown($event, message)"
+                    autofocus
+                    rows="3"></textarea>
+                  <div class="bubble-edit-actions">
+                    <button class="bubble-edit-btn bubble-edit-btn--ghost" (click)="cancelEdit()">
+                      Cancel
+                    </button>
+                    <button class="bubble-edit-btn bubble-edit-btn--primary" (click)="saveEdit(message)">
+                      Save &amp; Send
+                    </button>
+                  </div>
+                </div>
+              } @else {
+                <div class="bubble bubble--user">
+                  @if (message.metadata?.protocols?.length) {
+                    <div class="bubble-protocols">
+                      @for (pid of message.metadata!.protocols!; track pid) {
+                        <span class="bubble-protocol-chip">{{ protocolChipLabel(pid) }}</span>
+                      }
+                    </div>
+                  }
+                  <div class="bubble-content">{{ message.content }}</div>
+                </div>
+                <!-- Hover toolbar: timestamp + retry + edit + copy.
+                     Sits BELOW the bubble, right-aligned to match the bubble.
+                     Visible only on row hover so the chat reads cleanly at rest. -->
+                <div class="user-toolbar">
+                  <span class="user-toolbar__date">{{ formatUserBubbleDate(message.createdAt) }}</span>
+                  @if (message.metadata?.edited_at) {
+                    <span class="user-toolbar__edited" title="Edited">edited</span>
+                  }
+                  <button
+                    type="button"
+                    class="user-toolbar__btn"
+                    (click)="retryUserMessage(message)"
+                    title="Resend this message"
+                    aria-label="Resend">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="1 4 1 10 7 10"/>
+                      <path d="M3.51 15a9 9 0 1 0 .49-4.87"/>
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="user-toolbar__btn"
+                    (click)="startEdit(message)"
+                    title="Edit message"
+                    aria-label="Edit">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 20h9"/>
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="user-toolbar__btn"
+                    (click)="copyMessage(message)"
+                    title="Copy message"
+                    aria-label="Copy">
+                    @if (copiedMessageId() === message.id) {
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    } @else {
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </svg>
+                    }
+                  </button>
+                </div>
+              }
             </div>
           } @else {
             <!-- Assistant content -->
             <div class="bubble bubble--assistant" [class.bubble--error]="message.isError">
-              <!-- Show LLM thinking if available and no content yet -->
-              @if (isLastAssistantMessage(message) && currentThinking && !message.content) {
-                <div class="thinking-content">
-                  <span class="thinking-label">Thinking</span>
-                  <div class="thinking-text">{{ currentThinking }}</div>
+              <!-- Active thinking — streaming (only show while streaming, not after) -->
+              @if (isLastAssistantMessage(message) && currentThinking && streaming) {
+                <div class="thinking-card thinking-card--active">
+                  <div class="thinking-card__header">
+                    <span class="thinking-card__orb"></span>
+                    <span class="thinking-card__label">Thinking...</span>
+                  </div>
+                  <div class="thinking-card__body" #thinkingBody>{{ stripThinkingMd(currentThinking) }}</div>
                 </div>
               }
 
+              <!-- Collapsed thoughts — shown after thinking finishes, Claude-style -->
+              @if (savedThinkingEntry() && !currentThinking && isLastAssistantMessageForThinking(message)) {
+                <div class="thinking-row" [class.thinking-row--open]="thinkingExpanded()"
+                     (click)="toggleThinking()">
+                  <svg class="thinking-row__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                  <span class="thinking-row__text">{{ thinkingSummary() }}</span>
+                  <svg class="thinking-row__chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    @if (thinkingExpanded()) {
+                      <polyline points="18 15 12 9 6 15"/>
+                    } @else {
+                      <polyline points="6 9 12 15 18 9"/>
+                    }
+                  </svg>
+                </div>
+                @if (thinkingExpanded()) {
+                  <div class="thinking-expanded prose"
+                       [innerHTML]="stripThinkingMd(savedThinkingEntry()?.text ?? '') | markdown"></div>
+                }
+              }
+
               <!-- No content and no thinking = simple loading indicator -->
-              @if (isLastAssistantMessage(message) && !message.content && !currentThinking) {
+              @if (isLastAssistantMessage(message) && !message.content && !currentThinking && !savedThinkingEntry()) {
                 <div class="thinking-simple">
+                  <span class="thinking-orb-pulse"></span>
                   <span class="thinking-simple-text">Generating response...</span>
                 </div>
               }
@@ -36,13 +141,16 @@
                   class="prose"
                   [class.streaming-text]="isLastAssistantMessage(message) && message.content"
                   [innerHTML]="getDisplayContent(message) | markdown"
+                  (click)="onContentClick($event)"
+                  (keydown.enter)="onContentClick($event)"
+                  (keydown.space)="onContentClick($event)"
                 ></div>
                 @if (isLastAssistantMessage(message) && message.content) {
                   <span class="streaming-cursor"></span>
                 }
               }
 
-              <!-- Message footer: timestamp + copy button -->
+              <!-- Message footer: timestamp + copy button + thumbs feedback -->
               @if (message.content && !isLastAssistantMessage(message)) {
                 <div class="msg-footer">
                   <span class="msg-timestamp">{{ formatTimestamp(message.createdAt) }}</span>
@@ -53,15 +161,36 @@
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     }
                   </button>
+                  <!-- Thumbs feedback. Two clicks toggle like/dislike; backend
+                       upserts the row so a wallet only ever has one rating
+                       on a given message. -->
+                  <button class="msg-feedback-btn"
+                          [class.is-active]="feedbackRatings()[message.id] === 1"
+                          (click)="rateMessage(message, 1)"
+                          title="Helpful">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l5-7a2 2 0 0 1 2 1.7Z"/></svg>
+                  </button>
+                  <button class="msg-feedback-btn"
+                          [class.is-active]="feedbackRatings()[message.id] === -1"
+                          (click)="rateMessage(message, -1)"
+                          title="Not helpful">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17v12l-5 7a2 2 0 0 1-2-1.7Z"/></svg>
+                  </button>
                 </div>
               }
 
-              <!-- Retry button for error messages -->
+              <!-- Retry / Edit buttons for error messages (ChatGPT-style recovery) -->
               @if (message.isError) {
-                <button class="msg-retry-btn" (click)="retryLast.emit()">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.87"/></svg>
-                  Retry
-                </button>
+                <div class="msg-error-actions">
+                  <button class="msg-retry-btn" (click)="retryLast.emit()" title="Resend the same message">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.87"/></svg>
+                    Retry
+                  </button>
+                  <button class="msg-edit-btn" (click)="editLast.emit()" title="Edit your message and resend">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    Edit message
+                  </button>
+                </div>
               }
             </div>
           }
@@ -75,8 +204,9 @@
                 [query]="query"
                 [sessionId]="message.sessionId"
                 [messageId]="message.id"
-                [snapshot]="message.metadata?.query_snapshots?.[query.raw] ?? null"
-                (cancelAction)="onCancelAction($event)">
+                [snapshot]="message.metadata?.query_snapshots?.[querySnapshotKey(query)] ?? null"
+                (cancelAction)="onCancelAction($event)"
+                (useAction)="onUseAction($event, message.id)">
               </app-query-card>
             }
           </div>
@@ -103,10 +233,11 @@
                 [allActions]="getActionsForMessage(message.id)"
                 [sessionId]="message.sessionId"
                 [messageId]="message.id"
-                [cachedResult]="message.metadata?.action_results?.[action.raw] ?? null"
-                [cachedQsResult]="message.metadata?.action_results?.[action.raw + ':qs'] ?? null"
+                [cachedResult]="message.metadata?.action_results?.[actionResultKey(action)] ?? null"
+                [cachedQsResult]="message.metadata?.action_results?.[actionResultKey(action) + ':qs'] ?? null"
                 [autoApprove]="isBatchAction(message.id, i)"
                 (requestChat)="onRequestChat($event)"
+                (actionDismissed)="onActionDismissed(message.id, action)"
                 (executionComplete)="onBatchStepComplete(message.id, $event)">
               </app-action-card>
             }
@@ -116,10 +247,11 @@
         <!-- Clarify cards — protocol selection -->
         @if (message.role === 'assistant' && getClarificationsForMessage(message.id).length > 0) {
           <div class="inline-cards">
-            @for (clarify of getClarificationsForMessage(message.id); track $index) {
+            @for (clarify of getClarificationsForMessage(message.id); track $index; let ci = $index) {
               <app-clarify-card
                 [clarify]="clarify"
-                (actionSelected)="onClarifySelected($event)">
+                [selectedIndex]="clarifySelectionFor(message.id, ci)"
+                (optionSelected)="onClarifySelected(message.id, ci, $event)">
               </app-clarify-card>
             }
           </div>

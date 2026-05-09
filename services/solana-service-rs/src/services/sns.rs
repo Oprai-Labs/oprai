@@ -382,6 +382,17 @@ pub struct SnsP2pCancelParams {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Utility: transparent domain resolution (used by transfer auto-resolve)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Resolve a `.sol` domain to its owner pubkey string.
+/// `domain` should be the bare label without the `.sol` suffix.
+pub async fn resolve_domain(http: &Client, domain: &str) -> Result<String, AppError> {
+    proxy_get(http, &format!("resolve/{domain}")).await
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Query: Resolve domain → owner pubkey
 // ─────────────────────────────────────────────────────────────────────────────
 

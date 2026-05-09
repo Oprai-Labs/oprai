@@ -16,6 +16,8 @@ use crate::middleware::auth::UserWallet;
 use crate::services::builder::{self, BuildRequest};
 use crate::services::{dca, limit_order, simulation};
 use crate::services::relay::{self, CrossChainSwapParams, RelayExecutePermitsRequest, RelayIndexTransactionRequest, RelaySingleTransactionRequest, RelayDepositAddressReindexRequest, RelayClaimAppFeesRequest, RelayFastFillRequest, RelayExecuteRequest};
+use crate::services::mint_security::SharedMintSecurityCache;
+use crate::services::spending_client::SpendingClient;
 use crate::services::swap::{self, QuoteRequest, MAX_SLIPPAGE_BPS};
 use crate::solana::connection::SolanaRpc;
 
@@ -32,6 +34,13 @@ pub struct AppState {
     pub helius_api_key: Option<String>,
     pub relay_fee_recipient: Option<String>,
     pub relay_api_key: Option<String>,
+    /// 10-minute TTL cache of registry/Jupiter mint lookups so we don't pay a
+    /// round-trip on every swap quote. See [`mint_security`].
+    pub mint_security: SharedMintSecurityCache,
+    /// Internal HTTP client to auth-service's `/internal/spending/*`. The
+    /// authoritative cap-enforcement happens via this client; the frontend
+    /// equivalent is informational only.
+    pub spending: SpendingClient,
 }
 
 fn wallet_from_req(req: &HttpRequest) -> Result<String, AppError> {
@@ -52,7 +61,7 @@ pub async fn post_quote(
     state: web::Data<AppState>,
     body: web::Json<QuoteRequest>,
 ) -> Result<HttpResponse, AppError> {
-    let _wallet = wallet_from_req(&req)?;
+    let wallet = wallet_from_req(&req)?;
 
     let slippage_bps = body.slippage_bps.unwrap_or(50);
     if slippage_bps > MAX_SLIPPAGE_BPS {
@@ -61,6 +70,24 @@ pub async fn post_quote(
             slippage_bps, MAX_SLIPPAGE_BPS
         )));
     }
+
+    // Mint provenance check — refuse to quote against a mint we cannot trace
+    // back to either the compile-time registry or Jupiter's live token list.
+    // This is the primary defence against vanity-prefix grinding (an attacker
+    // produces an address starting with `J1toso1u…` that the LLM mistakes for
+    // JitoSOL). See `services::mint_security`.
+    let input_provenance = crate::services::mint_security::require_known_mint(
+        &state.mint_security,
+        &state.http,
+        &body.input_mint,
+    )
+    .await?;
+    let output_provenance = crate::services::mint_security::require_known_mint(
+        &state.mint_security,
+        &state.http,
+        &body.output_mint,
+    )
+    .await?;
 
     let params = swap::SwapParams {
         input_mint: body.input_mint.clone(),
@@ -78,16 +105,46 @@ pub async fn post_quote(
             tracing::error!(error = %e, input_mint = %body.input_mint, output_mint = %body.output_mint, "Failed to get swap quote");
             e
         })?;
-    
+
+    // Server-side spending-cap enforcement. The frontend has its own check
+    // for UX, but this is the line a malicious client cannot bypass. We use
+    // the Jupiter quote (atomic in/out amounts) so the USD estimate is an
+    // accurate post-routing number rather than a pre-routing guess.
+    let est_usd = crate::services::spending_client::estimate_swap_usd(
+        &state.http,
+        &quote.input_mint,
+        &quote.output_mint,
+        &quote.in_amount,
+        &quote.out_amount,
+    )
+    .await;
+    crate::services::spending_client::enforce_spending_cap(&state.spending, &wallet, est_usd)
+        .await?;
+
     tracing::info!(
         action = "swap_quote",
+        wallet = %wallet,
         input_mint = %body.input_mint,
         output_mint = %body.output_mint,
         amount = %body.amount,
+        est_usd = %est_usd,
+        input_trust = ?std::mem::discriminant(&input_provenance),
+        output_trust = ?std::mem::discriminant(&output_provenance),
         "Generated swap quote successfully"
     );
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "quote": quote })))
+    let warn_user = input_provenance.requires_user_warning()
+        || output_provenance.requires_user_warning();
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "quote": quote,
+        "mintProvenance": {
+            "input": input_provenance,
+            "output": output_provenance,
+            "warnUser": warn_user,
+        },
+        "estUsd": est_usd,
+    })))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -310,6 +367,13 @@ pub struct CreateTransactionBody {
     pub chat_session_id: Option<String>,
     #[serde(default)]
     pub chat_message_id: Option<String>,
+    /// USD value at quote time. Frontend forwards the `estUsd` it received
+    /// from `/actions/quote`. The handler atomically increments the wallet's
+    /// daily-spending counter via auth-service so the cap is enforced on
+    /// actually-broadcast transactions, not on quotes that the user backed
+    /// out of.
+    #[serde(default)]
+    pub est_usd: Option<f64>,
 }
 
 #[post("")]
@@ -359,6 +423,21 @@ pub async fn create_transaction(
         NewTransactionEvent::status_change(inserted.id, "created", None, "pending"),
     )
     .await;
+
+    // Server-side spending counter — increments only on the *create* path
+    // (i.e. the moment the frontend tells us "I broadcast this"). The
+    // pre-quote check at /actions/quote already gated the upper bound; this
+    // call is the post-broadcast accounting that powers the daily cap.
+    if let Some(amount_usd) = body.est_usd {
+        if amount_usd > 0.0 {
+            if let Err(e) = state.spending.commit(&wallet, amount_usd).await {
+                tracing::warn!(
+                    error = %e, wallet = %wallet, est_usd = %amount_usd,
+                    "spending commit failed (cap counter not updated)"
+                );
+            }
+        }
+    }
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "transaction": inserted })))
 }
@@ -467,6 +546,10 @@ pub struct UpdateTransactionStatusBody {
     pub actual_fee: Option<String>,
     #[serde(default)]
     pub error_message: Option<String>,
+    // est_usd intentionally not on this path: the daily spending counter
+    // is committed in POST /transactions (the actual broadcast point), so
+    // the PATCH path doesn't need to know about it. Status changes here
+    // include retries that must not double-count.
 }
 
 #[patch("/{id}/status")]
@@ -530,6 +613,9 @@ pub async fn patch_transaction_status(
                 .execute(&mut conn)
                 .await
                 .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            // Spending counter is committed in POST /transactions (the actual
+            // broadcast point), not here. PATCH submitted is also used for
+            // retries; double-incrementing would over-report the daily total.
         }
         "confirmed" => {
             diesel::update(transactions::table)
@@ -630,9 +716,19 @@ pub async fn post_simulate(
     let versioned_tx: VersionedTransaction = bincode::deserialize(&tx_bytes)
         .map_err(|e| AppError::InvalidParams(format!("Cannot deserialize transaction: {e}")))?;
 
-    let sim_result = state
-        .rpc
-        .client()
+    // The shared `state.rpc.client()` is the SYNC `solana_client::rpc_client::
+    // RpcClient`. Calling its `simulate_transaction_with_config` from an async
+    // handler dispatches through `tokio::task::block_in_place`, which panics
+    // ("can call blocking only when running on the multi-threaded runtime")
+    // because actix-web spawns one current-thread runtime per worker. We
+    // construct a fresh nonblocking client from the same endpoint here so the
+    // call stays cooperative — same behaviour as `meteora.rs` /
+    // `build_vtx_b64` and the simulation step in `helius.rs`.
+    let async_rpc = solana_rpc_client::nonblocking::rpc_client::RpcClient::new_with_commitment(
+        state.rpc.endpoint().to_string(),
+        solana_sdk::commitment_config::CommitmentConfig::confirmed(),
+    );
+    let sim_result = async_rpc
         .simulate_transaction_with_config(
             &versioned_tx,
             solana_client::rpc_config::RpcSimulateTransactionConfig {
@@ -645,6 +741,7 @@ pub async fn post_simulate(
                 inner_instructions: false,
             },
         )
+        .await
         .map_err(|e| AppError::SolanaRpcError(format!("Simulation RPC error: {e}")))?;
 
     let value = sim_result.value;

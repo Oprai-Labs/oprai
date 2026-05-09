@@ -37,6 +37,23 @@ pub struct JupiterBorrowParams {
     pub amount: String,
 }
 
+/// Tokens supported by Jupiter Lend Earn.
+const JUP_LEND_EARN_TOKENS: &[&str] = &["USDC", "USDT", "jupSOL", "jitoSOL", "EURC"];
+
+pub fn validate_jup_lend_token(token: &str) -> Result<(), AppError> {
+    if !JUP_LEND_EARN_TOKENS
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case(token))
+    {
+        return Err(AppError::InvalidParams(format!(
+            "Jupiter Lend does not support '{}'. Supported tokens: {}",
+            token,
+            JUP_LEND_EARN_TOKENS.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 pub fn validate_lend_params(params: &JupiterLendParams) -> Result<(), AppError> {
     let amount: f64 = params
         .amount
@@ -50,7 +67,7 @@ pub fn validate_lend_params(params: &JupiterLendParams) -> Result<(), AppError> 
             "Operation must be 'deposit' or 'withdraw'".into(),
         ));
     }
-    Ok(())
+    validate_jup_lend_token(&params.token)
 }
 
 pub fn validate_borrow_params(params: &JupiterBorrowParams) -> Result<(), AppError> {

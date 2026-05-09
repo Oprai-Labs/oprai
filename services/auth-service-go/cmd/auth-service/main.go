@@ -79,7 +79,7 @@ func main() {
 	}
 
 	// ── Initialize services ───────────────────────────────────────────
-	jwtService := services.NewJWTService(cfg.JWTSecret, cfg.SessionTTLSeconds)
+	jwtService := services.NewJWTService(cfg.JWTSecret, cfg.JWTPreviousSecret, cfg.SessionTTLSeconds)
 	nonceService := services.NewNonceService(rdb, cfg.NonceTTLSeconds)
 	revocationService := services.NewRevocationService(rdb)
 

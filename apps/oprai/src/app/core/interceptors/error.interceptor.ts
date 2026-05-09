@@ -34,14 +34,19 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
           // Redirect to login; the guard will re-validate on next navigation.
           router.navigate(['/admin/login']);
         } else {
-          authService.logout();
+          // Drop local state silently. Calling logout() here would POST /auth/logout
+          // with the (already-rejected) token, which the gateway responds to by
+          // adding the jti to its blocklist — creating a 401-loop self-DOS.
+          authService.clearLocalAuth();
 
           // Re-authenticate silently if the wallet is still connected.
           // Guard against infinite loops: skip if the failing request was itself
           // an auth endpoint (/auth/nonce or /auth/verify returning 401 would
           // otherwise trigger another authenticate() → /auth/nonce → 401 → ...).
           const isAuthEndpoint =
-            req.url.includes('/auth/nonce') || req.url.includes('/auth/verify');
+            req.url.includes('/auth/nonce') ||
+            req.url.includes('/auth/verify') ||
+            req.url.includes('/auth/logout');
 
           if (!isAuthEndpoint && walletService.connected()) {
             authService.authenticate().subscribe({

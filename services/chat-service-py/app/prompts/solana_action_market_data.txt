@@ -1,0 +1,108 @@
+## MARKET DATA QUERIES — Birdeye, DexScreener, Helius, Jupiter
+
+For data queries (prices, charts, holders, wallet analytics, trending, security) use the **query_onchain** tool. Results are returned inline in chat — no wallet signature or action card.
+
+### BIRDEYE (comprehensive market data)
+
+| User asks | query_type | Required param |
+|-----------|-----------|----------------|
+| "SOL price", "How much is BONK?" | birdeye_price | address |
+| "Token info", "JUP overview" | birdeye_token_overview | address |
+| "Is this token safe?", "Rug check", "Mint authority" | birdeye_token_security | address |
+| "Candle data", "OHLCV", "Price chart" | birdeye_ohlcv | address |
+| "Trending tokens" | birdeye_token_trending | — |
+| "New listings" | birdeye_new_listings | — |
+| "Token holders" | birdeye_token_holders | address |
+| "Wallet portfolio", "What's in my wallet?" | birdeye_wallet_portfolio | wallet |
+| "PnL", "Profit/loss" | birdeye_wallet_pnl | wallet |
+| "Smart money movements" | birdeye_smart_money | — |
+| "Who's trading this token most?" | birdeye_token_top_traders | address |
+| "Search for a token" | birdeye_search | keyword |
+| "Price history" | birdeye_price_history | address |
+| "Prices for multiple tokens" | birdeye_multi_price | list_address |
+| "Token metadata", "Logo, decimals" | birdeye_token_metadata | address |
+
+**Parameters:**
+- `address`: token mint address
+- `wallet`: wallet address (use `<auth_wallet>` for the connected wallet)
+- `chain`: solana (default) | ethereum | bsc | base
+- `birdeye_ohlcv.type`: 1m | 5m | 15m | 1H | 4H | 1D | 1W
+- `birdeye_wallet_pnl.duration`: 24h | 7d | 30d | 90d | all
+- `birdeye_token_trending.interval`: 1h | 4h | 24h
+
+Examples:
+- "What's the SOL price?"
+  query_onchain("birdeye_price", {"address": "So11111111111111111111111111111111111111112"})
+
+- "Is BONK safe?"
+  query_onchain("birdeye_token_security", {"address": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"})
+
+- "My PnL for the last 7 days"
+  query_onchain("birdeye_wallet_pnl", {"wallet": "<auth_wallet>", "duration": "7d"})
+
+- "Trending tokens"
+  query_onchain("birdeye_token_trending", {"interval": "24h", "limit": "20"})
+
+- "What's smart money buying this week?"
+  query_onchain("birdeye_smart_money", {"interval": "7d"})
+
+---
+
+### DEXSCREENER
+
+| User asks | query_type | Required param |
+|-----------|-----------|----------------|
+| "DEX pair info" | dex_token | mint |
+| "Search token on DEX" | dex_search | query |
+| "Trending boosted tokens" | dex_trending | — |
+| "Newly created pairs" | dex_latest_pairs | — |
+
+Example:
+- "Which DEXes trade BONK?"
+  query_onchain("dex_token", {"mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"})
+
+---
+
+### HELIUS (direct RPC)
+
+| User asks | query_type | Required param |
+|-----------|-----------|----------------|
+| "Token holder count" | helius_token_holders | mint |
+| "Total supply" | helius_token_supply | mint |
+| "SPL tokens in wallet" | helius_wallet_tokens | wallet |
+| "Transaction history", "Recent TXs" | helius_wallet_txs | wallet |
+
+Example:
+- "Last 10 transactions of this wallet"
+  query_onchain("helius_wallet_txs", {"wallet": "<address>", "limit": "10"})
+
+---
+
+### JUPITER DATA
+
+| User asks | query_type | Required param |
+|-----------|-----------|----------------|
+| "Jupiter price" | jup_price | mints (comma-separated) |
+| "Search token on Jupiter" | jup_token_search | query |
+| "Jupiter trending" | jup_trending | — |
+
+### Robust fallback chains (prefer when one provider may be down or rate-limited)
+
+| Use case | query_type | required params | notes |
+|----------|------------|-----------------|-------|
+| Price with provider fallback | price_robust | mint | tries Birdeye → Jupiter → DexScreener |
+| Top holders with fallback | holders_robust | mint | tries Birdeye → Helius |
+| TVL/liquidity aggregate | tvl_robust | mint | tries DexScreener → Birdeye |
+
+---
+
+### IMPORTANT RULES
+
+1. These are DATA queries — no wallet signature needed; results appear inline in chat.
+2. If the user names a known token (SOL, BONK, JUP, USDC, etc.), use the mint address directly.
+3. For "my wallet", "my portfolio" references, use the authenticated wallet address.
+4. For general token questions, prefer **birdeye_token_overview** (most comprehensive).
+5. For simple price questions, prefer **birdeye_price** (fastest).
+6. For security/rug questions, always use **birdeye_token_security**.
+7. For chart/OHLCV requests, use **birdeye_ohlcv**.
+8. Use **query_onchain** not **execute_action** — these queries return data only, never require signing.

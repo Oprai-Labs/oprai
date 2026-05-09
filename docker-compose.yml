@@ -258,6 +258,27 @@ services:
       qdrant:
         condition: service_healthy
 
+  knowledge-ingestion-service:
+    build:
+      context: .
+      dockerfile: services/knowledge-ingestion-service/Dockerfile
+    container_name: oprai-knowledge-ingestion
+    restart: unless-stopped
+    ports:
+      - "3070:3070"
+    environment:
+      PORT: 3070
+      DATABASE_URL: postgresql+asyncpg://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      QDRANT_URL: http://qdrant:6333
+      OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      MONTHLY_BUDGET_USD: ${KNOWLEDGE_INGESTION_MONTHLY_BUDGET_USD:-50}
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
   solana-service-ts:
     build:
       context: .

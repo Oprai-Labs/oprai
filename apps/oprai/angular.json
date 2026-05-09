@@ -89,7 +89,7 @@
           "defaultConfiguration": "development",
           "options": {
             "proxyConfig": "../../proxy.conf.json",
-            "allowedHosts": ["all"]
+            "allowedHosts": ["localhost"]
           }
         },
         "test": {

@@ -1,0 +1,23 @@
+id: convex_docs
+source_type: docs
+base_url: https://docs.convexfinance.com
+protocol: convex
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "40 5 * * *"
+crawl_delay_s: 1.5
+max_pages: 100
+tags:
+  - convex
+  - curve-wars
+  - vecvx
+  - vlcvx
+  - gauge-voting
+  - bribes
+  - crv-emissions
+  - defi
+notes: >
+  Gitbook docs. Core page: /convexfinance/general-information/why-convex/voting-and-gauge-weights.
+  Explains how vlCVX holders direct Convex's veCRV vote weight, CRV emission targeting,
+  and bribe market mechanics via Votium. Small site; very high crawl confidence.

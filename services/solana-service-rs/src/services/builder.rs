@@ -112,6 +112,16 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
                 })?;
             relay::validate_cross_chain_params(&p)
         }
+        "debridge" => {
+            let p: debridge::DebridgeParams = serde_json::from_value(params.clone())
+                .map_err(|e| AppError::InvalidParams(format!("Invalid debridge params: {e}")))?;
+            debridge::validate_debridge_params(&p)
+        }
+        "squid" | "squid_bridge" => {
+            let p: squid::SquidParams = serde_json::from_value(params.clone())
+                .map_err(|e| AppError::InvalidParams(format!("Invalid squid params: {e}")))?;
+            squid::validate_squid_params(&p)
+        }
         "cross_chain_quote" => {
             let _p: squid::SquidQuoteParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid cross_chain_quote params: {e}")))?;
@@ -263,21 +273,6 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             let p: sns::SnsTwitterHandleParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid sns_twitter_handle params: {e}")))?;
             if p.input.is_empty() { return Err(AppError::InvalidParams("input is required".into())); }
-            Ok(())
-        }
-        // NFT aliases - redirect to Magic Eden
-        "nft_buy" => {
-            let _p: magic_eden::MeBuyParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid nft_buy params: {e}")))?;
-            Ok(())
-        }
-        "nft_list" => {
-            let _p: magic_eden::MeListParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid nft_list params: {e}")))?;
-            Ok(())
-        }
-        "nft_mint" => {
-            // NFT mint is not supported via API - requires direct contract interaction
             Ok(())
         }
         "limit_order" => {
@@ -583,16 +578,52 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
                 .map_err(|e| AppError::InvalidParams(format!("Invalid jupsol_unstake params: {e}")))?;
             jupsol::validate_jupsol_params(&p)
         }
-        // Jupiter Lend
+        // Generic lend — routes by protocol field (default: jupiter)
         "lend" | "withdraw_lend" => {
-            let p: jupiter_lend::JupiterLendParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid lend params: {e}")))?;
-            jupiter_lend::validate_lend_params(&p)
+            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("jupiter");
+            match protocol {
+                "marginfi" => {
+                    let p: marginfi::MarginfiDepositParams = serde_json::from_value(params.clone())
+                        .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi lend params: {e}")))?;
+                    marginfi::validate_marginfi_deposit_params(&p)
+                }
+                "solend" => {
+                    let p: solend::SolendDepositParams = serde_json::from_value(params.clone())
+                        .map_err(|e| AppError::InvalidParams(format!("Invalid solend lend params: {e}")))?;
+                    solend::validate_solend_deposit_params(&p)
+                }
+                "kamino" => Err(AppError::InvalidParams(
+                    "Kamino requires a reserve address — use kamino_deposit instead".into(),
+                )),
+                _ => {
+                    let p: jupiter_lend::JupiterLendParams = serde_json::from_value(params.clone())
+                        .map_err(|e| AppError::InvalidParams(format!("Invalid lend params: {e}")))?;
+                    jupiter_lend::validate_lend_params(&p)
+                }
+            }
         }
         "borrow" | "repay" => {
-            let p: jupiter_lend::JupiterBorrowParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid borrow params: {e}")))?;
-            jupiter_lend::validate_borrow_params(&p)
+            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("jupiter");
+            match protocol {
+                "marginfi" => {
+                    let p: marginfi::MarginfiBorrowParams = serde_json::from_value(params.clone())
+                        .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi borrow params: {e}")))?;
+                    marginfi::validate_marginfi_borrow_params(&p)
+                }
+                "solend" => {
+                    let p: solend::SolendBorrowParams = serde_json::from_value(params.clone())
+                        .map_err(|e| AppError::InvalidParams(format!("Invalid solend borrow params: {e}")))?;
+                    solend::validate_solend_borrow_params(&p)
+                }
+                "kamino" => Err(AppError::InvalidParams(
+                    "Kamino requires a reserve address — use kamino_borrow instead".into(),
+                )),
+                _ => {
+                    let p: jupiter_lend::JupiterBorrowParams = serde_json::from_value(params.clone())
+                        .map_err(|e| AppError::InvalidParams(format!("Invalid borrow params: {e}")))?;
+                    jupiter_lend::validate_borrow_params(&p)
+                }
+            }
         }
         "jup_lend_markets" => {
             let p: jupiter_lend::JupLendMarketsParams = serde_json::from_value(params.clone())
@@ -654,6 +685,17 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             let id = params.get("requestId").and_then(|v| v.as_str()).unwrap_or("");
             if id.trim().is_empty() {
                 return Err(AppError::InvalidParams("requestId is required for relay_intent_status".into()));
+            }
+            Ok(())
+        }
+        "squid_status" => {
+            let tx_id = params.get("transactionId").and_then(|v| v.as_str()).unwrap_or("");
+            let quote_id = params.get("quoteId").and_then(|v| v.as_str()).unwrap_or("");
+            if tx_id.trim().is_empty() {
+                return Err(AppError::InvalidParams("transactionId is required for squid_status".into()));
+            }
+            if quote_id.trim().is_empty() {
+                return Err(AppError::InvalidParams("quoteId is required for squid_status".into()));
             }
             Ok(())
         }
@@ -2144,7 +2186,6 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         "tensor_cancel_listing" | "tensor_cancel_offer"
         | "tensor_collection_info" | "tensor_nft_info" | "tensor_wallet_nfts" | "tensor_listings"
         | "tensor_make_offer" => Ok(()),
-        "claim" | "vote" => Ok(()),
         "burn" => {
             let p: burn::BurnParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid burn params: {e}")))?;
@@ -2228,7 +2269,18 @@ pub async fn build_action(
 
     match action_type {
         "transfer" => {
-            let p: transfer::TransferParams = serde_json::from_value(params)?;
+            let mut p: transfer::TransferParams = serde_json::from_value(params)?;
+            // Auto-resolve .sol domain → pubkey before entering the blocking RPC call.
+            if p.to.to_lowercase().ends_with(".sol") {
+                let domain = p.to[..p.to.len() - 4].to_lowercase();
+                let original = p.to.clone();
+                p.to = sns::resolve_domain(http, &domain).await.map_err(|_| {
+                    AppError::InvalidParams(format!(
+                        "Could not resolve '{}' to a Solana address",
+                        original
+                    ))
+                })?;
+            }
             let rpc = rpc.clone();
             let pubkey = *user_pubkey;
             let result = actix_web::web::block(move || {
@@ -2569,14 +2621,46 @@ pub async fn build_action(
             let p: jupsol::JupSolParams = serde_json::from_value(params)?;
             jupsol::build_jupsol_unstake_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p).await
         }
-        // Jupiter Lend
+        // Generic lend — routes by protocol field (default: jupiter)
         "lend" | "withdraw_lend" => {
-            let p: jupiter_lend::JupiterLendParams = serde_json::from_value(params)?;
-            jupiter_lend::build_lend_transaction(http, &user_pubkey.to_string(), &p).await
+            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("jupiter").to_string();
+            match protocol.as_str() {
+                "marginfi" => {
+                    let p: marginfi::MarginfiDepositParams = serde_json::from_value(params)?;
+                    marginfi::build_marginfi_deposit(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+                }
+                "solend" => {
+                    let p: solend::SolendDepositParams = serde_json::from_value(params)?;
+                    solend::build_solend_deposit(http, &user_pubkey.to_string(), &p).await
+                }
+                "kamino" => Err(AppError::InvalidParams(
+                    "Kamino requires a reserve address — use kamino_deposit instead".into(),
+                )),
+                _ => {
+                    let p: jupiter_lend::JupiterLendParams = serde_json::from_value(params)?;
+                    jupiter_lend::build_lend_transaction(http, &user_pubkey.to_string(), &p).await
+                }
+            }
         }
         "borrow" | "repay" => {
-            let p: jupiter_lend::JupiterBorrowParams = serde_json::from_value(params)?;
-            jupiter_lend::build_borrow_transaction(http, &user_pubkey.to_string(), &p).await
+            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("jupiter").to_string();
+            match protocol.as_str() {
+                "marginfi" => {
+                    let p: marginfi::MarginfiBorrowParams = serde_json::from_value(params)?;
+                    marginfi::build_marginfi_borrow(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+                }
+                "solend" => {
+                    let p: solend::SolendBorrowParams = serde_json::from_value(params)?;
+                    solend::build_solend_borrow(http, &user_pubkey.to_string(), &p).await
+                }
+                "kamino" => Err(AppError::InvalidParams(
+                    "Kamino requires a reserve address — use kamino_borrow instead".into(),
+                )),
+                _ => {
+                    let p: jupiter_lend::JupiterBorrowParams = serde_json::from_value(params)?;
+                    jupiter_lend::build_borrow_transaction(http, &user_pubkey.to_string(), &p).await
+                }
+            }
         }
         "jup_lend_markets" => {
             let p: jupiter_lend::JupLendMarketsParams = serde_json::from_value(params)?;
@@ -3746,38 +3830,6 @@ pub async fn build_action(
             let p: magic_eden::MeCollectionNFTsParams = serde_json::from_value(params)?;
             magic_eden::build_me_collection_nfts(http, &p).await
         }
-        // ── NFT Generic Aliases─
-        // ─────────────────────────────────────────────────── Redirect to Magic Eden
-        "nft_buy" => {
-            let p: magic_eden::MeBuyParams = serde_json::from_value(params)?;
-            magic_eden::build_me_buy(http, rpc, user_pubkey, &p).await
-        }
-        "nft_list" => {
-            let p: magic_eden::MeListParams = serde_json::from_value(params)?;
-            magic_eden::build_me_list(http, rpc, user_pubkey, &p).await
-        }
-        "nft_mint" => {
-            // NFT mint requires direct contract interaction - not supported via API
-            let preview = ActionPreview {
-                id: Uuid::new_v4().to_string(),
-                action_type: "nft_mint".to_string(),
-                description: "NFT mint requires direct contract interaction".to_string(),
-                estimated_fee: "0".to_string(),
-                    estimated_refund: None,
-                params: params.clone(),
-                warnings: vec!["Not supported via API - requires direct contract call".to_string()],
-                requires_approval: true,
-            };
-            return Ok(BuildResponse {
-                preview,
-                transaction: None,
-                additional_signers_required: 0,
-                execution_steps: None,
-                quote: None,
-                is_cross_chain: false,
-        data: None,
-            });
-        }
         // ── Cross-Chain Actions ─────────────────────────────────────────────────────
         "cross_chain_swap" | "bridge" => {
             // bridge is an alias for cross_chain_swap
@@ -3916,6 +3968,69 @@ pub async fn build_action(
             }
         }
         // ── Relay.link — dedicated bridge action ───────────────────────────────────
+        // Direct action type aliases: LLM can emit "debridge" or "squid_bridge" without "provider"
+        "debridge" => {
+            let p: debridge::DebridgeParams = serde_json::from_value(params)?;
+            let result = debridge::build_debridge_swap(http, &user_pubkey.to_string(), &p).await?;
+            let execution_steps = result.evm_tx.as_ref().map(|evm| {
+                vec![serde_json::json!({
+                    "type": "evm_tx",
+                    "to": evm.to, "data": evm.data, "value": evm.value,
+                })]
+            });
+            Ok(BuildResponse {
+                preview: ActionPreview {
+                    id: result.preview.id,
+                    action_type: result.preview.action_type,
+                    description: result.preview.description,
+                    estimated_fee: result.preview.estimated_fee,
+                    estimated_refund: None,
+                    params: serde_json::to_value(result.preview.params)?,
+                    warnings: result.preview.warnings,
+                    requires_approval: result.preview.requires_approval,
+                },
+                transaction: result.solana_tx,
+                additional_signers_required: 0,
+                execution_steps: execution_steps.map(|s| serde_json::to_value(s).unwrap_or_default()),
+                quote: Some(serde_json::to_value(&result.quote)?),
+                is_cross_chain: true,
+                data: None,
+            })
+        }
+        "squid" | "squid_bridge" => {
+            let mut p: squid::SquidParams = serde_json::from_value(params)?;
+            if p.from_address.is_empty() {
+                p.from_address = user_pubkey.to_string();
+            }
+            let result = squid::build_squid_swap(http, &user_pubkey.to_string(), &p).await?;
+            let execution_steps = result.evm_tx.as_ref().map(|evm| {
+                vec![serde_json::json!({
+                    "type": "evm_tx",
+                    "to": evm.to, "data": evm.data, "value": evm.value,
+                    "chainId": evm.chain_id, "gasLimit": evm.gas_limit,
+                    "maxFeePerGas": evm.max_fee_per_gas,
+                    "maxPriorityFeePerGas": evm.max_priority_fee_per_gas,
+                })]
+            });
+            Ok(BuildResponse {
+                preview: ActionPreview {
+                    id: result.preview.id,
+                    action_type: result.preview.action_type,
+                    description: result.preview.description,
+                    estimated_fee: result.preview.estimated_fee,
+                    estimated_refund: None,
+                    params: serde_json::to_value(result.preview.params)?,
+                    warnings: result.preview.warnings,
+                    requires_approval: result.preview.requires_approval,
+                },
+                transaction: result.solana_tx,
+                additional_signers_required: 0,
+                execution_steps: execution_steps.map(|s| serde_json::to_value(s).unwrap_or_default()),
+                quote: Some(serde_json::to_value(&result.quote)?),
+                is_cross_chain: true,
+                data: None,
+            })
+        }
         "relay_bridge" => {
             let p: relay::RelayBridgeParams = serde_json::from_value(params)?;
             let result = relay::relay_bridge(http, &user_pubkey.to_string(), &p, relay_fee_recipient).await?;
@@ -4025,73 +4140,6 @@ pub async fn build_action(
         | "tensor_cancel_offer" | "tensor_collection_info" | "tensor_nft_info"
         | "tensor_wallet_nfts" | "tensor_listings" => {
             tensor::build_tensor_action(http, &user_pubkey.to_string(), action_type, params).await
-        }
-        // ── Claim (protocol-specific guidance, data-only) ─────────────────────────
-        "claim" => {
-            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let claim_type = params.get("type").and_then(|v| v.as_str()).unwrap_or("rewards");
-            let description = match protocol {
-                "marinade" | "mnde" => "Marinade rewards auto-compound into mSOL — your balance grows automatically. To exit, use marinade_unstake (instant) or marinade_delayed_unstake (3-4 days, no fee).".to_string(),
-                "jito" => "Jito MEV rewards are distributed automatically to jitoSOL holders. Your jitoSOL balance increases over time — no manual claim needed.".to_string(),
-                "jupiter" | "jup" => "JUP airdrop and staking rewards can be claimed at jup.ag/vote. Make sure your wallet is connected there.".to_string(),
-                "kamino" | "kmno" => "Kamino lending yields auto-compound. KMNO staking rewards accrue in-protocol — use kamino_unstake to exit your position and collect.".to_string(),
-                "orca" => "To collect Orca liquidity position fees and rewards, use orca_collect_fees or orca_collect_rewards with your position address.".to_string(),
-                "meteora" => "To collect Meteora position fees, use meteora_claim_fees with your position address. For farm rewards, use meteora_claim_rewards.".to_string(),
-                _ => format!("To claim {claim_type} from {protocol}: use the {protocol} app directly, or specify a protocol action (e.g., orca_collect_fees, meteora_claim_fees, kamino_unstake)."),
-            };
-            Ok(BuildResponse {
-                preview: ActionPreview {
-                    id: format!("claim-{protocol}"),
-                    action_type: "claim".to_string(),
-                    description,
-                    estimated_fee: "0".to_string(),
-                    estimated_refund: None,
-                    params,
-                    warnings: vec![],
-                    requires_approval: false,
-                },
-                transaction: None,
-                additional_signers_required: 0,
-                execution_steps: None,
-                quote: None,
-                is_cross_chain: false,
-        data: None,
-            })
-        }
-        // ── Vote (governance portal redirect, data-only) ──────────────────────────
-        "vote" => {
-            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let proposal_id = params.get("proposalId").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let choice = params.get("choice").and_then(|v| v.as_str()).unwrap_or("yes");
-            let governance_url = match protocol {
-                "jupiter" | "jup" => format!("https://vote.jup.ag"),
-                "marinade" | "mnde" => "https://marinade.finance/governance".to_string(),
-                "kamino" | "kmno" => "https://app.kamino.finance/governance".to_string(),
-                "orca" => "https://governance.orca.so".to_string(),
-                "marginfi" | "mrfn" => "https://app.marginfi.com/governance".to_string(),
-                _ => "https://realms.today".to_string(),
-            };
-            let description = format!(
-                "Vote **{choice}** on {protocol} proposal #{proposal_id}. Cast your vote at: {governance_url}"
-            );
-            Ok(BuildResponse {
-                preview: ActionPreview {
-                    id: format!("vote-{protocol}-{proposal_id}"),
-                    action_type: "vote".to_string(),
-                    description,
-                    estimated_fee: "0".to_string(),
-                    estimated_refund: None,
-                    params,
-                    warnings: vec![],
-                    requires_approval: false,
-                },
-                transaction: None,
-                additional_signers_required: 0,
-                execution_steps: None,
-                quote: None,
-                is_cross_chain: false,
-        data: None,
-            })
         }
         // ── Burn (SPL token burn / close empty account) ───────────────────────────
         "burn" => {
@@ -5040,6 +5088,33 @@ pub async fn build_action(
         "sns_twitter_handle" => {
             let p: sns::SnsTwitterHandleParams = serde_json::from_value(params)?;
             sns::build_sns_twitter_handle(http, p).await
+        }
+
+        "squid_status" => {
+            let sp: squid::SquidStatusParams = serde_json::from_value(params.clone())?;
+            let status = squid::get_squid_status(http, &sp).await?;
+            Ok(BuildResponse {
+                preview: ActionPreview {
+                    id: format!("sqstatus_{}", Uuid::new_v4()),
+                    action_type: "squid_status".to_string(),
+                    description: format!(
+                        "Squid TX {} — {}",
+                        &status.transaction_id[..std::cmp::min(12, status.transaction_id.len())],
+                        status.status
+                    ),
+                    estimated_fee: "0".to_string(),
+                    estimated_refund: None,
+                    params: params.clone(),
+                    warnings: vec![status.status_meaning.clone()],
+                    requires_approval: false,
+                },
+                transaction: None,
+                additional_signers_required: 0,
+                execution_steps: None,
+                quote: None,
+                is_cross_chain: true,
+                data: Some(serde_json::to_value(&status)?),
+            })
         }
 
         _ => Err(AppError::InvalidParams(format!(

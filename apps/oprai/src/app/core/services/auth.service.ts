@@ -96,13 +96,9 @@ export class AuthService {
       return this._authInFlight$;
     }
 
-    // Clear stale sessions if wallet changed
-    if (existingToken) {
-      const previousWallet = getWalletFromToken(existingToken);
-      if (previousWallet && previousWallet !== walletAddress) {
-        this.sessionStorage.clear();
-      }
-    }
+    // No need to clear stale sessions on wallet change — sessionStorage.setWallet()
+    // (called in the success tap below) reloads the new wallet's namespace, and the
+    // previous wallet's data stays safely on disk under its own key.
 
     this._authenticating.set(true);
 
@@ -127,6 +123,8 @@ export class AuthService {
           // Store token in memory only (HttpOnly cookie is set by the backend).
           this._token.set(verifyRes.token);
           this._user.set({ wallet: walletAddress });
+          // Bind sidebar/local sessions to this wallet so cross-wallet titles can't leak.
+          this.sessionStorage.setWallet(walletAddress);
           this._authenticating.set(false);
           this._authInFlight$ = null;
         }),
@@ -158,27 +156,45 @@ export class AuthService {
       );
       if (session.authenticated && session.wallet) {
         this._user.set({ wallet: session.wallet });
+        this.sessionStorage.setWallet(session.wallet);
         // _token stays null — we use the cookie for requests; isAuthenticated() checks _user
+      } else {
+        // Server says not authenticated — make sure no stale wallet's sessions stay visible.
+        this.sessionStorage.setWallet(null);
       }
     } catch {
-      // Network error or 4xx — session is not restored; user will need to re-auth
+      // Network error or 4xx — session is not restored; user will need to re-auth.
+      // Clear the sidebar so the UI matches the unauthenticated state.
+      this.sessionStorage.setWallet(null);
     }
   }
 
   logout(): void {
-    // Cancel any in-flight authenticate() — prevents sign result from
+    // User-initiated logout: revokes the server-side token AND clears local state.
+    // For automatic 401 recovery use clearLocalAuth() instead — calling
+    // /auth/logout on every 401 revokes the user's own jti and creates a loop.
+    this.api.post('/auth/logout', {}).subscribe({ error: () => {} });
+    this.clearLocalAuth();
+  }
+
+  /**
+   * Clear local auth state without contacting the backend. Used when reacting
+   * to a 401 (token already invalid server-side; calling /auth/logout would
+   * just revoke it again and confuse the rate limiter).
+   */
+  clearLocalAuth(): void {
+    // Cancel any in-flight authenticate() — prevents a sign result from
     // setting a new JWT after the user has disconnected.
     this._cancel$.next();
     this._authInFlight$ = null;
     this._authenticating.set(false);
 
-    // Ask the backend to clear the HttpOnly cookie. Fire-and-forget — local
-    // state is cleared immediately regardless of the network outcome.
-    this.api.post('/auth/logout', {}).subscribe({ error: () => {} });
-
     this._token.set(null);
     this._user.set(null);
-    this.sessionStorage.clear();
+    // Unbind storage instead of wiping it — sessions for this wallet are kept on disk
+    // for the next login. setWallet(null) clears the in-memory state so the sidebar
+    // is empty until a wallet reconnects.
+    this.sessionStorage.setWallet(null);
   }
 
   getToken(): string | null {

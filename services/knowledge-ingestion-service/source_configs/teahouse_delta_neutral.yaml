@@ -1,0 +1,23 @@
+id: teahouse_delta_neutral
+source_type: docs
+base_url: https://docs.teahouse.finance
+protocol: teahouse
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "50 8 * * *"
+crawl_delay_s: 1.5
+max_pages: 60
+tags:
+  - delta-neutral
+  - lp-hedging
+  - concentrated-liquidity
+  - short-perp
+  - funding-rate
+  - defi-strategy
+notes: >
+  Gitbook docs. Key page: /docs/easy-earn/easy-earn-vault-info/delta-neutral-strategy
+  Explains the delta-neutral vault strategy: LP fees as yield source,
+  borrowing constituent tokens to create delta-neutral offset,
+  trade-off between hedge ratio and liquidation risk.
+  Static Gitbook HTML; very high crawl confidence.

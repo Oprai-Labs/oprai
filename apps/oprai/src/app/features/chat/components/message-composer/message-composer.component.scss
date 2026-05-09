@@ -7,6 +7,7 @@
   background: var(--op-bg-surface-1);
   padding: 6px;
   transition: border-color var(--op-fast);
+  position: relative;
 
   &:focus-within {
     border-color: var(--op-border-default);
@@ -300,6 +301,101 @@
   font-size: 13px;
   color: var(--op-text-tertiary);
   text-align: center;
+}
+
+// ──── Protocol Picker ────
+
+.protocol-picker {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 6px;
+  right: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  padding: var(--op-space-1) 0;
+  box-shadow: var(--op-shadow-lg);
+  z-index: 110;
+  animation: plusMenuIn 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.protocol-picker-item {
+  display: flex;
+  align-items: center;
+  gap: var(--op-space-2);
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--op-text-primary);
+  cursor: pointer;
+  border: none;
+  background: none;
+  text-align: left;
+  transition: background var(--op-fast);
+
+  &--active,
+  &:hover {
+    background: var(--op-hover);
+  }
+}
+
+.protocol-picker-label {
+  font-weight: 500;
+  flex-shrink: 0;
+  min-width: 90px;
+}
+
+.protocol-picker-desc {
+  font-size: 12px;
+  color: var(--op-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.protocol-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--op-radius-sm);
+  object-fit: contain;
+  flex-shrink: 0;
+  background: var(--op-bg-surface-3);
+}
+
+// ──── Protocol Chip ────
+
+.protocol-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px 4px 6px;
+  border-radius: var(--op-radius-full);
+  background: var(--op-bg-surface-3);
+  border: 1px solid var(--op-border-subtle);
+  font-size: 13px;
+  color: var(--op-text-secondary);
+  white-space: nowrap;
+  transition: border-color var(--op-fast);
+  flex-shrink: 0;
+
+  &:hover {
+    border-color: var(--op-border-default);
+
+    .mode-chip-remove {
+      opacity: 1;
+    }
+  }
+}
+
+.protocol-chip-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: contain;
+  flex-shrink: 0;
+  background: var(--op-bg-surface-2);
 }
 
 // ──── Textarea ────

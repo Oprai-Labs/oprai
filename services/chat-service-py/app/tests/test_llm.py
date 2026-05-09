@@ -24,9 +24,9 @@ class TestLLMServiceInit:
         """Test initialization with API key"""
         with patch("app.services.llm.settings") as mock_settings:
             mock_settings.OPRAI_OPENAI_API_KEY = "test-key"
-            mock_settings.OPRAI_OPENAI_MODEL = "gpt-4o-mini"
+            mock_settings.OPRAI_RESPONDER_MODEL_OPENAI = "gpt-4o-mini"
             mock_settings.OPRAI_GPT_MAX_TOKENS = 2000
-            mock_settings.OPRAI_OPENAI_FALLBACK_MODEL = None
+            mock_settings.OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI = None
 
             from app.services.llm import LLMService
 
@@ -38,9 +38,9 @@ class TestLLMServiceInit:
         """Test that o-series models use Responses API"""
         with patch("app.services.llm.settings") as mock_settings:
             mock_settings.OPRAI_OPENAI_API_KEY = "test-key"
-            mock_settings.OPRAI_OPENAI_MODEL = "o1-mini"
+            mock_settings.OPRAI_RESPONDER_MODEL_OPENAI = "o1-mini"
             mock_settings.OPRAI_GPT_MAX_TOKENS = 2000
-            mock_settings.OPRAI_OPENAI_FALLBACK_MODEL = None
+            mock_settings.OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI = None
 
             from app.services.llm import LLMService
 
@@ -52,9 +52,9 @@ class TestLLMServiceInit:
         """Test that regular models use Chat Completions"""
         with patch("app.services.llm.settings") as mock_settings:
             mock_settings.OPRAI_OPENAI_API_KEY = "test-key"
-            mock_settings.OPRAI_OPENAI_MODEL = "gpt-4o"
+            mock_settings.OPRAI_RESPONDER_MODEL_OPENAI = "gpt-4o"
             mock_settings.OPRAI_GPT_MAX_TOKENS = 2000
-            mock_settings.OPRAI_OPENAI_FALLBACK_MODEL = None
+            mock_settings.OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI = None
 
             from app.services.llm import LLMService
 
@@ -66,9 +66,9 @@ class TestLLMServiceInit:
         """Test fallback model is configured"""
         with patch("app.services.llm.settings") as mock_settings:
             mock_settings.OPRAI_OPENAI_API_KEY = "test-key"
-            mock_settings.OPRAI_OPENAI_MODEL = "gpt-4o-mini"
+            mock_settings.OPRAI_RESPONDER_MODEL_OPENAI = "gpt-4o-mini"
             mock_settings.OPRAI_GPT_MAX_TOKENS = 2000
-            mock_settings.OPRAI_OPENAI_FALLBACK_MODEL = "gpt-3.5-turbo"
+            mock_settings.OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI = "gpt-3.5-turbo"
 
             from app.services.llm import LLMService
 

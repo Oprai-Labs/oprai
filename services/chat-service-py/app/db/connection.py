@@ -16,6 +16,7 @@ must be configured with ``ignore_startup_parameters = application_name`` (set in
 the docker-compose pgBouncer environment).
 """
 
+import os
 import re
 from collections.abc import AsyncGenerator
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
@@ -75,13 +76,33 @@ def _build_asyncpg_url(raw_url: str) -> tuple[str, dict]:
 
 _db_url, _connect_args = _build_asyncpg_url(settings.DATABASE_URL)
 
+def _env_int(key: str, default: int) -> int:
+    raw = os.getenv(key, "")
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default
+
+
+# Pool sizing.
+#
+# pgBouncer (transaction mode) multiplexes app connections onto a smaller pool
+# of backend connections, so each replica only needs a handful of *application*
+# connections. But chat-service is a streaming service: an SSE response holds
+# its session for the full duration of the LLM call (tens of seconds), and a
+# few concurrent users can starve a `pool_size=2 max_overflow=3` pool fast —
+# we observed this live during a parallel KB ingestion run.
+#
+# Defaults below give 10 base + 10 overflow = 20 simultaneous sessions per
+# replica. Combined with `pool_timeout` we now fail fast (1.5s) instead of
+# blocking on a stalled checkout, which let upstream callers retry instead of
+# piling up. Tunable per-environment via OPRAI_CHAT_DB_POOL_*.
 engine = create_async_engine(
     _db_url,
     echo=False,
-    # Small pool: pgBouncer multiplexes, so each service replica only needs
-    # a handful of actual backend connections.
-    pool_size=2,
-    max_overflow=3,
+    pool_size=_env_int("OPRAI_CHAT_DB_POOL_SIZE", 10),
+    max_overflow=_env_int("OPRAI_CHAT_DB_MAX_OVERFLOW", 10),
+    pool_timeout=float(_env_int("OPRAI_CHAT_DB_POOL_TIMEOUT_MS", 1500)) / 1000.0,
     pool_pre_ping=True,
     pool_recycle=300,
     connect_args=_connect_args,

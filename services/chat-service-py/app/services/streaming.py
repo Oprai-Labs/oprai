@@ -468,7 +468,8 @@ async def get_stream_service() -> StreamServiceServicer:
 
     if _stream_service is None:
         _stream_service = StreamServiceServicer()
-        await _stream_service.start()
+        # Background price loop is started lazily when clients connect,
+        # not at startup — avoids polling external APIs with no subscribers.
 
     return _stream_service
 

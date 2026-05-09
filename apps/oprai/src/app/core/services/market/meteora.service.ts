@@ -64,6 +64,104 @@ export interface MeteoraBuildResponse {
   transaction?: string;
 }
 
+/** Single row returned by meteora_dlmm_get_pairs (datapi.meteora.ag). */
+export interface DlmmPair {
+  address: string;
+  name: string;                       // "JupSOL-INF"
+  apr: number;                        // already in percent
+  apy: number;                        // already in percent
+  tvl: number;                        // USD
+  current_price: number;
+  cumulative_metrics?: { fees: number; volume: number };
+  fees: Record<string, number>;       // keys: 1h, 2h, 4h, 12h, 24h, 30m
+  volume: Record<string, number>;
+  fee_tvl_ratio: Record<string, number>;
+  pool_config: {
+    base_fee_pct: number;
+    bin_step: number;
+    max_fee_pct: number;
+    protocol_fee_pct: number;
+  };
+  token_x: { address: string; symbol: string; decimals: number; price: number };
+  token_y: { address: string; symbol: string; decimals: number; price: number };
+  has_farm: boolean;
+  is_blacklisted: boolean;
+  launchpad?: string;
+  tags?: string[];
+}
+
+export interface DlmmPairsPage {
+  current_page: number;     // 1-based
+  page_size: number;
+  pages: number;
+  total: number;
+  data: DlmmPair[];
+}
+
+/**
+ * Single row returned by `meteora_dammv2_get_pools` (damm-v2.datapi.meteora.ag).
+ * Constant-product AMM with optional concentrated-liquidity flag — the
+ * reserves on each side are first-class, so the ratio engine can compute
+ * deposits without a second RPC.
+ */
+export interface DammV2Pool {
+  address: string;
+  name: string;                 // "SOL-USDC"
+  token_x: { address: string; symbol: string; decimals: number; price: number };
+  token_y: { address: string; symbol: string; decimals: number; price: number };
+  token_x_amount: number;       // human-units reserve (X side)
+  token_y_amount: number;       // human-units reserve (Y side)
+  current_price: number;        // Y per X
+  tvl: number;
+  has_farm: boolean;
+  farm_apr: number;
+  farm_apy: number;
+  permanent_lock_liquidity?: number;
+  pool_config: {
+    base_fee_pct: number;
+    protocol_fee_pct: number;
+    concentrated_liquidity: boolean;
+    pool_type: number;
+    activation_type: number;
+    activation_point: number;
+  };
+  volume?: Record<string, number>;     // 30m / 1h / 24h / 7d …
+  fees?: Record<string, number>;
+  fee_tvl_ratio?: Record<string, number>;
+}
+
+export interface DammV2PoolsPage {
+  current_page: number;
+  page_size: number;
+  pages: number;
+  total: number;
+  data: DammV2Pool[];
+}
+
+/**
+ * Single row returned by `meteora_dammv1_get_pools` (amm.meteora.ag/pools).
+ * Legacy AMM endpoint — flat array, snake_case keys, paired token reserves
+ * delivered as parallel arrays (`pool_token_mints[i]`, `pool_token_amounts[i]`).
+ */
+export interface DammV1Pool {
+  pool_address: string;
+  pool_name: string;             // "Bonk-USDC"
+  pool_token_mints: string[];    // [mintA, mintB]
+  pool_token_amounts: string[];  // raw integer reserves as strings
+  pool_token_usd_amounts: string[];
+  lp_mint: string;
+  pool_tvl: string;
+  daily_base_apy: string;
+  weekly_base_apy: string;
+  total_fee_pct: string;
+  pool_version: number;
+  pool_lp_price_in_usd: string;
+  trading_volume: number;
+  weekly_trading_volume: number;
+  is_lst: boolean;
+  is_forex: boolean;
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
@@ -120,29 +218,38 @@ export class MeteoraService {
     }
   }
 
-  /** Get specific pool info by address. */
+  /** Get specific pool info by address.
+   *
+   * Hits Meteora's new datapi endpoint (`dlmm.datapi.meteora.ag/pools/<addr>`)
+   * directly from the browser — CORS is open for this host. The legacy
+   * `dlmm-api.meteora.ag/pair/<addr>` URL was deprecated in early 2026 and
+   * returns 404, which is why earlier consumers of this method silently
+   * got `null` and the action card opened with empty Token A/B fields.
+   */
   async getPool(address: string): Promise<MeteoraPool | null> {
     try {
-      const resp = await firstValueFrom(
-        this.http.get<any>(`${METEORA_API}/pair/${address}`)
-      );
+      const resp = await fetch(`https://dlmm.datapi.meteora.ag/pools/${address}`)
+        .then(r => r.ok ? r.json() : null);
       if (!resp) return null;
-      const [symX, symY] = (resp.name ?? '-').split('-');
+      const tokenX = resp.token_x ?? {};
+      const tokenY = resp.token_y ?? {};
+      const cfg = resp.pool_config ?? {};
+      const vol = resp.volume ?? {};
       return {
         address: resp.address,
-        tokenXMint: resp.mint_x ?? '',
-        tokenYMint: resp.mint_y ?? '',
-        tokenXSymbol: symX ?? '',
-        tokenYSymbol: symY ?? '',
-        tokenXDecimals: 9,
-        tokenYDecimals: 6,
+        tokenXMint: tokenX.address ?? resp.mint_x ?? '',
+        tokenYMint: tokenY.address ?? resp.mint_y ?? '',
+        tokenXSymbol: tokenX.symbol ?? '',
+        tokenYSymbol: tokenY.symbol ?? '',
+        tokenXDecimals: tokenX.decimals ?? 9,
+        tokenYDecimals: tokenY.decimals ?? 6,
         currentPrice: parseFloat(resp.current_price ?? '0'),
-        baseFee: parseFloat(resp.base_fee_percentage ?? '0'),
-        tvl: parseFloat(resp.liquidity ?? '0'),
-        volume24h: parseFloat(resp.trade_volume_24h ?? '0'),
+        baseFee: parseFloat(cfg.base_fee_pct ?? resp.base_fee_percentage ?? '0'),
+        tvl: parseFloat(resp.tvl ?? resp.liquidity ?? '0'),
+        volume24h: parseFloat(vol['24h'] ?? resp.trade_volume_24h ?? '0'),
         apr: parseFloat(resp.apr ?? '0'),
-        binStep: resp.bin_step ?? 0,
-        activeBinId: 0,
+        binStep: cfg.bin_step ?? resp.bin_step ?? 0,
+        activeBinId: resp.active_id ?? 0,
       };
     } catch (err) {
       console.error('Failed to fetch Meteora pool:', err);
@@ -349,6 +456,118 @@ export class MeteoraService {
   /** Build harvest transaction. */
   async buildHarvest(farm: string): Promise<MeteoraBuildResponse | null> {
     return this.buildAction('meteora_harvest', { farm });
+  }
+
+  // ─── DLMM data queries (gateway → solana-service → datapi.meteora.ag) ───
+  //
+  // The legacy endpoints above hit dlmm-api.meteora.ag directly, which returns
+  // 404 since Meteora migrated to dlmm.datapi.meteora.ag. The Rust solana
+  // service now proxies the new datapi, so for the chat mini-app we fetch
+  // through `/solana/actions/build` with type=meteora_dlmm_get_pairs.
+
+  /**
+   * Fetch a paginated DLMM pair list. Returns server-side page metadata so the
+   * QueryCard can show real "page X / Y of Z" controls.
+   *
+   * `sortBy` MUST be `<field>:<asc|desc>` — e.g. "tvl:desc", "volume:desc",
+   * "fee_tvl_ratio:desc". Bare field names are rejected by the upstream API.
+   */
+  async fetchDlmmPairs(opts: {
+    query?: string;
+    page?: number;        // 1-based
+    pageSize?: number;
+    sortBy?: string;
+    filterBy?: string;
+  } = {}): Promise<DlmmPairsPage | null> {
+    const params: Record<string, unknown> = {};
+    if (opts.query)    params['query']    = opts.query;
+    if (opts.page)     params['page']     = opts.page;
+    if (opts.pageSize) params['pageSize'] = opts.pageSize;
+    if (opts.sortBy)   params['sortBy']   = opts.sortBy;
+    if (opts.filterBy) params['filterBy'] = opts.filterBy;
+
+    try {
+      // Gateway exposes the proxy at /actions/build (NOT /solana/actions/build —
+      // that path is unrouted and 404s through the proxy). The auth interceptor
+      // adds X-Requested-With + Bearer token automatically.
+      const resp = await firstValueFrom(
+        this.http.post<{ data?: DlmmPairsPage }>(
+          `${environment.apiBase}/actions/build`,
+          { type: 'meteora_dlmm_get_pairs', params },
+          { withCredentials: true }
+        )
+      );
+      return resp?.data ?? null;
+    } catch (err) {
+      console.error('Failed to fetch DLMM pairs:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch a paginated DAMM v2 pool list. Mirrors `fetchDlmmPairs` — same
+   * gateway proxy pattern, same shape of `<page metadata + data[]>`.
+   */
+  async fetchDammV2Pools(opts: {
+    query?: string;
+    page?: number;
+    pageSize?: number;
+    sortBy?: string;
+    filterBy?: string;
+  } = {}): Promise<DammV2PoolsPage | null> {
+    const params: Record<string, unknown> = {};
+    if (opts.query)    params['query']     = opts.query;
+    if (opts.page)     params['page']      = opts.page;
+    if (opts.pageSize) params['page_size'] = opts.pageSize;
+    if (opts.sortBy)   params['sort_by']   = opts.sortBy;
+    if (opts.filterBy) params['filter_by'] = opts.filterBy;
+    try {
+      const resp = await firstValueFrom(
+        this.http.post<{ data?: DammV2PoolsPage }>(
+          `${environment.apiBase}/actions/build`,
+          { type: 'meteora_dammv2_get_pools', params },
+          { withCredentials: true }
+        )
+      );
+      return resp?.data ?? null;
+    } catch (err) {
+      console.error('Failed to fetch DAMM v2 pools:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch the legacy DAMM v1 pool list. The upstream API is a flat array
+   * (no server-side pagination metadata), so we slice client-side.
+   */
+  async fetchDammV1Pools(opts: {
+    query?: string;
+    limit?: number;
+    offset?: number;
+    sortBy?: string;
+    isLst?: boolean;
+    isForex?: boolean;
+  } = {}): Promise<DammV1Pool[] | null> {
+    const params: Record<string, unknown> = {};
+    if (opts.query !== undefined)     params['query']     = opts.query;
+    if (opts.limit !== undefined)     params['limit']     = opts.limit;
+    if (opts.offset !== undefined)    params['offset']    = opts.offset;
+    if (opts.sortBy)                   params['sortBy']    = opts.sortBy;
+    if (opts.isLst !== undefined)     params['isLst']     = opts.isLst;
+    if (opts.isForex !== undefined)   params['isForex']   = opts.isForex;
+    try {
+      const resp = await firstValueFrom(
+        this.http.post<{ data?: DammV1Pool[] }>(
+          `${environment.apiBase}/actions/build`,
+          { type: 'meteora_dammv1_get_pools', params },
+          { withCredentials: true }
+        )
+      );
+      return resp?.data ?? null;
+    } catch (err) {
+      console.error('Failed to fetch DAMM v1 pools:', err);
+      return null;
+    }
   }
 
   // ─── Private Helpers ────────────────────────────────────────────────────────

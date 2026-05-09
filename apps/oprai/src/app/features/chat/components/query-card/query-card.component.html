@@ -30,18 +30,50 @@
 
       <!-- Balance / Portfolio results -->
       @if (query.type === 'balance' || query.type === 'portfolio' || query.type === 'risk') {
+        <!-- Search bar -->
+        @if (balanceResults.length > 0) {
+          <div class="balance-search-wrap">
+            <lucide-icon name="search" [size]="13" class="balance-search-icon" />
+            <input
+              class="balance-search"
+              type="text"
+              placeholder="Search by name or contract…"
+              [value]="balanceSearchRaw()"
+              (input)="onBalanceSearch($event)"
+            />
+          </div>
+        }
         <div class="result-table">
           <div class="result-table__header result-table__header--4col">
             <span>Token</span>
             <span class="text-right">Balance</span>
-            <span class="text-right">Value</span>
-            <span class="text-right">24h</span>
+            <button class="sort-btn" (click)="toggleSort('value')" [class.sort-active]="balanceSortField() === 'value'">
+              Value
+              <lucide-icon
+                [name]="balanceSortField() === 'value' ? (balanceSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                [size]="10" />
+            </button>
+            <button class="sort-btn" (click)="toggleSort('change24h')" [class.sort-active]="balanceSortField() === 'change24h'">
+              24h
+              <lucide-icon
+                [name]="balanceSortField() === 'change24h' ? (balanceSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                [size]="10" />
+            </button>
           </div>
-          @for (row of balanceResults; track row.symbol) {
+          @for (row of pagedBalanceResults(); track row.symbol) {
             <div class="result-table__row result-table__row--4col">
               <span class="token-cell">
-                <span class="token-symbol">{{ row.symbol }}</span>
-                <span class="token-name">{{ row.token }}</span>
+                <span class="token-icon-wrap">
+                  @if (logoFor(row); as icon) {
+                    <img class="token-icon" [src]="icon" [alt]="row.symbol" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="token-icon-fallback">{{ row.symbol.charAt(0) }}</span>
+                  }
+                </span>
+                <span class="token-cell__info">
+                  <span class="token-symbol">{{ row.symbol }}</span>
+                  <span class="token-name">{{ row.token }}</span>
+                </span>
               </span>
               <span class="text-right mono">{{ formatBalance(row.balance) }}</span>
               <span class="text-right mono">{{ formatUsd(row.value) }}</span>
@@ -50,12 +82,460 @@
               </span>
             </div>
           }
+          @if (filteredBalanceResults().length === 0 && balanceSearchRaw()) {
+            <div class="balance-empty">No tokens match "{{ balanceSearchRaw() }}"</div>
+          }
+          @if (!loading() && !error() && balanceResults.length === 0 && !balanceSearchRaw()) {
+            <div class="balance-empty">
+              @if (query.params['token']) {
+                You don't hold any {{ query.params['token'] }} in this wallet.
+              } @else {
+                No token balances found in this wallet.
+              }
+            </div>
+          }
         </div>
+        <!-- Pagination -->
+        @if (balanceTotalPages() > 1) {
+          <div class="balance-pagination">
+            <button class="balance-page-btn" (click)="balancePrevPage()" [disabled]="balancePage() === 0">
+              <lucide-icon name="chevron-left" [size]="13" />
+            </button>
+            <span class="balance-page-label">{{ balancePage() + 1 }} / {{ balanceTotalPages() }}</span>
+            <button class="balance-page-btn" (click)="balanceNextPage()" [disabled]="balancePage() === balanceTotalPages() - 1">
+              <lucide-icon name="chevron-right" [size]="13" />
+            </button>
+          </div>
+        }
         @if (query.type === 'portfolio' || query.type === 'risk') {
           <div class="result-summary">
             <span class="result-summary__label">Total Value</span>
             <span class="result-summary__value mono">{{ totalPortfolioValue }}</span>
           </div>
+        }
+      }
+
+      <!-- Meteora DLMM pool list -->
+      @if (query.type === 'meteora_dlmm_get_pairs') {
+        <div class="dlmm-search-wrap">
+          <lucide-icon name="search" [size]="13" class="dlmm-search-icon" />
+          <input
+            class="dlmm-search"
+            type="text"
+            placeholder="Filter by pair (e.g. SOL/USDC)…"
+            [value]="dlmmSearchRaw()"
+            (input)="onDlmmSearch($event)"
+          />
+          <button
+            type="button"
+            class="dlmm-refresh-btn"
+            (click)="refreshLiveData()"
+            [disabled]="dlmmFetching()"
+            title="Refresh pool data">
+            <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="dlmmFetching()" />
+          </button>
+        </div>
+        <div class="dlmm-sort-bar">
+          @for (opt of DLMM_SORT_OPTIONS; track opt.field) {
+            <button
+              class="sort-btn"
+              [class.sort-active]="dlmmSortField() === opt.field"
+              (click)="onDlmmSortChange(opt.field)">
+              {{ opt.label }}
+              <lucide-icon
+                [name]="dlmmSortField() === opt.field ? (dlmmSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                [size]="10" />
+            </button>
+          }
+        </div>
+        <div class="result-table dlmm-table">
+          <div class="result-table__header dlmm-row">
+            <span>Pool</span>
+            <span class="text-right">TVL</span>
+            <span class="text-right">24h Vol</span>
+            <span class="text-right">APY</span>
+            <span class="text-right" title="Bin step is the price increment per liquidity bin (basis points). Smaller = tighter price grid.">
+              Step / Fee
+            </span>
+            <span class="text-right">Action</span>
+          </div>
+          @if (dlmmFetching() && dlmmResults.length === 0) {
+            <div class="dlmm-empty">Loading pools…</div>
+          }
+          @for (p of dlmmResults; track p.address) {
+            <div class="result-table__row dlmm-row">
+              <span class="dlmm-pair">
+                <span class="dlmm-pair__name">{{ p.name }}</span>
+                <button
+                  type="button"
+                  class="dlmm-pair__addr mono dlmm-copy-btn"
+                  [class.dlmm-copy-btn--copied]="copiedAddress() === p.address"
+                  (click)="copyPoolAddress(p.address); $event.stopPropagation()"
+                  [attr.title]="copiedAddress() === p.address ? 'Copied' : 'Copy pool address: ' + p.address">
+                  <span class="dlmm-pair__addr-text">{{ p.address.slice(0, 4) }}…{{ p.address.slice(-4) }}</span>
+                  @if (copiedAddress() === p.address) {
+                    <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
+                  } @else {
+                    <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
+                  }
+                </button>
+              </span>
+              <span class="text-right mono">{{ formatUsd(p.tvl) }}</span>
+              <span class="text-right mono">{{ formatUsd(dlmmVolume24h(p)) }}</span>
+              <span class="text-right mono change-up">{{ p.apy.toFixed(2) }}%</span>
+              <span class="text-right dlmm-pool-config">
+                <span class="dlmm-pool-config__step mono">{{ dlmmBinStepPct(p).toFixed(2) }}% step</span>
+                <span class="dlmm-pool-config__fee mono">{{ p.pool_config.base_fee_pct.toFixed(2) }}% fee</span>
+              </span>
+              <span class="text-right">
+                <button
+                  type="button"
+                  class="dlmm-use-btn"
+                  (click)="useDlmmPool(p); $event.stopPropagation()"
+                  title="Add liquidity to this pool">
+                  Use
+                  <lucide-icon name="arrow-right" [size]="12" />
+                </button>
+              </span>
+            </div>
+          }
+          @if (!dlmmFetching() && dlmmResults.length === 0) {
+            <div class="dlmm-empty">
+              @if (dlmmSearchRaw() || query.params['query']) {
+                No DLMM pools match "{{ dlmmSearchRaw() || query.params['query'] }}".
+              } @else {
+                No DLMM pools available right now.
+              }
+            </div>
+          }
+        </div>
+        @if (dlmmTotal() > 0) {
+          <div class="dlmm-footer">
+            <span class="dlmm-footer__count">
+              Showing
+              <strong>{{ dlmmShowingRange.from }}–{{ dlmmShowingRange.to }}</strong>
+              of <strong>{{ dlmmShowingRange.total }}</strong> pools
+            </span>
+            @if (dlmmTotalPages() > 1) {
+              <div class="dlmm-pagination">
+                <button
+                  class="dlmm-page-btn dlmm-page-btn--nav"
+                  (click)="dlmmGoToPage(1)"
+                  [disabled]="dlmmPage() === 1 || dlmmFetching()"
+                  title="First page">
+                  <lucide-icon name="chevrons-left" [size]="13" />
+                </button>
+                <button
+                  class="dlmm-page-btn dlmm-page-btn--nav"
+                  (click)="dlmmPrevPage()"
+                  [disabled]="dlmmPage() === 1 || dlmmFetching()"
+                  title="Previous page">
+                  <lucide-icon name="chevron-left" [size]="13" />
+                </button>
+                @for (item of dlmmPaginationItems; track $index) {
+                  @if (item === '...') {
+                    <span class="dlmm-page-ellipsis">…</span>
+                  } @else {
+                    <button
+                      class="dlmm-page-btn"
+                      [class.dlmm-page-btn--active]="item === dlmmPage()"
+                      (click)="dlmmGoToPage(item)"
+                      [disabled]="dlmmFetching()">
+                      {{ item }}
+                    </button>
+                  }
+                }
+                <button
+                  class="dlmm-page-btn dlmm-page-btn--nav"
+                  (click)="dlmmNextPage()"
+                  [disabled]="dlmmPage() >= dlmmTotalPages() || dlmmFetching()"
+                  title="Next page">
+                  <lucide-icon name="chevron-right" [size]="13" />
+                </button>
+                <button
+                  class="dlmm-page-btn dlmm-page-btn--nav"
+                  (click)="dlmmGoToPage(dlmmTotalPages())"
+                  [disabled]="dlmmPage() >= dlmmTotalPages() || dlmmFetching()"
+                  title="Last page">
+                  <lucide-icon name="chevrons-right" [size]="13" />
+                </button>
+              </div>
+            }
+          </div>
+          <p class="dlmm-help">
+            <strong>Step</strong> = price difference between adjacent liquidity bins
+            (smaller = tighter spread, better for stable pairs; larger = wider, better
+            for volatile assets). <strong>Fee</strong> is what swappers pay per trade
+            and what LPs earn.
+          </p>
+        }
+
+        <!-- ─────────────────── Meteora DAMM v2 pool list ─────────────────── -->
+        @if (isQueryType('meteora_dammv2_get_pools')) {
+          <div class="dlmm-search-wrap">
+            <lucide-icon name="search" [size]="13" class="dlmm-search-icon" />
+            <input
+              class="dlmm-search"
+              type="text"
+              placeholder="Filter by pair (e.g. SOL/USDC)…"
+              [value]="dammV2SearchRaw()"
+              (input)="onDammV2Search($event)"
+            />
+            <button
+              type="button"
+              class="dlmm-refresh-btn"
+              (click)="refreshLiveData()"
+              [disabled]="dammV2Fetching()"
+              title="Refresh pool data">
+              <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="dammV2Fetching()" />
+            </button>
+          </div>
+          <div class="dlmm-sort-bar">
+            @for (opt of DAMMV2_SORT_OPTIONS; track opt.field) {
+              <button
+                class="sort-btn"
+                [class.sort-active]="dammV2SortField() === opt.field"
+                (click)="onDammV2SortChange(opt.field)">
+                {{ opt.label }}
+                <lucide-icon
+                  [name]="dammV2SortField() === opt.field ? (dammV2SortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                  [size]="10" />
+              </button>
+            }
+          </div>
+          <div class="result-table dlmm-table">
+            <div class="result-table__header dlmm-row">
+              <span>Pool</span>
+              <span class="text-right">TVL</span>
+              <span class="text-right">24h Vol</span>
+              <span class="text-right">APY</span>
+              <span class="text-right" title="Pool fee charged on every swap">Fee</span>
+              <span class="text-right">Action</span>
+            </div>
+            @if (dammV2Fetching() && dammV2Results.length === 0) {
+              <div class="dlmm-empty">Loading pools…</div>
+            }
+            @for (p of dammV2Results; track p.address) {
+              <div class="result-table__row dlmm-row">
+                <span class="dlmm-pair">
+                  <span class="dlmm-pair__name">{{ p.name }}</span>
+                  <button
+                    type="button"
+                    class="dlmm-pair__addr mono dlmm-copy-btn"
+                    [class.dlmm-copy-btn--copied]="copiedAddress() === p.address"
+                    (click)="copyPoolAddress(p.address); $event.stopPropagation()"
+                    [attr.title]="copiedAddress() === p.address ? 'Copied' : 'Copy pool address: ' + p.address">
+                    <span class="dlmm-pair__addr-text">{{ p.address.slice(0, 4) }}…{{ p.address.slice(-4) }}</span>
+                    @if (copiedAddress() === p.address) {
+                      <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
+                    } @else {
+                      <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
+                    }
+                  </button>
+                </span>
+                <span class="text-right mono">{{ formatUsd(p.tvl) }}</span>
+                <span class="text-right mono">{{ formatUsd(dammV2Volume24h(p)) }}</span>
+                <span class="text-right mono change-up">{{ dammV2Apy(p).toFixed(2) }}%</span>
+                <span class="text-right mono">{{ p.pool_config.base_fee_pct.toFixed(2) }}%</span>
+                <span class="text-right">
+                  <button
+                    type="button"
+                    class="dlmm-use-btn"
+                    (click)="useDammV2Pool(p); $event.stopPropagation()"
+                    title="Add liquidity to this pool">
+                    Use
+                    <lucide-icon name="arrow-right" [size]="12" />
+                  </button>
+                </span>
+              </div>
+            }
+            @if (!dammV2Fetching() && dammV2Results.length === 0) {
+              <div class="dlmm-empty">
+                @if (dammV2SearchRaw() || query.params['query']) {
+                  No DAMM v2 pools match "{{ dammV2SearchRaw() || query.params['query'] }}".
+                } @else {
+                  No DAMM v2 pools available right now.
+                }
+              </div>
+            }
+          </div>
+          @if (dammV2Total() > 0) {
+            <div class="dlmm-footer">
+              <span class="dlmm-footer__count">
+                Showing
+                <strong>{{ dammV2ShowingRange.from }}–{{ dammV2ShowingRange.to }}</strong>
+                of <strong>{{ dammV2ShowingRange.total }}</strong> pools
+              </span>
+              @if (dammV2TotalPages() > 1) {
+                <div class="dlmm-pagination">
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="dammV2GoToPage(1)"
+                          [disabled]="dammV2Page() === 1 || dammV2Fetching()"
+                          title="First page">
+                    <lucide-icon name="chevrons-left" [size]="13" />
+                  </button>
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="dammV2PrevPage()"
+                          [disabled]="dammV2Page() === 1 || dammV2Fetching()"
+                          title="Previous page">
+                    <lucide-icon name="chevron-left" [size]="13" />
+                  </button>
+                  <span class="dlmm-page-current mono">{{ dammV2Page() }} / {{ dammV2TotalPages() }}</span>
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="dammV2NextPage()"
+                          [disabled]="dammV2Page() >= dammV2TotalPages() || dammV2Fetching()"
+                          title="Next page">
+                    <lucide-icon name="chevron-right" [size]="13" />
+                  </button>
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="dammV2GoToPage(dammV2TotalPages())"
+                          [disabled]="dammV2Page() >= dammV2TotalPages() || dammV2Fetching()"
+                          title="Last page">
+                    <lucide-icon name="chevrons-right" [size]="13" />
+                  </button>
+                </div>
+              }
+            </div>
+          }
+          <p class="dlmm-help">
+            DAMM v2 is Meteora's constant-product AMM with optional concentrated
+            liquidity. Deposits use both tokens at the current pool ratio — picking
+            a pool here pre-fills the action card; you only enter one amount.
+          </p>
+        }
+
+        <!-- ─────────────────── Meteora DAMM v1 (legacy) pool list ────────── -->
+        @if (isQueryType('meteora_dammv1_get_pools')) {
+          <div class="dlmm-search-wrap">
+            <lucide-icon name="search" [size]="13" class="dlmm-search-icon" />
+            <input
+              class="dlmm-search"
+              type="text"
+              placeholder="Filter by pair (e.g. USDC-USDT)…"
+              [value]="dammV1SearchRaw()"
+              (input)="onDammV1Search($event)"
+            />
+            <button
+              type="button"
+              class="dlmm-refresh-btn"
+              (click)="refreshLiveData()"
+              [disabled]="dammV1Fetching()"
+              title="Refresh pool data">
+              <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="dammV1Fetching()" />
+            </button>
+          </div>
+          <div class="dlmm-sort-bar">
+            @for (opt of DAMMV1_SORT_OPTIONS; track opt.field) {
+              <button
+                class="sort-btn"
+                [class.sort-active]="dammV1SortField() === opt.field"
+                (click)="onDammV1SortChange(opt.field)">
+                {{ opt.label }}
+                <lucide-icon
+                  [name]="dammV1SortField() === opt.field ? (dammV1SortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                  [size]="10" />
+              </button>
+            }
+          </div>
+          <div class="result-table dlmm-table">
+            <div class="result-table__header dlmm-row">
+              <span>Pool</span>
+              <span class="text-right">TVL</span>
+              <span class="text-right">7d Vol</span>
+              <span class="text-right">APY</span>
+              <span class="text-right">Fee</span>
+              <span class="text-right">Action</span>
+            </div>
+            @if (dammV1Fetching() && dammV1All.length === 0) {
+              <div class="dlmm-empty">Loading pools…</div>
+            }
+            @for (p of dammV1Visible; track p.pool_address) {
+              <div class="result-table__row dlmm-row">
+                <span class="dlmm-pair">
+                  <span class="dlmm-pair__name">{{ p.pool_name }}</span>
+                  <button
+                    type="button"
+                    class="dlmm-pair__addr mono dlmm-copy-btn"
+                    [class.dlmm-copy-btn--copied]="copiedAddress() === p.pool_address"
+                    (click)="copyPoolAddress(p.pool_address); $event.stopPropagation()"
+                    [attr.title]="copiedAddress() === p.pool_address ? 'Copied' : 'Copy pool address: ' + p.pool_address">
+                    <span class="dlmm-pair__addr-text">{{ p.pool_address.slice(0, 4) }}…{{ p.pool_address.slice(-4) }}</span>
+                    @if (copiedAddress() === p.pool_address) {
+                      <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
+                    } @else {
+                      <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
+                    }
+                  </button>
+                </span>
+                <span class="text-right mono">{{ formatUsd(dammV1Num(p.pool_tvl)) }}</span>
+                <span class="text-right mono">{{ formatUsd(p.weekly_trading_volume) }}</span>
+                <span class="text-right mono change-up">{{ dammV1Num(p.weekly_base_apy).toFixed(2) }}%</span>
+                <span class="text-right mono">{{ dammV1Num(p.total_fee_pct).toFixed(2) }} bps</span>
+                <span class="text-right">
+                  <button
+                    type="button"
+                    class="dlmm-use-btn"
+                    (click)="useDammV1Pool(p); $event.stopPropagation()"
+                    title="Deposit to this pool">
+                    Use
+                    <lucide-icon name="arrow-right" [size]="12" />
+                  </button>
+                </span>
+              </div>
+            }
+            @if (!dammV1Fetching() && dammV1FilteredTotal === 0) {
+              <div class="dlmm-empty">
+                @if (dammV1SearchRaw() || query.params['query']) {
+                  No DAMM v1 pools match "{{ dammV1SearchRaw() || query.params['query'] }}".
+                } @else {
+                  No DAMM v1 pools available right now.
+                }
+              </div>
+            }
+          </div>
+          @if (dammV1FilteredTotal > 0) {
+            <div class="dlmm-footer">
+              <span class="dlmm-footer__count">
+                Showing
+                <strong>{{ dammV1ShowingRange.from }}–{{ dammV1ShowingRange.to }}</strong>
+                of <strong>{{ dammV1ShowingRange.total }}</strong> pools
+              </span>
+              @if (dammV1TotalPages > 1) {
+                <div class="dlmm-pagination">
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="dammV1GoToPage(1)"
+                          [disabled]="dammV1Page() === 1"
+                          title="First page">
+                    <lucide-icon name="chevrons-left" [size]="13" />
+                  </button>
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="dammV1PrevPage()"
+                          [disabled]="dammV1Page() === 1"
+                          title="Previous page">
+                    <lucide-icon name="chevron-left" [size]="13" />
+                  </button>
+                  <span class="dlmm-page-current mono">{{ dammV1Page() }} / {{ dammV1TotalPages }}</span>
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="dammV1NextPage()"
+                          [disabled]="dammV1Page() >= dammV1TotalPages"
+                          title="Next page">
+                    <lucide-icon name="chevron-right" [size]="13" />
+                  </button>
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="dammV1GoToPage(dammV1TotalPages)"
+                          [disabled]="dammV1Page() >= dammV1TotalPages"
+                          title="Last page">
+                    <lucide-icon name="chevrons-right" [size]="13" />
+                  </button>
+                </div>
+              }
+            </div>
+          }
+          <p class="dlmm-help">
+            DAMM v1 is Meteora's legacy constant-product AMM. Deposits require
+            both tokens at the current pool ratio — picking a pool here pre-fills
+            the action card; you only enter one amount.
+          </p>
         }
       }
 

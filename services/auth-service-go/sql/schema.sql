@@ -291,5 +291,20 @@ CREATE TRIGGER trg_spending_limits_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION auth_schema.update_updated_at();
 
+-- ── Daily spending tracker (server-side counter for the daily cap) ───────────
+-- One row per (wallet, UTC date). The atomic INCREMENT in
+-- /internal/spending/commit makes this race-safe across concurrent requests.
+CREATE TABLE IF NOT EXISTS auth_schema.spending_daily (
+    wallet_address VARCHAR(255)  NOT NULL,
+    date_key       DATE          NOT NULL,
+    total_usd      DECIMAL(18,2) NOT NULL DEFAULT 0,
+    updated_at     TIMESTAMPTZ   NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (wallet_address, date_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_spending_daily_date
+    ON auth_schema.spending_daily (date_key);
+
 -- ── Statistics refresh ────────────────────────────────────────────────────────
 ANALYZE auth_schema.users;

@@ -203,6 +203,19 @@ export class DefiPositionsService {
 
       for (const obl of obligations) {
         const market = obl.marketName ?? obl.lendingMarket ?? 'Kamino Market';
+        // Risk signals (Kamino obligation): currentLtv vs liquidationLtv. Health
+        // factor = liquidationLtv / currentLtv when both exist.
+        const currentLtv = Number(obl.loanToValue ?? obl.currentLtv ?? 0) || null;
+        const liqLtv = Number(obl.liquidationLtv ?? obl.unhealthyLtv ?? 0) || null;
+        const healthFactor =
+          obl.healthFactor != null
+            ? Number(obl.healthFactor)
+            : (currentLtv && liqLtv && currentLtv > 0 ? liqLtv / currentLtv : null);
+        const riskMeta = {
+          healthFactor: healthFactor != null ? Number(healthFactor.toFixed(3)) : null,
+          ltv: currentLtv != null ? Number((currentLtv * 100).toFixed(2)) : null,
+          liquidationLtv: liqLtv != null ? Number((liqLtv * 100).toFixed(2)) : null,
+        };
         for (const dep of (obl.deposits ?? obl.collaterals ?? [])) {
           const sym: string = dep.symbol ?? dep.mintSymbol ?? 'UNKNOWN';
           const amt: number = dep.amount ?? dep.depositedAmount ?? 0;
@@ -214,7 +227,12 @@ export class DefiPositionsService {
           const sym: string = bor.symbol ?? bor.mintSymbol ?? 'UNKNOWN';
           const amt: number = bor.amount ?? bor.borrowedAmount ?? 0;
           if (amt > 0) {
-            borrowItems.push({ label: `${sym} — ${market}`, tokens: [{ symbol: sym, amount: amt, logoUri: null }], totalUsdValue: bor.usdValue ?? null, metadata: { apy: bor.apy ?? null } });
+            borrowItems.push({
+              label: `${sym} — ${market}`,
+              tokens: [{ symbol: sym, amount: amt, logoUri: null }],
+              totalUsdValue: bor.usdValue ?? null,
+              metadata: { apy: bor.apy ?? null, ...riskMeta },
+            });
           }
         }
       }
@@ -249,6 +267,30 @@ export class DefiPositionsService {
       const borrowItems: PositionItem[] = [];
 
       for (const acc of accounts) {
+        // Account-level health (MarginFi). API may surface either `health`
+        // (a 0..1 ratio where 1.0 = healthy, 0 = liquidatable) or
+        // collateral/liability amounts we can derive from. Health factor we
+        // expose to the UI is the standard "liquidation = 1.0" convention,
+        // so we map: hf = 1 / (1 - health) when health < 1, else infinity.
+        const accHealthRaw =
+          acc.health != null ? Number(acc.health)
+          : acc.account_health != null ? Number(acc.account_health)
+          : null;
+        const totalCollat = Number(acc.total_collateral_usd ?? acc.totalCollateralValue ?? 0) || null;
+        const totalDebt = Number(acc.total_liabilities_usd ?? acc.totalLiabilitiesValue ?? 0) || null;
+        let healthFactor: number | null = null;
+        if (accHealthRaw != null && accHealthRaw > 0 && accHealthRaw < 1) {
+          healthFactor = Number((1 / (1 - accHealthRaw)).toFixed(3));
+        } else if (totalCollat && totalDebt && totalDebt > 0) {
+          healthFactor = Number((totalCollat / totalDebt).toFixed(3));
+        }
+        const riskMeta = {
+          healthFactor,
+          ltv: totalCollat && totalCollat > 0 && totalDebt != null
+            ? Number(((totalDebt / totalCollat) * 100).toFixed(2))
+            : null,
+        };
+
         const balances: any[] = acc.balances ?? acc.active_assets ?? [];
         for (const bal of balances) {
           const sym: string = bal.symbol ?? bal.token_symbol ?? 'UNKNOWN';
@@ -260,7 +302,12 @@ export class DefiPositionsService {
           }
           if (borrowAmt > 0 || side === 'borrow') {
             const ba = borrowAmt || amt;
-            borrowItems.push({ label: sym, tokens: [{ symbol: sym, amount: ba, logoUri: null }], totalUsdValue: bal.usd_value ?? null, metadata: { apy: bal.borrow_apy ?? null } });
+            borrowItems.push({
+              label: sym,
+              tokens: [{ symbol: sym, amount: ba, logoUri: null }],
+              totalUsdValue: bal.usd_value ?? null,
+              metadata: { apy: bal.borrow_apy ?? null, ...riskMeta },
+            });
           }
         }
       }

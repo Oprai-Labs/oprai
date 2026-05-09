@@ -1,0 +1,49 @@
+# TLS-terminating reverse proxy overlay.
+#
+# Compose with the main polyglot stack:
+#
+#     docker compose \
+#         -f infra/docker-compose.yml \
+#         -f infra/docker-compose.tls.yml \
+#         up -d
+#
+# Required env (export in shell, or put in .env at repo root):
+#   PUBLIC_DOMAIN  e.g. oprai.xyz
+#   API_DOMAIN     e.g. api.oprai.xyz
+#   ACME_EMAIL     e.g. ops@oprai.xyz   (Let's Encrypt account address)
+#
+# Caddy persists its issued certificates in the `caddy_data` volume; back this
+# volume up alongside the database so a host reinstall doesn't trigger
+# Let's Encrypt rate-limit cooldowns on cert reissue.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: oprai-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - PUBLIC_DOMAIN
+      - API_DOMAIN
+      - ACME_EMAIL
+      - MARKETING_DOMAIN
+    depends_on:
+      gateway-go:
+        condition: service_healthy
+      admin-service-go:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks:
+      - default
+
+volumes:
+  caddy_data:
+  caddy_config:

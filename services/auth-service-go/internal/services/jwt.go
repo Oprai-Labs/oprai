@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -24,16 +25,41 @@ type JWTClaims struct {
 }
 
 // JWTService handles JWT issuance and validation.
+//
+// Two-secret rolling rotation:
+//   - `secret` is the *current* signing secret. All NEW tokens are signed with
+//     this. Validation tries this first.
+//   - `previousSecret` (optional) is the secret that was current before the
+//     last rotation. Validation falls back to it so tokens issued before
+//     rotation continue to work until they expire naturally. Set to "" when
+//     not rotating.
+//
+// Rotation procedure:
+//
+//	1. Set OPRAI_JWT_SECRET_OLD to the value of OPRAI_JWT_SECRET in the
+//	   service's env / secret store.
+//	2. Set OPRAI_JWT_SECRET to a freshly generated value.
+//	3. Restart the service. Tokens issued before step 2 still validate
+//	   against OPRAI_JWT_SECRET_OLD; new tokens use the new secret.
+//	4. After the longest token TTL has elapsed (3 days by default), unset
+//	   OPRAI_JWT_SECRET_OLD and restart again to retire the old secret.
 type JWTService struct {
-	secret []byte
-	ttl    time.Duration
+	secret         []byte
+	previousSecret []byte
+	ttl            time.Duration
 }
 
 // NewJWTService creates a JWTService with the given secret and TTL in seconds.
-func NewJWTService(secret string, ttlSeconds int) *JWTService {
+// previousSecret may be empty when no rotation is in flight.
+func NewJWTService(secret, previousSecret string, ttlSeconds int) *JWTService {
+	var prev []byte
+	if previousSecret != "" {
+		prev = []byte(previousSecret)
+	}
 	return &JWTService{
-		secret: []byte(secret),
-		ttl:    time.Duration(ttlSeconds) * time.Second,
+		secret:         []byte(secret),
+		previousSecret: prev,
+		ttl:            time.Duration(ttlSeconds) * time.Second,
 	}
 }
 
@@ -85,14 +111,30 @@ func (s *JWTService) ParseUnvalidated(tokenString string) (jti string, expiresAt
 
 // Validate parses and validates a JWT token string.
 // Returns the wallet address and expiration time, or an error.
+//
+// During key rotation, the current secret is tried first; if signature
+// verification fails AND a previous secret is configured, we retry against it
+// so tokens issued under the old key continue to work until they expire.
 func (s *JWTService) Validate(tokenString string) (wallet string, expiresAt time.Time, err error) {
-	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (any, error) {
-		// Ensure the signing method is HMAC
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+	parse := func(secret []byte) (*jwt.Token, error) {
+		return jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (any, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return secret, nil
+		})
+	}
+
+	token, err := parse(s.secret)
+	if err != nil && len(s.previousSecret) > 0 {
+		// Retry against the previous secret only if the failure looks like a
+		// signature mismatch (`ErrTokenSignatureInvalid` from jwt/v5). Any
+		// other failure (expiry, malformed payload) is structural and won't
+		// be helped by a different key.
+		if errIsSignatureInvalid(err) {
+			token, err = parse(s.previousSecret)
 		}
-		return s.secret, nil
-	})
+	}
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("parsing token: %w", err)
 	}
@@ -112,4 +154,13 @@ func (s *JWTService) Validate(tokenString string) (wallet string, expiresAt time
 	}
 
 	return claims.Wallet, exp, nil
+}
+
+func errIsSignatureInvalid(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "signature is invalid") ||
+		strings.Contains(msg, "signature mismatch")
 }

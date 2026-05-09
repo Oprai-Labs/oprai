@@ -1,7 +1,7 @@
-import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, signal, effect, untracked, OnInit, OnDestroy, Injector, ViewChild } from '@angular/core';
 import { CommonModule, Location } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Subscription } from 'rxjs';
+import { Observable, Subscription } from 'rxjs';
 import { WalletService } from '@core/services/wallet.service';
 import { AuthService } from '@core/services/auth.service';
 import { SessionStorageService } from '@core/services/session-storage.service';
@@ -16,7 +16,7 @@ import {
 import { IntentParserService, ParsedAction, ParsedQuery, ParsedClarify } from '../../services/intent-parser.service';
 import { SolanaActionService, ActionCallbacks } from '../../services/solana-action.service';
 import { MessageListComponent } from '../../components/message-list/message-list.component';
-import { MessageComposerComponent } from '../../components/message-composer/message-composer.component';
+import { MessageComposerComponent, SendEvent } from '../../components/message-composer/message-composer.component';
 import { UploadResult } from '@core/services/upload.service';
 import { MemoryService } from '@core/services/memory.service';
 import { LiquidationMonitorService } from '@core/services/liquidation-monitor.service';
@@ -52,13 +52,26 @@ export class ChatShellComponent implements OnInit, OnDestroy {
   readonly messageActions = signal<Map<string, ParsedAction[]>>(new Map());
   readonly messageQueries = signal<Map<string, ParsedQuery[]>>(new Map());
   readonly messageClarifications = signal<Map<string, ParsedClarify[]>>(new Map());
+  /**
+   * Map of `${clarifyMessageId}:${clarifyIndex}` → selected option index, plus
+   * a back-pointer of the spawned action's message id so we can clear the
+   * selection if the user cancels the action card.
+   */
+  readonly clarifySelections = signal<Map<string, number>>(new Map());
+  private readonly actionToClarify = new Map<string, string>(); // actionMsgId → clarifyKey
   private readonly solanaActionService = inject(SolanaActionService);
   private readonly liquidationMonitor = inject(LiquidationMonitorService);
+  private readonly injector = inject(Injector);
   readonly currentAttachments = signal<Attachment[]>([]);
   readonly initialLoading = signal(true);
   /** Content of the last failed message — shown with a Retry button. */
   readonly lastFailedContent = signal<string | null>(null);
+  /** Latest content the user sent. Captured at send time so `finishStream()`
+   * can offer Retry/Edit when the LLM returns nothing (empty stream). */
+  private _lastSentContent: string | null = null;
+  private _lastSentProtocols: string[] = [];
   private streamSub?: Subscription;
+  private msgSub?: Subscription;       // in-flight getMessages subscription
   private routeSub?: Subscription;
   private newChatSub?: Subscription;
   private liquidationSub?: Subscription;
@@ -124,20 +137,65 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       this.liquidationMonitor.startMonitoring(120_000); // check every 2 minutes
     }
 
+    // Retry message loading when auth state becomes valid after a race condition.
+    // Handles the case where loadMessages returned early because auth was still
+    // in progress, leaving the skeleton visible with no API call underway.
+    // Must pass injector: ngOnInit is not an injection context in Angular 19.
+    effect(() => {
+      const isAuthenticated = this.authService.isAuthenticated();
+      const isAuthenticating = this.authService.authenticating();
+      if (isAuthenticated && !isAuthenticating) {
+        untracked(() => {
+          if (this.authError()) {
+            this.authError.set(null);
+          }
+          const sessionId = this.sessionStorage.activeSessionId();
+          // Retry if we have a session, no messages loaded, and no request in flight.
+          // loadingMessages may be false if the first attempt returned early (race with auth).
+          if (sessionId && this.messages().length === 0 && !this.msgSub) {
+            this.loadingMessages.set(true);
+            this.loadMessages(sessionId);
+          }
+        });
+      }
+    }, { injector: this.injector });
+
     this.routeSub = this.route.paramMap.subscribe((params) => {
       const sessionId = params.get('sessionId');
       console.log('[ChatShell] Route params changed:', { sessionId });
       if (sessionId) {
         this.sessionStorage.setActiveSession(sessionId);
-        // Don't reload messages while streaming — the route change from
-        // session aliasing (local: → server id) would overwrite the active
-        // streaming state and cause the UI to flash skeleton/hero.
-        if (!this.streaming()) {
-          this.loadMessages(sessionId);
+
+        // Cancel any in-flight stream or messages request from a previous session.
+        if (this.streaming()) {
+          this.streamSub?.unsubscribe();
+          this.stopReveal();
+          this._revealBuffer = '';
+          this._streamDone = false;
+          this.streaming.set(false);
+          this.currentThinking.set(null);
+          this._pendingActions = [];
+          this._pendingQueries = [];
+          this._pendingClarifications = [];
         }
-      } else {
-        // Navigated to home — always clear error and messages
+        this.msgSub?.unsubscribe();
+        this.msgSub = undefined;
+
+        // Reset state for the new session and show skeleton immediately.
+        this.messages.set([]);
+        this.messageActions.set(new Map());
+        this.messageQueries.set(new Map());
+        this.messageClarifications.set(new Map());
+        this.lastFailedContent.set(null);
         this.authError.set(null);
+        this.loadingMessages.set(true);  // Show skeleton; loadMessages may keep or clear it
+        this.loadMessages(sessionId);
+      } else {
+        // Navigated to home — cancel any pending request and clear state.
+        this.msgSub?.unsubscribe();
+        this.msgSub = undefined;
+        this.authError.set(null);
+        this.loadingMessages.set(false);
         this.messages.set([]);
         this.messageActions.set(new Map());
         this.messageQueries.set(new Map());
@@ -153,6 +211,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.streamSub?.unsubscribe();
+    this.msgSub?.unsubscribe();
     this.routeSub?.unsubscribe();
     this.newChatSub?.unsubscribe();
     this.liquidationSub?.unsubscribe();
@@ -160,22 +219,80 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     this.stopReveal();
   }
 
+  retryLoad(): void {
+    const sessionId = this.sessionStorage.activeSessionId();
+    if (!sessionId) return;
+    this.authError.set(null);
+    this.msgSub?.unsubscribe();
+    this.msgSub = undefined;
+    this.loadingMessages.set(true);
+    this.loadMessages(sessionId);
+  }
+
   onRetry(): void {
     const content = this.lastFailedContent();
     if (!content) return;
     this.lastFailedContent.set(null);
-    // Remove the last failed assistant message before retrying
+    // Remove the last failed assistant message before retrying. Capture the
+    // dropped IDs so we can also evict their inline mini-apps (action card,
+    // query card, clarify card) — otherwise stale QueryCard / ActionCard
+    // entries linger in the per-message maps and re-render against the new
+    // assistant turn that reuses similar IDs.
+    const droppedIds: string[] = [];
     this.messages.update(msgs => {
       const updated = [...msgs];
       if (updated.length > 0 && updated[updated.length - 1].role === 'assistant') {
-        updated.pop();
+        droppedIds.push(updated.pop()!.id);
       }
       if (updated.length > 0 && updated[updated.length - 1].role === 'user') {
-        updated.pop();
+        droppedIds.push(updated.pop()!.id);
       }
       return updated;
     });
+    this._evictMessageMiniApps(droppedIds);
     this.onSendMessage(content);
+  }
+
+  /**
+   * "Edit message" affordance on a failed assistant turn — pop the failed
+   * assistant + user pair off the message list, drop the original text into
+   * the composer so the user can tweak phrasing/parameters and send again.
+   * No automatic re-send — the user controls when it goes.
+   */
+  onEditLast(): void {
+    const content = this.lastFailedContent();
+    if (!content) return;
+    this.lastFailedContent.set(null);
+    const droppedIds: string[] = [];
+    this.messages.update(msgs => {
+      const updated = [...msgs];
+      if (updated.length > 0 && updated[updated.length - 1].role === 'assistant') {
+        droppedIds.push(updated.pop()!.id);
+      }
+      if (updated.length > 0 && updated[updated.length - 1].role === 'user') {
+        droppedIds.push(updated.pop()!.id);
+      }
+      return updated;
+    });
+    this._evictMessageMiniApps(droppedIds);
+    // Defer to next tick so the message-list rerender finishes before the
+    // composer takes focus — otherwise the focus jumps around.
+    queueMicrotask(() => this.composer?.setText(content));
+  }
+
+  /** Drop ActionCard / QueryCard / ClarifyCard entries owned by the given
+   *  message ids. Used by the retry / edit-last paths so popped messages
+   *  don't leave behind orphan mini-apps in the per-message maps. */
+  private _evictMessageMiniApps(ids: string[]): void {
+    if (!ids.length) return;
+    const evict = (map: Map<string, unknown>) => {
+      const next = new Map(map);
+      for (const id of ids) next.delete(id);
+      return next;
+    };
+    this.messageActions.update(m => evict(m) as typeof m);
+    this.messageQueries.update(m => evict(m) as typeof m);
+    this.messageClarifications.update(m => evict(m) as typeof m);
   }
 
   exportChat(): void {
@@ -213,9 +330,13 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     this.location.replaceState('/');
   }
 
-  onSendMessage(content: string): void {
+  onSendMessage(event: SendEvent | string): void {
+    const content = typeof event === 'string' ? event : event.content;
+    const protocols = typeof event === 'string' ? [] : (event.protocols ?? []);
     if (!content.trim() || this.streaming()) return;
     this.lastFailedContent.set(null);
+    this._lastSentContent = content;
+    this._lastSentProtocols = protocols;
 
     // Get current attachments and clear them
     const attachments = this.currentAttachments();
@@ -238,6 +359,10 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       role: 'user',
       content,
       createdAt: new Date().toISOString(),
+      // Mirror the @-tags the composer sent, so the chip renders on the
+      // bubble immediately — not only after a page reload pulls it back
+      // from `metadata.protocols` in the DB.
+      ...(protocols.length > 0 ? { metadata: { protocols: [...protocols] } } : {}),
     };
     this.messages.update((msgs) => [...msgs, userMessage]);
 
@@ -266,16 +391,149 @@ export class ChatShellComponent implements OnInit, OnDestroy {
 
     const resolvedSessionId = this.sessionStorage.resolveId(sessionId);
 
-    this.streamSub = this.chatApi
-      .sendMessageStream(resolvedSessionId, content, attachments.length > 0 ? attachments : undefined, false)
-      .subscribe({
+    this.streamSub = this._subscribeStream(
+      this.chatApi.sendMessageStream(
+        resolvedSessionId, content,
+        attachments.length > 0 ? attachments : undefined,
+        false,
+        protocols.length > 0 ? protocols : undefined,
+      ),
+      content,
+      sessionId!,
+    );
+  }
+
+  /**
+   * Edit a previous user message and stream a fresh assistant turn.
+   *
+   * Local cleanup must happen BEFORE we open the SSE: the user has already
+   * decided that everything from the edited message onward is gone, so the
+   * UI removes those rows immediately. The backend mirrors this by stamping
+   * `metadata.superseded_at` on the same range and creating a new user
+   * message with the edited content. After that, the stream pipeline is
+   * identical to a normal send — same parser, same reveal logic, same
+   * error handling.
+   */
+  onEditMessage(payload: { messageId: string; content: string }): void {
+    const trimmed = payload.content.trim();
+    if (!trimmed || this.streaming()) return;
+
+    const sessionId = this.sessionStorage.activeSessionId();
+    if (!sessionId || sessionId.startsWith('local:')) {
+      // Editing only makes sense in a persisted session — the original turn
+      // wouldn't even have an id from the DB. Silently no-op rather than
+      // pretend to edit and hit a 400.
+      return;
+    }
+
+    // Drop the edited message + every later one. We do NOT splice mid-list
+    // and resend; chat semantics demand the user sees their edit replace
+    // the original cleanly, with no orphaned assistant reply lingering.
+    const all = this.messages();
+    const editIdx = all.findIndex(m => m.id === payload.messageId);
+    if (editIdx === -1) return;
+    const truncated = all.slice(0, editIdx);
+
+    // Reuse the same protocols the user originally tagged on this message
+    // (if any) — the backend won't re-derive them and the chip metadata
+    // disappears with the soft-delete unless we forward it explicitly.
+    const originalProtocols = (all[editIdx].metadata?.protocols ?? []) as string[];
+
+    const newUserMessage: ChatMessage = {
+      id: `temp-${Date.now()}`,
+      sessionId,
+      role: 'user',
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+      metadata: originalProtocols.length > 0
+        ? { protocols: originalProtocols, edited_at: new Date().toISOString() }
+        : { edited_at: new Date().toISOString() },
+    };
+    const newAssistant: ChatMessage = {
+      id: `temp-assistant-${Date.now()}`,
+      sessionId,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+      thinking: '',
+    };
+    this.messages.set([...truncated, newUserMessage, newAssistant]);
+
+    // Drop cached structured intent / clarify state for messages that no
+    // longer exist — otherwise stale cards leak into the next turn.
+    const survivingIds = new Set(truncated.map(m => m.id));
+    survivingIds.add(newUserMessage.id);
+    survivingIds.add(newAssistant.id);
+    this.messageActions.update(map => {
+      const next = new Map(map);
+      for (const k of next.keys()) if (!survivingIds.has(k)) next.delete(k);
+      return next;
+    });
+    this.messageQueries.update(map => {
+      const next = new Map(map);
+      for (const k of next.keys()) if (!survivingIds.has(k)) next.delete(k);
+      return next;
+    });
+    this.messageClarifications.update(map => {
+      const next = new Map(map);
+      for (const k of next.keys()) if (!survivingIds.has(k)) next.delete(k);
+      return next;
+    });
+
+    this.streaming.set(true);
+    this._revealBuffer = '';
+    this._thinkingBuffer = '';
+    this._streamDone = false;
+    this._pendingActions = [];
+    this._pendingQueries = [];
+    this._pendingClarifications = [];
+    this.currentThinking.set(null);
+    this.startReveal();
+
+    const resolvedSessionId = this.sessionStorage.resolveId(sessionId);
+    this.streamSub = this._subscribeStream(
+      this.chatApi.editMessageStream(
+        resolvedSessionId,
+        payload.messageId,
+        trimmed,
+        originalProtocols.length > 0 ? originalProtocols : undefined,
+      ),
+      trimmed,
+      sessionId,
+    );
+  }
+
+  /**
+   * Shared SSE handler used by both the regular send and the edit-resend
+   * paths. Centralising the subscribe block here avoids 150 lines of
+   * duplication and keeps reveal/thinking/error semantics in one spot.
+   */
+  private _subscribeStream(
+    stream$: Observable<string>,
+    content: string,
+    sessionId: string,
+  ): Subscription {
+    return stream$.subscribe({
         next: (data) => {
           try {
             const parsed = JSON.parse(data);
 
+            // Edit-mode preamble: server confirms which message was edited
+            // and how many messages it superseded. The local cleanup already
+            // ran before the SSE opened, so this is just for diagnostics — we
+            // swallow it here so it doesn't fall through to the reveal buffer.
+            if (parsed.edit) {
+              return;
+            }
+
             if (parsed.sessionId && sessionId!.startsWith('local:')) {
               this.sessionStorage.aliasSession(sessionId!, parsed.sessionId);
               this.location.replaceState('/c/' + parsed.sessionId);
+              // Update sessionId in every in-memory message so action-card.persistResult
+              // sends the real UUID (not "local:...") to the backend PATCH endpoint.
+              this.messages.update(msgs =>
+                msgs.map(m => m.sessionId === sessionId ? { ...m, sessionId: parsed.sessionId } : m)
+              );
             }
 
             if (parsed.title) {
@@ -291,6 +549,28 @@ export class ChatShellComponent implements OnInit, OnDestroy {
                 const last = updated[updated.length - 1];
                 if (last.role === 'assistant') {
                   updated[updated.length - 1] = { ...last, id: parsed.messageId };
+                }
+                return updated;
+              });
+            }
+
+            // Same idea for the user-side message — without this, the temp
+            // `temp-${Date.now()}` id stays forever, and any subsequent edit
+            // on the same bubble POSTs that fake id to /messages/edit, where
+            // the UUID parser rejects it and the user sees a generic error.
+            // Real id is yielded by stream_chat_response right after the
+            // user message is flushed.
+            if (parsed.userMessageId) {
+              this.messages.update((msgs) => {
+                const updated = [...msgs];
+                // Walk back from the end: the last message is the assistant
+                // placeholder, the one before it is the user message we just
+                // sent. (No structural assumption beyond that.)
+                for (let i = updated.length - 1; i >= 0; i--) {
+                  if (updated[i].role === 'user' && updated[i].id.startsWith('temp-')) {
+                    updated[i] = { ...updated[i], id: parsed.userMessageId };
+                    break;
+                  }
                 }
                 return updated;
               });
@@ -375,19 +655,38 @@ export class ChatShellComponent implements OnInit, OnDestroy {
           this._pendingActions = [];
           this._pendingQueries = [];
           this._pendingClarifications = [];
-          const errorMessage = err?.message ?? 'Connection error. Please try again.';
+          // Map raw error to a friendly user-facing message. Auth errors stay
+          // explicit; everything else collapses to a generic line so we don't
+          // leak stack traces / status codes into the chat UI.
+          const rawMessage = err?.message ?? '';
+          const isAuth = /authentication error|401|unauthor/i.test(rawMessage);
+          const isNetwork = /network|fetch|cors|timeout|connection|refused|unreachable|abort/i.test(rawMessage);
+          const isRate = /rate.?limit|429|too many requests/i.test(rawMessage);
+          const friendly = isAuth
+            ? 'Your session expired. Please sign in again.'
+            : isRate
+              ? 'OPRAI is busy right now. Please try again in a moment.'
+              : isNetwork
+                ? 'Connection issue. Please check your network and try again.'
+                : "Sorry, something went wrong. Please try again.";
           this.messages.update((msgs) => {
             const updated = [...msgs];
             const last = updated[updated.length - 1];
             if (last.role === 'assistant' && !last.content) {
               updated[updated.length - 1] = {
                 ...last,
-                content: errorMessage,
+                content: friendly,
                 isError: true,
               };
             }
             return updated;
           });
+          // If the failure was an auth error, the cookie is gone — clear local user
+          // state so the sidebar/UI reflect the unauthenticated state. Without this
+          // the user keeps seeing their old session list while every request 401s.
+          if (isAuth) {
+            this.authService.logout();
+          }
         },
         complete: () => {
           this._streamDone = true;
@@ -395,6 +694,14 @@ export class ChatShellComponent implements OnInit, OnDestroy {
           // The reveal timer will flush the rest and call finishStream()
         },
       });
+  }
+
+  @ViewChild(MessageComposerComponent) private composer?: MessageComposerComponent;
+
+  /** User clicked an inline `:protocol:` mention in an LLM reply — forward it
+   * to the composer so the protocol becomes a chip, just like an @ pick. */
+  onProtocolMention(protocolId: string): void {
+    this.composer?.addProtocolById(protocolId);
   }
 
   onCancelAction(action: ParsedAction): void {
@@ -417,14 +724,18 @@ export class ChatShellComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * When user clicks a [CLARIFY] option:
-   * Inject the selected option directly as an action-card and execute it.
+   * Spawn a fresh action card from a row-level "Use this pool" CTA inside a
+   * QueryCard. Mirrors the structure used by `onClarifySelected`: append a
+   * new assistant message with empty content + attach the parsed action so
+   * the message-list renders it as a normal action-card the user can fill
+   * out and submit.
    */
-  onClarifySelected(action: ParsedAction): void {
+  onUseAction(payload: { sourceMessageId: string; action: ParsedAction }): void {
+    const { action } = payload;
     const sessionId = this.sessionStorage.activeSessionId() ?? `local:${Date.now()}`;
-    const msgId = `clarify-action-${Date.now()}`;
+    const actionMsgId = `use-action-${Date.now()}`;
     const msg: ChatMessage = {
-      id: msgId,
+      id: actionMsgId,
       sessionId,
       role: 'assistant',
       content: '',
@@ -433,9 +744,72 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     this.messages.update(msgs => [...msgs, msg]);
     this.messageActions.update(map => {
       const next = new Map(map);
-      next.set(msgId, [action]);
+      next.set(actionMsgId, [action]);
       return next;
     });
+  }
+
+  /**
+   * When user clicks a [CLARIFY] option:
+   * Inject the selected option directly as an action-card. We also remember
+   * which clarify message + option this action came from, so cancelling the
+   * action card can re-enable the original clarify-card for a re-pick.
+   */
+  onClarifySelected(payload: { messageId: string; clarifyIndex: number; optionIndex: number; action: ParsedAction }): void {
+    const { messageId: clarifyMsgId, clarifyIndex, optionIndex, action } = payload;
+    const clarifyKey = `${clarifyMsgId}:${clarifyIndex}`;
+    const sessionId = this.sessionStorage.activeSessionId() ?? `local:${Date.now()}`;
+    const actionMsgId = `clarify-action-${Date.now()}`;
+    const msg: ChatMessage = {
+      id: actionMsgId,
+      sessionId,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+    };
+    this.messages.update(msgs => [...msgs, msg]);
+    this.messageActions.update(map => {
+      const next = new Map(map);
+      next.set(actionMsgId, [action]);
+      return next;
+    });
+    this.clarifySelections.update(map => {
+      const next = new Map(map);
+      next.set(clarifyKey, optionIndex);
+      return next;
+    });
+    this.actionToClarify.set(actionMsgId, clarifyKey);
+  }
+
+  /**
+   * User clicked Cancel on an action-card. If the action came from a clarify
+   * pick, remove the action card and clear the originating clarify's selection
+   * so the user can pick a different protocol. Server-stored actions (regular
+   * LLM responses) just get the action card removed locally.
+   */
+  onActionDismissed(payload: { messageId: string; action: ParsedAction }): void {
+    const { messageId } = payload;
+    const clarifyKey = this.actionToClarify.get(messageId);
+
+    // Drop the action(s) for this message and the message itself if it was
+    // a synthetic clarify-action shell (no real content).
+    this.messageActions.update(map => {
+      const next = new Map(map);
+      next.delete(messageId);
+      return next;
+    });
+    if (messageId.startsWith('clarify-action-')) {
+      this.messages.update(msgs => msgs.filter(m => m.id !== messageId));
+    }
+
+    if (clarifyKey) {
+      this.clarifySelections.update(map => {
+        const next = new Map(map);
+        next.delete(clarifyKey);
+        return next;
+      });
+      this.actionToClarify.delete(messageId);
+    }
   }
 
   onFilesAttached(uploadResults: UploadResult[]): void {
@@ -518,18 +892,57 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     if (hasStructured) {
       // ── Primary path: use validated structured events from function calling ──
       // Convert StructuredAction → ParsedAction shape that action-card expects.
+      // DATA_ONLY actions (no TX, pure data) are auto-executed inline — no action card shown.
       if (this._pendingActions.length > 0) {
-        const parsedActions: ParsedAction[] = this._pendingActions.map(a => ({
-          type: a.type,
-          params: a.params,
-          raw: '',
-          chainFromPrevious: a.chainFromPrevious ?? false,
-        }));
-        this.messageActions.update(m => {
-          const next = new Map(m);
-          next.set(lastMsg.id, parsedActions);
-          return next;
-        });
+        const dataOnlyActions: StructuredAction[] = [];
+        const txActions: StructuredAction[] = [];
+        for (const a of this._pendingActions) {
+          if (SolanaActionService.DATA_ONLY_TYPES.has(a.type)) {
+            dataOnlyActions.push(a);
+          } else {
+            txActions.push(a);
+          }
+        }
+
+        // Auto-execute data-only actions and append their result to the message text.
+        for (const a of dataOnlyActions) {
+          const action: ParsedAction = {
+            type: a.type, params: a.params, raw: '',
+            chainFromPrevious: false, warnUnverifiedDestination: false,
+          };
+          this.solanaActionService.executeChain([action], {
+            onConfirm: (result?: string) => {
+              if (!result) return;
+              this.messages.update(msgs => {
+                const updated = [...msgs];
+                const idx = updated.findIndex(m => m.id === lastMsg.id);
+                if (idx !== -1) {
+                  const existing = updated[idx].content;
+                  updated[idx] = {
+                    ...updated[idx],
+                    content: existing ? `${existing}\n\n${result}` : result,
+                  };
+                }
+                return updated;
+              });
+            },
+          }).catch(() => { /* silent — error already logged by service */ });
+        }
+
+        if (txActions.length > 0) {
+          const parsedActions: ParsedAction[] = txActions.map(a => ({
+            type: a.type,
+            params: a.params,
+            raw: '',
+            chainFromPrevious: a.chainFromPrevious ?? false,
+            warnUnverifiedDestination: a.warnUnverifiedDestination ?? false,
+          }));
+          this.messageActions.update(m => {
+            const next = new Map(m);
+            next.set(lastMsg.id, parsedActions);
+            return next;
+          });
+        }
       }
       if (this._pendingQueries.length > 0) {
         const parsedQueries: ParsedQuery[] = this._pendingQueries.map(q => ({
@@ -593,6 +1006,38 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       }
     }
 
+    // Empty-response detection: stream completed cleanly but the assistant
+    // produced no text and no structured action/query/clarify. The user sees
+    // a blank bubble with no recourse — show the same retry/edit affordances
+    // we offer for explicit errors. Most common cause: LLM emitted only
+    // pre-tool buffer that got discarded, or the model decided not to call
+    // any tool and also produced no text (e.g. tool-list filtered to a set
+    // it couldn't satisfy). Failsafe — never the user's fault.
+    const attachedActions = this.messageActions().get(lastMsg.id) ?? [];
+    const attachedQueries = this.messageQueries().get(lastMsg.id) ?? [];
+    const attachedClarifs = this.messageClarifications().get(lastMsg.id) ?? [];
+    const hasAnyContent =
+      lastMsg.content.trim().length > 0 ||
+      attachedActions.length > 0 ||
+      attachedQueries.length > 0 ||
+      attachedClarifs.length > 0;
+    if (!hasAnyContent && !lastMsg.isError && this._lastSentContent) {
+      this.lastFailedContent.set(this._lastSentContent);
+      this.messages.update((msgs) => {
+        const updated = [...msgs];
+        const last = updated[updated.length - 1];
+        if (last?.role === 'assistant') {
+          updated[updated.length - 1] = {
+            ...last,
+            content: "Sorry, I couldn't generate a response. Please try again.",
+            isError: true,
+          };
+        }
+        return updated;
+      });
+      return; // skip auto-summarize for the empty turn
+    }
+
     // Auto-summarize: fire-and-forget to memory service
     if (lastMsg.content.trim()) {
       const sessionId = this.sessionStorage.activeSessionId();
@@ -614,32 +1059,34 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     console.log('[ChatShell] loadMessages called:', { sessionId, resolved });
 
     if (resolved.startsWith('local:')) {
-      console.log('[ChatShell] Local session, skipping message load');
+      console.log('[ChatShell] Local session (unsynced), skipping message load:', resolved);
       this.messages.set([]);
       this.loadingMessages.set(false);
+      // Don't show an error for the initial empty local session state
       return;
     }
 
-    // Check authentication first
+    // Check authentication — re-authenticate if we have a wallet but no session.
     if (!this.authService.isAuthenticated()) {
-      // If wallet is connected but JWT expired/cleared, try to re-authenticate silently
       if (this.walletService.publicKey() && !this.authService.authenticating()) {
         console.log('[ChatShell] Token missing but wallet connected — re-authenticating');
+        // loadingMessages stays true (skeleton visible while signing)
         this.authService.authenticate().subscribe({
           next: () => this.loadMessages(sessionId),
           error: () => {
-            this.authError.set('Session expired. Please reconnect your wallet.');
+            this.authError.set('Session expired. Click "Sign Again" to re-authenticate.');
             this.loadingMessages.set(false);
           },
         });
       } else if (!this.walletService.publicKey()) {
-        this.authError.set('Please connect your wallet to view chat history');
+        this.authError.set('Connect your wallet to load this conversation.');
         this.loadingMessages.set(false);
       }
+      // else: authenticating() is true — skeleton stays, effect retries when done
       return;
     }
 
-    // Wait if authentication is in progress
+    // Auth is in progress from elsewhere — skeleton stays, effect retries.
     if (this.authService.authenticating()) {
       console.log('[ChatShell] Authentication in progress, waiting...');
       return;
@@ -648,36 +1095,37 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     this.authError.set(null);
     this.loadingMessages.set(true);
 
-    // Add timeout to prevent infinite loading
     const timeout = setTimeout(() => {
       console.warn('[ChatShell] Message load timeout');
       this.loadingMessages.set(false);
+      this.authError.set('Loading timed out. Click to retry.');
     }, 10000);
 
-    this.chatApi.getMessages(resolved).subscribe({
+    // Store subscription so in-flight requests can be cancelled on navigation.
+    this.msgSub = this.chatApi.getMessages(resolved).subscribe({
       next: (msgs) => {
         clearTimeout(timeout);
         console.log('[ChatShell] Messages loaded:', msgs.length);
-        this.messages.set(msgs);
+        this.messages.set(msgs ?? []);
         this.loadingMessages.set(false);
 
         const actionsMap = new Map<string, ParsedAction[]>();
         const queriesMap = new Map<string, ParsedQuery[]>();
         const clarifyMap = new Map<string, ParsedClarify[]>();
 
-        for (const msg of msgs) {
+        for (const msg of msgs ?? []) {
           if (msg.role !== 'assistant') continue;
           const meta = msg.metadata;
 
-          // Prefer structured metadata (function calling) over text parsing.
-          // Text parsing is the fallback for messages that pre-date function calling.
           const structuredActions = meta?.actions;
           const structuredQueries = meta?.queries;
           const structuredClarifications = meta?.clarifications;
 
           if (structuredActions?.length) {
             actionsMap.set(msg.id, structuredActions.map(a => ({
-              type: a.type, params: a.params, raw: '', chainFromPrevious: a.chainFromPrevious ?? false,
+              type: a.type, params: a.params, raw: '',
+              chainFromPrevious: a.chainFromPrevious ?? false,
+              warnUnverifiedDestination: a.warnUnverifiedDestination ?? false,
             })));
           }
           if (structuredQueries?.length) {
@@ -695,7 +1143,6 @@ export class ChatShellComponent implements OnInit, OnDestroy {
             })));
           }
 
-          // Fall back to text parsing only if no structured metadata
           if (!structuredActions?.length && !structuredQueries?.length && !structuredClarifications?.length) {
             const parsed = this.intentParser.parseAll(msg.content);
             if (parsed.actions.length > 0) actionsMap.set(msg.id, parsed.actions);
@@ -709,14 +1156,24 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         clearTimeout(timeout);
-        console.error('[ChatShell] Failed to load messages:', err);
+        console.error('[ChatShell] Failed to load messages:', { status: err.status, message: err.message, url: err.url, err });
         this.loadingMessages.set(false);
         if (err.message === 'Authentication required' || err.status === 401) {
-          this.authError.set('Session expired. Please reconnect your wallet.');
+          this.authError.set('Session expired. Click "Sign Again" to re-authenticate.');
+          // Cookie is gone — clear local user state so the sidebar matches reality.
+          this.authService.logout();
+        } else if (err.status === 403) {
+          this.authError.set('Access denied. Please disconnect and reconnect your wallet.');
+          this.authService.logout();
         } else if (err.status === 404) {
-          // Session doesn't exist for this wallet — remove stale local entry and go home
+          // Session not found on server — show error, don't silently navigate away.
+          // The user should see what happened and can manually start a new chat.
+          this.authError.set('Chat session not found on the server. It may have been deleted.');
           this.sessionStorage.removeSession(sessionId);
-          this.router.navigate(['/']);
+        } else if (err.status === 0) {
+          this.authError.set('Could not reach the server. Make sure all services are running.');
+        } else {
+          this.authError.set(`Failed to load messages (${err.status || 'network error'}). Click to retry.`);
         }
       },
     });

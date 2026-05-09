@@ -242,6 +242,51 @@
   }
 }
 
+// ──── Risk badge (lending positions: HF / LTV / liq) ────
+.risk-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.risk-badge[data-tier='safe'] {
+  color: #137d3a;
+  background: rgba(20, 241, 149, 0.10);
+  border-color: rgba(20, 241, 149, 0.32);
+}
+
+.risk-badge[data-tier='warn'] {
+  color: #8a5b00;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.36);
+}
+
+.risk-badge[data-tier='danger'] {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.42);
+}
+
+.risk-badge[data-tier='unknown'] {
+  color: var(--op-text-secondary);
+  background: var(--op-bg-surface-2, rgba(0, 0, 0, 0.04));
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.risk-badge-sub {
+  font-weight: 500;
+  opacity: 0.85;
+  font-size: 10.5px;
+}
+
 // ──── Responsive ────
 @media (max-width: 640px) {
   .position-table th,

@@ -9,6 +9,11 @@ import (
 type Config struct {
 	Port               int
 	JWTSecret          string
+	// JWTPreviousSecret enables rolling rotation: set to the previous value of
+	// OPRAI_JWT_SECRET via OPRAI_JWT_SECRET_OLD so tokens issued before the
+	// rotation continue to validate until they expire. Empty when no rotation
+	// is in flight.
+	JWTPreviousSecret  string
 	InternalAPIKey     string
 	CORSOrigin         string
 	Environment        string
@@ -38,6 +43,11 @@ type Config struct {
 	// Local file upload storage
 	UploadDir     string // Local directory to store uploaded files
 	PublicBaseURL string // Public base URL for uploaded files (e.g. https://api.oprai.xyz)
+
+	// Redis URL — backs the JWT revocation blocklist (so revocations survive
+	// gateway restarts and are shared across instances). When empty, the
+	// blocklist degrades to in-memory only.
+	RedisURL string
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -45,6 +55,7 @@ func Load() *Config {
 	return &Config{
 		Port:               getEnvInt("PORT", 3001),
 		JWTSecret:          getEnvStr("OPRAI_JWT_SECRET", "dev-insecure-secret-change"),
+		JWTPreviousSecret:  getEnvStr("OPRAI_JWT_SECRET_OLD", ""),
 		InternalAPIKey:     getEnvStr("OPRAI_INTERNAL_API_KEY", "dev-internal-key-change"),
 		CORSOrigin:         getEnvStr("CORS_ORIGIN", "http://localhost:3000"),
 		Environment:        getEnvStr("NODE_ENV", "development"),
@@ -66,6 +77,8 @@ func Load() *Config {
 
 		UploadDir:     getEnvStr("UPLOAD_DIR", "./uploads"),
 		PublicBaseURL: getEnvStr("PUBLIC_BASE_URL", "http://localhost:3001"),
+
+		RedisURL: getEnvStr("REDIS_URL", "redis://localhost:6379"),
 	}
 }
 

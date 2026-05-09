@@ -1,0 +1,21 @@
+id: yearn_docs
+source_type: docs
+base_url: https://docs.yearn.fi
+protocol: yearn
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "0 5 * * *"
+crawl_delay_s: 1.5
+max_pages: 300
+tags:
+  - yearn
+  - vaults
+  - yield
+  - strategy
+  - autocompounding
+  - defi
+notes: >
+  Gitbook-rendered docs. Covers yVault v2/v3 mechanics, strategy architecture,
+  how-to-understand-strategies-descriptions guide, and developer v3 vault management.
+  Static HTML friendly; very high crawl confidence.

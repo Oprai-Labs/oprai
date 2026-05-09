@@ -302,10 +302,17 @@ export class JitoService {
     }
   }
 
-  /** Latest jitoSOL/SOL exchange rate with fallback. */
-  async getExchangeRate(): Promise<number> {
+  /**
+   * Latest jitoSOL/SOL exchange rate from Jito's Kobe analytics API.
+   * Returns null if the live data is unavailable — callers must handle that
+   * (no static constant fallback). The Rust solana-service has an additional
+   * on-chain fallback for transaction-build paths; UI previews simply hide
+   * when null.
+   */
+  async getExchangeRate(): Promise<number | null> {
     const ratio = await this.getJitosolSolRatio();
-    return ratio?.ratios.at(-1)?.data ?? 1.08;
+    const latest = ratio?.ratios.at(-1)?.data;
+    return typeof latest === 'number' && Number.isFinite(latest) && latest > 0 ? latest : null;
   }
 
   // ── MEV & Claims API (kobe) ────────────────────────────────────────────────

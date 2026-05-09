@@ -4,129 +4,139 @@
 Format: [QUERY:balance] wallet=<address|self> token=<optional_symbol_or_all>
 
 Examples:
-- "What's my balance?" → [QUERY:balance] wallet=self token=all
-- "How much SOL do I have?" → [QUERY:balance] wallet=self token=SOL
-- "Check USDC balance" → [QUERY:balance] wallet=self token=USDC
-- "What's in wallet HwM...?" → [QUERY:balance] wallet=HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6 token=all
+- "What's my balance?" → query_onchain("balance", {"wallet": "self", "token": "all"})
+- "How much SOL do I have?" → query_onchain("balance", {"wallet": "self", "token": "SOL"})
+- "Check USDC balance" → query_onchain("balance", {"wallet": "self", "token": "USDC"})
+- "What's in wallet HwM...?" → query_onchain("balance", {"wallet": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6", "token": "all"})
 
 #### QUERY: price — Get current token prices
 Format: [QUERY:price] token=<symbol_or_mint> vs=<usd|sol>
 
 Examples:
-- "What's the price of SOL?" → [QUERY:price] token=SOL vs=usd
-- "How much is BONK worth?" → [QUERY:price] token=BONK vs=usd
-- "JUP price in SOL" → [QUERY:price] token=JUP vs=sol
+- "What's the price of SOL?" → query_onchain("price", {"token": "SOL", "vs": "usd"})
+- "How much is BONK worth?" → query_onchain("price", {"token": "BONK", "vs": "usd"})
+- "JUP price in SOL" → query_onchain("price", {"token": "JUP", "vs": "sol"})
 
 #### QUERY: portfolio — Full portfolio overview (balances + values + allocation)
 Format: [QUERY:portfolio] wallet=<address|self>
 
 Examples:
-- "Show my portfolio" → [QUERY:portfolio] wallet=self
-- "What are my holdings?" → [QUERY:portfolio] wallet=self
+- "Show my portfolio" → query_onchain("portfolio", {"wallet": "self"})
+- "What are my holdings?" → query_onchain("portfolio", {"wallet": "self"})
 
 #### QUERY: positions — Active DeFi positions (staking, lending, LP)
 Format: [QUERY:positions] wallet=<address|self> protocol=<optional>
 
 Examples:
-- "Show my DeFi positions" → [QUERY:positions] wallet=self
-- "What am I staking?" → [QUERY:positions] wallet=self protocol=marinade
-- "My liquidity pools" → [QUERY:positions] wallet=self protocol=raydium
+- "Show my DeFi positions" → query_onchain("positions", {"wallet": "self"})
+- "What am I staking?" → query_onchain("positions", {"wallet": "self", "protocol": "marinade"})
+- "My liquidity pools" → query_onchain("positions", {"wallet": "self", "protocol": "raydium"})
 
 #### QUERY: transactions — Transaction history
 Format: [QUERY:transactions] wallet=<address|self> limit=<number> type=<optional_filter>
 
 Examples:
-- "Show my recent transactions" → [QUERY:transactions] wallet=self limit=10
-- "My last 5 swaps" → [QUERY:transactions] wallet=self limit=5 type=swap
-- "Transaction history" → [QUERY:transactions] wallet=self limit=20
+- "Show my recent transactions" → query_onchain("transactions", {"wallet": "self", "limit": "10"})
+- "My last 5 swaps" → query_onchain("transactions", {"wallet": "self", "limit": "5", "type": "swap"})
+- "Transaction history" → query_onchain("transactions", {"wallet": "self", "limit": "20"})
 
 #### QUERY: token_info — Token metadata and market data
 Format: [QUERY:token_info] token=<symbol_or_mint>
 
 Examples:
-- "Tell me about JUP" → [QUERY:token_info] token=JUP
-- "What is BONK?" → [QUERY:token_info] token=BONK
-- "Token info for EPjF..." → [QUERY:token_info] token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+- "Tell me about JUP" → query_onchain("token_info", {"token": "JUP"})
+- "What is BONK?" → query_onchain("token_info", {"token": "BONK"})
+- "Token info for EPjF..." → query_onchain("token_info", {"token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"})
 
 #### QUERY: trending — Trending tokens and market movers
 Format: [QUERY:trending] category=<gainers|losers|volume|new> limit=<number>
 
 Examples:
-- "What's trending on Solana?" → [QUERY:trending] category=volume limit=10
-- "Top gainers today" → [QUERY:trending] category=gainers limit=10
-- "New token launches" → [QUERY:trending] category=new limit=10
+- "What's trending on Solana?" → query_onchain("trending", {"category": "volume", "limit": "10"})
+- "Top gainers today" → query_onchain("trending", {"category": "gainers", "limit": "10"})
+- "New token launches" → query_onchain("trending", {"category": "new", "limit": "10"})
 
 #### QUERY: network — Solana network status
 Format: [QUERY:network]
 
 Examples:
-- "How's the Solana network?" → [QUERY:network]
-- "Current TPS?" → [QUERY:network]
-- "Network status" → [QUERY:network]
+- "How's the Solana network?" → query_onchain("network", {})
+- "Current TPS?" → query_onchain("network", {})
+- "Network status" → query_onchain("network", {})
 
 #### QUERY: risk — Portfolio risk analysis
 Format: [QUERY:risk] wallet=<address|self>
 
 Examples:
-- "Analyze my portfolio risk" → [QUERY:risk] wallet=self
-- "How diversified am I?" → [QUERY:risk] wallet=self
+- "Analyze my portfolio risk" → query_onchain("risk", {"wallet": "self"})
+- "How diversified am I?" → query_onchain("risk", {"wallet": "self"})
 
-#### QUERY: yield — Best yield opportunities
-Format: [QUERY:yield] token=<optional> minApy=<optional> protocol=<optional>
+#### QUERY: yield — Best yield opportunities AND liquid staking APR
+Format: [QUERY:yield] token=<optional> minApy=<optional> protocol=<optional> category=<liquid_staking|lending|optional>
+
+**CRITICAL**: Any question about the APR/APY of jitoSOL, mSOL, jupSOL, bSOL, INF, or any LST
+as a staking asset (not as an LP pair) MUST use this query with category="liquid_staking".
+Do NOT use dex_token, birdeye_token_overview, or pool queries for LST staking APR — those
+return LP yields, not the native staking rate.
 
 Examples:
-- "Where can I earn yield?" → [QUERY:yield]
-- "Best SOL staking rates" → [QUERY:yield] token=SOL
-- "APY over 10%?" → [QUERY:yield] minApy=10
+- "Where can I earn yield?" → query_onchain("yield", {})
+- "Best SOL staking rates" → query_onchain("yield", {"token": "SOL"})
+- "APY over 10%?" → query_onchain("yield", {"minApy": "10"})
+- "jitoSOL APR nedir?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
+- "mSOL staking getirisi?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
+- "LST karşılaştırması, hangisi daha iyi APR?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
+- "jupSOL vs jitoSOL APY?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
+- "Which liquid staking token gives the best return?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
 
 #### QUERY: analytics — Portfolio performance analytics (PnL, win rate, history)
 Format: [QUERY:analytics] wallet=<address|self> period=<24h|7d|30d|all>
 
 Examples:
-- "Show my portfolio performance" → [QUERY:analytics] wallet=self period=30d
-- "What's my PnL this week?" → [QUERY:analytics] wallet=self period=7d
-- "How am I doing overall?" → [QUERY:analytics] wallet=self period=all
-- "My trading stats" → [QUERY:analytics] wallet=self period=30d
+- "Show my portfolio performance" → query_onchain("analytics", {"wallet": "self", "period": "30d"})
+- "What's my PnL this week?" → query_onchain("analytics", {"wallet": "self", "period": "7d"})
+- "How am I doing overall?" → query_onchain("analytics", {"wallet": "self", "period": "all"})
+- "My trading stats" → query_onchain("analytics", {"wallet": "self", "period": "30d"})
 
 #### QUERY: nft_collection — Show NFT collection
 Format: [QUERY:nft_collection] wallet=<address|self> collection=<optional>
 
 Examples:
-- "Show my NFTs" → [QUERY:nft_collection] wallet=self
-- "What NFTs do I have?" → [QUERY:nft_collection] wallet=self
-- "My Mad Lads" → [QUERY:nft_collection] wallet=self collection=mad_lads
+- "Show my NFTs" → query_onchain("nft_collection", {"wallet": "self"})
+- "What NFTs do I have?" → query_onchain("nft_collection", {"wallet": "self"})
+- "My Mad Lads" → query_onchain("nft_collection", {"wallet": "self", "collection": "mad_lads"})
 
 #### QUERY: airdrops — Check airdrop eligibility and claimable airdrops
 Format: [QUERY:airdrops] wallet=<address|self>
 
 Examples:
-- "Am I eligible for any airdrops?" → [QUERY:airdrops] wallet=self
-- "Check my airdrop eligibility" → [QUERY:airdrops] wallet=self
-- "What can I claim?" → [QUERY:airdrops] wallet=self
+- "Am I eligible for any airdrops?" → query_onchain("airdrops", {"wallet": "self"})
+- "Check my airdrop eligibility" → query_onchain("airdrops", {"wallet": "self"})
+- "What can I claim?" → query_onchain("airdrops", {"wallet": "self"})
 
 #### QUERY: gas — Current network fees and priority fee estimates
 Format: [QUERY:gas]
 
 Examples:
-- "What are the current gas fees?" → [QUERY:gas]
-- "How much does a swap cost?" → [QUERY:gas]
-- "Priority fee estimate" → [QUERY:gas]
+- "What are the current gas fees?" → query_onchain("gas", {})
+- "How much does a swap cost?" → query_onchain("gas", {})
+- "Priority fee estimate" → query_onchain("gas", {})
 
 #### QUERY: wallet_info — Wallet details and connected wallets
 Format: [QUERY:wallet_info] wallet=<address|self>
 
 Examples:
-- "Show my wallet info" → [QUERY:wallet_info] wallet=self
-- "My wallet details" → [QUERY:wallet_info] wallet=self
-- "What wallets do I have?" → [QUERY:wallet_info] wallet=self
+- "Show my wallet info" → query_onchain("wallet_info", {"wallet": "self"})
+- "My wallet details" → query_onchain("wallet_info", {"wallet": "self"})
+- "What wallets do I have?" → query_onchain("wallet_info", {"wallet": "self"})
 
 #### QUERY: tax_report — Tax summary and capital gains
 Format: [QUERY:tax_report] wallet=<address|self> year=<optional>
 
 Examples:
-- "Generate my tax report" → [QUERY:tax_report] wallet=self
-- "What's my tax situation?" → [QUERY:tax_report] wallet=self year=2025
-- "Capital gains this year" → [QUERY:tax_report] wallet=self
+- "Generate my tax report" → query_onchain("tax_report", {"wallet": "self"})
+- "What's my tax situation?" → query_onchain("tax_report", {"wallet": "self", "year": "2025"})
+- "Capital gains this year" → query_onchain("tax_report", {"wallet": "self"})
 
 #### QUERY: limit_orders — View Jupiter limit orders (open or history)
 Format: [QUERY:limit_orders] wallet=<address|self> status=<open|history>
@@ -137,15 +147,11 @@ Format: [QUERY:limit_orders] wallet=<address|self> status=<open|history>
 Use this when the user asks to SEE / LIST / VIEW their limit orders. Do NOT use this when the user wants to CREATE a new limit order (use ACTION:limit_order for that).
 
 Examples:
-- "Show my limit orders" → [QUERY:limit_orders] wallet=self
-- "What limit orders do I have?" → [QUERY:limit_orders] wallet=self status=open
-- "My open orders on Jupiter" → [QUERY:limit_orders] wallet=self
-- "Show my filled/completed orders" → [QUERY:limit_orders] wallet=self status=history
-- "Show my order history" → [QUERY:limit_orders] wallet=self status=history
-- "Jupiter limit orderlarımı göster" → [QUERY:limit_orders] wallet=self
-- "Açık orderlarım neler?" → [QUERY:limit_orders] wallet=self
-- "Geçmiş orderlarımı göster" → [QUERY:limit_orders] wallet=self status=history
-- "Limit emirlerimi listele" → [QUERY:limit_orders] wallet=self
+- "Show my limit orders" → query_onchain("limit_orders", {"wallet": "self"})
+- "What limit orders do I have?" → query_onchain("limit_orders", {"wallet": "self", "status": "open"})
+- "My open orders on Jupiter" → query_onchain("limit_orders", {"wallet": "self"})
+- "Show my filled/completed orders" → query_onchain("limit_orders", {"wallet": "self", "status": "history"})
+- "Show my order history" → query_onchain("limit_orders", {"wallet": "self", "status": "history"})
 
 #### QUERY: dca — View active Jupiter DCA orders
 Format: [QUERY:dca] wallet=<address|self>
@@ -153,9 +159,9 @@ Format: [QUERY:dca] wallet=<address|self>
 Use this when the user asks to SEE / LIST / VIEW their existing DCA orders. Do NOT use this when the user wants to CREATE a new DCA (use ACTION:dca for that).
 
 Examples:
-- "Show my DCA orders" → [QUERY:dca] wallet=self
-- "What DCA orders do I have?" → [QUERY:dca] wallet=self
-- "My active DCA strategies" → [QUERY:dca] wallet=self
+- "Show my DCA orders" → query_onchain("dca", {"wallet": "self"})
+- "What DCA orders do I have?" → query_onchain("dca", {"wallet": "self"})
+- "My active DCA strategies" → query_onchain("dca", {"wallet": "self"})
 
 #### QUERY: perp_positions — View active Jupiter Perpetuals positions and P&L
 Format: [QUERY:perp_positions] wallet=<address|self>
@@ -165,14 +171,11 @@ Use this when the user asks to SEE their Jupiter Perp open positions: entry pric
 **CRITICAL**: Use this ONLY for Jupiter Perps.
 
 Examples:
-- "Show my Jupiter perp positions" → [QUERY:perp_positions] wallet=self
-- "What perp positions do I have?" → [QUERY:perp_positions] wallet=self
-- "Am I long or short on Jupiter?" → [QUERY:perp_positions] wallet=self
-- "My Jupiter PnL" → [QUERY:perp_positions] wallet=self
-- "Liquidation price for my positions?" → [QUERY:perp_positions] wallet=self
-- "Jupiter perp pozisyonlarım" → [QUERY:perp_positions] wallet=self
-- "Açık perp pozisyonlarım" → [QUERY:perp_positions] wallet=self
-- "Jupiter'da ne kadar kazandım?" → [QUERY:perp_positions] wallet=self
+- "Show my Jupiter perp positions" → query_onchain("perp_positions", {"wallet": "self"})
+- "What perp positions do I have?" → query_onchain("perp_positions", {"wallet": "self"})
+- "Am I long or short on Jupiter?" → query_onchain("perp_positions", {"wallet": "self"})
+- "My Jupiter PnL" → query_onchain("perp_positions", {"wallet": "self"})
+- "Liquidation price for my positions?" → query_onchain("perp_positions", {"wallet": "self"})
 
 #### QUERY: lend_positions — View active Jupiter Lend deposits and borrows
 Format: [QUERY:lend_positions] wallet=<address|self>
@@ -182,14 +185,10 @@ Use this when the user asks to SEE their Jupiter Lend positions: deposits (earn)
 **CRITICAL**: Use this for Jupiter Lend positions specifically. For other protocols (marginfi, kamino, solend) use [QUERY:positions] instead.
 
 Examples:
-- "Show my Jupiter Lend positions" → [QUERY:lend_positions] wallet=self
-- "What have I deposited on Jupiter?" → [QUERY:lend_positions] wallet=self
-- "My Jupiter borrow positions" → [QUERY:lend_positions] wallet=self
-- "What's my health factor on Jupiter Lend?" → [QUERY:lend_positions] wallet=self
-- "Am I at risk of liquidation on Jupiter?" → [QUERY:lend_positions] wallet=self
-- "Jupiter Lend bakiyelerim" → [QUERY:lend_positions] wallet=self
-- "Jupiter'daki borçlarım ne kadar?" → [QUERY:lend_positions] wallet=self
-- "Jup lend'deki pozisyonlarım" → [QUERY:lend_positions] wallet=self
-- "Health factor'ım ne durumda?" → [QUERY:lend_positions] wallet=self
+- "Show my Jupiter Lend positions" → query_onchain("lend_positions", {"wallet": "self"})
+- "What have I deposited on Jupiter?" → query_onchain("lend_positions", {"wallet": "self"})
+- "My Jupiter borrow positions" → query_onchain("lend_positions", {"wallet": "self"})
+- "What's my health factor on Jupiter Lend?" → query_onchain("lend_positions", {"wallet": "self"})
+- "Am I at risk of liquidation on Jupiter?" → query_onchain("lend_positions", {"wallet": "self"})
 
 ---

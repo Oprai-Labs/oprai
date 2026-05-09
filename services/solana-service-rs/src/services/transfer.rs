@@ -53,11 +53,13 @@ pub struct TransferBuildResult {
 // ──────────────────────────────────────────────────────────────────────────────
 
 pub fn validate_transfer_params(params: &TransferParams) -> Result<(), AppError> {
-    // Validate recipient address.
-    params
-        .to
-        .parse::<Pubkey>()
-        .map_err(|_| AppError::InvalidParams("Invalid recipient address".into()))?;
+    // .sol domain names are resolved to a pubkey later in build_action (async context).
+    if !params.to.to_lowercase().ends_with(".sol") {
+        params
+            .to
+            .parse::<Pubkey>()
+            .map_err(|_| AppError::InvalidParams("Invalid recipient address".into()))?;
+    }
 
     // Validate amount.
     let amount: f64 = params

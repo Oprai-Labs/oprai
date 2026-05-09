@@ -26,12 +26,23 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   }
 
   if (isGatewayRequest) {
+    // Pre-auth endpoints must never carry a Bearer token. If the user has a
+    // revoked/expired JWT in memory, attaching it to /auth/nonce or /auth/verify
+    // makes the gateway reject the very request that would re-establish auth,
+    // creating a 401-loop self-DOS. The cookie is also harmless here because
+    // the auth service ignores it for these endpoints.
+    const path = req.url.slice(environment.apiBase.length).split('?')[0];
+    const isPreAuth = path === '/auth/nonce' || path === '/auth/verify';
+
     const token = authService.getToken();
     const headers: Record<string, string> = { 'X-Requested-With': 'XMLHttpRequest' };
-    if (token) {
+    if (token && !isPreAuth) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    return next(req.clone({ withCredentials: true, setHeaders: headers }));
+    return next(req.clone({
+      withCredentials: !isPreAuth,
+      setHeaders: headers,
+    }));
   }
 
   return next(req);

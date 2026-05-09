@@ -140,16 +140,16 @@
 
 .token-banner {
   width: 100%;
-  max-height: 90px;
   overflow: hidden;
-  background: var(--op-bg-surface-2);
+  background: #000;
   position: relative;
 
   img {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
+    height: auto;
     display: block;
+    max-height: 200px;
+    object-fit: contain;
   }
 }
 
@@ -167,19 +167,23 @@
 
 .pf-image-preview {
   width: 100%;
-  aspect-ratio: 1;
-  max-height: 220px;
+  min-height: 260px;
+  border: 1.5px dashed var(--op-border-default);
   border-radius: var(--op-radius-md);
-  overflow: hidden;
   background: var(--op-bg-surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
-  border: 1px solid var(--op-border-subtle);
+  padding: 20px;
 
   img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+    width: 220px;
+    height: 220px;
+    max-width: calc(100% - 40px);
+    object-fit: contain;
     display: block;
+    border-radius: 16px;
   }
 }
 
@@ -508,6 +512,18 @@
       color: #52B788;
     }
   }
+
+  &--disabled,
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: var(--op-text-tertiary);
+
+    &:hover {
+      border-color: var(--op-border-subtle);
+      color: var(--op-text-tertiary);
+    }
+  }
 }
 
 .pf-toggle-on-badge {
@@ -518,6 +534,17 @@
   color: #0a0a0a;
   padding: 1px 5px;
   border-radius: 3px;
+}
+
+.pf-toggle-soon-badge {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: var(--op-bg-surface-3, var(--op-bg-surface-2));
+  color: var(--op-text-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--op-border-subtle);
 }
 
 // ── Banner preview (inline) ──
@@ -537,16 +564,15 @@
   width: 100%;
   border-radius: var(--op-radius-sm);
   overflow: hidden;
-  background: var(--op-bg-surface-2);
+  background: #000;
   border: 1px solid var(--op-border-subtle);
-  max-height: 72px;
 
   img {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
+    height: auto;
     display: block;
-    max-height: 72px;
+    max-height: 160px;
+    object-fit: contain;
   }
 }
 
@@ -593,6 +619,22 @@
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--op-border-subtle);
+}
+
+// ── Phantom simulation notice ──
+
+.pf-sim-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, #1D3D32 3%, var(--op-bg-surface-1));
+  lucide-icon { color: var(--op-text-tertiary); flex-shrink: 0; margin-top: 1px; }
+  span {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    line-height: 1.4;
+  }
 }
 
 // ── Footer ──
@@ -833,6 +875,17 @@
 }
 
 // ── Tx Explorer Link ──
+
+.data-result {
+  margin: 4px 14px 10px;
+  padding: 6px 10px;
+  background: var(--op-bg-surface-2);
+  border-radius: var(--op-radius-sm);
+  color: var(--op-text-primary);
+  font-size: 0.8rem;
+  font-family: monospace;
+  word-break: break-all;
+}
 
 .tx-link {
   display: inline-flex;
@@ -1114,6 +1167,101 @@
   opacity: 0.7;
 }
 
+// Side-by-side amount → estimate layout for LST stake/unstake actions.
+// Renders the editable input box and a read-only "you receive" box as
+// adjacent panes joined by an arrow.
+.proto-amount-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  &--paired {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: stretch;
+    gap: 8px;
+  }
+}
+
+.proto-pair-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--op-text-tertiary);
+  font-size: 0;
+}
+
+.proto-pair-output {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 11px;
+  border-radius: var(--op-radius-sm);
+  border: 1px solid var(--op-border-subtle);
+  background: color-mix(in srgb, var(--op-brand) 6%, var(--op-bg-surface-2));
+  color: var(--op-text-primary);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+
+  &__value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  &__suffix {
+    flex-shrink: 0;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--op-brand);
+    text-transform: uppercase;
+  }
+}
+
+// Inline loading/error banner shown beneath the LST amount row when the
+// live exchange rate (Jito Kobe / Marinade price_sol) can't be fetched.
+// We refuse to render an estimate from a static fallback — see the user
+// rule "don't make fallback with 1.0. it's not safe".
+.proto-rate-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-radius: var(--op-radius-sm);
+  font-size: 0.6875rem;
+  line-height: 1.3;
+
+  &--loading {
+    color: var(--op-text-secondary);
+    background: var(--op-bg-surface-2);
+    border: 1px solid var(--op-border-subtle);
+  }
+
+  &--error {
+    color: var(--op-loss);
+    background: color-mix(in srgb, var(--op-loss) 8%, var(--op-bg-surface-2));
+    border: 1px solid color-mix(in srgb, var(--op-loss) 28%, var(--op-border-subtle));
+  }
+
+  &__retry {
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--op-loss) 35%, transparent);
+    background: transparent;
+    color: var(--op-loss);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--op-fast), border-color var(--op-fast);
+
+    &:hover {
+      background: color-mix(in srgb, var(--op-loss) 12%, transparent);
+      border-color: var(--op-loss);
+    }
+  }
+}
+
+
 .proto-required {
   color: var(--op-loss);
   font-weight: 700;
@@ -1161,6 +1309,54 @@
   align-items: center;
 
   .proto-input { padding-right: 42px; }
+
+  // DLMM single-sided lock — visually communicate that this token isn't
+  // collected by the chosen range, so the user doesn't try to type into it.
+  &--locked {
+    opacity: 0.55;
+
+    .proto-input {
+      cursor: not-allowed;
+      background: var(--op-bg-surface-2, rgba(255,255,255,0.02));
+    }
+  }
+}
+
+// DLMM info strip — sits below the form fields, explains active price +
+// chosen range composition so the user understands what they'll deposit.
+// Spans both columns of the form grid so it doesn't break symmetry.
+.proto-dlmm-info {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: var(--op-bg-surface-2, rgba(255,255,255,0.03));
+  border: 1px solid var(--op-border-subtle, rgba(255,255,255,0.06));
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  &__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 0.75rem;
+  }
+
+  &__label {
+    color: var(--op-text-secondary);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.6875rem;
+  }
+
+  &__value {
+    color: var(--op-text-primary);
+    font-family: var(--op-font-mono, ui-monospace, monospace);
+    text-align: right;
+  }
 }
 
 .proto-input-suffix {
@@ -1200,18 +1396,27 @@
 
   &--empty { opacity: 0.4; }
 
-  &__icon {
+  &__icon-wrap {
+    position: relative;
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    object-fit: cover;
     flex-shrink: 0;
-    background: var(--op-bg-surface-3);
+    overflow: hidden;
+  }
+
+  &__icon {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
   }
 
   &__letter {
-    width: 28px;
-    height: 28px;
+    position: absolute;
+    inset: 0;
     border-radius: 50%;
     background: var(--proto-accent, var(--op-brand));
     color: #fff;
@@ -1220,7 +1425,6 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
   }
 
   &__info {
@@ -1380,16 +1584,20 @@
   border-radius: var(--op-radius-md);
   font-size: 0.875rem;
   font-weight: 600;
-  background: var(--proto-accent, var(--op-brand));
+  // Always the site brand gradient — the protocol identity is conveyed by
+  // the icon shown on the button, so the CTA stays visually consistent
+  // across all action cards instead of taking on (sometimes garish)
+  // protocol accent colours.
+  background: var(--op-gradient, var(--op-brand));
   color: #fff;
   cursor: pointer;
   border: none;
-  box-shadow: 0 2px 12px color-mix(in srgb, var(--proto-accent, var(--op-brand)) 30%, transparent);
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--op-brand) 30%, transparent);
   transition: filter var(--op-fast), box-shadow var(--op-fast), transform var(--op-fast);
 
   &:hover:not(:disabled) {
-    filter: brightness(1.1);
-    box-shadow: 0 4px 20px color-mix(in srgb, var(--proto-accent, var(--op-brand)) 44%, transparent);
+    filter: brightness(1.08);
+    box-shadow: 0 4px 20px color-mix(in srgb, var(--op-brand) 44%, transparent);
     transform: translateY(-1px);
   }
   &:active:not(:disabled) { transform: translateY(0); }
@@ -1425,6 +1633,40 @@
   &--success { color: var(--proto-accent, var(--op-gain)); }
   &--ok      { color: var(--op-gain); }   // always green regardless of protocol accent
   &--error   { color: var(--op-loss); }
+  &--pending { color: var(--op-text-primary); }
+}
+
+.proto-footer-elapsed {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--op-text-tertiary);
+}
+
+.recheck-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 14px 12px;
+  padding: 5px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--op-text-secondary);
+  background: var(--op-bg-surface-2, rgba(0,0,0,0.04));
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+
+  &:hover:not(:disabled) {
+    color: var(--op-brand);
+    border-color: var(--op-brand);
+  }
+
+  &:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .spin {
+    animation: spin 0.7s linear infinite;
+  }
 }
 
 .proto-spinner {
@@ -1435,6 +1677,14 @@
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   flex-shrink: 0;
+
+  &--inline {
+    width: 11px;
+    height: 11px;
+    border-width: 1.5px;
+    display: inline-block;
+    vertical-align: middle;
+  }
 }
 
 // ── Hide native number-input spin buttons (↑↓ arrows) ──
@@ -1451,14 +1701,38 @@
 
 // ── Balance hint + Max button (shown in amount field header) ──
 
-.proto-balance-icon {
+.proto-balance-icon-wrap {
+  position: relative;
+  display: inline-block;
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  object-fit: cover;
   vertical-align: middle;
   margin-right: 3px;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.proto-balance-letter {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--proto-accent, var(--op-brand));
+  color: #fff;
+  font-size: 7px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.proto-balance-icon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .proto-balance-hint {
@@ -1987,6 +2261,17 @@
 
     .proto-warn-icon { color: #f59e0b; }
   }
+
+  &--orange {
+    background: color-mix(in srgb, #f97316 8%, var(--op-bg-surface-2));
+    border-color: color-mix(in srgb, #f97316 22%, transparent);
+
+    .proto-warn-icon { color: #f97316; }
+
+    ~ .proto-footer .proto-btn-confirm:not(.proto-btn-confirm--disabled) {
+      border-color: color-mix(in srgb, #f97316 40%, transparent);
+    }
+  }
 }
 
 .proto-warn-body {
@@ -2148,9 +2433,18 @@
   }
 }
 
-.qs-token-letter {
+.qs-token-icon-wrap {
+  position: relative;
   width: 28px;
   height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.qs-token-letter {
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
   background: linear-gradient(135deg, #C86EDD, #9945FF);
   color: #fff;
@@ -2159,16 +2453,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
 }
 
 .qs-token-icon {
-  width: 28px;
-  height: 28px;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   object-fit: cover;
-  flex-shrink: 0;
-  background: var(--op-bg-surface-3);
 }
 
 .qs-token-info {
@@ -2587,6 +2880,67 @@
   margin-left: 4px;
 }
 
+// Route display — multi-hop with per-hop fee
+.tx-preview-detail--route {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.tx-preview-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  width: 100%;
+}
+
+.tx-preview-hop {
+  display: inline-flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--op-bg-surface-2, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--op-border-subtle);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.tx-preview-hop__dex {
+  font-weight: 600;
+  color: var(--op-brand);
+  white-space: nowrap;
+}
+
+.tx-preview-hop__pair {
+  font-family: var(--op-font-mono, monospace);
+  color: var(--op-text-primary);
+  white-space: nowrap;
+}
+
+.tx-preview-hop__meta {
+  display: inline-flex;
+  gap: 6px;
+  color: var(--op-text-tertiary);
+  font-size: 0.68rem;
+}
+
+.tx-preview-hop__pct {
+  font-weight: 600;
+}
+
+.tx-preview-hop__fee {
+  color: var(--op-text-secondary);
+}
+
+.tx-preview-hop__sep {
+  color: var(--op-text-tertiary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0 2px;
+}
+
 .tx-preview-warnings {
   padding: 12px 20px;
   background: color-mix(in srgb, #fbbf24 8%, transparent);
@@ -2650,5 +3004,115 @@
     background: var(--op-border-subtle);
     color: var(--op-text-tertiary);
     cursor: not-allowed;
+  }
+}
+
+// ── Validator picker (native_stake) ─────────────────────────────────────────
+
+.validator-picker {
+  padding: 14px 16px;
+  border-top: 1px solid var(--op-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  &__title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--op-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  &__custom-btn {
+    font-size: 11px;
+    color: var(--proto-accent, var(--op-brand));
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  &__loading, &__empty {
+    font-size: 12px;
+    color: var(--op-text-tertiary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0;
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  &__note {
+    font-size: 11px;
+    color: var(--op-text-tertiary);
+    margin: 2px 0 0;
+  }
+}
+
+.validator-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 12px;
+  background: var(--op-bg-surface-2);
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: var(--proto-accent, var(--op-brand));
+    background: var(--op-bg-surface-3);
+  }
+
+  &--selected {
+    border-color: var(--proto-accent, var(--op-brand));
+    background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 10%, transparent);
+  }
+
+  &__addr {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 12px;
+    color: var(--op-text-primary);
+    font-weight: 500;
+  }
+
+  &__stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: var(--op-text-secondary);
+  }
+
+  &__apy {
+    color: var(--op-gain);
+    font-weight: 600;
+  }
+
+  &__commission {
+    color: var(--op-text-tertiary);
+  }
+
+  &__stake {
+    color: var(--op-text-tertiary);
   }
 }

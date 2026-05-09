@@ -11,7 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/oprai/oprai/services/admin-service-go/internal/config"
 	"github.com/oprai/oprai/services/admin-service-go/internal/db"
@@ -61,6 +63,18 @@ func main() {
 	}
 
 	queries := db.NewQueries(pool)
+
+	// Boot-time guard: refuse to run in production if the seeded admin
+	// password is still the well-known default (`admin123`) or any other
+	// trivially-weak password the original deployer left behind. The seed
+	// script enforces a 16-char minimum on first install, but a manual SQL
+	// edit could have inserted something weaker. We re-check on every start.
+	if isProd {
+		if err := assertNoDefaultAdminPassword(context.Background(), pool); err != nil {
+			slog.Error("admin credential safety check failed", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	// Start the audit log background worker.
 	// Uses a cancellable context so it drains remaining jobs on shutdown.
@@ -131,4 +145,62 @@ func main() {
 	}
 
 	slog.Info("Admin-service stopped")
+}
+
+// assertNoDefaultAdminPassword scans every admin user and refuses to start if
+// any of them still holds a hash for one of the obvious default passwords.
+// bcrypt is per-row (each hash uses a fresh salt) so we have to test each
+// candidate password against each row — there's no fast equality check.
+//
+// Cost: 1 bcrypt comparison per (user × candidate). For the dozen-or-so admin
+// rows a healthy install carries this is negligible, even at bcrypt cost 12.
+func assertNoDefaultAdminPassword(ctx context.Context, pool *pgxpool.Pool) error {
+	candidates := []string{
+		"admin123",
+		"admin",
+		"password",
+		"changeme",
+		"changeme123",
+		"opraiadmin",
+		"oprai123",
+	}
+
+	rows, err := pool.Query(ctx, `SELECT username, password_hash FROM admin_schema.admin_users`)
+	if err != nil {
+		return fmt.Errorf("querying admin_users: %w", err)
+	}
+	defer rows.Close()
+
+	type adminRow struct {
+		username string
+		hash     string
+	}
+	var users []adminRow
+	for rows.Next() {
+		var r adminRow
+		if err := rows.Scan(&r.username, &r.hash); err != nil {
+			return fmt.Errorf("scanning admin row: %w", err)
+		}
+		users = append(users, r)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating admin rows: %w", err)
+	}
+	if len(users) == 0 {
+		// No admin user yet — production must have been seeded before
+		// the service starts. Refuse to come up empty.
+		return fmt.Errorf("no admin users present; run scripts/db/seed_admin.sh before starting in production")
+	}
+
+	for _, u := range users {
+		for _, candidate := range candidates {
+			if err := bcrypt.CompareHashAndPassword([]byte(u.hash), []byte(candidate)); err == nil {
+				return fmt.Errorf(
+					"admin user %q still uses a default/known password; rotate it before starting in production",
+					u.username,
+				)
+			}
+		}
+	}
+	return nil
 }

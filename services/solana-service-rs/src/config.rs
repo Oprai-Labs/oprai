@@ -39,6 +39,9 @@ pub struct Config {
     /// Relay.link API key for operator-level endpoints (e.g. fast-fill).
     /// Obtain from the Relay team. Leave unset to disable fast-fill.
     pub relay_api_key: Option<String>,
+    /// HTTP base URL of auth-service (used for /internal/spending/check
+    /// and /internal/spending/commit). Defaults to the dev endpoint.
+    pub auth_service_url: String,
 }
 
 impl Config {
@@ -88,6 +91,8 @@ impl Config {
                 .unwrap_or_else(|_| "http://localhost:3031".into()),
             relay_fee_recipient: env::var("RELAY_FEE_RECIPIENT").ok().filter(|s| !s.is_empty()),
             relay_api_key: env::var("RELAY_API_KEY").ok().filter(|s| !s.is_empty()),
+            auth_service_url: env::var("AUTH_SERVICE_HTTP")
+                .unwrap_or_else(|_| "http://localhost:3010".into()),
         }
     }
 

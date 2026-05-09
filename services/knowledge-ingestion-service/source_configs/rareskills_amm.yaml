@@ -1,0 +1,35 @@
+id: rareskills_amm
+source_type: docs
+base_url: https://rareskills.io
+protocol: null
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "20 6 * * *"
+crawl_delay_s: 2.0
+max_pages: 80
+include_patterns:
+  - "/post/uniswap"
+  - "/post/amm"
+  - "/post/impermanent"
+  - "/post/liquidity"
+  - "/uniswap-v3-book"
+tags:
+  - amm
+  - uniswap-v2
+  - uniswap-v3
+  - concentrated-liquidity
+  - impermanent-loss
+  - tick-spacing
+  - fee-tiers
+  - clmm-math
+  - defi-education
+notes: >
+  RareSkills technical blog — server-rendered, high crawl confidence. Key posts:
+  /post/uniswap-v2-tutorial (AMM architecture, IL math),
+  /post/uniswap-v3-concentrated-liquidity (CLMM mechanics deep dive),
+  /post/uniswap-v3-tick-spacing (fee tier / tick spacing relationship),
+  /post/uniswap-v2-price-impact (price impact formula),
+  /post/uniswap-v3-getAmountDelta (real reserves between price bounds).
+  Full book: /uniswap-v3-book (table of contents page, links per chapter).
+  Focus include_patterns on /post/uniswap* to avoid unrelated content.

@@ -1,0 +1,29 @@
+id: meteora_docs
+source_type: docs
+base_url: https://docs.meteora.ag
+protocol: meteora
+category: protocol_documentation
+license: proprietary-fair-use
+language: en
+schedule_cron: "30 3 * * *"
+crawl_delay_s: 1.5
+max_pages: 300
+tags:
+  - meteora
+  - dlmm
+  - bin-step
+  - liquidity-strategy
+  - spot-distribution
+  - curve-distribution
+  - bid-ask
+  - launch-pool
+  - solana
+  - defi
+notes: >
+  Gitbook docs. Key DLMM strategy pages:
+  /overview/products/dlmm/strategies-and-use-cases (Spot/Curve/Bid-Ask distributions),
+  /product-overview/dlmm-overview/dlmm-program (bin step formula and constraints),
+  /product-overview/dlmm-overview/strategies-and-use-cases (bin step selection guide:
+  smaller for stables, larger for volatile; max 69 bins/position, max 400 bin step).
+  Also covers DLMM launch pools and alpha vault mechanics.
+  Static HTML; very high crawl confidence.

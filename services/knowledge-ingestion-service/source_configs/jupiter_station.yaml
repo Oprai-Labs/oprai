@@ -1,0 +1,16 @@
+id: jupiter_station
+source_type: docs
+base_url: https://station.jup.ag
+protocol: jupiter
+category: protocol_documentation
+license: proprietary-fair-use
+language: en
+schedule_cron: "0 3 * * *"
+crawl_delay_s: 1.5
+max_pages: 500
+tags:
+  - jupiter
+  - swap
+  - dca
+  - perps
+  - defi

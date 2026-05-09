@@ -7,6 +7,11 @@ import {
 
 describe('SessionStorageService', () => {
   let service: SessionStorageService;
+  // Wallet-scoped storage requires a bound wallet — use the same fixed test wallet
+  // throughout so existing localStorage assertions read the right key.
+  const TEST_WALLET = 'test-wallet';
+  const SESSIONS_KEY = `oprai-sessions:${TEST_WALLET}`;
+  const ALIASES_KEY = `oprai-session-aliases:${TEST_WALLET}`;
 
   const createSession = (overrides: Partial<ChatSession> = {}): ChatSession => ({
     id: `session-${Date.now()}-${Math.random()}`,
@@ -23,6 +28,8 @@ describe('SessionStorageService', () => {
       providers: [SessionStorageService],
     });
     service = TestBed.inject(SessionStorageService);
+    // Bind a wallet so persistence tests can read/write under a stable key.
+    service.setWallet(TEST_WALLET);
   });
 
   afterEach(() => {
@@ -323,7 +330,7 @@ describe('SessionStorageService', () => {
 
       service.clear();
 
-      expect(localStorage.getItem('oprai-sessions')).toBeNull();
+      expect(localStorage.getItem(SESSIONS_KEY)).toBeNull();
     });
   });
 
@@ -552,7 +559,7 @@ describe('SessionStorageService', () => {
     it('should persist sessions to localStorage', () => {
       service.createLocalSession('Test');
 
-      const stored = localStorage.getItem('oprai-sessions');
+      const stored = localStorage.getItem(SESSIONS_KEY);
       expect(stored).toBeDefined();
 
       const parsed = JSON.parse(stored!);
@@ -563,7 +570,7 @@ describe('SessionStorageService', () => {
       service.toggleIncognito();
       service.createLocalSession('Incognito');
 
-      const stored = localStorage.getItem('oprai-sessions');
+      const stored = localStorage.getItem(SESSIONS_KEY);
       expect(stored).toBeDefined();
 
       const parsed = JSON.parse(stored!);
@@ -572,13 +579,16 @@ describe('SessionStorageService', () => {
 
     it('should load sessions from localStorage on init', () => {
       const storedSessions = [createSession({ title: 'Persisted' })];
-      localStorage.setItem('oprai-sessions', JSON.stringify(storedSessions));
+      localStorage.setItem(SESSIONS_KEY, JSON.stringify(storedSessions));
 
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({
         providers: [SessionStorageService],
       });
       const newService = TestBed.inject(SessionStorageService);
+      // Wallet-scoped storage loads only after binding to a wallet — mirrors
+      // production where AuthService.restoreSession() calls setWallet().
+      newService.setWallet(TEST_WALLET);
 
       expect(newService.sessions().length).toBe(1);
       expect(newService.sessions()[0].title).toBe('Persisted');
@@ -588,7 +598,7 @@ describe('SessionStorageService', () => {
       const localSession = service.createLocalSession('Local');
       service.aliasSession(localSession.id, 'server-123');
 
-      const stored = localStorage.getItem('oprai-session-aliases');
+      const stored = localStorage.getItem(ALIASES_KEY);
       expect(stored).toBeDefined();
 
       const parsed = JSON.parse(stored!);
@@ -602,13 +612,13 @@ describe('SessionStorageService', () => {
 
   describe('Edge cases', () => {
     it('should handle corrupted localStorage JSON', () => {
-      localStorage.setItem('oprai-sessions', 'invalid-json');
+      localStorage.setItem(SESSIONS_KEY, 'invalid-json');
 
       expect(() => TestBed.inject(SessionStorageService)).not.toThrow();
     });
 
     it('should handle empty sessions array in localStorage', () => {
-      localStorage.setItem('oprai-sessions', '[]');
+      localStorage.setItem(SESSIONS_KEY, '[]');
 
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({

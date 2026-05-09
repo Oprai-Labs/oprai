@@ -160,7 +160,7 @@ export class AgentRunnerService {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
       const rpc = environment.solanaRpc;
-      const connection = new Connection(rpc, 'confirmed');
+      const connection = new Connection(rpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
       const walletPk = new PublicKey(wallet);
 
       const SOL_MINT = 'So11111111111111111111111111111111111111112';

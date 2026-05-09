@@ -1,0 +1,14 @@
+node_modules
+dist
+.angular
+.cache
+coverage
+.git
+.gitignore
+.editorconfig
+.vscode
+.idea
+*.log
+*.tsbuildinfo
+.DS_Store
+README.md

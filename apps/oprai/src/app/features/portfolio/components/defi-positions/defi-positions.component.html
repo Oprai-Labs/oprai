@@ -91,6 +91,17 @@
                   <tr class="position-row">
                     <td class="col-label">
                       <span class="position-label">{{ pos.label }}</span>
+                      @if (protocol.category === 'borrowing' && pos.metadata['healthFactor'] != null) {
+                        <span class="risk-badge" [attr.data-tier]="riskTier(+pos.metadata['healthFactor']!)">
+                          HF {{ +pos.metadata['healthFactor']! | number:'1.2-2' }}
+                          @if (pos.metadata['ltv'] != null) {
+                            <span class="risk-badge-sub">· LTV {{ +pos.metadata['ltv']! | number:'1.0-1' }}%</span>
+                          }
+                          @if (pos.metadata['liquidationLtv'] != null) {
+                            <span class="risk-badge-sub">/ liq {{ +pos.metadata['liquidationLtv']! | number:'1.0-1' }}%</span>
+                          }
+                        </span>
+                      }
                     </td>
                     <td class="col-tokens">
                       <div class="token-list">

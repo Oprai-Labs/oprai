@@ -56,17 +56,18 @@ const STABLE_COINS = new Set(['USDC', 'USDT', 'DAI', 'FRAX', 'USDD']);
 const LST_TOKENS = new Set([
   'JupSOL', 'JITO', 'MSO', 'bSOL', 'cSLD',
   'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v',
-  'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kongC',
-  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3zZKhtXDH4yYga',
-  'bSo13r4TkiE4KumL71rHT1xr1yVRmF5CUnrS9QNZvuK',
-  'Cf4hUSKun1oJVqNusAWWvCkrWnQdWbKNRV3tS7S6ygi',
+  // Canonical jitoSOL mint ends in `kGCPn`, not `kongC` (typo from copy-paste).
+  // The wrong suffix would silently miss any wallet actually holding jitoSOL.
+  'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn',
+  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',
+  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1',
 ]);
 
 const YIELD_OPPORTUNITIES = [
   { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', protocol: 'jupiter_lend', yield: 4.5, action: 'lend', type: 'earn' },
   { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', protocol: 'jupiter_lend', yield: 4.2, action: 'lend', type: 'earn' },
   { mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', symbol: 'JupSOL', protocol: 'jupsol', yield: 7.5, action: 'jupsol_stake', type: 'stake' },
-  { mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kongC', symbol: 'JitoSOL', protocol: 'jito', yield: 6.8, action: 'jito_stake', type: 'stake' },
+  { mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', symbol: 'JitoSOL', protocol: 'jito', yield: 6.8, action: 'jito_stake', type: 'stake' },
 ];
 
 @Injectable({ providedIn: 'root' })
@@ -76,7 +77,7 @@ export class PortfolioAwareService {
   private connection: Connection;
 
   constructor() {
-    this.connection = new Connection(environment.solanaRpc, 'confirmed');
+    this.connection = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
   }
 
   /**

@@ -101,6 +101,26 @@
   }
 }
 
+.retry-load-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--op-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--op-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+
+  &:hover {
+    color: var(--op-text-primary);
+    border-color: var(--op-text-tertiary);
+    background: var(--op-bg-surface-2);
+  }
+}
+
 // ============================================================================
 // Loading Skeleton — mirrors the real message-list layout
 // ============================================================================

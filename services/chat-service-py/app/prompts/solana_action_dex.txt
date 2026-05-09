@@ -22,19 +22,19 @@ IMPORTANT: Always use `intervalSeconds` (number), never `frequency` (string).
 
 Examples:
 - "Set up DCA: buy $10 USDC worth of SOL every day for 10 days"
-  -> [ACTION:dca] inputMint=USDC outputMint=SOL totalAmount=100 numberOfOrders=10 intervalSeconds=86400
+  -> execute_action("dca", {"inputMint": "USDC", "outputMint": "SOL", "totalAmount": "100", "numberOfOrders": "10", "intervalSeconds": "86400"})
 
 - "Weekly DCA: swap 50 USDC to BONK every week for 4 weeks"
-  -> [ACTION:dca] inputMint=USDC outputMint=BONK totalAmount=200 numberOfOrders=4 intervalSeconds=604800
+  -> execute_action("dca", {"inputMint": "USDC", "outputMint": "BONK", "totalAmount": "200", "numberOfOrders": "4", "intervalSeconds": "604800"})
 
 - "DCA $100/day SOL to USDC for 1 month"
-  -> [ACTION:dca] inputMint=SOL outputMint=USDC totalAmount=3100 numberOfOrders=31 intervalSeconds=86400
+  -> execute_action("dca", {"inputMint": "SOL", "outputMint": "USDC", "totalAmount": "3100", "numberOfOrders": "31", "intervalSeconds": "86400"})
 
 - "Buy 500 USDC worth of SOL over 10 weekly orders"
-  -> [ACTION:dca] inputMint=USDC outputMint=SOL totalAmount=500 numberOfOrders=10 intervalSeconds=604800
+  -> execute_action("dca", {"inputMint": "USDC", "outputMint": "SOL", "totalAmount": "500", "numberOfOrders": "10", "intervalSeconds": "604800"})
 
 - "Hourly DCA: buy SOL with 100 USDC over 24 hours"
-  -> [ACTION:dca] inputMint=USDC outputMint=SOL totalAmount=100 numberOfOrders=24 intervalSeconds=3600
+  -> execute_action("dca", {"inputMint": "USDC", "outputMint": "SOL", "totalAmount": "100", "numberOfOrders": "24", "intervalSeconds": "3600"})
 
 #### 15. LIMIT_ORDER — Place a limit order
 Format: [ACTION:limit_order] inputMint=<token> outputMint=<token> amount=<amount> targetPrice=<price_in_output_token> expirySeconds=<optional_seconds>
@@ -48,13 +48,13 @@ Parameters:
 
 Examples:
 - "Place limit order: sell 10 SOL at $105"
-  -> [ACTION:limit_order] inputMint=SOL outputMint=USDC amount=10 targetPrice=105
+  -> execute_action("limit_order", {"inputMint": "SOL", "outputMint": "USDC", "amount": "10", "targetPrice": "105"})
 
 - "Limit order: buy 1000 USDC worth of BONK at 0.001 SOL each"
-  -> [ACTION:limit_order] inputMint=USDC outputMint=BONK amount=1000 targetPrice=0.001
+  -> execute_action("limit_order", {"inputMint": "USDC", "outputMint": "BONK", "amount": "1000", "targetPrice": "0.001"})
 
 - "Sell 5 SOL at $200, expires in 3 days"
-  -> [ACTION:limit_order] inputMint=SOL outputMint=USDC amount=5 targetPrice=200 expirySeconds=259200
+  -> execute_action("limit_order", {"inputMint": "SOL", "outputMint": "USDC", "amount": "5", "targetPrice": "200", "expirySeconds": "259200"})
 
 #### 15b. CANCEL_LIMIT_ORDER — Cancel an existing Jupiter limit order
 Format: [ACTION:cancel_limit_order] order=<order_address>
@@ -64,10 +64,10 @@ Parameters:
 
 Examples:
 - "Cancel my limit order"
-  -> First show [QUERY:limit_orders] wallet=self to find the order address, then [ACTION:cancel_limit_order] order=<address>
+  -> First call query_onchain("limit_orders", {"wallet": "self"}) to find the order address, then execute_action("cancel_limit_order", {"order": "<address>"})
 
 - "Cancel all my limit orders"
-  -> First show [QUERY:limit_orders] wallet=self to find all open orders, then emit [ACTION:cancel_all_limit_orders] for each or ask user to confirm
+  -> First call query_onchain("limit_orders", {"wallet": "self"}) to find all open orders, then call execute_action("cancel_all_limit_orders", {}) (or ask user to confirm)
 
 #### 15c. CANCEL_ALL_LIMIT_ORDERS — Cancel all open Jupiter limit orders
 Format: [ACTION:cancel_all_limit_orders]
@@ -75,8 +75,8 @@ Format: [ACTION:cancel_all_limit_orders]
 Parameters: (none required)
 
 Examples:
-- "Cancel all my limit orders" / "Tüm limit order'larımı iptal et"
-  -> [ACTION:cancel_all_limit_orders]
+- "Cancel all my limit orders"
+  -> execute_action("cancel_all_limit_orders", {})
 
 #### 14b. CANCEL_DCA — Cancel an active Jupiter DCA order
 Format: [ACTION:cancel_dca] order=<order_id>
@@ -86,9 +86,9 @@ Parameters:
 
 Examples:
 - "Cancel my DCA"
-  -> First show [QUERY:dca] wallet=self to find the order address, then [ACTION:cancel_dca] order=<address>
-- "DCA'mı iptal et" / "DCA'ımı durdur"
-  -> [QUERY:dca] wallet=self, then [ACTION:cancel_dca] order=<address>
+  -> First call query_onchain("dca", {"wallet": "self"}) to find the order address, then execute_action("cancel_dca", {"order": "<address>"})
+- "Stop my DCA"
+  -> First call query_onchain("dca", {"wallet": "self"}), then execute_action("cancel_dca", {"order": "<address>"})
 
 #### JUPITER PERPETUALS (JLP) — Trade perpetual futures via Jupiter's JLP pool
 
@@ -107,48 +107,44 @@ Jupiter Perps uses a keeper model — the user submits a PositionRequest tx, the
 Format: [ACTION:perp_open] market=<SOL|wETH|wBTC> side=<long|short> collateralAmount=<amount> leverage=<1-100>
 Examples:
 - "Open a long perp position on SOL with 2 SOL collateral, 3x leverage"
-  -> [ACTION:perp_open] market=SOL side=long collateralAmount=2 leverage=3
+  -> execute_action("perp_open", {"market": "SOL", "side": "long", "collateralAmount": "2", "leverage": "3"})
 - "Long SOL perp 5x leverage with 0.5 SOL"
-  -> [ACTION:perp_open] market=SOL side=long collateralAmount=0.5 leverage=5
+  -> execute_action("perp_open", {"market": "SOL", "side": "long", "collateralAmount": "0.5", "leverage": "5"})
 - "Short BTC 2x, collateral 100 USDC"
-  -> [ACTION:perp_open] market=wBTC side=short collateralAmount=100 leverage=2
+  -> execute_action("perp_open", {"market": "wBTC", "side": "short", "collateralAmount": "100", "leverage": "2"})
 - "ETH long 3x, 50 USDC collateral"
-  -> [ACTION:perp_open] market=wETH side=long collateralAmount=50 leverage=3
-- "Jüpiter perp SOL long 5x, 1 SOL ile"
-  -> [ACTION:perp_open] market=SOL side=long collateralAmount=1 leverage=5
+  -> execute_action("perp_open", {"market": "wETH", "side": "long", "collateralAmount": "50", "leverage": "3"})
 
 Format: [ACTION:perp_close] market=<SOL|wETH|wBTC> side=<long|short> collateralAmount=<amount>
 
 **CRITICAL — collateralAmount is REQUIRED and must be a positive number.**
 - Do NOT use 0 or omit it — the backend rejects zero amounts.
-- If the user says "close my position" without specifying the size, FIRST query [QUERY:perp_positions] wallet=self to get the current collateral amount, THEN emit the action with the actual value.
+- If the user says "close my position" without specifying the size, FIRST call query_onchain("perp_positions", {"wallet": "self"}) to get the current collateral amount, THEN emit the action with the actual value.
 - Example: user says "close my SOL long" → query positions → collateral is 2.5 SOL → collateralAmount=2.5
 
 Examples:
 - "Close my SOL long perp" (size unknown — query first)
-  -> [QUERY:perp_positions] wallet=self, then [ACTION:perp_close] market=SOL side=long collateralAmount=<actual_collateral>
+  -> First call query_onchain("perp_positions", {"wallet": "self"}), then execute_action("perp_close", {"market": "SOL", "side": "long", "collateralAmount": "<actual_collateral>"})
 - "Close my SOL long, I have 2 SOL collateral"
-  -> [ACTION:perp_close] market=SOL side=long collateralAmount=2
+  -> execute_action("perp_close", {"market": "SOL", "side": "long", "collateralAmount": "2"})
 - "Close BTC short position" (size unknown — query first)
-  -> [QUERY:perp_positions] wallet=self, then [ACTION:perp_close] market=wBTC side=short collateralAmount=<actual_collateral>
-- "SOL long pozisyonumu kapat" (size unknown — query first)
-  -> [QUERY:perp_positions] wallet=self, then [ACTION:perp_close] market=SOL side=long collateralAmount=<actual_collateral>
+  -> First call query_onchain("perp_positions", {"wallet": "self"}), then execute_action("perp_close", {"market": "wBTC", "side": "short", "collateralAmount": "<actual_collateral>"})
 
 Format: [ACTION:jlp_add] token=<SOL|USDC|USDT|wETH|wBTC> amount=<amount>
 Examples:
 - "Add 10 SOL to JLP"
-  -> [ACTION:jlp_add] token=SOL amount=10
+  -> execute_action("jlp_add", {"token": "SOL", "amount": "10"})
 - "Add 500 USDC to Jupiter JLP pool"
-  -> [ACTION:jlp_add] token=USDC amount=500
+  -> execute_action("jlp_add", {"token": "USDC", "amount": "500"})
 
 Format: [ACTION:jlp_remove] amount=<jlp_amount> token=<SOL|USDC|USDT>
 - `amount` = JLP tokens to burn
 - `token` = which token to receive back (default: SOL)
 Examples:
 - "Remove 100 JLP, get SOL back"
-  -> [ACTION:jlp_remove] amount=100 token=SOL
+  -> execute_action("jlp_remove", {"amount": "100", "token": "SOL"})
 - "Withdraw 200 JLP and receive USDC"
-  -> [ACTION:jlp_remove] amount=200 token=USDC
+  -> execute_action("jlp_remove", {"amount": "200", "token": "USDC"})
 
 ---
 
@@ -168,11 +164,11 @@ Optional: slippageBps (default 50), swapMode (default ExactIn)
 
 Examples:
 - "Swap 1 SOL to USDC on Raydium"
-  -> [ACTION:raydium_swap] inputMint=SOL outputMint=USDC amount=1
+  -> execute_action("raydium_swap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "1"})
 - "Raydium swap 100 USDC to SOL with 1% slippage"
-  -> [ACTION:raydium_swap] inputMint=USDC outputMint=SOL amount=100 slippageBps=100
+  -> execute_action("raydium_swap", {"inputMint": "USDC", "outputMint": "SOL", "amount": "100", "slippageBps": "100"})
 - "Buy exactly 1 SOL with USDC on Raydium"
-  -> [ACTION:raydium_swap] inputMint=USDC outputMint=SOL amount=1 swapMode=ExactOut
+  -> execute_action("raydium_swap", {"inputMint": "USDC", "outputMint": "SOL", "amount": "1", "swapMode": "ExactOut"})
 
 ---
 
@@ -194,9 +190,9 @@ Optional: slippageBps (default 100)
 
 Examples:
 - "Add 1 SOL to Raydium SOL-USDC pool" (pool ID known)
-  -> [ACTION:raydium_add_liquidity] poolId=<address> inputMint=SOL amount=1
+  -> execute_action("raydium_add_liquidity", {"poolId": "<address>", "inputMint": "SOL", "amount": "1"})
 - "Add liquidity to Raydium SOL/USDC: 1 SOL + 150 USDC"
-  -> [ACTION:raydium_add_liquidity] tokenA=SOL tokenB=USDC amountA=1 amountB=150
+  -> execute_action("raydium_add_liquidity", {"tokenA": "SOL", "tokenB": "USDC", "amountA": "1", "amountB": "150"})
 
 ---
 
@@ -207,11 +203,11 @@ Format: [ACTION:raydium_remove_liquidity] poolId=<pool_address> lpAmount=<lp_tok
 Required: poolId, lpAmount (alias: liquidity)
 Optional: slippageBps (default 100)
 
-**CLARIFICATION RULE**: If user says "remove my Raydium liquidity" without specifying pool or amount, first use [QUERY:positions] to find their positions.
+**CLARIFICATION RULE**: If user says "remove my Raydium liquidity" without specifying pool or amount, first call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to find their positions.
 
 Examples:
 - "Remove 10.5 LP tokens from my Raydium SOL-USDC pool"
-  -> [ACTION:raydium_remove_liquidity] poolId=<pool_address> lpAmount=10.5
+  -> execute_action("raydium_remove_liquidity", {"poolId": "<pool_address>", "lpAmount": "10.5"})
 
 ---
 
@@ -224,7 +220,7 @@ Optional: startTime (default 0 = open immediately)
 
 Examples:
 - "Create Raydium pool: MYTOKEN/USDC, seed 1000 MYTOKEN + 500 USDC"
-  -> [ACTION:raydium_create_pool] mintA=<MYTOKEN_MINT> mintB=USDC amountA=1000 amountB=500
+  -> execute_action("raydium_create_pool", {"mintA": "<MYTOKEN_MINT>", "mintB": "USDC", "amountA": "1000", "amountB": "500"})
 
 ---
 
@@ -244,9 +240,9 @@ Optional: slippageBps (default 100)
 
 Examples:
 - "Open CLMM position on Raydium: SOL/USDC, deposit 1 SOL, price range $100-$200"
-  -> [ACTION:raydium_open_position] tokenA=SOL tokenB=USDC inputAmount=1 minPrice=100 maxPrice=200
+  -> execute_action("raydium_open_position", {"tokenA": "SOL", "tokenB": "USDC", "inputAmount": "1", "minPrice": "100", "maxPrice": "200"})
 - "Provide liquidity to Raydium SOL-USDC, 2 SOL, between $150 and $250"
-  -> [ACTION:raydium_open_position] tokenA=SOL tokenB=USDC inputAmount=2 minPrice=150 maxPrice=250
+  -> execute_action("raydium_open_position", {"tokenA": "SOL", "tokenB": "USDC", "inputAmount": "2", "minPrice": "150", "maxPrice": "250"})
 
 ---
 
@@ -256,11 +252,11 @@ Format: [ACTION:raydium_close_position] positionId=<nft_mint_address>
 
 Required: positionId (NFT mint of the position)
 
-**CLARIFICATION RULE**: If user says "close my Raydium position" without specifying which one, first use [QUERY:positions] wallet=self protocol=raydium to find position IDs.
+**CLARIFICATION RULE**: If user says "close my Raydium position" without specifying which one, first call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to find position IDs.
 
 Examples:
 - "Close my Raydium CLMM position"
-  -> First [QUERY:positions] wallet=self protocol=raydium, then [ACTION:raydium_close_position] positionId=<nft_mint>
+  -> First call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}), then execute_action("raydium_close_position", {"positionId": "<nft_mint>"})
 
 ---
 
@@ -273,7 +269,7 @@ Optional: slippageBps (default 100)
 
 Examples:
 - "Add 2 SOL to my Raydium position"
-  -> First [QUERY:positions] wallet=self protocol=raydium if positionId unknown, then [ACTION:raydium_increase_position] positionId=<nft_mint> inputMint=SOL inputAmount=2
+  -> If positionId unknown, first call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}), then execute_action("raydium_increase_position", {"positionId": "<nft_mint>", "inputMint": "SOL", "inputAmount": "2"})
 
 ---
 
@@ -288,7 +284,7 @@ Optional: slippageBps (default 100)
 
 Examples:
 - "Withdraw 50% of my Raydium position"
-  -> First [QUERY:positions] wallet=self protocol=raydium to get liquidity amount, then [ACTION:raydium_decrease_position] positionId=<nft_mint> liquidity=<half_of_liquidity>
+  -> First call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to get liquidity amount, then execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "<half_of_liquidity>"})
 
 ---
 
@@ -299,9 +295,9 @@ Format: [ACTION:orca_swap] inputMint=<token> outputMint=<token> amount=<amount> 
 
 Examples:
 - "Swap via Orca: SOL to USDC"
-  -> [ACTION:orca_swap] inputMint=SOL outputMint=USDC amount=1
+  -> execute_action("orca_swap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "1"})
 - "Swap 5 SOL to BONK on Orca"
-  -> [ACTION:orca_swap] inputMint=SOL outputMint=BONK amount=5
+  -> execute_action("orca_swap", {"inputMint": "SOL", "outputMint": "BONK", "amount": "5"})
 
 #### ORCA_OPEN_POSITION — Open a concentrated liquidity (CLMM) position on Orca
 Format: [ACTION:orca_open_position] tokenA=<token> tokenB=<token> amountA=<amount> minPrice=<price> maxPrice=<price> slippageBps=<optional>
@@ -316,23 +312,23 @@ Parameters:
 
 Examples:
 - "Open Orca CLMM position: 1 SOL in SOL/USDC pool, price range $100-$200"
-  -> [ACTION:orca_open_position] tokenA=SOL tokenB=USDC amountA=1 minPrice=100 maxPrice=200
+  -> execute_action("orca_open_position", {"tokenA": "SOL", "tokenB": "USDC", "amountA": "1", "minPrice": "100", "maxPrice": "200"})
 - "Provide 500 USDC to USDC/BONK Orca pool, range 0.00001 to 0.0001"
-  -> [ACTION:orca_open_position] tokenA=USDC tokenB=BONK amountA=500 minPrice=0.00001 maxPrice=0.0001
+  -> execute_action("orca_open_position", {"tokenA": "USDC", "tokenB": "BONK", "amountA": "500", "minPrice": "0.00001", "maxPrice": "0.0001"})
 
 #### ORCA_CLOSE_POSITION — Close an Orca CLMM position and withdraw all funds
 Format: [ACTION:orca_close_position] position=<position_address>
 
 Examples:
 - "Close my Orca position"
-  -> First [QUERY:positions] wallet=self protocol=orca to find the position address, then [ACTION:orca_close_position] position=<address>
+  -> First call query_onchain("positions", {"wallet": "self", "protocol": "orca"}) to find the position address, then execute_action("orca_close_position", {"position": "<address>"})
 
 #### ORCA_ADD_LIQUIDITY — Add liquidity to an Orca Whirlpool (full-range AMM style)
 Format: [ACTION:orca_add_liquidity] whirlpool=<pool_address> amountA=<amountA> amountB=<amountB> slippageBps=<optional>
 
 Examples:
 - "Add liquidity to Orca SOL/USDC pool"
-  -> [ACTION:orca_add_liquidity] whirlpool=<pool_address> amountA=1 amountB=150
+  -> execute_action("orca_add_liquidity", {"whirlpool": "<pool_address>", "amountA": "1", "amountB": "150"})
 
 #### ORCA_REMOVE_LIQUIDITY — Remove full-range liquidity from an Orca Whirlpool
 Format: [ACTION:orca_remove_liquidity] whirlpool=<pool_address> liquidity=<amount> slippageBps=<optional>
@@ -342,7 +338,7 @@ Format: [ACTION:orca_increase_position] position=<position_address> inputMint=<t
 
 Examples:
 - "Add 2 SOL to my Orca position"
-  -> [ACTION:orca_increase_position] position=<address> inputMint=SOL inputAmount=2
+  -> execute_action("orca_increase_position", {"position": "<address>", "inputMint": "SOL", "inputAmount": "2"})
 
 #### ORCA_DECREASE_POSITION — Partially withdraw from an Orca CLMM position
 Format: [ACTION:orca_decrease_position] position=<position_address> liquidity=<raw_liquidity_units> slippageBps=<optional>
@@ -352,14 +348,14 @@ Format: [ACTION:orca_collect_fees] position=<position_address>
 
 Examples:
 - "Collect fees from my Orca position"
-  -> [ACTION:orca_collect_fees] position=<address>
+  -> execute_action("orca_collect_fees", {"position": "<address>"})
 
 #### ORCA_COLLECT_REWARDS — Collect reward tokens from an Orca position
 Format: [ACTION:orca_collect_rewards] position=<position_address> rewardIndex=<0|1|2>
 
 Examples:
 - "Collect rewards from my Orca position"
-  -> [ACTION:orca_collect_rewards] position=<address> rewardIndex=0
+  -> execute_action("orca_collect_rewards", {"position": "<address>", "rewardIndex": "0"})
 
 ---
 
@@ -370,7 +366,7 @@ Format: [ACTION:meteora_swap] inputMint=<token> outputMint=<token> amount=<amoun
 
 Examples:
 - "Swap 1 SOL to USDC on Meteora"
-  -> [ACTION:meteora_swap] inputMint=SOL outputMint=USDC amount=1
+  -> execute_action("meteora_swap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "1"})
 
 #### METEORA_OPEN_POSITION — Open a DLMM concentrated liquidity position
 Format: [ACTION:meteora_open_position] pool=<pool_address> amountX=<amount> amountY=<amount> minPrice=<price> maxPrice=<price> slippageBps=<optional>
@@ -383,21 +379,21 @@ Parameters:
 
 Examples:
 - "Open Meteora DLMM SOL/USDC position, range $100-$200, 1 SOL + 150 USDC"
-  -> [ACTION:meteora_open_position] pool=<address> amountX=1 amountY=150 minPrice=100 maxPrice=200
+  -> execute_action("meteora_open_position", {"pool": "<address>", "amountX": "1", "amountY": "150", "minPrice": "100", "maxPrice": "200"})
 
 #### METEORA_CLOSE_POSITION — Close a Meteora position and withdraw all liquidity
 Format: [ACTION:meteora_close_position] position=<position_address> slippageBps=<optional>
 
 Examples:
 - "Close my Meteora position"
-  -> First [QUERY:positions] wallet=self protocol=meteora, then [ACTION:meteora_close_position] position=<address>
+  -> First call query_onchain("positions", {"wallet": "self", "protocol": "meteora"}), then execute_action("meteora_close_position", {"position": "<address>"})
 
 #### METEORA_ADD_LIQUIDITY — Add liquidity to a Meteora DLMM pool (full-range)
 Format: [ACTION:meteora_add_liquidity] pool=<pool_address> amountX=<amount> amountY=<amount> slippageBps=<optional>
 
 Examples:
 - "Add 1 SOL + 150 USDC to Meteora SOL/USDC pool"
-  -> [ACTION:meteora_add_liquidity] pool=<address> amountX=1 amountY=150
+  -> execute_action("meteora_add_liquidity", {"pool": "<address>", "amountX": "1", "amountY": "150"})
 
 #### METEORA_REMOVE_LIQUIDITY — Remove liquidity from a Meteora position
 Format: [ACTION:meteora_remove_liquidity] position=<position_address> slippageBps=<optional>
@@ -407,14 +403,14 @@ Format: [ACTION:meteora_add_to_position] position=<position_address> amountX=<am
 
 Examples:
 - "Add 0.5 SOL + 75 USDC to my Meteora position"
-  -> [ACTION:meteora_add_to_position] position=<address> amountX=0.5 amountY=75
+  -> execute_action("meteora_add_to_position", {"position": "<address>", "amountX": "0.5", "amountY": "75"})
 
 #### METEORA_CLAIM_FEES — Claim accumulated trading fees from a Meteora position
 Format: [ACTION:meteora_claim_fees] position=<position_address>
 
 Examples:
 - "Claim my Meteora fees"
-  -> [ACTION:meteora_claim_fees] position=<address>
+  -> execute_action("meteora_claim_fees", {"position": "<address>"})
 
 #### METEORA_CLAIM_REWARDS — Claim reward tokens from a Meteora position
 Format: [ACTION:meteora_claim_rewards] position=<position_address> rewardIndex=<0|1>
@@ -429,7 +425,7 @@ Parameters:
 
 Examples:
 - "Create Meteora DLMM pool: SOL/USDC, bin step 25, price $150, seed 1 SOL + 150 USDC"
-  -> [ACTION:meteora_create_pool] tokenXMint=SOL tokenYMint=USDC binStep=25 initialPrice=150 amountX=1 amountY=150
+  -> execute_action("meteora_create_pool", {"tokenXMint": "SOL", "tokenYMint": "USDC", "binStep": "25", "initialPrice": "150", "amountX": "1", "amountY": "150"})
 
 #### METEORA_STAKE — Stake LP tokens in a Meteora farm
 Format: [ACTION:meteora_stake] farm=<farm_address> amount=<lp_amount>
@@ -445,15 +441,37 @@ Format: [ACTION:meteora_harvest] farm=<farm_address>
 ### Meteora — DLMM Data Queries
 
 #### METEORA_DLMM_GET_PAIRS — List DLMM pools with filtering
-Format: [ACTION:meteora_dlmm_get_pairs] query=<optional> sortBy=<volume|tvl|fee_tvl_ratio> filterBy=<optional> page=<optional> pageSize=<optional>
+Format: [ACTION:meteora_dlmm_get_pairs] query=<optional> sortBy=<optional> filterBy=<optional> page=<optional> pageSize=<optional>
 Use when: User asks to list Meteora DLMM pools, find pools for a token, or discover liquidity opportunities.
+
+Parameter notes:
+- sortBy format: "field:direction" e.g. "tvl:desc", "volume:desc", or "fee_tvl_ratio:desc". Bare field names without ":asc|desc" are rejected.
+
+RENDERING — VERY IMPORTANT:
+When you call query_onchain("meteora_dlmm_get_pairs", ...), the frontend automatically
+mounts an INTERACTIVE QueryCard that renders the full pool list with built-in search,
+sort (TVL / Volume / Fee/TVL), and pagination. The user can browse all pools without
+your help.
+
+Therefore, in your text reply that accompanies this query call:
+- Write ONE short intro sentence introducing the result (e.g. "Here are the JupSOL DLMM pools:").
+- Do NOT enumerate, list, or summarise individual pools by name — the card already shows
+  every row with all metrics.
+- Do NOT trim to "the top 1-2 pools" — that's worse than the card.
+- It is fine to add a single short observation about the WHOLE list (e.g. "TVL is concentrated
+  in the JupSOL-INF and JupSOL-JitoSOL pairs"), but keep it to one sentence.
+
+The single-pool / single-fact case is different: if the user asks "which JupSOL DLMM pool
+has the highest APY?" (a question that needs a specific named answer), you MAY summarize
+that one pool in prose — but the card is still rendered, so a 1-sentence answer is enough.
+
 Examples:
 - "Show me Meteora DLMM pools for SOL"
-  -> [ACTION:meteora_dlmm_get_pairs] query=SOL
+  -> query_onchain("meteora_dlmm_get_pairs", {"query": "SOL"}) then text: "Here are the SOL DLMM pools:" (no enumeration)
 - "List top Meteora DLMM pools by volume"
-  -> [ACTION:meteora_dlmm_get_pairs] sortBy=volume pageSize=10
+  -> query_onchain("meteora_dlmm_get_pairs", {"sortBy": "volume:desc", "pageSize": "10"}) then text: "Top DLMM pools by 24h volume:"
 - "Meteora DLMM pools page 3"
-  -> [ACTION:meteora_dlmm_get_pairs] page=3
+  -> query_onchain("meteora_dlmm_get_pairs", {"page": "3"}) then text: "DLMM pools, page 3:"
 
 #### METEORA_DLMM_GET_PAIR — Get details of a specific DLMM pool
 Format: [ACTION:meteora_dlmm_get_pair] address=<pool_address>
@@ -464,7 +482,7 @@ Format: [ACTION:meteora_dlmm_get_user_positions] wallet=<optional>
 Use when: User asks about their Meteora DLMM positions, open ranges, or liquidity.
 Examples:
 - "Show my Meteora DLMM positions"
-  -> [ACTION:meteora_dlmm_get_user_positions] wallet=self
+  -> execute_action("meteora_dlmm_get_user_positions", {"wallet": "self"})
 
 #### METEORA_DLMM_GET_ACTIVE_BIN — Get current active bin and price of a DLMM pool
 Format: [ACTION:meteora_dlmm_get_active_bin] address=<pool_address>
@@ -479,9 +497,9 @@ Parameter notes:
 - feeTvlRatioTw: time window for fee/TVL ratio, e.g. "fee_tvl_ratio_24h"
 Examples:
 - "Show me all DLMM token pair groups on Meteora"
-  -> [ACTION:meteora_dlmm_get_pool_groups] sortBy=volume_24h:desc
+  -> execute_action("meteora_dlmm_get_pool_groups", {"sortBy": "volume_24h:desc"})
 - "Which Meteora DLMM pairs have the highest 7-day volume?"
-  -> [ACTION:meteora_dlmm_get_pool_groups] sortBy=total_volume:desc volumeTw=volume_7d
+  -> execute_action("meteora_dlmm_get_pool_groups", {"sortBy": "total_volume:desc", "volumeTw": "volume_7d"})
 
 #### METEORA_DLMM_GET_POOL_GROUP — Get all DLMM pools for a specific token pair
 Format: [ACTION:meteora_dlmm_get_pool_group] lexicalOrderMints=<mintA-mintB> page=<optional> pageSize=<optional> sortBy=<optional> filterBy=<optional>
@@ -489,9 +507,9 @@ Use when: User wants to see all fee-tier variants of a specific DLMM pair (e.g. 
 Note: lexicalOrderMints is the token pair key from get_pool_groups response, typically "MINTA-MINTB" in lexical order.
 Examples:
 - "Show all DLMM pools for the SOL/USDC pair"
-  -> [ACTION:meteora_dlmm_get_pool_group] lexicalOrderMints=<sol_mint>-<usdc_mint>
+  -> execute_action("meteora_dlmm_get_pool_group", {"lexicalOrderMints": "<sol_mint>-<usdc_mint>"})
 - "Which SOL/USDC DLMM pools have the best APY?"
-  -> [ACTION:meteora_dlmm_get_pool_group] lexicalOrderMints=<sol_mint>-<usdc_mint> sortBy=apy:desc
+  -> execute_action("meteora_dlmm_get_pool_group", {"lexicalOrderMints": "<sol_mint>-<usdc_mint>", "sortBy": "apy:desc"})
 
 #### METEORA_DLMM_GET_POOL_OHLCV — Get OHLCV price chart data for a DLMM pool
 Format: [ACTION:meteora_dlmm_get_pool_ohlcv] address=<pool_address> timeframe=<5m|30m|1h|2h|4h|12h|24h>
@@ -502,11 +520,11 @@ Parameter notes:
 - Interpret response as OHLCV candles: summarize open/close price, highest/lowest, and total volume traded
 Examples:
 - "Show me the 1-hour price chart for this Meteora DLMM pool"
-  -> [ACTION:meteora_dlmm_get_pool_ohlcv] address=<pool_address> timeframe=1h
+  -> execute_action("meteora_dlmm_get_pool_ohlcv", {"address": "<pool_address>", "timeframe": "1h"})
 - "What was the price range of this DLMM pool in the last 24 hours?"
-  -> [ACTION:meteora_dlmm_get_pool_ohlcv] address=<pool_address> timeframe=24h
+  -> execute_action("meteora_dlmm_get_pool_ohlcv", {"address": "<pool_address>", "timeframe": "24h"})
 - "5-minute candles for pool 5BRZ5GvAZAHfPF3gb4BuDEsni1PgCKL9nfpP13sTzbP3"
-  -> [ACTION:meteora_dlmm_get_pool_ohlcv] address=5BRZ5GvAZAHfPF3gb4BuDEsni1PgCKL9nfpP13sTzbP3 timeframe=5m
+  -> execute_action("meteora_dlmm_get_pool_ohlcv", {"address": "5BRZ5GvAZAHfPF3gb4BuDEsni1PgCKL9nfpP13sTzbP3", "timeframe": "5m"})
 
 #### METEORA_DLMM_GET_POOL_VOLUME_HISTORY — Get historical trading volume for a DLMM pool
 Format: [ACTION:meteora_dlmm_get_pool_volume_history] address=<pool_address> timeframe=<5m|30m|1h|2h|4h|12h|24h>
@@ -518,9 +536,9 @@ Parameter notes:
 - Summarize total volume and fees earned; note any significant volume spikes
 Examples:
 - "What was the trading volume on this Meteora pool today?"
-  -> [ACTION:meteora_dlmm_get_pool_volume_history] address=<pool_address> timeframe=1h
+  -> execute_action("meteora_dlmm_get_pool_volume_history", {"address": "<pool_address>", "timeframe": "1h"})
 - "Show weekly volume trend for pool 5BRZ5GvAZAHfPF3gb4BuDEsni1PgCKL9nfpP13sTzbP3"
-  -> [ACTION:meteora_dlmm_get_pool_volume_history] address=5BRZ5GvAZAHfPF3gb4BuDEsni1PgCKL9nfpP13sTzbP3 timeframe=24h
+  -> execute_action("meteora_dlmm_get_pool_volume_history", {"address": "5BRZ5GvAZAHfPF3gb4BuDEsni1PgCKL9nfpP13sTzbP3", "timeframe": "24h"})
 
 #### METEORA_DLMM_GET_PROTOCOL_STATS — Meteora DLMM protocol-wide aggregate statistics
 Format: [ACTION:meteora_dlmm_get_protocol_stats]
@@ -530,25 +548,34 @@ Parameter notes:
 - Response fields: total_tvl, volume_24h, fee_24h, total_volume, total_fees, total_pools
 - State all key numbers in human-readable form (e.g. "$1.2B TVL", "2,345 pools")
 Examples:
-- "Meteora DLMM'in toplam TVL'si ne kadar?"
-  -> [ACTION:meteora_dlmm_get_protocol_stats]
+- "What's the total TVL on Meteora DLMM?"
+  -> execute_action("meteora_dlmm_get_protocol_stats", {})
 - "How much fees has Meteora DLMM generated in total?"
-  -> [ACTION:meteora_dlmm_get_protocol_stats]
+  -> execute_action("meteora_dlmm_get_protocol_stats", {})
 - "What is the total trading volume of Meteora DLMM protocol?"
-  -> [ACTION:meteora_dlmm_get_protocol_stats]
-- "Meteora'da kaç tane DLMM havuzu var?"
-  -> [ACTION:meteora_dlmm_get_protocol_stats]
+  -> execute_action("meteora_dlmm_get_protocol_stats", {})
+- "How many DLMM pools are on Meteora?"
+  -> execute_action("meteora_dlmm_get_protocol_stats", {})
 
 ### Response Interpretation — DLMM Query Results
-When you receive data from any meteora_dlmm_get_* action, always interpret it for the user rather than showing raw JSON:
-- For pool lists: highlight top pools by the user's criterion (TVL, APY, volume), mention token pair names, key metrics
-- For single pool: state current price, TVL, 24h volume, APY, bin step, and fee tier in plain language
-- For user positions: list each position with token pair, current range (in or out of range), unclaimed fees, and value
-- For OHLCV: describe price movement (up/down %, high/low), mention any notable candles
-- For volume history: state total volume and fees for the period, note any spikes or trends
-- For protocol stats: state total_tvl, volume_24h, fee_24h, total_pools in one concise paragraph with human-readable numbers
-- Always convert raw lamport/decimal amounts to human-readable token amounts with symbols
-- Never dump the raw JSON array; synthesize it into 2-5 sentences or a brief table
+- For pool LISTS (meteora_dlmm_get_pairs, _get_pool_groups, _get_pool_group):
+  The frontend renders an interactive paginated card with every row, all metrics,
+  search and sort. Your text reply must be a SHORT intro (1 sentence) — never an
+  enumeration. Do not write "Top 1: …, Top 2: …" bullets; that duplicates the
+  card and looks broken when the user already sees the full table.
+- For single pool (meteora_dlmm_get_pair, _get_active_bin): state current price,
+  TVL, 24h volume, APY, bin step, and fee tier in plain language.
+- For user positions: list each position with token pair, current range (in or out
+  of range), unclaimed fees, and value.
+- For OHLCV: describe price movement (up/down %, high/low), mention notable candles.
+- For volume history: state total volume and fees for the period, note any spikes.
+- For protocol stats: one concise paragraph (total_tvl, volume_24h, fee_24h, total_pools).
+- Numeric fields are nested:
+  - 24h volume: `volume.24h` (not bare `volume`)
+  - 24h fees: `fees.24h`
+  - TVL: `tvl` (top-level, NOT `liquidity` — that field is unrelated)
+  - APY: `apy` (already in percent — `3.43` means 3.43%, do not multiply by 100)
+- Always convert raw lamport/decimal amounts to human-readable token amounts with symbols.
 
 ---
 
@@ -560,7 +587,7 @@ DAMM v2 is Meteora's latest Dynamic AMM with dynamic fee sharing for stakers.
 Format: [ACTION:meteora_dammv2_get_pools] page=<optional> pageSize=<optional> query=<optional> sortBy=<optional>
 Examples:
 - "Find Meteora v2 pools for USDC"
-  -> [ACTION:meteora_dammv2_get_pools] query=USDC
+  -> execute_action("meteora_dammv2_get_pools", {"query": "USDC"})
 
 #### METEORA_DAMMV2_GET_POOL_GROUPS — List token pair groups across DAMM v2 fee tiers
 Format: [ACTION:meteora_dammv2_get_pool_groups] page=<optional> pageSize=<optional> query=<optional> sortBy=<optional> filterBy=<optional> volumeTw=<optional> feeTvlRatioTw=<optional>
@@ -569,7 +596,7 @@ Parameter notes:
 - feeTvlRatioTw: time window for fee/TVL ratio, e.g. "fee_tvl_ratio_24h"
 Examples:
 - "List Meteora DAMM v2 groups sorted by 24h volume"
-  -> [ACTION:meteora_dammv2_get_pool_groups] sortBy=volume_24h:desc
+  -> execute_action("meteora_dammv2_get_pool_groups", {"sortBy": "volume_24h:desc"})
 
 #### METEORA_DAMMV2_GET_POOL_GROUP — Get all DAMM v2 pools for a token pair
 Format: [ACTION:meteora_dammv2_get_pool_group] lexicalOrderMints=<mintA-mintB> page=<optional> pageSize=<optional> sortBy=<optional> filterBy=<optional>
@@ -595,7 +622,7 @@ Format: [ACTION:meteora_dammv2_get_protocol_metrics]
 Use when: User asks about Meteora total TVL, total volume, or protocol-level statistics.
 Examples:
 - "What is Meteora's total TVL?"
-  -> [ACTION:meteora_dammv2_get_protocol_metrics]
+  -> execute_action("meteora_dammv2_get_protocol_metrics", {})
 
 ---
 
@@ -624,9 +651,9 @@ DAMM v1 is Meteora's original constant-product Dynamic AMM with dynamic fees.
 Format: [ACTION:meteora_dammv1_get_pools] address=<pool_address_optional> unknown=<true|false_optional> poolType=<dynamic|multitoken|lst|farms_optional> isMonitoring=<true|false_optional> hideLowTvl=<usd_threshold_optional> hideLowApr=<true|false_optional> launchpad=<launchpad_id_optional>
 Use when: User wants to browse or filter Meteora DAMM v1 pools. All params optional — bare call returns all pools.
 Examples:
-- "Show Meteora Dynamic AMM LST pools" -> [ACTION:meteora_dammv1_get_pools] poolType=lst
-- "List monitored DAMM v1 pools" -> [ACTION:meteora_dammv1_get_pools] isMonitoring=true
-- "Show DAMM v1 pools, hide low TVL (under $1000)" -> [ACTION:meteora_dammv1_get_pools] hideLowTvl=1000
+- "Show Meteora Dynamic AMM LST pools" -> execute_action("meteora_dammv1_get_pools", {"poolType": "lst"})
+- "List monitored DAMM v1 pools" -> execute_action("meteora_dammv1_get_pools", {"isMonitoring": "true"})
+- "Show DAMM v1 pools, hide low TVL (under $1000)" -> execute_action("meteora_dammv1_get_pools", {"hideLowTvl": "1000"})
 
 #### METEORA_DAMMV1_GET_POOL_CONFIGS — Get pool configuration presets
 Format: [ACTION:meteora_dammv1_get_pool_configs]
@@ -636,9 +663,9 @@ Use when: User asks what fee tiers or configs are available for Meteora Dynamic 
 Format: [ACTION:meteora_dammv1_search_pools] page=<number_required> size=<number_required> filter=<token_name_or_mint_optional> sortKey=<tvl|volume|fee_tvl_ratio|l_m_optional> orderBy=<asc|desc_optional> poolsToTop=<comma_separated_addresses_optional> unknown=<true|false_optional> poolType=<dynamic|multitoken|lst|farms_optional> isMonitoring=<true|false_optional> hideLowTvl=<usd_optional> hideLowApr=<true|false_optional> includeTokenMints=<comma_separated_optional> includePoolTokenPairs=<comma_separated_optional> launchpad=<id_optional>
 Required: page, size
 Examples:
-- "Search Meteora Dynamic AMM pools for BONK" -> [ACTION:meteora_dammv1_search_pools] page=0 size=10 filter=BONK
-- "Top 20 DAMM v1 pools by TVL" -> [ACTION:meteora_dammv1_search_pools] page=0 size=20 sortKey=tvl orderBy=desc
-- "Page 2 of DAMM v1 volume leaders" -> [ACTION:meteora_dammv1_search_pools] page=1 size=10 sortKey=volume orderBy=desc
+- "Search Meteora Dynamic AMM pools for BONK" -> execute_action("meteora_dammv1_search_pools", {"page": "0", "size": "10", "filter": "BONK"})
+- "Top 20 DAMM v1 pools by TVL" -> execute_action("meteora_dammv1_search_pools", {"page": "0", "size": "20", "sortKey": "tvl", "orderBy": "desc"})
+- "Page 2 of DAMM v1 volume leaders" -> execute_action("meteora_dammv1_search_pools", {"page": "1", "size": "10", "sortKey": "volume", "orderBy": "desc"})
 
 #### METEORA_DAMMV1_GET_FARMS — Get all DAMM v1 farm programs
 Format: [ACTION:meteora_dammv1_get_farms]
@@ -652,8 +679,8 @@ Use when: User wants overall Meteora DAMM v1 protocol stats. No parameters — r
 Format: [ACTION:meteora_dammv1_get_alpha_vaults] vaultAddress=<optional> poolAddress=<optional> baseMint=<optional>
 Use when: User asks about Alpha Vaults, fair-launch vaults, or pre-sale pools. All params optional for filtering.
 Examples:
-- "Show all Meteora Alpha Vaults" -> [ACTION:meteora_dammv1_get_alpha_vaults]
-- "Alpha Vault for pool ABC..." -> [ACTION:meteora_dammv1_get_alpha_vaults] poolAddress=ABC...
+- "Show all Meteora Alpha Vaults" -> execute_action("meteora_dammv1_get_alpha_vaults", {})
+- "Alpha Vault for pool ABC..." -> execute_action("meteora_dammv1_get_alpha_vaults", {"poolAddress": "ABC..."})
 
 #### METEORA_DAMMV1_GET_ALPHA_VAULT_CONFIGS — Get Alpha Vault configuration presets
 Format: [ACTION:meteora_dammv1_get_alpha_vault_configs]
@@ -703,10 +730,10 @@ Format: [ACTION:meteora_vault_get_state] tokenMint=<token_mint_pubkey>
 Required: tokenMint (must be a valid Solana pubkey — the underlying token mint, e.g. USDC mint)
 Returns: total liquidity, amount deployed to lending protocols, current virtual price.
 Examples:
-- "Meteora USDC vault durumunu göster"
-  -> [ACTION:meteora_vault_get_state] tokenMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+- "Show Meteora USDC vault state"
+  -> execute_action("meteora_vault_get_state", {"tokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"})
 - "Meteora SOL vault state"
-  -> [ACTION:meteora_vault_get_state] tokenMint=So11111111111111111111111111111111111111112
+  -> execute_action("meteora_vault_get_state", {"tokenMint": "So11111111111111111111111111111111111111112"})
 
 #### METEORA_VAULT_GET_APY — Get current APY for a Meteora Dynamic Vault
 Format: [ACTION:meteora_vault_get_apy] tokenMint=<token_mint_pubkey>
@@ -715,7 +742,7 @@ Returns: closest_apy (most recent), average_apy (moving average), long_apy (long
 Use when: User asks about current yield/APY for a Meteora Dynamic Vault.
 Examples:
 - "What APY does Meteora USDC vault offer?"
-  -> [ACTION:meteora_vault_get_apy] tokenMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+  -> execute_action("meteora_vault_get_apy", {"tokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"})
 
 #### METEORA_VAULT_GET_APY_HISTORY — Get historical APY for a vault over a time range
 Format: [ACTION:meteora_vault_get_apy_history] tokenMint=<token_mint_pubkey> startTimestamp=<unix_seconds> endTimestamp=<unix_seconds>
@@ -724,9 +751,9 @@ Note: Timestamps are Unix timestamps in SECONDS (not milliseconds). startTimesta
 When user says "last N days/weeks", calculate: endTimestamp = current Unix time, startTimestamp = endTimestamp - (N * 86400).
 Examples:
 - "Meteora USDC vault APY history for last 7 days" (assume current time ≈ 1745000000)
-  -> [ACTION:meteora_vault_get_apy_history] tokenMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v startTimestamp=1744395200 endTimestamp=1745000000
+  -> execute_action("meteora_vault_get_apy_history", {"tokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "startTimestamp": "1744395200", "endTimestamp": "1745000000"})
 - "APY between Jan 1 and Jan 31 2024"
-  -> [ACTION:meteora_vault_get_apy_history] tokenMint=<mint> startTimestamp=1704067200 endTimestamp=1706745600
+  -> execute_action("meteora_vault_get_apy_history", {"tokenMint": "<mint>", "startTimestamp": "1704067200", "endTimestamp": "1706745600"})
 
 #### METEORA_VAULT_GET_VIRTUAL_PRICE — Get LP share virtual price for a vault strategy
 Format: [ACTION:meteora_vault_get_virtual_price] tokenMint=<token_mint_pubkey> strategy=<strategy_address_pubkey>
@@ -736,7 +763,7 @@ Use meteora_vault_get_info or meteora_vault_get_addresses to find strategy addre
 If user has not provided a strategy address, ask them or call meteora_vault_get_info first.
 Examples:
 - "Virtual price for USDC vault strategy 9Wzd..."
-  -> [ACTION:meteora_vault_get_virtual_price] tokenMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v strategy=9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM
+  -> execute_action("meteora_vault_get_virtual_price", {"tokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "strategy": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"})
 
 ---
 
@@ -747,7 +774,7 @@ Format: [ACTION:meteora_vault_deposit] tokenMint=<mint> amount=<amount> affiliat
 Required: tokenMint, amount
 Examples:
 - "Deposit 100 USDC into Meteora vault"
-  -> [ACTION:meteora_vault_deposit] tokenMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v amount=100
+  -> execute_action("meteora_vault_deposit", {"tokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "amount": "100"})
 
 #### METEORA_VAULT_WITHDRAW — Withdraw from a Dynamic Vault
 Format: [ACTION:meteora_vault_withdraw] tokenMint=<mint> unmintAmount=<lp_amount> affiliateId=<optional>
@@ -774,9 +801,9 @@ All params optional — bare call returns all vaults (same as get_all_vaults).
 Maximum 100 pool addresses. Use comma-separated for multiple.
 Examples:
 - "Find Stake2Earn vault for pool HcjZ..."
-  -> [ACTION:meteora_s2e_filter_vaults] poolAddress=HcjZ...
+  -> execute_action("meteora_s2e_filter_vaults", {"poolAddress": "HcjZ..."})
 - "Filter Stake2Earn vaults for these pools: ABC..., DEF..."
-  -> [ACTION:meteora_s2e_filter_vaults] poolAddress=ABC...,DEF...
+  -> execute_action("meteora_s2e_filter_vaults", {"poolAddress": "ABC...,DEF..."})
 
 #### METEORA_S2E_GET_VAULT — Get details of a specific Stake2Earn vault
 Format: [ACTION:meteora_s2e_get_vault] vaultAddress=<address>
@@ -793,7 +820,7 @@ Use when: User wants to stake tokens to earn trading fee revenue.
 Note: Ask for vault address if not provided. Use meteora_s2e_get_all_vaults or meteora_s2e_filter_vaults (by pool address) to help user find it.
 Examples:
 - "Stake 1000 BONK in Meteora Stake2Earn"
-  -> First [ACTION:meteora_s2e_get_all_vaults] to find BONK vault address, then [ACTION:meteora_s2e_stake] vault=<address> amount=1000
+  -> First call query_onchain("meteora_s2e_get_all_vaults", {}) to find BONK vault address, then execute_action("meteora_s2e_stake", {"vault": "<address>", "amount": "1000"})
 
 #### METEORA_S2E_UNSTAKE — Unstake tokens from a Stake2Earn vault
 Format: [ACTION:meteora_s2e_unstake] vault=<vault_address> amount=<amount>
@@ -805,7 +832,7 @@ Format: [ACTION:meteora_s2e_claim_fee] vault=<vault_address> maxAmount=<optional
 Required: vault
 Examples:
 - "Claim my Meteora Stake2Earn rewards"
-  -> [ACTION:meteora_s2e_claim_fee] vault=<address>
+  -> execute_action("meteora_s2e_claim_fee", {"vault": "<address>"})
 
 #### METEORA_S2E_CANCEL_UNSTAKE — Cancel a pending unstake from Stake2Earn
 Format: [ACTION:meteora_s2e_cancel_unstake] vault=<vault_address> escrow=<escrow_address>

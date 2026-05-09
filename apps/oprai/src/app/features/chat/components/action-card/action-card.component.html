@@ -1,25 +1,20 @@
 <div class="action-card"
      [class]="'action-card--' + status()"
-     [class.action-card--bonkfun]="isBonkFunLaunch()"
      [style.--proto-accent]="protocolConfig.accent"
      [style.--proto-bg]="protocolConfig.accentBg">
 
   <!-- ══════════════════════════════════════════════════════════
-       TOKEN LAUNCH MINI-APP — pump.fun & LetsBONK.fun
+       TOKEN LAUNCH MINI-APP — pump.fun
        ══════════════════════════════════════════════════════════ -->
   @if (isLaunchAction()) {
 
     <!-- Header -->
     <div class="pf-header">
       <div class="pf-logo">
-        @if (isBonkFunLaunch()) {
-          <img src="assets/icons/protocols/pumpfun.webp" alt="LetsBONK.fun" width="32" height="32" />
-        } @else {
-          <img src="assets/icons/pumpfun.png" alt="pump.fun" width="32" height="32" />
-        }
+        <img src="assets/icons/pumpfun.png" alt="pump.fun" width="32" height="32" />
       </div>
       <div class="pf-header-text">
-        <span class="pf-app-name">{{ isBonkFunLaunch() ? 'LetsBONK.fun' : 'pump.fun' }}</span>
+        <span class="pf-app-name">pump.fun</span>
         <span class="pf-subtitle">Create token</span>
       </div>
       <div class="pf-status-badge" [class]="'pf-status-badge--' + status()">
@@ -116,7 +111,7 @@
             <input class="pf-input pf-input--ticker" [class.pf-input--invalid]="isSymbolInvalid()"
               type="text" placeholder="SYM" maxlength="10"
               [value]="editSymbol()"
-              (input)="editSymbol.set($any($event.target).value.toUpperCase())"
+              (input)="onTickerInput($event)"
               [disabled]="!isEditable()" />
           </div>
         </div>
@@ -144,8 +139,10 @@
           <label class="pf-field-label">Social links</label>
           <div class="pf-socials-edit">
             <div class="pf-social-row">
-              <lucide-icon name="twitter" [size]="13" class="pf-social-icon" />
-              <input class="pf-input pf-input--social" type="text" placeholder="Twitter handle or URL"
+              <svg class="pf-social-icon" width="13" height="13" viewBox="0 0 1200 1227" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M714.163 519.284L1160.89 0H1055.03L667.137 450.887L357.328 0H0L468.492 681.821L0 1226.37H105.866L515.491 750.218L842.672 1226.37H1200L714.163 519.284ZM569.165 687.828L521.697 619.934L144.011 79.6944H306.615L611.412 515.685L658.88 583.579L1055.08 1150.3H892.476L569.165 687.828Z"/>
+              </svg>
+              <input class="pf-input pf-input--social" type="text" placeholder="X (Twitter) handle or URL"
                 [value]="editTwitter()" (input)="editTwitter.set($any($event.target).value)"
                 [disabled]="!isEditable()" />
             </div>
@@ -201,7 +198,8 @@
         @if (isTokenLaunch()) {
           <div class="pf-toggles">
             <button class="pf-toggle" [class.pf-toggle--on]="editMayhemMode()" type="button"
-              (click)="isEditable() && editMayhemMode.set(!editMayhemMode())">
+              (click)="isEditable() && toggleMayhemMode()"
+              title="Mayhem Mode requires a minimum 0.05 SOL initial buy.">
               <lucide-icon name="zap" [size]="12" />
               <span>Mayhem Mode</span>
               @if (editMayhemMode()) { <span class="pf-toggle-on-badge">ON</span> }
@@ -212,45 +210,19 @@
               <span>Cash Back</span>
               @if (editCashback()) { <span class="pf-toggle-on-badge">ON</span> }
             </button>
+            <button class="pf-toggle pf-toggle--disabled" type="button" disabled
+              title="Tokenized Agent integration is not yet implemented.">
+              <lucide-icon name="bot" [size]="12" />
+              <span>Tokenized Agent</span>
+              <span class="pf-toggle-soon-badge">SOON</span>
+            </button>
           </div>
         }
 
-        <!-- Advanced options -->
-        <div class="pf-advanced">
-          <button class="pf-advanced-toggle" type="button" (click)="showAdvanced.set(!showAdvanced())">
-            <lucide-icon [name]="showAdvanced() ? 'chevron-up' : 'chevron-down'" [size]="12" />
-            <span>Advanced options</span>
-          </button>
-          @if (showAdvanced()) {
-            <div class="pf-advanced-body">
-              <div class="pf-field-row">
-                <div class="pf-field pf-field--half">
-                  <label class="pf-field-label">Slippage</label>
-                  <div class="pf-input-wrap">
-                    <input class="pf-input" type="number" min="0" max="100" step="0.1" placeholder="10"
-                      [value]="editSlippage()"
-                      (input)="editSlippage.set($any($event.target).value)"
-                      [disabled]="!isEditable()" />
-                    <span class="pf-input-suffix">%</span>
-                  </div>
-                </div>
-                <div class="pf-field pf-field--half">
-                  <label class="pf-field-label">Priority fee</label>
-                  <div class="pf-input-wrap">
-                    <input class="pf-input" type="number" min="0" step="0.0001" placeholder="0.0005"
-                      [value]="editPriorityFee()"
-                      (input)="editPriorityFee.set($any($event.target).value)"
-                      [disabled]="!isEditable()" />
-                    <span class="pf-input-suffix">SOL</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          }
-        </div>
 
       </div><!-- /pf-fields -->
     </div><!-- /pf-body -->
+
 
     <!-- Footer -->
     @switch (status()) {
@@ -262,7 +234,7 @@
             } @else if (!editName().trim() || !editSymbol().trim()) {
               <lucide-icon name="type" [size]="14" /> Enter name &amp; ticker
             } @else {
-              <img [src]="isBonkFunLaunch() ? 'assets/icons/protocols/pumpfun.webp' : 'assets/icons/pumpfun.png'"
+              <img src="assets/icons/pumpfun.png"
                    width="15" height="15" alt="" style="border-radius:3px" />
               Launch token
             }
@@ -294,7 +266,7 @@
       @case ('confirmed') {
         <div class="pf-footer-status pf-footer-status--success">
           <lucide-icon name="check-circle-2" [size]="15" />
-          <span>{{ isBonkFunLaunch() ? 'Token launched on LetsBONK.fun!' : 'Token launched on Pump.fun!' }}</span>
+          <span>Token launched on Pump.fun!</span>
         </div>
         @if (txSignature()) {
           <a class="tx-link" [href]="explorerUrl" target="_blank" rel="noopener">
@@ -339,7 +311,6 @@
       </div>
       <div class="proto-header-info">
         <span class="proto-name">{{ protocolConfig.name }}</span>
-        <span class="proto-action">{{ actionLabel }}</span>
       </div>
       <div class="proto-status-badge" [class]="'proto-status--' + status()">
         @switch (status()) {
@@ -369,21 +340,30 @@
                 @if (field.hint) {
                   <span class="proto-field-hint">{{ field.hint }}</span>
                 }
-                @if (field.key === 'amount' && (inputBalance() !== null || inputBalanceLoading())) {
+                @let isPrimaryAmount = field.key === 'amount' || field.key === 'amountA' || field.key === 'amountX';
+                @let isSecondaryAmount = field.key === 'amountB' || field.key === 'amountY';
+                @let fieldBalance = isSecondaryAmount ? secondaryBalance() : (isPrimaryAmount ? inputBalance() : null);
+                @let fieldBalanceLoading = isSecondaryAmount ? secondaryBalanceLoading() : (isPrimaryAmount ? inputBalanceLoading() : false);
+                @let fieldBalanceMint = isSecondaryAmount ? secondaryBalanceMint() : (isPrimaryAmount ? inputBalanceMint() : '');
+                @let fieldBalanceSymbol = isSecondaryAmount ? secondaryBalanceSymbol() : (isPrimaryAmount ? inputBalanceSymbol() : '');
+                @if ((isPrimaryAmount || isSecondaryAmount) && fieldBalanceMint && (fieldBalance !== null || fieldBalanceLoading)) {
                   <span class="proto-balance-hint">
-                    @if (inputBalanceLoading()) {
+                    @if (fieldBalanceLoading) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      @let balTd = resolveTokenDisplay(inputBalanceMint());
-                      @if (balTd.logoURI) {
-                        <img [src]="balTd.logoURI" [alt]="balTd.symbol" class="proto-balance-icon"
-                             (error)="$any($event.target).style.display='none'" />
-                      }
-                      {{ borrowLiquidityMode() ? 'Vault:' : 'Balance:' }} {{ inputBalance() | number:'1.0-6' }} {{ inputBalanceSymbol() }}
+                      @let balTd = resolveTokenDisplay(fieldBalanceMint);
+                      <span class="proto-balance-icon-wrap">
+                        <span class="proto-balance-letter">{{ balTd.symbol.charAt(0) }}</span>
+                        @if (balTd.logoURI) {
+                          <img [src]="balTd.logoURI" [alt]="balTd.symbol" class="proto-balance-icon"
+                               (error)="$any($event.target).style.display='none'" />
+                        }
+                      </span>
+                      {{ (borrowLiquidityMode() && field.key === 'amount') ? 'Vault:' : 'Balance:' }} {{ fieldBalance | number:'1.0-6' }} {{ fieldBalanceSymbol }}
                     }
                   </span>
-                  @if (isEditable() && !inputBalanceLoading() && !borrowLiquidityMode()) {
-                    <button class="proto-max-btn" type="button" (click)="setMaxAmount()">Max</button>
+                  @if (isEditable() && !fieldBalanceLoading && !(borrowLiquidityMode() && field.key === 'amount')) {
+                    <button class="proto-max-btn" type="button" (click)="setMaxAmount(field.key)">Max</button>
                   }
                 }
               </div>
@@ -391,28 +371,57 @@
               @switch (field.type) {
 
                 @case ('number') {
-                  <div class="proto-input-wrap">
-                    <input type="number" class="proto-input"
-                           [placeholder]="field.placeholder ?? '0'"
-                           [min]="field.min ?? null"
-                           [max]="field.max ?? null"
-                           [step]="field.step ?? 'any'"
-                           [value]="getEditParam(field.key)"
-                           (input)="setEditParam(field.key, $any($event.target).value)"
-                           [disabled]="!isEditable()" />
-                    @if (field.key === 'amount' && inputBalanceMint()) {
-                      @let sufTd = resolveTokenDisplay(inputBalanceMint());
-                      <span class="proto-input-suffix proto-input-suffix--token">
-                        @if (sufTd.logoURI) {
-                          <img [src]="sufTd.logoURI" [alt]="sufTd.symbol" class="proto-suffix-icon"
-                               (error)="$any($event.target).style.display='none'" />
-                        }
-                        {{ inputBalanceSymbol() || field.suffix }}
-                      </span>
-                    } @else if (field.suffix) {
-                      <span class="proto-input-suffix">{{ field.suffix }}</span>
+                  @let amountEst = field.key === 'amount' ? lstEstimate() : null;
+                  @let isAmountField = field.key === 'amount';
+                  @let isLstField = isAmountField && lstActionConfig() !== null;
+                  @let dlmmLockA = field.key === 'amountA' && dlmmSingleSidedY();
+                  @let dlmmLockB = field.key === 'amountB' && dlmmSingleSidedX();
+                  @let dlmmLocked = dlmmLockA || dlmmLockB;
+                  <div class="proto-amount-row" [class.proto-amount-row--paired]="!!amountEst">
+                    <div class="proto-input-wrap" [class.proto-input-wrap--locked]="dlmmLocked">
+                      <input type="number" class="proto-input"
+                             [placeholder]="dlmmLocked ? 'Not used in this range' : (field.placeholder ?? '0')"
+                             [min]="field.min ?? null"
+                             [max]="field.max ?? null"
+                             [step]="field.step ?? 'any'"
+                             [value]="field.divisor ? (+getEditParam(field.key) / field.divisor) : getEditParam(field.key)"
+                             (input)="setEditParam(field.key, field.divisor ? ('' + (+$any($event.target).value * field.divisor)) : $any($event.target).value); field.key === 'amountA' ? noteAmountEdit('A') : (field.key === 'amountB' ? noteAmountEdit('B') : null)"
+                             [disabled]="!isEditable() || dlmmLocked" />
+                      @if ((isPrimaryAmount || isSecondaryAmount) && fieldBalanceMint) {
+                        @let sufTd = resolveTokenDisplay(fieldBalanceMint);
+                        <span class="proto-input-suffix proto-input-suffix--token">
+                          @if (sufTd.logoURI) {
+                            <img [src]="sufTd.logoURI" [alt]="sufTd.symbol" class="proto-suffix-icon"
+                                 (error)="$any($event.target).style.display='none'" />
+                          }
+                          {{ fieldBalanceSymbol || field.suffix }}
+                        </span>
+                      } @else if (field.suffix) {
+                        <span class="proto-input-suffix">{{ field.suffix }}</span>
+                      }
+                    </div>
+                    @if (amountEst; as est) {
+                      <div class="proto-pair-arrow" aria-hidden="true">
+                        <lucide-icon name="arrow-right" [size]="14" />
+                      </div>
+                      <div class="proto-pair-output" [attr.title]="'You receive ≈ ' + (est.amount | number:'1.0-6') + ' ' + est.symbol">
+                        <span class="proto-pair-output__value">≈ {{ est.amount | number:'1.0-6' }}</span>
+                        <span class="proto-pair-output__suffix">{{ est.symbol }}</span>
+                      </div>
                     }
                   </div>
+                  @if (isLstField && lstRateLoading()) {
+                    <div class="proto-rate-status proto-rate-status--loading">
+                      <span class="proto-spinner proto-spinner--inline"></span>
+                      <span>Fetching live exchange rate…</span>
+                    </div>
+                  } @else if (isLstField && lstRateError()) {
+                    <div class="proto-rate-status proto-rate-status--error">
+                      <lucide-icon name="alert-triangle" [size]="13" />
+                      <span>{{ lstRateError() }}</span>
+                      <button type="button" class="proto-rate-status__retry" (click)="maybeLoadLstRate()">Retry</button>
+                    </div>
+                  }
                 }
 
                 @case ('text') {
@@ -479,12 +488,13 @@
                   @if (getEditParam(field.key); as raw) {
                     @let td = resolveTokenDisplay(raw);
                     <div class="proto-token-chip">
-                      @if (td.logoURI) {
-                        <img [src]="td.logoURI" [alt]="td.symbol" class="proto-token-chip__icon"
-                             (error)="$any($event.target).style.display='none'" />
-                      } @else {
+                      <div class="proto-token-chip__icon-wrap">
                         <div class="proto-token-chip__letter">{{ td.symbol.charAt(0) }}</div>
-                      }
+                        @if (td.logoURI) {
+                          <img [src]="td.logoURI" [alt]="td.symbol" class="proto-token-chip__icon"
+                               (error)="onTokenImgError($event, raw)" />
+                        }
+                      </div>
                       <div class="proto-token-chip__info">
                         <span class="proto-token-chip__symbol">{{ td.symbol }}</span>
                         <span class="proto-token-chip__name">{{ td.name }}</span>
@@ -492,7 +502,9 @@
                     </div>
                   } @else {
                     <div class="proto-token-chip proto-token-chip--empty">
-                      <div class="proto-token-chip__letter">?</div>
+                      <div class="proto-token-chip__icon-wrap">
+                        <div class="proto-token-chip__letter">?</div>
+                      </div>
                       <span class="proto-token-chip__symbol">–</span>
                     </div>
                   }
@@ -502,8 +514,100 @@
             </div><!-- /proto-field -->
           }<!-- /for fields -->
 
+          <!-- DLMM info strip — shows active price + range hint when the
+               action carries DLMM metadata. Quiet for DAMM and non-DLMM. -->
+          @if (dlmmRatio(); as dr) {
+            @if (dlmmActivePriceDisplay(); as apd) {
+              <div class="proto-dlmm-info">
+                <div class="proto-dlmm-info__row">
+                  <span class="proto-dlmm-info__label">Active price</span>
+                  <span class="proto-dlmm-info__value">
+                    1 {{ apd.symA }} ≈ {{ apd.price | number:'1.0-6' }} {{ apd.symB }}
+                  </span>
+                </div>
+                <div class="proto-dlmm-info__row">
+                  <span class="proto-dlmm-info__label">Range</span>
+                  <span class="proto-dlmm-info__value">
+                    {{ dr.binCount }} bins
+                    @if (dlmmSingleSidedX()) {
+                      · single-sided ({{ inputBalanceSymbol() || 'A' }} only)
+                    } @else if (dlmmSingleSidedY()) {
+                      · single-sided ({{ secondaryBalanceSymbol() || 'B' }} only)
+                    } @else {
+                      · {{ (dr.xShareOfValue * 100) | number:'1.0-0' }}% {{ inputBalanceSymbol() || 'A' }}
+                      · {{ ((1 - dr.xShareOfValue) * 100) | number:'1.0-0' }}% {{ secondaryBalanceSymbol() || 'B' }}
+                    }
+                  </span>
+                </div>
+              </div>
+            }
+          }
+
         </div><!-- /proto-fields -->
       </div><!-- /proto-body -->
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
+         VALIDATOR PICKER — native_stake only
+         ══════════════════════════════════════════════════════════ -->
+    @if (isNativeStake() && isEditable()) {
+      <div class="validator-picker">
+        <div class="validator-picker__header">
+          <span class="validator-picker__title">Select validator</span>
+          <button class="validator-picker__custom-btn" type="button"
+                  (click)="validatorCustom.set(!validatorCustom())">
+            {{ validatorCustom() ? 'Pick from list' : 'Enter manually' }}
+          </button>
+        </div>
+
+        @if (validatorCustom()) {
+          <!-- Manual address input -->
+          <div class="proto-field">
+            <label class="proto-field-label">Validator Vote Account <span class="proto-required">*</span></label>
+            <div class="proto-address-wrap">
+              <input type="text" class="proto-input proto-input--mono"
+                     placeholder="Vote account pubkey (base58)..."
+                     [value]="getEditParam('validatorVoteAccount')"
+                     (input)="setEditParam('validatorVoteAccount', $any($event.target).value)" />
+            </div>
+          </div>
+        } @else {
+          <!-- Validator list -->
+          @if (validatorsLoading()) {
+            <div class="validator-picker__loading">
+              <span class="proto-balance-dots">···</span>
+              <span>Loading top validators...</span>
+            </div>
+          } @else if (validators().length === 0) {
+            <div class="validator-picker__empty">
+              Could not load validator list.
+              <button class="validator-picker__custom-btn" type="button"
+                      (click)="validatorCustom.set(true)">Enter manually</button>
+            </div>
+          } @else {
+            <div class="validator-picker__list">
+              @for (v of validators(); track v.voteAccount) {
+                <button type="button"
+                        class="validator-item"
+                        [class.validator-item--selected]="getEditParam('validatorVoteAccount') === v.voteAccount"
+                        (click)="selectValidator(v.voteAccount)">
+                  <div class="validator-item__addr">
+                    {{ v.voteAccount.slice(0, 8) }}…{{ v.voteAccount.slice(-4) }}
+                  </div>
+                  <div class="validator-item__stats">
+                    <span class="validator-item__apy">~{{ v.apyEstimatePct }}% APY</span>
+                    <span class="validator-item__commission">{{ v.commission }}% commission</span>
+                    <span class="validator-item__stake">{{ (v.activatedStakeSol / 1000).toFixed(0) }}K SOL stake</span>
+                  </div>
+                </button>
+              }
+            </div>
+            @if (!getEditParam('validatorVoteAccount')) {
+              <p class="validator-picker__note">Select a validator (highest stake = most established)</p>
+            }
+          }
+        }
+      </div>
     }
 
     <!-- Protocol lockup / fee notice -->
@@ -646,7 +750,9 @@
                 <span class="bc-stat-value bc-stat-value--brand">{{ stats.maxBorrowable | number:'1.2-2' }} {{ selCol?.debtSymbol }}</span>
               </div>
               <div class="bc-stat">
-                <span class="bc-stat-label">Health Factor</span>
+                <span class="bc-stat-label">
+                  <app-jargon term="Health Factor">Health Factor</app-jargon>
+                </span>
                 <span class="bc-stat-value"
                       [class.bc-hf--safe]="stats.hfClass === 'safe'"
                       [class.bc-hf--caution]="stats.hfClass === 'caution'"
@@ -681,11 +787,13 @@
 
           <!-- Market rates (collapsed/secondary) -->
           @let v0 = $any(lendInfo()!.data)[0];
+          @if (v0) {
           <div class="bc-footer-rates">
-            <span>Borrow rate: <strong>{{ v0.borrowApy | number:'1.2-2' }}% APY</strong></span>
-            <span>LTV: <strong>{{ (v0.maxLtv * 100) | number:'1.0-0' }}%</strong></span>
-            <span>Liquidation: <strong class="lend-info-value--warn">{{ (v0.liquidationThreshold * 100) | number:'1.0-0' }}%</strong></span>
+            <span>Borrow rate: <strong>{{ v0.borrowApy | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
+            <span><app-jargon term="LTV">LTV</app-jargon>: <strong>{{ (v0.maxLtv * 100) | number:'1.0-0' }}%</strong></span>
+            <span><app-jargon term="Liquidation LTV">Liquidation</app-jargon>: <strong class="lend-info-value--warn">{{ (v0.liquidationThreshold * 100) | number:'1.0-0' }}%</strong></span>
           </div>
+          }
         }
       </div>
     }
@@ -700,8 +808,7 @@
           <div class="proto-warn-body">
             <span class="proto-warn-title">Insufficient balance</span>
             <span class="proto-warn-desc">
-              {{ editParams()['amount'] }} {{ inputBalanceSymbol() }} required,
-              you have {{ inputBalance() | number:'1.0-6' }} {{ inputBalanceSymbol() }} var.
+              Required: {{ editParams()['amount'] }} {{ inputBalanceSymbol() }} — Available: {{ inputBalance() | number:'1.0-6' }} {{ inputBalanceSymbol() }}
             </span>
           </div>
           @if (inputBalanceMint()) {
@@ -709,7 +816,7 @@
               <img src="assets/icons/protocols/jupiter.webp" width="13" height="13"
                    style="border-radius:3px" alt="Jupiter" onerror="this.style.display='none'" />
               <lucide-icon name="arrow-right-left" [size]="11" />
-              {{ inputBalanceSymbol() }} al
+              Buy {{ inputBalanceSymbol() }}
             </button>
           }
         </div>
@@ -771,14 +878,13 @@
                   <!-- Selected token display -->
                   @if (qsFromToken) {
                     <div class="qs-token-display">
-                      @if (qsFromToken.logoURI) {
-                        <img [src]="qsFromToken.logoURI"
-                             width="28" height="28" class="qs-token-icon"
-                             [alt]="qsFromToken.symbol"
-                             (error)="$any($event.target).style.display='none'" />
-                      } @else {
+                      <div class="qs-token-icon-wrap">
                         <div class="qs-token-letter">{{ qsFromToken.symbol.charAt(0) }}</div>
-                      }
+                        @if (qsFromToken.logoURI) {
+                          <img [src]="qsFromToken.logoURI" width="28" height="28" class="qs-token-icon"
+                               [alt]="qsFromToken.symbol" (error)="$any($event.target).style.display='none'" />
+                        }
+                      </div>
                       <div class="qs-token-info">
                         <span class="qs-token-sym">{{ qsFromToken.symbol }}</span>
                         <span class="qs-token-bal">{{ qsFromBalance | number:'1.0-4' }} available</span>
@@ -799,14 +905,13 @@
                 @if (qsToTokenData; as toTok) {
                   <div class="qs-amount-label">{{ qsNeededAmount }} {{ toTok.symbol }}</div>
                   <div class="qs-token-display qs-token-display--to">
-                    @if (toTok.logoURI) {
-                      <img [src]="toTok.logoURI"
-                           width="28" height="28" class="qs-token-icon"
-                           [alt]="toTok.symbol"
-                           (error)="$any($event.target).style.display='none'" />
-                    } @else {
+                    <div class="qs-token-icon-wrap">
                       <div class="qs-token-letter">{{ toTok.symbol.charAt(0) }}</div>
-                    }
+                      @if (toTok.logoURI) {
+                        <img [src]="toTok.logoURI" width="28" height="28" class="qs-token-icon"
+                             [alt]="toTok.symbol" (error)="$any($event.target).style.display='none'" />
+                      }
+                    </div>
                     <div class="qs-token-info">
                       <span class="qs-token-sym">{{ toTok.symbol }}</span>
                       <span class="qs-token-bal">{{ toTok.name }}</span>
@@ -860,6 +965,17 @@
       </div>
     }
 
+    <!-- Unverified recipient warning -->
+    @if (unverifiedDestination() && status() === 'pending') {
+      <div class="proto-warn-banner proto-warn-banner--orange">
+        <lucide-icon name="alert-triangle" [size]="14" class="proto-warn-icon" />
+        <div class="proto-warn-body">
+          <span class="proto-warn-title">Unverified recipient</span>
+          <span class="proto-warn-desc">This address is not a known protocol. Verify before confirming.</span>
+        </div>
+      </div>
+    }
+
     <!-- Footer -->
     @switch (status()) {
 
@@ -867,6 +983,7 @@
         <div class="proto-footer">
           <button class="proto-btn-confirm"
                   [class.proto-btn-confirm--disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove()"
+                  [disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove()"
                   (click)="approve()">
             @if (insufficientFunds()) {
               <lucide-icon name="alert-circle" [size]="14" />
@@ -901,9 +1018,12 @@
       }
 
       @case ('submitted') {
-        <div class="proto-footer-status proto-footer-status--ok">
-          <lucide-icon name="check-circle-2" [size]="15" />
-          <span>Transaction submitted</span>
+        <div class="proto-footer-status proto-footer-status--pending">
+          <lucide-icon name="loader-2" [size]="15" class="spin" />
+          <span>Confirming on-chain…</span>
+          @if (submittedElapsedSec() > 0) {
+            <span class="proto-footer-elapsed">({{ submittedElapsedSec() }}s)</span>
+          }
         </div>
         @if (txSignature()) {
           <a class="tx-link" [href]="explorerUrl" target="_blank" rel="noopener">
@@ -911,14 +1031,32 @@
             <lucide-icon name="external-link" [size]="12" />
           </a>
         }
+        @if (submittedElapsedSec() > 25) {
+          <button class="recheck-btn" type="button" (click)="recheckTxStatus()" [disabled]="recheckInProgress()">
+            @if (recheckInProgress()) {
+              <lucide-icon name="loader-2" [size]="12" class="spin" />
+              <span>Checking…</span>
+            } @else {
+              <lucide-icon name="refresh-cw" [size]="12" />
+              <span>Re-check status</span>
+            }
+          </button>
+        }
       }
 
       @case ('confirmed') {
         <div class="proto-footer-status proto-footer-status--ok">
           <lucide-icon name="check-circle-2" [size]="15" />
-          <span>Transaction successful</span>
+          @if (isDataOnly()) {
+            <span>Done</span>
+          } @else {
+            <span>Transaction successful</span>
+          }
         </div>
-        @if (txSignature()) {
+        @if (isDataOnly() && dataResult()) {
+          <div class="data-result">{{ dataResult() }}</div>
+        }
+        @if (!isDataOnly() && txSignature()) {
           <a class="tx-link" [href]="explorerUrl" target="_blank" rel="noopener">
             <span class="tx-signature">{{ txSignature() }}</span>
             <lucide-icon name="external-link" [size]="12" />
@@ -1060,7 +1198,9 @@
           <div class="tx-preview-details">
             <!-- Network fee -->
             <div class="tx-preview-detail">
-              <span class="tx-preview-detail__label">Network Fee</span>
+              <span class="tx-preview-detail__label">
+                <app-jargon term="Priority Fee">Network Fee</app-jargon>
+              </span>
               <span class="tx-preview-detail__value">
                 ~{{ preview()?.networkFeeSol ?? 0.000005 | number:'1.0-6' }} SOL
                 <span class="tx-preview-detail__usd">({{ formatPreviewUsd(preview()?.networkFeeUsd ?? 0) }})</span>
@@ -1070,7 +1210,9 @@
             <!-- Price impact (for swaps) -->
             @if (preview()?.priceImpactPercent !== null && preview()?.priceImpactPercent !== undefined) {
               <div class="tx-preview-detail">
-                <span class="tx-preview-detail__label">Price Impact</span>
+                <span class="tx-preview-detail__label">
+                  <app-jargon term="Price Impact">Price Impact</app-jargon>
+                </span>
                 <span class="tx-preview-detail__value"
                       [class.tx-preview-detail__value--warning]="(preview()?.priceImpactPercent ?? 0) > 1"
                       [class.tx-preview-detail__value--danger]="(preview()?.priceImpactPercent ?? 0) > 3">
@@ -1079,11 +1221,29 @@
               </div>
             }
 
-            <!-- Route -->
-            @if (preview()?.route) {
-              <div class="tx-preview-detail">
+            <!-- Route — multi-hop swap path with per-hop fee -->
+            @if (preview()?.route?.length) {
+              <div class="tx-preview-detail tx-preview-detail--route">
                 <span class="tx-preview-detail__label">Route</span>
-                <span class="tx-preview-detail__value">{{ preview()?.route }}</span>
+                <div class="tx-preview-route">
+                  @for (hop of preview()?.route; track $index; let last = $last) {
+                    <div class="tx-preview-hop">
+                      <span class="tx-preview-hop__dex">{{ hop.dex }}</span>
+                      <span class="tx-preview-hop__pair">
+                        {{ hop.inputSymbol }} → {{ hop.outputSymbol }}
+                      </span>
+                      <span class="tx-preview-hop__meta">
+                        <span class="tx-preview-hop__pct">{{ hop.percent }}%</span>
+                        @if (hop.feeAmount && hop.feeAmount > 0) {
+                          <span class="tx-preview-hop__fee">
+                            fee {{ hop.feeAmount | number:'1.0-6' }} {{ hop.feeMint }}
+                          </span>
+                        }
+                      </span>
+                    </div>
+                    @if (!last) { <span class="tx-preview-hop__sep">›</span> }
+                  }
+                </div>
               </div>
             }
           </div>

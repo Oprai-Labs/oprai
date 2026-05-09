@@ -8,6 +8,8 @@ export interface ParsedAction {
    * E.g., swap output → stake input (jitoSOL)
    * When true, the output of previous action is used as input for this action. */
   chainFromPrevious?: boolean;
+  /** Recipient address is not a known protocol — show a warning before user confirms. */
+  warnUnverifiedDestination?: boolean;
 }
 
 export interface ParsedQuery {
@@ -1099,7 +1101,6 @@ export class IntentParserService {
       case 'marinade_claim_ticket':
       case 'marinade_claim': return 'check-circle';
       // pump.fun — transactions
-      case 'launch_token':
       case 'pumpfun_launch': return 'rocket';
       case 'pumpfun_buy': return 'arrow-up-circle';
       case 'pumpfun_sell': return 'arrow-down-circle';
@@ -1186,6 +1187,11 @@ export class IntentParserService {
       case 'cross_chain_swap': return 'cable';
       case 'squid_bridge': return 'cable';
       case 'squid_status': return 'loader';
+      // Meteora DLMM / DAMM
+      case 'meteora_dlmm_get_pairs':
+      case 'meteora_dammv2_get_pools':
+      case 'meteora_dammv1_get_pools':
+        return 'layers';
       default: return 'search';
     }
   }
@@ -1237,6 +1243,19 @@ export class IntentParserService {
         return 'Limit Orders';
       case 'alerts':
         return 'Active Alerts';
+      // ── Meteora DLMM / DAMM Queries ────────────────────────────────────────
+      case 'meteora_dlmm_get_pairs':
+        return query.params['query']
+          ? `Meteora DLMM Pools (${query.params['query']})`
+          : 'Meteora DLMM Pools';
+      case 'meteora_dammv2_get_pools':
+        return query.params['query']
+          ? `Meteora DAMM v2 Pools (${query.params['query']})`
+          : 'Meteora DAMM v2 Pools';
+      case 'meteora_dammv1_get_pools':
+        return query.params['query']
+          ? `Meteora DAMM v1 Pools (${query.params['query']})`
+          : 'Meteora DAMM v1 Pools';
       // ── Solend Protocol Queries ─────────────────────────────────────────────
       case 'solend_reserves':
         return 'Solend Reserves';

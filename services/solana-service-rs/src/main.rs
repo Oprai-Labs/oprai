@@ -2,7 +2,7 @@
 // solana-system-interface, but that crate's Address type is not yet ABI-compatible with
 // AccountMeta's Pubkey expectation across all sub-crate version combinations.
 // Suppressed until the solana ecosystem fully stabilises the split-crate types.
-#![allow(deprecated)]
+#![allow(deprecated, dead_code, unused_variables, unused_macros, non_upper_case_globals)]
 
 mod config;
 mod db;
@@ -89,6 +89,20 @@ async fn main() -> anyhow::Result<()> {
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
 
+    // Defence in depth: refuse to start if the embedded token registry is
+    // corrupt (panics in this call mean a tampered shared/tokens.json or a
+    // bad merge).
+    crate::services::mint_security::assert_registry_self_consistent();
+
+    let mint_security_cache: crate::services::mint_security::SharedMintSecurityCache =
+        std::sync::Arc::new(crate::services::mint_security::MintSecurityCache::new());
+
+    let spending_client = crate::services::spending_client::SpendingClient::new(
+        http_client.clone(),
+        cfg.auth_service_url.clone(),
+        cfg.internal_api_key.clone(),
+    );
+
     // ── Shared state for Actix-Web ───────────────────────────────────────
     let app_state = web::Data::new(AppState {
         pool: pool.clone(),
@@ -98,6 +112,8 @@ async fn main() -> anyhow::Result<()> {
         helius_api_key: cfg.helius_api_key.clone(),
         relay_fee_recipient: cfg.relay_fee_recipient.clone(),
         relay_api_key: cfg.relay_api_key.clone(),
+        mint_security: mint_security_cache.clone(),
+        spending: spending_client.clone(),
     });
 
     let internal_key = cfg.internal_api_key.clone();
@@ -193,6 +209,12 @@ async fn main() -> anyhow::Result<()> {
                     .wrap(InternalAuth::new(internal_key.clone()))
                     .service(routes::protocols::list_tokens_alias)
                     .service(routes::protocols::get_token_by_symbol_alias),
+            )
+            // Authenticated routes under /validators.
+            .service(
+                web::scope("/validators")
+                    .wrap(InternalAuth::new(internal_key.clone()))
+                    .service(routes::validators::get_top_validators),
             )
             // Authenticated routes under /transactions.
             .service(

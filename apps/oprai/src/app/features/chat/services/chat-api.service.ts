@@ -7,6 +7,8 @@ export interface StoredActionResult {
   status: 'submitted' | 'confirmed' | 'error';
   txSignature: string | null;
   errorMessage: string | null;
+  /** Params that were actually used when the action was executed (may differ from original LLM params if user edited them). */
+  executedParams?: Record<string, string>;
 }
 
 export interface QuerySnapshot {
@@ -20,6 +22,7 @@ export interface StructuredAction {
   type: string;
   params: Record<string, string>;
   chainFromPrevious?: boolean;
+  warnUnverifiedDestination?: boolean;
 }
 
 /** Structured query emitted by the backend via function calling. */
@@ -52,6 +55,10 @@ export interface MessageMetadata {
   queries?: StructuredQuery[];
   /** Clarification requests from function calling (stored in DB metadata). */
   clarifications?: StructuredClarify[];
+  /** Explicit @-mention protocol tags the user picked in the composer. */
+  protocols?: string[];
+  /** ISO timestamp when this user message replaced an earlier edited turn. */
+  edited_at?: string;
 }
 
 export interface ChatMessage {
@@ -205,13 +212,37 @@ export class ChatApiService {
     sessionId: string,
     content: string,
     attachments?: Attachment[],
-    thinking = false
+    thinking = false,
+    protocols?: string[]
   ): Observable<string> {
     return this.api.sse('/chat/messages/stream', {
       sessionId,
       content,
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
       ...(thinking ? { thinking: true } : {}),
+      ...(protocols && protocols.length > 0 ? { protocols } : {}),
+    });
+  }
+
+  /**
+   * Edit a previous user message and stream the new assistant response.
+   *
+   * The backend supersedes the target message and every later message
+   * (soft-delete via `metadata.superseded_at`), then runs a fresh turn
+   * with the new content. The first SSE chunk carries an `edit` event so
+   * the client can drop the now-orphaned messages locally.
+   */
+  editMessageStream(
+    sessionId: string,
+    messageId: string,
+    content: string,
+    protocols?: string[]
+  ): Observable<string> {
+    return this.api.sse('/chat/messages/edit', {
+      sessionId,
+      messageId,
+      content,
+      ...(protocols && protocols.length > 0 ? { protocols } : {}),
     });
   }
 

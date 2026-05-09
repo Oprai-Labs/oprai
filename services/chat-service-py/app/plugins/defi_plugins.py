@@ -4024,9 +4024,9 @@ def _nft_coming_soon(platform: str) -> PluginResult:
     return PluginResult(
         success=False,
         error=(
-            f"{platform} entegrasyonu yakında geliyor! "
-            "Bu özellik henüz aktif değil. "
-            "Gelişmelerden haberdar olmak için bizi X üzerinden takip edin."
+            f"{platform} integration is coming soon! "
+            "This feature is not yet active. "
+            "Follow us on X to stay updated."
         ),
     )
 

@@ -3,20 +3,11 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
-# Copy package files
-COPY package.json pnpm-lock.yaml* ./
-
-# Install dependencies
-RUN pnpm install --frozen-lockfile || pnpm install
-
-# Copy source
 COPY . .
-
-# Build for production
-RUN pnpm run build:prod
+RUN npm run build:prod
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine AS serve

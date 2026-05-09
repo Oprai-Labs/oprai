@@ -1,0 +1,16 @@
+id: solana_docs
+source_type: docs
+base_url: https://docs.solana.com
+protocol: null
+category: protocol_documentation
+license: apache-2.0
+language: en
+schedule_cron: "0 2 * * *"
+crawl_delay_s: 1.0
+max_pages: 2000
+extra:
+  sitemap_url: https://docs.solana.com/sitemap.xml
+tags:
+  - solana
+  - core
+  - blockchain

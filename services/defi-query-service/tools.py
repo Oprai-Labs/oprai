@@ -29,12 +29,14 @@ try:
 except ImportError:
     pass
 
-GATEWAY       = "http://localhost:3001"
+GATEWAY       = os.environ.get("GATEWAY_URL", "http://localhost:3001")
 HELIUS_RPC    = f"https://mainnet.helius-rpc.com/?api-key={os.environ.get('HELIUS_API_KEY', '')}"
 HELIUS_API    = f"https://api.helius.xyz/v0"
 HELIUS_KEY    = os.environ.get("HELIUS_API_KEY", "")
 BIRDEYE_BASE  = "https://public-api.birdeye.so"
 BIRDEYE_KEY   = os.environ.get("BIRDEYE_API_KEY", "")
+TENSOR_BASE   = "https://api.mainnet.tensordev.io/api/v1"
+TENSOR_KEY    = os.environ.get("TENSOR_API_KEY", "")
 KOBE          = "https://kobe.mainnet.jito.network"
 TIMEOUT       = 12.0
 
@@ -2587,12 +2589,23 @@ async def birdeye_mint_burn_txs(
 
 # ─── Birdeye Misc handlers ────────────────────────────────────────────────────
 
-async def birdeye_latest_block() -> dict:
-    """Latest block number on the chain from Birdeye."""
+async def birdeye_networks() -> dict:
+    """List all blockchain networks supported by Birdeye."""
+    return await _get(
+        f"{BIRDEYE_BASE}/defi/networks",
+        params={},
+        headers=_birdeye_headers(),
+    )
+
+
+async def birdeye_latest_block(chain: str = "solana") -> dict:
+    """Latest block number on a chain from Birdeye.
+    chain: solana | ethereum | arbitrum | bsc | base | polygon | optimism | avalanche | sui | aptos
+    """
     return await _get(
         f"{BIRDEYE_BASE}/defi/v3/txs/latest-block",
         params={},
-        headers=_birdeye_headers(),
+        headers=_birdeye_headers(chain),
     )
 
 
@@ -3330,6 +3343,268 @@ async def birdeye_wallet_token_list(
         f"{BIRDEYE_BASE}/v1/wallet/token_list",
         params={"wallet": wallet, "ui_amount_mode": ui_amount_mode},
         headers=_birdeye_headers(chain),
+    )
+
+
+# ─── Tensor Trade handlers ───────────────────────────────────────────────────
+
+def _tensor_headers() -> dict:
+    return {"X-TENSOR-API-KEY": TENSOR_KEY, "Content-Type": "application/json"}
+
+
+async def tensor_edit_bid(
+    bid_state_address: str,
+    blockhash: str,
+    price: float = None,
+    quantity: int = None,
+    expire_in: int = None,
+    maker_broker: str = None,
+    private_taker: str = None,
+    use_shared_escrow: bool = None,
+    compute: int = None,
+    priority_micro_lamports: int = None,
+) -> dict:
+    """Fetch serialized Tensor bid-edit transaction data — no auth required.
+    Returns raw transaction bytes (not executed). Caller signs and submits.
+    """
+    return await _get(
+        f"{TENSOR_BASE}/tx/edit_bid",
+        params={
+            "bidStateAddress": bid_state_address,
+            "blockhash": blockhash,
+            "price": price,
+            "quantity": quantity,
+            "expireIn": expire_in,
+            "makerBroker": maker_broker,
+            "privateTaker": private_taker,
+            "useSharedEscrow": use_shared_escrow,
+            "compute": compute,
+            "priorityMicroLamports": priority_micro_lamports,
+        },
+        headers=_tensor_headers(),
+    )
+
+
+# ── Tensor data endpoints ────────────────────────────────────────────────────
+
+async def tensor_mint_proof(mint: str) -> dict:
+    """Merkle proof for a compressed NFT (cNFT) on Tensor — required for cNFT transactions."""
+    return await _get(f"{TENSOR_BASE}/mint/proof", params={"mint": mint}, headers=_tensor_headers())
+
+
+async def tensor_mint_collection(
+    coll_id: str,
+    sort_by: str,
+    limit: int,
+    cursor: str = None,
+    filters: str = None,
+) -> dict:
+    """Browse all NFTs in a collection with sorting and optional filters."""
+    return await _get(
+        f"{TENSOR_BASE}/mint/collection",
+        params={"collId": coll_id, "sortBy": sort_by, "limit": limit, "cursor": cursor, "filters": filters},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_mint_active_listings(
+    coll_id: str,
+    sort_by: str,
+    limit: int,
+    cursor: str = None,
+    include_private_taker: bool = None,
+    filters: str = None,
+) -> dict:
+    """Active listings for an NFT collection on Tensor."""
+    return await _get(
+        f"{TENSOR_BASE}/mint/active_listings",
+        params={
+            "collId": coll_id, "sortBy": sort_by, "limit": limit,
+            "cursor": cursor, "includePrivateTaker": include_private_taker, "encodedFilters": filters,
+        },
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_mint_activity(
+    mint: str,
+    limit: int,
+    tx_types: str = None,
+    cursor: str = None,
+) -> dict:
+    """Transaction activity history for a specific NFT mint on Tensor."""
+    return await _get(
+        f"{TENSOR_BASE}/mint/activity",
+        params={"mint": mint, "limit": limit, "txTypes": tx_types, "cursor": cursor},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_browse(
+    sort_by: str,
+    limit: int,
+    slug_displays: str = None,
+    coll_ids: str = None,
+    vocs: str = None,
+    fvcs: str = None,
+    page: int = None,
+) -> dict:
+    """Browse/list all NFT collections on Tensor with sorting and filtering."""
+    return await _get(
+        f"{TENSOR_BASE}/collections",
+        params={
+            "sortBy": sort_by, "limit": limit, "slugDisplays": slug_displays,
+            "collIds": coll_ids, "vocs": vocs, "fvcs": fvcs, "page": page,
+        },
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_find_collection(filter: str) -> dict:
+    """Find a collection by collId, slug, or slugDisplay."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/find_collection",
+        params={"filter": filter},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_search_collections(
+    query: str = None,
+    sort_by: str = None,
+    limit: int = None,
+    page: int = None,
+) -> dict:
+    """Search Tensor NFT collections by name/keyword."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/search_collections",
+        params={"query": query, "sortBy": sort_by, "limit": limit, "page": page},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_mints(mints: str) -> dict:
+    """Fetch collection metadata for a list of NFT mint addresses (comma-separated)."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/mints",
+        params={"mints": mints},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_list(coll_id: str, limit: int, after: str = None) -> list:
+    """Paginated list of all mint addresses in a collection."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/list",
+        params={"collId": coll_id, "limit": limit, "after": after},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_traits(coll_id: str) -> dict:
+    """All trait types and values for a collection, with rarity counts."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/traits",
+        params={"collId": coll_id},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_coll_bids(coll_id: str, limit: int, cursor: str = None) -> dict:
+    """Active collection-level bids (offers) for an NFT collection."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/coll_bids",
+        params={"collId": coll_id, "limit": limit, "cursor": cursor},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_nft_bids(mints: str) -> dict:
+    """Active NFT-level bids for specific mint addresses (comma-separated)."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/nft_bids",
+        params={"mints": mints},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_trait_bids(coll_id: str, limit: int, cursor: str = None) -> dict:
+    """Active trait-level bids for a collection."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/trait_bids",
+        params={"collId": coll_id, "limit": limit, "cursor": cursor},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_pools(coll_id: str) -> dict:
+    """TSWAP AMM pools for an NFT collection."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/pools",
+        params={"collId": coll_id},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_tamm_pools(coll_id: str) -> dict:
+    """TAMM AMM pools for an NFT collection."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/tamm_pools",
+        params={"collId": coll_id},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_collections_tx_history(
+    limit: int,
+    coll_id: str = None,
+    wallet: str = None,
+    tx_types: str = None,
+    sources: str = None,
+) -> dict:
+    """Transaction history across collections on Tensor. limit is required; all others optional."""
+    return await _get(
+        f"{TENSOR_BASE}/collections/tx_history",
+        params={"limit": limit, "collId": coll_id, "wallet": wallet, "txTypes": tx_types, "sources": sources},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_whitelist_info(coll_ids: str = None, whitelists: str = None) -> dict:
+    """Fetch whitelist info for collections by collId or whitelist address."""
+    return await _get(
+        f"{TENSOR_BASE}/sdk/whitelist_info",
+        params={"collIds": coll_ids, "whitelists": whitelists},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_trait_bid_attributes(bid_state_address: str) -> dict:
+    """Fetch trait bid attributes for a given bid state address on Tensor."""
+    return await _get(
+        f"{TENSOR_BASE}/sdk/trait_bid_attributes",
+        params={"bidStateAddress": bid_state_address},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_refresh_metadata(mint: str) -> dict:
+    """Trigger a metadata refresh for a specific NFT. 1-hour cooldown per mint."""
+    return await _post(
+        f"{TENSOR_BASE}/trigger/refresh_metadata",
+        body={},
+        params={"mint": mint},
+        headers=_tensor_headers(),
+    )
+
+
+async def tensor_refresh_rarities(coll_id: str) -> dict:
+    """Trigger a rarity refresh for an entire collection. 1-hour cooldown per collection."""
+    return await _post(
+        f"{TENSOR_BASE}/trigger/refresh_rarities",
+        body={},
+        params={"collId": coll_id},
+        headers=_tensor_headers(),
     )
 
 
@@ -6555,12 +6830,27 @@ TOOL_SCHEMAS = [
     },
     # ── Birdeye Misc ──────────────────────────────────────────────────────────
     {
-        "name": "birdeye_latest_block",
+        "name": "birdeye_networks",
         "description": (
-            "Latest block number on Solana (or other chain) from Birdeye. "
-            "Use for: 'what is the current block', 'latest Solana block number'."
+            "List all blockchain networks supported by Birdeye. "
+            "Use for: 'what chains does Birdeye support', 'supported networks', 'which blockchains are available on Birdeye'."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "birdeye_latest_block",
+        "description": (
+            "Latest block number on any supported chain from Birdeye. "
+            "chain: solana | ethereum | arbitrum | bsc | base | polygon | optimism | avalanche | sui | aptos (default: solana). "
+            "Use for: 'what is the current block', 'latest Solana block number', 'latest Ethereum block', 'current block on Base'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chain": {"type": "string", "description": "Chain name (default: solana)"},
+            },
+            "required": [],
+        },
     },
     {
         "name": "birdeye_token_creation_info",
@@ -7040,6 +7330,363 @@ TOOL_SCHEMAS = [
             "required": ["token_address"],
         },
     },
+    # ── Tensor Trade ─────────────────────────────────────────────────────────
+    {
+        "name": "tensor_mint_proof",
+        "description": (
+            "Fetch the Merkle proof for a compressed NFT (cNFT) on Tensor. "
+            "Required when building cNFT transactions (buy, list, transfer). "
+            "Use for: 'get cNFT proof', 'compressed NFT merkle proof', 'tensor_mint_proof'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mint": {"type": "string", "description": "Mint address of the compressed NFT"},
+            },
+            "required": ["mint"],
+        },
+    },
+    {
+        "name": "tensor_mint_collection",
+        "description": (
+            "Browse all NFTs in a Tensor collection with flexible sorting. "
+            "Returns mint addresses, listing prices, rarity ranks, last sale data. "
+            "sort_by options: ListingPriceAsc/Desc, RarityAsc/Desc, LastSaleAsc/Desc, NameAsc/Desc, MintAsc/Desc, etc. "
+            "Use for: 'show NFTs in collection', 'cheapest listed NFTs', 'rarest NFTs in Mad Lads', 'browse collection'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_id": {"type": "string", "description": "Collection ID (collId)"},
+                "sort_by": {"type": "string", "description": "Sort order — e.g. ListingPriceAsc, RarityAsc, LastSaleDesc"},
+                "limit": {"type": "integer", "description": "Number of results (1-250)"},
+                "cursor": {"type": "string", "description": "Pagination cursor (optional)"},
+                "filters": {"type": "string", "description": "Encoded trait filters (optional)"},
+            },
+            "required": ["coll_id", "sort_by", "limit"],
+        },
+    },
+    {
+        "name": "tensor_mint_active_listings",
+        "description": (
+            "Fetch active (live) listings for an NFT collection on Tensor. "
+            "Returns listed price, normalized price, listing time, seller, rarity rank. "
+            "sort_by options: ListingPriceAsc/Desc, ListingNormalizedPriceAsc/Desc, ListedTimeDesc, RankHrttAsc/Desc, etc. "
+            "Use for: 'what's listed on Tensor', 'floor listings for DeGods', 'active sales in collection'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_id": {"type": "string", "description": "Collection ID (collId)"},
+                "sort_by": {"type": "string", "description": "Sort order — e.g. ListingPriceAsc, ListedTimeDesc"},
+                "limit": {"type": "integer", "description": "Number of results (1-250)"},
+                "cursor": {"type": "string", "description": "Pagination cursor (optional)"},
+                "include_private_taker": {"type": "boolean", "description": "Include private-taker listings (optional)"},
+                "filters": {"type": "string", "description": "Encoded trait filters (optional)"},
+            },
+            "required": ["coll_id", "sort_by", "limit"],
+        },
+    },
+    {
+        "name": "tensor_mint_activity",
+        "description": (
+            "Transaction activity history for a specific NFT mint on Tensor. "
+            "Returns sales, listings, de-listings, bids, transfers with timestamps and prices. "
+            "tx_types: comma-separated — SALE_BUY_NOW, LIST, DELIST, MAKE_BID, CANCEL_BID, TRANSFER, etc. "
+            "Use for: 'NFT sale history', 'when was this NFT last sold', 'activity for mint address'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mint": {"type": "string", "description": "NFT mint address"},
+                "limit": {"type": "integer", "description": "Number of results (1-100)"},
+                "tx_types": {"type": "string", "description": "Comma-separated transaction type filter (optional)"},
+                "cursor": {"type": "string", "description": "Pagination cursor (optional)"},
+            },
+            "required": ["mint", "limit"],
+        },
+    },
+    {
+        "name": "tensor_collections_browse",
+        "description": (
+            "Browse/rank all NFT collections on Tensor by volume, listings, bids, or name. "
+            "sort_by options: statsV2.volume1h/24h/7d/All:desc/asc, statsV2.numBids:desc/asc, "
+            "statsV2.numListed:desc/asc, createdAt:asc/desc, slugDisplay:asc/desc. "
+            "Use for: 'top NFT collections', 'trending collections by volume', 'most listed collections'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sort_by": {"type": "string", "description": "Sort field and direction — e.g. statsV2.volume24h:desc"},
+                "limit": {"type": "integer", "description": "Number of results (1-100)"},
+                "slug_displays": {"type": "string", "description": "Comma-separated slug filters (optional)"},
+                "coll_ids": {"type": "string", "description": "Comma-separated collection ID filters (optional)"},
+                "vocs": {"type": "string", "description": "Verified on-chain collections filter (optional, max 10 combined with fvcs)"},
+                "fvcs": {"type": "string", "description": "Fungible verified collections filter (optional, max 10 combined with vocs)"},
+                "page": {"type": "integer", "description": "Page number (≥1, optional)"},
+            },
+            "required": ["sort_by", "limit"],
+        },
+    },
+    {
+        "name": "tensor_find_collection",
+        "description": (
+            "Look up a Tensor NFT collection by collId, slug, or slugDisplay. "
+            "Returns full collection metadata: floor price, volume, supply, royalties, verified status. "
+            "Use for: 'find Mad Lads collection', 'collection info for DeGods', 'lookup collection by slug'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filter": {"type": "string", "description": "Collection identifier: collId, slug, or slugDisplay"},
+            },
+            "required": ["filter"],
+        },
+    },
+    {
+        "name": "tensor_search_collections",
+        "description": (
+            "Search Tensor NFT collections by name or keyword. "
+            "Returns matching collections with floor price, volume, verified status. "
+            "Use for: 'search NFT collections', 'find collections named pixel', 'tensor collection search'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query (optional)"},
+                "sort_by": {"type": "string", "description": "Sort order (optional)"},
+                "limit": {"type": "integer", "description": "Results 1-20 (optional)"},
+                "page": {"type": "integer", "description": "Page number ≥1 (optional)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "tensor_collections_mints",
+        "description": (
+            "Fetch collection and metadata for a list of NFT mint addresses on Tensor. "
+            "Use for: 'which collection does this NFT belong to', 'batch NFT collection lookup'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mints": {"type": "string", "description": "Comma-separated NFT mint addresses"},
+            },
+            "required": ["mints"],
+        },
+    },
+    {
+        "name": "tensor_collections_list",
+        "description": (
+            "Paginated list of all mint addresses in a Tensor collection. "
+            "Use for: 'get all NFTs in collection', 'list every mint in Mad Lads'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_id": {"type": "string", "description": "Collection ID"},
+                "limit": {"type": "integer", "description": "Results per page (1-1000)"},
+                "after": {"type": "string", "description": "Cursor for next page (optional)"},
+            },
+            "required": ["coll_id", "limit"],
+        },
+    },
+    {
+        "name": "tensor_collections_traits",
+        "description": (
+            "All trait types and values with rarity counts for a Tensor NFT collection. "
+            "Use for: 'what traits does this collection have', 'trait rarity for Mad Lads', 'list all attributes'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_id": {"type": "string", "description": "Collection ID"},
+            },
+            "required": ["coll_id"],
+        },
+    },
+    {
+        "name": "tensor_collections_coll_bids",
+        "description": (
+            "Active collection-level bids (offers to buy any NFT in a collection) on Tensor. "
+            "Returns bid price, bidder, quantity, expiry. "
+            "Use for: 'collection offers on Mad Lads', 'what are people bidding on this collection', 'best bid price'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_id": {"type": "string", "description": "Collection ID"},
+                "limit": {"type": "integer", "description": "Results (1-100)"},
+                "cursor": {"type": "string", "description": "Pagination cursor (optional)"},
+            },
+            "required": ["coll_id", "limit"],
+        },
+    },
+    {
+        "name": "tensor_collections_nft_bids",
+        "description": (
+            "Active NFT-specific bids for given mint addresses on Tensor. "
+            "Use for: 'bids on this NFT', 'who is offering to buy this mint', 'NFT-level offers'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mints": {"type": "string", "description": "Comma-separated NFT mint addresses"},
+            },
+            "required": ["mints"],
+        },
+    },
+    {
+        "name": "tensor_collections_trait_bids",
+        "description": (
+            "Active trait-based bids for a collection on Tensor (bids targeting specific trait values). "
+            "Use for: 'bids on Gold trait', 'trait offers for collection', 'trait-level bid book'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_id": {"type": "string", "description": "Collection ID"},
+                "limit": {"type": "integer", "description": "Results (1-100)"},
+                "cursor": {"type": "string", "description": "Pagination cursor (optional)"},
+            },
+            "required": ["coll_id", "limit"],
+        },
+    },
+    {
+        "name": "tensor_collections_pools",
+        "description": (
+            "TSWAP AMM liquidity pools for an NFT collection on Tensor. "
+            "Returns pool type, price, spot price, fee, delta, NFT count, SOL balance. "
+            "Use for: 'AMM pools for collection', 'Tensor pool liquidity', 'TSWAP pools'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_id": {"type": "string", "description": "Collection ID"},
+            },
+            "required": ["coll_id"],
+        },
+    },
+    {
+        "name": "tensor_collections_tamm_pools",
+        "description": (
+            "TAMM AMM pools for an NFT collection on Tensor. "
+            "Use for: 'TAMM pools for collection', 'Tensor AMM liquidity'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_id": {"type": "string", "description": "Collection ID"},
+            },
+            "required": ["coll_id"],
+        },
+    },
+    {
+        "name": "tensor_collections_tx_history",
+        "description": (
+            "Transaction history across Tensor collections — sales, listings, bids, transfers. "
+            "limit is required; collId, wallet, tx_types, sources are optional filters. "
+            "tx_types: comma-separated — SALE_BUY_NOW, LIST, DELIST, MAKE_BID, CANCEL_BID, etc. "
+            "Use for: 'recent Tensor sales', 'transaction history for collection', 'sales for wallet on Tensor'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Number of results (1-100)"},
+                "coll_id": {"type": "string", "description": "Filter by collection ID (optional)"},
+                "wallet": {"type": "string", "description": "Filter by wallet address (optional)"},
+                "tx_types": {"type": "string", "description": "Comma-separated transaction type filter (optional)"},
+                "sources": {"type": "string", "description": "Comma-separated marketplace source filter (optional)"},
+            },
+            "required": ["limit"],
+        },
+    },
+    {
+        "name": "tensor_whitelist_info",
+        "description": (
+            "Get whitelist info for Tensor collections by collection ID or whitelist address. "
+            "Use for: 'whitelist details for collection', 'is this collection whitelisted on Tensor', 'whitelist address lookup'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_ids": {"type": "string", "description": "Comma-separated collection IDs (optional)"},
+                "whitelists": {"type": "string", "description": "Comma-separated whitelist addresses (optional)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "tensor_trait_bid_attributes",
+        "description": (
+            "Get trait bid attributes for a given Tensor bid state address. "
+            "Use for: 'what traits is this bid targeting', 'trait bid details', 'bid state attributes'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bid_state_address": {"type": "string", "description": "The bid state address"},
+            },
+            "required": ["bid_state_address"],
+        },
+    },
+    {
+        "name": "tensor_refresh_metadata",
+        "description": (
+            "Trigger a metadata refresh for a specific NFT on Tensor. "
+            "Subject to a 1-hour cooldown per mint address. "
+            "Use for: 'refresh NFT metadata', 'update NFT image on Tensor', 'force metadata sync'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mint": {"type": "string", "description": "NFT mint address to refresh"},
+            },
+            "required": ["mint"],
+        },
+    },
+    {
+        "name": "tensor_refresh_rarities",
+        "description": (
+            "Trigger a rarity score refresh for an entire NFT collection on Tensor. "
+            "Subject to a 1-hour cooldown per collection. "
+            "Use for: 'refresh collection rarities', 'update rarity scores', 'recalculate rarity'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coll_id": {"type": "string", "description": "Collection ID to refresh rarities for"},
+            },
+            "required": ["coll_id"],
+        },
+    },
+    {
+        "name": "tensor_edit_bid",
+        "description": (
+            "Build a Tensor bid-edit transaction payload — fetches serialized transaction data for updating price, quantity, or expiry on an existing Tensor NFT/cNFT bid. "
+            "Does NOT execute or submit anything — returns raw transaction bytes for the caller to sign. "
+            "No wallet auth required — this is purely a data retrieval call. "
+            "bidStateAddress and blockhash are required. "
+            "Use for: 'change my Tensor bid price', 'update bid quantity', 'extend bid expiry', "
+            "'edit NFT offer on Tensor', 'modify my Tensor collection bid', 'tensor_edit_bid'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bid_state_address": {"type": "string", "description": "The bid state address to edit"},
+                "blockhash": {"type": "string", "description": "Recent Solana blockhash for the transaction"},
+                "price": {"type": "number", "description": "New bid price (≥ 0, optional)"},
+                "quantity": {"type": "integer", "description": "New quantity of NFTs to bid on (≥ 1, optional)"},
+                "expire_in": {"type": "integer", "description": "Seconds until bid expires (≥ 0, optional)"},
+                "maker_broker": {"type": "string", "description": "Maker broker address for fee rebates (optional)"},
+                "private_taker": {"type": "string", "description": "Private taker address (optional)"},
+                "use_shared_escrow": {"type": "boolean", "description": "Use shared escrow (optional)"},
+                "compute": {"type": "integer", "description": "Compute units for the transaction (optional)"},
+                "priority_micro_lamports": {"type": "integer", "description": "Priority fee in micro-lamports (optional)"},
+            },
+            "required": ["bid_state_address", "blockhash"],
+        },
+    },
 ]
 
 
@@ -7055,7 +7702,7 @@ _REQUIRES_JWT = {
 # ─── Dispatcher ───────────────────────────────────────────────────────────────
 
 async def dispatch(tool_name: str, tool_input: dict, jwt_token: str = None) -> Any:
-    if tool_name in _REQUIRES_JWT and not jwt_token:
+    if tool_name in _REQUIRES_JWT and (not jwt_token or jwt_token == "None"):
         return {"error_type": "auth_required", "message": f"'{tool_name}' requires authentication — please connect your wallet first."}
 
     try:
@@ -7407,7 +8054,7 @@ async def _dispatch_inner(tool_name: str, tool_input: dict, jwt_token: str) -> A
                 return await helius_wallet_txs(**tool_input)
             # Security
             case "token_security":
-                return await token_security(jwt_token=jwt_token, **tool_input)
+                return await token_security(jwt=jwt_token, **tool_input)
             # Portfolio
             case "wallet_balance":
                 return await wallet_balance(jwt_token)
@@ -7538,6 +8185,8 @@ async def _dispatch_inner(tool_name: str, tool_input: dict, jwt_token: str) -> A
                         return await birdeye_holder_profile(**tool_input)
                     case "birdeye_holder_positions":
                         return await birdeye_holder_positions(**tool_input)
+                    case "birdeye_networks":
+                        return await birdeye_networks(**tool_input)
                     case "birdeye_latest_block":
                         return await birdeye_latest_block(**tool_input)
                     case "birdeye_token_creation_info":
@@ -7576,5 +8225,54 @@ async def _dispatch_inner(tool_name: str, tool_input: dict, jwt_token: str) -> A
                         return await birdeye_wallet_single_token_balance(**tool_input)
                     case _:
                         return {"error": f"Unknown Birdeye tool: {name}"}
+            case (
+                "tensor_mint_proof"
+                | "tensor_mint_collection"
+                | "tensor_mint_active_listings"
+                | "tensor_mint_activity"
+                | "tensor_collections_browse"
+                | "tensor_find_collection"
+                | "tensor_search_collections"
+                | "tensor_collections_mints"
+                | "tensor_collections_list"
+                | "tensor_collections_traits"
+                | "tensor_collections_coll_bids"
+                | "tensor_collections_nft_bids"
+                | "tensor_collections_trait_bids"
+                | "tensor_collections_pools"
+                | "tensor_collections_tamm_pools"
+                | "tensor_collections_tx_history"
+                | "tensor_refresh_metadata"
+                | "tensor_whitelist_info"
+                | "tensor_trait_bid_attributes"
+                | "tensor_refresh_rarities"
+                | "tensor_edit_bid"
+            ):
+                if not TENSOR_KEY:
+                    return {"error": "TENSOR_API_KEY not set in .env — add it to enable Tensor tools"}
+                fn_map = {
+                    "tensor_mint_proof": tensor_mint_proof,
+                    "tensor_mint_collection": tensor_mint_collection,
+                    "tensor_mint_active_listings": tensor_mint_active_listings,
+                    "tensor_mint_activity": tensor_mint_activity,
+                    "tensor_collections_browse": tensor_collections_browse,
+                    "tensor_find_collection": tensor_find_collection,
+                    "tensor_search_collections": tensor_search_collections,
+                    "tensor_collections_mints": tensor_collections_mints,
+                    "tensor_collections_list": tensor_collections_list,
+                    "tensor_collections_traits": tensor_collections_traits,
+                    "tensor_collections_coll_bids": tensor_collections_coll_bids,
+                    "tensor_collections_nft_bids": tensor_collections_nft_bids,
+                    "tensor_collections_trait_bids": tensor_collections_trait_bids,
+                    "tensor_collections_pools": tensor_collections_pools,
+                    "tensor_collections_tamm_pools": tensor_collections_tamm_pools,
+                    "tensor_collections_tx_history": tensor_collections_tx_history,
+                    "tensor_refresh_metadata": tensor_refresh_metadata,
+                    "tensor_whitelist_info": tensor_whitelist_info,
+                    "tensor_trait_bid_attributes": tensor_trait_bid_attributes,
+                    "tensor_refresh_rarities": tensor_refresh_rarities,
+                    "tensor_edit_bid": tensor_edit_bid,
+                }
+                return await fn_map[tool_name](**tool_input)
             case _:
                 return {"error": f"Unknown tool: {tool_name}"}

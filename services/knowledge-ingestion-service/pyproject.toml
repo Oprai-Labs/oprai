@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oprai-knowledge-ingestion-service"
+version = "0.1.0"
+description = "OPRAI Knowledge Ingestion Service — crawls, chunks, embeds, and indexes blockchain/DeFi/Solana knowledge into Qdrant"
+requires-python = ">=3.12"
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+
+    # Vector store
+    "qdrant-client>=1.12.0",
+
+    # OpenAI embeddings
+    "openai>=1.58.0",
+
+    # HTTP crawling
+    "httpx>=0.28.0",
+    "aiohttp>=3.11.0",
+
+    # HTML parsing
+    "readability-lxml>=0.8.1",
+    "markdownify>=0.13.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.3.0",
+
+    # RSS feed parsing
+    "feedparser>=6.0.11",
+
+    # Scheduling
+    "apscheduler>=3.10.4",
+
+    # Retry
+    "tenacity>=9.0.0",
+
+    # Logging
+    "structlog>=24.1.0",
+    "python-json-logger>=2.0.7",
+
+    # Prometheus
+    "prometheus-client>=0.21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

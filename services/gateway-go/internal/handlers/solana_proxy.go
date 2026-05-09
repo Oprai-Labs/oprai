@@ -76,6 +76,22 @@ func (p *SolanaProxy) PostSubmit(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostSimulate proxies the frontend's defense-in-depth simulation fallback.
+// The action card runs `connection.simulateTransaction` locally first; if the
+// browser's RPC is misbehaving (404 / CORS / timeout) it falls back to this
+// endpoint, which re-simulates server-side via the Solana service. Without
+// it the frontend fails closed with a "sim:unavailable" error and the user
+// can't sign — even when the build was perfectly valid.
+func (p *SolanaProxy) PostSimulate(w http.ResponseWriter, r *http.Request) {
+	slog.Info("solana proxy: forwarding /actions/simulate",
+		"method", r.Method,
+		"content_length", r.ContentLength,
+		"has_body", r.Body != nil,
+	)
+	r.URL.Path = "/actions/simulate"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) ListProtocols(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/protocols"
 	p.proxy.ServeHTTP(w, r)
@@ -121,5 +137,10 @@ func (p *SolanaProxy) GetLimitOrders(w http.ResponseWriter, r *http.Request) {
 
 func (p *SolanaProxy) GetDcaOrders(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/actions/dca-orders"
+	p.proxy.ServeHTTP(w, r)
+}
+
+func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)
 }

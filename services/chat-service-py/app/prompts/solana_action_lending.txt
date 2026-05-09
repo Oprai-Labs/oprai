@@ -25,7 +25,7 @@ Jupiter Lend (Earn) ONLY supports: **USDC, USDT, jupSOL, jitoSOL, EURC**
 
 Examples:
 - "Lend 100 USDC on Marginfi"
-  -> [ACTION:lend] token=USDC amount=100 protocol=marginfi
+  -> execute_action("lend", {"token": "USDC", "amount": "100", "protocol": "marginfi"})
 
 ### 17. WITHDRAW_LEND — Withdraw previously supplied tokens from a lending protocol
 Format: [ACTION:withdraw_lend] token=<symbol_or_mint> amount=<amount> protocol=<marginfi|kamino|jupiter>
@@ -37,9 +37,9 @@ Parameters:
 
 Examples:
 - "Withdraw 100 USDC from Marginfi"
-  -> [ACTION:withdraw_lend] token=USDC amount=100 protocol=marginfi
+  -> execute_action("withdraw_lend", {"token": "USDC", "amount": "100", "protocol": "marginfi"})
 - "Take back my USDC from Jupiter Lend"
-  -> [ACTION:withdraw_lend] token=USDC amount=100 protocol=jupiter
+  -> execute_action("withdraw_lend", {"token": "USDC", "amount": "100", "protocol": "jupiter"})
 
 ### 18. BORROW — Borrow tokens from a lending protocol
 Format: [ACTION:borrow] token=<symbol_or_mint> amount=<amount> protocol=<marginfi|kamino|jupiter> collateral=<token>
@@ -58,13 +58,13 @@ Parameters:
 
 Examples:
 - "Borrow 500 USDC on Kamino"
-  -> [ACTION:borrow] token=USDC amount=500 protocol=kamino
+  -> execute_action("borrow", {"token": "USDC", "amount": "500", "protocol": "kamino"})
 
 - "Borrow 100 USDC on Jupiter using SOL as collateral"
-  -> [ACTION:borrow] token=USDC amount=100 protocol=jupiter collateral=SOL
+  -> execute_action("borrow", {"token": "USDC", "amount": "100", "protocol": "jupiter", "collateral": "SOL"})
 
 - "Borrow USDC from Jupiter Lend"
-  -> [ACTION:borrow] token=USDC amount=100 protocol=jupiter
+  -> execute_action("borrow", {"token": "USDC", "amount": "100", "protocol": "jupiter"})
 
 ### 19. REPAY — Repay borrowed tokens to a lending protocol
 Format: [ACTION:repay] token=<symbol_or_mint> amount=<amount> protocol=<marginfi|kamino|jupiter> collateral=<token>
@@ -77,13 +77,13 @@ Parameters:
 
 Examples:
 - "Repay 500 USDC on Kamino"
-  -> [ACTION:repay] token=USDC amount=500 protocol=kamino
+  -> execute_action("repay", {"token": "USDC", "amount": "500", "protocol": "kamino"})
 
 - "Pay back my marginfi USDC loan"
-  -> [ACTION:repay] token=USDC amount=500 protocol=marginfi
+  -> execute_action("repay", {"token": "USDC", "amount": "500", "protocol": "marginfi"})
 
 - "Repay my Jupiter Lend USDC borrow"
-  -> [ACTION:repay] token=USDC amount=500 protocol=jupiter
+  -> execute_action("repay", {"token": "USDC", "amount": "500", "protocol": "jupiter"})
 
 ---
 
@@ -94,7 +94,7 @@ Format: [ACTION:kamino_deposit] token=<symbol_or_mint> amount=<amount>
 
 Examples:
 - "Deposit 100 USDC to Kamino"
-  -> [ACTION:kamino_deposit] token=USDC amount=100
+  -> execute_action("kamino_deposit", {"token": "USDC", "amount": "100"})
 
 #### KAMINO_WITHDRAW — Withdraw assets from Kamino lending
 Format: [ACTION:kamino_withdraw] token=<symbol_or_mint> amount=<amount>
@@ -110,14 +110,14 @@ Format: [ACTION:kamino_vault_deposit] vault=<vault_name_or_address> amount=<amou
 
 Examples:
 - "Deposit 10 SOL to Kamino SOL vault"
-  -> [ACTION:kamino_vault_deposit] vault=SOL amount=10 token=SOL
+  -> execute_action("kamino_vault_deposit", {"vault": "SOL", "amount": "10", "token": "SOL"})
 
 #### KAMINO_VAULT_WITHDRAW — Withdraw from a Kamino liquidity vault by burning kTokens
 Format: [ACTION:kamino_vault_withdraw] vault=<vault_name_or_address> ktokenAmount=<shares_amount>
 
 Examples:
 - "Withdraw my Kamino vault shares, 50 kTokens"
-  -> [ACTION:kamino_vault_withdraw] vault=SOL ktokenAmount=50
+  -> execute_action("kamino_vault_withdraw", {"vault": "SOL", "ktokenAmount": "50"})
 
 #### KAMINO_ADD_COLLATERAL — Add more collateral to a Kamino lending position
 Format: [ACTION:kamino_add_collateral] token=<symbol_or_mint> amount=<amount>
@@ -136,7 +136,7 @@ Parameters:
 
 Examples:
 - "Open 3x multiply position with 10 SOL on SOL-mSOL strategy"
-  -> [ACTION:kamino_multiply_open] strategy=SOL-mSOL token=SOL amount=10 leverage=3
+  -> execute_action("kamino_multiply_open", {"strategy": "SOL-mSOL", "token": "SOL", "amount": "10", "leverage": "3"})
 
 #### KAMINO_MULTIPLY_ADD — Add collateral to a Kamino Multiply position
 Format: [ACTION:kamino_multiply_add] position=<position_address> token=<token> amount=<amount>
@@ -146,7 +146,7 @@ Format: [ACTION:kamino_multiply_withdraw] position=<position_address> percent=<0
 
 Examples:
 - "Withdraw 50% from my multiply position ABC123"
-  -> [ACTION:kamino_multiply_withdraw] position=ABC123 percent=50
+  -> execute_action("kamino_multiply_withdraw", {"position": "ABC123", "percent": "50"})
 
 #### KAMINO_MULTIPLY_CLOSE — Close a Kamino Multiply position entirely
 Format: [ACTION:kamino_multiply_close] position=<position_address>
@@ -162,7 +162,7 @@ Parameters:
 
 Examples:
 - "Long SOL 3x with 10 SOL collateral on Kamino"
-  -> [ACTION:kamino_long_open] collateralToken=SOL collateralAmount=10 leverage=3
+  -> execute_action("kamino_long_open", {"collateralToken": "SOL", "collateralAmount": "10", "leverage": "3"})
 
 #### KAMINO_SHORT_OPEN — Open a Kamino Short leveraged position
 Format: [ACTION:kamino_short_open] collateralToken=<token> collateralAmount=<amount> leverage=<1-10> [debtToken=<token>]
@@ -175,7 +175,7 @@ Parameters:
 
 Examples:
 - "Short SOL 2x with 500 USDC on Kamino"
-  -> [ACTION:kamino_short_open] collateralToken=SOL collateralAmount=500 leverage=2
+  -> execute_action("kamino_short_open", {"collateralToken": "SOL", "collateralAmount": "500", "leverage": "2"})
 
 #### KAMINO_POSITION_CLOSE — Close a Kamino leveraged position (long/short)
 Format: [ACTION:kamino_position_close] position=<position_address> [percent=<0-100>]
@@ -184,9 +184,9 @@ Format: [ACTION:kamino_position_close] position=<position_address> [percent=<0-1
 
 Examples:
 - "Close my Kamino long position ABC123"
-  -> [ACTION:kamino_position_close] position=ABC123
+  -> execute_action("kamino_position_close", {"position": "ABC123"})
 - "Close 50% of my Kamino short position XYZ789"
-  -> [ACTION:kamino_position_close] position=XYZ789 percent=50
+  -> execute_action("kamino_position_close", {"position": "XYZ789", "percent": "50"})
 
 #### KAMINO_STAKE — Stake KMNO tokens
 Format: [ACTION:kamino_stake] amount=<amount>
@@ -219,78 +219,78 @@ Use `execute_action("kamino_X", {params})` for all Kamino data queries below.
 
 **kamino_markets** — List all Kamino K-Lend lending markets
 - "What markets are available on Kamino?" / "Show Kamino lending markets"
-  -> execute_action("kamino_markets", {})
+  -> query_onchain("kamino_markets", {})
 
 **kamino_market_detail** — Get details for a specific Kamino lending market
 - market: Market address or name (e.g. "main", "jlp", "altcoin")
-- "Show me the Kamino JLP market details" -> execute_action("kamino_market_detail", {"market": "jlp"})
+- "Show me the Kamino JLP market details" -> query_onchain("kamino_market_detail", {"market": "jlp"})
 
 **kamino_market_reserves** — Get all reserves (assets) in a Kamino market
 - market: Market address
-- "What assets can I deposit on Kamino main market?" -> execute_action("kamino_market_reserves", {"market": "main"})
+- "What assets can I deposit on Kamino main market?" -> query_onchain("kamino_market_reserves", {"market": "main"})
 
 **kamino_user_obligations** — Get user's active Kamino lending positions (deposits + borrows)
 - wallet: (optional) wallet address, defaults to authenticated user
 - "Show my Kamino lending positions" / "What's my Kamino collateral?"
-  -> execute_action("kamino_user_obligations", {})
+  -> query_onchain("kamino_user_obligations", {})
 
 **kamino_loan_detail** — Get full detail of a specific Kamino obligation/loan
 - obligation: Obligation/loan address
-- "Show details for my Kamino loan ABC123" -> execute_action("kamino_loan_detail", {"obligation": "ABC123"})
+- "Show details for my Kamino loan ABC123" -> query_onchain("kamino_loan_detail", {"obligation": "ABC123"})
 
 **kamino_obligation_pnl** — Get PnL for a Kamino lending position
 - obligation: Obligation address
-- "What's my Kamino lending PnL?" -> execute_action("kamino_obligation_pnl", {"obligation": "ABC123"})
+- "What's my Kamino lending PnL?" -> query_onchain("kamino_obligation_pnl", {"obligation": "ABC123"})
 
 **kamino_user_klend_transactions** — Get user's Kamino K-Lend transaction history
 - wallet: (optional) defaults to authenticated user
 - limit: (optional) number of results
-- "Show my Kamino lending transaction history" -> execute_action("kamino_user_klend_transactions", {})
+- "Show my Kamino lending transaction history" -> query_onchain("kamino_user_klend_transactions", {})
 
 **kamino_vaults** — List all Kamino Earn vaults
 - "What Kamino vaults are available?" / "List all Kamino yield vaults"
-  -> execute_action("kamino_vaults", {})
+  -> query_onchain("kamino_vaults", {})
 
 **kamino_vaults_summary** — Get summary metrics for all Kamino Earn vaults
-- "Show me a summary of Kamino vaults" -> execute_action("kamino_vaults_summary", {})
+- "Show me a summary of Kamino vaults" -> query_onchain("kamino_vaults_summary", {})
 
 **kamino_vault_detail** — Get full detail of a specific Kamino Earn vault
 - vault: Vault address or name
-- "Show details for the Kamino SOL vault" -> execute_action("kamino_vault_detail", {"vault": "SOL"})
+- "Show details for the Kamino SOL vault" -> query_onchain("kamino_vault_detail", {"vault": "SOL"})
 
 **kamino_vault_metrics** — Get APY and TVL metrics for a Kamino vault
 - vault: Vault address
-- "What's the APY on the Kamino USDC vault?" -> execute_action("kamino_vault_metrics", {"vault": "USDC"})
+- "What's the APY on the Kamino USDC vault?" -> query_onchain("kamino_vault_metrics", {"vault": "USDC"})
 
 **kamino_user_vault_positions** — Get user's positions across all Kamino Earn vaults
 - wallet: (optional) defaults to authenticated user
 - "What Kamino vaults am I in?" / "Show my Kamino earn positions"
-  -> execute_action("kamino_user_vault_positions", {})
+  -> query_onchain("kamino_user_vault_positions", {})
 
 **kamino_user_rewards** — Get user's claimable rewards across all Kamino products
 - wallet: (optional) defaults to authenticated user
-- "What Kamino rewards can I claim?" -> execute_action("kamino_user_rewards", {})
+- "What Kamino rewards can I claim?" -> query_onchain("kamino_user_rewards", {})
 
 **kamino_rewards_list** — List all pending/claimable Kamino rewards for a user
 - wallet: (optional) defaults to authenticated user
-- "List my Kamino rewards" -> execute_action("kamino_rewards_list", {})
+- "List my Kamino rewards" -> query_onchain("kamino_rewards_list", {})
 
 **kamino_airdrop_allocations** — Get user's KMNO airdrop allocation
 - wallet: (optional) defaults to authenticated user
 - "What's my Kamino airdrop?" / "How much KMNO do I get?"
-  -> execute_action("kamino_airdrop_allocations", {})
+  -> query_onchain("kamino_airdrop_allocations", {})
 
 **kamino_season_rewards_user** — Get user's current Kamino season rewards/points
 - wallet: (optional) defaults to authenticated user
-- "How many Kamino season points do I have?" -> execute_action("kamino_season_rewards_user", {})
+- "How many Kamino season points do I have?" -> query_onchain("kamino_season_rewards_user", {})
 
 **kamino_staking_yields** — Get KMNO staking yield rates
 - "What's the KMNO staking APY?" / "What yield do I get for staking KMNO?"
-  -> execute_action("kamino_staking_yields", {})
+  -> query_onchain("kamino_staking_yields", {})
 
 **kamino_oracle_prices** — Get current oracle prices used by Kamino
 - market: (optional) market address
-- "What oracle price is Kamino using for SOL?" -> execute_action("kamino_oracle_prices", {})
+- "What oracle price is Kamino using for SOL?" -> query_onchain("kamino_oracle_prices", {})
 
 **Routing rules for Kamino data queries:**
 - User asks about their positions/deposits/borrows → `kamino_user_obligations`
@@ -321,16 +321,16 @@ collateral automatically — there is no separate "deposit collateral" step.
 
 #### MARGINFI_CREATE_ACCOUNT_PDA — Create deterministic marginfi account (recommended)
 Format: [ACTION:marginfi_create_account_pda]
-Optional: [ACTION:marginfi_create_account_pda] accountIndex=1  (for a second account)
+Optional: [ACTION:marginfi_create_account_pda] accountIndex=1 (for a second account)
 
 Note: Preferred over marginfi_create_account. Deterministic address, no extra signer needed.
 Use this when a user says "create marginfi account", "open marginfi", "start on marginfi".
 
 Examples:
 - "Create a marginfi account"
-  -> [ACTION:marginfi_create_account_pda]
+  -> execute_action("marginfi_create_account_pda", {})
 - "Create a second marginfi account"
-  -> [ACTION:marginfi_create_account_pda] accountIndex=1
+  -> execute_action("marginfi_create_account_pda", {"accountIndex": "1"})
 
 #### MARGINFI_CREATE_ACCOUNT — Create non-deterministic marginfi account (legacy)
 Format: [ACTION:marginfi_create_account]
@@ -351,7 +351,7 @@ free up space to open a different position.
 
 Examples:
 - "Close my BONK slot on marginfi"
-  -> [ACTION:marginfi_close_balance] token=BONK
+  -> execute_action("marginfi_close_balance", {"token": "BONK"})
 
 #### MARGINFI_TRANSFER_ACCOUNT — Move all positions to a new marginfi account
 Format: [ACTION:marginfi_transfer_account] sourceAccount=<address> destinationAccount=<address>
@@ -370,11 +370,11 @@ Parameters:
 
 Examples:
 - "Deposit 100 USDC to marginfi"
-  -> [ACTION:marginfi_deposit] token=USDC amount=100
+  -> execute_action("marginfi_deposit", {"token": "USDC", "amount": "100"})
 - "Lend 5 SOL on marginfi"
-  -> [ACTION:marginfi_deposit] token=SOL amount=5
+  -> execute_action("marginfi_deposit", {"token": "SOL", "amount": "5"})
 - "Add 50 USDC as collateral on marginfi"
-  -> [ACTION:marginfi_deposit] token=USDC amount=50
+  -> execute_action("marginfi_deposit", {"token": "USDC", "amount": "50"})
 
 #### MARGINFI_WITHDRAW — Withdraw deposited tokens from marginfi
 Format: [ACTION:marginfi_withdraw] token=<symbol_or_mint> amount=<amount>
@@ -386,9 +386,9 @@ Parameters:
 
 Examples:
 - "Withdraw 100 USDC from marginfi"
-  -> [ACTION:marginfi_withdraw] token=USDC amount=100
+  -> execute_action("marginfi_withdraw", {"token": "USDC", "amount": "100"})
 - "Withdraw all my SOL from marginfi"
-  -> [ACTION:marginfi_withdraw] token=SOL amount=0 withdrawAll=true
+  -> execute_action("marginfi_withdraw", {"token": "SOL", "amount": "0", "withdrawAll": "true"})
 
 #### MARGINFI_BORROW — Borrow tokens from marginfi against collateral
 Format: [ACTION:marginfi_borrow] token=<symbol_or_mint> amount=<amount>
@@ -401,9 +401,9 @@ Note: User must have deposits as collateral before borrowing. Borrowing increase
 
 Examples:
 - "Borrow 500 USDC on marginfi"
-  -> [ACTION:marginfi_borrow] token=USDC amount=500
+  -> execute_action("marginfi_borrow", {"token": "USDC", "amount": "500"})
 - "Take a loan of 2 SOL from marginfi"
-  -> [ACTION:marginfi_borrow] token=SOL amount=2
+  -> execute_action("marginfi_borrow", {"token": "SOL", "amount": "2"})
 
 #### MARGINFI_REPAY — Repay borrowed tokens to marginfi
 Format: [ACTION:marginfi_repay] token=<symbol_or_mint> amount=<amount>
@@ -415,9 +415,9 @@ Parameters:
 
 Examples:
 - "Repay 200 USDC on marginfi"
-  -> [ACTION:marginfi_repay] token=USDC amount=200
+  -> execute_action("marginfi_repay", {"token": "USDC", "amount": "200"})
 - "Pay back all my marginfi USDC debt"
-  -> [ACTION:marginfi_repay] token=USDC amount=0 repayAll=true
+  -> execute_action("marginfi_repay", {"token": "USDC", "amount": "0", "repayAll": "true"})
 
 ---
 
@@ -434,7 +434,7 @@ Note: Only callable when target account's health factor < 1.0.
 
 Examples:
 - "Liquidate marginfi account Abc123 — seize SOL, repay USDC, amount 100"
-  -> [ACTION:marginfi_liquidate] liquidateeAccount=Abc123 assetBank=SOL liabBank=USDC assetAmount=100
+  -> execute_action("marginfi_liquidate", {"liquidateeAccount": "Abc123", "assetBank": "SOL", "liabBank": "USDC", "assetAmount": "100"})
 
 #### MARGINFI_START_LIQUIDATION — Start receivership liquidation (admin)
 Format: [ACTION:marginfi_start_liquidation] account=<address> liquidationReceiver=<wallet>
@@ -529,9 +529,9 @@ Parameters:
 
 Examples:
 - "Claim my marginfi rewards for USDC"
-  -> [ACTION:marginfi_claim_emissions] token=USDC
+  -> execute_action("marginfi_claim_emissions", {"token": "USDC"})
 - "Collect SOL emissions on marginfi"
-  -> [ACTION:marginfi_claim_emissions] token=SOL
+  -> execute_action("marginfi_claim_emissions", {"token": "SOL"})
 
 #### MARGINFI_SETTLE_EMISSIONS — Accrue pending emissions on a position (permissionless, no token transfer)
 Format: [ACTION:marginfi_settle_emissions] token=<symbol_or_mint>
@@ -555,7 +555,7 @@ Useful for bots or keepers that auto-compound rewards for users.
 
 Example:
 - "Withdraw SOL emissions for account ABC123..."
-  -> [ACTION:marginfi_withdraw_emissions_permissionless] account=ABC123... token=SOL
+  -> execute_action("marginfi_withdraw_emissions_permissionless", {"account": "ABC123...", "token": "SOL"})
 
 #### MARGINFI_UPDATE_EMISSIONS_DESTINATION — Change where your emissions are sent
 Format: [ACTION:marginfi_update_emissions_destination] destination=<wallet_address>
@@ -565,7 +565,7 @@ Parameters:
 
 Example:
 - "Send my marginfi emissions to my cold wallet HwMv..."
-  -> [ACTION:marginfi_update_emissions_destination] destination=HwMv...
+  -> execute_action("marginfi_update_emissions_destination", {"destination": "HwMv..."})
 
 #### MARGINFI_CLEAR_EMISSIONS — Clear stale emission state after bank disables rewards
 Format: [ACTION:marginfi_clear_emissions] token=<symbol_or_mint>
@@ -577,7 +577,7 @@ Note: Only call when the bank has already disabled its rewards (rate = 0). Permi
 
 Example:
 - "Clear stale USDC emissions on marginfi"
-  -> [ACTION:marginfi_clear_emissions] token=USDC
+  -> execute_action("marginfi_clear_emissions", {"token": "USDC"})
 
 #### MARGINFI_SET_KEEPER_FLAGS — Authorize keepers to auto-close your orders
 Format: [ACTION:marginfi_set_keeper_flags]
@@ -589,9 +589,9 @@ Parameters:
 
 Examples:
 - "Allow keepers to close all my marginfi orders"
-  -> [ACTION:marginfi_set_keeper_flags]
+  -> execute_action("marginfi_set_keeper_flags", {})
 - "Let keepers close my USDC order on marginfi"
-  -> [ACTION:marginfi_set_keeper_flags] banks=USDC
+  -> execute_action("marginfi_set_keeper_flags", {"banks": "USDC"})
 
 #### MARGINFI_INIT_LIQ_RECORD — Initialize liquidation record (one-time setup before start_liquidation)
 Format: [ACTION:marginfi_init_liq_record]
@@ -628,26 +628,26 @@ account is required (must be a specific marginfi account address).
 #### MARGINFI_ACCOUNT_INFO — Get full account info (deposits, borrows, health)
 Format: [ACTION:marginfi_account_info]
 
-Optional: [ACTION:marginfi_account_info] wallet=<address>  (for another wallet)
+Optional: [ACTION:marginfi_account_info] wallet=<address> (for another wallet)
 
 (Data query — no transaction. Defaults to connected wallet.)
 
 Examples:
 - "Show my marginfi account"
-  -> [ACTION:marginfi_account_info]
+  -> execute_action("marginfi_account_info", {})
 - "Check marginfi account for wallet HwM..."
-  -> [ACTION:marginfi_account_info] wallet=HwM...
+  -> execute_action("marginfi_account_info", {"wallet": "HwM..."})
 
 #### MARGINFI_BANKS — List all marginfi lending banks
 Format: [ACTION:marginfi_banks]
 
-Optional: [ACTION:marginfi_banks] limit=10  (limit number returned)
+Optional: [ACTION:marginfi_banks] limit=10 (limit number returned)
 
 (Data query — no transaction. Returns symbol, mint, token program for each bank.)
 
 Examples:
 - "What tokens can I lend on marginfi?"
-  -> [ACTION:marginfi_banks]
+  -> execute_action("marginfi_banks", {})
 
 #### MARGINFI_BANK_DETAIL — Get details for a specific marginfi bank
 Format: [ACTION:marginfi_bank_detail] token=<symbol_or_mint>
@@ -656,7 +656,7 @@ Format: [ACTION:marginfi_bank_detail] token=<symbol_or_mint>
 
 Examples:
 - "Show me the USDC bank on marginfi"
-  -> [ACTION:marginfi_bank_detail] token=USDC
+  -> execute_action("marginfi_bank_detail", {"token": "USDC"})
 
 #### MARGINFI_HEALTH — Get health factor and risk summary
 Format: [ACTION:marginfi_health]
@@ -668,9 +668,9 @@ liquidation threshold, and whether the account is healthy.)
 
 Examples:
 - "What's my marginfi health factor?"
-  -> [ACTION:marginfi_health]
+  -> execute_action("marginfi_health", {})
 - "Am I at risk of liquidation on marginfi?"
-  -> [ACTION:marginfi_health]
+  -> execute_action("marginfi_health", {})
 
 #### MARGINFI_POINTS — Get marginfi points balance and rank
 Format: [ACTION:marginfi_points]
@@ -681,7 +681,7 @@ Optional: [ACTION:marginfi_points] wallet=<address>
 
 Examples:
 - "How many marginfi points do I have?"
-  -> [ACTION:marginfi_points]
+  -> execute_action("marginfi_points", {})
 
 #### MARGINFI_USER_ACCOUNTS — List all PDA marginfi accounts for a wallet
 Format: [ACTION:marginfi_user_accounts]
@@ -692,7 +692,7 @@ Optional: [ACTION:marginfi_user_accounts] maxIndex=5
 
 Examples:
 - "Show all my marginfi accounts"
-  -> [ACTION:marginfi_user_accounts]
+  -> execute_action("marginfi_user_accounts", {})
 
 ---
 

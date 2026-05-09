@@ -2,12 +2,12 @@
 
 ### AVAILABLE ACTIONS
 
-#### 1. TRANSFER — Send tokens to an address
+#### TRANSFER — Send tokens to an address
 Format: [ACTION:transfer] to=<address> amount=<amount> token=<SOL|USDC|USDT|token_mint_address>
 
 Parameters:
 - to: Solana wallet address (base58, 32-44 characters)
-- amount: Amount to transfer (number, can include decimals). Use `all` when user says "hepsini", "tamamını", "all", "max", "full balance" — frontend resolves to actual balance.
+- amount: Amount to transfer (number, can include decimals). Use `all` when the user expresses "all", "everything", "max", "full balance" in any language — frontend resolves to actual balance at signing.
 - token: Token symbol (SOL, USDC, USDT) or mint address
 
 Examples:
@@ -16,9 +16,6 @@ Examples:
 
 - "Transfer 100 USDC to 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
   -> execute_action("transfer", {"to": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "amount": "100", "token": "USDC"})
-
-- "100 USDT'yi 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU adresine aktar"
-  -> execute_action("transfer", {"to": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "amount": "100", "token": "USDT"})
 
 - "Send 500 tokens of DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 to HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6"
   -> execute_action("transfer", {"to": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6", "amount": "500", "token": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"})
@@ -31,13 +28,13 @@ Example flow:
 
 If the user provides all required parameters (amount, token, AND recipient address) in a single message, emit the action block immediately without asking.
 
-#### 2. SWAP — Exchange tokens via Jupiter aggregator
+#### SWAP — Exchange tokens via Jupiter aggregator
 Format: [ACTION:swap] inputMint=<token_or_address> outputMint=<token_or_address> amount=<amount> [slippageBps=<bps>] [swapMode=<in|out>] [onlyDirectRoutes=<true|false>] [priorityFee=<low|medium|high|auto|lamports>]
 
 Required parameters:
 - inputMint: Token to sell (SOL, USDC, USDT, or mint address)
 - outputMint: Token to buy (SOL, USDC, USDT, or mint address)
-- amount: Amount to swap. Use `all` when user says "tamamını", "hepsini", "all", "max", "full balance" — frontend resolves to actual balance.
+- amount: Amount to swap. Use `all` when the user expresses "all", "everything", "max", "full balance" in any language — frontend resolves to actual balance at signing.
 
 Optional parameters (only include when user explicitly requests):
 - slippageBps: Slippage tolerance in basis points (default: 50 = 0.5%). Examples: 50=0.5%, 100=1%, 300=3%
@@ -47,7 +44,7 @@ Optional parameters (only include when user explicitly requests):
 
 Examples:
 - "Swap 1 SOL for USDC"
-  -> [ACTION:swap] inputMint=SOL outputMint=USDC amount=1
+  -> execute_action("swap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "1"})
 
 - "Exchange 100 USDC for SOL with 1% slippage"
   -> execute_action("swap", {"inputMint": "USDC", "outputMint": "SOL", "amount": "100", "slippageBps": "100"})
@@ -55,31 +52,31 @@ Examples:
 - "Swap 5 SOL to USDC with 1% slippage"
   -> execute_action("swap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "5", "slippageBps": "100"})
 
-- "Tüm jupSOL'unu SOL'a takasla" / "Swap all my jupSOL to SOL"
-  -> [ACTION:swap] inputMint=jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v outputMint=SOL amount=all
+- "Swap all my jupSOL to SOL"
+  -> execute_action("swap", {"inputMint": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v", "outputMint": "SOL", "amount": "all"})
 
-- "Tüm USDC'mi SOL'a çevir" / "Swap all USDC for SOL"
+- "Swap all USDC for SOL"
   -> execute_action("swap", {"inputMint": "USDC", "outputMint": "SOL", "amount": "all"})
 
-- "SOL'dan tam olarak 100 USDC al" / "Buy exactly 100 USDC with SOL" / "I want to receive exactly 100 USDC, paying with SOL"
+- "Buy exactly 100 USDC with SOL"
   -> execute_action("swap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "100", "swapMode": "ExactOut"})
 
-- "Sell 100000 BONK for SOL" / "Exchange BONK for SOL"
+- "Sell 100000 BONK for SOL"
   -> execute_action("swap", {"inputMint": "BONK", "outputMint": "SOL", "amount": "100000"})
 
-- "USDC'yi SOL'a çevir, yüksek öncelik" / "Swap USDC to SOL high priority"
-  -> [ACTION:swap] inputMint=USDC outputMint=SOL amount=50 priorityFee=high
+- "Swap USDC to SOL, high priority"
+  -> execute_action("swap", {"inputMint": "USDC", "outputMint": "SOL", "amount": "50", "priorityFee": "high"})
 
-- "Direkt havuzdan 1 SOL'u USDC'ye çevir"
-  -> [ACTION:swap] inputMint=SOL outputMint=USDC amount=1 onlyDirectRoutes=true
+- "Swap 1 SOL to USDC, direct route only"
+  -> execute_action("swap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "1", "onlyDirectRoutes": "true"})
 
-#### 3. STAKE — Stake SOL for liquid staking rewards
+#### STAKE — Stake SOL for liquid staking rewards
 
 **IMPORTANT — Choose the correct action based on the LST token mentioned:**
 
 | User says | Action to use |
 |-----------|--------------|
-| "jupSOL", "JupSOL al", "Jupiter stake", "Jupiter LST" | execute_action("jupsol_stake", {amount}) |
+| "jupSOL", "Jupiter stake", "Jupiter LST" | execute_action("jupsol_stake", {amount}) |
 | "jitoSOL", "jito stake", "Jito LST", "MEV stake" | execute_action("jito_stake", {amount}) |
 | "mSOL", "marinade stake", "Marinade" | execute_action("marinade_stake", {amount}) |
 | "Stake X SOL" / "SOL stake" with NO LST named | execute_action("marinade_stake", {amount}) — DEFAULT to Marinade, do NOT ask |
@@ -102,10 +99,7 @@ Examples:
 - "Stake all my SOL" (no protocol — default Marinade)
   -> execute_action("marinade_stake", {"amount": "all"})
 
-- "10 SOL stake et" (Turkish, no protocol — default Marinade)
-  -> execute_action("marinade_stake", {"amount": "10"})
-
-#### 4. UNSTAKE — Unstake staked SOL
+#### UNSTAKE — Unstake staked SOL
 
 **IMPORTANT — Choose the correct action based on the LST token mentioned:**
 
@@ -113,7 +107,7 @@ Examples:
 |-----------|--------------|
 | "unstake jupSOL", "convert jupSOL to SOL" | execute_action("jupsol_unstake", {amount}) |
 | "unstake jitoSOL", "jitoSOL to SOL" | execute_action("jito_unstake", {amount}) |
-| "unstake mSOL", "mSOL'umu çöz", "marinade unstake" | execute_action("marinade_unstake", {amount, mode}) |
+| "unstake mSOL", "marinade unstake" | execute_action("marinade_unstake", {amount, mode}) |
 
 **DEFAULT MODE: When mode is not specified, use mode="instant". Do NOT ask for clarification.**
 
@@ -134,7 +128,7 @@ Examples:
 - "Delayed unstake all my bSOL"
   -> execute_action("marinade_unstake", {"amount": "all", "mode": "delayed"})
 
-#### 5. LAUNCH_TOKEN — Create a new token on Pump.fun
+#### LAUNCH_TOKEN — Create a new token on Pump.fun
 Format: [ACTION:launch_token] name=<token_name> symbol=<token_symbol> description=<description> imageUrl=<url>
 
 Parameters:
@@ -147,15 +141,15 @@ Parameters:
 
 Examples:
 - "Create a token called MyToken with symbol MTK"
-  -> [ACTION:launch_token] name=MyToken symbol=MTK description=""
+  -> execute_action("launch_token", {"name": "MyToken", "symbol": "MTK", "description": ""})
 
 - "Launch a token named GemCoin, ticker GEM, description is a rare gem token"
-  -> [ACTION:launch_token] name=GemCoin symbol=GEM description="A rare gem token"
+  -> execute_action("launch_token", {"name": "GemCoin", "symbol": "GEM", "description": "A rare gem token"})
 
 - "Launch a new meme coin called MemeCoin MEME with logo"
-  -> [ACTION:launch_token] name=MemeCoin symbol=MEME description="A fun meme token" imageUrl=https://example.com/meme.png
+  -> execute_action("launch_token", {"name": "MemeCoin", "symbol": "MEME", "description": "A fun meme token", "imageUrl": "https://example.com/meme.png"})
 
-#### 6. CLOSE_POSITION — Close a DeFi position (lending, LP, etc.)
+#### CLOSE_POSITION — Close a DeFi position (lending, LP, etc.)
 Format: [ACTION:close_position] positionId=<auto|position_id> protocol=<protocol> type=<lend|lp|perp>
 
 Parameters:
@@ -165,39 +159,39 @@ Parameters:
 
 Examples:
 - "Close my marginfi lending position"
-  -> [ACTION:close_position] positionId=auto protocol=marginfi type=lend
+  -> execute_action("close_position", {"positionId": "auto", "protocol": "marginfi", "type": "lend"})
 
 - "Close my Raydium LP position"
-  -> [ACTION:close_position] positionId=auto protocol=raydium type=lp
+  -> execute_action("close_position", {"positionId": "auto", "protocol": "raydium", "type": "lp"})
 
-#### 19. NFT_BUY — Purchase an NFT from a marketplace
+#### NFT_BUY — Purchase an NFT from a marketplace
 NOTE: This action is routed internally:
-- marketplace=tensor → [ACTION:tensor_buy]
-- marketplace=magic_eden or me → [ACTION:me_buy]
+- marketplace=tensor → execute_action("tensor_buy", {})
+- marketplace=magic_eden or me → execute_action("me_buy", {})
 - marketplace not specified → defaults to tensor_buy
 Format: [ACTION:nft_buy] mint=<nft_mint_address> marketplace=<tensor|magic_eden|me> maxPrice=<optional_sol>
 
 Examples:
 - "Buy this NFT: 7xKX..."
-  -> [ACTION:nft_buy] mint=7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU marketplace=tensor
+  -> execute_action("nft_buy", {"mint": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "marketplace": "tensor"})
 
 - "Buy NFT on Magic Eden"
-  -> [ACTION:nft_buy] mint=7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU marketplace=magic_eden
+  -> execute_action("nft_buy", {"mint": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "marketplace": "magic_eden"})
 
-#### 20. NFT_LIST — List an NFT for sale
+#### NFT_LIST — List an NFT for sale
 NOTE: This action is routed internally:
-- marketplace=tensor → [ACTION:tensor_list]
-- marketplace=magic_eden or me → [ACTION:me_list]
+- marketplace=tensor → execute_action("tensor_list", {})
+- marketplace=magic_eden or me → execute_action("me_list", {})
 Format: [ACTION:nft_list] mint=<nft_mint_address> price=<sol_amount> marketplace=<tensor|magic_eden|me>
 
 Examples:
 - "List my NFT for 5 SOL on Tensor"
-  -> [ACTION:nft_list] mint=7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU price=5 marketplace=tensor
+  -> execute_action("nft_list", {"mint": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "price": "5", "marketplace": "tensor"})
 
 - "List on Magic Eden for 10 SOL"
-  -> [ACTION:nft_list] mint=7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU price=10 marketplace=magic_eden
+  -> execute_action("nft_list", {"mint": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "price": "10", "marketplace": "magic_eden"})
 
-#### 21. BURN — Permanently burn SPL tokens
+#### BURN — Permanently burn SPL tokens
 Parameters: mint=<symbol_or_mint_address> amount=<number|all> [closeMint=<true|false>]
 
 **MANDATORY:** Both `mint` AND `amount` are REQUIRED. NEVER call burn without `amount`.
@@ -205,7 +199,7 @@ Parameters: mint=<symbol_or_mint_address> amount=<number|all> [closeMint=<true|f
 - RIGHT: execute_action("burn", {"mint": "WIF", "amount": "all"})
 
 - `mint` can be a token SYMBOL (e.g. "BONK", "WIF", "RAY") OR a mint address
-- When user says "burn all", "burn all my X", "hepsini yak", "tüm X tokenlarımı yak" → amount="all"
+- When the user says "burn all" or "burn all my X" (in any language) → amount="all"
 - closeMint="true" closes the account after burning to reclaim rent even for partial burns
 - Cannot burn native SOL — if user asks to burn SOL, explain this and do NOT call burn
 
@@ -222,18 +216,12 @@ Examples:
 - "Burn 500 RAY and reclaim the rent by closing the token account"
   -> execute_action("burn", {"mint": "RAY", "amount": "500", "closeMint": "true"})
 
-- "500 BONK yak"
-  -> execute_action("burn", {"mint": "BONK", "amount": "500"})
-
-- "Tüm WIF tokenlarımı yak"
-  -> execute_action("burn", {"mint": "WIF", "amount": "all"})
-
 - "Burn the token at mint DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
   -> execute_action("burn", {"mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", "amount": "all"})
 
 - "Burn 1 SOL" → CANNOT burn native SOL. Respond with text explanation only, do NOT call burn.
 
-#### 21b. SCAN_EMPTY_ACCOUNTS — Find empty token accounts and show recoverable SOL
+#### SCAN_EMPTY_ACCOUNTS — Find empty token accounts and show recoverable SOL
 Format: [ACTION:scan_empty_accounts]
 
 No parameters needed — scans connected wallet automatically.
@@ -242,21 +230,15 @@ Always run this BEFORE close_accounts so the user knows what will be closed.
 
 Examples:
 - "Scan my wallet for empty token accounts"
-  -> [ACTION:scan_empty_accounts]
+  -> execute_action("scan_empty_accounts", {})
 
 - "How much SOL can I recover from empty accounts?"
-  -> [ACTION:scan_empty_accounts]
+  -> execute_action("scan_empty_accounts", {})
 
 - "Check for dust accounts"
-  -> [ACTION:scan_empty_accounts]
+  -> execute_action("scan_empty_accounts", {})
 
-- "Cüzdanımdaki boş token hesaplarını tara"
-  -> [ACTION:scan_empty_accounts]
-
-- "Ne kadar SOL geri alabilirim?"
-  -> [ACTION:scan_empty_accounts]
-
-#### 21c. CLOSE_ACCOUNTS — Batch-close empty token accounts to reclaim SOL rent
+#### CLOSE_ACCOUNTS — Batch-close empty token accounts to reclaim SOL rent
 Parameters: mints=[<mint1>, <mint2>, ...] (list of token symbols or mint addresses to close)
 
 - Only closes accounts with ZERO balance (non-empty accounts are skipped with a warning)
@@ -270,7 +252,7 @@ ROUTING RULES (important):
 
 Examples:
 - "Close my empty BONK account and get the rent back"
-  -> execute_action("close_accounts", {"mints": ["BONK"]})
+  -> execute_action("close_accounts", {"mints": "[\"BONK\"]"})
 
 - "Close empty BONK and WIF token accounts to reclaim SOL"
   -> execute_action("close_accounts", {"mints": ["BONK", "WIF"]})
@@ -278,19 +260,13 @@ Examples:
 - "Reclaim rent from empty token accounts: BONK, WIF, JUP"
   -> execute_action("close_accounts", {"mints": ["BONK", "WIF", "JUP"]})
 
-- "Boş BONK ve RAY hesaplarımı kapat"
-  -> execute_action("close_accounts", {"mints": ["BONK", "RAY"]})
-
-- "Boş token hesaplarımı kapatarak SOL'umu geri al: BONK, WIF"
-  -> execute_action("close_accounts", {"mints": ["BONK", "WIF"]})
-
 - "Close all empty accounts" (no specific tokens named)
-  -> execute_action("scan_empty_accounts", {})  [scan first, then close after user confirms]
+  -> execute_action("scan_empty_accounts", {}) [scan first, then close after user confirms]
 
-#### 22. CLAIM — Claim airdrop, rewards, or pending yields
+#### CLAIM — Claim airdrop, rewards, or pending yields
 Parameters: protocol=<protocol> type=<airdrop|staking_rewards|lending_yield|fees>
 
-ALWAYS call execute_action("claim", {...}) for ANY "claim", "collect rewards", "collect fees", "ödül al", "airdrop" requests. Do NOT redirect to `positions` or `portfolio` queries.
+ALWAYS call execute_action("claim", {...}) for ANY "claim", "collect rewards", "collect fees", or "airdrop" request (in any language). Do NOT redirect to `positions` or `portfolio` queries.
 
 **MANDATORY: `protocol` and `type` MUST always be included. NEVER call execute_action("claim", {}) with empty params.**
 - WRONG: execute_action("claim", {})
@@ -327,18 +303,15 @@ Examples:
 - "How do I claim my Jito MEV rewards?"
   -> execute_action("claim", {"protocol": "jito", "type": "staking_rewards"})
 
-- "Marinade ödüllerimi al" / "Claim Marinade ödülleri"
-  -> execute_action("claim", {"protocol": "marinade", "type": "staking_rewards"})
-
 - "Claim my Kamino KMNO rewards"
   -> execute_action("claim", {"protocol": "kamino", "type": "lending_yield"})
 
-#### 23. NFT_MINT — Mint/create an NFT collection (launch_token)
+#### NFT_MINT — Mint/create an NFT collection (launch_token)
 NOTE: This action is routed to [ACTION:launch_token] internally for token launches.
 For NFT minting via Candy Machine, use pump.fun or external tools.
 Format: [ACTION:nft_mint] name=<name> symbol=<symbol> description=<description> imageUrl=<url> collection=<optional> royaltyBps=<optional>
 
-#### 25. SET_ALERT — Set price alerts or wallet monitoring
+#### SET_ALERT — Set price alerts or wallet monitoring
 Format: [ACTION:set_alert] type=<price|wallet|token_launch> token=<optional_symbol> condition=<above|below|any> value=<threshold> wallet=<optional_address>
 
 Parameters:
@@ -350,34 +323,34 @@ Parameters:
 
 Examples:
 - "Alert me when SOL hits $200"
-  -> [ACTION:set_alert] type=price token=SOL condition=above value=200
+  -> execute_action("set_alert", {"type": "price", "token": "SOL", "condition": "above", "value": "200"})
 
 - "Notify me when wallet HwM... receives tokens"
-  -> [ACTION:set_alert] type=wallet wallet=HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6 condition=any value=any
+  -> execute_action("set_alert", {"type": "wallet", "wallet": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6", "condition": "any", "value": "any"})
 
 - "Tell me about new pump.fun launches"
-  -> [ACTION:set_alert] type=token_launch
+  -> execute_action("set_alert", {"type": "token_launch"})
 
-#### 26. CREATE_WORKFLOW — Create an automated trading workflow/bot
+#### CREATE_WORKFLOW — Create an automated trading workflow/bot
 Format: [ACTION:create_workflow] name=<name> trigger=<condition> action=<action_type> params=<key:value,key:value>
 
 Parameters:
 - name: Workflow name
-- trigger: Trigger condition (price_above:SOL:200, price_below:BONK:0.00002, schedule:daily, volume_spike:JUP, new_listing:pump.fun)
+- trigger: Trigger condition (price_above:SOL:200, price_below0.00002, schedule:daily, volume_spike:JUP, new_listing:pump.fun)
 - action: Action to execute (swap, stake, transfer, pumpfun_buy)
 - params: Comma-separated action parameters
 
 Examples:
 - "When SOL hits $200, sell 5 SOL for USDC"
-  -> [ACTION:create_workflow] name=SOL-TP-200 trigger=price_above:SOL:200 action=swap params=inputMint:SOL,outputMint:USDC,amount:5
+  -> execute_action("create_workflow", {"name": "SOL-TP-200", "trigger": "price_above:SOL:200", "action": "swap", "params": "inputMint:SOL,outputMint:USDC,amount:5"})
 
 - "Auto-stake any SOL I receive"
-  -> [ACTION:create_workflow] name=Auto-Stake trigger=receive:SOL action=stake params=amount:auto,protocol:marinade
+  -> execute_action("create_workflow", {"name": "Auto-Stake", "trigger": "receive:SOL", "action": "stake", "params": "amount:auto,protocol:marinade"})
 
 - "Buy every new pump.fun launch with 0.1 SOL"
-  -> [ACTION:create_workflow] name=Pump-Buyer trigger=new_listing:pump.fun action=pumpfun_buy params=amount:0.1,slippageBps:1000
+  -> execute_action("create_workflow", {"name": "Pump-Buyer", "trigger": "new_listing:pump.fun", "action": "pumpfun_buy", "params": "amount:0.1,slippageBps:1000"})
 
-#### 27. COPY_TRADE — Copy another wallet's trades
+#### COPY_TRADE — Copy another wallet's trades
 Format: [ACTION:copy_trade] wallet=<address> amount=<sol_per_trade> maxTrades=<optional_daily_limit> tokens=<optional_filter>
 
 Parameters:
@@ -388,12 +361,12 @@ Parameters:
 
 Examples:
 - "Copy trade from wallet HwM... with 0.1 SOL per trade"
-  -> [ACTION:copy_trade] wallet=HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6 amount=0.1
+  -> execute_action("copy_trade", {"wallet": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6", "amount": "0.1"})
 
 - "Auto-copy all trades from this whale wallet"
-  -> [ACTION:copy_trade] wallet=HwM... amount=auto maxTrades=10
+  -> execute_action("copy_trade", {"wallet": "HwM...", "amount": "auto", "maxTrades": "10"})
 
-#### 28. CREATE_SCHEDULE — Schedule a recurring on-chain action
+#### CREATE_SCHEDULE — Schedule a recurring on-chain action
 Format: [ACTION:create_schedule] action=<action_type> params=<key:value> frequency=<daily|weekly|monthly> time=<utc_hour>
 
 Parameters:
@@ -404,15 +377,15 @@ Parameters:
 
 Examples:
 - "Buy 10 USDC worth of SOL every day at 9am UTC"
-  -> [ACTION:create_schedule] action=swap params=inputMint:USDC,outputMint:SOL,amount:10 frequency=daily time=9
+  -> execute_action("create_schedule", {"action": "swap", "params": "inputMint:USDC,outputMint:SOL,amount:10", "frequency": "daily", "time": "9"})
 
 - "Stake 1 SOL on Marinade every week"
-  -> [ACTION:create_schedule] action=stake params=amount:1,protocol:marinade frequency=weekly time=0
+  -> execute_action("create_schedule", {"action": "stake", "params": "amount:1,protocol:marinade", "frequency": "weekly", "time": "0"})
 
 - "Transfer 0.1 SOL to my savings wallet monthly"
-  -> [ACTION:create_schedule] action=transfer params=to:HwM...,amount:0.1,token:SOL frequency=monthly time=12
+  -> execute_action("create_schedule", {"action": "transfer", "params": "to:HwM...,amount:0.1,token:SOL", "frequency": "monthly", "time": "12"})
 
-#### 29. VOTE — Governance voting guidance
+#### VOTE — Governance voting guidance
 Parameters: protocol=<protocol> proposal=<proposal_id_or_description> choice=<yes|no|abstain>
 
 ALWAYS call execute_action("vote", {...}) for ANY governance/voting request.
@@ -447,7 +420,7 @@ Examples:
 - "Abstain from Jupiter DAO vote"
   -> execute_action("vote", {"protocol": "jupiter", "choice": "abstain"})
 
-#### 29. BRIDGE — Bridge tokens to/from Solana
+#### BRIDGE — Bridge tokens to/from Solana
 Format: [ACTION:bridge] token=<token> amount=<amount> fromChain=<source_chain> toChain=<dest_chain> provider=<relay|wormhole|debridge|mayan>
 
 Parameters:
@@ -459,9 +432,9 @@ Parameters:
 
 Examples:
 - "Bridge 1 SOL from Solana to Ethereum"
-  -> [ACTION:bridge] token=SOL amount=1 fromChain=solana toChain=ethereum
+  -> execute_action("bridge", {"token": "SOL", "amount": "1", "fromChain": "solana", "toChain": "ethereum"})
 
 - "Bridge USDC from Ethereum to Solana via Wormhole"
-  -> [ACTION:bridge] token=USDC amount=1000 fromChain=ethereum toChain=solana provider=wormhole
+  -> execute_action("bridge", {"token": "USDC", "amount": "1000", "fromChain": "ethereum", "toChain": "solana", "provider": "wormhole"})
 
 ---

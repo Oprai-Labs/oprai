@@ -16,6 +16,7 @@ dependencies = [
     "langchain>=0.3.0",
     "langchain-openai>=0.3.0",
     "openai>=1.58.0",
+    "anthropic>=0.40.0",
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
@@ -27,6 +28,7 @@ dependencies = [
     "redis>=5.0.0",
     "structlog>=24.1.0",
     "python-json-logger>=2.0.7",
+    "qdrant-client>=1.12.0",
 ]
 
 [project.optional-dependencies]
@@ -42,3 +44,10 @@ include = ["app*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Markers split the eval harness so CI can gate on the cheap unit tests while
+# the LLM-quality regressions (which call the real model and cost ~cents per
+# run) only fire on demand or on a release branch.
+markers = [
+    "llm_eval: end-to-end LLM quality eval — slow, costs API credits, run on release",
+    "integration: hits external services (DB, Redis, RPC); skip in CI without infra",
+]

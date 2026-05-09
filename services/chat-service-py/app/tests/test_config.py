@@ -28,7 +28,7 @@ class TestSettings:
         assert settings.DB_SCHEMA == "chat_schema"
 
         # OpenAI defaults
-        assert settings.OPRAI_OPENAI_MODEL == "gpt-4o-mini"
+        assert settings.OPRAI_RESPONDER_MODEL_OPENAI == "gpt-4o-mini"
         assert settings.OPRAI_GPT_REASONING_EFFORT == "medium"
         assert settings.OPRAI_GPT_MAX_TOKENS == 4096
 
@@ -49,14 +49,14 @@ class TestSettings:
         """Test environment variables override defaults"""
         with patch.dict(os.environ, {
             "PORT": "4000",
-            "OPRAI_OPENAI_MODEL": "gpt-4",
+            "OPRAI_RESPONDER_MODEL_OPENAI": "gpt-4",
             "NODE_ENV": "production",
         }):
             from app.config import Settings
             settings = Settings()
 
             assert settings.PORT == 4000
-            assert settings.OPRAI_OPENAI_MODEL == "gpt-4"
+            assert settings.OPRAI_RESPONDER_MODEL_OPENAI == "gpt-4"
             assert settings.NODE_ENV == "production"
 
     def test_settings_instance_exists(self):
@@ -90,7 +90,7 @@ class TestSettings:
         from app.config import Settings
 
         settings = Settings()
-        assert settings.OPRAI_OPENAI_FALLBACK_MODEL == "gpt-4o-mini"
+        assert settings.OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI == "gpt-4o-mini"
 
     def test_env_file_loading(self):
         """Test env_file configuration"""

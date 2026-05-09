@@ -39,6 +39,7 @@ class VectorService:
             url=settings.QDRANT_URL,
             api_key=settings.QDRANT_API_KEY or None,
             timeout=10,
+            check_compatibility=False,
         )
         self._collection = settings.COLLECTION_NAME
         self._dim = settings.EMBEDDING_DIM

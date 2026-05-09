@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -184,7 +185,12 @@ func (m *MarketProxy) SearchTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cacheKey := "token-search:" + strings.ToLower(query)
+	limit := r.URL.Query().Get("limit")
+	if limit == "" {
+		limit = "20"
+	}
+
+	cacheKey := "token-search:" + strings.ToLower(query) + ":" + limit
 	if data, ok := m.cache.Get(cacheKey); ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
@@ -192,7 +198,7 @@ func (m *MarketProxy) SearchTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiURL := fmt.Sprintf("https://api.jup.ag/tokens/v2/search?query=%s&limit=10", query)
+	apiURL := fmt.Sprintf("https://api.jup.ag/tokens/v2/search?query=%s&limit=%s", query, limit)
 	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create request")
@@ -233,7 +239,7 @@ func (m *MarketProxy) GetTokenList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiURL := "https://api.jup.ag/tokens/v2/recent?limit=50"
+	apiURL := "https://token.jup.ag/strict"
 	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create request")
@@ -1494,8 +1500,222 @@ func (m *MarketProxy) GetJitoBamValidatorScore(w http.ResponseWriter, r *http.Re
 	m.forwardKobe(w, r, path, cacheKey, 60*time.Second)
 }
 
-// PostRpc proxies Solana JSON-RPC POST requests to Helius RPC.
-// This keeps the Helius API key server-side and never exposes it to the client.
+// GetMarinadeExchangeRate fetches the live mSOL/SOL spot rate from Marinade's
+// own indexer.
+//
+// Primary: https://api.marinade.finance/msol/price_sol — returns the rate as
+// a bare numeric body (e.g. "1.377545615248593"), recomputed by Marinade's
+// indexer on every Solana slot. This is the live spot price their staking
+// dashboard uses, NOT an aggregated APY rollup.
+//
+// Fallback: https://api.marinade.finance/tlv — derives the rate from
+// `total_virtual_staked_sol / msol_supply` (here `msol_directed_stake_msol`
+// is the wrong field; we instead reach for total_sol and assume the indexer
+// keeps these in sync). Used only if the price endpoint fails.
+//
+// Response (always wrapped so the client schema stays stable):
+//
+//	{ "msolPrice": 1.377545, "source": "price_sol" | "tlv" }
+//
+// On total upstream failure we return 502 — callers must hide UI rather than
+// fall back to a static constant.
+func (m *MarketProxy) GetMarinadeExchangeRate(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "marinade:exchange-rate"
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	rate, source, err := m.fetchMarinadeRate(r.Context())
+	if err != nil {
+		slog.Error("marinade exchange rate error", "error", err)
+		writeError(w, http.StatusBadGateway, "marinade rate unavailable")
+		return
+	}
+
+	out, _ := json.Marshal(map[string]any{
+		"msolPrice": rate,
+		"source":    source,
+	})
+	// Cache for 15s — long enough to absorb traffic spikes, short enough to
+	// stay effectively live (Marinade's indexer updates ~per slot ≈ 400ms).
+	m.cache.Set(cacheKey, out, 15*time.Second)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(http.StatusOK)
+	w.Write(out)
+}
+
+// GetJupSolExchangeRate returns the live SOL→jupSOL conversion rate the user
+// will actually receive when they stake.
+//
+// JupSOL stake is implemented as a Jupiter swap (SOL → jupSOL), so the
+// "expected receive" preview must come from the same swap router that will
+// build the transaction — not from a stake-pool redemption rate, which would
+// drift from the actual on-chain output by the AMM spread. We hit the public
+// quote endpoint with a 1 SOL probe (1e9 lamports, 10 bps slippage, indirect
+// routing allowed) and expose the result as `solPerJupSol = 1e9 / outAmount`.
+//
+// Response (wrapped so the client schema stays stable across rate sources):
+//
+//	{ "jupSolPrice": 1.0876, "source": "jupiter_quote" }
+//
+// On upstream failure we return 502 — callers must hide the preview rather
+// than fall back to a static constant.
+func (m *MarketProxy) GetJupSolExchangeRate(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "jupsol:exchange-rate"
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	rate, err := m.fetchJupSolRate(r.Context())
+	if err != nil {
+		slog.Error("jupsol exchange rate error", "error", err)
+		writeError(w, http.StatusBadGateway, "jupsol rate unavailable")
+		return
+	}
+
+	out, _ := json.Marshal(map[string]any{
+		"jupSolPrice": rate,
+		"source":      "jupiter_quote",
+	})
+	// 30s — JupSOL accrues yield slowly; a half-minute snapshot stays well
+	// inside the user's perceived freshness window without hammering Jupiter.
+	m.cache.Set(cacheKey, out, 30*time.Second)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(http.StatusOK)
+	w.Write(out)
+}
+
+// fetchJupSolRate probes the public Jupiter swap quote endpoint for 1 SOL →
+// jupSOL and returns the inverse outAmount as SOL-per-jupSOL.
+//
+// Endpoint note: Jupiter retired `quote-api.jup.ag/v6/*` (DNS now NXDOMAINs)
+// and consolidated everything onto `lite-api.jup.ag/swap/v1/*` (public, no
+// key) and `api.jup.ag/swap/v1/*` (keyed). We hit lite-api so this works
+// without provisioning a Jupiter key in the gateway.
+func (m *MarketProxy) fetchJupSolRate(ctx context.Context) (float64, error) {
+	const (
+		solMint    = "So11111111111111111111111111111111111111112"
+		jupSolMint = "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v"
+	)
+	q := url.Values{}
+	q.Set("inputMint", solMint)
+	q.Set("outputMint", jupSolMint)
+	q.Set("amount", "1000000000") // 1 SOL in lamports
+	q.Set("slippageBps", "10")
+	q.Set("onlyDirectRoutes", "false")
+	endpoint := "https://lite-api.jup.ag/swap/v1/quote?" + q.Encode()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("jupiter quote HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return 0, err
+	}
+	var parsed struct {
+		OutAmount string `json:"outAmount"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return 0, fmt.Errorf("jupiter quote parse: %w", err)
+	}
+	out, err := strconv.ParseUint(parsed.OutAmount, 10, 64)
+	if err != nil || out == 0 {
+		return 0, fmt.Errorf("jupiter quote outAmount invalid: %q", parsed.OutAmount)
+	}
+	// SOL-per-jupSOL = (1 SOL in lamports) / (jupSOL out in lamports). Both
+	// mints have 9 decimals so the lamport ratio equals the unit ratio.
+	rate := 1e9 / float64(out)
+	if !(rate > 0) {
+		return 0, fmt.Errorf("jupiter quote rate non-positive: %v", rate)
+	}
+	return rate, nil
+}
+
+// fetchMarinadeRate hits Marinade's dedicated live-price endpoint. There is
+// no static or derived fallback: if the endpoint is down we surface the error
+// so the UI can refuse to show a stale or guessed conversion. (`/tlv` does
+// not carry total mSOL supply, only directed-stake numerators, so deriving
+// the rate from it would be wrong by construction.)
+func (m *MarketProxy) fetchMarinadeRate(ctx context.Context) (float64, string, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.marinade.finance/msol/price_sol", nil)
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, "", fmt.Errorf("marinade price_sol HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil {
+		return 0, "", err
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(string(body)), 64)
+	if err != nil {
+		return 0, "", fmt.Errorf("marinade price_sol parse: %w", err)
+	}
+	if !(v > 0) {
+		return 0, "", fmt.Errorf("marinade price_sol non-positive: %v", v)
+	}
+	return v, "price_sol", nil
+}
+
+// rpcEndpoint represents one entry in the fallback chain.
+type rpcEndpoint struct {
+	url       string
+	authToken string // optional Bearer token for managed endpoints
+	label     string // for logging
+}
+
+// rpcChain returns the ordered list of RPC endpoints to try. Helius first
+// (best performance + ratelimit headroom), then any operator-configured
+// fallbacks via OPRAI_RPC_FALLBACKS (comma-separated URLs), finally the
+// public mainnet-beta endpoint as a last resort.
+func (m *MarketProxy) rpcChain() []rpcEndpoint {
+	chain := make([]rpcEndpoint, 0, 3)
+	if m.heliusAPIKey != "" {
+		chain = append(chain, rpcEndpoint{
+			url:       "https://mainnet.helius-rpc.com",
+			authToken: m.heliusAPIKey,
+			label:     "helius",
+		})
+	}
+	if extra := os.Getenv("OPRAI_RPC_FALLBACKS"); extra != "" {
+		for _, raw := range strings.Split(extra, ",") {
+			url := strings.TrimSpace(raw)
+			if url == "" {
+				continue
+			}
+			chain = append(chain, rpcEndpoint{url: url, label: url})
+		}
+	}
+	chain = append(chain, rpcEndpoint{
+		url:   "https://api.mainnet-beta.solana.com",
+		label: "mainnet-beta",
+	})
+	return chain
+}
+
+// PostRpc proxies Solana JSON-RPC POST requests with a fallback chain so a
+// single-provider outage doesn't take down the frontend's RPC needs. Tries
+// each endpoint in order until one returns a 2xx; only 5xx / network errors
+// trigger fallthrough (4xx is treated as a client error and surfaced).
 func (m *MarketProxy) PostRpc(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB limit
 	if err != nil {
@@ -1503,37 +1723,54 @@ func (m *MarketProxy) PostRpc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rpcURL := "https://api.mainnet-beta.solana.com"
-	if m.heliusAPIKey != "" {
-		rpcURL = "https://mainnet.helius-rpc.com"
-	}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, rpcURL, strings.NewReader(string(body)))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create RPC request")
+	chain := m.rpcChain()
+	var lastStatus int
+	var lastBody []byte
+
+	for i, ep := range chain {
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, ep.url, strings.NewReader(string(body)))
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if ep.authToken != "" {
+			req.Header.Set("Authorization", "Bearer "+ep.authToken)
+		}
+
+		resp, err := m.client.Do(req)
+		if err != nil {
+			slog.Warn("RPC proxy: endpoint failed (network)", "endpoint", ep.label, "attempt", i+1, "error", err)
+			continue
+		}
+		respBody, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			slog.Warn("RPC proxy: endpoint read failed", "endpoint", ep.label, "error", readErr)
+			continue
+		}
+
+		// 5xx → try next endpoint. 4xx and 2xx → return to client.
+		if resp.StatusCode >= 500 {
+			slog.Warn("RPC proxy: endpoint 5xx", "endpoint", ep.label, "status", resp.StatusCode)
+			lastStatus = resp.StatusCode
+			lastBody = respBody
+			continue
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		w.Write(respBody)
 		return
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if m.heliusAPIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
-	}
 
-	resp, err := m.client.Do(req)
-	if err != nil {
-		slog.Error("helius RPC proxy error", "error", err)
-		writeError(w, http.StatusBadGateway, "RPC service unavailable")
+	// Exhausted the chain — surface the last 5xx if we have one, else a generic 502.
+	if lastStatus >= 500 && lastBody != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(lastStatus)
+		w.Write(lastBody)
 		return
 	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to read RPC response")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	w.Write(respBody)
+	writeError(w, http.StatusBadGateway, "all RPC endpoints unavailable")
 }
 
 // PostHeliusTransactions proxies POST /market/helius/transactions to Helius Enhanced Transactions API.

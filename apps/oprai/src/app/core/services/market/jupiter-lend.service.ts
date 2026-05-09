@@ -35,7 +35,7 @@ export const LEND_SUPPORTED_ASSETS: LendAsset[] = [
   { symbol: 'USDC',   mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
   { symbol: 'USDT',   mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
   { symbol: 'jupSOL', mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v',  decimals: 9 },
-  { symbol: 'jitoSOL',mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kongC', decimals: 9 },
+  { symbol: 'jitoSOL',mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', decimals: 9 },
   { symbol: 'EURC',   mint: 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr', decimals: 6 },
 ];
 
@@ -113,7 +113,7 @@ export class JupiterLendService {
   private readonly walletService = inject(WalletService);
 
   private get connection(): Connection {
-    return new Connection(environment.solanaRpc, 'confirmed');
+    return new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
   }
 
   /** Return the list of supported lending assets. */

@@ -1,0 +1,30 @@
+id: contango_looping
+source_type: docs
+base_url: https://medium.com/contango-xyz
+protocol: null
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "30 8 * * *"
+crawl_delay_s: 2.5
+max_pages: 30
+include_patterns:
+  - "looping"
+  - "recursive"
+  - "leverage"
+tags:
+  - looping
+  - recursive-borrowing
+  - leveraged-yield-farming
+  - flash-loan
+  - ltv
+  - liquidation-risk
+  - defi-strategy
+notes: >
+  Medium publication by Contango protocol. Key article:
+  medium.com/contango-xyz/what-is-looping-78421c8a1367
+  Explains recursive borrow/supply loop mechanics step-by-step with LTV math
+  (supply $100 → borrow $80 → re-supply → borrow $64 → etc.),
+  flash loan single-transaction optimization, and liquidation risk.
+  Medium is JS-rendered — medium crawl confidence. Prefer fetching the specific
+  article URL directly. Alternative: lendlexyz.medium.com/looping-the-first-complex-strategy-a75c2abc8de

@@ -10,13 +10,19 @@
       </section>
     </div>
   } @else if (authError()) {
-    <!-- Auth Error State -->
+    <!-- Auth / Load Error State -->
     <div class="chat-content">
       <section class="hero">
         <div class="hero-brand">
           <img src="oprai_fullname_icon.svg" alt="OPRAI" class="hero-brand-logo" />
         </div>
         <p class="hero-connect-hint auth-error">{{ authError() }}</p>
+        @if (walletService.connected()) {
+          <button class="retry-load-btn" (click)="retryLoad()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.87"/></svg>
+            Sign Again
+          </button>
+        }
       </section>
     </div>
   } @else if (loadingMessages()) {
@@ -77,10 +83,17 @@
             [messageActions]="messageActions()"
             [messageQueries]="messageQueries()"
             [messageClarifications]="messageClarifications()"
+            [clarifySelections]="clarifySelections()"
             (cancelAction)="onCancelAction($event)"
+            (useAction)="onUseAction($event)"
             (clarifySelected)="onClarifySelected($event)"
+            (actionDismissed)="onActionDismissed($event)"
             (requestChat)="onSendMessage($event)"
             (retryLast)="onRetry()"
+            (editLast)="onEditLast()"
+            (editMessage)="onEditMessage($event)"
+            (retryMessage)="onEditMessage($event)"
+            (protocolMentionClick)="onProtocolMention($event)"
           />
         </div>
       } @else {

@@ -335,6 +335,48 @@ func (q *Queries) UpsertSpendingLimits(ctx context.Context, userID, walletAddres
 	return sl, nil
 }
 
+// GetTodaySpendingTotal returns the wallet's accumulated spend (USD) for the
+// current UTC date. Returns 0 if no entry exists yet (read-only path used by
+// /internal/spending/check before the user has signed anything today).
+func (q *Queries) GetTodaySpendingTotal(ctx context.Context, walletAddress string) (float64, error) {
+	query := fmt.Sprintf(`
+		SELECT COALESCE(total_usd, 0) FROM %s
+		WHERE wallet_address = $1 AND date_key = (now() AT TIME ZONE 'UTC')::date
+	`, q.table("spending_daily"))
+	var total float64
+	err := q.pool.QueryRow(ctx, query, walletAddress).Scan(&total)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("GetTodaySpendingTotal: %w", err)
+	}
+	return total, nil
+}
+
+// IncrementTodaySpending atomically adds amountUsd to the wallet's daily total
+// and returns the new total. Atomic at the row level (single UPSERT), so two
+// concurrent /commit calls cannot interleave to skip the cap.
+func (q *Queries) IncrementTodaySpending(ctx context.Context, walletAddress string, amountUsd float64) (float64, error) {
+	if amountUsd < 0 {
+		return 0, fmt.Errorf("IncrementTodaySpending: negative amount")
+	}
+	query := fmt.Sprintf(`
+		INSERT INTO %s (wallet_address, date_key, total_usd)
+		VALUES ($1, (now() AT TIME ZONE 'UTC')::date, $2)
+		ON CONFLICT (wallet_address, date_key) DO UPDATE
+		  SET total_usd  = %s.total_usd + EXCLUDED.total_usd,
+		      updated_at = now()
+		RETURNING total_usd
+	`, q.table("spending_daily"), q.table("spending_daily"))
+	var total float64
+	err := q.pool.QueryRow(ctx, query, walletAddress, amountUsd).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("IncrementTodaySpending: %w", err)
+	}
+	return total, nil
+}
+
 // joinStrings joins a slice of strings with the given separator.
 func joinStrings(strs []string, sep string) string {
 	if len(strs) == 0 {

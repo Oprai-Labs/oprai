@@ -31,33 +31,68 @@ class CacheConfig:
     prefix: str  # Cache key prefix
 
 
-# Predefined cache configurations
+# Predefined cache configurations.
+#
+# TTLs are tuned per data nature, not per protocol. The user-visible knobs:
+#   * price-like (changes every block): 15s — enough to survive a quote→build
+#     round-trip without re-fetching, short enough that a swap card never
+#     shows stale dollar amounts.
+#   * volume / TVL (5-30 min realtime cadence at the source): 120s — covers
+#     a full picker conversation without going stale.
+#   * holders / risk score (heavy aggregation, slow to change): 10–15 min.
+#   * static metadata (logo, decimals, security score): 24h.
 CACHE_CONFIGS = {
-    # Yields - cache for 5 minutes (changes less frequently)
+    # Yields — protocol APYs change with utilization; 5min is the right
+    # cadence for "compare yields" UI.
     "yields:liquid_staking": CacheConfig(ttl_seconds=300, prefix="yields"),
-    "yields:lending": CacheConfig(ttl_seconds=300, prefix="yields"),
-    "yields:all": CacheConfig(ttl_seconds=300, prefix="yields"),
+    "yields:lending":        CacheConfig(ttl_seconds=300, prefix="yields"),
+    "yields:all":            CacheConfig(ttl_seconds=300, prefix="yields"),
 
-    # Token prices - cache for 1 minute (high volatility)
-    "price": CacheConfig(ttl_seconds=60, prefix="price"),
-    "prices:batch": CacheConfig(ttl_seconds=60, prefix="prices"),
+    # Token prices — high volatility. 15s is short enough that a stale
+    # number can't drive a wrong swap decision, long enough to absorb
+    # bursty re-renders on a portfolio dashboard.
+    "price":           CacheConfig(ttl_seconds=15,  prefix="price"),
+    "prices:batch":    CacheConfig(ttl_seconds=15,  prefix="prices"),
+    "price:ohlcv:1m":  CacheConfig(ttl_seconds=30,  prefix="ohlcv"),
+    "price:ohlcv:15m": CacheConfig(ttl_seconds=300, prefix="ohlcv"),
+    "price:ohlcv:1h":  CacheConfig(ttl_seconds=900, prefix="ohlcv"),
+    "price:ohlcv:1d":  CacheConfig(ttl_seconds=3600, prefix="ohlcv"),
 
-    # Portfolio - cache for 2 minutes
-    "portfolio": CacheConfig(ttl_seconds=120, prefix="portfolio"),
-    "portfolio:positions": CacheConfig(ttl_seconds=120, prefix="portfolio"),
-    "portfolio:history": CacheConfig(ttl_seconds=300, prefix="portfolio"),
+    # Portfolio — wallet balances refresh on every tx, but list pages can
+    # tolerate 30s of staleness in exchange for a snappier UI.
+    "portfolio":           CacheConfig(ttl_seconds=30,  prefix="portfolio"),
+    "portfolio:positions": CacheConfig(ttl_seconds=60,  prefix="portfolio"),
+    "portfolio:history":   CacheConfig(ttl_seconds=300, prefix="portfolio"),
 
-    # Protocol data - cache for 10 minutes
-    "protocol:stats": CacheConfig(ttl_seconds=600, prefix="protocol"),
-    "protocol:compare": CacheConfig(ttl_seconds=300, prefix="protocol"),
+    # Protocol data — TVL and pool stats move on multi-minute cadences.
+    "protocol:stats":   CacheConfig(ttl_seconds=120, prefix="protocol"),
+    "protocol:compare": CacheConfig(ttl_seconds=120, prefix="protocol"),
+    "protocol:pools":   CacheConfig(ttl_seconds=120, prefix="protocol"),
 
-    # Token security - cache for 15 minutes (expensive computation)
-    "token:security": CacheConfig(ttl_seconds=900, prefix="token"),
-    "token:holders": CacheConfig(ttl_seconds=600, prefix="token"),
+    # Token security score — expensive aggregation, changes rarely.
+    "token:security": CacheConfig(ttl_seconds=86400, prefix="token"),
+    # Token holders / distribution — heavy query, hourly cadence is plenty.
+    "token:holders":  CacheConfig(ttl_seconds=600,   prefix="token"),
+    # Token static metadata — symbol, decimals, logo. Effectively immutable.
+    "token:meta":     CacheConfig(ttl_seconds=86400, prefix="token"),
+
+    # NFT collection stats — 10min covers the typical scroll-and-decide loop.
+    "nft:collection": CacheConfig(ttl_seconds=600,  prefix="nft"),
+    "nft:listings":   CacheConfig(ttl_seconds=120,  prefix="nft"),
 
     # Risk analysis - cache for 5 minutes
-    "risk:position": CacheConfig(ttl_seconds=300, prefix="risk"),
-    "risk:portfolio": CacheConfig(ttl_seconds=300, prefix="risk"),
+    "risk:position":   CacheConfig(ttl_seconds=120, prefix="risk"),
+    "risk:portfolio":  CacheConfig(ttl_seconds=300, prefix="risk"),
+
+    # Per-session "what the user just saw in a QueryCard" — survives across
+    # message-block summarization (which strips per-message metadata) so the
+    # next turn can still resolve "the highest TVL one" against real rows.
+    # 24h is generous; cache is overwritten on every new card render anyway.
+    "session:card_state": CacheConfig(ttl_seconds=86400, prefix="card"),
+
+    # Per-wallet daily LLM token usage — drives the OPRAI_LLM_DAILY_TOKEN_CAP
+    # backstop. 25h TTL so stale rows expire without a sweep job.
+    "session:llm_daily": CacheConfig(ttl_seconds=90000, prefix="llmcost"),
 
     # Generic - default cache time
     "default": CacheConfig(ttl_seconds=60, prefix="default"),
@@ -132,13 +167,50 @@ class CacheService:
 
             if value:
                 logger.debug(f"Cache HIT: {key}")
-                return json.loads(value)
+                envelope = json.loads(value)
+                # Backward compat: callers that haven't migrated still see
+                # the raw payload; new callers use `get_with_age`.
+                if isinstance(envelope, dict) and "_v" in envelope and "_data" in envelope:
+                    return envelope["_data"]
+                return envelope
 
             logger.debug(f"Cache MISS: {key}")
             return None
         except Exception as e:
             logger.error("Cache get error", exc_info=True)
             return None
+
+    async def get_with_age(
+        self,
+        cache_type: str,
+        *key_parts: str,
+    ) -> tuple[Optional[Any], Optional[int]]:
+        """Like `get`, but also returns the cached entry's age in seconds.
+
+        Age is None on cache miss or for legacy entries written before the
+        envelope wrapper was introduced. Frontend uses this to render a
+        "stale" badge when a price/TVL number is older than its expected
+        refresh window.
+        """
+        import time as _time
+
+        if not self._connected or not self._redis:
+            return None, None
+
+        try:
+            key = self._make_key(self._get_config(cache_type).prefix, *key_parts)
+            value = await self._redis.get(key)
+            if not value:
+                return None, None
+            envelope = json.loads(value)
+            if isinstance(envelope, dict) and "_v" in envelope and "_data" in envelope:
+                fetched_at = float(envelope.get("_fetched_at", 0) or 0)
+                age = int(_time.time() - fetched_at) if fetched_at else None
+                return envelope["_data"], age
+            return envelope, None
+        except Exception:
+            logger.error("Cache get_with_age error", exc_info=True)
+            return None, None
 
     async def set(
         self,
@@ -163,11 +235,22 @@ class CacheService:
             return False
 
         try:
+            import time as _time
+
             config = self._get_config(cache_type)
             key = self._make_key(config.prefix, *key_parts)
             ttl = ttl or config.ttl_seconds
 
-            serialized = json.dumps(value)
+            # Wrap in an envelope so consumers can read the fetch timestamp
+            # later. _v allows future schema upgrades without breaking old
+            # readers (the get() unwrap also handles legacy entries).
+            envelope = {
+                "_v": 1,
+                "_fetched_at": _time.time(),
+                "_ttl": ttl,
+                "_data": value,
+            }
+            serialized = json.dumps(envelope)
             await self._redis.setex(key, ttl, serialized)
 
             logger.debug(f"Cache SET: {key} (TTL: {ttl}s)")
