@@ -728,6 +728,8 @@ pub async fn post_simulate(
         state.rpc.endpoint().to_string(),
         solana_sdk::commitment_config::CommitmentConfig::confirmed(),
     );
+    // `VersionedTransaction` MUST be sent as base64; the RPC server rejects the
+    // default base58 encoding with -32602 ("base64 encoded VersionedTransaction").
     let sim_result = async_rpc
         .simulate_transaction_with_config(
             &versioned_tx,
@@ -735,7 +737,7 @@ pub async fn post_simulate(
                 sig_verify: false,
                 replace_recent_blockhash: true,
                 commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
-                encoding: None,
+                encoding: Some(solana_transaction_status::UiTransactionEncoding::Base64),
                 accounts: None,
                 min_context_slot: None,
                 inner_instructions: false,

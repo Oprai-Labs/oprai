@@ -46,7 +46,9 @@ services:
 
   # ── PgBouncer — connection pooler (transaction mode) ──────────────────────
   pgbouncer:
-    image: edoburu/pgbouncer:1.22.0
+    # NOTE: edoburu/pgbouncer publishes only :latest tag; pin once a versioned
+    # tag is published upstream. Last verified pull: 2025-12-20.
+    image: edoburu/pgbouncer:latest
     container_name: oprai-pgbouncer
     restart: unless-stopped
     environment:
@@ -141,8 +143,8 @@ services:
 
   gateway-go:
     build:
-      context: ..
-      dockerfile: services/gateway-go/Dockerfile
+      context: ../services/gateway-go
+      dockerfile: Dockerfile
     container_name: oprai-gateway-go
     restart: unless-stopped
     ports:
@@ -182,8 +184,8 @@ services:
 
   auth-service-go:
     build:
-      context: ..
-      dockerfile: services/auth-service-go/Dockerfile
+      context: ../services/auth-service-go
+      dockerfile: Dockerfile
     container_name: oprai-auth-service-go
     restart: unless-stopped
     expose:
@@ -210,8 +212,8 @@ services:
 
   admin-service-go:
     build:
-      context: ..
-      dockerfile: services/admin-service-go/Dockerfile
+      context: ../services/admin-service-go
+      dockerfile: Dockerfile
     container_name: oprai-admin-service-go
     restart: unless-stopped
     ports:
@@ -238,8 +240,8 @@ services:
 
   chat-service-py:
     build:
-      context: ..
-      dockerfile: services/chat-service-py/Dockerfile
+      context: ../services/chat-service-py
+      dockerfile: Dockerfile
     container_name: oprai-chat-service-py
     restart: unless-stopped
     expose:
@@ -267,8 +269,8 @@ services:
 
   memory-service-py:
     build:
-      context: ..
-      dockerfile: services/memory-service-py/Dockerfile
+      context: ../services/memory-service-py
+      dockerfile: Dockerfile
     container_name: oprai-memory-service-py
     restart: unless-stopped
     expose:

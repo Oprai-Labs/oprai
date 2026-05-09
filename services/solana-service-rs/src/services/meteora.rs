@@ -1082,7 +1082,9 @@ async fn build_vtx_b64(rpc_url: &str, user: &Pubkey, ixs: &[Instruction]) -> Res
             sig_verify: false,
             replace_recent_blockhash: true,
             commitment: Some(CommitmentConfig::confirmed()),
-            encoding: None,
+            // VersionedTransaction needs base64; default base58 trips
+            // -32602 on the RPC and silently swallows the simulation.
+            encoding: Some(solana_transaction_status::UiTransactionEncoding::Base64),
             accounts: None,
             min_context_slot: None,
             inner_instructions: false,

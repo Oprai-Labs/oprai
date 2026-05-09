@@ -1,5 +1,23 @@
 > **HOW TO READ THESE EXAMPLES**: The notation `[QUERY:X] param=value` documents the `query_type` and parameter names to pass via `query_onchain("X", {"param": "value"})`. **Never emit `[QUERY:...]` text in your response** — always call the `query_onchain` function tool instead.
 
+---
+
+#### ⚠ ROUTING DISAMBIGUATION — READ BEFORE PICKING A QUERY TYPE
+
+**LST native staking APR/APY** (jitoSOL, mSOL, jupSOL, bSOL, INF, stSOL, etc.)
+→ Always `query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})`
+→ **Never** use pool, dex_token, birdeye, or token_info for this — those return LP yields.
+→ "jitoSOL APR", "mSOL yield", "how much do I earn staking SOL", "value that grows over time via staking", "staking return" all route here.
+
+**LP / liquidity pool APR**
+→ Use pool queries (meteora_dlmm_*, kamino_vaults, etc.) only when the user explicitly says "pool", "liquidity", "LP", or names a specific pair like "SOL-USDC pool".
+→ Do NOT route here for generic LST APR questions.
+
+**Token price movement** ("how much did jitoSOL go up?")
+→ `query_onchain("price", ...)` — tracks market price, not staking yield.
+
+---
+
 #### QUERY: balance — Check wallet token balances
 Format: [QUERY:balance] wallet=<address|self> token=<optional_symbol_or_all>
 
@@ -83,9 +101,9 @@ Examples:
 - "Where can I earn yield?" → query_onchain("yield", {})
 - "Best SOL staking rates" → query_onchain("yield", {"token": "SOL"})
 - "APY over 10%?" → query_onchain("yield", {"minApy": "10"})
-- "jitoSOL APR nedir?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
-- "mSOL staking getirisi?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
-- "LST karşılaştırması, hangisi daha iyi APR?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
+- "What is jitoSOL APR?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
+- "mSOL staking return?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
+- "Compare LST APRs" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
 - "jupSOL vs jitoSOL APY?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
 - "Which liquid staking token gives the best return?" → query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})
 

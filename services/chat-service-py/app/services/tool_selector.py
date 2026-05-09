@@ -637,6 +637,13 @@ def _build_tools(action_types: list[str], query_types: list[str]) -> list[dict[s
                 "name": "execute_action",
                 "description": (
                     "Execute an on-chain Solana transaction for the user. "
+                    "ONLY call this when the user explicitly commands a transaction: "
+                    "swap, transfer, send, stake, unstake, buy, sell, lend, borrow, "
+                    "withdraw, deposit, launch, add/remove liquidity. "
+                    "NEVER call execute_action for informational or analytical requests — "
+                    "questions about APR, APY, price, balance, portfolio, yield, fees, "
+                    "or any 'what is / how much / show me' phrasing must use query_onchain "
+                    "or be answered from knowledge. "
                     "CRITICAL: Always extract ALL parameter values from the user's message — "
                     "never submit empty params if the user provided an address, amount, or token. "
                     "Examples: pumpfun_buy→{mint, amount, denominatedInSol}; "
@@ -675,8 +682,10 @@ def _build_tools(action_types: list[str], query_types: list[str]) -> list[dict[s
                 "name": "query_onchain",
                 "description": (
                     "Query on-chain data for the user (read-only, no wallet signing). "
-                    "Call this when the user EXPLICITLY asks about balances, token prices, positions, "
-                    "transaction history, portfolio analytics, trending tokens, etc.\n\n"
+                    "Use this for any informational or analytical request: balances, token prices, "
+                    "APR/APY rates, yield opportunities, staking rates (jitoSOL/mSOL/jupSOL/etc.), "
+                    "positions, transaction history, portfolio analytics, trending tokens, pool data, "
+                    "network status, gas fees — any 'what is / how much / show me / compare' question.\n\n"
                     "FORBIDDEN: Do NOT call query_onchain('balance', ...) as a fallback when the user "
                     "expresses a TRANSACTION intent (sell, buy, swap, send, transfer, stake, lend, "
                     "borrow, withdraw, close — in ANY language) but you cannot fully parse the params. "

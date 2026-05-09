@@ -269,8 +269,8 @@ class IntentRouter:
     ) -> IntentResult:
         """
         Classify *user_message*. *recent_context* should be a short string
-        with the last assistant turn(s) so referential phrases like "tamamını"
-        ("all of it") can be resolved.
+        with the last assistant turn(s) so referential phrases like "all of it"
+        can be resolved even in non-English messages.
 
         Always returns a valid IntentResult; never raises.
         """
@@ -392,7 +392,7 @@ def filter_tools_by_intent(
       `kamino_market_reserves`, …) are now query_onchain types after the
       auto-migration in tool_selector. Filtering them out leaves the model
       with no way to research, so it falls silent → empty stream.
-    - Action mis-routing (the original "tamamını sat" → balance fallback
+    - Action mis-routing (the original "sell all" → balance fallback
       bug) is now handled by the prompt rule + the explicit FORBIDDEN clause
       in `query_onchain`'s tool description. That's enough; we don't need
       the structural filter for action.
@@ -405,10 +405,10 @@ def filter_tools_by_intent(
     if intent.intent == "advice":
         # Earlier this branch dropped tools entirely — first all of them,
         # then just `query_onchain`. Both broke real flows: short picker
-        # follow-ups ("ona stake edelim ok?", "let's go with the biggest")
+        # follow-ups ("let's stake that", "let's go with the biggest")
         # often end with a particle that makes the classifier read them
         # as advice. With tools stripped, the model can only narrate
-        # ("İşlem başladı, kart açılacak…" with NO card) or beg the user
+        # with no action card, or beg the user
         # for data it could trivially fetch ("how much jitoSOL do you
         # have?" when balance is one query_onchain call away).
         # The downside the filter was supposed to prevent — model picking

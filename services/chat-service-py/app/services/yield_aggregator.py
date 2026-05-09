@@ -27,23 +27,33 @@ def _verified_mint(symbol: str) -> str:
     return t["address"]
 
 
-# Protocol registry — add new protocols here
+# Protocol registry — add new protocols here.
+# method: "GET" (default) or "POST" (sends empty JSON body)
+# mint_lookup: if True, response is a list keyed by tokenMint; match via "mint" field
 PROTOCOLS: dict[str, dict] = {
     "jito": {
         "name": "Jito (jitoSOL)",
-        "url": "https://kobe.mainnet.jito.network/api/v1/validators",
+        # Returns time series [{epoch, apy, tvl, supply, validator_count}, ...]; take latest
+        "url": "https://kobe.mainnet.jito.network/api/v1/stake_pool_stats",
+        "method": "POST",
         "category": "liquid_staking",
         "mint": _verified_mint("JitoSOL"),
     },
     "marinade": {
         "name": "Marinade (mSOL)",
-        "url": "https://api.marinade.finance/v1/stats",
+        # Returns {"value": 0.0678, "end_time": "...", ...} — APY is in "value"
+        "url": "https://api.marinade.finance/msol/apy/1y",
+        "method": "GET",
         "category": "liquid_staking",
         "mint": _verified_mint("mSOL"),
     },
     "jupsol": {
         "name": "Jupiter (jupSOL)",
-        "url": "https://worker.jup.ag/sol-stake-pool-stats",
+        # Kamino staking-yields/mean returns [{tokenMint, apy}, ...] for ~41 LSTs
+        # Used as the authoritative source for jupSOL since Jupiter has no public APY endpoint
+        "url": "https://api.kamino.finance/v2/staking-yields/mean",
+        "method": "GET",
+        "mint_lookup": True,
         "category": "liquid_staking",
         "mint": _verified_mint("jupSOL"),
     },
@@ -51,11 +61,13 @@ PROTOCOLS: dict[str, dict] = {
     "kamino_sol": {
         "name": "Kamino SOL Lending",
         "url": "https://api.kamino.finance/v2/kamino-market/7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF/reserves/metrics",
+        "method": "GET",
         "category": "lending",
     },
     "marginfi_sol": {
         "name": "MarginFi SOL Lending",
         "url": "https://marginfi-v2-ui-data.s3.eu-central-1.amazonaws.com/lending-data.json",
+        "method": "GET",
         "category": "lending",
     },
 }
@@ -71,17 +83,15 @@ async def get_yield_comparison(category: str = "liquid_staking") -> list[dict]:
 
     cache = await get_cache_service()
 
-    # Try to get from cache first
     cached = await cache.get(f"yields:{category}")
     if cached is not None:
-        logger.debug(f"Using cached yields for {category}")
+        logger.debug("Using cached yields for %s", category)
         return cached
 
-    # Cache miss - fetch from APIs
     candidates = {k: v for k, v in PROTOCOLS.items() if v["category"] == category}
     results: list[dict] = []
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with httpx.AsyncClient(timeout=8.0) as client:
         for key, meta in candidates.items():
             entry: dict = {
                 "protocol": key,
@@ -91,41 +101,60 @@ async def get_yield_comparison(category: str = "liquid_staking") -> list[dict]:
                 "mint": meta.get("mint"),
             }
             try:
-                resp = await client.get(meta["url"])
+                if meta.get("method") == "POST":
+                    resp = await client.post(meta["url"], json={})
+                else:
+                    resp = await client.get(meta["url"])
+
                 if resp.status_code == 200:
-                    entry["apy"] = _extract_apy(key, resp.json())
+                    entry["apy"] = _extract_apy(key, meta, resp.json())
+                else:
+                    logger.debug("yield fetch %s → HTTP %d", key, resp.status_code)
             except Exception as exc:
                 logger.debug("yield fetch failed for %s: %s", key, exc)
             results.append(entry)
 
     results.sort(key=lambda x: x["apy"] or 0.0, reverse=True)
 
-    # Cache the results
     await cache.set(f"yields:{category}", results)
 
     return results
 
 
-def _extract_apy(protocol: str, data: object) -> Optional[float]:
+def _extract_apy(protocol: str, meta: dict, data: object) -> Optional[float]:
     """Extract APY float from protocol-specific response shape."""
     try:
         if not isinstance(data, (dict, list)):
             return None
 
         if protocol == "marinade":
+            # {"value": 0.0678, "end_time": "...", ...}
             assert isinstance(data, dict)
-            return float(data.get("apy", 0))
-
-        if protocol in ("jupsol",):
-            assert isinstance(data, dict)
-            return float(
-                data.get("apy") or data.get("annualizedApy") or 0
-            )
+            return float(data.get("value", 0))
 
         if protocol == "jito":
-            validators = data if isinstance(data, list) else (data.get("validators", []) if isinstance(data, dict) else [])  # type: ignore[union-attr]
-            apys = [float(v["apy"]) for v in validators[:20] if v.get("apy")]
-            return sum(apys) / len(apys) if apys else None
+            # POST stake_pool_stats → {"apy": [{"data": 0.0571, "date": "..."}, ...], ...}
+            assert isinstance(data, dict)
+            apy_series = data.get("apy", [])
+            if isinstance(apy_series, list) and apy_series:
+                latest = apy_series[-1]
+                if isinstance(latest, dict) and "data" in latest:
+                    return float(latest["data"])
+            return None
+
+        if meta.get("mint_lookup"):
+            # Response is a list of {tokenMint, apy}; find entry matching our mint
+            assert isinstance(data, list)
+            mint = meta.get("mint", "")
+            entry = next(
+                (x for x in data if isinstance(x, dict) and x.get("tokenMint") == mint),
+                None,
+            )
+            if entry:
+                apy = entry.get("apy") or entry.get("annualizedApy")
+                if apy is not None:
+                    return float(apy)
+            return None
 
         if protocol == "kamino_sol":
             assert isinstance(data, (dict, list))
