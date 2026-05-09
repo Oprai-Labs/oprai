@@ -1,0 +1,1820 @@
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::error::AppError;
+use crate::services::swap::MAX_SLIPPAGE_BPS;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay API constants
+// ──────────────────────────────────────────────────────────────────────────────
+
+pub const RELAY_API: &str = "https://api.relay.link";
+pub const RELAY_TESTNET_API: &str = "https://api.testnets.relay.link";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Chain IDs (EVM chains supported by Relay)
+// ──────────────────────────────────────────────────────────────────────────────
+
+pub mod chain_id {
+    // Mainnets
+    pub const ETHEREUM: u64 = 1;
+    pub const SEPOLIA: u64 = 11155111;
+    pub const ARBITRUM: u64 = 42161;
+    pub const OPTIMISM: u64 = 10;
+    pub const BASE: u64 = 8453;
+    pub const POLYGON: u64 = 137;
+    pub const BSC: u64 = 56;
+    pub const AVALANCHE: u64 = 43114;
+    pub const LINEA: u64 = 59144;
+    pub const ZKSYNC: u64 = 324;
+    pub const FANTOM: u64 = 250;
+    pub const CELO: u64 = 42220;
+    pub const MOONBEAM: u64 = 1284;
+    pub const AURORA: u64 = 1313161554;
+    pub const KLAYTN: u64 = 8217;
+    pub const ARBITRUM_NOVA: u64 = 42170;
+    pub const POLYGON_ZKEVM: u64 = 1101;
+    pub const SCROLL: u64 = 534352;
+    pub const SOLANA: u64 = 900;
+
+    // Testnets
+    pub const GOERLI: u64 = 5;
+    pub const ARBITRUM_SEPOLIA: u64 = 421614;
+    pub const OPTIMISM_SEPOLIA: u64 = 11155420;
+    pub const BASE_SEPOLIA: u64 = 84532;
+    pub const POLYGON_MUMBAI: u64 = 80001;
+    pub const AVALANCHE_FUJI: u64 = 43113;
+}
+
+/// Native token addresses (zero address represents native token)
+pub const NATIVE_TOKEN_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Types
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Cross-chain swap request parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossChainSwapParams {
+    /// Source chain ID (e.g., 1 for Ethereum, 42161 for Arbitrum)
+    pub origin_chain_id: u64,
+    /// Destination chain ID
+    pub destination_chain_id: u64,
+    /// Source token address (use NATIVE_TOKEN_ADDRESS for native tokens)
+    pub origin_currency: String,
+    /// Destination token address
+    pub destination_currency: String,
+    /// Amount to swap (in human-readable format, will be converted to wei)
+    pub amount: String,
+    /// Recipient address on destination chain (defaults to sender)
+    #[serde(default)]
+    pub recipient: Option<String>,
+    /// Trade type: "EXACT_INPUT" or "EXACT_OUTPUT"
+    #[serde(default = "default_trade_type")]
+    pub trade_type: String,
+    /// Referrer for fee sharing
+    #[serde(default)]
+    pub referrer: Option<String>,
+    /// Slippage tolerance in basis points (default: 50 = 0.5%)
+    #[serde(default = "default_slippage_bps")]
+    pub slippage_bps: u32,
+    /// Bridge provider: "relay", "wormhole", "debridge", "mayan"
+    /// Currently only relay is fully supported; others are placeholders for future implementation
+    #[serde(default)]
+    pub provider: Option<String>,
+}
+
+fn default_trade_type() -> String {
+    "EXACT_INPUT".to_string()
+}
+
+fn default_slippage_bps() -> u32 {
+    50
+}
+
+/// Quote response from Relay API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayQuote {
+    /// The request ID for tracking
+    pub request_id: Option<String>,
+    /// Details about the swap
+    pub details: RelayQuoteDetails,
+    /// Steps to execute the cross-chain swap
+    pub steps: Vec<RelayStep>,
+    /// Fees breakdown
+    #[serde(default)]
+    pub fees: Option<RelayFees>,
+    /// Raw quote data
+    #[serde(flatten)]
+    pub raw: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayQuoteDetails {
+    /// Currency being sent
+    pub currency_in: RelayCurrency,
+    /// Currency being received
+    pub currency_out: RelayCurrency,
+    /// Amount being sent (in wei)
+    pub amount_in: Option<String>,
+    /// Amount being received (in wei)
+    pub amount_out: Option<String>,
+    /// Exchange rate
+    #[serde(default)]
+    pub rate: Option<String>,
+    /// Price impact
+    #[serde(default)]
+    pub price_impact: Option<String>,
+    /// Estimated time in seconds
+    #[serde(default)]
+    pub estimated_time: Option<u64>,
+    /// Sender address
+    #[serde(default)]
+    pub sender: Option<String>,
+    /// Recipient address
+    #[serde(default)]
+    pub recipient: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayCurrency {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Token address
+    pub address: String,
+    /// Token symbol
+    #[serde(default)]
+    pub symbol: Option<String>,
+    /// Token decimals
+    #[serde(default)]
+    pub decimals: Option<u8>,
+    /// Token name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// USD price
+    #[serde(default)]
+    pub price: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayStep {
+    /// Step ID
+    pub id: Option<String>,
+    /// Step type (e.g., "deposit", "fill", "sign")
+    #[serde(rename = "type")]
+    pub step_type: Option<String>,
+    /// Items within the step
+    #[serde(default)]
+    pub items: Vec<RelayStepItem>,
+    /// Whether this step is complete
+    #[serde(default)]
+    pub completed: Option<bool>,
+    /// Error if any
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayStepItem {
+    /// Internal data for execution
+    #[serde(default)]
+    pub internal_data: Option<serde_json::Value>,
+    /// Transaction data if applicable
+    #[serde(default)]
+    pub transaction: Option<RelayTransaction>,
+    /// Whether this item is complete
+    #[serde(default)]
+    pub completed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayTransaction {
+    /// Transaction data for EVM chains
+    #[serde(default)]
+    pub data: Option<String>,
+    /// Target contract address
+    #[serde(default)]
+    pub to: Option<String>,
+    /// Gas limit
+    #[serde(default)]
+    pub gas_limit: Option<String>,
+    /// Value (in wei)
+    #[serde(default)]
+    pub value: Option<String>,
+    /// Chain ID
+    #[serde(default)]
+    pub chain_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayFees {
+    /// Total fee in USD
+    #[serde(default)]
+    pub total_usd: Option<f64>,
+    /// Gas fee
+    #[serde(default)]
+    pub gas: Option<RelayFeeDetail>,
+    /// Bridge fee
+    #[serde(default)]
+    pub bridge: Option<RelayFeeDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayFeeDetail {
+    /// Fee amount
+    #[serde(default)]
+    pub amount: Option<String>,
+    /// Fee in USD
+    #[serde(default)]
+    pub amount_usd: Option<f64>,
+}
+
+/// Preview shown to the user before signing.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossChainSwapPreview {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub action_type: String,
+    pub description: String,
+    pub estimated_fee: String,
+    pub params: CrossChainSwapParams,
+    pub warnings: Vec<String>,
+    pub requires_approval: bool,
+    /// Estimated time for cross-chain completion
+    pub estimated_time_seconds: Option<u64>,
+    /// Exchange rate
+    pub exchange_rate: Option<String>,
+}
+
+/// Result of building a cross-chain swap.
+pub struct CrossChainSwapResult {
+    /// The quote with execution steps
+    pub quote: RelayQuote,
+    pub preview: CrossChainSwapPreview,
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Chain name helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
+pub fn get_chain_name(chain_id: u64) -> &'static str {
+    match chain_id {
+        // Mainnets
+        chain_id::ETHEREUM => "Ethereum",
+        chain_id::ARBITRUM => "Arbitrum",
+        chain_id::OPTIMISM => "Optimism",
+        chain_id::BASE => "Base",
+        chain_id::POLYGON => "Polygon",
+        chain_id::BSC => "BSC",
+        chain_id::AVALANCHE => "Avalanche",
+        chain_id::LINEA => "Linea",
+        chain_id::ZKSYNC => "zkSync Era",
+        chain_id::FANTOM => "Fantom",
+        chain_id::CELO => "Celo",
+        chain_id::MOONBEAM => "Moonbeam",
+        chain_id::AURORA => "Aurora",
+        chain_id::KLAYTN => "Klaytn",
+        chain_id::ARBITRUM_NOVA => "Arbitrum Nova",
+        chain_id::POLYGON_ZKEVM => "Polygon zkEVM",
+        chain_id::SCROLL => "Scroll",
+        chain_id::SOLANA => "Solana",
+        // Testnets
+        chain_id::GOERLI => "Goerli",
+        chain_id::SEPOLIA => "Sepolia",
+        chain_id::ARBITRUM_SEPOLIA => "Arbitrum Sepolia",
+        chain_id::OPTIMISM_SEPOLIA => "Optimism Sepolia",
+        chain_id::BASE_SEPOLIA => "Base Sepolia",
+        chain_id::POLYGON_MUMBAI => "Polygon Mumbai",
+        chain_id::AVALANCHE_FUJI => "Avalanche Fuji",
+        _ => "Unknown",
+    }
+}
+
+pub fn is_testnet(chain_id: u64) -> bool {
+    matches!(
+        chain_id,
+        chain_id::GOERLI
+            | chain_id::SEPOLIA
+            | chain_id::ARBITRUM_SEPOLIA
+            | chain_id::OPTIMISM_SEPOLIA
+            | chain_id::BASE_SEPOLIA
+            | chain_id::POLYGON_MUMBAI
+    )
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Validation
+// ──────────────────────────────────────────────────────────────────────────────
+
+pub fn validate_cross_chain_params(params: &CrossChainSwapParams) -> Result<(), AppError> {
+    // Validate amount
+    let amount: f64 = params
+        .amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Amount must be a positive number".into()))?;
+    if amount <= 0.0 {
+        return Err(AppError::InvalidParams(
+            "Amount must be a positive number".into(),
+        ));
+    }
+
+    // Validate chain IDs are supported
+    if !is_chain_supported(params.origin_chain_id) {
+        return Err(AppError::InvalidParams(format!(
+            "Unsupported origin chain: {}",
+            params.origin_chain_id
+        )));
+    }
+    if !is_chain_supported(params.destination_chain_id) {
+        return Err(AppError::InvalidParams(format!(
+            "Unsupported destination chain: {}",
+            params.destination_chain_id
+        )));
+    }
+
+    // Validate same-chain swaps should use Jupiter, not Relay
+    if params.origin_chain_id == params.destination_chain_id {
+        return Err(AppError::InvalidParams(
+            "Same-chain swaps should use Jupiter. Relay is for cross-chain swaps only.".into(),
+        ));
+    }
+
+    // Validate token addresses
+    if !is_valid_evm_address(&params.origin_currency) {
+        return Err(AppError::InvalidParams(
+            "Invalid origin currency address".into(),
+        ));
+    }
+    if !is_valid_evm_address(&params.destination_currency) {
+        return Err(AppError::InvalidParams(
+            "Invalid destination currency address".into(),
+        ));
+    }
+
+    // Validate slippage
+    if params.slippage_bps > MAX_SLIPPAGE_BPS {
+        return Err(AppError::InvalidParams(format!(
+            "Slippage {} bps exceeds maximum allowed value of {} (30%)",
+            params.slippage_bps, MAX_SLIPPAGE_BPS
+        )));
+    }
+
+    Ok(())
+}
+
+fn is_chain_supported(chain_id: u64) -> bool {
+    matches!(
+        chain_id,
+        chain_id::ETHEREUM
+            | chain_id::GOERLI
+            | chain_id::SEPOLIA
+            | chain_id::ARBITRUM
+            | chain_id::ARBITRUM_SEPOLIA
+            | chain_id::OPTIMISM
+            | chain_id::OPTIMISM_SEPOLIA
+            | chain_id::BASE
+            | chain_id::BASE_SEPOLIA
+            | chain_id::POLYGON
+            | chain_id::POLYGON_MUMBAI
+            | chain_id::BSC
+            | chain_id::AVALANCHE
+            | chain_id::LINEA
+            | chain_id::ZKSYNC
+    )
+}
+
+fn is_valid_evm_address(address: &str) -> bool {
+    // Allow native token address
+    if address == NATIVE_TOKEN_ADDRESS {
+        return true;
+    }
+    // Validate EVM address format (0x + 40 hex chars)
+    if address.len() != 42 {
+        return false;
+    }
+    if !address.starts_with("0x") && !address.starts_with("0X") {
+        return false;
+    }
+    address[2..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay quote
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Append OPRAI's 0.05% app fee to a Relay quote body if a fee recipient is configured.
+/// fee value 5 = 0.05% in Relay's basis-point scale (10000 = 100%).
+pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>) {
+    if let Some(addr) = fee_recipient.filter(|s| !s.is_empty()) {
+        body["appFees"] = serde_json::json!([{"recipient": addr, "fee": "5"}]);
+    }
+}
+
+/// Fetch a cross-chain swap quote from Relay API.
+pub async fn get_cross_chain_quote(
+    http: &reqwest::Client,
+    params: &CrossChainSwapParams,
+    user_address: &str,
+    fee_recipient: Option<&str>,
+) -> Result<RelayQuote, AppError> {
+    let base_url = if is_testnet(params.origin_chain_id) || is_testnet(params.destination_chain_id) {
+        RELAY_TESTNET_API
+    } else {
+        RELAY_API
+    };
+
+    // Convert amount to wei (assuming 18 decimals for simplicity)
+    // For production, should fetch actual token decimals
+    let amount_float: f64 = params
+        .amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?;
+
+    // Determine decimals based on token type
+    let decimals = if params.origin_currency == NATIVE_TOKEN_ADDRESS {
+        18 // Native tokens typically have 18 decimals
+    } else {
+        18 // Default to 18, should fetch actual decimals for tokens
+    };
+
+    let amount_in_wei = (amount_float * 10_f64.powi(decimals as i32)) as u64;
+    let recipient = params.recipient.as_deref().unwrap_or(user_address);
+
+    let mut quote_body = serde_json::json!({
+        "user": user_address,
+        "originChainId": params.origin_chain_id,
+        "destinationChainId": params.destination_chain_id,
+        "originCurrency": params.origin_currency,
+        "destinationCurrency": params.destination_currency,
+        "amount": amount_in_wei.to_string(),
+        "recipient": recipient,
+        "tradeType": params.trade_type,
+        "referrer": params.referrer,
+    });
+    append_app_fee(&mut quote_body, fee_recipient);
+
+    let response = http
+        .post(format!("{}/quote/v2", base_url))
+        .header("Content-Type", "application/json")
+        .json(&quote_body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay quote failed: {}",
+            body
+        )));
+    }
+
+    let quote: RelayQuote = response
+        .json()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse quote: {}", e)))?;
+
+    Ok(quote)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Cross-chain swap build
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Build a cross-chain swap transaction via Relay.
+/// Returns the quote with execution steps that the frontend can execute.
+pub async fn build_cross_chain_swap(
+    http: &reqwest::Client,
+    user_address: &str,
+    params: &CrossChainSwapParams,
+    fee_recipient: Option<&str>,
+) -> Result<CrossChainSwapResult, AppError> {
+    validate_cross_chain_params(params)?;
+
+    let quote = get_cross_chain_quote(http, params, user_address, fee_recipient).await?;
+
+    // Extract details for preview
+    let details = &quote.details;
+    let origin_symbol = details
+        .currency_in
+        .symbol
+        .clone()
+        .unwrap_or_else(|| "TOKEN".to_string());
+    let dest_symbol = details
+        .currency_out
+        .symbol
+        .clone()
+        .unwrap_or_else(|| "TOKEN".to_string());
+
+    let origin_chain_name = get_chain_name(params.origin_chain_id);
+    let dest_chain_name = get_chain_name(params.destination_chain_id);
+
+    // Calculate output amount
+    let out_amount = details.amount_out.clone().unwrap_or_default();
+    let out_decimals = details.currency_out.decimals.unwrap_or(18);
+    let out_amount_float = out_amount
+        .parse::<u64>()
+        .unwrap_or(0) as f64
+        / 10_f64.powi(out_decimals as i32);
+
+    // Build warnings
+    let mut warnings = Vec::new();
+
+    // Cross-chain warning
+    warnings.push(format!(
+        "Cross-chain swap: {} → {}",
+        origin_chain_name, dest_chain_name
+    ));
+
+    // Estimated time warning
+    if let Some(time) = details.estimated_time {
+        if time > 300 {
+            warnings.push(format!("May take {}+ minutes to complete", time / 60));
+        }
+    }
+
+    // Price impact warning
+    if let Some(ref impact) = details.price_impact {
+        if let Ok(impact_val) = impact.parse::<f64>() {
+            if impact_val > 1.0 {
+                warnings.push(format!("High price impact: {:.2}%", impact_val));
+            }
+        }
+    }
+
+    // Fee warning
+    if let Some(ref fees) = quote.fees {
+        if let Some(total) = fees.total_usd {
+            if total > 10.0 {
+                warnings.push(format!("Total fees: ${:.2}", total));
+            }
+        }
+    }
+
+    let preview = CrossChainSwapPreview {
+        id: Uuid::new_v4().to_string(),
+        action_type: "cross_chain_swap".to_string(),
+        description: format!(
+            "Swap {} {} ({}) → {:.6} {} ({})",
+            params.amount, origin_symbol, origin_chain_name, out_amount_float, dest_symbol, dest_chain_name
+        ),
+        estimated_fee: quote
+            .fees
+            .as_ref()
+            .and_then(|f| f.total_usd)
+            .map(|f| format!("${:.2}", f))
+            .unwrap_or_else(|| "~$2-5".to_string()),
+        params: params.clone(),
+        warnings,
+        requires_approval: true,
+        estimated_time_seconds: details.estimated_time,
+        exchange_rate: details.rate.clone(),
+    };
+
+    Ok(CrossChainSwapResult { quote, preview })
+}
+
+/// Get supported chains from Relay.
+/// `include_chains`: optional comma-separated chain ID filter (e.g. "1,8453,900").
+pub async fn get_supported_chains(
+    http: &reqwest::Client,
+    include_chains: Option<&str>,
+) -> Result<Vec<RelayChainInfo>, AppError> {
+    let url = match include_chains.filter(|s| !s.is_empty()) {
+        Some(filter) => format!("{}/chains?includeChains={}", RELAY_API, filter),
+        None => format!("{}/chains", RELAY_API),
+    };
+
+    let response = http.get(&url).send().await?;
+
+    if !response.status().is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Failed to fetch chains: {}",
+            body
+        )));
+    }
+
+    // API wraps the array in { "chains": [...] } — try both formats
+    let raw: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse chains: {}", e)))?;
+
+    let chains: Vec<RelayChainInfo> = if let Some(arr) = raw.get("chains").and_then(|v| v.as_array()) {
+        serde_json::from_value(serde_json::Value::Array(arr.clone()))
+            .map_err(|e| AppError::RelayApiError(format!("Failed to deserialize chains: {}", e)))?
+    } else {
+        serde_json::from_value(raw)
+            .map_err(|e| AppError::RelayApiError(format!("Failed to deserialize chains: {}", e)))?
+    };
+
+    Ok(chains)
+}
+
+/// Native currency info for a chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayChainCurrency {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub decimals: Option<u8>,
+    #[serde(default)]
+    pub address: Option<String>,
+}
+
+/// Relay contract addresses for a chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayChainContracts {
+    #[serde(default)]
+    pub multicall3: Option<String>,
+    #[serde(default)]
+    pub multicaller: Option<String>,
+    #[serde(default)]
+    pub relay_receiver: Option<String>,
+    #[serde(default)]
+    pub erc20_router: Option<String>,
+    #[serde(default)]
+    pub approval_proxy: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayChainInfo {
+    pub id: u64,
+    pub name: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// VM type: "evm" | "svm" | "bvm" | "tvm" | "tonvm" | "suivm" | "hypevm" | "lvm"
+    #[serde(default)]
+    pub vm_type: Option<String>,
+    // RPC & Explorer
+    #[serde(default)]
+    pub http_rpc_url: Option<String>,
+    #[serde(default)]
+    pub ws_rpc_url: Option<String>,
+    #[serde(default)]
+    pub explorer_url: Option<String>,
+    #[serde(default)]
+    pub explorer_name: Option<String>,
+    // Operational status
+    #[serde(default)]
+    pub disabled: Option<bool>,
+    #[serde(default)]
+    pub deposit_enabled: Option<bool>,
+    #[serde(default)]
+    pub block_production_lagging: Option<bool>,
+    #[serde(default)]
+    pub status_message: Option<String>,
+    #[serde(default)]
+    pub partial_disable_limit: Option<f64>,
+    // Fees
+    #[serde(default)]
+    pub withdrawal_fee: Option<f64>,
+    #[serde(default)]
+    pub deposit_fee: Option<f64>,
+    #[serde(default)]
+    pub surge_enabled: Option<bool>,
+    // Token support
+    /// "All" | "Limited"
+    #[serde(default)]
+    pub token_support: Option<String>,
+    #[serde(default)]
+    pub featured_tokens: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub erc20_currencies: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub solver_currencies: Vec<serde_json::Value>,
+    // Currency & contracts
+    #[serde(default)]
+    pub currency: Option<RelayChainCurrency>,
+    #[serde(default)]
+    pub contracts: Option<RelayChainContracts>,
+    // L2 / solver
+    #[serde(default)]
+    pub base_chain_id: Option<u64>,
+    #[serde(default)]
+    pub solver_addresses: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    // Legacy compat
+    #[serde(default)]
+    pub logo_uri: Option<String>,
+}
+
+/// Get token list for a specific chain
+pub async fn get_chain_tokens(
+    http: &reqwest::Client,
+    chain_id: u64,
+) -> Result<Vec<RelayTokenInfo>, AppError> {
+    let response = http
+        .get(format!("{}/currencies/v2?chainId={}", RELAY_API, chain_id))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Failed to fetch tokens: {}",
+            body
+        )));
+    }
+
+    let tokens: Vec<RelayTokenInfo> = response
+        .json()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse tokens: {}", e)))?;
+
+    Ok(tokens)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayTokenMetadata {
+    #[serde(default)]
+    pub logo_uri: Option<String>,
+    #[serde(default)]
+    pub verified: Option<bool>,
+    #[serde(default)]
+    pub is_native: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayTokenInfo {
+    #[serde(default)]
+    pub chain_id: Option<u64>,
+    pub address: String,
+    pub name: String,
+    pub symbol: String,
+    pub decimals: u8,
+    /// VM type: "evm" | "svm" | "bvm" | "tvm" | "tonvm" | "suivm" | "hypevm" | "lvm"
+    #[serde(default)]
+    pub vm_type: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<RelayTokenMetadata>,
+    // legacy / extra fields some responses include
+    #[serde(default)]
+    pub logo_uri: Option<String>,
+    #[serde(default)]
+    pub price: Option<f64>,
+    #[serde(default)]
+    pub volume_24h: Option<f64>,
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay.link — full bridge with all optional parameters
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Full relay_bridge params — all optional fields from /quote/v2.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayBridgeParams {
+    // Required
+    pub origin_chain_id: u64,
+    pub destination_chain_id: u64,
+    pub origin_currency: String,
+    pub destination_currency: String,
+    /// Human-readable amount (e.g. "1.5"). Passed as-is to Relay API (raw or wei).
+    pub amount: String,
+    #[serde(default = "default_trade_type")]
+    pub trade_type: String,
+    // Optional — addressing
+    #[serde(default)]
+    pub recipient: Option<String>,
+    #[serde(default)]
+    pub refund_to: Option<String>,
+    /// "origin" | "destination"
+    #[serde(default)]
+    pub refund_type: Option<String>,
+    // Optional — gas top-up on destination
+    #[serde(default)]
+    pub topup_gas: Option<bool>,
+    #[serde(default)]
+    pub topup_gas_amount: Option<String>,
+    // Optional — fees / slippage
+    /// Slippage tolerance in basis points (e.g. 50 = 0.5%)
+    #[serde(default)]
+    pub slippage_tolerance: Option<u32>,
+    #[serde(default)]
+    pub subsidize_fees: Option<bool>,
+    #[serde(default)]
+    pub referrer: Option<String>,
+    #[serde(default)]
+    pub referrer_address: Option<String>,
+    // Optional — routing controls
+    #[serde(default)]
+    pub use_deposit_address: Option<bool>,
+    #[serde(default)]
+    pub disable_origin_swaps: Option<bool>,
+    #[serde(default)]
+    pub force_solver_execution: Option<bool>,
+    #[serde(default)]
+    pub fixed_rate: Option<bool>,
+    #[serde(default)]
+    pub max_route_length: Option<u32>,
+    /// true = fail if exact quote cannot be fulfilled (no degraded fallback)
+    #[serde(default)]
+    pub strict: Option<bool>,
+    /// true = proceed even if price impact exceeds safe threshold
+    #[serde(default)]
+    pub override_price_impact: Option<bool>,
+    /// true = include Solana compute unit limit in origin TX (recommended for Solana-origin bridges)
+    #[serde(default)]
+    pub include_compute_unit_limit: Option<bool>,
+}
+
+/// Get a quote from Relay (no execution) with full optional params.
+pub async fn get_relay_quote_full(
+    http: &reqwest::Client,
+    params: &RelayBridgeParams,
+    user_address: &str,
+    fee_recipient: Option<&str>,
+) -> Result<RelayQuote, AppError> {
+    let mut body = serde_json::json!({
+        "user": user_address,
+        "originChainId": params.origin_chain_id,
+        "destinationChainId": params.destination_chain_id,
+        "originCurrency": params.origin_currency,
+        "destinationCurrency": params.destination_currency,
+        "amount": params.amount,
+        "tradeType": params.trade_type,
+    });
+
+    if let Some(ref v) = params.recipient { body["recipient"] = serde_json::json!(v); }
+    if let Some(ref v) = params.refund_to { body["refundTo"] = serde_json::json!(v); }
+    if let Some(ref v) = params.refund_type { body["refundType"] = serde_json::json!(v); }
+    if let Some(v) = params.topup_gas { body["topupGas"] = serde_json::json!(v); }
+    if let Some(ref v) = params.topup_gas_amount { body["topupGasAmount"] = serde_json::json!(v); }
+    if let Some(v) = params.slippage_tolerance { body["slippageTolerance"] = serde_json::json!(v); }
+    if let Some(v) = params.subsidize_fees { body["subsidizeFees"] = serde_json::json!(v); }
+    if let Some(ref v) = params.referrer { body["referrer"] = serde_json::json!(v); }
+    if let Some(ref v) = params.referrer_address { body["referrerAddress"] = serde_json::json!(v); }
+    if let Some(v) = params.use_deposit_address { body["useDepositAddress"] = serde_json::json!(v); }
+    if let Some(v) = params.disable_origin_swaps { body["disableOriginSwaps"] = serde_json::json!(v); }
+    if let Some(v) = params.force_solver_execution { body["forceSolverExecution"] = serde_json::json!(v); }
+    if let Some(v) = params.fixed_rate { body["fixedRate"] = serde_json::json!(v); }
+    if let Some(v) = params.max_route_length { body["maxRouteLength"] = serde_json::json!(v); }
+    if let Some(v) = params.strict { body["strict"] = serde_json::json!(v); }
+    if let Some(v) = params.override_price_impact { body["overridePriceImpact"] = serde_json::json!(v); }
+    if let Some(v) = params.include_compute_unit_limit { body["includeComputeUnitLimit"] = serde_json::json!(v); }
+    append_app_fee(&mut body, fee_recipient);
+
+    let response = http
+        .post(format!("{}/quote/v2", RELAY_API))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!("Relay quote failed: {}", err)));
+    }
+
+    response
+        .json::<RelayQuote>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse relay quote: {}", e)))
+}
+
+/// Execute a Relay bridge — get quote then return steps for frontend signing.
+pub async fn relay_bridge(
+    http: &reqwest::Client,
+    user_address: &str,
+    params: &RelayBridgeParams,
+    fee_recipient: Option<&str>,
+) -> Result<CrossChainSwapResult, AppError> {
+    let quote = get_relay_quote_full(http, params, user_address, fee_recipient).await?;
+
+    let details = &quote.details;
+    let origin_symbol = details.currency_in.symbol.clone().unwrap_or_else(|| "TOKEN".to_string());
+    let dest_symbol = details.currency_out.symbol.clone().unwrap_or_else(|| "TOKEN".to_string());
+    let origin_chain_name = get_chain_name(params.origin_chain_id);
+    let dest_chain_name = get_chain_name(params.destination_chain_id);
+
+    let out_amount = details.amount_out.clone().unwrap_or_default();
+    let out_decimals = details.currency_out.decimals.unwrap_or(18);
+    let out_amount_float =
+        out_amount.parse::<u64>().unwrap_or(0) as f64 / 10_f64.powi(out_decimals as i32);
+
+    let mut warnings = vec![format!("Cross-chain bridge: {} → {}", origin_chain_name, dest_chain_name)];
+    if let Some(time) = details.estimated_time {
+        if time > 300 {
+            warnings.push(format!("May take {}+ minutes", time / 60));
+        }
+    }
+    if let Some(ref impact) = details.price_impact {
+        if let Ok(v) = impact.parse::<f64>() {
+            if v > 1.0 { warnings.push(format!("High price impact: {:.2}%", v)); }
+        }
+    }
+    if let Some(ref fees) = quote.fees {
+        if let Some(total) = fees.total_usd {
+            if total > 10.0 { warnings.push(format!("Total fees: ${:.2}", total)); }
+        }
+    }
+
+    let swap_params = CrossChainSwapParams {
+        origin_chain_id: params.origin_chain_id,
+        destination_chain_id: params.destination_chain_id,
+        origin_currency: params.origin_currency.clone(),
+        destination_currency: params.destination_currency.clone(),
+        amount: params.amount.clone(),
+        recipient: params.recipient.clone(),
+        trade_type: params.trade_type.clone(),
+        referrer: params.referrer.clone(),
+        slippage_bps: params.slippage_tolerance.unwrap_or(50),
+        provider: Some("relay".to_string()),
+    };
+
+    let preview = CrossChainSwapPreview {
+        id: Uuid::new_v4().to_string(),
+        action_type: "relay_bridge".to_string(),
+        description: format!(
+            "Bridge {} {} ({}) → {:.6} {} ({})",
+            params.amount, origin_symbol, origin_chain_name,
+            out_amount_float, dest_symbol, dest_chain_name
+        ),
+        estimated_fee: quote
+            .fees
+            .as_ref()
+            .and_then(|f| f.total_usd)
+            .map(|f| format!("${:.2}", f))
+            .unwrap_or_else(|| "~$2-5".to_string()),
+        params: swap_params,
+        warnings,
+        requires_approval: true,
+        estimated_time_seconds: details.estimated_time,
+        exchange_rate: details.rate.clone(),
+    };
+
+    Ok(CrossChainSwapResult { quote, preview })
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay.link — index transaction (/transactions/index)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Request body for POST /transactions/index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayIndexTransactionRequest {
+    /// Network identifier (chain ID as string, e.g. "1", "900")
+    pub chain_id: String,
+    /// Transaction hash to index
+    pub tx_hash: String,
+    /// Optional request identifier to associate with the transaction
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayIndexTransactionResponse {
+    pub message: String,
+}
+
+/// Notify Relay backend to index a transaction and detect cross-chain deposits.
+/// Call this after a user submits a deposit transaction so Relay can pick it up.
+pub async fn index_relay_transaction(
+    http: &reqwest::Client,
+    req: &RelayIndexTransactionRequest,
+) -> Result<RelayIndexTransactionResponse, AppError> {
+    let response = http
+        .post(format!("{}/transactions/index", RELAY_API))
+        .header("Content-Type", "application/json")
+        .json(req)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay transactions/index failed: {}",
+            err
+        )));
+    }
+
+    response
+        .json::<RelayIndexTransactionResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse index response: {}", e)))
+}
+
+// ── POST /transactions/single ─────────────────────────────────────────────────
+
+/// Request body for POST /transactions/single.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelaySingleTransactionRequest {
+    /// Unique identifier for the Relay request
+    pub request_id: String,
+    /// Chain ID as string (e.g. "1", "900")
+    pub chain_id: String,
+    /// Transaction hash
+    pub tx: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelaySingleTransactionResponse {
+    pub message: String,
+}
+
+/// Notify Relay to index transfers, wraps, and unwraps for a specific request.
+/// Use this after submitting a specific transaction tied to a known requestId.
+pub async fn single_relay_transaction(
+    http: &reqwest::Client,
+    req: &RelaySingleTransactionRequest,
+) -> Result<RelaySingleTransactionResponse, AppError> {
+    let response = http
+        .post(format!("{}/transactions/single", RELAY_API))
+        .header("Content-Type", "application/json")
+        .json(req)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay transactions/single failed: {}",
+            err
+        )));
+    }
+
+    response
+        .json::<RelaySingleTransactionResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse single response: {}", e)))
+}
+
+// ── POST /app-fees/{wallet}/claim ────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayClaimAppFeesRequest {
+    pub chain_id: u64,
+    pub currency: String,
+    pub recipient: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<String>,
+}
+
+/// Response mirrors /execute/permits — steps that require a signature.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayClaimAppFeesResponse {
+    #[serde(default)]
+    pub steps: Vec<RelayPermitStep>,
+}
+
+/// Initiate an app-fee claim for `wallet`. Returns signature steps the frontend must process.
+pub async fn claim_app_fees(
+    http: &reqwest::Client,
+    wallet: &str,
+    req: &RelayClaimAppFeesRequest,
+) -> Result<RelayClaimAppFeesResponse, AppError> {
+    let url = format!("{}/app-fees/{}/claim", RELAY_API, wallet);
+    let response = http
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(req)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay app-fees/claim failed: {}",
+            err
+        )));
+    }
+
+    response
+        .json::<RelayClaimAppFeesResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse claim response: {}", e)))
+}
+
+// ── GET /app-fees/{wallet}/balances ──────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayAppFeeTokenMetadata {
+    pub logo_uri: Option<String>,
+    pub verified: Option<String>,
+    pub is_native: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayAppFeeCurrency {
+    pub chain_id: Option<u64>,
+    pub address: Option<String>,
+    pub symbol: Option<String>,
+    pub name: Option<String>,
+    pub decimals: Option<u32>,
+    pub metadata: Option<RelayAppFeeTokenMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayAppFeeBalance {
+    pub currency: Option<RelayAppFeeCurrency>,
+    pub amount: Option<String>,
+    pub amount_formatted: Option<String>,
+    pub amount_usd: Option<String>,
+    pub minimum_amount: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayAppFeeBalancesResponse {
+    #[serde(default)]
+    pub balances: Vec<RelayAppFeeBalance>,
+    pub total_balance_usd: Option<f64>,
+    pub outstanding_fast_fill_balance_usd: Option<f64>,
+    pub available_balance_usd: Option<f64>,
+}
+
+/// Fetch accumulated app fee balances for a fee-recipient wallet.
+pub async fn get_app_fee_balances(
+    http: &reqwest::Client,
+    wallet: &str,
+) -> Result<RelayAppFeeBalancesResponse, AppError> {
+    let url = format!("{}/app-fees/{}/balances", RELAY_API, wallet);
+    let response = http.get(&url).send().await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay app-fees/balances failed: {}",
+            err
+        )));
+    }
+
+    response
+        .json::<RelayAppFeeBalancesResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse app-fee balances: {}", e)))
+}
+
+// ── POST /fast-fill ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayFastFillRequest {
+    pub request_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub solver_input_currency_amount: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fill_amount_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayFastFillResponse {
+    pub message: String,
+}
+
+/// Queue a request for fast fill. Requires a Relay API key (`x-api-key` header).
+pub async fn fast_fill(
+    http: &reqwest::Client,
+    api_key: &str,
+    req: &RelayFastFillRequest,
+) -> Result<RelayFastFillResponse, AppError> {
+    let response = http
+        .post(format!("{}/fast-fill", RELAY_API))
+        .header("Content-Type", "application/json")
+        .header("x-api-key", api_key)
+        .json(req)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay fast-fill failed ({}): {}",
+            status, err
+        )));
+    }
+
+    response
+        .json::<RelayFastFillResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse fast-fill response: {}", e)))
+}
+
+// ── POST /transactions/deposit-address/reindex ───────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayDepositAddressReindexRequest {
+    pub chain_id: u64,
+    pub deposit_address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sweep: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_chain_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayTriggeredCurrency {
+    pub currency: String,
+    pub symbol: String,
+    pub balance: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayDepositAddressReindexResponse {
+    pub message: String,
+    #[serde(default)]
+    pub triggered_currencies: Vec<RelayTriggeredCurrency>,
+    pub checked_currencies: Option<u64>,
+    pub failed_currencies: Option<u64>,
+}
+
+/// Reindex a deposit address — scans for currency activity and triggers processing.
+pub async fn reindex_deposit_address(
+    http: &reqwest::Client,
+    req: &RelayDepositAddressReindexRequest,
+) -> Result<RelayDepositAddressReindexResponse, AppError> {
+    let response = http
+        .post(format!("{}/transactions/deposit-address/reindex", RELAY_API))
+        .header("Content-Type", "application/json")
+        .json(req)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay deposit-address/reindex failed: {}",
+            err
+        )));
+    }
+
+    response
+        .json::<RelayDepositAddressReindexResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse reindex response: {}", e)))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay.link — intent status v3 (/intents/status/v3)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Status values returned by /intents/status/v3.
+/// waiting → depositing → pending → submitted → success | delayed | refunded | failure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayIntentStatus {
+    /// "waiting" | "depositing" | "pending" | "submitted" | "success" | "delayed" | "refunded" | "failure"
+    pub status: String,
+    #[serde(default)]
+    pub details: Option<String>,
+    /// Incoming tx hashes on the origin chain
+    #[serde(default)]
+    pub in_tx_hashes: Vec<String>,
+    /// Outgoing tx hashes on the destination chain
+    #[serde(default)]
+    pub tx_hashes: Vec<String>,
+    /// Last updated timestamp in milliseconds
+    #[serde(default)]
+    pub updated_at: Option<u64>,
+    #[serde(default)]
+    pub origin_chain_id: Option<u64>,
+    #[serde(default)]
+    pub destination_chain_id: Option<u64>,
+}
+
+/// Check the execution status of a Relay cross-chain intent.
+pub async fn get_relay_intent_status(
+    http: &reqwest::Client,
+    request_id: &str,
+) -> Result<RelayIntentStatus, AppError> {
+    let response = http
+        .get(format!(
+            "{}/intents/status/v3?requestId={}",
+            RELAY_API, request_id
+        ))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay intent status failed: {}",
+            err
+        )));
+    }
+
+    response
+        .json::<RelayIntentStatus>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse intent status: {}", e)))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay.link — execute permits (/execute/permits)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Request body for POST /execute/permits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayExecutePermitsRequest {
+    /// Permit signature kind returned in the quote steps (e.g. "eip3009").
+    pub kind: String,
+    /// The requestId of the quote this permit signature applies to.
+    pub request_id: String,
+    /// Optional API type from the quote steps: "bridge" | "swap" | "user-swap".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api: Option<String>,
+}
+
+/// A single execution step item returned by /execute/permits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayPermitStepItem {
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+    #[serde(default)]
+    pub check: Option<serde_json::Value>,
+}
+
+/// A single execution step returned by /execute/permits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayPermitStep {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub items: Vec<RelayPermitStepItem>,
+}
+
+/// Response from POST /execute/permits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayExecutePermitsResponse {
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub steps: Vec<RelayPermitStep>,
+}
+
+/// Submit a permit signature to Relay and get back updated execution steps.
+///
+/// Called by the frontend after the user signs an EIP-3009 (or similar) permit
+/// that was requested in a quote step. The signature is passed as a query param;
+/// the body carries kind + requestId obtained from the quote response.
+pub async fn execute_relay_permits(
+    http: &reqwest::Client,
+    signature: &str,
+    body: &RelayExecutePermitsRequest,
+) -> Result<RelayExecutePermitsResponse, AppError> {
+    let response = http
+        .post(format!("{}/execute/permits?signature={}", RELAY_API, signature))
+        .header("Content-Type", "application/json")
+        .json(body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay execute/permits failed: {}",
+            err
+        )));
+    }
+
+    response
+        .json::<RelayExecutePermitsResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse execute/permits response: {}", e)))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay.link — chain liquidity (/chains/liquidity)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Solver liquidity balance for a single currency on a chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayLiquidityItem {
+    #[serde(default)]
+    pub chain_id: Option<u64>,
+    #[serde(default)]
+    pub currency_id: Option<String>,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub decimals: Option<u8>,
+    /// Solver balance in smallest unit (e.g. wei for ETH)
+    #[serde(default)]
+    pub balance: Option<String>,
+    /// Solver balance in USD
+    #[serde(default)]
+    pub amount_usd: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayLiquidityResponse {
+    #[serde(default)]
+    pub liquidity: Vec<RelayLiquidityItem>,
+}
+
+/// Get solver liquidity balances for all currencies on a given chain.
+pub async fn get_relay_chains_liquidity(
+    http: &reqwest::Client,
+    chain_id: u64,
+) -> Result<RelayLiquidityResponse, AppError> {
+    let response = http
+        .get(format!("{}/chains/liquidity?chainId={}", RELAY_API, chain_id))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Failed to fetch chain liquidity: {}",
+            err
+        )));
+    }
+
+    response
+        .json::<RelayLiquidityResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse chain liquidity: {}", e)))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay.link — currencies search (/currencies/v2)
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayCurrenciesQuery {
+    #[serde(default)]
+    pub chain_ids: Option<Vec<u64>>,
+    #[serde(default)]
+    pub term: Option<String>,
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub currency_id: Option<String>,
+    /// Token addresses in "chainId:address" format (e.g. ["1:0xA0b8…", "900:So111…"])
+    #[serde(default)]
+    pub tokens: Option<Vec<String>>,
+    #[serde(default)]
+    pub verified: Option<bool>,
+    /// Max results (default 20, max 100)
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub default_list: Option<bool>,
+    /// Include all chains for a currency when filtering by chainId + address
+    #[serde(default)]
+    pub include_all_chains: Option<bool>,
+    #[serde(default)]
+    pub use_external_search: Option<bool>,
+    #[serde(default)]
+    pub deposit_address_only: Option<bool>,
+}
+
+pub async fn get_relay_currencies(
+    http: &reqwest::Client,
+    query: &RelayCurrenciesQuery,
+) -> Result<Vec<RelayTokenInfo>, AppError> {
+    let mut body = serde_json::json!({});
+    if let Some(ref v) = query.chain_ids { body["chainIds"] = serde_json::json!(v); }
+    if let Some(ref v) = query.term { body["term"] = serde_json::json!(v); }
+    if let Some(ref v) = query.address { body["address"] = serde_json::json!(v); }
+    if let Some(ref v) = query.currency_id { body["currencyId"] = serde_json::json!(v); }
+    if let Some(ref v) = query.tokens { body["tokens"] = serde_json::json!(v); }
+    if let Some(v) = query.verified { body["verified"] = serde_json::json!(v); }
+    if let Some(v) = query.limit { body["limit"] = serde_json::json!(v); }
+    if let Some(v) = query.default_list { body["defaultList"] = serde_json::json!(v); }
+    if let Some(v) = query.include_all_chains { body["includeAllChains"] = serde_json::json!(v); }
+    if let Some(v) = query.use_external_search { body["useExternalSearch"] = serde_json::json!(v); }
+    if let Some(v) = query.deposit_address_only { body["depositAddressOnly"] = serde_json::json!(v); }
+
+    let response = http
+        .post(format!("{}/currencies/v2", RELAY_API))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!("Failed to fetch currencies: {}", err)));
+    }
+
+    response
+        .json::<Vec<RelayTokenInfo>>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse currencies: {}", e)))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay.link — token price (/currencies/token/price)
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayTokenPrice {
+    pub price: f64,
+}
+
+pub async fn get_relay_token_price(
+    http: &reqwest::Client,
+    address: &str,
+    chain_id: u64,
+) -> Result<RelayTokenPrice, AppError> {
+    let response = http
+        .get(format!(
+            "{}/currencies/token/price?address={}&chainId={}",
+            RELAY_API, address, chain_id
+        ))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!("Failed to fetch token price: {}", err)));
+    }
+
+    response
+        .json::<RelayTokenPrice>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse token price: {}", e)))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Relay.link — bridge request history (/requests/v2)
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayRequestsQuery {
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub continuation: Option<String>,
+    #[serde(default)]
+    pub user: Option<String>,
+    #[serde(default)]
+    pub hash: Option<String>,
+    #[serde(default)]
+    pub origin_chain_id: Option<u64>,
+    #[serde(default)]
+    pub destination_chain_id: Option<u64>,
+    /// Filter requests on either direction for a single chain (string form of chain ID)
+    #[serde(default)]
+    pub chain_id: Option<String>,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub order_id: Option<String>,
+    #[serde(default)]
+    pub deposit_address: Option<String>,
+    /// "success" | "failure" | "refund" | "pending" | "depositing" | "waiting"
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub start_timestamp: Option<u64>,
+    #[serde(default)]
+    pub end_timestamp: Option<u64>,
+    #[serde(default)]
+    pub start_block: Option<u64>,
+    #[serde(default)]
+    pub end_block: Option<u64>,
+    #[serde(default)]
+    pub referrer: Option<String>,
+    #[serde(default)]
+    pub include_order_data: Option<bool>,
+    #[serde(default)]
+    pub include_child_requests: Option<bool>,
+    #[serde(default)]
+    pub private_chains_to_include: Option<String>,
+    /// "createdAt" | "updatedAt"
+    #[serde(default)]
+    pub sort_by: Option<String>,
+    /// "asc" | "desc"
+    #[serde(default)]
+    pub sort_direction: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayRequestsResponse {
+    #[serde(default)]
+    pub requests: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub continuation: Option<String>,
+}
+
+pub async fn get_relay_requests(
+    http: &reqwest::Client,
+    query: &RelayRequestsQuery,
+) -> Result<RelayRequestsResponse, AppError> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(v) = query.limit { parts.push(format!("limit={}", v)); }
+    if let Some(ref v) = query.continuation { parts.push(format!("continuation={}", v)); }
+    if let Some(ref v) = query.user { parts.push(format!("user={}", v)); }
+    if let Some(ref v) = query.hash { parts.push(format!("hash={}", v)); }
+    if let Some(v) = query.origin_chain_id { parts.push(format!("originChainId={}", v)); }
+    if let Some(v) = query.destination_chain_id { parts.push(format!("destinationChainId={}", v)); }
+    if let Some(ref v) = query.chain_id { parts.push(format!("chainId={}", v)); }
+    if let Some(ref v) = query.id { parts.push(format!("id={}", v)); }
+    if let Some(ref v) = query.order_id { parts.push(format!("orderId={}", v)); }
+    if let Some(ref v) = query.deposit_address { parts.push(format!("depositAddress={}", v)); }
+    if let Some(ref v) = query.status { parts.push(format!("status={}", v)); }
+    if let Some(v) = query.start_timestamp { parts.push(format!("startTimestamp={}", v)); }
+    if let Some(v) = query.end_timestamp { parts.push(format!("endTimestamp={}", v)); }
+    if let Some(v) = query.start_block { parts.push(format!("startBlock={}", v)); }
+    if let Some(v) = query.end_block { parts.push(format!("endBlock={}", v)); }
+    if let Some(ref v) = query.referrer { parts.push(format!("referrer={}", v)); }
+    if let Some(v) = query.include_order_data { parts.push(format!("includeOrderData={}", v)); }
+    if let Some(v) = query.include_child_requests { parts.push(format!("includeChildRequests={}", v)); }
+    if let Some(ref v) = query.private_chains_to_include { parts.push(format!("privateChainsToInclude={}", v)); }
+    if let Some(ref v) = query.sort_by { parts.push(format!("sortBy={}", v)); }
+    if let Some(ref v) = query.sort_direction { parts.push(format!("sortDirection={}", v)); }
+
+    let url = if parts.is_empty() {
+        format!("{}/requests/v2", RELAY_API)
+    } else {
+        format!("{}/requests/v2?{}", RELAY_API, parts.join("&"))
+    };
+
+    let response = http.get(&url).send().await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!("Failed to fetch requests: {}", err)));
+    }
+
+    response
+        .json::<RelayRequestsResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse requests: {}", e)))
+}
+
+// ── POST /execute ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayEip7702Authorization {
+    pub chain_id: u64,
+    pub address: String,
+    pub nonce: u64,
+    pub y_parity: u64,
+    pub r: String,
+    pub s: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayExecuteCallData {
+    pub chain_id: u64,
+    pub to: String,
+    /// ABI-encoded calldata (hex string)
+    pub data: String,
+    /// ETH value in wei
+    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_list: Option<Vec<RelayEip7702Authorization>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayDestinationCall {
+    pub to: String,
+    pub value: String,
+    pub data: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayDestinationChainExecutionData {
+    pub calls: Vec<RelayDestinationCall>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_list: Option<Vec<RelayEip7702Authorization>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayExecutionOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub referrer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subsidize_fees: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_chain_execution_data: Option<RelayDestinationChainExecutionData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayExecuteRequest {
+    pub execution_kind: String,
+    pub data: RelayExecuteCallData,
+    pub execution_options: RelayExecutionOptions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayExecuteResponse {
+    pub message: Option<String>,
+    pub request_id: Option<String>,
+}
+
+/// Submit a gasless EVM transaction via Relay. Requires a Relay API key.
+pub async fn relay_execute(
+    http: &reqwest::Client,
+    api_key: &str,
+    req: &RelayExecuteRequest,
+) -> Result<RelayExecuteResponse, AppError> {
+    let response = http
+        .post(format!("{}/execute", RELAY_API))
+        .header("Content-Type", "application/json")
+        .header("x-api-key", api_key)
+        .json(req)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay execute failed ({}): {}",
+            status, err
+        )));
+    }
+
+    response
+        .json::<RelayExecuteResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse execute response: {}", e)))
+}
+
+// ── GET /swap-sources ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelaySwapSourcesResponse {
+    #[serde(default)]
+    pub sources: Vec<String>,
+}
+
+/// Fetch available swap sources, optionally filtered by chain ID.
+pub async fn get_swap_sources(
+    http: &reqwest::Client,
+    chain_id: Option<u64>,
+) -> Result<RelaySwapSourcesResponse, AppError> {
+    let mut url = format!("{}/swap-sources", RELAY_API);
+    if let Some(cid) = chain_id {
+        url.push_str(&format!("?chainId={}", cid));
+    }
+
+    let response = http.get(&url).send().await?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(AppError::RelayApiError(format!(
+            "Relay swap-sources failed: {}",
+            err
+        )));
+    }
+
+    response
+        .json::<RelaySwapSourcesResponse>()
+        .await
+        .map_err(|e| AppError::RelayApiError(format!("Failed to parse swap-sources: {}", e)))
+}

@@ -1,0 +1,27 @@
+id: eea_defi_risk
+source_type: docs
+base_url: https://entethalliance.org/specs/defi-risks
+protocol: null
+category: risk_framework
+license: open-standard
+language: en
+schedule_cron: "10 8 * * *"
+crawl_delay_s: 2.0
+max_pages: 30
+tags:
+  - eea
+  - defi-risk-framework
+  - smart-contract-risk
+  - governance-risk
+  - liquidity-risk
+  - tokenomics-risk
+  - regulatory-risk
+  - risk-assessment
+notes: >
+  Enterprise Ethereum Alliance DeFi Risk Assessment Guidelines v1 (July 2024).
+  A formal standard spec published at entethalliance.org/specs/defi-risks/ —
+  plain HTML specification document, very high crawl confidence.
+  Covers risk domains: software/smart-contract, governance, liquidity/tokenomics,
+  external market factors, regulatory compliance.
+  Authors: OpenZeppelin, ConsenSys, EY, Hacken, CertIK, Quantstamp.
+  Also crawl /eea-releases-defi-risk-assessment-guidelines-v1/ (press release with summary).

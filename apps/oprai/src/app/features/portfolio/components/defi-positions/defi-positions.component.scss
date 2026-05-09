@@ -1,0 +1,307 @@
+// ──── Category Group ────
+.category-group {
+  margin-bottom: 8px;
+}
+
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 8px;
+}
+
+.category-badge {
+  display: inline-block;
+  padding: 4px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+  border-radius: var(--op-radius-full);
+  background: var(--op-gradient);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.category-total {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--op-text-secondary);
+  font-family: var(--op-font-body);
+}
+
+// ──── Protocol Header (DeBank style) ────
+.protocol-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0 8px;
+}
+
+.protocol-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.protocol-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--op-radius-full);
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.2);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: var(--op-radius-full);
+  }
+}
+
+.protocol-name-text {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-family: var(--op-font-body);
+}
+
+.protocol-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-family: var(--op-font-body);
+}
+
+// ──── Protocol Card Body (DeBank style) ────
+.protocol-card {
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--op-shadow-sm);
+  margin-bottom: 8px;
+}
+
+.position-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th, td {
+    padding: 0 24px;
+    text-align: left;
+    font-size: 13px;
+    height: 52px;
+    vertical-align: middle;
+  }
+
+  thead tr {
+    height: 40px;
+    border-bottom: 1px solid var(--op-border-subtle);
+  }
+
+  th {
+    font-weight: 500;
+    color: var(--op-text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    height: 40px;
+  }
+}
+
+.position-row {
+  border-bottom: 1px solid var(--op-border-subtle);
+  transition: background var(--op-fast);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: var(--op-hover);
+  }
+}
+
+.col-label {
+  width: 35%;
+}
+
+.col-tokens {
+  width: 35%;
+}
+
+.col-balance {
+  width: 28%;
+}
+
+.col-status {
+  width: 18%;
+}
+
+.col-value {
+  width: 22%;
+  text-align: right;
+  font-family: var(--op-font-mono);
+  font-weight: 600;
+  color: var(--op-text-primary);
+}
+
+.position-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--op-text-primary);
+}
+
+.token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.token-amount {
+  font-family: var(--op-font-mono);
+  font-size: 13px;
+  color: var(--op-text-primary);
+}
+
+.validator-link {
+  font-family: var(--op-font-mono);
+  font-size: 13px;
+  color: var(--op-brand);
+  text-decoration: none;
+  transition: opacity var(--op-fast);
+
+  &:hover {
+    opacity: 0.7;
+  }
+}
+
+.balance-amount {
+  font-family: var(--op-font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--op-text-primary);
+}
+
+.status-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 12px;
+  border-radius: var(--op-radius-full);
+  text-transform: capitalize;
+  letter-spacing: 0.2px;
+
+  &.status-active {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--op-gain);
+  }
+
+  &.status-activating {
+    background: rgba(245, 158, 11, 0.1);
+    color: #F59E0B;
+  }
+
+  &.status-deactivating {
+    background: rgba(249, 115, 22, 0.1);
+    color: #F97316;
+  }
+
+  &.status-inactive {
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-secondary);
+  }
+}
+
+.no-data {
+  color: var(--op-text-secondary);
+  opacity: 0.4;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+  gap: 16px;
+  color: var(--op-text-secondary);
+  text-align: center;
+
+  svg {
+    opacity: 0.3;
+  }
+
+  p {
+    font-size: 14px;
+    margin: 0;
+  }
+}
+
+// ──── Risk badge (lending positions: HF / LTV / liq) ────
+.risk-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.risk-badge[data-tier='safe'] {
+  color: #137d3a;
+  background: rgba(20, 241, 149, 0.10);
+  border-color: rgba(20, 241, 149, 0.32);
+}
+
+.risk-badge[data-tier='warn'] {
+  color: #8a5b00;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.36);
+}
+
+.risk-badge[data-tier='danger'] {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.42);
+}
+
+.risk-badge[data-tier='unknown'] {
+  color: var(--op-text-secondary);
+  background: var(--op-bg-surface-2, rgba(0, 0, 0, 0.04));
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.risk-badge-sub {
+  font-weight: 500;
+  opacity: 0.85;
+  font-size: 10.5px;
+}
+
+// ──── Responsive ────
+@media (max-width: 640px) {
+  .position-table th,
+  .position-table td {
+    padding: 0 14px;
+    height: 48px;
+  }
+
+  .col-status,
+  th.col-status {
+    display: none;
+  }
+
+  .col-tokens,
+  th.col-tokens {
+    display: none;
+  }
+}

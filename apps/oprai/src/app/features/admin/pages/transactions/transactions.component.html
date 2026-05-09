@@ -1,0 +1,199 @@
+<app-admin-layout activePage="transactions" (logoutClick)="logout()">
+  <header class="admin-header">
+    <h1>Transactions</h1>
+    <span class="header-count">{{ totalCount() }} total</span>
+  </header>
+
+  <div class="admin-content">
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="search-box search-box--enhanced">
+        <lucide-icon name="search" [size]="14" class="search-icon" />
+        <input
+          type="text"
+          class="input search-input"
+          placeholder="Search by wallet or tx hash..."
+          [(ngModel)]="searchQuery"
+          (keyup.enter)="onSearch()"
+        />
+      </div>
+      <select class="input filter-select" [(ngModel)]="filterStatus" (change)="onFilterChange()">
+        <option value="">All Statuses</option>
+        @for (s of statusOptions.slice(1); track s) {
+          <option [value]="s">{{ s | titlecase }}</option>
+        }
+      </select>
+      <select class="input filter-select" [(ngModel)]="filterAction" (change)="onFilterChange()">
+        <option value="">All Actions</option>
+        @for (a of actionOptions.slice(1); track a) {
+          <option [value]="a">{{ a | titlecase }}</option>
+        }
+      </select>
+      <button class="btn-ghost" (click)="onSearch()">
+        <lucide-icon name="refresh-cw" [size]="14" />
+        Refresh
+      </button>
+    </div>
+
+    @if (loading()) {
+      <app-skeleton-table [rows]="10" [columnWidths]="['120px', '140px', '80px', '80px', '70px', '90px', '80px', '60px']" />
+    } @else if (error()) {
+      <div class="error-state">
+        <lucide-icon name="alert-circle" [size]="20" />
+        <span>{{ error() }}</span>
+        <button class="btn-ghost btn-sm" (click)="load()">Retry</button>
+      </div>
+    } @else {
+      <div class="content-fade-in">
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Wallet</th>
+                <th>Action</th>
+                <th>Protocol</th>
+                <th>Status</th>
+                <th>Fee</th>
+                <th>Created</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (tx of transactions(); track tx.id) {
+                <tr>
+                  <td>
+                    <span class="mono-text">{{ tx.id | truncateAddress:6:4 }}</span>
+                  </td>
+                  <td>
+                    <span class="wallet-text">{{ tx.userWallet | truncateAddress:6:4 }}</span>
+                  </td>
+                  <td>
+                    <span class="badge badge--action">{{ tx.action }}</span>
+                  </td>
+                  <td>{{ tx.protocol || '-' }}</td>
+                  <td>
+                    <span class="badge" [ngClass]="statusClass(tx.status)">{{ tx.status }}</span>
+                  </td>
+                  <td class="mono-text">{{ formatFee(tx.actualFee ?? tx.estimatedFee) }}</td>
+                  <td>{{ tx.createdAt | timeAgo }}</td>
+                  <td>
+                    <button class="btn-ghost btn-sm" (click)="openDetail(tx)">
+                      <lucide-icon name="eye" [size]="13" />
+                      View
+                    </button>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="8" class="empty-row">
+                    <lucide-icon name="inbox" [size]="24" />
+                    <p>No transactions found</p>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        @if (totalPages > 1) {
+          <div class="pagination">
+            <button
+              class="btn-ghost btn-sm"
+              [disabled]="page() === 1"
+              (click)="onPageChange(page() - 1)"
+            >
+              <lucide-icon name="chevron-left" [size]="14" />
+              Previous
+            </button>
+            <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
+            <button
+              class="btn-ghost btn-sm"
+              [disabled]="page() >= totalPages"
+              (click)="onPageChange(page() + 1)"
+            >
+              Next
+              <lucide-icon name="chevron-right" [size]="14" />
+            </button>
+          </div>
+        }
+      </div>
+    }
+  </div>
+
+  <!-- Detail drawer/modal -->
+  @if (detailOpen() && selectedTx()) {
+    <div class="modal-backdrop" (click)="closeDetail()">
+      <div class="modal-panel" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h2>Transaction Detail</h2>
+          <button class="btn-ghost btn-icon" (click)="closeDetail()">
+            <lucide-icon name="x" [size]="16" />
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="detail-row">
+            <span class="detail-label">ID</span>
+            <span class="detail-value mono-text">{{ selectedTx()!.id }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Wallet</span>
+            <span class="detail-value mono-text">{{ selectedTx()!.userWallet }}</span>
+          </div>
+          @if (selectedTx()!.txHash) {
+            <div class="detail-row">
+              <span class="detail-label">TX Hash</span>
+              <span class="detail-value mono-text">{{ selectedTx()!.txHash }}</span>
+            </div>
+          }
+          <div class="detail-row">
+            <span class="detail-label">Action</span>
+            <span class="detail-value">{{ selectedTx()!.action }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Protocol</span>
+            <span class="detail-value">{{ selectedTx()!.protocol || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Chain</span>
+            <span class="detail-value">{{ selectedTx()!.chain }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Status</span>
+            <span class="badge" [ngClass]="statusClass(selectedTx()!.status)">{{ selectedTx()!.status }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Est. Fee</span>
+            <span class="detail-value mono-text">{{ formatFee(selectedTx()!.estimatedFee) }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Actual Fee</span>
+            <span class="detail-value mono-text">{{ formatFee(selectedTx()!.actualFee) }}</span>
+          </div>
+          @if (selectedTx()!.errorMessage) {
+            <div class="detail-row detail-row--error">
+              <span class="detail-label">Error</span>
+              <span class="detail-value">{{ selectedTx()!.errorMessage }}</span>
+            </div>
+          }
+          <div class="detail-row">
+            <span class="detail-label">Initiated</span>
+            <span class="detail-value">{{ selectedTx()!.initiatedAt | timeAgo }}</span>
+          </div>
+          @if (selectedTx()!.confirmedAt) {
+            <div class="detail-row">
+              <span class="detail-label">Confirmed</span>
+              <span class="detail-value">{{ selectedTx()!.confirmedAt | timeAgo }}</span>
+            </div>
+          }
+          @if (selectedTx()!.parameters) {
+            <div class="detail-section">
+              <span class="detail-label">Parameters</span>
+              <pre class="detail-json">{{ selectedTx()!.parameters | json }}</pre>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+</app-admin-layout>

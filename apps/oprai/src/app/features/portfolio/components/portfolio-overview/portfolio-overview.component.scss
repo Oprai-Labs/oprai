@@ -1,0 +1,232 @@
+// ──── Profile Hero — wallet info + chart side by side ────
+.profile-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 32px 0 24px;
+}
+
+.hero-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.hero-right {
+  flex-shrink: 0;
+}
+
+.wallet-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.wallet-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--op-radius-full);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+  overflow: hidden;
+
+  img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+}
+
+.wallet-address {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 4px 10px;
+  border-radius: var(--op-radius-sm);
+  font-family: var(--op-font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: var(--op-text-secondary);
+  cursor: pointer;
+  transition: all var(--op-fast);
+
+  &:hover {
+    color: var(--op-text-primary);
+    background: var(--op-bg-surface-2);
+  }
+
+  .copy-icon {
+    opacity: 0.4;
+    transition: opacity var(--op-fast);
+  }
+
+  &:hover .copy-icon {
+    opacity: 0.7;
+  }
+}
+
+.total-value {
+  font-size: 42px;
+  font-weight: 800;
+  font-family: var(--op-font-display);
+  color: var(--op-text-primary);
+  letter-spacing: -1.5px;
+  line-height: 1.1;
+}
+
+// ──── 24h Change ────
+.value-change {
+  margin-top: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: var(--op-font-sans);
+
+  &.change-positive {
+    color: var(--op-gain);
+  }
+
+  &.change-negative {
+    color: var(--op-loss);
+  }
+}
+
+.change-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--op-text-secondary);
+  margin-left: 4px;
+}
+
+// ──── Protocol Summary Cards ────
+.protocol-cards-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+}
+
+.protocol-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  min-width: 160px;
+  flex: 1;
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  transition: all var(--op-fast);
+  box-shadow: var(--op-shadow-sm);
+
+  &:hover {
+    box-shadow: var(--op-shadow-md);
+  }
+}
+
+.card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--op-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  &.wallet {
+    background: rgba(99, 102, 241, 0.1);
+    color: #6366F1;
+
+    :host-context(html.dark) & {
+      background: rgba(148, 163, 184, 0.1);
+      color: var(--op-text-secondary);
+    }
+  }
+
+  &.staking {
+    background: rgba(139, 92, 246, 0.1);
+    color: #8B5CF6;
+
+    :host-context(html.dark) & {
+      background: rgba(148, 163, 184, 0.1);
+      color: var(--op-text-secondary);
+    }
+  }
+
+  &.protocol {
+    background: rgba(6, 182, 212, 0.1);
+    color: #06B6D4;
+
+    :host-context(html.dark) & {
+      background: rgba(148, 163, 184, 0.1);
+      color: var(--op-text-secondary);
+    }
+  }
+}
+
+.card-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.card-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--op-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-family: var(--op-font-body);
+}
+
+// ──── Responsive ────
+@media (max-width: 640px) {
+  .profile-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+    padding: 20px 0 16px;
+  }
+
+  .hero-right {
+    width: 100%;
+  }
+
+  .total-value {
+    font-size: 32px;
+  }
+
+  .value-change {
+    font-size: 13px;
+  }
+
+  .protocol-cards-row {
+    flex-direction: column;
+  }
+
+  .protocol-card {
+    min-width: unset;
+  }
+}

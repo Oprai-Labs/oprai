@@ -1,0 +1,31 @@
+id: panoptic_delta_neutral
+source_type: docs
+base_url: https://panoptic.xyz/blog
+protocol: null
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "40 8 * * *"
+crawl_delay_s: 2.0
+max_pages: 40
+include_patterns:
+  - "delta-neutral"
+  - "hedge"
+  - "lp"
+  - "liquidity"
+tags:
+  - delta-neutral
+  - hedging
+  - lp-hedging
+  - uniswap
+  - perpetuals
+  - options
+  - defi-strategy
+notes: >
+  Panoptic blog — static Next.js, high crawl confidence. Key article:
+  panoptic.xyz/blog/delta-neutral-lp-hedge-uniswap-position
+  Explains delta-neutral LP strategy: LP position has long exposure,
+  offset with short perp/borrowed assets. Covers hedge ratio calculation,
+  rebalancing frequency, and funding rate impact on profitability.
+  Complement with: docs.teahouse.finance/docs/easy-earn/easy-earn-vault-info/delta-neutral-strategy
+  (Gitbook, very high confidence) and docs.arcana.finance/delta-neutral-yield-strategies/

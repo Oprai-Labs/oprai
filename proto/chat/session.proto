@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package oprai.chat;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/chatpb";
+
+import "google/protobuf/timestamp.proto";
+import "proto/common/types.proto";
+
+// ─── Chat Session Service ────────────────────────────────────────────────────
+
+service ChatSessionService {
+  // Create a new chat session for the authenticated wallet.
+  rpc CreateSession (CreateSessionRequest) returns (SessionMeta);
+
+  // Retrieve a single session by ID.
+  rpc GetSession (GetSessionRequest) returns (SessionMeta);
+
+  // List sessions for the authenticated wallet (paginated).
+  rpc ListSessions (ListSessionsRequest) returns (ListSessionsResponse);
+
+  // Rename an existing session.
+  rpc UpdateSessionTitle (UpdateSessionTitleRequest) returns (SessionMeta);
+
+  // Soft-delete a session and all its messages.
+  rpc DeleteSession (DeleteSessionRequest) returns (DeleteSessionResponse);
+}
+
+// ─── SessionMeta ─────────────────────────────────────────────────────────────
+
+message SessionMeta {
+  string id     = 1;
+  string wallet = 2;
+  string title  = 3;
+
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+// ─── CreateSession ───────────────────────────────────────────────────────────
+
+message CreateSessionRequest {
+  string wallet = 1; // owner wallet address
+  string title  = 2; // optional initial title
+}
+
+// ─── GetSession ──────────────────────────────────────────────────────────────
+
+message GetSessionRequest {
+  string session_id = 1;
+  string wallet     = 2; // authorization check
+}
+
+// ─── ListSessions ────────────────────────────────────────────────────────────
+
+message ListSessionsRequest {
+  string                    wallet     = 1;
+  oprai.common.Pagination   pagination = 2;
+  oprai.common.DateRange    date_range = 3;
+  string                    search     = 4; // optional title search
+}
+
+message ListSessionsResponse {
+  repeated SessionMeta                sessions   = 1;
+  oprai.common.PaginatedResponse      pagination = 2;
+}
+
+// ─── UpdateSessionTitle ──────────────────────────────────────────────────────
+
+message UpdateSessionTitleRequest {
+  string session_id = 1;
+  string wallet     = 2;
+  string title      = 3;
+}
+
+// ─── DeleteSession ───────────────────────────────────────────────────────────
+
+message DeleteSessionRequest {
+  string session_id = 1;
+  string wallet     = 2;
+}
+
+message DeleteSessionResponse {
+  bool success = 1;
+}

@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package oprai.common;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/commonpb";
+
+import "google/protobuf/timestamp.proto";
+
+// ─── Health Service ──────────────────────────────────────────────────────────
+
+service HealthService {
+  // Standard health check; compatible with grpc.health.v1 pattern.
+  rpc Check (HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message HealthCheckRequest {
+  // Optional service name to check. Empty = check the server itself.
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  ServingStatus status = 1;
+  string        version = 2;
+  double        uptime_seconds = 3;
+
+  google.protobuf.Timestamp started_at = 4;
+
+  // Downstream dependency statuses (db, redis, qdrant, etc.)
+  repeated ServiceStatus services = 5;
+}
+
+enum ServingStatus {
+  SERVING_STATUS_UNSPECIFIED  = 0;
+  SERVING_STATUS_SERVING      = 1;
+  SERVING_STATUS_NOT_SERVING  = 2;
+  SERVING_STATUS_STARTING     = 3;
+}
+
+message ServiceStatus {
+  string        name    = 1;
+  ServingStatus status  = 2;
+  string        message = 3; // optional diagnostic info
+  double        latency_ms = 4;
+}

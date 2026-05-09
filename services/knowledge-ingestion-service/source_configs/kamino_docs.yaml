@@ -1,0 +1,30 @@
+id: kamino_docs
+source_type: docs
+base_url: https://docs.kamino.finance
+protocol: kamino
+category: protocol_documentation
+license: proprietary-fair-use
+language: en
+schedule_cron: "40 3 * * *"
+crawl_delay_s: 1.5
+max_pages: 400
+tags:
+  - kamino
+  - clmm
+  - liquidity-vaults
+  - autocompound
+  - ktokens
+  - sol-only-strategy
+  - stablecoin-strategy
+  - ranges-rebalancing
+  - lending
+  - defi
+  - solana
+notes: >
+  Gitbook docs. Key strategy pages: /automated-liquidity/clmms-and-kamino,
+  /automated-liquidity/liquidity-vaults/ranges-and-rebalancing,
+  /automated-liquidity/liquidity-vaults/vault-strategies/sol-only-strategies,
+  /automated-liquidity/liquidity-vaults/yield-and-apys,
+  /v/automated-liquidity/liquidity-vaults/liquidity-vault-overview/auto-compound.
+  Also covers Kamino Lend (kToken collateral, health factor management).
+  Static HTML; very high crawl confidence. llms.txt available at /llms.txt.

@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package oprai.chat;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/chatpb";
+
+import "google/protobuf/timestamp.proto";
+import "proto/common/types.proto";
+
+// ─── Chat Message Service ────────────────────────────────────────────────────
+
+service ChatMessageService {
+  // Send a user message and receive streaming assistant response tokens.
+  rpc SendMessage (SendMessageRequest) returns (stream SendMessageResponse);
+
+  // Retrieve the message history for a session (paginated).
+  rpc GetMessages (GetMessagesRequest) returns (GetMessagesResponse);
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum MessageRole {
+  MESSAGE_ROLE_UNSPECIFIED = 0;
+  MESSAGE_ROLE_USER        = 1;
+  MESSAGE_ROLE_ASSISTANT   = 2;
+  MESSAGE_ROLE_SYSTEM      = 3;
+}
+
+// ─── ChatMessage ─────────────────────────────────────────────────────────────
+
+message ChatMessage {
+  string      id        = 1;
+  MessageRole speaker   = 2;
+  string      content   = 3;
+  bool        streaming = 4; // true while the message is still being streamed
+
+  google.protobuf.Timestamp timestamp = 5;
+
+  repeated Annotation annotations = 6;
+}
+
+// Annotation is a discriminated union carried alongside a message.
+message Annotation {
+  oneof kind {
+    AlertAnnotation  alert  = 1;
+    MemoryAnnotation memory = 2;
+  }
+}
+
+message AlertAnnotation {
+  AlertLevel level   = 1;
+  string     message = 2;
+}
+
+enum AlertLevel {
+  ALERT_LEVEL_UNSPECIFIED = 0;
+  ALERT_LEVEL_INFO        = 1;
+  ALERT_LEVEL_WARNING     = 2;
+  ALERT_LEVEL_CRITICAL    = 3;
+}
+
+message MemoryAnnotation {
+  MemoryScope scope        = 1;
+  string      reference_id = 2;
+  string      label        = 3;
+}
+
+enum MemoryScope {
+  MEMORY_SCOPE_UNSPECIFIED = 0;
+  MEMORY_SCOPE_LOCAL       = 1;
+  MEMORY_SCOPE_GLOBAL      = 2;
+}
+
+// ─── SendMessage ─────────────────────────────────────────────────────────────
+
+message SendMessageRequest {
+  string session_id = 1;
+  string wallet     = 2;
+  string content    = 3; // user's natural-language input
+}
+
+// Each streamed frame carries either a token chunk or the final completed message.
+message SendMessageResponse {
+  oneof payload {
+    StreamToken  token           = 1;
+    ChatMessage  completed_message = 2;
+  }
+}
+
+message StreamToken {
+  string delta = 1; // incremental text fragment
+  int32  index = 2; // token sequence number within the response
+}
+
+// ─── GetMessages ─────────────────────────────────────────────────────────────
+
+message GetMessagesRequest {
+  string                   session_id = 1;
+  string                   wallet     = 2;
+  oprai.common.Pagination  pagination = 3;
+}
+
+message GetMessagesResponse {
+  repeated ChatMessage                messages   = 1;
+  oprai.common.PaginatedResponse      pagination = 2;
+}

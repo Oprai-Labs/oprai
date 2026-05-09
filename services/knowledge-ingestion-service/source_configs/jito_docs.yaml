@@ -1,0 +1,28 @@
+id: jito_docs
+source_type: docs
+base_url: https://www.jito.network/docs
+protocol: jito
+category: protocol_documentation
+license: proprietary-fair-use
+language: en
+schedule_cron: "20 4 * * *"
+crawl_delay_s: 1.5
+max_pages: 200
+tags:
+  - jito
+  - mev
+  - liquid-staking
+  - jitosol
+  - validator
+  - tip-router
+  - mev-yield
+  - solana
+notes: >
+  Official Jito Foundation docs hub. Key pages:
+  /docs/jitosol/introduction-to-jito/,
+  /docs/jitosol/jitosol-liquid-staking/maximum-extractible-value/,
+  /docs/jitosol/jitosol-liquid-staking/for-developers/mev-and-staker-rewards-api-info/,
+  /docs/jitosol/user-guides/mev-harvesting-guide/,
+  /docs/stakenet/jito-steward/program-overview/ (validator selection via Steward program),
+  /restaking/tiprouter/learn-more/ (TipRouter decentralized MEV distribution).
+  Also crawl jito.network/blog/ for MEV staker guides. Static HTML; high crawl confidence.

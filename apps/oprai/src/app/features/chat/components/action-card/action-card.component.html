@@ -1,0 +1,1285 @@
+<div class="action-card"
+     [class]="'action-card--' + status()"
+     [style.--proto-accent]="protocolConfig.accent"
+     [style.--proto-bg]="protocolConfig.accentBg">
+
+  <!-- ══════════════════════════════════════════════════════════
+       TOKEN LAUNCH MINI-APP — pump.fun
+       ══════════════════════════════════════════════════════════ -->
+  @if (isLaunchAction()) {
+
+    <!-- Header -->
+    <div class="pf-header">
+      <div class="pf-logo">
+        <img src="assets/icons/pumpfun.png" alt="pump.fun" width="32" height="32" />
+      </div>
+      <div class="pf-header-text">
+        <span class="pf-app-name">pump.fun</span>
+        <span class="pf-subtitle">Create token</span>
+      </div>
+      <div class="pf-status-badge" [class]="'pf-status-badge--' + status()">
+        @switch (status()) {
+          @case ('pending')   { <span>Ready</span> }
+          @case ('quoting')   { <span class="pf-dot pf-dot--spin"></span><span>Building...</span> }
+          @case ('signing')   { <span class="pf-dot pf-dot--spin"></span><span>Sign</span> }
+          @case ('submitted') { <span class="pf-dot pf-dot--green"></span><span>Sent</span> }
+          @case ('confirmed') { <span class="pf-dot pf-dot--green"></span><span>Confirmed</span> }
+          @case ('error')     { <span class="pf-dot pf-dot--red"></span><span>Error</span> }
+        }
+      </div>
+    </div>
+
+    @if (effectiveBannerUrl()) {
+      <div class="token-banner">
+        <img [src]="effectiveBannerUrl()" [alt]="editName() + ' banner'" />
+        @if (isEditable()) {
+          <button class="pf-banner-change" (click)="triggerBannerUpload()">
+            <lucide-icon name="pencil" [size]="12" /> Change banner
+          </button>
+        }
+      </div>
+    }
+
+    <!-- Body -->
+    <div class="pf-body">
+      <input #imageFileInput type="file"
+        accept=".jpg,.jpeg,.png,.gif,.mp4,image/jpeg,image/png,image/gif,video/mp4"
+        style="display:none"
+        (change)="onImageFileSelected($event)" />
+      <input #bannerFileInput type="file"
+        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+        style="display:none"
+        (change)="onBannerFileSelected($event)" />
+
+      <!-- Image upload / preview -->
+      @if (effectiveImageUrl()) {
+        <div class="pf-image-preview">
+          <img [src]="effectiveImageUrl()" [alt]="editName() || 'Token'" />
+          @if (isEditable()) {
+            <button class="pf-image-change" (click)="triggerImageUpload()">
+              <lucide-icon name="pencil" [size]="12" /> Change
+            </button>
+          }
+        </div>
+      } @else {
+        <div class="pf-upload-zone"
+          [class.pf-upload-zone--dragover]="isDragOver()"
+          [class.pf-upload-zone--uploading]="uploadingImage()"
+          [class.pf-upload-zone--invalid]="isImageInvalid"
+          (click)="triggerImageUpload()"
+          (dragover)="onDragOver($event)"
+          (dragleave)="onDragLeave()"
+          (drop)="onDrop($event)">
+          @if (uploadingImage()) {
+            <span class="pf-spinner"></span>
+            <span class="pf-upload-text">Uploading...</span>
+          } @else {
+            <div class="pf-upload-icon-wrap">
+              <lucide-icon name="upload-cloud" [size]="28" />
+            </div>
+            <span class="pf-upload-text">Select image or video <span class="pf-required">*</span></span>
+            <span class="pf-upload-sub">or drag and drop</span>
+            <div class="pf-upload-types">
+              <span>jpg · png · gif · mp4</span>
+              <span class="pf-upload-dot">·</span>
+              <span>max 15 MB / 30 MB</span>
+            </div>
+          }
+        </div>
+        @if (imageUploadError()) {
+          <p class="pf-upload-error">
+            <lucide-icon name="alert-circle" [size]="13" />
+            {{ imageUploadError() }}
+          </p>
+        }
+      }
+
+      <!-- Editable fields -->
+      <div class="pf-fields" [class.pf-fields--shake]="shake()">
+
+        <div class="pf-field-row">
+          <div class="pf-field pf-field--grow">
+            <label class="pf-field-label">Full name <span class="pf-required">*</span></label>
+            <input class="pf-input" [class.pf-input--invalid]="isNameInvalid()"
+              type="text" placeholder="Token name"
+              [value]="editName()"
+              (input)="editName.set($any($event.target).value)"
+              [disabled]="!isEditable()" />
+          </div>
+          <div class="pf-field pf-field--ticker">
+            <label class="pf-field-label">Ticker <span class="pf-required">*</span></label>
+            <input class="pf-input pf-input--ticker" [class.pf-input--invalid]="isSymbolInvalid()"
+              type="text" placeholder="SYM" maxlength="10"
+              [value]="editSymbol()"
+              (input)="onTickerInput($event)"
+              [disabled]="!isEditable()" />
+          </div>
+        </div>
+
+        <div class="pf-field">
+          <label class="pf-field-label">Description <span class="pf-optional">(optional)</span></label>
+          <textarea class="pf-textarea" rows="3" placeholder="Describe your token..."
+            [value]="editDescription()"
+            (input)="editDescription.set($any($event.target).value)"
+            [disabled]="!isEditable()"></textarea>
+        </div>
+
+        <div class="pf-field pf-field--half">
+          <label class="pf-field-label">Initial buy (SOL)</label>
+          <div class="pf-input-wrap">
+            <input class="pf-input" type="number" min="0" step="0.01" placeholder="0.0"
+              [value]="editInitialBuy()"
+              (input)="editInitialBuy.set($any($event.target).value)"
+              [disabled]="!isEditable()" />
+            <span class="pf-input-suffix">SOL</span>
+          </div>
+        </div>
+
+        <div class="pf-field">
+          <label class="pf-field-label">Social links</label>
+          <div class="pf-socials-edit">
+            <div class="pf-social-row">
+              <svg class="pf-social-icon" width="13" height="13" viewBox="0 0 1200 1227" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M714.163 519.284L1160.89 0H1055.03L667.137 450.887L357.328 0H0L468.492 681.821L0 1226.37H105.866L515.491 750.218L842.672 1226.37H1200L714.163 519.284ZM569.165 687.828L521.697 619.934L144.011 79.6944H306.615L611.412 515.685L658.88 583.579L1055.08 1150.3H892.476L569.165 687.828Z"/>
+              </svg>
+              <input class="pf-input pf-input--social" type="text" placeholder="X (Twitter) handle or URL"
+                [value]="editTwitter()" (input)="editTwitter.set($any($event.target).value)"
+                [disabled]="!isEditable()" />
+            </div>
+            <div class="pf-social-row">
+              <lucide-icon name="send" [size]="13" class="pf-social-icon" />
+              <input class="pf-input pf-input--social" type="text" placeholder="Telegram handle or URL"
+                [value]="editTelegram()" (input)="editTelegram.set($any($event.target).value)"
+                [disabled]="!isEditable()" />
+            </div>
+            <div class="pf-social-row">
+              <lucide-icon name="globe" [size]="13" class="pf-social-icon" />
+              <input class="pf-input pf-input--social" type="text" placeholder="Website URL"
+                [value]="editWebsite()" (input)="editWebsite.set($any($event.target).value)"
+                [disabled]="!isEditable()" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Banner image upload -->
+        <div class="pf-field">
+          <label class="pf-field-label">Banner image <span class="pf-optional">(optional)</span></label>
+          @if (!effectiveBannerUrl()) {
+            <div class="pf-upload-zone pf-upload-zone--banner"
+              [class.pf-upload-zone--uploading]="uploadingBanner()"
+              (click)="isEditable() && triggerBannerUpload()">
+              @if (uploadingBanner()) {
+                <span class="pf-spinner"></span>
+                <span class="pf-upload-text">Uploading...</span>
+              } @else {
+                <lucide-icon name="image" [size]="18" />
+                <span class="pf-upload-text">Upload banner</span>
+                <span class="pf-upload-sub">jpg · png · recommended 1500×500</span>
+              }
+            </div>
+            @if (bannerUploadError()) {
+              <p class="pf-upload-error">
+                <lucide-icon name="alert-circle" [size]="13" />
+                {{ bannerUploadError() }}
+              </p>
+            }
+          } @else {
+            <div class="pf-banner-preview">
+              <img [src]="effectiveBannerUrl()" alt="Banner preview" />
+              @if (isEditable()) {
+                <button class="pf-image-change" type="button" (click)="triggerBannerUpload()">
+                  <lucide-icon name="pencil" [size]="12" /> Change
+                </button>
+              }
+            </div>
+          }
+        </div>
+
+        @if (isTokenLaunch()) {
+          <div class="pf-toggles">
+            <button class="pf-toggle" [class.pf-toggle--on]="editMayhemMode()" type="button"
+              (click)="isEditable() && toggleMayhemMode()"
+              title="Mayhem Mode requires a minimum 0.05 SOL initial buy.">
+              <lucide-icon name="zap" [size]="12" />
+              <span>Mayhem Mode</span>
+              @if (editMayhemMode()) { <span class="pf-toggle-on-badge">ON</span> }
+            </button>
+            <button class="pf-toggle" [class.pf-toggle--on]="editCashback()" type="button"
+              (click)="isEditable() && editCashback.set(!editCashback())">
+              <lucide-icon name="circle-dollar-sign" [size]="12" />
+              <span>Cash Back</span>
+              @if (editCashback()) { <span class="pf-toggle-on-badge">ON</span> }
+            </button>
+            <button class="pf-toggle pf-toggle--disabled" type="button" disabled
+              title="Tokenized Agent integration is not yet implemented.">
+              <lucide-icon name="bot" [size]="12" />
+              <span>Tokenized Agent</span>
+              <span class="pf-toggle-soon-badge">SOON</span>
+            </button>
+          </div>
+        }
+
+
+      </div><!-- /pf-fields -->
+    </div><!-- /pf-body -->
+
+
+    <!-- Footer -->
+    @switch (status()) {
+      @case ('pending') {
+        <div class="pf-footer">
+          <button class="pf-btn-launch" (click)="approve()" [disabled]="!canApprove()">
+            @if (!effectiveImageUrl()) {
+              <lucide-icon name="image" [size]="14" /> Add image to launch
+            } @else if (!editName().trim() || !editSymbol().trim()) {
+              <lucide-icon name="type" [size]="14" /> Enter name &amp; ticker
+            } @else {
+              <img src="assets/icons/pumpfun.png"
+                   width="15" height="15" alt="" style="border-radius:3px" />
+              Launch token
+            }
+          </button>
+          <button class="pf-btn-cancel" (click)="reject()">Cancel</button>
+        </div>
+      }
+      @case ('quoting') {
+        <div class="pf-footer-status">
+          <span class="pf-spinner"></span><span>Building transaction...</span>
+        </div>
+      }
+      @case ('signing') {
+        <div class="pf-footer-status">
+          <span class="pf-spinner"></span><span>Waiting for wallet signature...</span>
+        </div>
+      }
+      @case ('submitted') {
+        <div class="pf-footer-status pf-footer-status--success">
+          <lucide-icon name="check-circle-2" [size]="15" /><span>Transaction submitted</span>
+        </div>
+        @if (txSignature()) {
+          <a class="tx-link" [href]="explorerUrl" target="_blank" rel="noopener">
+            <span class="tx-signature">{{ txSignature() }}</span>
+            <lucide-icon name="external-link" [size]="12" />
+          </a>
+        }
+      }
+      @case ('confirmed') {
+        <div class="pf-footer-status pf-footer-status--success">
+          <lucide-icon name="check-circle-2" [size]="15" />
+          <span>Token launched on Pump.fun!</span>
+        </div>
+        @if (txSignature()) {
+          <a class="tx-link" [href]="explorerUrl" target="_blank" rel="noopener">
+            <span class="tx-signature">{{ txSignature() }}</span>
+            <lucide-icon name="external-link" [size]="12" />
+          </a>
+        }
+        @if (canUndo() || undoPrompt) {
+          <button class="undo-btn" (click)="requestUndo()" [disabled]="undoInProgress()">
+            @if (undoInProgress()) {
+              <lucide-icon name="loader-2" [size]="12" class="spin" />
+            } @else {
+              <lucide-icon name="undo-2" [size]="12" />
+            }
+            {{ undoInProgress() ? 'Undoing...' : 'Undo' }}
+          </button>
+        }
+      }
+      @case ('error') {
+        <div class="pf-footer-status pf-footer-status--error">
+          <lucide-icon name="alert-circle" [size]="15" /><span>{{ errorMessage() }}</span>
+        </div>
+        <div class="pf-footer">
+          <button class="pf-btn-launch" (click)="approve()" [disabled]="!canApprove()">Retry</button>
+          <button class="pf-btn-cancel" (click)="reject()">Dismiss</button>
+        </div>
+      }
+    }
+
+  } @else {
+
+    <!-- ══════════════════════════════════════════════════════════
+         PROTOCOL MINI-APP — universal branded layout
+         ══════════════════════════════════════════════════════════ -->
+
+    <!-- Header -->
+    <div class="proto-header">
+      <div class="proto-logo">
+        <img [src]="protocolConfig.icon" [alt]="protocolConfig.name"
+             width="36" height="36"
+             onerror="this.style.display='none'" />
+      </div>
+      <div class="proto-header-info">
+        <span class="proto-name">{{ protocolConfig.name }}</span>
+      </div>
+      <div class="proto-status-badge" [class]="'proto-status--' + status()">
+        @switch (status()) {
+          @case ('pending')   { <span>Ready</span> }
+          @case ('quoting')   { <span class="proto-dot proto-dot--spin"></span><span>Building...</span> }
+          @case ('signing')   { <span class="proto-dot proto-dot--spin"></span><span>Sign</span> }
+          @case ('submitted') { <span class="proto-dot proto-dot--ok"></span><span>Sent</span> }
+          @case ('confirmed') { <span class="proto-dot proto-dot--ok"></span><span>Done</span> }
+          @case ('error')     { <span class="proto-dot proto-dot--err"></span><span>Error</span> }
+        }
+      </div>
+    </div>
+
+    <!-- Editable fields -->
+    @if (actionFields.length > 0) {
+      <div class="proto-body">
+        <div class="proto-fields" [class.proto-fields--shake]="shake()">
+
+          @for (field of actionFields; track field.key) {
+            <div class="proto-field" [class.proto-field--half]="field.half">
+
+              <div class="proto-field-header">
+                <label class="proto-field-label">
+                  {{ field.label }}
+                  @if (field.required) { <span class="proto-required">*</span> }
+                </label>
+                @if (field.hint) {
+                  <span class="proto-field-hint">{{ field.hint }}</span>
+                }
+                @let isPrimaryAmount = field.key === 'amount' || field.key === 'amountA' || field.key === 'amountX';
+                @let isSecondaryAmount = field.key === 'amountB' || field.key === 'amountY';
+                @let fieldBalance = isSecondaryAmount ? secondaryBalance() : (isPrimaryAmount ? inputBalance() : null);
+                @let fieldBalanceLoading = isSecondaryAmount ? secondaryBalanceLoading() : (isPrimaryAmount ? inputBalanceLoading() : false);
+                @let fieldBalanceMint = isSecondaryAmount ? secondaryBalanceMint() : (isPrimaryAmount ? inputBalanceMint() : '');
+                @let fieldBalanceSymbol = isSecondaryAmount ? secondaryBalanceSymbol() : (isPrimaryAmount ? inputBalanceSymbol() : '');
+                @if ((isPrimaryAmount || isSecondaryAmount) && fieldBalanceMint && (fieldBalance !== null || fieldBalanceLoading)) {
+                  <span class="proto-balance-hint">
+                    @if (fieldBalanceLoading) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      @let balTd = resolveTokenDisplay(fieldBalanceMint);
+                      <span class="proto-balance-icon-wrap">
+                        <span class="proto-balance-letter">{{ balTd.symbol.charAt(0) }}</span>
+                        @if (balTd.logoURI) {
+                          <img [src]="balTd.logoURI" [alt]="balTd.symbol" class="proto-balance-icon"
+                               (error)="$any($event.target).style.display='none'" />
+                        }
+                      </span>
+                      {{ (borrowLiquidityMode() && field.key === 'amount') ? 'Vault:' : 'Balance:' }} {{ fieldBalance | number:'1.0-6' }} {{ fieldBalanceSymbol }}
+                    }
+                  </span>
+                  @if (isEditable() && !fieldBalanceLoading && !(borrowLiquidityMode() && field.key === 'amount')) {
+                    <button class="proto-max-btn" type="button" (click)="setMaxAmount(field.key)">Max</button>
+                  }
+                }
+              </div>
+
+              @switch (field.type) {
+
+                @case ('number') {
+                  @let amountEst = field.key === 'amount' ? lstEstimate() : null;
+                  @let isAmountField = field.key === 'amount';
+                  @let isLstField = isAmountField && lstActionConfig() !== null;
+                  @let dlmmLockA = field.key === 'amountA' && dlmmSingleSidedY();
+                  @let dlmmLockB = field.key === 'amountB' && dlmmSingleSidedX();
+                  @let dlmmLocked = dlmmLockA || dlmmLockB;
+                  <div class="proto-amount-row" [class.proto-amount-row--paired]="!!amountEst">
+                    <div class="proto-input-wrap" [class.proto-input-wrap--locked]="dlmmLocked">
+                      <input type="number" class="proto-input"
+                             [placeholder]="dlmmLocked ? 'Not used in this range' : (field.placeholder ?? '0')"
+                             [min]="field.min ?? null"
+                             [max]="field.max ?? null"
+                             [step]="field.step ?? 'any'"
+                             [value]="field.divisor ? (+getEditParam(field.key) / field.divisor) : getEditParam(field.key)"
+                             (input)="setEditParam(field.key, field.divisor ? ('' + (+$any($event.target).value * field.divisor)) : $any($event.target).value); field.key === 'amountA' ? noteAmountEdit('A') : (field.key === 'amountB' ? noteAmountEdit('B') : null)"
+                             [disabled]="!isEditable() || dlmmLocked" />
+                      @if ((isPrimaryAmount || isSecondaryAmount) && fieldBalanceMint) {
+                        @let sufTd = resolveTokenDisplay(fieldBalanceMint);
+                        <span class="proto-input-suffix proto-input-suffix--token">
+                          @if (sufTd.logoURI) {
+                            <img [src]="sufTd.logoURI" [alt]="sufTd.symbol" class="proto-suffix-icon"
+                                 (error)="$any($event.target).style.display='none'" />
+                          }
+                          {{ fieldBalanceSymbol || field.suffix }}
+                        </span>
+                      } @else if (field.suffix) {
+                        <span class="proto-input-suffix">{{ field.suffix }}</span>
+                      }
+                    </div>
+                    @if (amountEst; as est) {
+                      <div class="proto-pair-arrow" aria-hidden="true">
+                        <lucide-icon name="arrow-right" [size]="14" />
+                      </div>
+                      <div class="proto-pair-output" [attr.title]="'You receive ≈ ' + (est.amount | number:'1.0-6') + ' ' + est.symbol">
+                        <span class="proto-pair-output__value">≈ {{ est.amount | number:'1.0-6' }}</span>
+                        <span class="proto-pair-output__suffix">{{ est.symbol }}</span>
+                      </div>
+                    }
+                  </div>
+                  @if (isLstField && lstRateLoading()) {
+                    <div class="proto-rate-status proto-rate-status--loading">
+                      <span class="proto-spinner proto-spinner--inline"></span>
+                      <span>Fetching live exchange rate…</span>
+                    </div>
+                  } @else if (isLstField && lstRateError()) {
+                    <div class="proto-rate-status proto-rate-status--error">
+                      <lucide-icon name="alert-triangle" [size]="13" />
+                      <span>{{ lstRateError() }}</span>
+                      <button type="button" class="proto-rate-status__retry" (click)="maybeLoadLstRate()">Retry</button>
+                    </div>
+                  }
+                }
+
+                @case ('text') {
+                  <input type="text" class="proto-input"
+                         [placeholder]="field.placeholder ?? ''"
+                         [value]="getEditParam(field.key)"
+                         (input)="setEditParam(field.key,
+                           field.transform === 'upper'
+                             ? $any($event.target).value.toUpperCase()
+                             : $any($event.target).value)"
+                         [disabled]="!isEditable()" />
+                }
+
+                @case ('address') {
+                  <div class="proto-address-wrap">
+                    <input type="text" class="proto-input proto-input--mono"
+                           [placeholder]="field.placeholder ?? 'Enter address...'"
+                           [value]="getEditParam(field.key)"
+                           (input)="setEditParam(field.key, $any($event.target).value)"
+                           [disabled]="!isEditable()" />
+                    @if (getEditParam(field.key).length > 8 && isEditable()) {
+                      <button class="proto-copy-btn" type="button"
+                              (click)="copyValue(getEditParam(field.key))"
+                              [attr.title]="'Copy ' + field.label">
+                        <lucide-icon [name]="copiedField() === getEditParam(field.key) ? 'check' : 'copy'" [size]="11" />
+                      </button>
+                    }
+                  </div>
+                }
+
+                @case ('select') {
+                  <select class="proto-select"
+                          (change)="setEditParam(field.key, $any($event.target).value)"
+                          [disabled]="!isEditable()">
+                    @for (opt of field.options ?? []; track opt.value) {
+                      <option [value]="opt.value"
+                              [selected]="getEditParam(field.key) === opt.value ||
+                                         (!getEditParam(field.key) && $first)">
+                        {{ opt.label }}
+                      </option>
+                    }
+                  </select>
+                }
+
+                @case ('toggle') {
+                  <button type="button" class="proto-toggle"
+                          [class.proto-toggle--on]="getEditParam(field.key) === 'true'"
+                          (click)="isEditable() && toggleEditParam(field.key)"
+                          [disabled]="!isEditable()">
+                    <span class="proto-toggle-dot"></span>
+                    <span>{{ getEditParam(field.key) === 'true' ? 'Enabled' : 'Disabled' }}</span>
+                  </button>
+                }
+
+                @case ('textarea') {
+                  <textarea class="proto-textarea" rows="3"
+                            [placeholder]="field.placeholder ?? ''"
+                            [value]="getEditParam(field.key)"
+                            (input)="setEditParam(field.key, $any($event.target).value)"
+                            [disabled]="!isEditable()"></textarea>
+                }
+
+                @case ('token') {
+                  @if (getEditParam(field.key); as raw) {
+                    @let td = resolveTokenDisplay(raw);
+                    <div class="proto-token-chip">
+                      <div class="proto-token-chip__icon-wrap">
+                        <div class="proto-token-chip__letter">{{ td.symbol.charAt(0) }}</div>
+                        @if (td.logoURI) {
+                          <img [src]="td.logoURI" [alt]="td.symbol" class="proto-token-chip__icon"
+                               (error)="onTokenImgError($event, raw)" />
+                        }
+                      </div>
+                      <div class="proto-token-chip__info">
+                        <span class="proto-token-chip__symbol">{{ td.symbol }}</span>
+                        <span class="proto-token-chip__name">{{ td.name }}</span>
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="proto-token-chip proto-token-chip--empty">
+                      <div class="proto-token-chip__icon-wrap">
+                        <div class="proto-token-chip__letter">?</div>
+                      </div>
+                      <span class="proto-token-chip__symbol">–</span>
+                    </div>
+                  }
+                }
+
+              }<!-- /switch field.type -->
+            </div><!-- /proto-field -->
+          }<!-- /for fields -->
+
+          <!-- DLMM info strip — shows active price + range hint when the
+               action carries DLMM metadata. Quiet for DAMM and non-DLMM. -->
+          @if (dlmmRatio(); as dr) {
+            @if (dlmmActivePriceDisplay(); as apd) {
+              <div class="proto-dlmm-info">
+                <div class="proto-dlmm-info__row">
+                  <span class="proto-dlmm-info__label">Active price</span>
+                  <span class="proto-dlmm-info__value">
+                    1 {{ apd.symA }} ≈ {{ apd.price | number:'1.0-6' }} {{ apd.symB }}
+                  </span>
+                </div>
+                <div class="proto-dlmm-info__row">
+                  <span class="proto-dlmm-info__label">Range</span>
+                  <span class="proto-dlmm-info__value">
+                    {{ dr.binCount }} bins
+                    @if (dlmmSingleSidedX()) {
+                      · single-sided ({{ inputBalanceSymbol() || 'A' }} only)
+                    } @else if (dlmmSingleSidedY()) {
+                      · single-sided ({{ secondaryBalanceSymbol() || 'B' }} only)
+                    } @else {
+                      · {{ (dr.xShareOfValue * 100) | number:'1.0-0' }}% {{ inputBalanceSymbol() || 'A' }}
+                      · {{ ((1 - dr.xShareOfValue) * 100) | number:'1.0-0' }}% {{ secondaryBalanceSymbol() || 'B' }}
+                    }
+                  </span>
+                </div>
+              </div>
+            }
+          }
+
+        </div><!-- /proto-fields -->
+      </div><!-- /proto-body -->
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
+         VALIDATOR PICKER — native_stake only
+         ══════════════════════════════════════════════════════════ -->
+    @if (isNativeStake() && isEditable()) {
+      <div class="validator-picker">
+        <div class="validator-picker__header">
+          <span class="validator-picker__title">Select validator</span>
+          <button class="validator-picker__custom-btn" type="button"
+                  (click)="validatorCustom.set(!validatorCustom())">
+            {{ validatorCustom() ? 'Pick from list' : 'Enter manually' }}
+          </button>
+        </div>
+
+        @if (validatorCustom()) {
+          <!-- Manual address input -->
+          <div class="proto-field">
+            <label class="proto-field-label">Validator Vote Account <span class="proto-required">*</span></label>
+            <div class="proto-address-wrap">
+              <input type="text" class="proto-input proto-input--mono"
+                     placeholder="Vote account pubkey (base58)..."
+                     [value]="getEditParam('validatorVoteAccount')"
+                     (input)="setEditParam('validatorVoteAccount', $any($event.target).value)" />
+            </div>
+          </div>
+        } @else {
+          <!-- Validator list -->
+          @if (validatorsLoading()) {
+            <div class="validator-picker__loading">
+              <span class="proto-balance-dots">···</span>
+              <span>Loading top validators...</span>
+            </div>
+          } @else if (validators().length === 0) {
+            <div class="validator-picker__empty">
+              Could not load validator list.
+              <button class="validator-picker__custom-btn" type="button"
+                      (click)="validatorCustom.set(true)">Enter manually</button>
+            </div>
+          } @else {
+            <div class="validator-picker__list">
+              @for (v of validators(); track v.voteAccount) {
+                <button type="button"
+                        class="validator-item"
+                        [class.validator-item--selected]="getEditParam('validatorVoteAccount') === v.voteAccount"
+                        (click)="selectValidator(v.voteAccount)">
+                  <div class="validator-item__addr">
+                    {{ v.voteAccount.slice(0, 8) }}…{{ v.voteAccount.slice(-4) }}
+                  </div>
+                  <div class="validator-item__stats">
+                    <span class="validator-item__apy">~{{ v.apyEstimatePct }}% APY</span>
+                    <span class="validator-item__commission">{{ v.commission }}% commission</span>
+                    <span class="validator-item__stake">{{ (v.activatedStakeSol / 1000).toFixed(0) }}K SOL stake</span>
+                  </div>
+                </button>
+              }
+            </div>
+            @if (!getEditParam('validatorVoteAccount')) {
+              <p class="validator-picker__note">Select a validator (highest stake = most established)</p>
+            }
+          }
+        }
+      </div>
+    }
+
+    <!-- Protocol lockup / fee notice -->
+    @if (protocolNote) {
+      <div class="proto-note" [class.proto-note--warning]="protocolNote.type === 'warning'">
+        <lucide-icon [name]="protocolNote.type === 'warning' ? 'clock' : 'info'" [size]="13" />
+        <div class="proto-note-lines">
+          @for (line of protocolNote.lines; track line) {
+            <p>{{ line }}</p>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Jupiter Lend info panel -->
+    @if (lendInfo() !== null || lendInfoLoading()) {
+      <div class="lend-info-panel">
+        @if (lendInfoLoading()) {
+          <div class="lend-info-loading">
+            <span class="proto-spinner"></span>
+            <span>Loading protocol data...</span>
+          </div>
+        } @else if (lendInfo()?.kind === 'earn') {
+          @let earn = lendInfo()!.data;
+          <div class="lend-info-rows">
+            <div class="lend-info-row">
+              <span class="lend-info-label">Total APY</span>
+              <span class="lend-info-value lend-info-value--apy">{{ $any(earn).totalApy | number:'1.2-2' }}%</span>
+            </div>
+            <div class="lend-info-row lend-info-row--sub">
+              <span class="lend-info-label">· Base APY</span>
+              <span class="lend-info-value">{{ $any(earn).supplyApy | number:'1.2-2' }}%</span>
+            </div>
+            @if ($any(earn).rewardsApy > 0) {
+              <div class="lend-info-row lend-info-row--sub">
+              <span class="lend-info-label">· JUP Rewards</span>
+                <span class="lend-info-value">{{ $any(earn).rewardsApy | number:'1.2-2' }}%</span>
+              </div>
+            }
+            <div class="lend-info-divider"></div>
+            <div class="lend-info-row">
+              <span class="lend-info-label">Conversion rate</span>
+              <span class="lend-info-value">
+                1 {{ $any(earn).assetSymbol }} → {{ $any(earn).jlTokensPerAsset | number:'1.4-6' }} {{ $any(earn).jlSymbol }}
+              </span>
+            </div>
+            <div class="lend-info-row lend-info-row--sub">
+              <span class="lend-info-label">1 {{ $any(earn).jlSymbol }} value</span>
+              <span class="lend-info-value">≈ {{ $any(earn).assetsPerJlToken | number:'1.4-6' }} {{ $any(earn).assetSymbol }}</span>
+            </div>
+            @if ($any(earn).userDepositedAssets !== undefined) {
+              <div class="lend-info-divider"></div>
+              <div class="lend-info-row">
+                <span class="lend-info-label">Your deposit</span>
+                <span class="lend-info-value lend-info-value--brand">
+                  {{ $any(earn).userDepositedAssets | number:'1.2-6' }} {{ $any(earn).assetSymbol }}
+                </span>
+              </div>
+              @if ($any(earn).userEarnings !== undefined && $any(earn).userEarnings > 0) {
+                <div class="lend-info-row lend-info-row--sub">
+                  <span class="lend-info-label">· Earned interest</span>
+                  <span class="lend-info-value lend-info-value--gain">
+                    +{{ $any(earn).userEarnings | number:'1.4-6' }} {{ $any(earn).assetSymbol }}
+                  </span>
+                </div>
+              }
+            }
+          </div>
+        } @else if (lendInfo()?.kind === 'borrow') {
+          @let stats = borrowLiveStats;
+          @let opts = collateralOptions();
+          @let selCol = selectedCollateral();
+
+          <!-- ══ COLLATERAL PICKER ══ -->
+          <div class="bc-section">
+            <div class="bc-section-label">
+              Collateral
+              @if (selCol && selCol.balance > 0) {
+                <span class="bc-section-bal">Balance: {{ selCol.balance | number:'1.3-6' }} {{ selCol.symbol }}</span>
+              }
+            </div>
+
+            <!-- Token selector tabs -->
+            @if (borrowCapacity() === null || borrowCapacity()!.loading) {
+              <div class="bc-loading"><span class="proto-spinner"></span> Loading collateral options...</div>
+            } @else {
+              <div class="bc-token-row">
+                @for (opt of opts; track opt.mint) {
+                  <button class="bc-token-btn"
+                          [class.bc-token-btn--active]="selCol?.mint === opt.mint"
+                          [class.bc-token-btn--empty]="opt.balance <= 0"
+                          type="button"
+                          (click)="selectCollateral(opt)">
+                    {{ opt.symbol }}
+                    @if (opt.balance > 0) {
+                      <span class="bc-token-bal">{{ opt.balance | number:'1.2-4' }}</span>
+                    }
+                  </button>
+                }
+              </div>
+
+              <!-- Collateral amount input -->
+              @if (selCol) {
+                <div class="bc-amount-row">
+                  <input class="bc-amount-input"
+                         type="text"
+                         inputmode="decimal"
+                         [value]="collateralInput()"
+                         (input)="collateralInput.set($any($event.target).value.replace(',','.'))"
+                         placeholder="0.0" />
+                  <span class="bc-amount-symbol">{{ selCol.symbol }}</span>
+                  @if (selCol.balance > 0) {
+                    <button class="bc-max-btn" type="button"
+                            (click)="collateralInput.set(selCol.balance.toString())">Max</button>
+                  }
+                </div>
+                @if (selCol.balance <= 0) {
+                  <div class="bc-no-balance-hint">
+                    No {{ selCol.symbol }} in your wallet.
+                    You can enter the collateral amount manually to simulate.
+                  </div>
+                }
+              }
+            }
+          </div>
+
+          <!-- ══ LIVE STATS ══ -->
+          @if (stats) {
+            <div class="bc-stats"
+                 [class.bc-stats--safe]="stats.hfClass === 'safe'"
+                 [class.bc-stats--caution]="stats.hfClass === 'caution'"
+                 [class.bc-stats--danger]="stats.hfClass === 'danger'">
+
+              <div class="bc-stat">
+                <span class="bc-stat-label">Collateral value</span>
+                <span class="bc-stat-value">${{ stats.collateralUsd | number:'1.0-2' }}</span>
+              </div>
+              <div class="bc-stat">
+                <span class="bc-stat-label">Max borrowable</span>
+                <span class="bc-stat-value bc-stat-value--brand">{{ stats.maxBorrowable | number:'1.2-2' }} {{ selCol?.debtSymbol }}</span>
+              </div>
+              <div class="bc-stat">
+                <span class="bc-stat-label">
+                  <app-jargon term="Health Factor">Health Factor</app-jargon>
+                </span>
+                <span class="bc-stat-value"
+                      [class.bc-hf--safe]="stats.hfClass === 'safe'"
+                      [class.bc-hf--caution]="stats.hfClass === 'caution'"
+                      [class.bc-hf--danger]="stats.hfClass === 'danger'">
+                  {{ stats.healthFactor | number:'1.2-2' }}
+                  <span class="bc-hf-label">
+                    {{ stats.hfClass === 'safe' ? '✓ Safe' : stats.hfClass === 'caution' ? '⚠ Caution' : '✗ Risky' }}
+                  </span>
+                </span>
+              </div>
+              <div class="bc-stat">
+                <span class="bc-stat-label">Liquidation price <span style="opacity:.6">({{ selCol?.symbol }})</span></span>
+                <span class="bc-stat-value bc-stat-value--warn">{{ stats.liquidationPriceLabel }}</span>
+              </div>
+
+              @if (stats.errorMsg) {
+                <div class="bc-error">
+                  <lucide-icon name="alert-circle" [size]="12" />
+                  {{ stats.errorMsg }}
+                </div>
+              }
+            </div>
+
+            <!-- Info: what SF means -->
+            @if (stats.hfClass !== 'safe') {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                If HF drops below 1.0 you will be liquidated automatically. Recommended minimum HF is 1.5×. Increase collateral.
+              </div>
+            }
+          }
+
+          <!-- Market rates (collapsed/secondary) -->
+          @let v0 = $any(lendInfo()!.data)[0];
+          @if (v0) {
+          <div class="bc-footer-rates">
+            <span>Borrow rate: <strong>{{ v0.borrowApy | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
+            <span><app-jargon term="LTV">LTV</app-jargon>: <strong>{{ (v0.maxLtv * 100) | number:'1.0-0' }}%</strong></span>
+            <span><app-jargon term="Liquidation LTV">Liquidation</app-jargon>: <strong class="lend-info-value--warn">{{ (v0.liquidationThreshold * 100) | number:'1.0-0' }}%</strong></span>
+          </div>
+          }
+        }
+      </div>
+    }
+
+    <!-- Insufficient balance → inline QuickSwap widget or compact warning -->
+    @if (insufficientFunds() && inputBalance() !== null && !inputBalanceLoading()) {
+
+      @if (!showQuickSwap()) {
+        <!-- Compact warning with "Buy via swap" CTA -->
+        <div class="proto-warn-banner">
+          <lucide-icon name="alert-circle" [size]="14" class="proto-warn-icon" />
+          <div class="proto-warn-body">
+            <span class="proto-warn-title">Insufficient balance</span>
+            <span class="proto-warn-desc">
+              Required: {{ editParams()['amount'] }} {{ inputBalanceSymbol() }} — Available: {{ inputBalance() | number:'1.0-6' }} {{ inputBalanceSymbol() }}
+            </span>
+          </div>
+          @if (inputBalanceMint()) {
+            <button class="proto-warn-action" type="button" (click)="openQuickSwap()">
+              <img src="assets/icons/protocols/jupiter.webp" width="13" height="13"
+                   style="border-radius:3px" alt="Jupiter" onerror="this.style.display='none'" />
+              <lucide-icon name="arrow-right-left" [size]="11" />
+              Buy {{ inputBalanceSymbol() }}
+            </button>
+          }
+        </div>
+      } @else {
+
+        <!-- ══════════════════════════════════════════════════════
+             INLINE QUICKSWAP — Jupiter branded mini swap widget
+             ══════════════════════════════════════════════════════ -->
+        <div class="qs-widget">
+
+          <!-- Widget Header -->
+          <div class="qs-header">
+            <div class="qs-header-left">
+              <img src="assets/icons/protocols/jupiter.webp" width="18" height="18"
+                   style="border-radius:4px" alt="Jupiter" />
+              <span class="qs-title">Jupiter Swap</span>
+            </div>
+            <button class="qs-close" type="button" (click)="showQuickSwap.set(false)">
+              <lucide-icon name="x" [size]="13" />
+            </button>
+          </div>
+
+          @if (qsStatus() === 'done') {
+            <!-- Success state -->
+            <div class="qs-done">
+              <lucide-icon name="check-circle-2" [size]="20" class="qs-done-icon" />
+              <span class="qs-done-text">Swap successful! You can now confirm the transaction.</span>
+              @if (qsTxSig()) {
+                <a class="qs-tx-link" [href]="'https://solscan.io/tx/' + qsTxSig()"
+                   target="_blank" rel="noopener">View on Solscan →</a>
+              }
+            </div>
+
+          } @else {
+            <!-- Swap form -->
+            <div class="qs-body">
+
+              <!-- FROM token selector -->
+              <div class="qs-panel qs-panel--from">
+                <span class="qs-panel-label">Pay</span>
+
+                @if (qsBalancesLoading()) {
+                  <div class="qs-skeleton"></div>
+                } @else if (qsTokenList().length === 0) {
+                  <div class="qs-empty">No tokens found in wallet</div>
+                } @else {
+                  <!-- Dropdown selector -->
+                  <select class="qs-select"
+                          [value]="qsFromMint()"
+                          (change)="qsFromMint.set($any($event.target).value)"
+                          [disabled]="qsStatus() === 'swapping'">
+                    @for (tok of qsTokenList(); track tok.mint) {
+                      <option [value]="tok.mint" [selected]="tok.mint === qsFromMint()">
+                        {{ tok.symbol }} — {{ tok.balance | number:'1.0-4' }}
+                      </option>
+                    }
+                  </select>
+
+                  <!-- Selected token display -->
+                  @if (qsFromToken) {
+                    <div class="qs-token-display">
+                      <div class="qs-token-icon-wrap">
+                        <div class="qs-token-letter">{{ qsFromToken.symbol.charAt(0) }}</div>
+                        @if (qsFromToken.logoURI) {
+                          <img [src]="qsFromToken.logoURI" width="28" height="28" class="qs-token-icon"
+                               [alt]="qsFromToken.symbol" (error)="$any($event.target).style.display='none'" />
+                        }
+                      </div>
+                      <div class="qs-token-info">
+                        <span class="qs-token-sym">{{ qsFromToken.symbol }}</span>
+                        <span class="qs-token-bal">{{ qsFromBalance | number:'1.0-4' }} available</span>
+                      </div>
+                    </div>
+                  }
+                }
+              </div>
+
+              <!-- Arrow -->
+              <div class="qs-arrow">
+                <lucide-icon name="arrow-right-left" [size]="14" />
+              </div>
+
+              <!-- TO token (fixed = the needed token) -->
+              <div class="qs-panel qs-panel--to">
+                <span class="qs-panel-label">Receive</span>
+                @if (qsToTokenData; as toTok) {
+                  <div class="qs-amount-label">{{ qsNeededAmount }} {{ toTok.symbol }}</div>
+                  <div class="qs-token-display qs-token-display--to">
+                    <div class="qs-token-icon-wrap">
+                      <div class="qs-token-letter">{{ toTok.symbol.charAt(0) }}</div>
+                      @if (toTok.logoURI) {
+                        <img [src]="toTok.logoURI" width="28" height="28" class="qs-token-icon"
+                             [alt]="toTok.symbol" (error)="$any($event.target).style.display='none'" />
+                      }
+                    </div>
+                    <div class="qs-token-info">
+                      <span class="qs-token-sym">{{ toTok.symbol }}</span>
+                      <span class="qs-token-bal">{{ toTok.name }}</span>
+                    </div>
+                  </div>
+                } @else if (qsBalancesLoading()) {
+                  <div class="qs-skeleton"></div>
+                }
+              </div>
+
+            </div><!-- /qs-body -->
+
+            <!-- Error -->
+            @if (qsStatus() === 'error' && qsError()) {
+              <div class="qs-error">
+                <lucide-icon name="alert-circle" [size]="13" />
+                {{ qsError() }}
+              </div>
+            }
+
+            <!-- Swap button -->
+            <button class="qs-swap-btn"
+                    [disabled]="qsStatus() === 'swapping' || qsBalancesLoading() || qsTokenList().length === 0 || qsFromBalance <= 0"
+                    (click)="executeQuickSwap()">
+              @if (qsStatus() === 'swapping') {
+                <span class="qs-spinner"></span>
+                <span>Swapping...</span>
+              } @else {
+                <img src="assets/icons/protocols/jupiter.webp" width="14" height="14"
+                     style="border-radius:3px" alt="" onerror="this.style.display='none'" />
+                <lucide-icon name="arrow-right-left" [size]="13" />
+                {{ qsNeededAmount }} {{ qsToTokenData.symbol }} — Swap
+              }
+            </button>
+          }
+
+        </div><!-- /qs-widget -->
+      }
+    }
+
+    <!-- Below minimum amount warning -->
+    @if (belowMinAmount() !== null && !insufficientFunds()) {
+      <div class="proto-warn-banner proto-warn-banner--yellow">
+        <lucide-icon name="info" [size]="14" class="proto-warn-icon" />
+        <div class="proto-warn-body">
+          <span class="proto-warn-title">Minimum amount</span>
+          <span class="proto-warn-desc">
+            Minimum {{ belowMinAmount() }} {{ belowMinAmount() !== null ? 'SOL' : '' }} required for this action.
+          </span>
+        </div>
+      </div>
+    }
+
+    <!-- Unverified recipient warning -->
+    @if (unverifiedDestination() && status() === 'pending') {
+      <div class="proto-warn-banner proto-warn-banner--orange">
+        <lucide-icon name="alert-triangle" [size]="14" class="proto-warn-icon" />
+        <div class="proto-warn-body">
+          <span class="proto-warn-title">Unverified recipient</span>
+          <span class="proto-warn-desc">This address is not a known protocol. Verify before confirming.</span>
+        </div>
+      </div>
+    }
+
+    <!-- Footer -->
+    @switch (status()) {
+
+      @case ('pending') {
+        <div class="proto-footer">
+          <button class="proto-btn-confirm"
+                  [class.proto-btn-confirm--disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove()"
+                  [disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove()"
+                  (click)="approve()">
+            @if (insufficientFunds()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Insufficient balance
+            } @else if (!canApprove()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Insufficient collateral
+            } @else {
+              <img [src]="protocolConfig.icon" width="16" height="16"
+                   style="border-radius:4px;flex-shrink:0"
+                   [alt]="protocolConfig.name"
+                   onerror="this.style.display='none'" />
+              {{ confirmButtonLabel }}
+            }
+          </button>
+          <button class="proto-btn-cancel" (click)="reject()">Cancel</button>
+        </div>
+      }
+
+      @case ('quoting') {
+        <div class="proto-footer-status">
+          <span class="proto-spinner"></span>
+          <span>Building transaction...</span>
+        </div>
+      }
+
+      @case ('signing') {
+        <div class="proto-footer-status">
+          <span class="proto-spinner"></span>
+          <span>Waiting for wallet signature...</span>
+        </div>
+      }
+
+      @case ('submitted') {
+        <div class="proto-footer-status proto-footer-status--pending">
+          <lucide-icon name="loader-2" [size]="15" class="spin" />
+          <span>Confirming on-chain…</span>
+          @if (submittedElapsedSec() > 0) {
+            <span class="proto-footer-elapsed">({{ submittedElapsedSec() }}s)</span>
+          }
+        </div>
+        @if (txSignature()) {
+          <a class="tx-link" [href]="explorerUrl" target="_blank" rel="noopener">
+            <span class="tx-signature">{{ txSignature() }}</span>
+            <lucide-icon name="external-link" [size]="12" />
+          </a>
+        }
+        @if (submittedElapsedSec() > 25) {
+          <button class="recheck-btn" type="button" (click)="recheckTxStatus()" [disabled]="recheckInProgress()">
+            @if (recheckInProgress()) {
+              <lucide-icon name="loader-2" [size]="12" class="spin" />
+              <span>Checking…</span>
+            } @else {
+              <lucide-icon name="refresh-cw" [size]="12" />
+              <span>Re-check status</span>
+            }
+          </button>
+        }
+      }
+
+      @case ('confirmed') {
+        <div class="proto-footer-status proto-footer-status--ok">
+          <lucide-icon name="check-circle-2" [size]="15" />
+          @if (isDataOnly()) {
+            <span>Done</span>
+          } @else {
+            <span>Transaction successful</span>
+          }
+        </div>
+        @if (isDataOnly() && dataResult()) {
+          <div class="data-result">{{ dataResult() }}</div>
+        }
+        @if (!isDataOnly() && txSignature()) {
+          <a class="tx-link" [href]="explorerUrl" target="_blank" rel="noopener">
+            <span class="tx-signature">{{ txSignature() }}</span>
+            <lucide-icon name="external-link" [size]="12" />
+          </a>
+        }
+        @if (canUndo() || undoPrompt) {
+          <button class="undo-btn" (click)="requestUndo()" [disabled]="undoInProgress()">
+            @if (undoInProgress()) {
+              <lucide-icon name="loader-2" [size]="12" class="spin" />
+            } @else {
+              <lucide-icon name="undo-2" [size]="12" />
+            }
+            {{ undoInProgress() ? 'Undoing...' : 'Undo' }}
+          </button>
+        }
+      }
+
+      @case ('error') {
+        <div class="proto-footer-status proto-footer-status--error">
+          <lucide-icon name="alert-circle" [size]="15" />
+          <span>{{ errorMessage() }}</span>
+        </div>
+        <div class="proto-footer">
+          <button class="proto-btn-confirm" (click)="approve()">Retry</button>
+          <button class="proto-btn-cancel" (click)="reject()">Dismiss</button>
+        </div>
+      }
+
+    }<!-- /switch status -->
+
+  }<!-- /@else protocol mini-app -->
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     TRANSACTION PREVIEW OVERLAY
+     ══════════════════════════════════════════════════════════ -->
+@if (showPreview()) {
+  <div class="tx-preview-overlay" (click)="cancelPreview()">
+    <div class="tx-preview-dialog" (click)="$event.stopPropagation()">
+
+      <!-- Header -->
+      <div class="tx-preview-header">
+        <div class="tx-preview-header__icon">
+          <lucide-icon [name]="preview()?.actionType?.includes('swap') ? 'arrow-left-right' :
+                              preview()?.actionType?.includes('transfer') ? 'send' :
+                              preview()?.actionType?.includes('stake') ? 'lock' :
+                              preview()?.actionType?.includes('unstake') ? 'unlock' :
+                              preview()?.actionType?.includes('lend') || preview()?.actionType?.includes('deposit') ? 'arrow-down-to-line' :
+                              preview()?.actionType?.includes('borrow') ? 'arrow-up-from-line' : 'zap'" [size]="20" />
+        </div>
+        <div class="tx-preview-header__text">
+          <span class="tx-preview-header__title">
+            {{ preview()?.actionType?.includes('swap') ? 'Swap Preview' :
+               preview()?.actionType?.includes('transfer') ? 'Transfer Preview' :
+               preview()?.actionType?.includes('stake') ? 'Stake Preview' :
+               preview()?.actionType?.includes('unstake') ? 'Unstake Preview' :
+               preview()?.actionType?.includes('lend') || preview()?.actionType?.includes('deposit') ? 'Deposit Preview' :
+               preview()?.actionType?.includes('borrow') ? 'Borrow Preview' : 'Transaction Preview' }}
+          </span>
+          <span class="tx-preview-header__subtitle">{{ preview()?.description }}</span>
+        </div>
+        <button class="tx-preview-close" type="button" (click)="cancelPreview()">
+          <lucide-icon name="x" [size]="18" />
+        </button>
+      </div>
+
+      <!-- Loading state -->
+      @if (loadingPreview()) {
+        <div class="tx-preview-loading">
+          <span class="proto-spinner"></span>
+          <span>Preparing transaction preview...</span>
+        </div>
+      }
+
+      <!-- Error state -->
+      @else if (preview()?.simulationError) {
+        <div class="tx-preview-error">
+          <lucide-icon name="alert-triangle" [size]="20" />
+          <div class="tx-preview-error__content">
+            <span class="tx-preview-error__title">Transaction Preview Failed</span>
+            <span class="tx-preview-error__message">{{ preview()?.simulationError }}</span>
+          </div>
+        </div>
+      }
+
+      <!-- Preview content -->
+      @else if (preview()) {
+        <!-- Balance changes -->
+        <div class="tx-preview-section">
+          <div class="tx-preview-section__header">
+            <lucide-icon name="arrow-left-right" [size]="14" />
+            <span>Balance Changes</span>
+          </div>
+          <div class="tx-preview-changes">
+            @for (change of preview()?.balanceChanges; track change.mint) {
+              <div class="tx-preview-change"
+                   [class.tx-preview-change--positive]="change.amount > 0"
+                   [class.tx-preview-change--negative]="change.amount < 0">
+                <div class="tx-preview-change__token">
+                  <div class="tx-preview-change__icon">
+                    @if (change.logoUri) {
+                      <img [src]="change.logoUri" [alt]="change.symbol"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="tx-preview-change__letter">{{ change.symbol.charAt(0) }}</span>
+                    }
+                  </div>
+                  <div class="tx-preview-change__info">
+                    <span class="tx-preview-change__symbol">{{ change.symbol }}</span>
+                    <span class="tx-preview-change__balance">
+                      {{ change.balanceBefore < 0.000001 ? '0' : change.balanceBefore < 1 ? (change.balanceBefore | number:'1.0-6') : (change.balanceBefore | number:'1.0-4') }}
+                      →
+                      {{ change.balanceAfter < 0.000001 ? '0' : change.balanceAfter < 1 ? (change.balanceAfter | number:'1.0-6') : (change.balanceAfter | number:'1.0-4') }}
+                    </span>
+                  </div>
+                </div>
+                <div class="tx-preview-change__amount">
+                  <span class="tx-preview-change__delta">{{ formatPreviewChange(change) }}</span>
+                  @if (change.usdValue > 0) {
+                    <span class="tx-preview-change__usd">{{ formatPreviewUsd(change.usdValue) }}</span>
+                  }
+                </div>
+              </div>
+            } @empty {
+              <div class="tx-preview-empty">
+                <span>No balance changes to preview</span>
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Details -->
+        <div class="tx-preview-section">
+          <div class="tx-preview-section__header">
+            <lucide-icon name="info" [size]="14" />
+            <span>Transaction Details</span>
+          </div>
+          <div class="tx-preview-details">
+            <!-- Network fee -->
+            <div class="tx-preview-detail">
+              <span class="tx-preview-detail__label">
+                <app-jargon term="Priority Fee">Network Fee</app-jargon>
+              </span>
+              <span class="tx-preview-detail__value">
+                ~{{ preview()?.networkFeeSol ?? 0.000005 | number:'1.0-6' }} SOL
+                <span class="tx-preview-detail__usd">({{ formatPreviewUsd(preview()?.networkFeeUsd ?? 0) }})</span>
+              </span>
+            </div>
+
+            <!-- Price impact (for swaps) -->
+            @if (preview()?.priceImpactPercent !== null && preview()?.priceImpactPercent !== undefined) {
+              <div class="tx-preview-detail">
+                <span class="tx-preview-detail__label">
+                  <app-jargon term="Price Impact">Price Impact</app-jargon>
+                </span>
+                <span class="tx-preview-detail__value"
+                      [class.tx-preview-detail__value--warning]="(preview()?.priceImpactPercent ?? 0) > 1"
+                      [class.tx-preview-detail__value--danger]="(preview()?.priceImpactPercent ?? 0) > 3">
+                  {{ preview()?.priceImpactPercent | number:'1.0-4' }}%
+                </span>
+              </div>
+            }
+
+            <!-- Route — multi-hop swap path with per-hop fee -->
+            @if (preview()?.route?.length) {
+              <div class="tx-preview-detail tx-preview-detail--route">
+                <span class="tx-preview-detail__label">Route</span>
+                <div class="tx-preview-route">
+                  @for (hop of preview()?.route; track $index; let last = $last) {
+                    <div class="tx-preview-hop">
+                      <span class="tx-preview-hop__dex">{{ hop.dex }}</span>
+                      <span class="tx-preview-hop__pair">
+                        {{ hop.inputSymbol }} → {{ hop.outputSymbol }}
+                      </span>
+                      <span class="tx-preview-hop__meta">
+                        <span class="tx-preview-hop__pct">{{ hop.percent }}%</span>
+                        @if (hop.feeAmount && hop.feeAmount > 0) {
+                          <span class="tx-preview-hop__fee">
+                            fee {{ hop.feeAmount | number:'1.0-6' }} {{ hop.feeMint }}
+                          </span>
+                        }
+                      </span>
+                    </div>
+                    @if (!last) { <span class="tx-preview-hop__sep">›</span> }
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Warnings -->
+        @if (preview()?.warnings?.length) {
+          <div class="tx-preview-warnings">
+            @for (warning of preview()?.warnings; track $index) {
+              <div class="tx-preview-warning">
+                <lucide-icon name="alert-circle" [size]="14" />
+                <span>{{ warning }}</span>
+              </div>
+            }
+          </div>
+        }
+      }
+
+      <!-- Actions -->
+      <div class="tx-preview-actions">
+        <button class="tx-preview-btn tx-preview-btn--cancel" type="button" (click)="cancelPreview()">
+          Cancel
+        </button>
+        <button class="tx-preview-btn tx-preview-btn--confirm"
+                [class.tx-preview-btn--disabled]="!preview()?.canExecute"
+                [disabled]="loadingPreview() || !preview()?.canExecute"
+                (click)="confirmPreview()">
+          @if (preview()?.canExecute) {
+            <lucide-icon name="check" [size]="16" />
+            <span>Confirm & Sign</span>
+          } @else {
+            <lucide-icon name="alert-circle" [size]="16" />
+            <span>Cannot Execute</span>
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+}

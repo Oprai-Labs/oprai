@@ -1,0 +1,333 @@
+# OPRAI Full Stack - Polyglot Services + Infrastructure
+#
+# Usage:
+#   docker compose up -d --build        # Start everything
+#   docker compose up -d                # Start without rebuild
+#   docker compose down                 # Stop
+#   docker compose logs -f              # Tail logs
+#
+# Note: For monitoring (Prometheus + Grafana), use infra/docker-compose.yml instead.
+#   docker compose -f infra/docker-compose.yml up -d
+
+services:
+  # ============== Infrastructure ==============
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: oprai-postgres
+    restart: unless-stopped
+    command: >
+      postgres
+      -c max_connections=50
+      -c shared_buffers=256MB
+      -c work_mem=16MB
+      -c maintenance_work_mem=128MB
+      -c effective_cache_size=768MB
+      -c wal_level=replica
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c min_wal_size=256MB
+      -c max_wal_size=1GB
+      -c default_statistics_target=200
+      -c idle_in_transaction_session_timeout=30000
+      -c statement_timeout=60000
+      -c log_min_duration_statement=500
+      -c log_checkpoints=on
+      -c log_lock_waits=on
+    environment:
+      POSTGRES_USER: ${DB_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${DB_SUPERPASS:?DB_SUPERPASS is required}
+      POSTGRES_DB: ${DB_SUPERDB:-oprai}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_SUPERUSER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── PgBouncer — connection pooler (transaction mode) ─────────────────────
+  # All application services connect here, not directly to postgres.
+  # This allows hundreds of concurrent app connections while postgres
+  # only maintains ~20 backend connections (max_connections=50).
+  # MIGRATIONS: use DATABASE_URL pointing to postgres:5433 directly —
+  # Alembic advisory locks are incompatible with pgBouncer transaction mode.
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.0
+    container_name: oprai-pgbouncer
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}"
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "500"
+      DEFAULT_POOL_SIZE: "20"
+      MIN_POOL_SIZE: "5"
+      RESERVE_POOL_SIZE: "10"
+      SERVER_IDLE_TIMEOUT: "600"
+      CLIENT_IDLE_TIMEOUT: "0"
+      IGNORE_STARTUP_PARAMETERS: "extra_float_digits,application_name,search_path,options"
+      LOG_CONNECTIONS: "0"
+      LOG_DISCONNECTIONS: "0"
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U ${DB_SUPERUSER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    container_name: oprai-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__HARD_LIMIT: 10737418240
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: oprai-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --no-appendfsync-on-rewrite yes
+      --auto-aof-rewrite-percentage 100
+      --auto-aof-rewrite-min-size 64mb
+      --save 3600 1
+      --save 300 100
+      --save 60 10000
+      --loglevel warning
+      --tcp-keepalive 60
+      --tcp-backlog 511
+      --timeout 0
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ============== Microservices (Polyglot) ==============
+
+  gateway-go:
+    build:
+      context: .
+      dockerfile: services/gateway-go/Dockerfile
+    container_name: oprai-gateway-go
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      GRPC_PORT: 50050
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      AUTH_SERVICE_URL: http://auth-service-go:3010
+      AUTH_SERVICE_GRPC: auth-service-go:50051
+      CHAT_SERVICE_URL: http://chat-service-py:3020
+      CHAT_SERVICE_GRPC: chat-service-py:50052
+      SOLANA_SERVICE_URL: http://solana-service-rs:3030
+      SOLANA_SERVICE_GRPC: solana-service-rs:50053
+      MEMORY_SERVICE_URL: http://memory-service-py:3040
+      MEMORY_SERVICE_GRPC: memory-service-py:50054
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      auth-service-go:
+        condition: service_started
+      chat-service-py:
+        condition: service_started
+      solana-service-rs:
+        condition: service_started
+      memory-service-py:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  auth-service-go:
+    build:
+      context: .
+      dockerfile: services/auth-service-go/Dockerfile
+    container_name: oprai-auth-service-go
+    restart: unless-stopped
+    expose:
+      - "3010"
+      - "50051"
+    environment:
+      PORT: 3010
+      GRPC_PORT: 50051
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  admin-service-go:
+    build:
+      context: .
+      dockerfile: services/admin-service-go/Dockerfile
+    container_name: oprai-admin-service-go
+    restart: unless-stopped
+    ports:
+      - "3050:3050"
+      - "50055:50055"
+    environment:
+      PORT: 3050
+      GRPC_PORT: 50055
+      OPRAI_ADMIN_JWT_SECRET: ${OPRAI_ADMIN_JWT_SECRET:?OPRAI_ADMIN_JWT_SECRET is required}
+      ADMIN_CORS_ORIGIN: ${ADMIN_CORS_ORIGIN:-http://localhost:3200}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+  chat-service-py:
+    build:
+      context: .
+      dockerfile: services/chat-service-py/Dockerfile
+    container_name: oprai-chat-service-py
+    restart: unless-stopped
+    expose:
+      - "3020"
+      - "50052"
+    environment:
+      PORT: 3020
+      GRPC_PORT: 50052
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
+      OPRAI_OPENAI_MODEL: ${OPRAI_OPENAI_MODEL:-gpt-4o-mini}
+      MEMORY_SERVICE_URL: http://memory-service-py:3040
+      MEMORY_SERVICE_GRPC: memory-service-py:50054
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+  memory-service-py:
+    build:
+      context: .
+      dockerfile: services/memory-service-py/Dockerfile
+    container_name: oprai-memory-service-py
+    restart: unless-stopped
+    expose:
+      - "3040"
+      - "50054"
+    environment:
+      PORT: 3040
+      GRPC_PORT: 50054
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      QDRANT_URL: http://qdrant:6333
+      OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  knowledge-ingestion-service:
+    build:
+      context: .
+      dockerfile: services/knowledge-ingestion-service/Dockerfile
+    container_name: oprai-knowledge-ingestion
+    restart: unless-stopped
+    ports:
+      - "3070:3070"
+    environment:
+      PORT: 3070
+      DATABASE_URL: postgresql+asyncpg://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      QDRANT_URL: http://qdrant:6333
+      OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      MONTHLY_BUDGET_USD: ${KNOWLEDGE_INGESTION_MONTHLY_BUDGET_USD:-50}
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  solana-service-ts:
+    build:
+      context: .
+      dockerfile: services/solana-service-ts/Dockerfile
+    container_name: oprai-solana-service-ts
+    restart: unless-stopped
+    expose:
+      - "3031"
+    environment:
+      PORT: 3031
+      NODE_ENV: ${NODE_ENV:-production}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
+      JUPITER_API_KEY: ${JUPITER_API_KEY:-}
+      HELIUS_API_KEY: ${HELIUS_API_KEY:-}
+
+  solana-service-rs:
+    build:
+      context: .
+      dockerfile: services/solana-service-rs/Dockerfile
+    container_name: oprai-solana-service-rs
+    restart: unless-stopped
+    # No external port mapping — only the gateway (on the same Docker network)
+    # should reach this service. Exposing 3030/50053 to the host would allow
+    # bypassing gateway authentication.
+    expose:
+      - "3030"
+      - "50053"
+    environment:
+      PORT: 3030
+      GRPC_PORT: 50053
+      # Inside Docker the service must listen on all container interfaces so
+      # the gateway container can reach it. Network-level isolation (no host
+      # port binding above) keeps it unreachable from outside.
+      BIND_HOST: "0.0.0.0"
+      GRPC_BIND_HOST: "0.0.0.0"
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
+      SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
+      SOLANA_NETWORK: ${SOLANA_NETWORK:-mainnet-beta}
+      STREAMFLOW_SDK_URL: http://solana-service-ts:3031
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      solana-service-ts:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  qdrant-storage:
+  redis-data:

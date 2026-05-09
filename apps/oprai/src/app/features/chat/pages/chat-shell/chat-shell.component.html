@@ -1,0 +1,134 @@
+<div class="chat-container" [class.incognito]="sessionStorage.incognitoMode()">
+  @if (!walletService.connected()) {
+    <!-- Disconnected State -->
+    <div class="chat-content">
+      <section class="hero">
+        <div class="hero-brand">
+          <img src="oprai_fullname_icon.svg" alt="OPRAI" class="hero-brand-logo" />
+        </div>
+        <p class="hero-connect-hint">Connect your wallet to get started</p>
+      </section>
+    </div>
+  } @else if (authError()) {
+    <!-- Auth / Load Error State -->
+    <div class="chat-content">
+      <section class="hero">
+        <div class="hero-brand">
+          <img src="oprai_fullname_icon.svg" alt="OPRAI" class="hero-brand-logo" />
+        </div>
+        <p class="hero-connect-hint auth-error">{{ authError() }}</p>
+        @if (walletService.connected()) {
+          <button class="retry-load-btn" (click)="retryLoad()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.87"/></svg>
+            Sign Again
+          </button>
+        }
+      </section>
+    </div>
+  } @else if (loadingMessages()) {
+    <!-- Loading Skeleton — matches real message layout exactly -->
+    <div class="chat-content">
+      <div class="chat-skeleton">
+
+        <!-- Exchange 1 -->
+        <div class="sk-msg sk-msg--user stagger-1">
+          <div class="sk sk-bubble-user" style="width: 54%;"></div>
+        </div>
+        <div class="sk-msg sk-msg--assistant stagger-2">
+          <div class="sk-lines">
+            <div class="sk" style="height: 14px; width: 96%;"></div>
+            <div class="sk" style="height: 14px; width: 87%;"></div>
+            <div class="sk" style="height: 14px; width: 74%;"></div>
+            <div class="sk" style="height: 14px; width: 52%;"></div>
+          </div>
+        </div>
+
+        <!-- Exchange 2 -->
+        <div class="sk-msg sk-msg--user stagger-3">
+          <div class="sk sk-bubble-user" style="width: 41%;"></div>
+        </div>
+        <div class="sk-msg sk-msg--assistant stagger-4">
+          <div class="sk-lines">
+            <div class="sk" style="height: 14px; width: 91%;"></div>
+            <div class="sk" style="height: 14px; width: 79%;"></div>
+            <div class="sk" style="height: 14px; width: 62%;"></div>
+          </div>
+        </div>
+
+        <!-- Exchange 3 -->
+        <div class="sk-msg sk-msg--user stagger-5">
+          <div class="sk sk-bubble-user" style="width: 65%;"></div>
+        </div>
+        <div class="sk-msg sk-msg--assistant stagger-6">
+          <div class="sk-lines">
+            <div class="sk" style="height: 14px; width: 93%;"></div>
+            <div class="sk" style="height: 14px; width: 82%;"></div>
+            <div class="sk" style="height: 14px; width: 57%;"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  } @else {
+    <!-- Chat View: empty-centered OR messages+bottom layout -->
+    <div class="chat-view" [class.chat-view--empty]="messages().length === 0">
+
+      @if (messages().length > 0) {
+        <!-- Messages area -->
+        <div class="chat-content">
+          <app-message-list
+            [messages]="messages()"
+            [streaming]="streaming()"
+            [currentThinking]="currentThinking()"
+            [messageActions]="messageActions()"
+            [messageQueries]="messageQueries()"
+            [messageClarifications]="messageClarifications()"
+            [clarifySelections]="clarifySelections()"
+            (cancelAction)="onCancelAction($event)"
+            (useAction)="onUseAction($event)"
+            (clarifySelected)="onClarifySelected($event)"
+            (actionDismissed)="onActionDismissed($event)"
+            (requestChat)="onSendMessage($event)"
+            (retryLast)="onRetry()"
+            (editLast)="onEditLast()"
+            (editMessage)="onEditMessage($event)"
+            (retryMessage)="onEditMessage($event)"
+            (protocolMentionClick)="onProtocolMention($event)"
+          />
+        </div>
+      } @else {
+        <!-- Hero logo (centered above composer) -->
+        <div class="hero-logo">
+          <img src="oprai_fullname_icon.svg" alt="OPRAI" class="hero-brand-logo" />
+        </div>
+      }
+
+      <!-- Composer is ALWAYS rendered (same instance, just repositioned) -->
+      <footer class="chat-footer">
+        <app-message-composer
+          [disabled]="streaming()"
+          [chatLimitReached]="chatLimitReached()"
+          (send)="onSendMessage($event)"
+          (filesAttached)="onFilesAttached($event)"
+        />
+        <div class="chat-footer-meta">
+          @if (messages().length > 0 && !streaming()) {
+            <button class="clear-chat-btn" (click)="exportChat()" title="Export conversation">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export
+            </button>
+            <button class="clear-chat-btn" (click)="clearChat()" title="Clear conversation">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              Clear
+            </button>
+          }
+          @if (sessionStorage.incognitoMode()) {
+            <p class="private-notice">This chat won't appear in your history.</p>
+          } @else {
+            <p class="chat-disclaimer">OPRAI can make mistakes. Always verify on-chain data.</p>
+          }
+        </div>
+      </footer>
+    </div>
+  }
+</div>

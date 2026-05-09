@@ -1,0 +1,29 @@
+id: gauntlet_research
+source_type: docs
+base_url: https://www.gauntlet.xyz/resources
+protocol: null
+category: risk_framework
+license: proprietary-fair-use
+language: en
+schedule_cron: "0 8 * * *"
+crawl_delay_s: 2.0
+max_pages: 80
+tags:
+  - gauntlet
+  - risk-scoring
+  - protocol-risk
+  - simulation
+  - liquidation-risk
+  - var-methodology
+  - defi-risk
+  - collateral-parameters
+notes: >
+  Gauntlet's public resources/blog — static HTML, high crawl confidence. Key pages:
+  /resources/risk-scores-for-defi---alpha-release (risk scoring methodology overview),
+  /resources/gauntlets-parameter-recommendation-methodology (parameter optimization),
+  /resources/how-to-measure-risk-models-part-i (model validation),
+  /resources/improved-var-methodology (Value-at-Risk for DeFi),
+  /resources/aave-market-risk-assessment (applied case study),
+  /resources/methodology-new-asset-listings (asset listing risk criteria).
+  These pages explain simulation-based risk scoring: insolvency probability,
+  slippage modeling, liquidation bot simulation, and VaR.

@@ -1,0 +1,30 @@
+id: paradigm_amm_research
+source_type: docs
+base_url: https://www.paradigm.xyz
+protocol: null
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "10 9 * * *"
+crawl_delay_s: 2.0
+max_pages: 40
+include_patterns:
+  - "/2021/06/uniswap"
+  - "/2021/05/liquidity"
+  - "/amm"
+  - "/2024/11/pm-amm"
+tags:
+  - amm-research
+  - liquidity-provision
+  - concentrated-liquidity
+  - price-impact
+  - defi-research
+  - paradigm
+notes: >
+  Paradigm Research blog — Next.js static export, high crawl confidence. Key articles:
+  /2021/06/uniswap-v3-the-universal-amm (Uniswap v3 as universal AMM, range strategies),
+  /amm-price-impact (price impact math for AMMs — referenced in Kamino docs context),
+  /2024/11/pm-amm (prediction market AMM — background on invariant design).
+  Covers the academic underpinning for why concentrated ranges amplify both
+  fee income and IL — critical for CLMM range selection guidance.
+  Static Next.js pages; medium-high crawl confidence.

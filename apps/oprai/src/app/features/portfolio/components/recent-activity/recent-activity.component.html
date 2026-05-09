@@ -1,0 +1,521 @@
+<!-- Skeleton: show when loading or idle (not yet loaded) -->
+@if (loadingState() !== 'loaded' && loadingState() !== 'error') {
+  <div class="history-skeleton">
+    <div class="history-skeleton-toolbar">
+      <div class="history-skeleton-left">
+        <div class="sk sk-pill wide"></div>
+        <div class="sk sk-pill"></div>
+        <div class="sk sk-pill"></div>
+        <div class="sk sk-pill"></div>
+        <div class="sk sk-pill"></div>
+      </div>
+      <div class="sk sk-pill narrow"></div>
+    </div>
+    <div class="activity-card">
+      <div class="table-scroll-wrapper">
+        <table class="activity-table">
+          <thead>
+            <tr>
+              <th class="col-sig">
+                <div class="sk sk-header"></div>
+              </th>
+              <th class="col-time">
+                <div class="sk sk-header short"></div>
+              </th>
+              <th class="col-action">
+                <div class="sk sk-header short"></div>
+              </th>
+              <th class="col-from">
+                <div class="sk sk-header"></div>
+              </th>
+              <th class="col-to">
+                <div class="sk sk-header short"></div>
+              </th>
+              <th class="col-amount">
+                <div class="sk sk-header short"></div>
+              </th>
+              <th class="col-value">
+                <div class="sk sk-header short"></div>
+              </th>
+              <th class="col-token">
+                <div class="sk sk-header short"></div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (i of skeletonRows; track i) {
+              <tr class="activity-row skeleton-table-row" [style.animation-delay]="(i * 60) + 'ms'">
+                <td class="col-sig">
+                  <div class="sk sk-text wide"></div>
+                </td>
+                <td class="col-time">
+                  <div class="sk sk-text medium"></div>
+                </td>
+                <td class="col-action">
+                  <div class="sk-action-group">
+                    <div class="sk sk-pill-cell"></div>
+                    <div class="sk sk-circle"></div>
+                  </div>
+                </td>
+                <td class="col-from">
+                  <div class="sk sk-text"></div>
+                </td>
+                <td class="col-to">
+                  <div class="sk sk-text"></div>
+                </td>
+                <td class="col-amount">
+                  <div class="sk sk-text medium right"></div>
+                </td>
+                <td class="col-value">
+                  <div class="sk sk-text short right"></div>
+                </td>
+                <td class="col-token">
+                  <div class="sk-token-group">
+                    <div class="sk sk-circle"></div>
+                    <div class="sk sk-text short"></div>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+} @else if (loadingState() === 'loaded') {
+  <!-- Toolbar -->
+  <div class="solscan-toolbar">
+    <div class="solscan-toolbar-left">
+      <button class="toolbar-toggle" [class.active]="hideSpamTxs()" (click)="toggleHideSpam()">
+        <lucide-icon name="shield-alert" [size]="12" />
+        Hide Spam
+      </button>
+      <button class="toolbar-toggle" [class.active]="hideFailed()" (click)="toggleHideFailed()">
+        <lucide-icon name="x-circle" [size]="12" />
+        Hide Failed
+      </button>
+      <button class="toolbar-toggle" [class.active]="oldestFirst()" (click)="toggleOldestFirst()">
+        <lucide-icon name="arrow-up-down" [size]="12" />
+        {{ oldestFirst() ? 'Oldest First' : 'Newest First' }}
+      </button>
+
+      <!-- Type filter chips -->
+      @for (f of filters; track f.id) {
+        <button
+          class="toolbar-toggle type-filter-chip"
+          [class.active]="activeFilter() === f.id"
+          (click)="setFilter(f.id)"
+        >
+          {{ f.label }}
+        </button>
+      }
+    </div>
+    <button class="reset-filters-btn" (click)="resetFilters()">
+      <lucide-icon name="rotate-ccw" [size]="14" />
+      Reset
+    </button>
+  </div>
+
+  <!-- Data table -->
+  @if (hasEnhanced()) {
+    <div class="activity-card">
+      <div class="table-scroll-wrapper">
+        <table class="activity-table">
+          <thead>
+            <tr>
+              <th class="col-sig">Signature</th>
+              <th class="col-time">Time</th>
+              <th class="col-action">Action</th>
+              <th class="col-from">From</th>
+              <th class="col-to">To</th>
+              <th class="col-amount">Amount</th>
+              <th class="col-value">Value</th>
+              <th class="col-token">Token</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (tx of paginatedTransactions(); track tx.signature) {
+              <tr class="activity-row" [class.failed-row]="!tx.success" (click)="openTxDetail(tx)">
+                <!-- Signature -->
+                <td class="col-sig">
+                  <a
+                    class="tx-sig-link"
+                    [href]="getSolscanUrl(tx.signature)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    (click)="$event.stopPropagation()"
+                  >
+                    {{ tx.signature.slice(0, 8) }}...{{ tx.signature.slice(-4) }}
+                  </a>
+                </td>
+
+                <!-- Time -->
+                <td class="col-time">
+                  @if (tx.blockTime !== null) {
+                    {{ toIsoString(tx.blockTime) | timeAgo }}
+                  } @else {
+                    <span class="no-data">--</span>
+                  }
+                </td>
+
+                <!-- Action -->
+                <td class="col-action">
+                  <div class="action-cell">
+                    <span class="action-pill" [ngClass]="getActionPillClass(tx)">
+                      {{ getActionText(tx) }}
+                    </span>
+                    @if (getTxProtocols(tx).length > 0) {
+                      <div class="platform-icons-cluster">
+                        @for (protocol of getTxProtocols(tx).slice(0, 3); track protocol.key) {
+                          <img
+                            class="platform-icon-inline"
+                            [src]="getProtocolIconForKey(protocol.key)"
+                            [alt]="protocol.label"
+                            [title]="protocol.label"
+                            (error)="onPlatformIconError($event, protocol.key)"
+                            loading="lazy"
+                          />
+                        }
+                        @if (getTxProtocols(tx).length > 3) {
+                          <span class="more-protocols">+{{ getTxProtocols(tx).length - 3 }}</span>
+                        }
+                      </div>
+                    }
+                    @if (!tx.success) {
+                      <lucide-icon name="x-circle" [size]="14" class="failed-icon" />
+                    }
+                  </div>
+                </td>
+
+                <!-- From -->
+                <td class="col-from">
+                  @if (getFromAddressFull(tx)) {
+                    <span class="addr-mono" [title]="getFromAddressFull(tx)">{{ getFromAddress(tx) }}</span>
+                  } @else {
+                    <span class="no-data">--</span>
+                  }
+                </td>
+
+                <!-- To -->
+                <td class="col-to">
+                  @if (getToAddressFull(tx)) {
+                    <span class="addr-mono" [title]="getToAddressFull(tx)">{{ getToAddress(tx) }}</span>
+                  } @else {
+                    <span class="no-data">--</span>
+                  }
+                </td>
+
+                <!-- Amount -->
+                <td class="col-amount">
+                  <span
+                    class="amount-value"
+                    [class.amount-positive]="isAmountPositive(tx)"
+                    [class.amount-negative]="!isAmountPositive(tx) && getAmountDisplay(tx) !== '--'"
+                  >
+                    {{ getAmountDisplay(tx) }}
+                  </span>
+                </td>
+
+                <!-- Value (USD) -->
+                <td class="col-value">
+                  @if (getUsdValue(tx)) {
+                    <span class="usd-value">{{ getUsdValue(tx) }}</span>
+                  } @else {
+                    <span class="no-data">--</span>
+                  }
+                </td>
+
+                <!-- Token -->
+                <td class="col-token">
+                  <div class="token-cell">
+                    @if (getTokenIcon(tx)) {
+                      <img
+                        class="token-icon"
+                        [src]="getTokenIcon(tx)"
+                        [alt]="getTokenSymbol(tx)"
+                        loading="lazy"
+                      />
+                    } @else if (getTokenSymbol(tx)) {
+                      <div class="token-icon-placeholder">
+                        {{ getTokenSymbol(tx).charAt(0) }}
+                      </div>
+                    }
+                    @if (getTokenSymbol(tx)) {
+                      <span class="token-symbol">{{ getTokenSymbol(tx) }}</span>
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
+
+            @if (isLoadingMoreSignal()) {
+              @for (i of [1,2,3]; track i) {
+                <tr class="activity-row skeleton-table-row">
+                  <td class="col-sig"><div class="sk sk-text wide"></div></td>
+                  <td class="col-time"><div class="sk sk-text medium"></div></td>
+                  <td class="col-action"><div class="sk sk-pill-cell"></div></td>
+                  <td class="col-from"><div class="sk sk-text"></div></td>
+                  <td class="col-to"><div class="sk sk-text"></div></td>
+                  <td class="col-amount"><div class="sk sk-text short right"></div></td>
+                  <td class="col-value"><div class="sk sk-text short right"></div></td>
+                  <td class="col-token"><div class="sk sk-text short"></div></td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination Bar -->
+      @if (totalPages() > 1 || hasMoreSignal()) {
+        <div class="pagination-bar">
+          <span class="pagination-info">
+            {{ showingFrom() }}–{{ showingTo() }} of {{ totalCount() }}{{ hasMoreSignal() ? '+' : '' }}
+          </span>
+
+          <div class="pagination-controls">
+            <button
+              class="page-btn"
+              [disabled]="currentPage() === 1"
+              (click)="prevPage()"
+            >
+              <lucide-icon name="chevron-left" [size]="14" />
+            </button>
+
+            @for (p of pageNumbers(); track $index) {
+              @if (p === 'ellipsis') {
+                <span class="page-ellipsis">...</span>
+              } @else {
+                <button
+                  class="page-btn page-num"
+                  [class.active]="currentPage() === p"
+                  (click)="goToPage(+p)"
+                >
+                  {{ p }}
+                </button>
+              }
+            }
+
+            <button
+              class="page-btn"
+              [disabled]="currentPage() === totalPages() && !hasMoreSignal()"
+              (click)="nextPage()"
+            >
+              @if (isLoadingMoreSignal() && currentPage() === totalPages()) {
+                <span class="page-spinner"></span>
+              } @else {
+                <lucide-icon name="chevron-right" [size]="14" />
+              }
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+
+    @if (filteredTransactions().length === 0) {
+      <div class="empty-filter">No {{ activeFilter() === 'all' ? '' : activeFilter() }} transactions found</div>
+    }
+  } @else if (transactions().length > 0) {
+    <!-- Fallback: raw signature table -->
+    <div class="activity-card">
+      <table class="activity-table">
+        <thead>
+          <tr>
+            <th class="col-sig">Transaction</th>
+            <th class="col-time">Time</th>
+            <th class="col-status">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (tx of transactions(); track tx.signature) {
+            <tr class="activity-row">
+              <td class="col-sig">
+                <a
+                  class="tx-link"
+                  [href]="getSolscanUrl(tx.signature)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {{ tx.signature | truncateAddress:8:8 }}
+                  <lucide-icon class="external-icon" name="external-link" [size]="10" />
+                </a>
+              </td>
+              <td class="col-time">
+                @if (tx.blockTime !== null) {
+                  {{ toIsoString(tx.blockTime) | timeAgo }}
+                } @else {
+                  <span class="no-data">--</span>
+                }
+              </td>
+              <td class="col-status">
+                <span class="status-dot" [class.success]="tx.success" [class.fail]="!tx.success"></span>
+                {{ tx.success ? 'Success' : 'Failed' }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  } @else {
+    <div class="empty-state">No recent transactions</div>
+  }
+
+  <!-- Transaction Detail Modal -->
+  @if (txModalOpen() && selectedTx()) {
+    <div class="tx-modal-backdrop" (click)="closeTxDetail()">
+      <div class="tx-modal" (click)="$event.stopPropagation()">
+        <div class="tx-modal-header">
+          <h3>Transaction Details</h3>
+          <button class="close-btn" (click)="closeTxDetail()">
+            <lucide-icon name="x" [size]="20" />
+          </button>
+        </div>
+        <div class="tx-modal-body">
+          @if (selectedTx(); as tx) {
+            <div class="tx-detail-grid">
+              <!-- Signature -->
+              <div class="detail-row full-width">
+                <span class="detail-label">Signature</span>
+                <div class="detail-value signature-value">
+                  <code class="sig-code">{{ tx.signature }}</code>
+                  <a
+                    class="solscan-link"
+                    [href]="getSolscanUrl(tx.signature)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <lucide-icon name="external-link" [size]="14" />
+                    View on Solscan
+                  </a>
+                </div>
+              </div>
+
+              <!-- Type -->
+              <div class="detail-row">
+                <span class="detail-label">Type</span>
+                <span class="detail-value">
+                  <span class="action-pill" [ngClass]="getActionPillClass(tx)">{{ getActionText(tx) }}</span>
+                </span>
+              </div>
+
+              <!-- Platform -->
+              <div class="detail-row">
+                <span class="detail-label">Platform</span>
+                @if (getTxProtocols(tx).length > 0) {
+                  <div class="protocol-chips">
+                    @for (protocol of getTxProtocols(tx); track protocol.key) {
+                      <div class="detail-value platform-with-icon">
+                        <img
+                          [src]="getProtocolIconForKey(protocol.key)"
+                          [alt]="protocol.label"
+                          class="platform-icon-large"
+                          (error)="onPlatformIconError($event, protocol.key)"
+                          loading="lazy"
+                        />
+                        <span>{{ protocol.label }}</span>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <span class="detail-value no-platform">Unknown</span>
+                }
+              </div>
+
+              <!-- Status -->
+              <div class="detail-row">
+                <span class="detail-label">Status</span>
+                <span class="detail-value">
+                  <span class="status-dot" [class.success]="tx.success" [class.fail]="!tx.success"></span>
+                  {{ tx.success ? 'Success' : 'Failed' }}
+                </span>
+              </div>
+
+              <!-- Time -->
+              <div class="detail-row">
+                <span class="detail-label">Time</span>
+                <span class="detail-value">
+                  @if (tx.blockTime !== null) {
+                    {{ toIsoString(tx.blockTime) | timeAgo }}
+                    <span class="detail-sub">({{ toIsoString(tx.blockTime) | date:'medium' }})</span>
+                  } @else {
+                    <span class="no-data">--</span>
+                  }
+                </span>
+              </div>
+
+              <!-- Description -->
+              <div class="detail-row full-width">
+                <span class="detail-label">Description</span>
+                <span class="detail-value">{{ tx.description }}</span>
+              </div>
+
+              <!-- Details -->
+              @if (tx.details) {
+                <div class="detail-row full-width">
+                  <span class="detail-label">Details</span>
+                  <div class="detail-value details-grid">
+                    @if (tx.details.fromAddress) {
+                      <div class="detail-item">
+                        <span class="item-label">From</span>
+                        <span class="item-value">{{ tx.details.fromAddress }}</span>
+                      </div>
+                    }
+                    @if (tx.details.toAddress) {
+                      <div class="detail-item">
+                        <span class="item-label">To</span>
+                        <span class="item-value">{{ tx.details.toAddress }}</span>
+                      </div>
+                    }
+                    @if (tx.details.fromToken) {
+                      <div class="detail-item">
+                        <span class="item-label">From Token</span>
+                        <span class="item-value">
+                          @if (tx.details.fromAmount !== null) {
+                            {{ tx.details.fromAmount.toFixed(6) }}
+                          }
+                          {{ tx.details.fromToken === 'SOL' ? 'SOL' : tx.details.fromToken.slice(0, 8) + '...' }}
+                        </span>
+                      </div>
+                    }
+                    @if (tx.details.toToken) {
+                      <div class="detail-item">
+                        <span class="item-label">To Token</span>
+                        <span class="item-value">
+                          @if (tx.details.toAmount !== null) {
+                            {{ tx.details.toAmount.toFixed(6) }}
+                          }
+                          {{ tx.details.toToken === 'SOL' ? 'SOL' : tx.details.toToken.slice(0, 8) + '...' }}
+                        </span>
+                      </div>
+                    }
+                    @if (tx.details.programName) {
+                      <div class="detail-item">
+                        <span class="item-label">Program</span>
+                        <span class="item-value">{{ tx.details.programName }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+        <div class="tx-modal-footer">
+          <a
+            class="btn-primary"
+            [href]="getSolscanUrl(selectedTx()!.signature)"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <lucide-icon name="external-link" [size]="16" />
+            View Full Transaction
+          </a>
+        </div>
+      </div>
+    </div>
+  }
+} @else if (loadingState() === 'error') {
+  <div class="empty-state">Failed to load transaction history. Try refreshing.</div>
+} @else {
+  <div class="empty-state">No recent transactions</div>
+}

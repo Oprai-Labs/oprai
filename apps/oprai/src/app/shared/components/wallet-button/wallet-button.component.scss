@@ -1,0 +1,210 @@
+.wallet-button-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+// ──── Trigger Buttons ────
+.wallet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--op-font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: all 200ms ease;
+  cursor: pointer;
+  border: none;
+  white-space: nowrap;
+
+  &--connect {
+    padding: 10px 24px;
+    border-radius: var(--op-radius-full);
+    background: var(--op-gradient);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    letter-spacing: 0.01em;
+
+    &:hover:not(:disabled) {
+      box-shadow: var(--op-shadow-glow);
+      transform: translateY(-1px);
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    &:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+  }
+
+  &--connected {
+    padding: 8px 16px;
+    border-radius: var(--op-radius-full);
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-primary);
+    border: 1px solid var(--op-border-default);
+
+    &:hover {
+      border-color: var(--op-brand);
+      box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
+    }
+  }
+}
+
+.wallet-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+}
+
+.wallet-address {
+  font-family: var(--op-font-mono);
+  font-size: 0.8125rem;
+}
+
+.chevron {
+  opacity: 0.5;
+  transition: transform 200ms ease;
+
+  &.open {
+    transform: rotate(180deg);
+  }
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+// ──── Connected Dropdown ────
+.connected-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 280px;
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-lg);
+  box-shadow: var(--op-shadow-lg);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.dropdown-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--op-border-default);
+}
+
+.dropdown-wallet-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dropdown-wallet-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--op-text-primary);
+}
+
+.dropdown-status {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #22c55e;
+  padding: 2px 8px;
+  border-radius: var(--op-radius-full);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.dropdown-address {
+  padding: 10px 16px;
+  font-family: var(--op-font-mono);
+  font-size: 0.75rem;
+  color: var(--op-text-secondary);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--op-border-default);
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--op-text-primary);
+  transition: background 150ms ease;
+  cursor: pointer;
+  border: none;
+  background: none;
+
+  &:hover:not(:disabled) {
+    background: var(--op-hover);
+  }
+
+  &--danger {
+    color: var(--op-loss);
+
+    &:hover:not(:disabled) {
+      background: rgba(239, 68, 68, 0.06);
+    }
+  }
+}
+
+// ──── Error Toast ────
+.wallet-error {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  padding: 12px 16px;
+  background: var(--op-bg-surface-1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--op-radius-md);
+  color: var(--op-loss);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  z-index: 10000;
+  box-shadow: var(--op-shadow-lg);
+  animation: slideUp 200ms ease;
+}
+
+// ──── Animations ────
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

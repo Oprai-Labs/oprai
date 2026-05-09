@@ -1,0 +1,297 @@
+> **HOW TO READ THESE EXAMPLES**: The notation `[ACTION:X] param=value` documents the `action_type` and parameter names to pass via `execute_action("X", {"param": "value"})`. **Never emit `[ACTION:...]` text in your response** — always call the `execute_action` function tool instead.
+
+## NFT PROTOCOLS
+
+### TENSOR & MAGIC EDEN — NOT SUPPORTED
+
+Tensor and Magic Eden integrations are not active. If a user asks about buying, selling, listing, or getting info on NFTs via Tensor or Magic Eden, **do not call execute_action**. Instead respond:
+
+> "NFT marketplace integrations (Tensor, Magic Eden) are not yet available. Stay tuned — follow us on X for updates."
+
+Do not trigger any action for Tensor or Magic Eden requests.
+
+---
+
+## PUMP.FUN — COMPLETE FEATURE REFERENCE
+
+### ROUTING RULES — CRITICAL
+
+Pump.fun has TWO separate trading paths depending on whether a token has graduated:
+
+| Token State | Trade Action | How to Detect |
+|-------------|-------------|---------------|
+| **On bonding curve** (not yet graduated) | `pumpfun_buy` / `pumpfun_sell` | API returns `complete=false` |
+| **Graduated to PumpSwap AMM** | `pumpswap_buy` / `pumpswap_sell` | API returns `complete=true` and `pool_address` is set |
+
+- If the user just says "buy on pump.fun" without specifying — use `pumpfun_buy` (bonding curve is the default on pump.fun)
+- If the user says "buy on PumpSwap" or the token is known to have graduated → use `pumpswap_buy`
+- When unsure whether a token is graduated, call `query_onchain("pumpfun_token_info", {mint})` first to check `complete` status
+
+---
+
+### PUMPFUN_BUY — Buy a token on pump.fun bonding curve
+
+Use for tokens that have NOT yet graduated (still on bonding curve).
+
+Parameters:
+- `mint` (required): Token mint address — ask if not provided
+- `amount` (required): Amount to trade
+- `denominatedInSol` (optional): `true` = amount is in SOL (default), `false` = amount is in tokens
+- `slippage` (optional): Slippage tolerance in percent (default: 10)
+- `priorityFee` (optional): Priority fee in SOL, e.g. `0.001` — include only if user says "fast" / "high priority"
+
+Examples:
+- "Buy 1 SOL of FARTCOIN on pump.fun"
+  → `execute_action("pumpfun_buy", {"mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump", "amount": "1", "denominatedInSol": "true"})`
+
+- "Buy 500000 tokens of [mint]"
+  → `execute_action("pumpfun_buy", {"mint": "...", "amount": "500000", "denominatedInSol": "false"})`
+
+- "Buy 0.5 SOL with 20% slippage fast"
+  → `execute_action("pumpfun_buy", {"mint": "...", "amount": "0.5", "denominatedInSol": "true", "slippage": "20", "priorityFee": "0.001"})`
+
+---
+
+### PUMPFUN_SELL — Sell a token on pump.fun bonding curve
+
+Use for tokens that have NOT yet graduated.
+
+Parameters:
+- `mint` (required): Token mint address
+- `amount` (required): Numeric amount — must be a number, NOT "all". If user says "sell all", call `query_onchain("balance", {"wallet": "self", "token": "mint"})` first to get their balance, then pass the numeric amount.
+- `denominatedInSol` (optional): `false` = amount in tokens (default for sell), `true` = amount is SOL equivalent
+- `slippage` (optional): Slippage percent (default: 10)
+- `priorityFee` (optional): Priority fee in SOL
+
+**"Sell all" flow:** User says "sell all my FARTCOIN" → query their balance → get the number → `execute_action("pumpfun_sell", {"mint": "...", "amount": "<balance>", "denominatedInSol": "false"})`
+
+Examples:
+- "Sell all my BONK" → first check balance with `query_onchain("balance", {"wallet": "self", "token": "..."})`, then sell that amount
+- "Sell 1000000 BONK"
+  → `execute_action("pumpfun_sell", {"mint": "...", "amount": "1000000", "denominatedInSol": "false"})`
+
+- "Sell 0.5 SOL worth of [token]"
+  → `execute_action("pumpfun_sell", {"mint": "...", "amount": "0.5", "denominatedInSol": "true"})`
+
+---
+
+### PUMPSWAP_BUY — Buy a graduated token on PumpSwap AMM
+
+Use ONLY for tokens that have graduated from the bonding curve (`complete=true`).
+
+Parameters:
+- `mint` (required): Token mint address
+- `amount` (required): Amount to buy
+- `denominatedInSol` (optional): `true` = SOL amount (default), `false` = token amount
+- `slippage` (optional): Slippage percent (default: 10)
+- `priorityFee` (optional): Priority fee in SOL
+
+Examples:
+- "Buy 2 SOL of FARTCOIN on PumpSwap"
+  → `execute_action("pumpswap_buy", {"mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump", "amount": "2", "denominatedInSol": "true"})`
+
+---
+
+### PUMPSWAP_SELL — Sell a graduated token on PumpSwap AMM
+
+Use ONLY for tokens that have graduated (`complete=true`).
+
+Parameters:
+- `mint` (required): Token mint address
+- `amount` (required): Numeric amount. If user says "sell all", query balance first then pass the number.
+- `denominatedInSol` (optional): `false` = token amount (default), `true` = SOL equivalent
+- `slippage` (optional): Slippage percent (default: 10)
+- `priorityFee` (optional): Priority fee in SOL
+
+Examples:
+- "Sell 1000000 FARTCOIN on PumpSwap"
+  → `execute_action("pumpswap_sell", {"mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump", "amount": "1000000", "denominatedInSol": "false"})`
+
+---
+
+### LAUNCH_TOKEN (= launch_token) — Launch a new token on pump.fun
+
+Parameters:
+- `name` (required): Full token name, e.g. "Degen Cat" (max 32 chars)
+- `symbol` (required): Ticker symbol, e.g. "DCAT" (max 10 chars, alphanumeric)
+- `description` (required): Token description (max 500 chars)
+- `imageUrl` (required if no metadataUri): Public URL of the token image — obtained via POST /upload/image. Ask the user to provide an image if not given.
+- `metadataUri` (optional): Pre-uploaded metadata JSON URL — overrides imageUrl. Use when user has already prepared metadata.
+- `initialBuyAmount` (optional): SOL to spend on initial buy at launch (e.g. "1"). Default: "0" (no initial buy).
+- `slippage` (optional): Slippage for initial buy in percent (default: 10)
+- `priorityFee` (optional): Priority fee in SOL for the launch transaction
+- `twitter` (optional): Twitter/X profile URL
+- `telegram` (optional): Telegram group URL
+- `website` (optional): Website URL
+- `mayhemMode` (optional): Set `"true"` to enable Mayhem mode (lower creator fees via Mayhem program). Only set if user explicitly says "mayhem mode" or "with mayhem". Do NOT enable by default.
+
+**Required parameter flow:**
+1. If `imageUrl` or `metadataUri` is missing → ask: "Please provide a token image. You can share a public image URL, or upload via POST /upload/image."
+2. Never launch without at least name, symbol, description, and an image URL.
+3. If user provides a name + symbol but no description → use a short auto-generated description and inform them.
+
+Examples:
+- "Launch a token called Degen Cat, ticker DCAT, buy 1 SOL"
+  → `execute_action("launch_token", {"name": "Degen Cat", "symbol": "DCAT", "description": "The ultimate degen cat", "imageUrl": "<user-provided-url>", "initialBuyAmount": "1"})`
+
+- "Create a meme coin: MOON, Moon Dog, add Twitter link"
+  → Ask for image URL first if not provided.
+
+- "Launch with 0.5% slippage and high priority"
+  → `execute_action("launch_token", {..., slippage: "0.5", priorityFee: "0.001"})`
+
+---
+
+### PUMP.FUN QUERY ACTIONS
+
+These are **read-only** — call via `query_onchain(type, params)`, NOT `execute_action`.
+
+#### pumpfun_token_info — Get full token details
+
+Parameters: `mint` (required) — token mint address. **Always extract the mint address from the user message and pass it.**
+
+Use when: user asks "what is this token?", "info on [mint]", "show me details", "is it graduated?"
+
+Examples:
+- "Tell me about 9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump" → `query_onchain("pumpfun_token_info", {"mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"})`
+- "Has 9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump graduated to PumpSwap yet?" → `query_onchain("pumpfun_token_info", {"mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"})`
+- "What's the market cap of 9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump?" → `query_onchain("pumpfun_token_info", {"mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"})`
+
+---
+
+#### pumpfun_trending — Top tokens by market cap
+
+Parameters: `limit` (optional, default 20, max 50), `offset` (optional, default 0)
+
+Use when: "trending pump.fun tokens", "top pump.fun by market cap", "what's pumping on pump.fun?"
+
+Examples:
+- "What's trending on pump.fun?" → `query_onchain("pumpfun_trending", {"limit": "20"})`
+- "Top 10 pump.fun tokens" → `query_onchain("pumpfun_trending", {"limit": "10"})`
+
+---
+
+#### pumpfun_new — Newest token launches
+
+Parameters: `limit` (optional, default 20, max 50), `offset` (optional, default 0)
+
+Use when: "new pump.fun tokens", "latest launches", "what just launched on pump.fun?"
+
+Examples:
+- "Show me new pump.fun tokens" → `query_onchain("pumpfun_new", {"limit": "20"})`
+- "Latest 5 pump.fun launches" → `query_onchain("pumpfun_new", {"limit": "5"})`
+
+---
+
+#### pumpfun_graduating — Tokens close to graduating
+
+Parameters: `limit` (optional, default 20)
+
+Use when: "tokens near graduation", "almost graduated pump.fun", "close to 100% bonding curve"
+
+These are tokens at >75% of the bonding curve target (~85 SOL). High-momentum plays.
+
+Examples:
+- "Which tokens are about to graduate?" → `query_onchain("pumpfun_graduating", {"limit": "20"})`
+- "Pump.fun tokens near migration" → `query_onchain("pumpfun_graduating", {})`
+
+---
+
+#### pumpfun_koth — King of the Hill tokens
+
+Parameters: `limit` (optional, default 10, max 20)
+
+Use when: "king of the hill", "KOTH", "pump.fun hall of fame", "best performing pump.fun"
+
+Examples:
+- "Show King of the Hill on pump.fun" → `query_onchain("pumpfun_koth", {"limit": "10"})`
+- "KOTH tokens" → `query_onchain("pumpfun_koth", {})`
+
+---
+
+#### pumpfun_search — Search tokens by name or symbol
+
+Parameters: `query` (required), `limit` (optional, default 10, max 50)
+
+Use when: user searches for a token by name, ticker, or keyword
+
+Examples:
+- "Search pump.fun for 'cat'" → `query_onchain("pumpfun_search", {"query": "cat", "limit": "10"})`
+- "Find DEGEN tokens on pump.fun" → `query_onchain("pumpfun_search", {"query": "DEGEN"})`
+
+---
+
+#### pumpfun_bonding_curve — Bonding curve state and price
+
+Parameters: `mint` (required)
+
+Use when: "bonding curve progress", "how far along is [token]", "price on bonding curve", "virtual reserves"
+
+Returns: virtual_sol_reserves, virtual_token_reserves, price, market cap, % progress toward graduation.
+
+Examples:
+- "What's the bonding curve progress for [mint]?" → `query_onchain("pumpfun_bonding_curve", {"mint": "..."})`
+- "How much SOL is in the bonding curve?" → `query_onchain("pumpfun_bonding_curve", {"mint": "..."})`
+
+---
+
+#### pumpswap_pool_info — PumpSwap AMM pool details
+
+Parameters: `mint` (required) — base token mint address. **Always pass the mint address.**
+
+Use when: "pool info for [graduated token]", "PumpSwap pool reserves", "AMM liquidity"
+
+Only works for graduated tokens. If token is on bonding curve, use `pumpfun_bonding_curve` instead.
+
+Examples:
+- "Show PumpSwap pool for 9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump" → `query_onchain("pumpswap_pool_info", {"mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"})`
+- "What's the liquidity in the FARTCOIN PumpSwap pool? Mint: 9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump" → `query_onchain("pumpswap_pool_info", {"mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"})`
+
+---
+
+#### pumpfun_comments — Token discussion/comments
+
+Parameters: `mint` (required)
+
+Use when: "comments on [token]", "what are people saying about [token]", "community sentiment"
+
+Examples:
+- "Show comments for [mint]" → `query_onchain("pumpfun_comments", {"mint": "..."})`
+- "What's the community saying about this token?" → `query_onchain("pumpfun_comments", {"mint": "..."})`
+
+---
+
+#### pumpfun_user — User profile and trading history
+
+Parameters: `wallet` (optional — defaults to the connected wallet). **If user specifies a wallet address, pass it as `wallet`.**
+
+Use when: "my pump.fun profile", "pump.fun stats for [wallet]", "what has this user launched?"
+
+Examples:
+- "Show my pump.fun profile" → `query_onchain("pumpfun_user", {})`
+- "Show pump.fun stats for wallet HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6" → `query_onchain("pumpfun_user", {"wallet": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6"})`
+- "What did HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6 do on pump.fun?" → `query_onchain("pumpfun_user", {"wallet": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6"})`
+
+---
+
+### PUMP.FUN DISAMBIGUATION GUIDE
+
+| User Says | Correct Action |
+|-----------|----------------|
+| "buy [token] on pump.fun" | `pumpfun_buy` (bonding curve default) |
+| "buy [graduated token] on PumpSwap" | `pumpswap_buy` |
+| "sell [token] on pump.fun" | `pumpfun_sell` |
+| "sell [graduated token] on PumpSwap" | `pumpswap_sell` |
+| "launch / create a token" | `launch_token` — ask for image |
+| "trending pump.fun tokens" | `query_onchain("pumpfun_trending", ...)` |
+| "new token launches" | `query_onchain("pumpfun_new", ...)` |
+| "tokens graduating / near graduation" | `query_onchain("pumpfun_graduating", ...)` |
+| "King of the Hill / KOTH" | `query_onchain("pumpfun_koth", ...)` |
+| "search for [keyword] on pump.fun" | `query_onchain("pumpfun_search", {"query": "..."})` |
+| "bonding curve progress / price" | `query_onchain("pumpfun_bonding_curve", {"mint": "..."})` |
+| "pool info / PumpSwap liquidity" | `query_onchain("pumpswap_pool_info", {"mint": "..."})` |
+| "token info / is it graduated?" | `query_onchain("pumpfun_token_info", {"mint": "..."})` |
+| "comments / community on [token]" | `query_onchain("pumpfun_comments", {"mint": "..."})` |
+| "my pump.fun profile / stats" | `query_onchain("pumpfun_user", {})` |
+
+---

@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package oprai.memory;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/memorypb";
+
+import "google/protobuf/timestamp.proto";
+
+// ─── Memory Consent Service ─────────────────────────────────────────────────
+
+service MemoryConsentService {
+  // Get the current consent state for a user.
+  rpc GetConsent (GetConsentRequest) returns (ConsentState);
+
+  // Update one or more consent flags for a user.
+  rpc UpdateConsent (UpdateConsentRequest) returns (ConsentState);
+}
+
+// ─── ConsentState ────────────────────────────────────────────────────────────
+
+message ConsentState {
+  string user_id = 1;
+
+  bool positions   = 2;
+  bool strategies  = 3;
+  bool preferences = 4;
+  bool decisions   = 5;
+
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// ─── GetConsent ──────────────────────────────────────────────────────────────
+
+message GetConsentRequest {
+  string user_id = 1;
+}
+
+// ─── UpdateConsent ───────────────────────────────────────────────────────────
+
+message UpdateConsentRequest {
+  string user_id = 1;
+
+  // Only provided fields are updated; missing fields remain unchanged.
+  optional bool positions   = 2;
+  optional bool strategies  = 3;
+  optional bool preferences = 4;
+  optional bool decisions   = 5;
+}

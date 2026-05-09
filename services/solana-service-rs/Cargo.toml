@@ -1,0 +1,94 @@
+[package]
+name = "oprai-solana-service"
+version = "0.1.0"
+edition = "2021"
+description = "OPRAI Solana transaction builder service (Rust)"
+license = "MIT"
+
+[[bin]]
+name = "oprai-solana-service"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+actix-web = "4"
+actix-rt = "2"
+actix-governor = "0.5"
+
+# gRPC
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+
+# Solana
+solana-sdk = "2"
+solana-client = "2"
+solana-rpc-client = "2"
+solana-rpc-client-api = "2"
+solana-transaction-status = "2"
+spl-token = "6"
+spl-associated-token-account = "4"
+
+# Orca Whirlpools SDK
+orca_whirlpools = "7"
+
+# Orca SDK v3 bridge — these are already transitive deps via orca_whirlpools,
+# aliased here so we can cross the v2/v3 type boundary in orca.rs.
+orca-solana-rpc    = { package = "solana-rpc-client",  version = "3" }
+orca-solana-ix     = { package = "solana-instruction", version = "3" }
+orca-solana-keypair = { package = "solana-keypair",    version = "3" }
+orca-solana-pubkey = { package = "solana-pubkey",      version = "3" }
+
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database (diesel async)
+diesel = { version = "2", features = ["postgres", "uuid", "chrono", "serde_json"] }
+diesel-async = { version = "0.5", features = ["postgres", "deadpool"] }
+deadpool = "0.12"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "blocking", "multipart"] }
+
+# Orca Whirlpools: transaction building uses direct Anchor instruction encoding
+# (no SDK — orca_whirlpools v7 requires Solana v3 split-crates which are
+# incompatible with solana-sdk 1.18 at the zeroize dependency level).
+# Pool/token data is queried via the public Orca v2 REST API.
+# Swaps are routed through Jupiter with dexes=Whirlpool filter.
+
+# Decimal arithmetic (safe financial calculations — avoids f64 overflow)
+rust_decimal = "1.35"
+
+# Utilities
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+base64 = "0.22"
+bs58 = "0.5"
+bincode = "1"
+borsh = "1"
+sha2 = "0.10"
+subtle = "2"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-actix-web = "0.7"
+
+# Metrics
+prometheus = "0.13"
+spl-stake-pool = { version = "2.0.3", features = ["no-entrypoint"] }
+futures = "0.3.32"
+
+[build-dependencies]
+tonic-build = "0.12"
+# test

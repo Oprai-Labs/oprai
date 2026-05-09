@@ -1,0 +1,192 @@
+:host {
+  display: block;
+  width: 100%;
+  animation: card-enter 0.25s ease-out both;
+}
+
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.clarify-card {
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--op-shadow-card);
+  // Stretch to the assistant bubble like action-card / query-card so all
+  // mini-app layouts share the same horizontal footprint.
+  width: 100%;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--op-border-subtle);
+  }
+
+  &__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--op-brand) 12%, transparent);
+    color: var(--op-brand);
+  }
+
+  &__title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--op-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  &__question {
+    padding: 14px 20px 10px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--op-text-primary);
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  &__options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 6px 16px 16px;
+  }
+
+  &__executing {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 20px 14px;
+    font-size: 12px;
+    color: var(--op-text-tertiary);
+    margin: 0;
+
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+  }
+}
+
+.clarify-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-md);
+  background: var(--op-bg-surface-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--op-brand) 8%, var(--op-bg-surface-2));
+    border-color: color-mix(in srgb, var(--op-brand) 30%, var(--op-border-subtle));
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+
+  // Protocol-specific styling
+  &--protocol:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--protocol-accent, var(--op-brand)) 8%, var(--op-bg-surface-2));
+    border-color: color-mix(in srgb, var(--protocol-accent, var(--op-brand)) 30%, var(--op-border-subtle));
+  }
+
+  &--protocol &--selected {
+    background: color-mix(in srgb, var(--protocol-accent, var(--op-brand)) 12%, var(--op-bg-surface-2));
+    border-color: color-mix(in srgb, var(--protocol-accent, var(--op-brand)) 50%, var(--op-border-subtle));
+  }
+
+  &--selected {
+    background: color-mix(in srgb, var(--op-brand) 12%, var(--op-bg-surface-2));
+    border-color: color-mix(in srgb, var(--op-brand) 50%, var(--op-border-subtle));
+  }
+
+  &--dimmed {
+    opacity: 0.4;
+  }
+
+  &__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--op-brand) 12%, transparent);
+    color: var(--op-brand);
+    flex-shrink: 0;
+  }
+
+  &__protocol-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--op-bg-surface-1);
+    flex-shrink: 0;
+    overflow: hidden;
+
+    img {
+      width: 26px;
+      height: 26px;
+      object-fit: contain;
+    }
+  }
+
+  &__content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  &__label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--op-text-primary);
+  }
+
+  &__sublabel {
+    font-size: 12px;
+    color: var(--op-text-tertiary);
+    font-weight: 400;
+  }
+
+  &__arrow {
+    color: var(--op-text-tertiary);
+    flex-shrink: 0;
+  }
+
+  &__check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--op-brand);
+    color: white;
+    flex-shrink: 0;
+  }
+}

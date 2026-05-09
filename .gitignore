@@ -1,0 +1,128 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+.next/
+out/
+build/
+dist/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Credentials, keys, secrets — defense in depth
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+!**/test/**/*.crt
+*credentials*.json
+*service-account*.json
+*google-credentials*
+secrets/
+private/
+*.keystore
+id_rsa
+id_ed25519
+id_ecdsa
+id_dsa
+*.ppk
+authorized_keys
+known_hosts
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# npm
+.npm
+.eslintcache
+*.tgz
+.yarn-integrity
+
+# Cache
+.cache
+.parcel-cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Build temp
+tmp/
+temp/
+
+# pnpm
+.pnpm-store/
+
+# Turborepo
+.turbo/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Rust
+target/
+
+# Go
+bin/
+
+# Proto generated (local)
+proto/gen/
+
+# Database backups
+backups/
+
+# Angular
+.angular/
+
+# OpraiOS (separate product — excluded from this repo)
+opraios/
+agent-platform/
+
+# Internal documents (not for public release)
+SECURITY_AUDIT_REPORT.md
+FIXES.md
+PRODUCTION.md
+
+# Wrangler
+.wrangler/
+
+# Claude
+.claude/
+
+# Pytest
+.pytest_cache/

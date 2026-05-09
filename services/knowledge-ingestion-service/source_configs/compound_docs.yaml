@@ -1,0 +1,21 @@
+id: compound_docs
+source_type: docs
+base_url: https://docs.compound.finance
+protocol: compound
+category: lending
+license: proprietary-fair-use
+language: en
+schedule_cron: "10 5 * * *"
+crawl_delay_s: 1.5
+max_pages: 200
+tags:
+  - compound
+  - ctokens
+  - interest-rate-model
+  - lending
+  - borrowing
+  - defi
+notes: >
+  Docusaurus-style docs. Covers Compound v2 (cTokens, comptroller, interest rate model)
+  and Compound III (Comet, supply/borrow rates, risk parameters). Static HTML;
+  high crawl confidence. Key pages: /v2/ctokens/, /interest-rates/, /v2/comptroller/.

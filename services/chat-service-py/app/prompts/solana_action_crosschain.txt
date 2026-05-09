@@ -1,0 +1,616 @@
+> **HOW TO READ THESE EXAMPLES**: The notation `[ACTION:X] param=value` documents the `action_type` and parameter names to pass via `execute_action("X", {"param": "value"})`. The notation `[QUERY:X] param=value` maps to `query_onchain("X", {"param": "value"})`. **Never emit `[ACTION:...]` or `[QUERY:...]` text in your response** — always call the function tool instead.
+
+## CROSS-CHAIN PROTOCOLS
+
+---
+
+### RELAY_BRIDGE — Execute a cross-chain bridge/swap via Relay.link
+
+Use `relay_bridge` when the user wants to move tokens between chains. Relay.link is the primary cross-chain solution — it supports Solana ↔ all major EVM chains and provides best-in-class rates with fast settlement.
+
+**REQUIRED parameters — always ask user if any are missing:**
+- `originChainId`: Source chain numeric ID (see chain table below)
+- `destinationChainId`: Destination chain numeric ID
+- `originCurrency`: Source token address or symbol (e.g. "SOL", "USDC", native EVM = "0x0000000000000000000000000000000000000000")
+- `destinationCurrency`: Destination token address or symbol
+- `amount`: Human-readable amount as string (e.g. "1.5", "100")
+- `tradeType`: "EXACT_INPUT" (default — you specify what you send) | "EXACT_OUTPUT" (you specify what you receive)
+
+**OPTIONAL parameters — include only when user explicitly mentions them:**
+- `recipient`: Destination wallet address (defaults to sender)
+- `refundTo`: Address to refund on failure (defaults to sender)
+- `refundType`: "origin" (refund on source chain, default) | "destination" (refund on destination chain)
+- `topupGas`: true = airdrop native gas token on destination so user can transact immediately
+- `topupGasAmount`: Amount of gas to airdrop (string, in destination native token units)
+- `slippageTolerance`: Slippage in basis points (50 = 0.5%, default; 100 = 1%)
+- `subsidizeFees`: true = Relay subsidizes bridge fees (integrator feature)
+- `referrer`: Referrer app name (string)
+- `referrerAddress`: Wallet address to receive referral fees
+- `useDepositAddress`: true = use a deposit address flow instead of on-chain approval
+- `disableOriginSwaps`: true = fail if token swap required on origin chain
+- `forceSolverExecution`: true = force solver to execute immediately (bypass standard fill flow)
+- `fixedRate`: true = get a fixed-rate quote (no slippage, higher fee)
+- `maxRouteLength`: Max number of bridge hops (integer, usually 1-3)
+- `strict`: true = fail if exact quote cannot be fulfilled (no degraded fallback) — use when user says "only bridge if you guarantee this exact rate"
+- `overridePriceImpact`: true = proceed even when price impact is above safe threshold — only set when user explicitly acknowledges high impact and wants to proceed anyway
+- `includeComputeUnitLimit`: true = include Solana compute unit limit in TX — recommended for Solana-origin bridges to prevent TX failures
+
+**Chain IDs:**
+| Chain | ID | | Chain | ID |
+|-------|----|-|-------|-----|
+| Solana | 900 | | Arbitrum | 42161 |
+| Ethereum | 1 | | Optimism | 10 |
+| Base | 8453 | | Polygon | 137 |
+| BSC | 56 | | Avalanche | 43114 |
+| Linea | 59144 | | zkSync Era | 324 |
+| Scroll | 534352 | | Fantom | 250 |
+| Celo | 42220 | | Arbitrum Nova | 42170 |
+| Polygon zkEVM | 1101 | | | |
+
+**Examples:**
+- "Bridge 1 SOL from Solana to Ethereum"
+  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "1", "originCurrency": "So11111111111111111111111111111111111111112", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_INPUT"})
+
+- "Bridge 100 USDC from Solana to Arbitrum"
+  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "42161", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "100", "tradeType": "EXACT_INPUT"})
+
+- "I want to receive exactly 50 USDC on Base, paying from ETH on Ethereum"
+  → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "8453", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "amount": "50", "tradeType": "EXACT_OUTPUT"})
+
+- "Bridge 0.5 ETH from Ethereum to Base and airdrop gas on destination"
+  → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "8453", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.5", "tradeType": "EXACT_INPUT", "topupGas": "true"})
+
+- "Bridge 100 USDC from Solana to Arbitrum, also send me some gas on Arbitrum"
+  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "42161", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "100", "tradeType": "EXACT_INPUT", "topupGas": "true"})
+
+- "Bridge 200 USDC to Optimism for my other wallet 0xABC...123, with 1% slippage"
+  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "10", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "amount": "200", "tradeType": "EXACT_INPUT", "recipient": "0xABC...123", "slippageTolerance": "100"})
+
+- "Use deposit address to bridge 1 ETH from Ethereum to Solana"
+  → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "900", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "So11111111111111111111111111111111111111112", "amount": "1", "tradeType": "EXACT_INPUT", "useDepositAddress": "true"})
+
+---
+
+### RELAY_GET_QUOTE — Get a bridge quote without executing
+
+Use when user says "how much", "what's the rate", "preview the bridge", "estimate fees", or wants to check before committing.
+
+**REQUIRED parameters — always ask user if missing:**
+- `originChainId`, `destinationChainId`, `originCurrency`, `destinationCurrency`, `amount`, `tradeType` (same as relay_bridge)
+
+**OPTIONAL parameters (same as relay_bridge):**
+- `recipient`, `refundTo`, `refundType`, `topupGas`, `slippageTolerance`, `subsidizeFees`, `useDepositAddress`, `disableOriginSwaps`, `fixedRate`, `maxRouteLength`, `strict`, `overridePriceImpact`, `includeComputeUnitLimit`
+
+**Examples:**
+- "What's the rate for bridging 1 SOL to ETH on Ethereum?"
+  → query_onchain("relay_get_quote", {"originChainId": "900", "destinationChainId": "1", "originCurrency": "So11111111111111111111111111111111111111112", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_INPUT"})
+
+- "How much USDC will I receive on Base if I send 100 USDC from Solana?"
+  → query_onchain("relay_get_quote", {"originChainId": "900", "destinationChainId": "8453", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "amount": "100", "tradeType": "EXACT_INPUT"})
+
+- "Show me a fixed-rate quote for bridging 0.5 ETH from Ethereum to Arbitrum"
+  → query_onchain("relay_get_quote", {"originChainId": "1", "destinationChainId": "42161", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.5", "tradeType": "EXACT_INPUT", "fixedRate": "true"})
+
+- "Get a Relay quote — I want to receive exactly 1 ETH on Ethereum, bridging from Base. Use EXACT_OUTPUT mode."
+  → query_onchain("relay_get_quote", {"originChainId": "8453", "destinationChainId": "1", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_OUTPUT"})
+
+- "Relay quote: I want to receive exactly 500 USDC on Arbitrum, paying from Ethereum"
+  → query_onchain("relay_get_quote", {"originChainId": "1", "destinationChainId": "42161", "originCurrency": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "500", "tradeType": "EXACT_OUTPUT"})
+
+---
+
+### RELAY_GET_CHAINS — List chains supported by Relay
+
+Use when user asks "which chains does Relay support?", "can I bridge to X chain?", needs chain IDs, or wants fee/status info for specific chains.
+
+**No required parameters.**
+
+**Optional parameter:**
+- `includeChains`: Comma-separated chain ID filter — only return specific chains (e.g. "1,8453,900")
+
+**Response includes per chain:** id, displayName, vmType (evm/svm/bvm…), depositEnabled, disabled, tokenSupport (All/Limited), withdrawalFee, depositFee, surgeEnabled, currency, contracts, explorerUrl, solverAddresses, tags
+
+**Examples:**
+- "What chains does Relay support?"
+  → query_onchain("relay_get_chains", {})
+
+- "Can I bridge to zkSync with Relay?"
+  → query_onchain("relay_get_chains", {})
+
+- "Show me Relay chain info for Solana, Ethereum, and Base"
+  → query_onchain("relay_get_chains", {"includeChains": "900,1,8453"})
+
+- "What are the fees and status for Arbitrum on Relay?"
+  → query_onchain("relay_get_chains", {"includeChains": "42161"})
+
+---
+
+### RELAY_GET_CURRENCIES — Search tokens/currencies available on Relay
+
+Use when user wants to find tokens available for bridging, search by name/symbol, or filter by chain.
+
+**No required parameters — all are optional:**
+- `chainIds`: Array of chain IDs to filter (e.g. [900, 1])
+- `term`: Search string (token name or symbol, e.g. "USDC")
+- `address`: Token contract address to look up
+- `currencyId`: Relay internal currency ID
+- `tokens`: Array of tokens in "chainId:address" format (e.g. ["1:0xA0b8...","900:So111..."])
+- `verified`: true = only verified tokens
+- `limit`: Max results (default 20, max 100)
+- `defaultList`: true = return the default curated token list
+- `includeAllChains`: true = when filtering by chainId+address, return that token on all chains
+- `useExternalSearch`: true = search external token registries (slower, more results)
+- `depositAddressOnly`: true = only tokens that support deposit-address flow
+
+**Response includes per token:** chainId, address, symbol, name, decimals, vmType, metadata.logoURI, metadata.verified, metadata.isNative
+
+**Examples:**
+- "What USDC versions can I bridge with Relay?"
+  → query_onchain("relay_get_currencies", {"term": "USDC"})
+
+- "Show me the default Relay token list for Solana"
+  → query_onchain("relay_get_currencies", {"chainIds": "[900]", "defaultList": "true"})
+
+- "Find bridgeable tokens on Arbitrum"
+  → query_onchain("relay_get_currencies", {"chainIds": "[42161]", "verified": "true", "limit": "20"})
+
+- "Is 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 available for bridging on Arbitrum?"
+  → query_onchain("relay_get_currencies", {"chainIds": "[42161]", "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"})
+
+- "Look up these two specific tokens for bridging: ETH on Ethereum and USDC on Base"
+  → query_onchain("relay_get_currencies", {"tokens": "[\"1:0x0000000000000000000000000000000000000000\",\"8453:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\"]"})
+
+---
+
+### RELAY_GET_CHAINS_LIQUIDITY — Check solver liquidity on a chain
+
+Use when user asks "how much liquidity does Relay have on X chain?", "can Relay fill a large bridge to Base?", or wants to check available solver depth before bridging a large amount.
+
+**REQUIRED parameters:**
+- `chainId`: Chain ID to check liquidity for
+
+**Response:** Array of {symbol, address, balance (in wei/lamports), amountUsd} per currency
+
+**Examples:**
+- "How much liquidity does Relay have on Base?"
+  → query_onchain("relay_get_chains_liquidity", {"chainId": "8453"})
+
+- "Check Relay solver liquidity on Arbitrum before I bridge $50k"
+  → query_onchain("relay_get_chains_liquidity", {"chainId": "42161"})
+
+- "What's the USDC solver depth on Ethereum?"
+  → query_onchain("relay_get_chains_liquidity", {"chainId": "1"})
+
+---
+
+### RELAY_GET_TOKEN_PRICE — Get the USD price of a token
+
+Use when user asks for the price of a token on a specific chain via Relay's price oracle.
+
+**REQUIRED parameters:**
+- `address`: Token contract address
+- `chainId`: Chain ID where the token lives
+
+**Examples:**
+- "What's the Relay price for USDC on Arbitrum?"
+  → query_onchain("relay_get_token_price", {"address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "chainId": "42161"})
+
+- "Get the price of ETH on Ethereum via Relay"
+  → query_onchain("relay_get_token_price", {"address": "0x0000000000000000000000000000000000000000", "chainId": "1"})
+
+- "How much is SOL worth according to Relay?"
+  → query_onchain("relay_get_token_price", {"address": "So11111111111111111111111111111111111111112", "chainId": "900"})
+
+---
+
+### RELAY_INTENT_STATUS — Check live status of a Relay bridge intent
+
+Use when user asks "is my bridge done?", "what's the status of my relay tx?", "check my bridge status", or provides a requestId to check.
+
+**REQUIRED parameters:**
+- `requestId`: The intent/request ID from the relay_bridge response
+
+**Status values and what they mean:**
+| Status | Meaning |
+|--------|---------|
+| `waiting` | Intent received, waiting for deposit |
+| `depositing` | User deposit detected on origin chain |
+| `pending` | Relay solver processing the intent |
+| `submitted` | Fill transaction submitted on destination |
+| `success` | Bridge completed successfully |
+| `delayed` | Taking longer than expected (still processing) |
+| `refunded` | Failed — funds refunded to origin |
+| `failure` | Bridge failed permanently |
+
+**Examples:**
+- "Is my Relay bridge done? requestId: abc-123-xyz"
+  → query_onchain("relay_intent_status", {"requestId": "abc-123-xyz"})
+
+- "Check the status of my Relay bridge request abc-123"
+  → query_onchain("relay_intent_status", {"requestId": "abc-123"})
+
+- "My bridge is taking forever, what's the status? Request ID: def-456"
+  → query_onchain("relay_intent_status", {"requestId": "def-456"})
+
+---
+
+### RELAY_GET_REQUESTS — View bridge transaction history
+
+Use when user wants to see past bridges, filter by status/chain/time, or look up a specific transaction by hash/ID.
+For live status polling of a single known intent, prefer `relay_intent_status`.
+
+**No required parameters — all are optional:**
+- `user`: Wallet address to filter by
+- `hash`: Transaction hash to look up
+- `originChainId`: Filter by source chain ID
+- `destinationChainId`: Filter by destination chain ID
+- `chainId`: Filter requests involving a chain in either direction (string)
+- `id`: Relay request ID
+- `orderId`: Order identifier
+- `depositAddress`: Associated deposit address
+- `status`: "success" | "failure" | "refund" | "pending" | "depositing" | "waiting"
+- `startTimestamp`: Unix timestamp (ms) to filter from
+- `endTimestamp`: Unix timestamp (ms) to filter to
+- `startBlock`: Start block number filter
+- `endBlock`: End block number filter
+- `referrer`: Filter by referrer
+- `includeOrderData`: true = include full order details in response
+- `includeChildRequests`: true = include linked child transactions
+- `limit`: Max results (default 20, max 50)
+- `continuation`: Pagination cursor from previous response
+- `sortBy`: "createdAt" (default) | "updatedAt"
+- `sortDirection`: "asc" | "desc"
+
+**Examples:**
+- "Show my Relay bridge history"
+  → query_onchain("relay_get_requests", {"user": "<wallet>"})
+
+- "Show my pending Relay bridges"
+  → query_onchain("relay_get_requests", {"status": "pending"})
+
+- "Look up Relay request ID abc-123"
+  → query_onchain("relay_get_requests", {"id": "abc-123"})
+
+- "Show my failed Relay bridges from Solana to Ethereum"
+  → query_onchain("relay_get_requests", {"status": "failure", "originChainId": "900", "destinationChainId": "1"})
+
+- "Find the Relay bridge with tx hash 0xabc...def"
+  → query_onchain("relay_get_requests", {"hash": "0xabc...def"})
+
+- "Show last 5 successful bridges to Base with order details"
+  → query_onchain("relay_get_requests", {"status": "success", "destinationChainId": "8453", "limit": "5", "includeOrderData": "true"})
+
+- "Show my bridges sorted by last updated, newest first"
+  → query_onchain("relay_get_requests", {"sortBy": "updatedAt", "sortDirection": "desc"})
+
+---
+
+### RELAY_GET_SWAP_SOURCES — List available swap sources/DEXes for routing
+
+Format: query_onchain("relay_get_swap_sources", {[chainId]})
+
+**OPTIONAL parameters:**
+- `chainId`: Filter sources to a specific chain (e.g. 1, 900, 8453)
+
+**Response:** `{ sources: string[] }` — list of DEX/source names usable for routing (e.g. "uniswap", "sushiswap", "curve")
+
+**When to use:**
+- "What swap sources does Relay support?", "which DEXes can Relay route through?", "show me available liquidity sources on Base"
+
+Examples:
+- "What swap sources does Relay support on Ethereum?"
+  → query_onchain("relay_get_swap_sources", {"chainId": "1"})
+
+- "List all Relay swap sources"
+  → query_onchain("relay_get_swap_sources", {})
+
+---
+
+### RELAY_EXECUTE — Submit a gasless EVM transaction via Relay (operator feature)
+
+Use when an operator wants to submit a gasless EVM transaction. Relay sponsors the gas fees.
+
+Format: execute_action("relay_execute", {executionKind, data, executionOptions, [requestId]})
+
+**REQUIRED parameters:**
+- `executionKind`: Always `"rawCalls"` (only supported value)
+- `data`: Call data object:
+  - `chainId` (number) — EVM chain ID
+  - `to` (string) — Contract address (0x format)
+  - `data` (string) — ABI-encoded calldata (hex)
+  - `value` (string) — ETH value in wei
+  - `authorizationList` (array, optional) — EIP-7702 authorization list
+- `executionOptions`: Options object:
+  - `referrer` (string, optional) — App referrer
+  - `subsidizeFees` (boolean, optional) — Whether app pays fees
+  - `destinationChainExecutionData` (object, optional) — Post-execution calls on destination chain
+
+**OPTIONAL parameters:**
+- `requestId`: Gasless transaction request ID
+
+**Notes:**
+- Requires RELAY_API_KEY (operator-only feature)
+- EVM chains only (not Solana)
+- Returns `{ message, requestId }`
+
+---
+
+### RELAY_FAST_FILL — Queue a Relay request for fast fill (operator feature)
+
+Use when an operator wants to trigger immediate fast-fill processing for a pending bridge request.
+
+Format: execute_action("relay_fast_fill", {requestId, [solverInputCurrencyAmount], [maxFillAmountUsd]})
+
+**REQUIRED parameters:**
+- `requestId`: The Relay request ID to fast-fill
+
+**OPTIONAL parameters:**
+- `solverInputCurrencyAmount`: Input currency amount received by solver on origin chain
+- `maxFillAmountUsd`: USD spend cap — rejects if computed fill exceeds this
+
+**Notes:**
+- Requires RELAY_API_KEY to be configured on the server (operator-only feature)
+- Returns a message confirming the request was queued or already executed
+
+Examples:
+- "Fast fill request req-123"
+  → execute_action("relay_fast_fill", {"requestId": "req-123"})
+
+- "Fast fill req-456 with max $500 spend"
+  → execute_action("relay_fast_fill", {"requestId": "req-456", "maxFillAmountUsd": "500"})
+
+---
+
+### RELAY_CLAIM_APP_FEES — Claim accumulated Relay app fees
+
+Use when the user wants to withdraw earned app fee revenue to a recipient wallet.
+
+Format: execute_action("relay_claim_app_fees", {chainId, currency, recipient, [wallet], [amount]})
+
+**REQUIRED parameters:**
+- `chainId`: Chain ID where the fee currency lives (number, e.g. 1, 900, 8453)
+- `currency`: Token address or symbol to claim (e.g. "USDC", "0xaf88...")
+- `recipient`: Wallet address that will receive the claimed fees
+
+**OPTIONAL parameters:**
+- `wallet`: Fee-recipient wallet to claim from (defaults to caller's wallet)
+- `amount`: Specific amount to claim — omit to claim full balance
+
+**Response:** Returns `steps` (signature steps) — the frontend must process these and submit the signature, same as execute-permits flow.
+
+**When to use:**
+- "Claim my Relay fees", "withdraw my app fee earnings", "collect accumulated bridge fees"
+- After checking fee balance with `relay_get_app_fee_balances`
+
+Examples:
+- "Claim all my USDC app fees on Ethereum to my wallet"
+  → execute_action("relay_claim_app_fees", {"chainId": "1", "currency": "USDC", "recipient": "<user_wallet>"})
+
+- "Claim 50 USDC in fees from Base to 0xabc..."
+  → execute_action("relay_claim_app_fees", {"chainId": "8453", "currency": "USDC", "recipient": "0xabc...", "amount": "50"})
+
+---
+
+### RELAY_GET_APP_FEE_BALANCES — Check accumulated app fee balances
+
+Use when the user wants to see OPRAI's earned fee balances from bridging activity.
+
+Format: query_onchain("relay_get_app_fee_balances", {wallet})
+
+**REQUIRED parameters:**
+- `wallet`: Fee-recipient wallet address to query (defaults to caller's wallet if omitted)
+
+**Response includes:**
+- `balances`: per-currency breakdown `{currency: {chainId, address, symbol, name, decimals}, amount, amountFormatted, amountUsd, minimumAmount}`
+- `totalBalanceUsd`: total fees earned across all currencies
+- `outstandingFastFillBalanceUsd`: unsettled fast-fill balance not yet deducted from collateral
+- `availableBalanceUsd`: effective collateral available (total minus outstanding)
+
+**When to use:**
+- "Check my app fee earnings", "how much fees has OPRAI collected?", "show relay fee balance"
+
+Examples:
+- "Show my Relay app fee earnings"
+  → query_onchain("relay_get_app_fee_balances", {"wallet": "<caller_wallet>"})
+
+- "Check app fee balance for 0xabc..."
+  → query_onchain("relay_get_app_fee_balances", {"wallet": "0xabc..."})
+
+---
+
+### RELAY_DEPOSIT_ADDRESS_REINDEX — Reindex a Relay deposit address
+
+Use when the user wants to scan a deposit address for pending/missed currency activity.
+
+Format: execute_action("relay_deposit_address_reindex", {chainId, depositAddress, [sweep], [targetChainId]})
+
+**REQUIRED parameters:**
+- `chainId`: Chain ID as number (e.g. 900 for Solana, 1 for Ethereum, 8453 for Base)
+- `depositAddress`: The deposit address to reindex
+
+**OPTIONAL parameters:**
+- `sweep`: true = sweep all detected balances
+- `targetChainId`: Destination chain for detected funds
+
+**Response includes:**
+- `triggeredCurrencies`: list of currencies with activity found `{currency, symbol, balance}`
+- `checkedCurrencies`: how many currencies were scanned
+- `failedCurrencies`: how many currencies failed to check
+
+**When to use:**
+- User says "reindex my deposit address", "scan my deposit address", "check my deposit address for pending funds"
+- Deposit was made but Relay hasn't picked it up
+
+Examples:
+- "Reindex my deposit address 0xabc on Ethereum"
+  → execute_action("relay_deposit_address_reindex", {"chainId": "1", "depositAddress": "0xabc..."})
+
+- "Scan my Solana deposit address 3xK... for pending balances"
+  → execute_action("relay_deposit_address_reindex", {"chainId": "900", "depositAddress": "3xK..."})
+
+- "Reindex deposit address 0xdef on Base and sweep to Arbitrum"
+  → execute_action("relay_deposit_address_reindex", {"chainId": "8453", "depositAddress": "0xdef...", "sweep": "true", "targetChainId": "42161"})
+
+---
+
+### RELAY_SINGLE_TRANSACTION — Notify Relay to index a specific request transaction
+
+Use when the user has submitted a transaction for a known Relay request and wants transfers, wraps, or unwraps to be indexed.
+
+Format: execute_action("relay_single_transaction", {requestId, chainId, tx})
+
+**REQUIRED parameters:**
+- `requestId`: The Relay request ID this transaction belongs to
+- `chainId`: Chain ID as string (e.g. "900" for Solana, "1" for Ethereum, "8453" for Base)
+- `tx`: Transaction hash
+
+**When to use:**
+- User provides a requestId AND a transaction hash and wants Relay to track it
+- Indexing a wrap/unwrap/transfer that is part of a specific known request
+- When `relay_index_transaction` is not sufficient because requestId is known and required
+
+**Difference from relay_index_transaction:**
+- `relay_index_transaction`: general deposit indexing, requestId optional
+- `relay_single_transaction`: request-scoped indexing, requestId required, also indexes wraps/unwraps
+
+Examples:
+- "Index TX 0xabc on Ethereum for request req-123"
+  → execute_action("relay_single_transaction", {"requestId": "req-123", "chainId": "1", "tx": "0xabc..."})
+
+- "My Solana wrap TX is 3xK..., request ID req-456, please notify Relay"
+  → execute_action("relay_single_transaction", {"requestId": "req-456", "chainId": "900", "tx": "3xK..."})
+
+---
+
+### RELAY_INDEX_TRANSACTION — Notify Relay to index a submitted transaction
+
+Use when the user has just submitted a deposit transaction and wants Relay to detect and process it immediately.
+
+Format: execute_action("relay_index_transaction", {chainId, txHash, [requestId]})
+
+**REQUIRED parameters:**
+- `chainId`: Chain ID as string where the TX was submitted (e.g. "900" for Solana, "1" for Ethereum, "8453" for Base)
+- `txHash`: Transaction hash of the submitted deposit
+
+**OPTIONAL parameters:**
+- `requestId`: Relay request ID associated with this transaction (helps Relay link it faster)
+
+**When to use:**
+- User says "index my transaction", "notify Relay about my TX", "my bridge TX is submitted, track it"
+- After a deposit TX is submitted but Relay hasn't picked it up yet
+- To manually trigger Relay to process a pending deposit
+
+Examples:
+- "Index my transaction 5xK...abc on Ethereum"
+  → execute_action("relay_index_transaction", {"chainId": "1", "txHash": "0x5xK...abc"})
+
+- "Tell Relay to index my Solana deposit transaction 3aB..."
+  → execute_action("relay_index_transaction", {"chainId": "900", "txHash": "3aB..."})
+
+- "My TX is 0xdef...123 on Base, request ID is req-789, please index it"
+  → execute_action("relay_index_transaction", {"chainId": "8453", "txHash": "0xdef...123", "requestId": "req-789"})
+
+---
+
+### CROSS_CHAIN_SWAP — Legacy cross-chain action (kept for backwards compatibility)
+
+Use when user specifies a non-Relay provider explicitly (wormhole, debridge, mayan). For all other cross-chain requests, prefer `relay_bridge`.
+
+Format: execute_action("cross_chain_swap", {fromToken, toToken, amount, fromChain, toChain, provider})
+
+- provider: "wormhole" | "debridge" | "mayan" (do NOT use "relay" here — use relay_bridge instead)
+
+Examples:
+- "Bridge via Wormhole" → execute_action("cross_chain_swap", {"fromToken": "SOL", "toToken": "ETH", "amount": "1", "fromChain": "900", "toChain": "1", "provider": "wormhole"})
+
+---
+
+### SQUID_BRIDGE — Cross-chain swap via Squid Router v2 (Axelar GMP)
+
+Use Squid when the user explicitly requests Squid, needs post-hook actions (auto-stake/lend after bridge), wants express mode, or wants to receive gas on destination.
+
+Squid routes through Axelar GMP and supports Solana ↔ all major EVM chains.
+
+Format: execute_action("squid_bridge", {originChainId, destinationChainId, originToken, destinationToken, amount, [optional...]})
+
+**REQUIRED parameters:**
+- `originChainId`: Source chain ID (7565164=Solana, 1=Ethereum, 42161=Arbitrum, 8453=Base, 10=Optimism, 137=Polygon, 56=BSC, 43114=Avalanche, 59144=Linea, 534352=Scroll)
+- `destinationChainId`: Destination chain ID (same list)
+- `originToken`: Source token symbol or address
+- `destinationToken`: Destination token symbol or address
+- `amount`: Human-readable amount (e.g. "1.5")
+
+**OPTIONAL parameters:**
+- `recipient`: Destination wallet (defaults to sender)
+- `slippage`: Slippage % (e.g. 0.5)
+- `enableExpress`: true = use Chainflip/CCTP express route (~2-10 min)
+- `receiveGasOnDestination`: true = airdrop small native gas on destination
+- `prefer`: Preferred bridge type: "chainflip,cctp" or "axelar"
+- `bypass`: Bridge types to exclude: "axelar" or "chainflip"
+- `enableBoost`: true = Squid Boost for faster Axelar confirmation
+- `postHook`: JSON post-hook for on-chain calls after bridging (stake, lend, etc.)
+
+Examples:
+- "Bridge 100 USDC from Solana to Arbitrum via Squid"
+  → execute_action("squid_bridge", {"originChainId": "7565164", "destinationChainId": "42161", "originToken": "USDC", "destinationToken": "USDC", "amount": "100"})
+
+- "Squid bridge 1 SOL to ETH on Ethereum, express mode"
+  → execute_action("squid_bridge", {"originChainId": "7565164", "destinationChainId": "1", "originToken": "SOL", "destinationToken": "ETH", "amount": "1", "enableExpress": "true"})
+
+- "Bridge 100 USDC from Ethereum to Arbitrum using squid_bridge with a postHook for auto-staking"
+  → execute_action("squid_bridge", {"originChainId": "1", "destinationChainId": "42161", "originToken": "USDC", "destinationToken": "USDC", "amount": "100", "postHook": "{}"})
+
+- "Use Squid router to bridge 200 USDC from Ethereum to Arbitrum, with a destination call post-hook"
+  → execute_action("squid_bridge", {"originChainId": "1", "destinationChainId": "42161", "originToken": "USDC", "destinationToken": "USDC", "amount": "200", "postHook": "{}"})
+
+---
+
+### PROVIDER SELECTION GUIDE
+
+| User intent | Use |
+|------------|-----|
+| Default bridge (any chain) | `relay_bridge` |
+| User says "Relay" explicitly | `relay_bridge` |
+| Get quote / estimate first | `relay_get_quote` |
+| Check what chains are supported | `relay_get_chains` |
+| Search bridgeable tokens | `relay_get_currencies` |
+| Check solver liquidity on a chain | `relay_get_chains_liquidity` |
+| Get token price via Relay | `relay_get_token_price` |
+| Check live bridge status (requestId known) | `relay_intent_status` |
+| Check bridge history / status | `relay_get_requests` |
+| Notify Relay to index a submitted TX | `relay_index_transaction` |
+| Notify Relay to index a specific request TX (wraps/unwraps) | `relay_single_transaction` |
+| Scan deposit address for missed/pending funds | `relay_deposit_address_reindex` |
+| Check OPRAI app fee earnings from Relay | `relay_get_app_fee_balances` |
+| Withdraw/claim earned Relay app fees | `relay_claim_app_fees` |
+| Submit gasless EVM transaction (operator) | `relay_execute` |
+| Trigger fast-fill for a pending request (operator) | `relay_fast_fill` |
+| List available DEX swap sources for routing | `relay_get_swap_sources` |
+| User says "Squid" | `squid_bridge` |
+| Auto-stake/lend after bridge | `squid_bridge` with postHook |
+| Express bridge (~2-10 min) | `squid_bridge` with enableExpress=true |
+| User says "Wormhole" | `cross_chain_swap` provider=wormhole |
+| User says "DeBridge" | `cross_chain_swap` provider=debridge |
+| User says "Mayan" | `cross_chain_swap` provider=mayan |
+
+---
+
+### IMPORTANT RULES
+
+1. **Token addresses**: For EVM chains, use the contract address (e.g. `0xaf88...`). Native tokens use the zero address `0x0000000000000000000000000000000000000000`. For Solana, use the SPL mint address (e.g. `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` for USDC).
+
+2. **Solana chain ID in Relay**: Use `900` (not Squid's 7565164).
+
+3. **EXACT_OUTPUT**: Set `tradeType: "EXACT_OUTPUT"` when user says "I want to receive exactly X", "give me exactly X on destination", or explicitly says "EXACT_OUTPUT mode". Otherwise always use `"EXACT_INPUT"`.
+
+4. **Gas on destination (topupGas)**: When user says "send me gas on destination", "airdrop gas", "get gas on Arbitrum/Base/etc." — set `topupGas: true` in relay_bridge or relay_get_quote. Do NOT confuse with `receiveGasOnDestination` (that is Squid's parameter).
+
+5. **Required params check**: Before calling relay_bridge or relay_get_quote, verify you have all 6 required params. If any are missing, call `request_clarification` to ask the user.
+
+6. **Same-chain swaps**: If origin and destination chain are the same, use Jupiter (swap), Raydium, or Orca — NOT relay_bridge.
+
+7. **relay_get_requests vs transaction history**: Use `relay_get_requests` ONLY for Relay bridge request history (cross-chain bridges). For general Solana transaction history, use a different tool. When user explicitly asks about "Relay bridges", "Relay requests", "cross-chain history" → use `relay_get_requests`.
+
+8. **relay_single_transaction vs relay_index_transaction**: Use `relay_single_transaction` when user provides BOTH a requestId AND a tx hash for a known Relay request. Use `relay_index_transaction` for general deposit indexing where requestId is optional or not provided.
+
+9. **Squid post-hook**: Use `squid_bridge` when user mentions "postHook", "post-hook", "auto-stake after bridge", "destination call", or explicitly says "Squid" with a follow-on action. Set the `postHook` parameter.

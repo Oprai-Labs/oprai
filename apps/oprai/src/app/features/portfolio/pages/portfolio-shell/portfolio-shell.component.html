@@ -1,0 +1,133 @@
+<div class="portfolio-page">
+  <header class="portfolio-header">
+    <h1 class="page-title">Portfolio</h1>
+    <div class="header-actions">
+      <div class="benchmark-ticker" aria-label="Market benchmarks">
+        @for (quote of benchmarkQuotes(); track quote.id) {
+          <div class="benchmark-chip">
+            <div class="benchmark-symbol" [class.benchmark-symbol--sol]="quote.id === 'sol'" [class.benchmark-symbol--btc]="quote.id === 'btc'" [class.benchmark-symbol--eth]="quote.id === 'eth'">
+              @if (quote.iconUrl) {
+                <img [src]="quote.iconUrl" [alt]="quote.label" class="benchmark-symbol-logo" />
+              }
+            </div>
+            <div class="benchmark-details">
+              <span class="benchmark-price">{{ quote.valueText }}</span>
+              <span class="benchmark-change" [class.positive]="quote.change24h > 0" [class.negative]="quote.change24h < 0">
+                {{ formatChange(quote.change24h) }}
+              </span>
+            </div>
+          </div>
+        }
+      </div>
+      @if (connected()) {
+        <button class="action-btn" (click)="refresh()" [disabled]="isLoading()" title="Refresh">
+          <lucide-icon name="refresh-cw" [size]="16" [class.spinning]="isLoading()" />
+        </button>
+      }
+    </div>
+  </header>
+
+  <main class="portfolio-content">
+    @if (!connected()) {
+      <div class="connect-prompt">
+        <div class="empty-illustration">
+          <div class="empty-illustration__bg-orb empty-illustration__bg-orb--1"></div>
+          <div class="empty-illustration__bg-orb empty-illustration__bg-orb--2"></div>
+          <div class="empty-illustration__ring"></div>
+          <div class="empty-illustration__icon">
+            <div class="icon-bg">
+              <lucide-icon name="wallet" [size]="24" />
+            </div>
+          </div>
+          <div class="empty-illustration__accent empty-illustration__accent--tl">
+            <lucide-icon name="coins" [size]="14" />
+          </div>
+          <div class="empty-illustration__accent empty-illustration__accent--tr">
+            <lucide-icon name="trending-up" [size]="14" />
+          </div>
+          <div class="empty-illustration__accent empty-illustration__accent--bl">
+            <lucide-icon name="droplets" [size]="14" />
+          </div>
+        </div>
+        <h2>Connect your wallet</h2>
+        <p>Connect a Solana wallet to view your portfolio, token holdings, staking positions, and recent activity.</p>
+      </div>
+    } @else if (isLoading() && !summary()) {
+      <!-- Skeleton: Portfolio Overview -->
+      <div class="skeleton-overview">
+        <div class="sk-row stagger-1" style="padding: 32px 0 12px; gap: 12px; border: none;">
+          <div class="sk sk-circle" style="width: 40px; height: 40px; flex-shrink: 0;"></div>
+          <div class="sk" style="width: 140px; height: 16px;"></div>
+        </div>
+        <div class="sk stagger-2" style="width: 260px; height: 42px; margin-bottom: 8px;"></div>
+        <div class="sk stagger-3" style="width: 180px; height: 16px; margin-bottom: 24px;"></div>
+        <div class="stagger-4" style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <div class="sk sk-rounded" style="flex: 1; min-width: 160px; height: 72px;"></div>
+          <div class="sk sk-rounded" style="flex: 1; min-width: 160px; height: 72px;"></div>
+          <div class="sk sk-rounded" style="flex: 1; min-width: 160px; height: 72px;"></div>
+        </div>
+      </div>
+      <!-- Skeleton: Tabs -->
+      <div class="stagger-5" style="display: flex; gap: 24px; padding: 20px 0 12px; border-bottom: 1px solid var(--op-border-subtle);">
+        <div class="sk" style="width: 60px; height: 14px;"></div>
+        <div class="sk" style="width: 40px; height: 14px;"></div>
+        <div class="sk" style="width: 50px; height: 14px;"></div>
+        <div class="sk" style="width: 56px; height: 14px;"></div>
+      </div>
+      <!-- Skeleton: Token Table -->
+      <div class="stagger-6">
+        <app-skeleton-table [rows]="6" [columnWidths]="['90px', '64px', '48px', '72px']" />
+      </div>
+    } @else if (error() && !summary()) {
+      <div class="error-state">
+        <p class="error-message">{{ error() }}</p>
+        <button class="retry-btn" (click)="refresh()">Retry</button>
+      </div>
+    } @else if (summary()) {
+      <div class="portfolio-sections content-fade-in">
+        <!-- Overview: Total value + 24h change + protocol cards + allocation chart -->
+        <app-portfolio-overview
+          [summary]="summary()!"
+          [defiPositions]="defiPositions()"
+          [protocolPositions]="protocolPositions()"
+          [portfolioChange]="portfolioChange()"
+        />
+
+        <!-- Tab Navigation -->
+        <app-portfolio-tabs
+          [activeTab]="activeTab()"
+          (tabChange)="onTabChange($event)"
+        />
+
+        <!-- Tab Content -->
+        @switch (activeTab()) {
+          @case ('tokens') {
+            <app-token-list
+              [tokens]="summary()!.tokens"
+              [solBalance]="summary()!.solBalance"
+            />
+          }
+          @case ('defi') {
+            <app-defi-positions
+              [positions]="defiPositions()!"
+              [protocolPositions]="protocolPositions()"
+            />
+          }
+          @case ('nfts') {
+            <app-nft-gallery
+              [nfts]="nfts()"
+              [collections]="nftCollections()"
+              [loadingState]="nftLoadingState()"
+            />
+          }
+        }
+
+        <!-- History: always alive (hidden when not active) to keep signal subscriptions active -->
+        <app-recent-activity
+          [style.display]="activeTab() === 'history' ? '' : 'none'"
+          (loadMore)="loadMoreHistory()"
+        />
+      </div>
+    }
+  </main>
+</div>

@@ -1,0 +1,119 @@
+# OPRAI production reverse proxy (Caddy 2).
+#
+# Auto-issues Let's Encrypt certificates for every domain listed below.
+# Caddy is *only* a TLS terminator + HTTP/2/3 fronting + path router — it does
+# not replace the gateway's JWT/CORS/rate-limit checks.
+#
+# Required env (export in shell or set in .env at repo root):
+#   PUBLIC_DOMAIN   e.g. app.oprai.xyz   (Angular SPA + same-origin /api proxy)
+#   API_DOMAIN      e.g. api.oprai.xyz   (separate API entry for external clients)
+#   ACME_EMAIL      e.g. ops@oprai.xyz   (Let's Encrypt account email)
+#
+# Optional (uncomment block at bottom):
+#   MARKETING_DOMAIN  e.g. oprai.xyz     (static marketing site)
+#
+# Brought up via:
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.tls.yml up -d
+
+{
+    # Production: Let's Encrypt (default ACME directory).
+    email {$ACME_EMAIL}
+    # While testing, swap to staging to dodge LE rate limits:
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+
+    servers {
+        protocols h1 h2 h3
+    }
+}
+
+# ─── Frontend + same-origin API (app.oprai.xyz) ──────────────────────────────
+# Angular's environment.prod.ts uses relative paths: /api/*, /admin-api/*,
+# /api/rpc. Caddy strips the prefix and proxies to the right upstream.
+{$PUBLIC_DOMAIN} {
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        Permissions-Policy        "geolocation=(), microphone=(), camera=()"
+        -Server
+    }
+
+    # Gateway API (consumed by Angular under /api/*).
+    handle_path /api/* {
+        reverse_proxy gateway-go:3001 {
+            header_up X-Real-IP {http.request.remote.host}
+            header_up X-Forwarded-For {http.request.remote.host}
+            header_up X-Forwarded-Proto {http.request.scheme}
+            flush_interval -1
+            transport http {
+                response_header_timeout 5m
+                read_timeout 5m
+            }
+        }
+    }
+
+    # Admin API (Angular /admin-api/*) — admin-service bypasses gateway.
+    handle_path /admin-api/* {
+        reverse_proxy admin-service-go:3050 {
+            header_up X-Real-IP {http.request.remote.host}
+            header_up X-Forwarded-For {http.request.remote.host}
+            header_up X-Forwarded-Proto {http.request.scheme}
+        }
+    }
+
+    # Angular SPA — nginx in the frontend container handles SPA fallback.
+    handle {
+        reverse_proxy frontend:80 {
+            flush_interval -1
+            transport http {
+                response_header_timeout 5m
+                read_timeout 5m
+            }
+        }
+    }
+}
+
+# ─── Public API (api.oprai.xyz) — for external clients / mobile ──────────────
+{$API_DOMAIN} {
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    reverse_proxy gateway-go:3001 {
+        header_up X-Real-IP {http.request.remote.host}
+        header_up X-Forwarded-For {http.request.remote.host}
+        header_up X-Forwarded-Proto {http.request.scheme}
+        flush_interval -1
+        transport http {
+            response_header_timeout 5m
+            read_timeout 5m
+        }
+    }
+}
+
+# ─── Marketing site (oprai.xyz + www) ────────────────────────────────────────
+# Static export of apps/marketing-site (Next.js `next export`) served by an
+# nginx container with the host directory /opt/oprai-marketing mounted in.
+{$MARKETING_DOMAIN:oprai.xyz} {
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+    reverse_proxy marketing:80
+}
+
+www.{$MARKETING_DOMAIN:oprai.xyz} {
+    redir https://{$MARKETING_DOMAIN:oprai.xyz}{uri} permanent
+}

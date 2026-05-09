@@ -1,0 +1,242 @@
+syntax = "proto3";
+
+package oprai.solana;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/solanapb";
+
+import "google/protobuf/timestamp.proto";
+
+// ─── Solana Action Service ───────────────────────────────────────────────────
+
+service SolanaActionService {
+  // Build an unsigned transfer transaction (SOL or SPL token).
+  rpc BuildTransferTransaction (BuildTransferRequest) returns (BuildTransactionResponse);
+
+  // Build an unsigned swap transaction (via Jupiter aggregator).
+  rpc BuildSwapTransaction (BuildSwapRequest) returns (BuildTransactionResponse);
+
+  // Build an unsigned stake / unstake transaction (native, Marinade, or Jito).
+  rpc BuildStakeTransaction (BuildStakeRequest) returns (BuildTransactionResponse);
+
+  // Build an unsigned token-launch transaction (pump.fun).
+  rpc BuildLaunchTokenTransaction (BuildLaunchTokenRequest) returns (BuildTransactionResponse);
+
+  // Build an unsigned liquidity provision / removal transaction.
+  rpc BuildLiquidityTransaction (BuildLiquidityRequest) returns (BuildTransactionResponse);
+
+  // Submit a signed transaction and track its status.
+  rpc SubmitTransaction (SubmitTransactionRequest) returns (SubmitTransactionResponse);
+
+  // Poll / retrieve the status of a previously submitted transaction.
+  rpc GetTransactionStatus (GetTransactionStatusRequest) returns (TransactionRecord);
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum SolanaActionType {
+  SOLANA_ACTION_TYPE_UNSPECIFIED       = 0;
+  SOLANA_ACTION_TYPE_TRANSFER          = 1;
+  SOLANA_ACTION_TYPE_SWAP              = 2;
+  SOLANA_ACTION_TYPE_LAUNCH_TOKEN      = 3;
+  SOLANA_ACTION_TYPE_STAKE             = 4;
+  SOLANA_ACTION_TYPE_UNSTAKE           = 5;
+  SOLANA_ACTION_TYPE_PROVIDE_LIQUIDITY = 6;
+  SOLANA_ACTION_TYPE_REMOVE_LIQUIDITY  = 7;
+  SOLANA_ACTION_TYPE_BRIDGE            = 8;
+}
+
+enum TransactionStatus {
+  TRANSACTION_STATUS_UNSPECIFIED = 0;
+  TRANSACTION_STATUS_PENDING     = 1;
+  TRANSACTION_STATUS_SUBMITTED   = 2;
+  TRANSACTION_STATUS_CONFIRMED   = 3;
+  TRANSACTION_STATUS_FAILED      = 4;
+  TRANSACTION_STATUS_CANCELLED   = 5;
+}
+
+enum StakeProtocol {
+  STAKE_PROTOCOL_UNSPECIFIED = 0;
+  STAKE_PROTOCOL_NATIVE      = 1;
+  STAKE_PROTOCOL_MARINADE    = 2;
+  STAKE_PROTOCOL_JITO        = 3;
+}
+
+// ─── Transfer ────────────────────────────────────────────────────────────────
+
+message TransferParams {
+  string to              = 1; // destination wallet address
+  string amount          = 2; // human-readable amount
+  string token           = 3; // "SOL" or mint address
+  int32  token_decimals  = 4; // optional, 0 means unset
+}
+
+message BuildTransferRequest {
+  string         wallet = 1; // sender wallet address
+  TransferParams params = 2;
+}
+
+// ─── Swap ────────────────────────────────────────────────────────────────────
+
+message SwapParams {
+  string input_mint        = 1;
+  string output_mint       = 2;
+  string amount            = 3;
+  int32  slippage_bps      = 4; // basis points, 0 = use default
+  bool   only_direct_routes = 5;
+}
+
+message BuildSwapRequest {
+  string     wallet = 1;
+  SwapParams params = 2;
+}
+
+// ─── Stake ───────────────────────────────────────────────────────────────────
+
+message StakeParams {
+  string        amount           = 1;
+  string        validator        = 2; // optional validator pubkey
+  StakeProtocol protocol         = 3;
+
+  // Jito-specific
+  string expected_jitosol = 4;
+  string estimated_apy    = 5;
+  string jitosol_amount   = 6;
+  string expected_sol     = 7;
+
+  // Marinade-specific
+  string expected_msol    = 8;
+  string msol_amount      = 9;
+
+  bool instant_unstake = 10;
+}
+
+message BuildStakeRequest {
+  string      wallet = 1;
+  StakeParams params = 2;
+}
+
+// ─── Launch Token ────────────────────────────────────────────────────────────
+
+message LaunchTokenParams {
+  string name              = 1;
+  string symbol            = 2;
+  string description       = 3;
+  string image_url         = 4;
+  string twitter           = 5;
+  string telegram          = 6;
+  string website           = 7;
+  string initial_buy_amount = 8; // optional SOL amount for initial buy
+}
+
+message BuildLaunchTokenRequest {
+  string           wallet = 1;
+  LaunchTokenParams params = 2;
+}
+
+// ─── Liquidity ───────────────────────────────────────────────────────────────
+
+message LiquidityParams {
+  string pool_address  = 1;
+  string token_a_mint  = 2;
+  string token_b_mint  = 3;
+  string amount_a      = 4;
+  string amount_b      = 5;
+  int32  slippage_bps  = 6;
+  string pool_id       = 7;
+  string lp_amount     = 8;
+}
+
+message BuildLiquidityRequest {
+  string          wallet = 1;
+  LiquidityParams params = 2;
+}
+
+// ─── Build Response (common for all Build* RPCs) ─────────────────────────────
+
+message BuildTransactionResponse {
+  string           transaction_id = 1; // internal tracking ID
+  SolanaActionType action_type    = 2;
+
+  // Serialized unsigned transaction (base64)
+  string unsigned_transaction = 3;
+
+  string estimated_fee = 4; // lamports as string
+  string description   = 5; // human-readable summary
+
+  repeated string warnings = 6;
+  bool requires_approval   = 7;
+}
+
+// ─── Submit ──────────────────────────────────────────────────────────────────
+
+message SubmitTransactionRequest {
+  string transaction_id      = 1;
+  string signed_transaction  = 2; // base64-encoded signed transaction
+  string wallet              = 3;
+}
+
+message SubmitTransactionResponse {
+  string            signature = 1; // on-chain transaction signature
+  TransactionStatus status    = 2;
+}
+
+// ─── Transaction Record ──────────────────────────────────────────────────────
+
+message GetTransactionStatusRequest {
+  string transaction_id = 1;
+  string wallet         = 2;
+}
+
+message TransactionRecord {
+  string            id         = 1;
+  string            wallet     = 2;
+  string            session_id = 3;
+  SolanaActionType  action     = 4;
+  TransactionStatus status     = 5;
+  string            signature  = 6;
+
+  string error_message = 7;
+
+  google.protobuf.Timestamp created_at  = 8;
+  google.protobuf.Timestamp updated_at  = 9;
+  google.protobuf.Timestamp confirmed_at = 10;
+}
+
+// ─── Result messages (returned after confirmation) ───────────────────────────
+
+message TransferResult {
+  string signature = 1;
+  string from      = 2;
+  string to        = 3;
+  string amount    = 4;
+  string token     = 5;
+}
+
+message SwapResult {
+  string signature   = 1;
+  string input_mint  = 2;
+  string output_mint = 3;
+  string in_amount   = 4;
+  string out_amount  = 5;
+}
+
+message LaunchTokenResult {
+  string signature              = 1;
+  string mint_address           = 2;
+  string name                   = 3;
+  string symbol                 = 4;
+  string bonding_curve_address  = 5;
+}
+
+message StakeResult {
+  string signature            = 1;
+  string amount               = 2;
+  string stake_account        = 3; // for native staking
+  string liquid_staking_token = 4; // mSOL / jitoSOL amount
+}
+
+message LiquidityResult {
+  string signature       = 1;
+  string pool_address    = 2;
+  string lp_token_amount = 3;
+}

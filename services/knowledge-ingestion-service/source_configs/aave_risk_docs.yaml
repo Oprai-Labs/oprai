@@ -1,0 +1,23 @@
+id: aave_risk_docs
+source_type: docs
+base_url: https://docs.aave.com/risk
+protocol: aave
+category: lending
+license: proprietary-fair-use
+language: en
+schedule_cron: "20 5 * * *"
+crawl_delay_s: 1.5
+max_pages: 150
+tags:
+  - aave
+  - risk-parameters
+  - health-factor
+  - liquidation
+  - collateral
+  - ltv
+  - defi
+notes: >
+  Gitbook docs at docs.aave.com/risk. Covers V3 asset risk methodology, LTV/liquidation
+  thresholds, health factor formula, adding assets to protocol, and liquidity risk
+  introduction. Static Gitbook HTML; high crawl confidence. Also crawl /faq/liquidations
+  and /developers/guides/liquidations for practitioner content.

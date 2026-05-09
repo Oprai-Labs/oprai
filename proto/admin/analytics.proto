@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package oprai.admin;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/adminpb";
+
+import "google/protobuf/timestamp.proto";
+
+// ─── Admin Analytics Service ─────────────────────────────────────────────────
+
+service AdminAnalyticsService {
+  // Aggregated dashboard statistics (totals, recent activity).
+  rpc GetDashboardStats (GetDashboardStatsRequest) returns (DashboardStats);
+
+  // User registration growth over time.
+  rpc GetUserGrowth (GetUserGrowthRequest) returns (TimeSeriesResponse);
+
+  // Transaction volume (count + total value) over time.
+  rpc GetTransactionVolume (GetTransactionVolumeRequest) returns (TimeSeriesResponse);
+}
+
+// ─── GetDashboardStats ───────────────────────────────────────────────────────
+
+message GetDashboardStatsRequest {
+  int32 days = 1; // lookback period in days (1-365, default 30)
+}
+
+message DashboardStats {
+  // Totals
+  int64 total_users        = 1;
+  int64 total_sessions     = 2;
+  int64 total_messages     = 3;
+  int64 total_transactions = 4;
+
+  // Period-specific (within `days` window)
+  int64 new_users_period        = 5;
+  int64 active_users_period     = 6;
+  int64 new_sessions_period     = 7;
+  int64 new_messages_period     = 8;
+  int64 new_transactions_period = 9;
+
+  // Transaction breakdown by status
+  int64 tx_pending   = 10;
+  int64 tx_confirmed = 11;
+  int64 tx_failed    = 12;
+
+  // Transaction breakdown by action type
+  repeated ActionCount action_breakdown = 13;
+
+  // Protocol usage
+  repeated ProtocolCount protocol_breakdown = 14;
+
+  google.protobuf.Timestamp generated_at = 15;
+}
+
+message ActionCount {
+  string action = 1; // "transfer", "swap", etc.
+  int64  count  = 2;
+}
+
+message ProtocolCount {
+  string protocol = 1; // "jupiter", "marinade", etc.
+  int64  count    = 2;
+}
+
+// ─── User Growth ─────────────────────────────────────────────────────────────
+
+message GetUserGrowthRequest {
+  int32 days = 1; // lookback period (1-365, default 30)
+}
+
+// ─── Transaction Volume ──────────────────────────────────────────────────────
+
+message GetTransactionVolumeRequest {
+  int32 days = 1; // lookback period (1-365, default 30)
+}
+
+// ─── Shared Time-Series Response ─────────────────────────────────────────────
+
+message TimeSeriesResponse {
+  repeated TimeSeriesPoint points = 1;
+}
+
+message TimeSeriesPoint {
+  google.protobuf.Timestamp date  = 1;
+  int64                     count = 2;
+  string                    value = 3; // optional aggregate value (e.g. SOL volume)
+}

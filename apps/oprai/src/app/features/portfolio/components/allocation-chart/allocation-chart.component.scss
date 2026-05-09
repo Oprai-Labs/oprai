@@ -1,0 +1,160 @@
+.chart-container {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 0;
+}
+
+// ──── SVG Donut ────
+.donut-wrap {
+  position: relative;
+  width: 148px;
+  height: 148px;
+  min-width: 148px;
+  aspect-ratio: 1;
+  flex-shrink: 0;
+}
+
+.donut-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  overflow: visible;
+}
+
+.donut-segment {
+  transition: opacity 200ms ease;
+}
+
+.donut-wrap:hover .donut-segment {
+  opacity: 0.88;
+}
+
+.donut-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  background: var(--op-bg-base);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.center-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-family: var(--op-font-body);
+  letter-spacing: -0.02em;
+}
+
+// ──── Legend ────
+.chart-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  padding: 3px 0;
+  transition: opacity 200ms ease;
+
+  &:hover {
+    opacity: 0.8;
+  }
+}
+
+.legend-icon-wrap {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.legend-coin-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.legend-dot,
+.legend-dot-fallback {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legend-dot-fallback {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.legend-label {
+  color: var(--op-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.legend-percent {
+  font-weight: 600;
+  font-family: var(--op-font-mono);
+  font-size: 12px;
+  color: var(--op-text-primary);
+  white-space: nowrap;
+  min-width: 44px;
+  text-align: right;
+}
+
+// ──── Responsive ────
+@media (max-width: 640px) {
+  .chart-container {
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .donut-wrap {
+    width: 124px;
+    height: 124px;
+    min-width: 124px;
+  }
+
+  .donut-center {
+    width: 70px;
+    height: 70px;
+  }
+
+  .center-value {
+    font-size: 12px;
+  }
+
+  .chart-legend {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 16px;
+  }
+}

@@ -1,0 +1,168 @@
+<!-- Section Header -->
+<div class="section-header">
+  <div class="section-title-group">
+    <div class="section-icon">
+      <lucide-icon name="wallet" [size]="16" />
+    </div>
+    <h2 class="section-title">Wallet</h2>
+  </div>
+  <div class="section-actions">
+    @if (smallTokenCount > 0) {
+      <button class="filter-btn" (click)="toggleHideSmall()">
+        {{ hideSmall() ? 'Show all tokens' : 'Hide small balances' }}
+      </button>
+    }
+    <span class="section-value">{{ walletTotal | currency:'USD':'symbol':'1.2-2' }}</span>
+  </div>
+</div>
+
+<!-- Token Table -->
+<div class="token-card">
+  <table class="token-table">
+    <thead>
+      <tr>
+        <th class="col-token sortable" (click)="toggleSort('name')">
+          Token{{ getSortIcon('name') }}
+        </th>
+        <th class="col-price">Price</th>
+        <th class="col-change sortable" (click)="toggleSort('change24h')">
+          24h{{ getSortIcon('change24h') }}
+        </th>
+        <th class="col-amount">Amount</th>
+        <th class="col-alloc sortable" (click)="toggleSort('allocation')">
+          %{{ getSortIcon('allocation') }}
+        </th>
+        <th class="col-value sortable" (click)="toggleSort('value')">
+          USD Value{{ getSortIcon('value') }}
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- SOL row (always first) -->
+      <tr class="token-row">
+        <td class="col-token">
+          <div class="token-cell">
+            <div class="token-logo sol-logo">
+              <img
+                src="https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
+                alt="SOL"
+                width="32"
+                height="32"
+                (error)="onImageError($event)"
+              />
+              <div class="token-fallback" style="display:none">S</div>
+            </div>
+            <div class="token-info">
+              <span class="token-name">Solana</span>
+              <span class="token-symbol">SOL</span>
+            </div>
+          </div>
+        </td>
+        <td class="col-price">
+          @if (solBalance.usdPrice !== null) {
+            {{ solBalance.usdPrice | currency:'USD':'symbol':'1.2-2' }}
+          } @else {
+            <span class="no-data">--</span>
+          }
+        </td>
+        <td class="col-change">
+          @if (solBalance.priceChange24h !== null) {
+            <span [class]="solBalance.priceChange24h >= 0 ? 'change-positive' : 'change-negative'">
+              {{ solBalance.priceChange24h >= 0 ? '+' : '' }}{{ solBalance.priceChange24h | number:'1.2-2' }}%
+            </span>
+          } @else {
+            <span class="no-data">--</span>
+          }
+        </td>
+        <td class="col-amount">{{ solBalance.sol | number:'1.4-4' }}</td>
+        <td class="col-alloc">
+          @if (solBalance.allocationPercent > 0) {
+            {{ solBalance.allocationPercent | number:'1.1-1' }}%
+          } @else {
+            <span class="no-data">--</span>
+          }
+        </td>
+        <td class="col-value">
+          @if (solBalance.usdValue !== null) {
+            {{ solBalance.usdValue | currency:'USD':'symbol':'1.2-2' }}
+          } @else {
+            <span class="no-data">--</span>
+          }
+        </td>
+      </tr>
+
+      <!-- SPL Token rows -->
+      @for (token of visibleTokens; track token.mint) {
+        <tr class="token-row">
+          <td class="col-token">
+            <div class="token-cell">
+              <div class="token-logo">
+                @if (token.logoUri) {
+                  <img
+                    [src]="token.logoUri"
+                    [alt]="token.symbol"
+                    width="32"
+                    height="32"
+                    (error)="onImageError($event)"
+                  />
+                }
+                <div class="token-fallback" [style.display]="token.logoUri ? 'none' : 'flex'">
+                  {{ token.symbol.charAt(0) }}
+                </div>
+              </div>
+              <div class="token-info">
+                <span class="token-name">{{ token.name || token.symbol }}</span>
+                <span class="token-symbol">{{ token.symbol }}</span>
+              </div>
+            </div>
+          </td>
+          <td class="col-price">
+            @if (token.usdPrice !== null) {
+              {{ token.usdPrice | currency:'USD':'symbol':'1.2-4' }}
+            } @else {
+              <span class="no-data">--</span>
+            }
+          </td>
+          <td class="col-change">
+            @if (token.priceChange24h !== null) {
+              <span [class]="token.priceChange24h >= 0 ? 'change-positive' : 'change-negative'">
+                {{ token.priceChange24h >= 0 ? '+' : '' }}{{ token.priceChange24h | number:'1.2-2' }}%
+              </span>
+            } @else {
+              <span class="no-data">--</span>
+            }
+          </td>
+          <td class="col-amount">{{ token.balance | number:'1.4-4' }}</td>
+          <td class="col-alloc">
+            @if (token.allocationPercent > 0) {
+              {{ token.allocationPercent | number:'1.1-1' }}%
+            } @else {
+              <span class="no-data">--</span>
+            }
+          </td>
+          <td class="col-value">
+            @if (token.usdValue !== null) {
+              {{ token.usdValue | currency:'USD':'symbol':'1.2-2' }}
+            } @else {
+              <span class="no-data">--</span>
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+
+  @if (hiddenCount > 0) {
+    <button class="show-more-btn" (click)="toggleShowAll()">
+      @if (showAll()) {
+        Show less
+      } @else {
+        Show {{ hiddenCount }} more tokens
+      }
+    </button>
+  }
+</div>
+
+@if (filteredAndSorted().length === 0 && !solBalance) {
+  <div class="empty-state">No tokens found in this wallet</div>
+}

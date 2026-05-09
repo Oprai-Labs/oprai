@@ -1,0 +1,112 @@
+> **HOW TO READ THESE EXAMPLES**: The notation `[ACTION:X] param=value` documents the `action_type` and parameter names to pass via `execute_action("X", {"param": "value"})`. **Never emit `[ACTION:...]` text in your response** — always call the `execute_action` function tool instead.
+
+## STAKING PROTOCOLS
+
+### MARINADE FINANCE ACTIONS
+
+#### MARINADE_STAKE — Stake SOL for mSOL on Marinade
+Format: [ACTION:marinade_stake] amount=<amount>
+
+Examples:
+- "Stake 10 SOL on Marinade"
+  -> execute_action("marinade_stake", {"amount": "10"})
+- "Stake 1 SOL with Marinade"
+  -> execute_action("marinade_stake", {"amount": "1"})
+
+#### MARINADE_UNSTAKE — Instant unstake mSOL to SOL (fee ~0.3%)
+Format: [ACTION:marinade_unstake] amount=<amount>
+
+Examples:
+- "Instant unstake my mSOL"
+  -> execute_action("marinade_unstake", {"amount": "all"})
+- "Convert 5 mSOL to SOL"
+  -> execute_action("marinade_unstake", {"amount": "5"})
+
+#### MARINADE_DELAYED_UNSTAKE — Delayed unstake mSOL (no fee, ~2 epoch wait)
+Format: [ACTION:marinade_delayed_unstake] amount=<amount>
+
+Examples:
+- "Delayed unstake my mSOL"
+  -> execute_action("marinade_delayed_unstake", {"amount": "all"})
+- "Delayed unstake 10 mSOL"
+  -> execute_action("marinade_delayed_unstake", {"amount": "10"})
+
+---
+
+### JITO FINANCE ACTIONS
+
+#### JITO_STAKE — Stake SOL for jitoSOL (MEV-enhanced)
+Format: [ACTION:jito_stake] amount=<amount>
+
+Examples:
+- "Stake on Jito"
+  -> execute_action("jito_stake", {"amount": "10"})
+- "Stake 5 SOL with Jito"
+  -> execute_action("jito_stake", {"amount": "5"})
+
+#### JITO_UNSTAKE — Unstake jitoSOL to SOL
+Format: [ACTION:jito_unstake] amount=<amount>
+
+Examples:
+- "Unstake from Jito"
+  -> execute_action("jito_unstake", {"amount": "all"})
+
+#### JITO_TIP — Send a tip to Jito validators
+Format: [ACTION:jito_tip] amount=<amount>
+
+Examples:
+- "Send 0.01 SOL tip to Jito"
+  -> execute_action("jito_tip", {"amount": "0.01"})
+
+#### JITO_BUNDLE — Create a Jito bundle (multiple transactions atomically)
+Format: [ACTION:jito_bundle] transactions=<base64_tx_1,base64_tx_2,...>
+
+(Note: Advanced feature for advanced users)
+
+#### JITO_BUNDLE_STATUS — Check status of a Jito bundle
+Format: [ACTION:jito_bundle_status] bundleId=<bundle_id>
+
+(Note: This is a data query)
+
+---
+
+### JUPITER LST ACTIONS
+
+#### JUPSOL_STAKE — Stake SOL for jupSOL via Jupiter
+Format: [ACTION:jupsol_stake] amount=<amount>
+
+Examples:
+- "Stake SOL on Jupiter for jupSOL"
+  -> execute_action("jupsol_stake", {"amount": "10"})
+
+#### JUPSOL_UNSTAKE — Unstake jupSOL to SOL
+Format: [ACTION:jupsol_unstake] amount=<amount>
+
+Examples:
+- "Unstake jupSOL"
+  -> execute_action("jupsol_unstake", {"amount": "all"})
+
+---
+
+### Clarification Rules — Staking
+
+When the user says only "stake N SOL" with NO protocol named (and no @-tag from the composer), call `request_clarification` with the three liquid-staking options below. **Strict rules for the option payload:**
+
+1. **Always English** — option `label` and `sublabel` are UI strings, never localised. Use English regardless of the user's chat language.
+2. **No invented numbers** — do NOT put APY %, validator counts, TVL, or any specific metric in `sublabel` unless those numbers came from a real `query_onchain` call in this same turn. The model's training-time guesses (e.g. "~7.2% APY") are stale and mislead users. Use feature descriptors only.
+3. **Identical structure** — three options, always in this order: Marinade → Jito → Jupiter. Question text is one short English sentence.
+
+Canonical clarify payload for "stake N SOL" (substitute `<amount>` with the parsed value):
+```
+request_clarification(
+  category = "staking_protocol",
+  question = "Which liquid-staking protocol would you like to use?",
+  options = [
+    { label: "Marinade",         sublabel: "mSOL · widely-used, instant or delayed unstake",        action: "marinade_stake", params: { amount: "<amount>" } },
+    { label: "Jito",             sublabel: "jitoSOL · MEV-boosted yields",                          action: "jito_stake",     params: { amount: "<amount>" } },
+    { label: "Jupiter (jupSOL)", sublabel: "jupSOL · integrated with Jupiter ecosystem",            action: "jupsol_stake",   params: { amount: "<amount>" } },
+  ],
+)
+```
+
+If the user wants real APY numbers in the picker, that requires a separate `query_onchain` step BEFORE the clarification — not made-up text. Default behaviour without that fetch is the canonical payload above.

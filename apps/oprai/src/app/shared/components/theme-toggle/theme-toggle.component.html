@@ -1,0 +1,12 @@
+<button
+  class="theme-toggle"
+  (click)="toggle()"
+  [attr.aria-label]="themeService.isDark() ? 'Switch to light mode' : 'Switch to dark mode'"
+  [title]="themeService.isDark() ? 'Light mode' : 'Dark mode'"
+>
+  @if (themeService.isDark()) {
+    <lucide-icon name="sun" [size]="16" />
+  } @else {
+    <lucide-icon name="moon" [size]="16" />
+  }
+</button>

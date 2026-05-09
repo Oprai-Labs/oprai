@@ -1,0 +1,28 @@
+id: messari_token_unlocks
+source_type: docs
+base_url: https://messari.io/token-unlocks
+protocol: null
+category: analytics
+license: proprietary-fair-use
+language: en
+schedule_cron: "0 9 * * *"
+crawl_delay_s: 3.0
+max_pages: 20
+tags:
+  - token-unlocks
+  - vesting-schedule
+  - inflation-risk
+  - lp-impact
+  - insider-allocation
+  - tokenomics
+  - analytics
+notes: >
+  Messari token unlocks dashboard and allocation analysis.
+  Key page: /token-unlocks/allocation-analysis
+  (research showing higher insider allocations correlated with worse performance).
+  CAUTION: messari.io is a React SPA — crawlability is LOW.
+  Prefer fetching specific static article pages instead, e.g.:
+  messari.io/report/evolving-yearn-tokenomics (static report PDF or HTML).
+  Primary value: teach AI that upcoming large unlocks are inflationary signals
+  that suppress LP token prices and increase IL risk.
+  Schedule infrequently; most useful content is methodology, not live data.

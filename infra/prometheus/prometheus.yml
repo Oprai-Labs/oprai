@@ -1,0 +1,110 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Prometheus Configuration - OPRAI Polyglot Services
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# All /metrics endpoints require the X-Internal-Api-Key header matching the
+# OPRAI_INTERNAL_API_KEY environment variable. Set it here via the
+# authorization field so Prometheus attaches it on every scrape request.
+# Replace <OPRAI_INTERNAL_API_KEY> with the actual value from your .env file.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+  external_labels:
+    cluster: "oprai-local"
+    environment: "development"
+
+# ─── Scrape Configs ─────────────────────────────────────────────────────────
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Gateway (Go) - HTTP /metrics
+  # Requires X-Internal-Api-Key matching OPRAI_INTERNAL_API_KEY (Prometheus ≥2.47).
+  - job_name: "gateway"
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["localhost:3001"]
+        labels:
+          service: "gateway"
+          language: "go"
+    http_headers:
+      X-Internal-Api-Key:
+        values:
+          - "${OPRAI_INTERNAL_API_KEY}"
+
+  # Auth Service (Go) - HTTP /metrics
+  - job_name: "auth-service"
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["localhost:3010"]
+        labels:
+          service: "auth-service"
+          language: "go"
+    http_headers:
+      X-Internal-Api-Key:
+        values:
+          - "${OPRAI_INTERNAL_API_KEY}"
+
+  # Chat Service (Python) - HTTP /metrics
+  - job_name: "chat-service"
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["localhost:3020"]
+        labels:
+          service: "chat-service"
+          language: "python"
+    http_headers:
+      X-Internal-Api-Key:
+        values:
+          - "${OPRAI_INTERNAL_API_KEY}"
+
+  # Solana Service (Rust) - HTTP /metrics
+  - job_name: "solana-service"
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["localhost:3030"]
+        labels:
+          service: "solana-service"
+          language: "rust"
+    http_headers:
+      X-Internal-Api-Key:
+        values:
+          - "${OPRAI_INTERNAL_API_KEY}"
+
+  # Memory Service (Python) - HTTP /metrics
+  - job_name: "memory-service"
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["localhost:3040"]
+        labels:
+          service: "memory-service"
+          language: "python"
+    http_headers:
+      X-Internal-Api-Key:
+        values:
+          - "${OPRAI_INTERNAL_API_KEY}"
+
+  # Admin Service (Go) - HTTP /metrics
+  - job_name: "admin-service"
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["localhost:3050"]
+        labels:
+          service: "admin-service"
+          language: "go"
+    http_headers:
+      X-Internal-Api-Key:
+        values:
+          - "${OPRAI_INTERNAL_API_KEY}"

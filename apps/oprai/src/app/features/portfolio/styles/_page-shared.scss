@@ -1,0 +1,149 @@
+// ──── Shared Page Layout ────
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--op-bg-base);
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 32px;
+  background: var(--op-bg-base);
+  border-bottom: 1px solid var(--op-border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+
+  @media (min-width: 1024px) { padding: 24px 48px; }
+  @media (max-width: 640px) { padding: 16px; }
+}
+
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.header-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--op-text-primary);
+  font-family: var(--op-font-display);
+  margin: 0;
+  letter-spacing: -0.02em;
+
+  @media (max-width: 640px) { font-size: 18px; }
+}
+
+.header-subtitle {
+  font-size: 14px;
+  color: var(--op-text-secondary);
+  margin: 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.page-container {
+  flex: 1;
+  padding: 28px 32px;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+
+  @media (min-width: 1024px) { padding: 32px 48px; }
+  @media (max-width: 640px) { padding: 16px; }
+}
+
+// ──── Section Titles ────
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--op-text-primary);
+  font-family: var(--op-font-body);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.section-subtitle {
+  font-size: 13px;
+  color: var(--op-text-tertiary);
+  margin: 0;
+}
+
+// ──── Empty States ────
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 48px 24px;
+
+  &__icon {
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--op-radius-xl);
+    background: var(--op-brand-subtle);
+    color: var(--op-brand);
+    margin-bottom: 16px;
+  }
+
+  &__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    margin: 0 0 8px;
+    font-family: var(--op-font-body);
+  }
+
+  &__desc {
+    font-size: 14px;
+    color: var(--op-text-secondary);
+    max-width: 380px;
+    margin: 0;
+    line-height: 1.5;
+  }
+}
+
+// ──── Card Base ────
+.card {
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  box-shadow: var(--op-shadow-sm);
+  overflow: hidden;
+  transition: box-shadow var(--op-fast);
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--op-border-subtle);
+  }
+
+  &__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    font-family: var(--op-font-body);
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  &__body {
+    padding: 20px;
+  }
+}

@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package oprai.common;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/commonpb";
+
+import "google/protobuf/timestamp.proto";
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum SortOrder {
+  SORT_ORDER_UNSPECIFIED = 0;
+  SORT_ORDER_ASC         = 1;
+  SORT_ORDER_DESC        = 2;
+}
+
+// ─── Pagination ──────────────────────────────────────────────────────────────
+
+message Pagination {
+  int32 page  = 1; // 1-based page number
+  int32 limit = 2; // items per page, max 100
+}
+
+message PaginatedResponse {
+  int32 page        = 1;
+  int32 limit       = 2;
+  int64 total_count = 3;
+  int32 total_pages = 4;
+}
+
+// ─── Date Range ──────────────────────────────────────────────────────────────
+
+message DateRange {
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to   = 2;
+}
+
+// ─── Error ───────────────────────────────────────────────────────────────────
+
+message Error {
+  int32  code    = 1; // gRPC status code
+  string message = 2;
+  map<string, string> details = 3;
+}
+
+// ─── Empty ───────────────────────────────────────────────────────────────────
+
+// Re-usable empty message (avoids importing google.protobuf.Empty everywhere)
+message Empty {}

@@ -1,0 +1,101 @@
+<app-admin-layout activePage="users" (logoutClick)="logout()">
+  <header class="admin-header">
+    <h1>Users</h1>
+    <span class="header-count">{{ totalCount() }} total</span>
+  </header>
+
+  <div class="admin-content">
+    <!-- Search & filters -->
+    <div class="toolbar">
+      <div class="search-box search-box--enhanced">
+        <lucide-icon name="search" [size]="14" class="search-icon" />
+        <input
+          type="text"
+          class="input search-input"
+          placeholder="Search by wallet address..."
+          [(ngModel)]="searchQuery"
+          (keyup.enter)="onSearch()"
+        />
+      </div>
+    </div>
+
+    @if (loading()) {
+      <app-skeleton-table [rows]="8" [columnWidths]="['140px', '80px', '36px', '36px', '48px']" />
+    } @else if (error()) {
+      <div class="error-state">{{ error() }}</div>
+    } @else {
+      <div class="content-fade-in">
+        <!-- Users table -->
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th (click)="onSort('wallet')" class="sortable">
+                  Wallet
+                  @if (sortField === 'wallet') {
+                    <span class="sort-indicator">{{ sortOrder === 'asc' ? '&#9650;' : '&#9660;' }}</span>
+                  }
+                </th>
+                <th (click)="onSort('createdAt')" class="sortable">
+                  Created
+                  @if (sortField === 'createdAt') {
+                    <span class="sort-indicator">{{ sortOrder === 'asc' ? '&#9650;' : '&#9660;' }}</span>
+                  }
+                </th>
+                <th>Sessions</th>
+                <th>Messages</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (user of users(); track user.wallet) {
+                <tr>
+                  <td>
+                    <a [routerLink]="['/admin/users', user.wallet]" class="wallet-link">
+                      {{ user.wallet | truncateAddress:8:8 }}
+                    </a>
+                  </td>
+                  <td>{{ user.createdAt | timeAgo }}</td>
+                  <td>{{ user.sessionCount ?? '-' }}</td>
+                  <td>{{ user.messageCount ?? '-' }}</td>
+                  <td>
+                    <a [routerLink]="['/admin/users', user.wallet]" class="btn-ghost btn-sm">
+                      View
+                    </a>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="5" class="empty-row">No users found</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        @if (totalPages > 1) {
+          <div class="pagination">
+            <button
+              class="btn-ghost btn-sm"
+              [disabled]="page() === 1"
+              (click)="onPageChange(page() - 1)"
+            >
+              <lucide-icon name="chevron-left" [size]="14" />
+              Previous
+            </button>
+            <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
+            <button
+              class="btn-ghost btn-sm"
+              [disabled]="page() >= totalPages"
+              (click)="onPageChange(page() + 1)"
+            >
+              Next
+              <lucide-icon name="chevron-right" [size]="14" />
+            </button>
+          </div>
+        }
+      </div>
+    }
+  </div>
+</app-admin-layout>

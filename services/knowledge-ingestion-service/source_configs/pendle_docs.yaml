@@ -1,0 +1,24 @@
+id: pendle_docs
+source_type: docs
+base_url: https://docs.pendle.finance
+protocol: pendle
+category: yield_strategy
+license: proprietary-fair-use
+language: en
+schedule_cron: "30 5 * * *"
+crawl_delay_s: 1.5
+max_pages: 200
+tags:
+  - pendle
+  - yield-tokenization
+  - pt
+  - yt
+  - principal-token
+  - yield-token
+  - fixed-yield
+  - defi
+notes: >
+  Gitbook docs. Covers PT/YT mechanics, yield tokenization minting process, Pendle AMM
+  (PT/SY pools, flash swaps), glossary, and app usage guide. Key insight pages:
+  /pendle-v2/ProtocolMechanics/YieldTokenization/YT and /PT.
+  Static HTML; high crawl confidence.

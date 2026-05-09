@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Proto Validation CI - buf lint + breaking change detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Proto Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "proto/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "proto/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Lint & Breaking Change Detection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need full history for buf breaking against main
+          fetch-depth: 0
+
+      - name: Install buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Buf lint
+        working-directory: proto
+        run: |
+          # Create buf.yaml if not present (for CI)
+          if [ ! -f buf.yaml ]; then
+            cat > buf.yaml << 'BUFEOF'
+          version: v2
+          modules:
+            - path: .
+              name: buf.build/oprai/proto
+          lint:
+            use:
+              - STANDARD
+            except:
+              - PACKAGE_DIRECTORY_MATCH
+          breaking:
+            use:
+              - FILE
+          BUFEOF
+          fi
+          buf lint
+
+      - name: Buf breaking (against main)
+        if: github.event_name == 'pull_request'
+        working-directory: proto
+        run: |
+          buf breaking --against "../../.git#subdir=proto,ref=origin/main"
+
+      - name: Validate proto compilation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          echo "Validating all proto files compile..."
+          find proto -name '*.proto' -print0 | while IFS= read -r -d '' f; do
+            echo "  Checking: $f"
+            protoc --proto_path=. --descriptor_set_out=/dev/null "$f" || exit 1
+          done
+          echo "All proto files are valid."

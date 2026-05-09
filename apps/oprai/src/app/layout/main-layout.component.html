@@ -1,0 +1,1014 @@
+<div class="app-layout" [class.incognito]="incognitoMode()">
+  <!-- Sidebar -->
+  <aside class="layout-sidebar" [class.open]="sidebarOpen()">
+    <div class="sidebar-inner">
+      <!-- Top: Logo + toggle -->
+      <div class="sidebar-top">
+        <a routerLink="/" class="sidebar-brand" (click)="onNavClick()">
+          <img src="oprai_fullname_icon.svg" alt="OPRAI" class="sidebar-brand-full" height="28" />
+        </a>
+        <button class="sidebar-expand-btn" (click)="toggleSidebar()" aria-label="Open sidebar">
+          <lucide-icon name="panel-left-open" [size]="18" />
+        </button>
+        <button class="sidebar-toggle" (click)="toggleSidebar()" aria-label="Close sidebar">
+          <lucide-icon name="panel-left-close" [size]="18" />
+        </button>
+      </div>
+
+      <!-- Nav Items -->
+      <div class="sidebar-top-items">
+        @if (sidebarLoading()) {
+          <!-- ── Nav skeleton: icon circle + text bar for every item ── -->
+          <div class="sk-nav-area">
+            <!-- Search bar skeleton -->
+            <div class="sk-nav-row sk-nav-row--search">
+              <div class="sk sk-circle" style="width:16px;height:16px;flex-shrink:0;"></div>
+              <div class="sk sk-text-sm" style="flex:1;"></div>
+              <div class="sk" style="height:11px;width:26px;border-radius:3px;"></div>
+            </div>
+            <!-- Nav item skeletons (icon + label) -->
+            <div class="sk-nav-row">
+              <div class="sk sk-circle" style="width:16px;height:16px;flex-shrink:0;"></div>
+              <div class="sk sk-text-sm" style="width:66px;"></div>
+            </div>
+            <div class="sk-nav-row">
+              <div class="sk sk-circle" style="width:16px;height:16px;flex-shrink:0;"></div>
+              <div class="sk sk-text-sm" style="width:58px;"></div>
+            </div>
+            <div class="sk-nav-row">
+              <div class="sk sk-circle" style="width:16px;height:16px;flex-shrink:0;"></div>
+              <div class="sk sk-text-sm" style="width:78px;"></div>
+            </div>
+            <div class="sk-nav-row">
+              <div class="sk sk-circle" style="width:16px;height:16px;flex-shrink:0;"></div>
+              <div class="sk sk-text-sm" style="width:50px;"></div>
+            </div>
+            <div class="sk-nav-row">
+              <div class="sk sk-circle" style="width:16px;height:16px;flex-shrink:0;"></div>
+              <div class="sk sk-text-sm" style="width:71px;"></div>
+            </div>
+            <div class="sk-nav-row">
+              <div class="sk sk-circle" style="width:16px;height:16px;flex-shrink:0;"></div>
+              <div class="sk sk-text-sm" style="width:55px;"></div>
+            </div>
+          </div>
+        } @else {
+          <!-- ── Real nav items, fade in when ready ── -->
+          <div class="sidebar-nav-reveal">
+            <button class="sidebar-search-btn" (click)="openSearch()" data-tooltip="Search">
+              <lucide-icon name="search" [size]="16" />
+              <span class="sidebar-search-text">Search</span>
+              <kbd class="sidebar-search-kbd">&#8984;K</kbd>
+            </button>
+            <button class="sidebar-item" (click)="onNewChat()" data-tooltip="New chat">
+              <lucide-icon name="square-pen" [size]="16" />
+              <span class="sidebar-label">New chat</span>
+            </button>
+            <a class="sidebar-item" routerLink="/agents" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Projects">
+              <lucide-icon name="folder" [size]="16" />
+              <span class="sidebar-label">Projects</span>
+            </a>
+            <a class="sidebar-item" routerLink="/voice" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Voice">
+              <lucide-icon name="audio-lines" [size]="16" />
+              <span class="sidebar-label">Voice</span>
+            </a>
+            <a class="sidebar-item" routerLink="/portfolio" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Portfolio">
+              <lucide-icon name="portfolio" [size]="16" />
+              <span class="sidebar-label">Portfolio</span>
+            </a>
+            <a class="sidebar-item" routerLink="/agents" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Agents">
+              <lucide-icon name="tesseract" [size]="16" />
+              <span class="sidebar-label">Agents</span>
+            </a>
+            <a class="sidebar-item" routerLink="/burn" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Token Manager">
+              <lucide-icon name="flame" [size]="16" />
+              <span class="sidebar-label">Token Manager</span>
+            </a>
+            <a class="sidebar-item" routerLink="/stake" [routerLinkActiveOptions]="{exact:true}" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Native Staking">
+              <lucide-icon name="layers" [size]="16" />
+              <span class="sidebar-label">Staking</span>
+            </a>
+            <a class="sidebar-item" routerLink="/stake/liquid" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Liquid Staking">
+              <lucide-icon name="droplets" [size]="16" />
+              <span class="sidebar-label">Liquid Stake</span>
+            </a>
+          </div>
+        }
+      </div>
+
+      <!-- History -->
+      <div class="sidebar-history">
+        <div class="sidebar-item history-header" data-tooltip="History"
+             (click)="!sidebarOpen() && toggleSidebar()">
+          <lucide-icon name="history" [size]="16" />
+          <span class="sidebar-label">History</span>
+        </div>
+        <div class="history-list sidebar-scroll" (scroll)="onHistoryScroll($event)">
+          @if (sidebarLoading() && visibleSessions().length === 0) {
+            <div class="history-group-label sk-label"><div class="sk" style="width: 40px; height: 10px;"></div></div>
+            @for (i of [1,2,3,4,5,6]; track i) {
+              <div class="sk-session">
+                <div class="sk" [style.width.px]="100 + (i * 37) % 100" style="height: 12px;"></div>
+              </div>
+            }
+            <div class="history-group-label sk-label"><div class="sk" style="width: 60px; height: 10px;"></div></div>
+            @for (i of [7,8,9,10,11,12]; track i) {
+              <div class="sk-session">
+                <div class="sk" [style.width.px]="80 + (i * 31) % 120" style="height: 12px;"></div>
+              </div>
+            }
+          } @else if (visibleSessions().length === 0) {
+            @if (walletService.connected() || authService.isAuthenticated()) {
+              <div class="sidebar-empty-sm">
+                <span>No conversations yet</span>
+              </div>
+            }
+          } @else {
+            @for (group of sidebarGroupedSessions(); track group.label) {
+              <div class="history-group-label">{{ group.label }}</div>
+              @for (session of group.sessions; track session.id) {
+                @if (deleteConfirmId() === session.id) {
+                  <div class="delete-confirm">
+                    <p>Delete this chat?</p>
+                    <div class="delete-confirm-actions">
+                      <button class="btn-sm btn-danger" (click)="confirmDelete(session.id)">Delete</button>
+                      <button class="btn-sm btn-ghost" (click)="cancelDelete()">Cancel</button>
+                    </div>
+                  </div>
+                } @else if (editingSessionId() === session.id) {
+                  <div class="rename-wrap">
+                    <input
+                      type="text"
+                      class="rename-input"
+                      [(ngModel)]="editingTitle"
+                      (keydown.enter)="confirmRename(session.id)"
+                      (keydown.escape)="cancelRename()"
+                      (blur)="confirmRename(session.id)"
+                      autofocus
+                    />
+                  </div>
+                } @else {
+                  <div
+                    class="history-item"
+                    [class.active]="session.id === sessionStorage.activeSessionId()"
+                    [class.pinned]="session.pinned"
+                    (click)="onSelectSession(session)"
+                    (contextmenu)="onContextMenu($event, session.id)"
+                  >
+                    <span class="history-item-title truncate">{{ session.title }}</span>
+                    <button
+                      class="history-item-menu"
+                      (click)="openMenu($event, session.id)"
+                      aria-label="Session options"
+                    >
+                      <lucide-icon name="ellipsis" [size]="13" />
+                    </button>
+                  </div>
+                }
+              }
+            }
+            @if (loadingMore()) {
+              @for (i of [1,2,3]; track i) {
+                <div class="sk-session">
+                  <div class="sk" [style.width.px]="60 + (i * 22) % 80" style="height: 12px;"></div>
+                </div>
+              }
+            }
+          }
+        </div>
+        <button class="history-see-all" (click)="openSearch()">
+          <span>See all</span>
+          <lucide-icon name="arrow-up-right" [size]="14" />
+        </button>
+      </div>
+
+      <!-- Bottom: Wallet -->
+      <div class="sidebar-bottom">
+        @if (sidebarLoading()) {
+          <!-- ── Wallet section skeleton ── -->
+          <div class="sk-user-row">
+            <div class="sk sk-circle" style="width:28px;height:28px;flex-shrink:0;"></div>
+            <div class="sk-user-info">
+              <div class="sk" style="height:10px;width:88px;"></div>
+              <div class="sk" style="height:9px;width:58px;"></div>
+            </div>
+            <div class="sk sk-circle" style="width:16px;height:16px;flex-shrink:0;"></div>
+          </div>
+        } @else {
+          <!-- ── Real wallet content, fades in ── -->
+          <div class="sidebar-bottom-reveal">
+            @if (walletService.connected()) {
+              <button #userBtn class="sidebar-user" (click)="toggleWalletMenu($event)">
+                <div class="sidebar-user-avatar">
+                  <lucide-icon name="wallet" [size]="14" />
+                </div>
+                <div class="sidebar-user-info">
+                  <span class="sidebar-user-name truncate">{{ walletService.publicKey() | truncateAddress:6:4 }}</span>
+                </div>
+                <lucide-icon class="sidebar-user-chevron" name="ellipsis" [size]="16" />
+              </button>
+            } @else if (walletService.connecting() || authService.authenticating()) {
+              <div class="sidebar-connecting">
+                <span class="sidebar-connecting-spinner"></span>
+                <span class="sidebar-label">
+                  @if (walletService.connecting()) { Check your wallet… }
+                  @else { Sign in wallet… }
+                </span>
+                <button class="sidebar-cancel-btn" type="button" (click)="cancelWalletConnect()" title="Cancel">
+                  <lucide-icon name="x" [size]="13" />
+                </button>
+              </div>
+            } @else {
+              <button class="sidebar-connect-btn" (click)="openWalletModal()">
+                <lucide-icon name="wallet" [size]="16" />
+                <span class="sidebar-label">Connect Wallet</span>
+              </button>
+              @if (walletBtn?.error()) {
+                <div class="sidebar-wallet-error">{{ walletBtn.error() }}</div>
+              }
+            }
+          </div>
+        }
+      </div>
+    </div>
+  </aside>
+
+  <!-- Hidden wallet button for modal functionality -->
+  <app-wallet-button #walletBtn class="wallet-btn-hidden" />
+
+  <!-- Overlay for mobile -->
+  @if (sidebarOpen()) {
+    <div class="sidebar-backdrop" (click)="toggleSidebar()"></div>
+  }
+
+  <!-- Main Content -->
+  <div class="layout-main">
+    <!-- Top Bar -->
+    <div class="main-top-bar">
+        <div class="top-bar-left"></div>
+        <div class="top-bar-right">
+          @if (isChatRoute()) {
+            @if (sessionStorage.activeSessionId()) {
+              <!-- Active chat controls: … · Share · New Chat -->
+              <div class="chat-menu-anchor">
+                <button class="btn-icon" (click)="toggleChatMenu($event)" aria-label="More options">
+                  <lucide-icon name="ellipsis" [size]="18" />
+                </button>
+                @if (chatMenuOpen()) {
+                  <div class="chat-menu-backdrop" (click)="chatMenuOpen.set(false)"></div>
+                  <div class="chat-menu-dropdown">
+                    <button class="dropdown-item" (click)="togglePin(sessionStorage.activeSessionId()!)">
+                      <lucide-icon [name]="isPinned(sessionStorage.activeSessionId()!) ? 'pin-off' : 'pin'" [size]="14" />
+                      {{ isPinned(sessionStorage.activeSessionId()!) ? 'Unpin' : 'Pin' }}
+                    </button>
+                    <div class="dropdown-item dropdown-item--has-submenu">
+                      <lucide-icon name="folder-open" [size]="14" />
+                      <span>Move to Project</span>
+                      <lucide-icon name="chevron-right" [size]="12" class="dropdown-item-chevron" />
+                      <div class="dropdown-submenu">
+                        <button class="dropdown-submenu-item" (click)="newProject(); $event.stopPropagation()">
+                          <lucide-icon name="folder-plus" [size]="14" />
+                          <span>New project</span>
+                        </button>
+                        @if (projects().length > 0) {
+                          <div class="submenu-divider"></div>
+                          @for (project of projects(); track project.id) {
+                            <button class="dropdown-submenu-item" (click)="moveToProject(project.id); $event.stopPropagation()">
+                              <lucide-icon name="folder" [size]="14" />
+                              <span>{{ project.name }}</span>
+                            </button>
+                          }
+                        }
+                      </div>
+                    </div>
+                    <div class="chat-menu-divider"></div>
+                    <button class="dropdown-item dropdown-item--danger" (click)="deleteActiveChat()">
+                      <lucide-icon name="trash-2" [size]="14" />
+                      Delete Chat
+                    </button>
+                  </div>
+                }
+                </div>
+              <button class="share-btn" [class.share-btn--copied]="shareCopied()" (click)="shareChat()" aria-label="Share chat">
+                @if (shareCopied()) {
+                  <lucide-icon name="check" [size]="15" />
+                  <span>Copied!</span>
+                } @else {
+                  <lucide-icon name="share-2" [size]="15" />
+                  <span>Share</span>
+                }
+              </button>
+              <button class="btn-icon" (click)="onNewChat()" aria-label="New chat">
+                <lucide-icon name="square-pen" [size]="18" />
+              </button>
+            } @else {
+              <!-- No active chat: private mode toggle -->
+              <button
+                class="private-btn"
+                [class.active]="incognitoMode()"
+                (click)="toggleIncognito()"
+                aria-label="Private mode"
+              >
+                <lucide-icon name="ghost" [size]="18" />
+                @if (incognitoMode()) {
+                  <span class="private-btn-label">Private</span>
+                }
+                <span class="private-btn-tooltip">
+                  {{ incognitoMode() ? 'Switch Public' : 'Switch Private' }} &#8984;&#8679;J
+                </span>
+              </button>
+            }
+          }
+        </div>
+      </div>
+
+    <div class="main-content">
+      <app-liquidation-alert-banner />
+      <router-outlet></router-outlet>
+    </div>
+  </div>
+</div>
+
+<!-- Risk Warning Dialog (global, rendered once) -->
+<app-risk-warning-dialog />
+
+<!-- Context Menu Dropdown -->
+@if (menuSessionId()) {
+  <div
+    class="context-dropdown"
+    [style.top.px]="menuPosition.top"
+    [style.left.px]="menuPosition.left"
+    (click)="$event.stopPropagation()"
+  >
+    <button class="dropdown-item" (click)="startRename(menuSessionId()!)">
+      <lucide-icon name="pencil" [size]="14" />
+      Rename
+    </button>
+    <button class="dropdown-item" (click)="togglePin(menuSessionId()!); closeMenu()">
+      <lucide-icon [name]="isPinned(menuSessionId()!) ? 'pin-off' : 'pin'" [size]="14" />
+      {{ isPinned(menuSessionId()!) ? 'Unpin' : 'Pin' }}
+    </button>
+    <div class="context-dropdown-divider"></div>
+    <button class="dropdown-item dropdown-item--danger" (click)="requestDelete(menuSessionId()!)">
+      <lucide-icon name="trash-2" [size]="14" />
+      Delete
+    </button>
+  </div>
+}
+
+<!-- Search Chat Popup (ChatGPT-style) -->
+@if (searchOpen()) {
+  <div class="search-overlay" [class.search-overlay--expanded]="searchExpanded()" (click)="closeSearch()">
+    <div class="search-popup" [class.search-popup--expanded]="searchExpanded()" (click)="$event.stopPropagation()">
+      <!-- Search Header -->
+      <div class="search-header">
+        <input
+          type="text"
+          class="search-input"
+          [(ngModel)]="searchQuery"
+          (ngModelChange)="onSearchInput()"
+          placeholder="Search chats..."
+          autofocus
+        />
+        <div class="search-header-actions">
+          <button class="search-header-btn search-icon-btn">
+            <lucide-icon name="search" [size]="16" />
+          </button>
+          <button class="search-close" (click)="closeSearch()">
+            <lucide-icon name="x" [size]="18" />
+          </button>
+        </div>
+      </div>
+
+      <div class="search-body" [class.search-body--expanded]="searchExpanded()">
+        <!-- Results -->
+        <div class="search-results sidebar-scroll" [class.search-results--panel]="searchExpanded()">
+          <!-- New chat (always first) -->
+          <button class="search-result-item search-result-item--new" (click)="newChatFromSearch()">
+            <lucide-icon name="square-pen" [size]="16" />
+            <span>New chat</span>
+          </button>
+
+          @if (debouncedSearchQuery().trim()) {
+            <div class="search-result-count">
+              {{ searchResults().length }} result{{ searchResults().length !== 1 ? 's' : '' }}
+            </div>
+          }
+
+          @if (filteredGroupedSessions().length === 0 && debouncedSearchQuery().trim()) {
+            <div class="search-empty">
+              <lucide-icon name="search-x" [size]="32" />
+              <p>No chats found</p>
+              <span>Try different keywords</span>
+            </div>
+          } @else {
+            @for (group of filteredGroupedSessions(); track group.label) {
+              <div class="search-group-label">{{ group.label }}</div>
+              @for (session of group.sessions; track session.id) {
+                @if (searchDeleteConfirmId() === session.id) {
+                  <div class="search-delete-confirm">
+                    <p class="search-delete-confirm__title">Are you sure you want to delete this chat?</p>
+                    <p class="search-delete-confirm__desc">This action cannot be undone.</p>
+                    <div class="search-delete-confirm__actions">
+                      <button class="btn-sm btn-danger" (click)="confirmSearchDelete(session.id)">Delete</button>
+                      <button class="btn-sm btn-ghost" (click)="cancelSearchDelete()">Cancel</button>
+                    </div>
+                  </div>
+                } @else if (searchEditingSessionId() === session.id) {
+                  <div class="search-rename-wrap">
+                    <input
+                      type="text"
+                      class="rename-input"
+                      [(ngModel)]="searchEditingTitle"
+                      (keydown.enter)="confirmSearchRename(session.id)"
+                      (keydown.escape)="cancelSearchRename()"
+                      (blur)="confirmSearchRename(session.id)"
+                      autofocus
+                    />
+                  </div>
+                } @else {
+                  <div
+                    class="search-result-item"
+                    [class.search-result-item--active]="searchExpanded() ? (session.id === searchPreviewSessionId()) : (session.id === sessionStorage.activeSessionId())"
+                  >
+                    <button class="search-result-main" (click)="onSearchSessionClick(session)">
+                      <lucide-icon name="message-circle" [size]="16" />
+                      <span class="truncate">{{ session.title }}</span>
+                    </button>
+                    <div class="search-result-actions">
+                      <button class="search-result-action" (click)="openSessionFromSearch($event, session)" aria-label="Open chat">
+                        <lucide-icon name="external-link" [size]="13" />
+                      </button>
+                      <button class="search-result-action" (click)="renameSessionFromSearch($event, session.id)" aria-label="Rename">
+                        <lucide-icon name="pencil" [size]="13" />
+                      </button>
+                      <button class="search-result-action search-result-action--danger" (click)="deleteSessionFromSearch($event, session.id)" aria-label="Delete">
+                        <lucide-icon name="trash-2" [size]="13" />
+                      </button>
+                    </div>
+                  </div>
+                }
+              }
+            }
+          }
+        </div>
+
+        @if (searchExpanded()) {
+          <section class="search-preview">
+            @if (searchPreviewSession(); as previewSession) {
+              <div class="search-preview-header">
+                <div class="search-preview-meta">
+                  <p class="search-preview-kicker">Conversation</p>
+                  <h3 class="search-preview-title">{{ previewSession.title }}</h3>
+                </div>
+                <button class="search-open-chat" (click)="openPreviewSession()">
+                  <span>Open chat</span>
+                  <lucide-icon name="arrow-right" [size]="14" />
+                </button>
+              </div>
+
+              <div class="search-preview-messages sidebar-scroll">
+                @if (searchPreviewLoading()) {
+                  <div class="sk-preview-wrap">
+                    <div class="sk-preview-msg sk-preview-msg--user">
+                      <div class="sk" style="height: 9px; width: 24px; margin-bottom: 5px;"></div>
+                      <div class="sk" style="height: 16px; width: 58%;"></div>
+                    </div>
+                    <div class="sk-preview-msg sk-preview-msg--assistant">
+                      <div class="sk" style="height: 9px; width: 34px; margin-bottom: 5px;"></div>
+                      <div class="sk" style="height: 13px; width: 94%; margin-bottom: 5px;"></div>
+                      <div class="sk" style="height: 13px; width: 82%; margin-bottom: 5px;"></div>
+                      <div class="sk" style="height: 13px; width: 61%;"></div>
+                    </div>
+                    <div class="sk-preview-msg sk-preview-msg--user">
+                      <div class="sk" style="height: 9px; width: 24px; margin-bottom: 5px;"></div>
+                      <div class="sk" style="height: 16px; width: 44%;"></div>
+                    </div>
+                    <div class="sk-preview-msg sk-preview-msg--assistant">
+                      <div class="sk" style="height: 9px; width: 34px; margin-bottom: 5px;"></div>
+                      <div class="sk" style="height: 13px; width: 88%; margin-bottom: 5px;"></div>
+                      <div class="sk" style="height: 13px; width: 71%;"></div>
+                    </div>
+                  </div>
+                } @else if (searchPreviewError()) {
+                  <div class="search-preview-empty">{{ searchPreviewError() }}</div>
+                } @else if (previewSession.id.startsWith('local:')) {
+                  <div class="search-preview-empty">Open this draft chat to view its messages.</div>
+                } @else if (searchPreviewMessages().length === 0) {
+                  <div class="search-preview-empty">No messages in this chat yet.</div>
+                } @else {
+                  @for (message of searchPreviewMessages(); track message.id) {
+                    <article class="search-preview-message" [class.search-preview-message--assistant]="message.role === 'assistant'">
+                      <p class="search-preview-role">{{ message.role === 'assistant' ? 'OPRAI' : 'You' }}</p>
+                      <p class="search-preview-content">{{ message.content }}</p>
+                    </article>
+                  }
+                }
+              </div>
+            } @else {
+              <div class="search-preview-empty">Select a chat from the left to preview.</div>
+            }
+          </section>
+        }
+      </div>
+      <div class="search-footer">
+        <button
+          class="search-footer-expand"
+          (click)="toggleSearchExpanded()"
+          [attr.aria-label]="searchExpanded() ? 'Shrink search' : 'Expand search'"
+        >
+          <lucide-icon [name]="searchExpanded() ? 'minimize-2' : 'maximize-2'" [size]="15" />
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Profile Menu (fixed, above sidebar) -->
+@if (walletMenuOpen()) {
+  <div class="profile-menu-backdrop" (click)="walletMenuOpen.set(false)"></div>
+  <div
+    class="profile-menu"
+    [style.bottom.px]="profileMenuPos.bottom"
+    [style.left.px]="profileMenuPos.left"
+    (click)="$event.stopPropagation()"
+  >
+    <!-- Wallet Info -->
+    <div class="profile-menu-item profile-menu-item--user">
+      <div class="profile-menu-avatar">
+        <lucide-icon name="wallet" [size]="14" />
+      </div>
+      <div class="profile-menu-user-info">
+        <span class="profile-menu-name">{{ walletService.walletName() }}</span>
+        <span class="profile-menu-address">{{ walletService.publicKey() | truncateAddress:6:4 }}</span>
+      </div>
+    </div>
+    <div class="profile-menu-divider"></div>
+    <!-- Settings -->
+    <button class="profile-menu-item" (click)="openSettings('account')">
+      <lucide-icon name="settings" [size]="18" />
+      <span>Settings</span>
+    </button>
+    <!-- Language -->
+    <button class="profile-menu-item" (click)="openSettings('account')">
+      <lucide-icon name="globe" [size]="18" />
+      <span>Language</span>
+    </button>
+    <div class="profile-menu-divider"></div>
+    <!-- Help with hover submenu -->
+    <div class="profile-menu-item profile-menu-item--has-sub">
+      <lucide-icon name="circle-help" [size]="18" />
+      <span>Help</span>
+      <lucide-icon class="profile-menu-chevron" name="chevron-right" [size]="14" />
+      <!-- Submenu (appears on hover) -->
+      <div class="profile-submenu">
+        <a class="profile-submenu-item" href="https://github.com/anthropics/claude-code/issues" target="_blank" rel="noopener">
+          <lucide-icon name="flag" [size]="16" />
+          <span>Report Issue</span>
+        </a>
+        <button class="profile-submenu-item" (click)="navigateFromMenu('/settings')">
+          <lucide-icon name="message-circle-question" [size]="16" />
+          <span>FAQ</span>
+        </button>
+        <a class="profile-submenu-item" href="https://x.com/opaborai" target="_blank" rel="noopener">
+          <lucide-icon name="users" [size]="16" />
+          <span>Community</span>
+        </a>
+        <button class="profile-submenu-item" (click)="navigateFromMenu('/settings')">
+          <lucide-icon name="share-2" [size]="16" />
+          <span>Shared Links</span>
+        </button>
+      </div>
+    </div>
+    <!-- Log out -->
+    <button class="profile-menu-item profile-menu-item--danger" (click)="disconnectWallet()">
+      <lucide-icon name="log-out" [size]="18" />
+      <span>Log out</span>
+    </button>
+  </div>
+}
+
+<!-- Settings Modal -->
+@if (settingsOpen()) {
+  <div class="settings-overlay" (click)="closeSettings()">
+    <div class="settings-dialog" (click)="$event.stopPropagation()">
+      <!-- Header -->
+      <div class="settings-header">
+        <h2 class="settings-title">Settings</h2>
+        <button class="settings-close" (click)="closeSettings()">
+          <lucide-icon name="x" [size]="18" />
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="settings-body">
+        <!-- Left Nav -->
+        <nav class="settings-nav">
+          <button class="settings-nav-item" [class.active]="activeSettingsTab() === 'account'" (click)="setSettingsTab('account')">
+            <lucide-icon name="user" [size]="16" />
+            <span>Account</span>
+          </button>
+          <button class="settings-nav-item" [class.active]="activeSettingsTab() === 'appearance'" (click)="setSettingsTab('appearance')">
+            <lucide-icon name="palette" [size]="16" />
+            <span>Appearance</span>
+          </button>
+          <button class="settings-nav-item" [class.active]="activeSettingsTab() === 'behavior'" (click)="setSettingsTab('behavior')">
+            <lucide-icon name="settings" [size]="16" />
+            <span>Behavior</span>
+          </button>
+          <button class="settings-nav-item" [class.active]="activeSettingsTab() === 'data'" (click)="setSettingsTab('data')">
+            <lucide-icon name="database" [size]="16" />
+            <span>Data Controls</span>
+          </button>
+        </nav>
+
+        <!-- Right Content -->
+        <div class="settings-content scrollbar-thin">
+
+          <!-- Account Tab -->
+          @if (activeSettingsTab() === 'account') {
+            <div class="settings-section animate-fade-in">
+              <h3 class="settings-section-title">Wallet</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Address</span>
+                  <span class="settings-row-value mono">{{ walletService.publicKey() ? (walletService.publicKey() | truncateAddress:8:6) : 'Not connected' }}</span>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Wallet</span>
+                  <span class="settings-row-value">{{ walletService.walletName() || 'None' }}</span>
+                </div>
+              </div>
+
+              <h3 class="settings-section-title" style="margin-top: 24px;">Connected Accounts</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <svg class="settings-row-icon brand-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                  </svg>
+                  <span class="settings-row-label">Twitter</span>
+                </div>
+                <button class="btn-sm btn-secondary"><lucide-icon name="cable" [size]="14" /> Connect</button>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <svg class="settings-row-icon brand-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                  </svg>
+                  <span class="settings-row-label">Telegram</span>
+                </div>
+                <button class="btn-sm btn-secondary"><lucide-icon name="cable" [size]="14" /> Connect</button>
+              </div>
+
+              <h3 class="settings-section-title" style="margin-top: 24px;">Language</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <lucide-icon name="globe" [size]="16" class="settings-row-icon" />
+                  <span class="settings-row-label">Language</span>
+                </div>
+                <select class="settings-select">
+                  <option value="en">English</option>
+                  <option value="tr">Türkçe</option>
+                  <option value="es">Español</option>
+                  <option value="zh">中文</option>
+                  <option value="ja">日本語</option>
+                </select>
+              </div>
+            </div>
+          }
+
+          <!-- Appearance Tab -->
+          @if (activeSettingsTab() === 'appearance') {
+            <div class="settings-section animate-fade-in">
+              <h3 class="settings-section-title">Theme</h3>
+              <div class="theme-cards">
+                <button class="theme-card" [class.active]="themeService.preference() === 'light'" (click)="setThemePreference('light')">
+                  <div class="theme-card-preview theme-card-preview--light">
+                    <div class="theme-preview-bar"></div>
+                    <div class="theme-preview-content">
+                      <div class="theme-preview-line"></div>
+                      <div class="theme-preview-line short"></div>
+                    </div>
+                  </div>
+                  <div class="theme-card-label">
+                    <lucide-icon name="sun" [size]="14" />
+                    <span>Light</span>
+                  </div>
+                </button>
+                <button class="theme-card" [class.active]="themeService.preference() === 'dark'" (click)="setThemePreference('dark')">
+                  <div class="theme-card-preview theme-card-preview--dark">
+                    <div class="theme-preview-bar"></div>
+                    <div class="theme-preview-content">
+                      <div class="theme-preview-line"></div>
+                      <div class="theme-preview-line short"></div>
+                    </div>
+                  </div>
+                  <div class="theme-card-label">
+                    <lucide-icon name="moon" [size]="14" />
+                    <span>Dark</span>
+                  </div>
+                </button>
+                <button class="theme-card" [class.active]="themeService.preference() === 'system'" (click)="setThemePreference('system')">
+                  <div class="theme-card-preview theme-card-preview--system">
+                    <div class="theme-preview-split">
+                      <div class="theme-preview-half light">
+                        <div class="theme-preview-bar"></div>
+                        <div class="theme-preview-content">
+                          <div class="theme-preview-line"></div>
+                        </div>
+                      </div>
+                      <div class="theme-preview-half dark">
+                        <div class="theme-preview-bar"></div>
+                        <div class="theme-preview-content">
+                          <div class="theme-preview-line"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="theme-card-label">
+                    <lucide-icon name="monitor" [size]="14" />
+                    <span>System</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          }
+
+          <!-- Behavior Tab -->
+          @if (activeSettingsTab() === 'behavior') {
+            <div class="settings-section animate-fade-in">
+              <h3 class="settings-section-title">Trading</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Default Slippage</span>
+                </div>
+                <div class="slippage-group">
+                  @for (val of [0.5, 1, 2, 5]; track val) {
+                    <button class="slippage-btn" [class.active]="slippage === val" (click)="slippage = val">
+                      {{ val }}%
+                    </button>
+                  }
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Preferred DEX</span>
+                </div>
+                <select class="settings-select" [(ngModel)]="preferredDex">
+                  <option value="jupiter">Jupiter</option>
+                  <option value="raydium">Raydium</option>
+                  <option value="orca">Orca</option>
+                </select>
+              </div>
+
+              <h3 class="settings-section-title" style="margin-top: 24px;">Spending Limits</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Max per transaction</span>
+                  <span class="settings-row-hint">Block transactions above this amount (0 = unlimited)</span>
+                </div>
+                <div class="limit-input-wrap">
+                  <span class="limit-currency">$</span>
+                  <input
+                    class="settings-limit-input"
+                    type="number"
+                    min="0"
+                    step="50"
+                    [value]="spendingLimitService.getLimits().maxPerTxUsd"
+                    (change)="onLimitChange('maxPerTxUsd', $event)"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Daily limit</span>
+                  <span class="settings-row-hint">Block all transactions after this daily total (0 = unlimited)</span>
+                </div>
+                <div class="limit-input-wrap">
+                  <span class="limit-currency">$</span>
+                  <input
+                    class="settings-limit-input"
+                    type="number"
+                    min="0"
+                    step="100"
+                    [value]="spendingLimitService.getLimits().maxPerDayUsd"
+                    (change)="onLimitChange('maxPerDayUsd', $event)"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              <h3 class="settings-section-title" style="margin-top: 24px;">Notifications</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Trade confirmations</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" [(ngModel)]="notifyTrades" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Price alerts</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" [(ngModel)]="notifyPriceAlerts" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Security warnings</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" [(ngModel)]="notifySecurity" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          }
+
+          <!-- Data Controls Tab -->
+          @if (activeSettingsTab() === 'data') {
+            <div class="settings-section animate-fade-in">
+              <h3 class="settings-section-title">Chat History</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-row-label">Save chat history</span>
+                  <span class="settings-row-hint">When disabled, new chats won't appear in history</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" [(ngModel)]="chatHistoryEnabled" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+
+              <h3 class="settings-section-title" style="margin-top: 24px;">Export & Delete</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <lucide-icon name="download" [size]="16" class="settings-row-icon" />
+                  <span class="settings-row-label">Export data</span>
+                  <span class="settings-row-hint">Download all your chat data</span>
+                </div>
+                <button class="btn-sm btn-secondary">Export</button>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <lucide-icon name="trash-2" [size]="16" class="settings-row-icon settings-row-icon--danger" />
+                  <span class="settings-row-label settings-row-label--danger">Delete account</span>
+                  <span class="settings-row-hint">Permanently delete your account and all data</span>
+                </div>
+                <button class="btn-sm btn-danger">Delete</button>
+              </div>
+            </div>
+          }
+
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ══════════════════════════════════════════════════════════════
+     Full-page initial loading skeleton
+     Shows while wallet reconnects, auth resolves, or sessions load.
+     Covers the entire app layout so no content flashes on first entry.
+     ══════════════════════════════════════════════════════════════ -->
+@if (skeletonVisible()) {
+  <div class="app-skeleton-overlay" [class.app-skeleton-overlay--exiting]="!appLoading()">
+
+    <!-- Sidebar skeleton -->
+    <div class="app-sk-sidebar">
+      <!-- Top: logo + toggle -->
+      <div class="app-sk-top">
+        <div class="sk" style="height: 22px; width: 110px; border-radius: var(--op-radius-sm);"></div>
+        <div class="sk sk-circle" style="width: 28px; height: 28px; flex-shrink: 0;"></div>
+      </div>
+
+      <!-- Nav items -->
+      <div class="app-sk-nav">
+        <div class="app-sk-search">
+          <div class="sk sk-circle" style="width: 16px; height: 16px; flex-shrink: 0;"></div>
+          <div class="sk" style="height: 12px; flex: 1;"></div>
+          <div class="sk" style="height: 12px; width: 28px; border-radius: var(--op-radius-xs);"></div>
+        </div>
+        @for (i of [1,2,3,4,5]; track i) {
+          <div class="app-sk-nav-item">
+            <div class="sk sk-circle" style="width: 16px; height: 16px; flex-shrink: 0;"></div>
+            <div class="sk" [style.width.px]="48 + i * 14" style="height: 12px;"></div>
+          </div>
+        }
+      </div>
+
+      <!-- History -->
+      <div class="app-sk-history">
+        <div class="app-sk-nav-item" style="margin-bottom: 4px;">
+          <div class="sk sk-circle" style="width: 16px; height: 16px; flex-shrink: 0;"></div>
+          <div class="sk" style="height: 12px; width: 52px;"></div>
+        </div>
+        <div class="sk" style="height: 10px; width: 38px; margin: 4px 12px 6px;"></div>
+        @for (i of [1,2,3,4,5,6]; track i) {
+          <div class="app-sk-history-item">
+            <div class="sk" [style.width.%]="45 + (i * 9) % 40" style="height: 12px;"></div>
+          </div>
+        }
+        <div class="sk" style="height: 10px; width: 55px; margin: 10px 12px 6px;"></div>
+        @for (i of [7,8,9,10]; track i) {
+          <div class="app-sk-history-item">
+            <div class="sk" [style.width.%]="40 + (i * 11) % 45" style="height: 12px;"></div>
+          </div>
+        }
+      </div>
+
+      <!-- Bottom: wallet -->
+      <div class="app-sk-bottom">
+        <div class="sk sk-circle" style="width: 28px; height: 28px; flex-shrink: 0;"></div>
+        <div style="display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0;">
+          <div class="sk" style="height: 11px; width: 90px;"></div>
+          <div class="sk" style="height: 9px; width: 60px;"></div>
+        </div>
+        <div class="sk sk-circle" style="width: 16px; height: 16px; flex-shrink: 0;"></div>
+      </div>
+    </div>
+
+    <!-- Main content skeleton -->
+    <div class="app-sk-main">
+      <!-- Top bar -->
+      <div class="app-sk-topbar">
+        <div class="app-sk-topbar-right">
+          <div class="sk" style="height: 32px; width: 32px; border-radius: var(--op-radius-md);"></div>
+          <div class="sk" style="height: 32px; width: 68px; border-radius: var(--op-radius-md);"></div>
+          <div class="sk" style="height: 32px; width: 32px; border-radius: var(--op-radius-md);"></div>
+        </div>
+      </div>
+
+      <!-- Chat messages -->
+      <div class="app-sk-chat">
+        <!-- Exchange 1 -->
+        <div class="app-sk-msg app-sk-msg--user">
+          <div class="sk app-sk-bubble-user" style="width: 52%;"></div>
+        </div>
+        <div class="app-sk-msg app-sk-msg--assistant">
+          <div class="app-sk-lines">
+            <div class="sk" style="height: 14px; width: 96%;"></div>
+            <div class="sk" style="height: 14px; width: 88%;"></div>
+            <div class="sk" style="height: 14px; width: 73%;"></div>
+            <div class="sk" style="height: 14px; width: 50%;"></div>
+          </div>
+        </div>
+
+        <!-- Exchange 2 -->
+        <div class="app-sk-msg app-sk-msg--user">
+          <div class="sk app-sk-bubble-user" style="width: 39%;"></div>
+        </div>
+        <div class="app-sk-msg app-sk-msg--assistant">
+          <div class="app-sk-lines">
+            <div class="sk" style="height: 14px; width: 92%;"></div>
+            <div class="sk" style="height: 14px; width: 78%;"></div>
+            <div class="sk" style="height: 14px; width: 60%;"></div>
+          </div>
+        </div>
+
+        <!-- Exchange 3 -->
+        <div class="app-sk-msg app-sk-msg--user">
+          <div class="sk app-sk-bubble-user" style="width: 63%;"></div>
+        </div>
+        <div class="app-sk-msg app-sk-msg--assistant">
+          <div class="app-sk-lines">
+            <div class="sk" style="height: 14px; width: 94%;"></div>
+            <div class="sk" style="height: 14px; width: 82%;"></div>
+            <div class="sk" style="height: 14px; width: 65%;"></div>
+            <div class="sk" style="height: 14px; width: 44%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Composer -->
+      <div class="app-sk-composer">
+        <div class="sk app-sk-composer-input"></div>
+        <div class="sk" style="height: 10px; width: 260px; margin: 8px auto 0; border-radius: var(--op-radius-xs);"></div>
+      </div>
+    </div>
+
+  </div>
+}
+
+<!-- Mobile Bottom Tab Bar -->
+<nav class="mobile-bottom-bar">
+  <a class="tab-item" routerLink="/" routerLinkActive="tab-item--active" [routerLinkActiveOptions]="{ exact: true }">
+    <lucide-icon name="message-square" [size]="18" />
+    <span>Chat</span>
+  </a>
+  <a class="tab-item" routerLink="/portfolio" routerLinkActive="tab-item--active">
+    <lucide-icon name="portfolio" [size]="18" />
+    <span>Portfolio</span>
+  </a>
+  <button class="tab-item" (click)="openSettings()">
+    <lucide-icon name="settings" [size]="18" />
+    <span>Settings</span>
+  </button>
+</nav>

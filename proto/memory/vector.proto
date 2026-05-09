@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package oprai.memory;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/memorypb";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "proto/common/types.proto";
+
+// ─── Memory Vector Service ──────────────────────────────────────────────────
+
+service MemoryVectorService {
+  // Store (upsert) a memory vector into Qdrant.
+  rpc StoreMemory (StoreMemoryRequest) returns (StoreMemoryResponse);
+
+  // Semantic similarity search over stored memories.
+  rpc SearchMemories (SearchMemoriesRequest) returns (SearchMemoriesResponse);
+
+  // Delete a specific memory point by ID.
+  rpc DeleteMemory (DeleteMemoryRequest) returns (DeleteMemoryResponse);
+
+  // Summarize a conversation chunk into a titled memory.
+  rpc Summarize (SummarizationInput) returns (SummarizationOutput);
+}
+
+// ─── MemoryType enum ─────────────────────────────────────────────────────────
+
+enum MemoryType {
+  MEMORY_TYPE_UNSPECIFIED = 0;
+  MEMORY_TYPE_POSITION    = 1;
+  MEMORY_TYPE_CONTRACT    = 2;
+  MEMORY_TYPE_STRATEGY    = 3;
+  MEMORY_TYPE_PREFERENCE  = 4;
+  MEMORY_TYPE_DECISION    = 5;
+  MEMORY_TYPE_META        = 6;
+}
+
+enum MemorySource {
+  MEMORY_SOURCE_UNSPECIFIED = 0;
+  MEMORY_SOURCE_CHAT        = 1;
+  MEMORY_SOURCE_MANUAL      = 2;
+  MEMORY_SOURCE_IMPORT      = 3;
+}
+
+// ─── MemoryPayload ───────────────────────────────────────────────────────────
+
+message MemoryPayload {
+  string       user_id   = 1;
+  string       chat_id   = 2;
+  MemoryType   type      = 3;
+  string       title     = 4;
+  string       summary   = 5;
+  string       contract  = 6;  // optional contract address
+  string       chain     = 7;  // optional chain identifier
+  google.protobuf.Timestamp timestamp = 8;
+  int64        ttl        = 9;  // time-to-live in seconds, 0 = no expiry
+  double       risk_score = 10; // 0.0 - 1.0
+  MemorySource source     = 11;
+  int32        version    = 12;
+  repeated string tags    = 13;
+}
+
+// ─── StoreMemory ─────────────────────────────────────────────────────────────
+
+message StoreMemoryRequest {
+  MemoryPayload payload   = 1;
+
+  // Consent map: which memory types the user has consented to store.
+  // Keys are MemoryType names (lowercase): "position", "contract", etc.
+  map<string, bool> consent = 2;
+
+  bool overwrite = 3; // upsert semantics
+}
+
+message StoreMemoryResponse {
+  string id      = 1; // Qdrant point ID
+  bool   stored  = 2; // false if blocked by consent
+  string message = 3;
+}
+
+// ─── SearchMemories ──────────────────────────────────────────────────────────
+
+message SearchMemoriesRequest {
+  string user_id = 1;
+
+  // Natural-language query (will be embedded server-side).
+  string query = 2;
+
+  // Filter to specific memory types.
+  repeated MemoryType allowed_types = 3;
+
+  // Cosine similarity threshold (0.0 - 1.0). Default: 0.7
+  double similarity_threshold = 4;
+
+  // Maximum number of results. Default: 10
+  int32 top_k = 5;
+}
+
+message SearchMemoriesResponse {
+  repeated MemorySearchResult results = 1;
+}
+
+message MemorySearchResult {
+  string        id          = 1;
+  MemoryPayload payload     = 2;
+  double        similarity  = 3; // cosine similarity score
+}
+
+// ─── DeleteMemory ────────────────────────────────────────────────────────────
+
+message DeleteMemoryRequest {
+  string memory_id = 1;
+  string user_id   = 2; // authorization check
+}
+
+message DeleteMemoryResponse {
+  bool   success = 1;
+  string message = 2;
+}
+
+// ─── Summarization ───────────────────────────────────────────────────────────
+
+message SummarizationInput {
+  string conversation_id = 1;
+  string chunk           = 2; // raw conversation text to summarize
+  int32  token_count     = 3;
+}
+
+message SummarizationOutput {
+  string title       = 1;
+  string summary     = 2;
+  int32  token_count = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// ─── Audit Log Entry (for memory operations) ─────────────────────────────────
+
+enum MemoryOperation {
+  MEMORY_OPERATION_UNSPECIFIED  = 0;
+  MEMORY_OPERATION_UPSERT      = 1;
+  MEMORY_OPERATION_RETRIEVE    = 2;
+  MEMORY_OPERATION_DELETE      = 3;
+  MEMORY_OPERATION_SOFT_DELETE = 4;
+}
+
+message MemoryAuditLogEntry {
+  string                    id               = 1;
+  string                    user_id          = 2;
+  string                    chat_id          = 3;
+  MemoryOperation           operation        = 4;
+  google.protobuf.Timestamp timestamp        = 5;
+  MemoryType                payload_type     = 6;
+  double                    similarity_score = 7;
+  bool                      success          = 8;
+  string                    message          = 9;
+}

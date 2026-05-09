@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package oprai.admin;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/adminpb";
+
+import "google/protobuf/timestamp.proto";
+
+// ─── Admin Auth Service ──────────────────────────────────────────────────────
+
+service AdminAuthService {
+  // Authenticate with username + password, receive a JWT.
+  rpc Login (AdminLoginRequest) returns (AdminLoginResponse);
+
+  // Validate an existing admin JWT.
+  rpc VerifyToken (AdminVerifyTokenRequest) returns (AdminVerifyTokenResponse);
+
+  // Create a new admin user (superadmin only).
+  rpc CreateAdmin (CreateAdminRequest) returns (AdminUser);
+
+  // Reset an admin user's password (superadmin or self).
+  rpc ResetPassword (ResetPasswordRequest) returns (ResetPasswordResponse);
+}
+
+// ─── AdminUser ───────────────────────────────────────────────────────────────
+
+message AdminUser {
+  string id       = 1;
+  string username = 2;
+  string role     = 3; // "superadmin" | "admin" | "viewer"
+
+  google.protobuf.Timestamp created_at    = 4;
+  google.protobuf.Timestamp last_login_at = 5;
+}
+
+// ─── Login ───────────────────────────────────────────────────────────────────
+
+message AdminLoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message AdminLoginResponse {
+  string                    token      = 1; // admin JWT
+  google.protobuf.Timestamp expires_at = 2;
+  AdminUser                 admin      = 3;
+}
+
+// ─── VerifyToken ─────────────────────────────────────────────────────────────
+
+message AdminVerifyTokenRequest {
+  string token = 1;
+}
+
+message AdminVerifyTokenResponse {
+  bool                      valid      = 1;
+  string                    admin_id   = 2;
+  string                    username   = 3;
+  string                    role       = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+// ─── CreateAdmin ─────────────────────────────────────────────────────────────
+
+message CreateAdminRequest {
+  string username = 1; // 3-50 chars
+  // Password is auto-generated server-side and returned once.
+  // If the caller wants to set a password, use ResetPassword after creation.
+}
+
+// ─── ResetPassword ───────────────────────────────────────────────────────────
+
+message ResetPasswordRequest {
+  string admin_id = 1;
+  string password = 2; // new password, min 8 chars
+}
+
+message ResetPasswordResponse {
+  bool   success = 1;
+  string message = 2;
+}

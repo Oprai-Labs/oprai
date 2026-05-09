@@ -1,0 +1,25 @@
+id: defisafety_reviews
+source_type: docs
+base_url: https://www.defisafety.com
+protocol: null
+category: risk_framework
+license: proprietary-fair-use
+language: en
+schedule_cron: "20 8 * * *"
+crawl_delay_s: 2.5
+max_pages: 100
+tags:
+  - defisafety
+  - protocol-safety
+  - audit-coverage
+  - bug-bounty
+  - smart-contract-risk
+  - protocol-review
+  - transparency
+notes: >
+  DeFiSafety publishes scored protocol reviews covering: audit quality,
+  bug bounty program size, testing coverage, documentation transparency,
+  and admin key controls. Key page: /our_review (review methodology).
+  Scores are 0-100 across categories. Server-rendered site; medium crawl confidence
+  (some JS). Focus on the methodology page and individual protocol review pages.
+  Use for: teaching the AI how to evaluate protocol safety using structured criteria.

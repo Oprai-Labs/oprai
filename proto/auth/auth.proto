@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package oprai.auth;
+
+option go_package = "github.com/oprai/oprai/proto/gen/go/authpb";
+
+import "google/protobuf/timestamp.proto";
+
+// ─── Auth Service ────────────────────────────────────────────────────────────
+
+service AuthService {
+  // Step 1: Request a nonce for SIWS wallet authentication.
+  rpc GetNonce (GetNonceRequest) returns (GetNonceResponse);
+
+  // Step 2: Submit wallet-signed nonce to receive a JWT.
+  rpc VerifySignature (VerifySignatureRequest) returns (VerifySignatureResponse);
+
+  // Validate an existing JWT and return session details.
+  rpc CheckSession (CheckSessionRequest) returns (CheckSessionResponse);
+
+  // Invalidate the current session / token.
+  rpc Logout (LogoutRequest) returns (LogoutResponse);
+}
+
+// ─── GetNonce ────────────────────────────────────────────────────────────────
+
+message GetNonceRequest {
+  string wallet_address = 1;
+}
+
+message GetNonceResponse {
+  string nonce    = 1;
+  string nonce_id = 2; // optional server-side nonce identifier
+}
+
+// ─── VerifySignature ─────────────────────────────────────────────────────────
+
+message VerifySignatureRequest {
+  string wallet_address = 1;
+  string signature      = 2; // base58-encoded ed25519 signature
+  string nonce_id       = 3; // optional, ties back to GetNonce
+}
+
+message VerifySignatureResponse {
+  string                    token      = 1; // JWT (HS256, 3-day expiry)
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+// ─── CheckSession ────────────────────────────────────────────────────────────
+
+message CheckSessionRequest {
+  string token = 1; // Bearer JWT
+}
+
+message CheckSessionResponse {
+  bool                      authenticated = 1;
+  string                    wallet        = 2;
+  google.protobuf.Timestamp expires_at    = 3;
+}
+
+// ─── Logout ──────────────────────────────────────────────────────────────────
+
+message LogoutRequest {
+  string token = 1;
+}
+
+message LogoutResponse {
+  bool success = 1;
+}
+
+// ─── Session Payload (for inter-service JWT claims) ──────────────────────────
+
+message SessionPayload {
+  string w   = 1; // wallet address
+  int64  iat = 2; // issued-at (unix seconds)
+  int64  exp = 3; // expiry    (unix seconds)
+}

@@ -1,0 +1,59 @@
+<div class="clarify-card">
+  <!-- Header -->
+  <div class="clarify-card__header">
+    <div class="clarify-card__icon">
+      <lucide-angular [name]="icon()" [size]="16" />
+    </div>
+    <span class="clarify-card__title">{{ title() }}</span>
+  </div>
+
+  <!-- Question -->
+  <p class="clarify-card__question">{{ clarify.question }}</p>
+
+  <!-- Options -->
+  <div class="clarify-card__options">
+    @for (option of clarify.options; track option.action; let i = $index) {
+      <button
+        class="clarify-option"
+        [class.clarify-option--selected]="selectedIndex === i"
+        [class.clarify-option--dimmed]="selectedIndex !== null && selectedIndex !== i"
+        [class.clarify-option--protocol]="hasProtocolInfo(option)"
+        [style.--protocol-accent]="hasProtocolInfo(option) ? getProtocolInfo(option)?.accent : ''"
+        [disabled]="selectedIndex !== null"
+        (click)="select(option, i)"
+      >
+        @if (hasProtocolInfo(option)) {
+          <div class="clarify-option__protocol-icon">
+            <img [src]="getProtocolInfo(option)?.icon" [alt]="option.label" />
+          </div>
+        } @else {
+          <div class="clarify-option__icon">
+            <lucide-angular [name]="icon()" [size]="16" />
+          </div>
+        }
+
+        <div class="clarify-option__content">
+          <span class="clarify-option__label">{{ option.label }}</span>
+          @if (option.sublabel) {
+            <span class="clarify-option__sublabel">{{ option.sublabel }}</span>
+          }
+        </div>
+
+        @if (selectedIndex === i) {
+          <div class="clarify-option__check">
+            <lucide-angular name="check" [size]="14" />
+          </div>
+        } @else if (selectedIndex === null) {
+          <lucide-angular name="chevron-right" [size]="14" class="clarify-option__arrow" />
+        }
+      </button>
+    }
+  </div>
+
+  @if (selectedIndex !== null) {
+    <p class="clarify-card__executing">
+      <lucide-angular name="loader-circle" [size]="12" class="spin" />
+      Preparing transaction…
+    </p>
+  }
+</div>

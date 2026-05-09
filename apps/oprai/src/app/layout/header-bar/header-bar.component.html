@@ -1,0 +1,26 @@
+<header class="header-bar">
+  <div class="header-bar__left">
+    <a class="header-bar__logo" routerLink="/">
+      <span class="logo-text gradient-text-static">OPRAI</span>
+    </a>
+
+    <nav class="header-bar__nav">
+      @for (link of navLinks; track link.route) {
+        <a
+          class="nav-link"
+          [routerLink]="link.route"
+          routerLinkActive="nav-link--active"
+          [routerLinkActiveOptions]="{ exact: link.exact }"
+        >
+          <lucide-icon [name]="link.icon" [size]="15" />
+          <span>{{ link.label }}</span>
+        </a>
+      }
+    </nav>
+  </div>
+
+  <div class="header-bar__right">
+    <app-theme-toggle />
+    <app-wallet-button />
+  </div>
+</header>

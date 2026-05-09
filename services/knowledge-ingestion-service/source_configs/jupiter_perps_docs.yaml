@@ -1,0 +1,30 @@
+id: jupiter_perps_docs
+source_type: docs
+base_url: https://docs.jup.ag
+protocol: jupiter
+category: protocol_documentation
+license: proprietary-fair-use
+language: en
+schedule_cron: "5 3 * * *"
+crawl_delay_s: 1.5
+max_pages: 200
+tags:
+  - jupiter
+  - jlp
+  - perps
+  - borrow-fee
+  - perpetuals
+  - liquidity-provider
+  - yield
+  - fee-sharing
+  - solana
+  - defi
+notes: >
+  Official Jupiter developer docs (Docusaurus). Key pages for JLP yield mechanics:
+  /user-docs/trade/perps-and-jlp (JLP overview — 75% of all fees go to JLP holders),
+  Fee structure: 0.06% flat + price impact fee + hourly borrow fee
+  (0.008%/hr for SOL/ETH/BTC, 0.01%/hr for USDC/USDT).
+  No funding rate — traders borrow from JLP pool instead.
+  Borrow fees reinvested into JLP to increase pool yield.
+  Static HTML Docusaurus; very high crawl confidence.
+  Companion: station.jup.ag/guides/perpetual-exchange/how-it-works (already in jupiter_station).

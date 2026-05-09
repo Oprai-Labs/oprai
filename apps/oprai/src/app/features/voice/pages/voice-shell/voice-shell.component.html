@@ -1,0 +1,91 @@
+<div class="voice-page">
+
+  @if (isActive()) {
+    <!-- ── Top bar (active state) ── -->
+    <div class="voice-top-bar">
+      <a class="top-bar-back" routerLink="/" aria-label="Back to chat">
+        <lucide-icon name="arrow-left" [size]="18" />
+      </a>
+
+      <div class="top-bar-timer">
+        <span class="timer-dot"></span>
+        <span class="timer-text">{{ formattedTime() }}</span>
+      </div>
+
+      <button class="top-bar-close" (click)="endVoice()" aria-label="End voice">
+        <lucide-icon name="x" [size]="18" />
+      </button>
+    </div>
+
+    <!-- ── Transcript ── -->
+    <div class="voice-transcript">
+      <app-message-list
+        [messages]="messages()"
+        [streaming]="streaming()"
+      />
+    </div>
+
+    <!-- ── Status line ── -->
+    <div class="voice-status-line" [class.status--shimmer]="voiceState() === 'connecting' || voiceState() === 'thinking'">
+      <span class="status-indicator" [class.indicator--listening]="voiceState() === 'listening'" [class.indicator--speaking]="voiceState() === 'speaking'"></span>
+      {{ statusText() }}
+    </div>
+
+    <!-- ── Active controls ── -->
+    <div class="voice-controls">
+      <div class="voice-active-controls">
+        <button
+          class="ctrl-btn"
+          [class.ctrl--muted]="isMuted()"
+          (click)="toggleMute()"
+          [attr.aria-label]="isMuted() ? 'Unmute microphone' : 'Mute microphone'"
+        >
+          @if (isMuted()) {
+            <lucide-icon name="mic-off" [size]="20" />
+          } @else {
+            <lucide-icon name="mic" [size]="20" />
+          }
+          <span class="ctrl-label">{{ isMuted() ? 'Unmute' : 'Mute' }}</span>
+        </button>
+
+        <button class="ctrl-btn ctrl--end" (click)="endVoice()" aria-label="End conversation">
+          <lucide-icon name="phone-off" [size]="20" />
+          <span class="ctrl-label">End</span>
+        </button>
+
+        <button
+          class="ctrl-btn"
+          [class.ctrl--off]="!isSpeakerOn()"
+          (click)="toggleSpeaker()"
+          aria-label="Toggle speaker"
+        >
+          @if (isSpeakerOn()) {
+            <lucide-icon name="volume-2" [size]="20" />
+          } @else {
+            <lucide-icon name="volume-x" [size]="20" />
+          }
+          <span class="ctrl-label">{{ isSpeakerOn() ? 'Speaker' : 'Off' }}</span>
+        </button>
+      </div>
+    </div>
+  } @else {
+    <!-- ── Idle state ── -->
+    <a class="voice-back" routerLink="/" aria-label="Back to chat">
+      <lucide-icon name="x" [size]="20" />
+    </a>
+
+    <div class="voice-idle">
+      <div class="idle-icon">
+        <lucide-icon name="audio-lines" [size]="32" />
+      </div>
+      <h2 class="idle-title">Voice Conversation</h2>
+      <p class="idle-subtitle">{{ statusText() }}</p>
+
+      <button class="voice-start-btn" (click)="toggleVoice()" aria-label="Start voice conversation">
+        <div class="start-btn-ring"></div>
+        <lucide-icon name="mic" [size]="24" />
+      </button>
+    </div>
+  }
+
+</div>

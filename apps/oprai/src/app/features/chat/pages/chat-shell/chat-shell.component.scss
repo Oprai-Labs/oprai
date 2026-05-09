@@ -1,0 +1,221 @@
+// ──── Host: fill the flex parent (main-content) ────
+
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+// ──── Chat Container ────
+
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+// ──── Chat View (connected, not loading) ────
+
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+
+  // When empty: logo + composer slightly above center (~15% up)
+  &--empty {
+    justify-content: center;
+    align-items: center;
+    padding-bottom: 20vh;
+
+    .chat-footer {
+      width: 100%;
+      max-width: 768px;
+      padding: var(--op-space-4) var(--op-space-6);
+    }
+  }
+}
+
+.chat-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+// ──── Hero Logo (centered, shown when empty) ────
+
+.hero-logo {
+  margin-bottom: var(--op-space-5);
+}
+
+// ============================================================================
+// Hero States (disconnected)
+// ============================================================================
+
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--op-space-5);
+  padding: 0 var(--op-space-6);
+  text-align: center;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.hero-brand-logo {
+  height: 44px;
+  width: auto;
+  object-fit: contain;
+  filter: brightness(0);
+  transition: filter 300ms ease;
+
+  @media (min-width: 768px) {
+    height: 52px;
+  }
+}
+
+:host-context(html.dark) .hero-brand-logo {
+  filter: brightness(0) invert(1);
+}
+
+.hero-connect-hint {
+  font-size: 14px;
+  color: var(--op-text-tertiary);
+
+  &.auth-error {
+    color: var(--op-status-error, #ef4444);
+    background: var(--op-bg-surface-2);
+    padding: var(--op-space-3) var(--op-space-4);
+    border-radius: var(--op-radius-lg);
+    border: 1px solid var(--op-status-error, #ef4444);
+  }
+}
+
+.retry-load-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--op-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--op-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+
+  &:hover {
+    color: var(--op-text-primary);
+    border-color: var(--op-text-tertiary);
+    background: var(--op-bg-surface-2);
+  }
+}
+
+// ============================================================================
+// Loading Skeleton — mirrors the real message-list layout
+// ============================================================================
+
+.chat-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 20px; // matches .messages-wrapper gap (--op-space-5)
+  padding: 24px 16px 0;
+  max-width: 768px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+// Message row — same flex alignment as .message-row
+.sk-msg {
+  display: flex;
+  width: 100%;
+
+  &--user {
+    justify-content: flex-end;
+  }
+
+  &--assistant {
+    justify-content: flex-start;
+  }
+}
+
+// User bubble — matches .bubble--user exactly:
+// padding 10px 16px, border-radius 20px, BR-right 4px, bg surface-2
+.sk-bubble-user {
+  height: 36px;
+  border-radius: 20px;
+  border-bottom-right-radius: 4px;
+}
+
+// Assistant text lines — matches .bubble--assistant (full width, no bg)
+.sk-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding-top: 2px;
+}
+
+// ============================================================================
+// Footer
+// ============================================================================
+
+.chat-footer {
+  padding: var(--op-space-3) var(--op-space-6);
+  flex-shrink: 0;
+
+  @media (max-width: 768px) {
+    padding: var(--op-space-3) var(--op-space-4);
+  }
+}
+
+.chat-footer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--op-space-3);
+  margin-top: var(--op-space-2);
+}
+
+.chat-disclaimer {
+  font-size: 11px;
+  color: var(--op-text-tertiary);
+  padding-bottom: var(--op-space-1);
+  margin: 0;
+}
+
+.private-notice {
+  font-size: 11px;
+  color: var(--op-text-tertiary);
+  padding-bottom: var(--op-space-1);
+  margin: 0;
+}
+
+.clear-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--op-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--op-text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+
+  &:hover {
+    color: var(--op-text-secondary);
+    border-color: var(--op-text-tertiary);
+  }
+}

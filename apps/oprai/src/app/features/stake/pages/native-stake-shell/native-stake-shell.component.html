@@ -1,0 +1,378 @@
+<div class="stake-shell">
+
+  <!-- Header -->
+  <div class="stake-header">
+    <div class="stake-header__title">
+      <span class="stake-icon">🥩</span>
+      <div>
+        <h1>Native Staking</h1>
+        <p class="stake-header__sub">Stake SOL directly on-chain · Earn ~6–8% APY · No middleman</p>
+      </div>
+    </div>
+    @if (totalStakedLamports() > 0) {
+      <div class="stake-summary">
+        <span class="stake-summary__label">Total staked</span>
+        <span class="stake-summary__value">{{ formatSol(totalStakedLamports()) }} SOL</span>
+      </div>
+    }
+  </div>
+
+  <!-- Wallet not connected -->
+  @if (!isWalletConnected()) {
+    <div class="empty-state">
+      <span class="empty-state__icon">🔌</span>
+      <p>Connect your wallet to manage native stakes</p>
+    </div>
+  } @else {
+
+    <!-- Tabs -->
+    <div class="stake-tabs">
+      <button
+        class="stake-tab"
+        [class.stake-tab--active]="activeTab() === 'my-stakes'"
+        (click)="setTab('my-stakes')"
+      >
+        📋 My Stakes
+        @if (stakeAccounts().length > 0) {
+          <span class="tab-badge">{{ stakeAccounts().length }}</span>
+        }
+      </button>
+      <button
+        class="stake-tab"
+        [class.stake-tab--active]="activeTab() === 'new-stake'"
+        (click)="setTab('new-stake')"
+      >
+        ➕ New Stake
+      </button>
+    </div>
+
+    <!-- Loading -->
+    @if (phase() === 'loading' && stakeAccounts().length === 0 && validators().length === 0) {
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <p>Loading stake data…</p>
+      </div>
+    }
+
+    <!-- Load error -->
+    @if (loadError()) {
+      <div class="error-banner">
+        <span>⚠️ {{ loadError() }}</span>
+        <button (click)="loadAll()">Retry</button>
+      </div>
+    }
+
+    <!-- ──────── MY STAKES TAB ──────── -->
+    @if (activeTab() === 'my-stakes' && phase() !== 'preview' && phase() !== 'signing' && phase() !== 'success') {
+      <div class="tab-content">
+
+        @if (!actionAccount()) {
+          <!-- Account list -->
+          @if (stakeAccounts().length === 0 && phase() !== 'loading') {
+            <div class="empty-state empty-state--small">
+              <p>No native stake accounts found.</p>
+              <button class="btn-secondary" (click)="setTab('new-stake')">Create first stake →</button>
+            </div>
+          } @else {
+
+            <!-- Active accounts -->
+            @if (activeAccounts().length > 0) {
+              <h3 class="section-title">Active</h3>
+              <div class="stake-list">
+                @for (acct of activeAccounts(); track acct.pubkey) {
+                  <div class="stake-row">
+                    <div class="stake-row__info">
+                      <span class="stake-row__pubkey">{{ shortPubkey(acct.pubkey) }}</span>
+                      <span class="stake-row__validator">→ {{ shortPubkey(acct.validatorVoteAccount) }}</span>
+                    </div>
+                    <div class="stake-row__meta">
+                      <span class="stake-row__amount">{{ formatSol(acct.stakedLamports) }} SOL</span>
+                      <span class="status-pill" [class]="statusClass(acct.status)">{{ statusLabel(acct.status) }}</span>
+                    </div>
+                    <div class="stake-row__actions">
+                      <button class="btn-sm btn-sm--warn" (click)="openAction(acct, 'deactivate')">Deactivate</button>
+                      @if (activeAccounts().length > 1) {
+                        <button class="btn-sm" (click)="openAction(acct, 'merge')">Merge</button>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+
+            <!-- Inactive / ready to withdraw -->
+            @if (inactiveAccounts().length > 0) {
+              <h3 class="section-title section-title--inactive">Deactivating / Ready to Withdraw</h3>
+              <div class="stake-list">
+                @for (acct of inactiveAccounts(); track acct.pubkey) {
+                  <div class="stake-row stake-row--inactive">
+                    <div class="stake-row__info">
+                      <span class="stake-row__pubkey">{{ shortPubkey(acct.pubkey) }}</span>
+                      @if (acct.validatorVoteAccount) {
+                        <span class="stake-row__validator">→ {{ shortPubkey(acct.validatorVoteAccount) }}</span>
+                      }
+                    </div>
+                    <div class="stake-row__meta">
+                      <span class="stake-row__amount">{{ formatSol(acct.stakedLamports) }} SOL</span>
+                      <span class="status-pill" [class]="statusClass(acct.status)">{{ statusLabel(acct.status) }}</span>
+                    </div>
+                    <div class="stake-row__actions">
+                      @if (acct.status === 'inactive') {
+                        <button class="btn-sm btn-sm--safe" (click)="openAction(acct, 'withdraw')">Withdraw</button>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          }
+
+        } @else {
+          <!-- Manage action panel -->
+          <div class="manage-panel">
+            <button class="btn-back" (click)="cancelAction()">← Back</button>
+
+            @if (pendingAction() === 'deactivate') {
+              <h3>Deactivate Stake Account</h3>
+              <p class="manage-desc">
+                Deactivating begins the unstaking cooldown (~2–3 days). Your stake remains locked during this period.
+                After deactivation completes you can withdraw the SOL.
+              </p>
+              <div class="manage-info">
+                <span class="info-label">Account</span>
+                <span class="info-value">{{ actionAccount()!.pubkey }}</span>
+              </div>
+              <div class="manage-info">
+                <span class="info-label">Balance</span>
+                <span class="info-value">{{ formatSol(actionAccount()!.stakedLamports) }} SOL</span>
+              </div>
+            }
+
+            @if (pendingAction() === 'withdraw') {
+              <h3>Withdraw Stake</h3>
+              <p class="manage-desc">
+                Withdraws the full balance of this inactive stake account back to your wallet.
+                The stake account will be closed and the rent (~0.002 SOL) is returned to you.
+              </p>
+              <div class="manage-info">
+                <span class="info-label">Account</span>
+                <span class="info-value">{{ actionAccount()!.pubkey }}</span>
+              </div>
+              <div class="manage-info">
+                <span class="info-label">You receive</span>
+                <span class="info-value info-value--gain">~{{ formatSol(actionAccount()!.totalLamports) }} SOL</span>
+              </div>
+            }
+
+            @if (pendingAction() === 'merge') {
+              <h3>Merge Stake Account</h3>
+              <p class="manage-desc">
+                Merge this account into another stake account. Solana requires both accounts to share
+                the <strong>same validator</strong> and the same activation epoch credits.
+                The source is permanently closed; its balance moves to the destination.
+              </p>
+              <div class="manage-info">
+                <span class="info-label">Source (closes)</span>
+                <span class="info-value">{{ shortPubkey(actionAccount()!.pubkey) }}</span>
+              </div>
+              <div class="manage-info">
+                <span class="info-label">Validator</span>
+                <span class="info-value">{{ shortPubkey(actionAccount()!.validatorVoteAccount) }}</span>
+              </div>
+              <div class="form-group">
+                <label>Destination (same validator)</label>
+                <div class="merge-account-list">
+                  @for (acct of mergeCompatibleAccounts(); track acct.pubkey) {
+                    <div
+                      class="merge-account-row"
+                      [class.merge-account-row--active]="mergeTarget() === acct.pubkey"
+                      (click)="mergeTarget.set(acct.pubkey)"
+                    >
+                      <span class="merge-account-pubkey">{{ shortPubkey(acct.pubkey) }}</span>
+                      <span class="merge-account-balance">{{ formatSol(acct.stakedLamports) }} SOL</span>
+                    </div>
+                  }
+                  @if (!hasMergeTargets()) {
+                    <p class="no-merge-targets">No compatible accounts found (requires same validator).</p>
+                  }
+                </div>
+              </div>
+            }
+
+            @if (actionError()) {
+              <div class="error-banner">⚠️ {{ actionError() }}</div>
+            }
+
+            <div class="manage-footer">
+              <button class="btn-secondary" (click)="cancelAction()">Cancel</button>
+              <button
+                class="btn-action"
+                [class.btn-action--warn]="pendingAction() === 'deactivate'"
+                [class.btn-action--safe]="pendingAction() === 'withdraw'"
+                [class.btn-action--brand]="pendingAction() === 'merge'"
+                [disabled]="phase() === 'loading' || (pendingAction() === 'merge' && !mergeTarget())"
+                (click)="previewManageAction()"
+              >
+                @if (phase() === 'loading') {
+                  <div class="spinner spinner--sm"></div>
+                }
+                Preview
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- ──────── NEW STAKE TAB ──────── -->
+    @if (activeTab() === 'new-stake' && phase() !== 'preview' && phase() !== 'signing' && phase() !== 'success') {
+      <div class="tab-content">
+        <div class="tab-description tab-description--info">
+          <span>ℹ️ Native SOL Staking</span>
+          <p>Your SOL is delegated directly on-chain. You keep full custody. Rewards accrue each epoch (~2 days). Minimum stake is 1 SOL.</p>
+        </div>
+
+        <div class="stake-form">
+          <div class="form-group">
+            <label>Amount to Stake (SOL)</label>
+            <div class="amount-input-wrap">
+              <input
+                type="text"
+                class="amount-input"
+                [value]="stakeAmount()"
+                (input)="stakeAmount.set($any($event.target).value)"
+                placeholder="1.0"
+                inputmode="decimal"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Select Validator</label>
+            @if (validatorLoadError()) {
+              <div class="error-banner">⚠️ {{ validatorLoadError() }}</div>
+            } @else if (phase() === 'loading' || validators().length === 0) {
+              <div class="loading-state loading-state--sm">
+                <div class="spinner spinner--sm"></div>
+                <p>Loading validators…</p>
+              </div>
+            } @else {
+              <div class="validator-list-header">
+                <span>Validator</span>
+                <span>Est. APY</span>
+                <span>Commission</span>
+                <span>Stake</span>
+              </div>
+              <div class="validator-select-list">
+                @for (v of validators(); track v.voteAccount) {
+                  <div
+                    class="validator-row"
+                    [class.validator-row--active]="selectedValidator() === v.voteAccount"
+                    (click)="selectedValidator.set(v.voteAccount)"
+                  >
+                    <div class="validator-info">
+                      <span class="validator-name">{{ v.name }}</span>
+                      <span class="validator-pubkey">{{ shortPubkey(v.voteAccount) }}</span>
+                    </div>
+                    <span class="validator-apy">~{{ v.estimatedApy }}%</span>
+                    <span class="validator-commission">{{ v.commission }}%</span>
+                    <span class="validator-stake">{{ formatStakeSol(v.activatedStakeSol) }}</span>
+                  </div>
+                }
+              </div>
+              <p class="validator-note">Est. APY = ~6.5% network base × (1 − commission). Sorted by total delegated stake.</p>
+            }
+          </div>
+
+          @if (stakeAmountError()) {
+            <p class="input-error">{{ stakeAmountError() }}</p>
+          }
+
+          @if (actionError()) {
+            <div class="error-banner">⚠️ {{ actionError() }}</div>
+          }
+
+          <div class="action-footer">
+            <button
+              class="btn-action btn-action--brand"
+              [disabled]="!selectedValidator() || !stakeAmount() || !!stakeAmountError() || phase() === 'loading'"
+              (click)="previewStake()"
+            >
+              @if (phase() === 'loading') {
+                <div class="spinner spinner--sm"></div>
+              }
+              Preview Stake
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- ──────── PREVIEW / SIGNING ──────── -->
+    @if ((phase() === 'preview' || phase() === 'signing') && preview()) {
+      <div class="preview-panel">
+        <h3 class="preview-title">Confirm Transaction</h3>
+        <p class="preview-description">{{ preview()!.description }}</p>
+
+        <div class="preview-fees">
+          <div class="preview-fee-row">
+            <span>Network fee</span>
+            <span>{{ preview()!.estimatedFee }}</span>
+          </div>
+          @if (preview()!.estimatedRefund) {
+            <div class="preview-fee-row preview-fee-row--refund">
+              <span>SOL returned</span>
+              <span class="refund-amount">{{ preview()!.estimatedRefund }}</span>
+            </div>
+          }
+        </div>
+
+        @if (preview()!.warnings.length > 0) {
+          <div class="warnings-list">
+            @for (w of preview()!.warnings; track w) {
+              <div class="warning-item">{{ w }}</div>
+            }
+          </div>
+        }
+
+        @if (actionError()) {
+          <div class="error-banner">⚠️ {{ actionError() }}</div>
+        }
+
+        <div class="preview-actions">
+          <button class="btn-secondary" [disabled]="phase() === 'signing'" (click)="cancelPreview()">Cancel</button>
+          <button
+            class="btn-action btn-action--brand"
+            [disabled]="phase() === 'signing'"
+            (click)="confirmAction()"
+          >
+            @if (phase() === 'signing') {
+              <div class="spinner spinner--sm"></div> Signing…
+            } @else {
+              Confirm
+            }
+          </button>
+        </div>
+      </div>
+    }
+
+    <!-- ──────── SUCCESS ──────── -->
+    @if (phase() === 'success') {
+      <div class="success-panel">
+        <div class="success-icon">✅</div>
+        <h3>Transaction Confirmed!</h3>
+        @if (txSig()) {
+          <a
+            class="tx-link"
+            [href]="'https://solscan.io/tx/' + txSig()"
+            target="_blank"
+            rel="noopener noreferrer"
+          >View on Solscan ↗</a>
+        }
+        <button class="btn-secondary" (click)="phase.set('idle')">Done</button>
+      </div>
+    }
+
+  }
+</div>

@@ -1,0 +1,163 @@
+<app-admin-layout activePage="sessions" (logoutClick)="logout()">
+  <header class="admin-header">
+    <h1>Sessions</h1>
+    <span class="header-count">{{ totalCount() }} total</span>
+  </header>
+
+  <div class="admin-content">
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="search-box search-box--enhanced">
+        <lucide-icon name="search" [size]="14" class="search-icon" />
+        <input
+          type="text"
+          class="input search-input"
+          placeholder="Search by wallet or title..."
+          [(ngModel)]="searchQuery"
+          (keyup.enter)="onSearch()"
+        />
+      </div>
+      <div class="date-range">
+        <input type="date" class="input date-input" [(ngModel)]="dateFrom" (change)="onSearch()" placeholder="From" />
+        <span class="date-sep">–</span>
+        <input type="date" class="input date-input" [(ngModel)]="dateTo" (change)="onSearch()" placeholder="To" />
+      </div>
+      <button class="btn-ghost" (click)="onSearch()">
+        <lucide-icon name="refresh-cw" [size]="14" />
+        Refresh
+      </button>
+    </div>
+
+    @if (loading()) {
+      <app-skeleton-table [rows]="10" [columnWidths]="['120px', '140px', '200px', '60px', '80px', '100px']" />
+    } @else if (error()) {
+      <div class="error-state">
+        <lucide-icon name="alert-circle" [size]="20" />
+        <span>{{ error() }}</span>
+        <button class="btn-ghost btn-sm" (click)="load()">Retry</button>
+      </div>
+    } @else {
+      <div class="content-fade-in">
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Session ID</th>
+                <th>Wallet</th>
+                <th>Title</th>
+                <th>Messages</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (session of sessions(); track session.id) {
+                <tr>
+                  <td>
+                    <span class="mono-text">{{ session.id | truncateAddress:6:4 }}</span>
+                  </td>
+                  <td>
+                    <span class="wallet-text">{{ session.wallet | truncateAddress:6:4 }}</span>
+                  </td>
+                  <td>
+                    <span class="session-title">{{ session.title || 'Untitled' }}</span>
+                  </td>
+                  <td>
+                    <span class="message-count">
+                      <lucide-icon name="message-circle" [size]="12" />
+                      {{ session.messageCount }}
+                    </span>
+                  </td>
+                  <td>{{ session.createdAt | timeAgo }}</td>
+                  <td>
+                    <div class="action-buttons">
+                      <button class="btn-ghost btn-sm" (click)="viewMessages(session)">
+                        <lucide-icon name="eye" [size]="13" />
+                        Messages
+                      </button>
+                      <button class="btn-ghost btn-sm btn-danger-ghost" (click)="closeSession(session)">
+                        <lucide-icon name="x-circle" [size]="13" />
+                        Close
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6" class="empty-row">
+                    <lucide-icon name="message-square" [size]="24" />
+                    <p>No sessions found</p>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        @if (totalPages > 1) {
+          <div class="pagination">
+            <button
+              class="btn-ghost btn-sm"
+              [disabled]="page() === 1"
+              (click)="onPageChange(page() - 1)"
+            >
+              <lucide-icon name="chevron-left" [size]="14" />
+              Previous
+            </button>
+            <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
+            <button
+              class="btn-ghost btn-sm"
+              [disabled]="page() >= totalPages"
+              (click)="onPageChange(page() + 1)"
+            >
+              Next
+              <lucide-icon name="chevron-right" [size]="14" />
+            </button>
+          </div>
+        }
+      </div>
+    }
+  </div>
+
+  <!-- Messages side panel -->
+  @if (detailOpen() && selectedSession()) {
+    <div class="modal-backdrop" (click)="closeDetail()">
+      <div class="modal-panel" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <div>
+            <h2>Session Messages</h2>
+            <p class="modal-subtitle">{{ selectedSession()!.title || 'Untitled' }}</p>
+          </div>
+          <button class="btn-ghost btn-icon" (click)="closeDetail()">
+            <lucide-icon name="x" [size]="16" />
+          </button>
+        </div>
+        <div class="modal-body">
+          @if (messagesLoading()) {
+            <div class="messages-loading">
+              <lucide-icon name="loader-2" [size]="20" class="spin" />
+              Loading messages...
+            </div>
+          } @else if (sessionMessages().length === 0) {
+            <div class="messages-empty">
+              <lucide-icon name="inbox" [size]="24" />
+              <p>No messages in this session</p>
+            </div>
+          } @else {
+            <div class="messages-list">
+              @for (msg of sessionMessages(); track $index) {
+                <div class="message-item" [ngClass]="{'message-item--user': $any(msg)['role'] === 'user', 'message-item--assistant': $any(msg)['role'] === 'assistant'}">
+                  <div class="message-role">{{ $any(msg)['role'] || 'unknown' }}</div>
+                  <div class="message-content">{{ $any(msg)['content'] }}</div>
+                  @if ($any(msg)['createdAt']) {
+                    <div class="message-time">{{ $any(msg)['createdAt'] | timeAgo }}</div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+</app-admin-layout>

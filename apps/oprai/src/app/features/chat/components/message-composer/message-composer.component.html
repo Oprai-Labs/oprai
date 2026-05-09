@@ -1,0 +1,177 @@
+<div class="composer" [class.composer--limit-reached]="chatLimitReached">
+  @if (attachedFiles().length > 0) {
+    <div class="composer-files">
+      @for (attached of attachedFiles(); track attached.file.name) {
+        <div class="composer-file">
+          <lucide-icon name="file" [size]="14" />
+          <span class="truncate">{{ attached.file.name }}</span>
+          @if (attached.uploading) {
+            <lucide-icon name="loader-2" [size]="12" class="upload-spinner" />
+          }
+          @if (attached.error) {
+            <lucide-icon name="alert-circle" [size]="12" class="upload-error" />
+          }
+          <button class="composer-file-remove" (click)="removeFile(attached)" aria-label="Remove file">
+            <lucide-icon name="x" [size]="12" />
+          </button>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- Hidden file input -->
+  <input
+    type="file"
+    #fileInput
+    class="file-input-hidden"
+    multiple
+    (change)="onFileSelected($event)"
+  />
+
+  @if (chatLimitReached) {
+    <!-- Chat limit banner — replaces the input area -->
+    <div class="composer-limit-banner">
+      <lucide-icon name="message-circle-off" [size]="16" class="limit-icon" />
+      <span>Conversation limit reached. Start a new chat to continue.</span>
+    </div>
+  } @else {
+    <!-- Protocol picker dropdown -->
+    @if (pickerOpen() && filteredProtocols().length > 0) {
+      <div class="protocol-picker">
+        @for (proto of filteredProtocols(); track proto.id; let i = $index) {
+          <button
+            class="protocol-picker-item"
+            [class.protocol-picker-item--active]="i === pickerActiveIndex()"
+            (mousedown)="$event.preventDefault(); selectProtocol(proto)"
+            (mousemove)="pickerActiveIndex.set(i)"
+          >
+            <img class="protocol-logo" [src]="proto.logo" [alt]="proto.label" />
+            <span class="protocol-picker-label">{{ proto.label }}</span>
+            <span class="protocol-picker-desc">{{ proto.description }}</span>
+          </button>
+        }
+      </div>
+    }
+
+    <!-- Textarea -->
+    <textarea
+      #textareaRef
+      class="composer-textarea"
+      [(ngModel)]="message"
+      (keydown)="onKeydown($event)"
+      (input)="onInput()"
+      [disabled]="disabled"
+      placeholder="Ask anything — type @ to select a protocol"
+      rows="1"
+      maxlength="2000"
+      aria-label="Message input"
+    ></textarea>
+
+    <!-- Char counter — only shown when approaching limit -->
+    @if (showCounter) {
+      <div class="composer-char-count" [class.composer-char-count--warning]="charCount >= MAX_INPUT_CHARS * 0.9" [class.composer-char-count--over]="isOverLimit">
+        {{ charCount }} / {{ MAX_INPUT_CHARS }}
+      </div>
+    }
+  }
+
+  <!-- Bottom toolbar -->
+  <div class="composer-toolbar">
+
+    <!-- Plus button with menu -->
+    <div class="plus-menu-anchor">
+      <button
+        class="composer-attach-btn"
+        [disabled]="disabled || chatLimitReached"
+        type="button"
+        aria-label="Attach file"
+        (click)="togglePlusMenu()"
+      >
+        <lucide-icon name="plus" [size]="18" />
+      </button>
+
+      @if (plusMenuOpen()) {
+        <div class="plus-menu-backdrop" (click)="closePlusMenu()"></div>
+        <div class="plus-menu">
+          <button class="plus-menu-item" (click)="onAddFiles()">
+            <lucide-icon name="paperclip" [size]="16" />
+            <span>Add photos & files</span>
+          </button>
+          <button class="plus-menu-item" (click)="onAddFromDrive()">
+            <lucide-icon name="hard-drive" [size]="16" />
+            <span>Add from Google Drive</span>
+          </button>
+          <div class="plus-menu-item plus-menu-item--has-sub">
+            <lucide-icon name="folder-plus" [size]="16" />
+            <span>Add to project</span>
+            <lucide-icon class="plus-menu-chevron" name="chevron-right" [size]="14" />
+            <!-- Submenu -->
+            <div class="plus-submenu">
+              <div class="plus-submenu-search">
+                <lucide-icon name="search" [size]="14" />
+                <input type="text" placeholder="Search projects..." class="plus-submenu-input" />
+              </div>
+              <div class="plus-submenu-list">
+                <div class="plus-submenu-empty">No projects yet</div>
+              </div>
+            </div>
+          </div>
+          <div class="plus-menu-divider"></div>
+          <button class="plus-menu-item" (click)="toggleWebResearch()">
+            <lucide-icon name="globe" [size]="16" />
+            <span>Web Research</span>
+            @if (activeMode() === 'search') {
+              <lucide-icon class="plus-menu-check" name="check" [size]="14" />
+            }
+          </button>
+          <button class="plus-menu-item" (click)="toggleThinking()">
+            <lucide-icon name="lightbulb" [size]="16" />
+            <span>Thinking</span>
+            @if (activeMode() === 'thinking') {
+              <lucide-icon class="plus-menu-check" name="check" [size]="14" />
+            }
+          </button>
+        </div>
+      }
+    </div>
+
+    <!-- Active mode chip -->
+    @if (activeMode() && !chatLimitReached) {
+      <div class="mode-chip">
+        <lucide-icon
+          [name]="activeMode() === 'thinking' ? 'lightbulb' : 'globe'"
+          [size]="14"
+          class="mode-chip-icon"
+        />
+        <span>{{ activeMode() === 'thinking' ? 'Think' : 'Search' }}</span>
+        <button class="mode-chip-remove" (click)="clearActiveMode()" aria-label="Remove mode">
+          <lucide-icon name="x" [size]="12" />
+        </button>
+      </div>
+    }
+
+    <!-- Selected protocol chips -->
+    @for (proto of selectedProtocols(); track proto.id) {
+      <div class="protocol-chip">
+        <img class="protocol-chip-logo" [src]="proto.logo" [alt]="proto.label" />
+        <span>{{ proto.label }}</span>
+        <button class="mode-chip-remove" (click)="removeProtocol(proto)" [attr.aria-label]="'Remove ' + proto.label">
+          <lucide-icon name="x" [size]="12" />
+        </button>
+      </div>
+    }
+
+    <div class="composer-spacer"></div>
+
+    <!-- Send -->
+    <button
+      class="composer-send-btn"
+      [disabled]="disabled || chatLimitReached || !message.trim() || isOverLimit"
+      (click)="onSend()"
+      type="button"
+      aria-label="Send message"
+    >
+      <lucide-icon name="arrow-up" [size]="16" />
+    </button>
+  </div>
+</div>

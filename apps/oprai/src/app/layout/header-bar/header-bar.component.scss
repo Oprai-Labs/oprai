@@ -1,0 +1,77 @@
+.header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--op-header-h);
+  padding: 0 var(--op-space-5);
+  background: var(--op-bg-surface-1);
+  border-bottom: 1px solid var(--op-border-subtle);
+  gap: var(--op-space-4);
+  flex-shrink: 0;
+}
+
+.header-bar__left {
+  display: flex;
+  align-items: center;
+  gap: var(--op-space-8);
+  min-width: 0;
+}
+
+.header-bar__logo {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.logo-text {
+  font-family: var(--op-font-display);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.03em;
+}
+
+// ── Horizontal Nav ──
+
+.header-bar__nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+
+  @media (max-width: 768px) {
+    display: none;
+  }
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--op-radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--op-text-secondary);
+  text-decoration: none;
+  transition: all var(--op-fast);
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--op-text-primary);
+    background: var(--op-hover);
+  }
+
+  &--active {
+    color: var(--op-brand);
+    background: var(--op-brand-subtle);
+  }
+}
+
+// ── Right Section ──
+
+.header-bar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--op-space-2);
+  flex-shrink: 0;
+}

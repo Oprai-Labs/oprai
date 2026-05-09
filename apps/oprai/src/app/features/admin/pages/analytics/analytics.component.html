@@ -1,0 +1,184 @@
+<app-admin-layout activePage="analytics" (logoutClick)="logout()">
+  <header class="admin-header">
+    <h1>Analytics</h1>
+    <div class="header-actions">
+      <button class="btn-ghost" (click)="loadAll()">
+        <lucide-icon name="refresh-cw" [size]="14" />
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <div class="admin-content">
+    <!-- Key Metrics -->
+    @if (statsLoading()) {
+      <app-skeleton-stat-cards [count]="4" />
+    } @else if (stats()) {
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--users">
+            <lucide-icon name="users" [size]="18" />
+          </div>
+          <div>
+            <div class="stat-label">Total Users</div>
+            <div class="stat-value">{{ stats()!.totalUsers | number }}</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--sessions">
+            <lucide-icon name="message-square" [size]="18" />
+          </div>
+          <div>
+            <div class="stat-label">Active Sessions</div>
+            <div class="stat-value">{{ stats()!.activeSessions | number }}</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--messages">
+            <lucide-icon name="message-circle" [size]="18" />
+          </div>
+          <div>
+            <div class="stat-label">Total Messages</div>
+            <div class="stat-value">{{ stats()!.totalMessages | number }}</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--tx">
+            <lucide-icon name="activity" [size]="18" />
+          </div>
+          <div>
+            <div class="stat-label">Transactions</div>
+            <div class="stat-value">{{ stats()!.totalTransactions | number }}</div>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Timeseries Chart -->
+    <div class="chart-card">
+      <div class="chart-header">
+        <h3>Activity Over Time</h3>
+        <div class="day-toggle">
+          @for (d of [7, 30, 90]; track d) {
+            <button
+              class="day-btn"
+              [class.day-btn--active]="selectedDays() === d"
+              (click)="setDays(d === 7 ? 7 : d === 30 ? 30 : 90)"
+            >{{ d }}d</button>
+          }
+        </div>
+      </div>
+
+      @if (timeseriesLoading()) {
+        <div class="chart-skeleton">
+          <div class="skeleton-bars">
+            @for (i of [1,2,3,4,5,6,7,8,9,10,11,12]; track i) {
+              <div class="skeleton-bar" [style.height]="(20 + i * 7) % 80 + 10 + '%'"></div>
+            }
+          </div>
+        </div>
+      } @else if (timeseriesError()) {
+        <div class="chart-error">
+          <lucide-icon name="alert-circle" [size]="18" />
+          {{ timeseriesError() }}
+        </div>
+      } @else if (timeseries().length === 0) {
+        <div class="chart-empty">No data for this range</div>
+      } @else {
+        <!-- Transactions bar chart -->
+        <div class="barchart-section">
+          <div class="barchart-label">Transactions</div>
+          <div class="barchart">
+            @for (row of timeseries(); track row.date) {
+              <div class="barchart-col" [title]="formatDate(row.date) + ': ' + row.tx + ' tx'">
+                <div class="barchart-bar barchart-bar--tx" [style.height]="barWidth(row.tx, maxTx())"></div>
+                @if (timeseries().length <= 14) {
+                  <div class="barchart-x-label">{{ formatDate(row.date) }}</div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Users bar chart -->
+        <div class="barchart-section" style="margin-top: 20px;">
+          <div class="barchart-label">New Users</div>
+          <div class="barchart">
+            @for (row of timeseries(); track row.date) {
+              <div class="barchart-col" [title]="formatDate(row.date) + ': ' + row.users + ' users'">
+                <div class="barchart-bar barchart-bar--users" [style.height]="barWidth(row.users, maxUsers())"></div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="chart-legend">
+          <span class="legend-dot legend-dot--tx"></span> Transactions
+          <span class="legend-dot legend-dot--users" style="margin-left: 16px;"></span> New Users
+        </div>
+      }
+    </div>
+
+    <div class="bottom-grid">
+      <!-- Protocol breakdown -->
+      <div class="chart-card">
+        <h3>Transactions by Action</h3>
+        @if (protocolLoading()) {
+          <div class="protocol-skeleton">
+            @for (i of [1,2,3,4,5]; track i) {
+              <div class="prot-row-skeleton"></div>
+            }
+          </div>
+        } @else if (protocolData().length === 0) {
+          <div class="chart-empty">No transaction data</div>
+        } @else {
+          <div class="protocol-list">
+            @for (row of protocolData(); track row.action) {
+              <div class="protocol-row">
+                <span class="protocol-name">{{ row.action | titlecase }}</span>
+                <div class="protocol-bar-wrap">
+                  <div
+                    class="protocol-bar"
+                    [style.width]="barWidth(row.count, maxProtocolCount())"
+                  ></div>
+                </div>
+                <span class="protocol-count">{{ row.count | number }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <!-- Top wallets -->
+      <div class="chart-card">
+        <h3>Top Wallets by Activity</h3>
+        @if (walletsLoading()) {
+          <div class="wallet-skeleton">
+            @for (i of [1,2,3,4,5,6,7,8]; track i) {
+              <div class="wallet-row-skeleton"></div>
+            }
+          </div>
+        } @else if (topWallets().length === 0) {
+          <div class="chart-empty">No wallet data</div>
+        } @else {
+          <div class="top-wallets-table">
+            <div class="tw-header">
+              <span>Wallet</span>
+              <span>Sessions</span>
+              <span>Messages</span>
+              <span>TXs</span>
+            </div>
+            @for (w of topWallets(); track $index) {
+              <div class="tw-row">
+                <span class="tw-wallet mono-text">{{ truncateWallet(w.wallet) }}</span>
+                <span>{{ w.sessions ?? '-' }}</span>
+                <span>{{ w.messages ?? '-' }}</span>
+                <span>{{ w.transactions ?? '-' }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+</app-admin-layout>

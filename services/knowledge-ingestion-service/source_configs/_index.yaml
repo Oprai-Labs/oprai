@@ -1,0 +1,159 @@
+# Master source index — one entry per registered crawl source.
+# Each entry maps to a YAML file in this directory.
+# schedule_cron uses APScheduler crontab format: min hour day month weekday
+
+sources:
+  # ── Solana Core (daily) ────────────────────────────────────────────────────
+  - id: solana_docs
+    file: solana_docs.yaml
+    schedule_cron: "0 2 * * *"
+
+  - id: solana_cookbook
+    file: solana_cookbook.yaml
+    schedule_cron: "30 2 * * *"
+
+  # ── DEX / AMM (daily) ────────────────────────────────────────────────────
+  - id: jupiter_station
+    file: jupiter_station.yaml
+    schedule_cron: "0 3 * * *"
+
+  - id: jupiter_perps_docs
+    file: jupiter_perps_docs.yaml
+    schedule_cron: "5 3 * * *"
+
+  - id: raydium_docs
+    file: raydium_docs.yaml
+    schedule_cron: "10 3 * * *"
+
+  - id: orca_docs
+    file: orca_docs.yaml
+    schedule_cron: "20 3 * * *"
+
+  - id: meteora_docs
+    file: meteora_docs.yaml
+    schedule_cron: "30 3 * * *"
+
+  # ── Lending (daily) ────────────────────────────────────────────────────────
+  - id: kamino_docs
+    file: kamino_docs.yaml
+    schedule_cron: "40 3 * * *"
+
+  - id: marginfi_docs
+    file: marginfi_docs.yaml
+    schedule_cron: "50 3 * * *"
+
+  - id: solend_docs
+    file: solend_docs.yaml
+    schedule_cron: "0 4 * * *"
+
+  # ── Liquid Staking (daily) ─────────────────────────────────────────────────
+  - id: marinade_docs
+    file: marinade_docs.yaml
+    schedule_cron: "10 4 * * *"
+
+  - id: jito_docs
+    file: jito_docs.yaml
+    schedule_cron: "20 4 * * *"
+
+  # ── News RSS (hourly) ──────────────────────────────────────────────────────
+  - id: coindesk_rss
+    file: coindesk_rss.yaml
+    schedule_cron: "5 * * * *"
+
+  - id: theblock_rss
+    file: theblock_rss.yaml
+    schedule_cron: "15 * * * *"
+
+  - id: decrypt_rss
+    file: decrypt_rss.yaml
+    schedule_cron: "25 * * * *"
+
+  - id: blockworks_rss
+    file: blockworks_rss.yaml
+    schedule_cron: "35 * * * *"
+
+  # ── DeFiLlama (every 12h) ────────────────────────────────────────────────
+  - id: defillama_protocols
+    file: defillama_protocols.yaml
+    schedule_cron: "0 6,18 * * *"
+
+  # ── Yield Strategy Methodology (daily) ────────────────────────────────────
+  - id: uniswap_docs
+    file: uniswap_docs.yaml
+    schedule_cron: "15 6 * * *"
+
+  - id: uniswap_blog
+    file: uniswap_blog.yaml
+    schedule_cron: "10 6 * * *"
+
+  - id: rareskills_amm
+    file: rareskills_amm.yaml
+    schedule_cron: "20 6 * * *"
+
+  - id: speedrun_ethereum_il
+    file: speedrun_ethereum_il.yaml
+    schedule_cron: "20 9 * * *"
+
+  - id: paradigm_amm_research
+    file: paradigm_amm_research.yaml
+    schedule_cron: "10 9 * * *"
+
+  - id: curve_docs
+    file: curve_docs.yaml
+    schedule_cron: "50 5 * * *"
+
+  # ── Protocol Strategy Guides (daily) ────────────────────────────────────
+  - id: yearn_docs
+    file: yearn_docs.yaml
+    schedule_cron: "0 5 * * *"
+
+  - id: compound_docs
+    file: compound_docs.yaml
+    schedule_cron: "10 5 * * *"
+
+  - id: aave_risk_docs
+    file: aave_risk_docs.yaml
+    schedule_cron: "20 5 * * *"
+
+  - id: pendle_docs
+    file: pendle_docs.yaml
+    schedule_cron: "30 5 * * *"
+
+  - id: convex_docs
+    file: convex_docs.yaml
+    schedule_cron: "40 5 * * *"
+
+  # ── Leverage & Risk Strategies (daily) ────────────────────────────────────
+  - id: contango_looping
+    file: contango_looping.yaml
+    schedule_cron: "30 8 * * *"
+
+  - id: panoptic_delta_neutral
+    file: panoptic_delta_neutral.yaml
+    schedule_cron: "40 8 * * *"
+
+  - id: teahouse_delta_neutral
+    file: teahouse_delta_neutral.yaml
+    schedule_cron: "50 8 * * *"
+
+  # ── DeFi Risk Frameworks (weekly, low-churn content) ─────────────────────
+  - id: gauntlet_research
+    file: gauntlet_research.yaml
+    schedule_cron: "0 8 * * 1"
+
+  - id: eea_defi_risk
+    file: eea_defi_risk.yaml
+    schedule_cron: "10 8 * * 1"
+
+  - id: defisafety_reviews
+    file: defisafety_reviews.yaml
+    schedule_cron: "20 8 * * 1"
+
+  # ── Analytics Methodology (weekly) ────────────────────────────────────────
+  - id: defillama_methodology
+    file: defillama_methodology.yaml
+    schedule_cron: "0 7 * * 1"
+
+  - id: messari_token_unlocks
+    file: messari_token_unlocks.yaml
+    schedule_cron: "0 9 * * 1"

@@ -1,0 +1,366 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OPRAI Full Stack - Polyglot Services + Infrastructure
+# Usage: docker compose -f infra/docker-compose.yml up -d --build
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ============== Infrastructure ==============
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: oprai-postgres
+    restart: unless-stopped
+    command: >
+      postgres
+      -c max_connections=50
+      -c shared_buffers=512MB
+      -c work_mem=32MB
+      -c maintenance_work_mem=256MB
+      -c effective_cache_size=1536MB
+      -c wal_level=replica
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c min_wal_size=512MB
+      -c max_wal_size=2GB
+      -c default_statistics_target=200
+      -c idle_in_transaction_session_timeout=30000
+      -c statement_timeout=60000
+      -c log_min_duration_statement=200
+      -c log_checkpoints=on
+      -c log_lock_waits=on
+    environment:
+      POSTGRES_USER: ${DB_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${DB_SUPERPASS:?DB_SUPERPASS is required}
+      POSTGRES_DB: ${DB_SUPERDB:-oprai}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_SUPERUSER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── PgBouncer — connection pooler (transaction mode) ──────────────────────
+  pgbouncer:
+    # NOTE: edoburu/pgbouncer publishes only :latest tag; pin once a versioned
+    # tag is published upstream. Last verified pull: 2025-12-20.
+    image: edoburu/pgbouncer:latest
+    container_name: oprai-pgbouncer
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}"
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "25"
+      MIN_POOL_SIZE: "5"
+      RESERVE_POOL_SIZE: "10"
+      SERVER_IDLE_TIMEOUT: "600"
+      CLIENT_IDLE_TIMEOUT: "0"
+      IGNORE_STARTUP_PARAMETERS: "extra_float_digits,application_name,search_path,options"
+      LOG_CONNECTIONS: "0"
+      LOG_DISCONNECTIONS: "0"
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U ${DB_SUPERUSER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: oprai-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    container_name: oprai-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__HARD_LIMIT: 10737418240
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    healthcheck:
+      # qdrant image has bash but not curl; bash /dev/tcp probes the port.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v3.0.0
+    container_name: oprai-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: oprai-grafana
+    restart: unless-stopped
+    ports:
+      - "3333:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:?GRAFANA_USER must be set}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+  # ============== Go Services ==============
+
+  gateway-go:
+    build:
+      context: ../services/gateway-go
+      dockerfile: Dockerfile
+    container_name: oprai-gateway-go
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      GRPC_PORT: 50050
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      AUTH_SERVICE_URL: http://auth-service-go:3010
+      AUTH_SERVICE_GRPC: auth-service-go:50051
+      CHAT_SERVICE_URL: http://chat-service-py:3020
+      CHAT_SERVICE_GRPC: chat-service-py:50052
+      SOLANA_SERVICE_URL: http://solana-service-rs:3030
+      SOLANA_SERVICE_GRPC: solana-service-rs:50053
+      MEMORY_SERVICE_URL: http://memory-service-py:3040
+      MEMORY_SERVICE_GRPC: memory-service-py:50054
+      REDIS_URL: redis://redis:6379
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3001/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      auth-service-go:
+        condition: service_healthy
+      chat-service-py:
+        condition: service_healthy
+      solana-service-rs:
+        condition: service_healthy
+      memory-service-py:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  auth-service-go:
+    build:
+      context: ../services/auth-service-go
+      dockerfile: Dockerfile
+    container_name: oprai-auth-service-go
+    restart: unless-stopped
+    expose:
+      - "3010"
+      - "50051"
+    environment:
+      PORT: 3010
+      GRPC_PORT: 50051
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
+      REDIS_URL: redis://redis:6379
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3010/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  admin-service-go:
+    build:
+      context: ../services/admin-service-go
+      dockerfile: Dockerfile
+    container_name: oprai-admin-service-go
+    restart: unless-stopped
+    ports:
+      - "3050:3050"
+    expose:
+      - "50055"
+    environment:
+      PORT: 3050
+      GRPC_PORT: 50055
+      OPRAI_ADMIN_JWT_SECRET: ${OPRAI_ADMIN_JWT_SECRET:?OPRAI_ADMIN_JWT_SECRET is required}
+      ADMIN_CORS_ORIGIN: ${ADMIN_CORS_ORIGIN:-http://localhost:3200}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3050/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+  # ============== Python Services ==============
+
+  chat-service-py:
+    build:
+      context: ../services/chat-service-py
+      dockerfile: Dockerfile
+    container_name: oprai-chat-service-py
+    restart: unless-stopped
+    expose:
+      - "3020"
+      - "50052"
+    environment:
+      PORT: 3020
+      GRPC_PORT: 50052
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      # asyncpg driver — chat-service-py uses SQLAlchemy async engine
+      DATABASE_URL: postgresql+asyncpg://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
+      OPRAI_LLM_PROVIDER: ${OPRAI_LLM_PROVIDER:-openai}
+      OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
+      OPRAI_ANTHROPIC_API_KEY: ${OPRAI_ANTHROPIC_API_KEY:-}
+      OPRAI_RESPONDER_MODEL_OPENAI: ${OPRAI_RESPONDER_MODEL_OPENAI:-gpt-4o-mini}
+      OPRAI_RESPONDER_MODEL_ANTHROPIC: ${OPRAI_RESPONDER_MODEL_ANTHROPIC:-claude-haiku-4-5}
+      MEMORY_SERVICE_URL: http://memory-service-py:3040
+      MEMORY_SERVICE_GRPC: memory-service-py:50054
+    # `python -m app.main` loads main.py as __main__, then uvicorn re-imports it
+    # as app.main, double-registering Prometheus Counters. `python -m uvicorn`
+    # only loads app.main once.
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3020"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3020/health').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+  memory-service-py:
+    build:
+      context: ../services/memory-service-py
+      dockerfile: Dockerfile
+    container_name: oprai-memory-service-py
+    restart: unless-stopped
+    expose:
+      - "3040"
+      - "50054"
+    environment:
+      PORT: 3040
+      GRPC_PORT: 50054
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      # asyncpg driver — memory-service-py uses SQLAlchemy async engine
+      DATABASE_URL: postgresql+asyncpg://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
+      QDRANT_URL: http://qdrant:6333
+      OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
+    # See chat-service-py — same rationale.
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3040"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3040/health').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  # ============== Rust Service ==============
+
+  solana-service-rs:
+    build:
+      context: ..
+      dockerfile: services/solana-service-rs/Dockerfile
+    container_name: oprai-solana-service-rs
+    restart: unless-stopped
+    expose:
+      - "3030"
+      - "50053"
+    environment:
+      PORT: 3030
+      GRPC_PORT: 50053
+      # Inside docker network — bind 0.0.0.0 so other containers can reach
+      BIND_HOST: 0.0.0.0
+      GRPC_BIND_HOST: 0.0.0.0
+      OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
+      SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
+      SOLANA_NETWORK: ${SOLANA_NETWORK:-mainnet-beta}
+    healthcheck:
+      # solana-service-rs runtime is debian-slim without wget/curl; bash /dev/tcp probe.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3030"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+  # ============== Frontend (Angular SPA served by nginx) ==============
+  frontend:
+    build:
+      context: ../apps/oprai
+      dockerfile: Dockerfile
+    container_name: oprai-frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    healthcheck:
+      # nginx:alpine ships with wget (busybox); use 127.0.0.1 to avoid IPv6 mismatch
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres-data:
+  redis-data:
+  qdrant-storage:
+  prometheus-data:
+  grafana-data:
