@@ -668,9 +668,15 @@ async def stream_chat_response(
             logger.warning("RAG pre-fetch failed — will skip KB injection", exc_info=True)
             return None
 
+    async def _safe_summarize() -> None:
+        try:
+            await maybe_create_summary(db, session_id, wallet, new_count)
+        except Exception:
+            logger.warning("maybe_create_summary failed — continuing without summary", exc_info=True)
+
     recent_context = await _build_recent_context_from_db(db, session_id)
     _, intent_result, prefetched_knowledge = await asyncio.gather(
-        maybe_create_summary(db, session_id, wallet, new_count),
+        _safe_summarize(),
         IntentRouter().classify(user_content, recent_context),
         _rag_prefetch(),
     )

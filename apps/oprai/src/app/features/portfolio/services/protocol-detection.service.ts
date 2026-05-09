@@ -18,15 +18,17 @@ const LST_REGISTRY: LstInfo[] = [
   { mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', symbol: 'jupSOL', name: 'Jupiter Staked SOL', protocol: 'Jupiter', logoUri: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v/logo.png' },
 ];
 
+// Protocol logos resolved from public CDNs that serve CORS-friendly assets.
+// solana-labs/token-list raw GitHub URLs were deprecated in early 2026 and
+// now return 404 — prefer protocol-owned domains.
 const PROTOCOL_LOGOS: Record<string, string> = {
   'solana-staking': SOL_LOGO,
-  'marinade': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So/logo.png',
+  'marinade': 'https://marinade.finance/favicon.ico',
   'jito': 'https://storage.googleapis.com/token-metadata/JitoSOL-256.png',
-  'lido': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj/logo.png',
-  'helius': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A/logo.png',
-  'jupiter': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v/logo.png',
+  'lido': 'https://lido.fi/favicon.ico',
+  'helius': 'https://www.helius.dev/favicon.ico',
+  'jupiter': 'https://jup.ag/favicon.ico',
   'raydium': 'https://img.raydium.io/icon/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R/logo.png',
-
   'kamino': 'https://app.kamino.finance/favicon.ico',
   'marginfi': 'https://app.marginfi.com/favicon.ico',
   'orca': 'https://www.orca.so/favicon.ico',

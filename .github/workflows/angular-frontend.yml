@@ -9,10 +9,12 @@ on:
     branches: [main]
     paths:
       - "apps/oprai/**"
+      - ".github/workflows/angular-frontend.yml"
   pull_request:
     branches: [main]
     paths:
       - "apps/oprai/**"
+      - ".github/workflows/angular-frontend.yml"
 
 permissions:
   contents: read
@@ -36,39 +38,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('apps/oprai/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          cache: "npm"
+          cache-dependency-path: apps/oprai/package-lock.json
 
       - name: Install dependencies
         working-directory: apps/oprai
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        working-directory: apps/oprai
-        run: pnpm exec ng lint
-
-      - name: Run tests
-        working-directory: apps/oprai
-        run: pnpm exec ng test --watch=false --browsers=ChromeHeadless
+        run: npm ci --no-audit --no-fund
 
       - name: Build production
         working-directory: apps/oprai
-        run: pnpm exec ng build --configuration production
+        run: npm run build:prod
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

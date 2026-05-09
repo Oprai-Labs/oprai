@@ -176,7 +176,11 @@ def _candidates_match_message(candidates: list, user_message: str) -> bool:
     return any(tok in haystack for tok in tokens)
 
 
-def render_session_state_for_llm(state: dict | None, user_message: str = "") -> str:
+def render_session_state_for_llm(
+    state: dict | None,
+    user_message: str = "",
+    intent: str | None = None,
+) -> str:
     """Format `state` into a single system message the responder reads.
 
     Returns "" when there's nothing to inject — caller can skip the message.
@@ -187,53 +191,73 @@ def render_session_state_for_llm(state: dict | None, user_message: str = "") -> 
     stale candidate lists that have nothing to do with the current intent —
     see `_candidates_match_message`. Empty string is a fallback that keeps
     everything (legacy behaviour).
+
+    `intent` is the IntentRouter classification for the current message. When
+    the intent is not "action", action-specific fields (Pending, Selected,
+    Candidates) are suppressed — they belong to the previous turn's flow and
+    must not cause the model to execute a stale transaction instead of
+    answering the user's actual info question.
     """
     if not state or not isinstance(state, dict):
         return ""
 
+    # When the current intent is clearly informational (query / advice /
+    # ambiguous), the "Pending" + "Selected" + "Candidates" context from a
+    # previous action turn is stale. Injecting it makes the model treat the
+    # info question as confirmation of the old action (e.g. "jitoSOL APR
+    # nedir?" gets treated as "confirm the pending add_liquidity" because
+    # "jitosol" matches the candidate label). Suppress action-context fields
+    # so the model starts fresh on a new topic.
+    action_context_allowed = intent in (None, "action")
+
     parts: list[str] = ["[Session State — prior selections snapshot]"]
-    if (intent := state.get("current_intent")):
-        parts.append(f"User intent: {intent}")
+    # Only surface the stored intent when we are in an action turn — otherwise
+    # the stale intent (e.g. "add_liquidity_jitosol_dlmm") anchors the model to
+    # the wrong task when the user switches to an info question.
+    if action_context_allowed:
+        if (stored_intent := state.get("current_intent")):
+            parts.append(f"User intent: {stored_intent}")
     if (proto := state.get("active_protocol")):
         parts.append(f"Active protocol: {proto}")
 
-    raw_candidates = state.get("candidate_entities") or []
-    candidates_relevant = (
-        isinstance(raw_candidates, list)
-        and raw_candidates
-        and _candidates_match_message(raw_candidates, user_message)
-    )
-    if candidates_relevant:
-        rendered = []
-        for ent in raw_candidates[:10]:
-            if not isinstance(ent, dict):
-                continue
-            kind = ent.get("kind", "?")
-            label = ent.get("label", "?")
-            addr = ent.get("address") or ""
-            metric = ent.get("metric") or ""
-            value = ent.get("value") or ""
+    if action_context_allowed:
+        raw_candidates = state.get("candidate_entities") or []
+        candidates_relevant = (
+            isinstance(raw_candidates, list)
+            and raw_candidates
+            and _candidates_match_message(raw_candidates, user_message)
+        )
+        if candidates_relevant:
+            rendered = []
+            for ent in raw_candidates[:10]:
+                if not isinstance(ent, dict):
+                    continue
+                kind = ent.get("kind", "?")
+                label = ent.get("label", "?")
+                addr = ent.get("address") or ""
+                metric = ent.get("metric") or ""
+                value = ent.get("value") or ""
+                seg = f"{kind}:{label}"
+                if addr:
+                    seg += f" ({addr})"
+                if metric and value:
+                    seg += f" {metric}={value}"
+                rendered.append(seg)
+            if rendered:
+                parts.append("Candidates: " + " | ".join(rendered))
+
+        sel = state.get("selected_entity")
+        if isinstance(sel, dict) and sel:
+            kind = sel.get("kind", "?")
+            label = sel.get("label", "?")
+            addr = sel.get("address") or ""
             seg = f"{kind}:{label}"
             if addr:
                 seg += f" ({addr})"
-            if metric and value:
-                seg += f" {metric}={value}"
-            rendered.append(seg)
-        if rendered:
-            parts.append("Candidates: " + " | ".join(rendered))
+            parts.append(f"Selected: {seg}")
 
-    sel = state.get("selected_entity")
-    if isinstance(sel, dict) and sel:
-        kind = sel.get("kind", "?")
-        label = sel.get("label", "?")
-        addr = sel.get("address") or ""
-        seg = f"{kind}:{label}"
-        if addr:
-            seg += f" ({addr})"
-        parts.append(f"Selected: {seg}")
-
-    if (pending := state.get("pending_decision")):
-        parts.append(f"Pending: {pending}")
+        if (pending := state.get("pending_decision")):
+            parts.append(f"Pending: {pending}")
 
     snapshot = state.get("wallet_snapshot") or {}
     if isinstance(snapshot, dict) and snapshot:

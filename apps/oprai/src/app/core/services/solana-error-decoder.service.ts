@@ -106,6 +106,13 @@ const PHRASE_RULES: Array<{ match: RegExp; result: DecodedError }> = [
     },
   },
   {
+    match: /^BLOCKHASH_EXPIRED$|blockhash not found|block height exceeded/i,
+    result: {
+      summary: 'The transaction expired before it reached the network.',
+      hint: 'Solana blockhashes are only valid for ~60 seconds. Click Retry — a fresh transaction will be built and you\'ll be asked to sign again.',
+    },
+  },
+  {
     match: /^sim:insufficient_tokens$/,
     result: {
       summary: 'Not enough tokens to complete this swap or transfer.',

@@ -4644,7 +4644,7 @@ class JupLendMarketsAction(BuildableAction):
     @property
     def name(self) -> str: return "jup_lend_markets"
     @property
-    def description(self) -> str: return "Get all available Jupiter Lend markets with APY and liquidity"
+    def description(self) -> str: return "Get Jupiter Lend borrowing/lending markets (borrow rates, supply caps, utilization). Use only when the user asks about lending, borrowing, or collateral on Jupiter Lend. NOT for native staking APR of jitoSOL/mSOL/jupSOL — use query_onchain('yield') for that."
     @property
     def parameters(self) -> dict[str, dict[str, Any]]:
         return {}

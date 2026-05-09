@@ -6,7 +6,7 @@
 
 **LST native staking APR/APY** (jitoSOL, mSOL, jupSOL, bSOL, INF, stSOL, etc.)
 → Always `query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})`
-→ **Never** use pool, dex_token, birdeye, or token_info for this — those return LP yields.
+→ **Never** use pool, dex_token, birdeye, token_info, or `jup_lend_markets` for this. `jup_lend_markets` returns lending/borrowing rates on Jupiter Lend, not native staking APR.
 → "jitoSOL APR", "mSOL yield", "how much do I earn staking SOL", "value that grows over time via staking", "staking return" all route here.
 
 **LP / liquidity pool APR**

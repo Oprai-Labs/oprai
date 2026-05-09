@@ -835,6 +835,14 @@ class ToolSelector:
             sel_queries = [
                 v for v in _ALL_QUERY_VALUES
                 if "dex" not in QUERY_TAGS.get(v, _A())
+                # Also exclude lending-only tools that aren't staking-relevant
+                # (e.g. jup_lend_markets has {"lending","jupiter"} — no "staking"
+                # or "always" tag — and confuses "jitoSOL APR" with lending rates).
+                and not (
+                    "lending" in QUERY_TAGS.get(v, _A())
+                    and "staking" not in QUERY_TAGS.get(v, _A())
+                    and "always" not in QUERY_TAGS.get(v, _A())
+                )
             ]
         else:
             sel_queries = _ALL_QUERY_VALUES

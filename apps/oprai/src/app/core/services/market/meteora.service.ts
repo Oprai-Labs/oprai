@@ -272,28 +272,46 @@ export class MeteoraService {
     }
   }
 
-  /** Get user positions. */
+  /**
+   * Get user positions. Uses the new datapi `/portfolio/open?user=<wallet>`
+   * route — the legacy `/position/user/<wallet>` was retired in early 2026.
+   * The new shape groups positions by pool, so we flatten to the legacy
+   * MeteoraPosition shape consumers already expect.
+   */
   async getPositions(walletAddress: string): Promise<MeteoraPosition[]> {
     try {
-      const resp = await firstValueFrom(
-        this.http.get<any>(
-          `${METEORA_API}/position/user/${walletAddress}`
-        )
-      );
-      const raw: any[] = Array.isArray(resp) ? resp : resp?.positions ?? [];
-      return raw.map(p => ({
-        address: p.address ?? '',
-        pool: p.pool_address ?? p.lbPair ?? '',
-        owner: walletAddress,
-        lowerBinId: p.lower_bin_id ?? 0,
-        upperBinId: p.upper_bin_id ?? 0,
-        totalTokenXAmount: p.total_x_amount ?? '0',
-        totalTokenYAmount: p.total_y_amount ?? '0',
-        feeX: p.fee_x ?? '0',
-        feeY: p.fee_y ?? '0',
-        inRange: p.in_range ?? false,
-        liquidityUsd: parseFloat(p.liquidity_usd ?? '0'),
-      }));
+      const resp = await fetch(
+        `https://dlmm.datapi.meteora.ag/portfolio/open?user=${walletAddress}`
+      ).then(r => r.ok ? r.json() : null);
+      if (!resp) return [];
+      const pools: any[] = Array.isArray(resp?.pools) ? resp.pools
+        : Array.isArray(resp) ? resp
+        : (resp?.positions ?? []);
+      const out: MeteoraPosition[] = [];
+      for (const pool of pools) {
+        const tokenX = pool.token_x ?? pool.tokenX ?? {};
+        const tokenY = pool.token_y ?? pool.tokenY ?? {};
+        const decX: number = tokenX.decimals ?? pool.decimals_x ?? 9;
+        const decY: number = tokenY.decimals ?? pool.decimals_y ?? 9;
+        const poolAddr: string = pool.address ?? pool.pool_address ?? '';
+        const positions: any[] = pool.positions ?? pool.userPositions ?? [pool];
+        for (const p of positions) {
+          out.push({
+            address: p.address ?? '',
+            pool: p.pool_address ?? p.lbPair ?? poolAddr,
+            owner: walletAddress,
+            lowerBinId: p.lower_bin_id ?? p.lowerBinId ?? 0,
+            upperBinId: p.upper_bin_id ?? p.upperBinId ?? 0,
+            totalTokenXAmount: String(Number(p.total_x_amount ?? p.totalXAmount ?? 0) / Math.pow(10, decX)),
+            totalTokenYAmount: String(Number(p.total_y_amount ?? p.totalYAmount ?? 0) / Math.pow(10, decY)),
+            feeX: String(Number(p.fee_x ?? p.total_fee_x_pending ?? p.feeX ?? 0) / Math.pow(10, decX)),
+            feeY: String(Number(p.fee_y ?? p.total_fee_y_pending ?? p.feeY ?? 0) / Math.pow(10, decY)),
+            inRange: p.in_range ?? p.inRange ?? false,
+            liquidityUsd: parseFloat(p.total_usd_value ?? p.usd_value ?? p.totalUsdValue ?? p.liquidity_usd ?? '0'),
+          });
+        }
+      }
+      return out;
     } catch (err) {
       console.error('Failed to fetch Meteora positions:', err);
       return [];

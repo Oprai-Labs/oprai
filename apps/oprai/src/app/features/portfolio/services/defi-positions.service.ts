@@ -3,13 +3,17 @@ import { firstValueFrom } from 'rxjs';
 import { ProtocolDetectionService } from './protocol-detection.service';
 import { JupiterLendService } from '@core/services/market/jupiter-lend.service';
 import { ApiService } from '@core/services/api.service';
+import { TokenRegistryService } from '@core/services/market/token-registry.service';
 import type { EnhancedTokenAccount, ProtocolPosition, PositionItem } from '../models/portfolio.models';
 
 const RAYDIUM_PAIRS_URL = 'https://api.raydium.io/v2/main/pairs';
 const KAMINO_OBLIGATIONS_URL = 'https://api.kamino.finance/v2/user-metadata';
 const MARGINFI_ACCOUNTS_URL = 'https://production.marginfi.com/marginfi_accounts';
 const RAYDIUM_V3_API = 'https://api-v3.raydium.io';
-const METEORA_DLMM_API = 'https://dlmm-api.meteora.ag';
+// Meteora datapi — replaces deprecated `dlmm-api.meteora.ag/position/user/<wallet>`
+// (returns 404 since early 2026). The new portfolio/open endpoint groups
+// positions by pool: { pools: [{ pool_address, name, positions: [...], ... }] }.
+const METEORA_DATAPI = 'https://dlmm.datapi.meteora.ag';
 const STREAMFLOW_API = 'https://api.streamflow.finance/api/v2';
 const DRIFT_API = 'https://mainnet-beta.drift.trade/v2';
 
@@ -29,9 +33,30 @@ export class DefiPositionsService {
   private readonly protocolDetection = inject(ProtocolDetectionService);
   private readonly jupiterLend = inject(JupiterLendService);
   private readonly apiService = inject(ApiService);
+  private readonly tokenRegistry = inject(TokenRegistryService);
   private raydiumPairsCache: RaydiumPair[] | null = null;
   private raydiumCacheTimestamp = 0;
   private readonly CACHE_TTL = 120_000;
+
+  /**
+   * Resolve a token's logo URI from the Jupiter token registry. Falls back
+   * to mint-based lookup when the symbol-keyed lookup misses (some pools
+   * report only the mint, e.g. Meteora DLMM /portfolio/open). Triggers an
+   * async resolve so the registry warms up for the next render even if the
+   * current call returns null.
+   */
+  private resolveTokenLogo(symbol: string | null | undefined, mint?: string | null): string | null {
+    if (mint) {
+      const byMint = this.tokenRegistry.getToken(mint);
+      if (byMint?.logoURI) return byMint.logoURI;
+      this.tokenRegistry.resolveAsync(mint);
+    }
+    if (symbol) {
+      const bySym = this.tokenRegistry.getBySymbol(symbol);
+      if (bySym?.logoURI) return bySym.logoURI;
+    }
+    return null;
+  }
 
   async getLpPositions(
     _wallet: string,
@@ -49,11 +74,13 @@ export class DefiPositionsService {
           const pair = lpMintMap.get(token.mint);
           if (pair && token.balance > 0) {
             const usdValue = pair.lpPrice > 0 ? token.balance * pair.lpPrice : token.usdValue;
+            const symA = pair.name.split('-')[0]?.trim() ?? '?';
+            const symB = pair.name.split('-')[1]?.trim() ?? '?';
             matchedItems.push({
               label: pair.name,
               tokens: [
-                { symbol: pair.name.split('-')[0]?.trim() ?? '?', amount: 0, logoUri: null },
-                { symbol: pair.name.split('-')[1]?.trim() ?? '?', amount: 0, logoUri: null },
+                { symbol: symA, amount: 0, logoUri: this.resolveTokenLogo(symA, pair.tokenMintCoin) },
+                { symbol: symB, amount: 0, logoUri: this.resolveTokenLogo(symB, pair.tokenMintPc) },
               ],
               totalUsdValue: usdValue,
               metadata: { lpAmount: token.balance },
@@ -94,7 +121,7 @@ export class DefiPositionsService {
       if (earnPositions.length > 0) {
         const items: PositionItem[] = earnPositions.map(p => ({
           label: p.asset.symbol,
-          tokens: [{ symbol: p.asset.symbol, amount: p.depositedAmount, logoUri: null }],
+          tokens: [{ symbol: p.asset.symbol, amount: p.depositedAmount, logoUri: this.resolveTokenLogo(p.asset.symbol) }],
           totalUsdValue: null,
           metadata: { apy: p.apy, depositedAmount: p.depositedAmount },
         }));
@@ -112,8 +139,8 @@ export class DefiPositionsService {
         const items: PositionItem[] = borrowPositions.map(p => ({
           label: `${p.collateralAsset.symbol} / ${p.debtAsset.symbol}`,
           tokens: [
-            { symbol: p.collateralAsset.symbol, amount: p.collateralAmount, logoUri: null },
-            { symbol: p.debtAsset.symbol, amount: p.debtAmount, logoUri: null },
+            { symbol: p.collateralAsset.symbol, amount: p.collateralAmount, logoUri: this.resolveTokenLogo(p.collateralAsset.symbol) },
+            { symbol: p.debtAsset.symbol, amount: p.debtAmount, logoUri: this.resolveTokenLogo(p.debtAsset.symbol) },
           ],
           totalUsdValue: null,
           metadata: {
@@ -218,18 +245,20 @@ export class DefiPositionsService {
         };
         for (const dep of (obl.deposits ?? obl.collaterals ?? [])) {
           const sym: string = dep.symbol ?? dep.mintSymbol ?? 'UNKNOWN';
+          const mint: string | null = dep.mint ?? dep.mintAddress ?? null;
           const amt: number = dep.amount ?? dep.depositedAmount ?? 0;
           if (amt > 0) {
-            supplyItems.push({ label: `${sym} — ${market}`, tokens: [{ symbol: sym, amount: amt, logoUri: null }], totalUsdValue: dep.usdValue ?? null, metadata: { apy: dep.apy ?? null } });
+            supplyItems.push({ label: `${sym} — ${market}`, tokens: [{ symbol: sym, amount: amt, logoUri: this.resolveTokenLogo(sym, mint) }], totalUsdValue: dep.usdValue ?? null, metadata: { apy: dep.apy ?? null } });
           }
         }
         for (const bor of (obl.borrows ?? obl.liabilities ?? [])) {
           const sym: string = bor.symbol ?? bor.mintSymbol ?? 'UNKNOWN';
+          const mint: string | null = bor.mint ?? bor.mintAddress ?? null;
           const amt: number = bor.amount ?? bor.borrowedAmount ?? 0;
           if (amt > 0) {
             borrowItems.push({
               label: `${sym} — ${market}`,
-              tokens: [{ symbol: sym, amount: amt, logoUri: null }],
+              tokens: [{ symbol: sym, amount: amt, logoUri: this.resolveTokenLogo(sym, mint) }],
               totalUsdValue: bor.usdValue ?? null,
               metadata: { apy: bor.apy ?? null, ...riskMeta },
             });
@@ -294,17 +323,18 @@ export class DefiPositionsService {
         const balances: any[] = acc.balances ?? acc.active_assets ?? [];
         for (const bal of balances) {
           const sym: string = bal.symbol ?? bal.token_symbol ?? 'UNKNOWN';
+          const mint: string | null = bal.mint ?? bal.token_mint ?? null;
           const side: string = bal.side ?? (bal.liability_shares ? 'borrow' : 'deposit');
           const amt: number = bal.quantity_deposited ?? bal.deposit_quantity ?? bal.quantity ?? 0;
           const borrowAmt: number = bal.quantity_borrowed ?? bal.borrow_quantity ?? 0;
           if (amt > 0) {
-            lendItems.push({ label: sym, tokens: [{ symbol: sym, amount: amt, logoUri: null }], totalUsdValue: bal.usd_value ?? null, metadata: { apy: bal.deposit_apy ?? null } });
+            lendItems.push({ label: sym, tokens: [{ symbol: sym, amount: amt, logoUri: this.resolveTokenLogo(sym, mint) }], totalUsdValue: bal.usd_value ?? null, metadata: { apy: bal.deposit_apy ?? null } });
           }
           if (borrowAmt > 0 || side === 'borrow') {
             const ba = borrowAmt || amt;
             borrowItems.push({
               label: sym,
-              tokens: [{ symbol: sym, amount: ba, logoUri: null }],
+              tokens: [{ symbol: sym, amount: ba, logoUri: this.resolveTokenLogo(sym, mint) }],
               totalUsdValue: bal.usd_value ?? null,
               metadata: { apy: bal.borrow_apy ?? null, ...riskMeta },
             });
@@ -394,6 +424,8 @@ export class DefiPositionsService {
 
       const logo = this.protocolDetection.getProtocolLogo('raydium');
       const items: PositionItem[] = data.map((pos: any) => {
+        const mintA: string | null = pos.poolInfo?.mintA?.address ?? null;
+        const mintB: string | null = pos.poolInfo?.mintB?.address ?? null;
         const mintASymbol: string = pos.poolInfo?.mintA?.symbol ?? 'Token A';
         const mintBSymbol: string = pos.poolInfo?.mintB?.symbol ?? 'Token B';
         const decA: number = pos.poolInfo?.mintA?.decimals ?? 9;
@@ -406,8 +438,8 @@ export class DefiPositionsService {
         return {
           label: `${mintASymbol}/${mintBSymbol} ${inRange ? '● In Range' : '○ Out of Range'}`,
           tokens: [
-            { symbol: mintASymbol, amount: amtA, logoUri: null },
-            { symbol: mintBSymbol, amount: amtB, logoUri: null },
+            { symbol: mintASymbol, amount: amtA, logoUri: pos.poolInfo?.mintA?.logoURI ?? this.resolveTokenLogo(mintASymbol, mintA) },
+            { symbol: mintBSymbol, amount: amtB, logoUri: pos.poolInfo?.mintB?.logoURI ?? this.resolveTokenLogo(mintBSymbol, mintB) },
           ],
           totalUsdValue: null,
           metadata: {
@@ -436,57 +468,99 @@ export class DefiPositionsService {
 
   // ──── Meteora DLMM Positions ────
 
+  /**
+   * Fetch open DLMM positions from Meteora datapi. The legacy
+   * `dlmm-api.meteora.ag/position/user/<wallet>` route was retired in early
+   * 2026; the replacement is `/portfolio/open?user=<wallet>`, which groups
+   * positions by pool and reports per-position bin range, deposited amounts
+   * and unclaimed fees in raw units (decimals supplied by the pool).
+   *
+   * Response shape (defensive parsing — fields may be camelCase or
+   * snake_case depending on indexer build):
+   *   { pools: [{
+   *       address|pool_address, name, token_x{address,symbol,decimals},
+   *       token_y{...}, current_price, tvl,
+   *       positions: [{
+   *         address, lower_bin_id, upper_bin_id,
+   *         total_x_amount, total_y_amount,
+   *         fee_x, fee_y,
+   *         total_usd_value
+   *       }]
+   *   }] }
+   */
   async getMeteoraPositions(wallet: string): Promise<ProtocolPosition[]> {
     if (!wallet) return [];
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10_000);
       const res = await fetch(
-        `${METEORA_DLMM_API}/position/user/${wallet}`,
+        `${METEORA_DATAPI}/portfolio/open?user=${wallet}`,
         { signal: controller.signal }
       );
       clearTimeout(timeout);
       if (!res.ok) return [];
       const data = await res.json() as any;
-      const positions: any[] = Array.isArray(data) ? data : (data?.userPositions ?? data?.positions ?? []);
-      if (!positions.length) return [];
+      const pools: any[] = Array.isArray(data?.pools) ? data.pools
+        : Array.isArray(data) ? data
+        : (data?.positions ?? data?.userPositions ?? []);
+      if (!pools.length) return [];
 
       const logo = this.protocolDetection.getProtocolLogo('meteora');
-      const items: PositionItem[] = positions.map((pos: any) => {
-        const pairName: string = pos.pair?.name ?? pos.name ?? 'Unknown Pool';
-        const parts = pairName.split('-');
-        const symA = parts[0]?.trim() ?? 'A';
-        const symB = parts[1]?.trim() ?? 'B';
-        const decX: number = pos.pair?.decimals_x ?? 9;
-        const decY: number = pos.pair?.decimals_y ?? 6;
-        const amtX = Number(pos.total_x_amount ?? 0) / Math.pow(10, decX);
-        const amtY = Number(pos.total_y_amount ?? 0) / Math.pow(10, decY);
-        const feeX = Number(pos.fee_x ?? pos.total_fee_x_pending ?? 0) / Math.pow(10, decX);
-        const feeY = Number(pos.fee_y ?? pos.total_fee_y_pending ?? 0) / Math.pow(10, decY);
-        return {
-          label: pairName,
-          tokens: [
-            { symbol: symA, amount: amtX, logoUri: null },
-            { symbol: symB, amount: amtY, logoUri: null },
-          ],
-          totalUsdValue: null,
-          metadata: {
-            pairAddress: pos.pair_address ?? pos.address ?? '',
-            lowerBinId: pos.lower_bin_id ?? null,
-            upperBinId: pos.upper_bin_id ?? null,
-            feeOwedA: feeX,
-            feeOwedB: feeY,
-          },
-        };
-      });
+      const items: PositionItem[] = [];
 
+      for (const pool of pools) {
+        const tokenX = pool.token_x ?? pool.tokenX ?? {};
+        const tokenY = pool.token_y ?? pool.tokenY ?? {};
+        const symA: string = tokenX.symbol ?? pool.name?.split('-')?.[0]?.trim() ?? 'A';
+        const symB: string = tokenY.symbol ?? pool.name?.split('-')?.[1]?.trim() ?? 'B';
+        const mintA: string | null = tokenX.address ?? pool.mint_x ?? null;
+        const mintB: string | null = tokenY.address ?? pool.mint_y ?? null;
+        const decX: number = tokenX.decimals ?? pool.decimals_x ?? 9;
+        const decY: number = tokenY.decimals ?? pool.decimals_y ?? 9;
+        const pairAddress: string = pool.address ?? pool.pool_address ?? '';
+        const pairName: string = pool.name ?? `${symA}-${symB}`;
+
+        const positions: any[] = pool.positions ?? pool.userPositions ?? [];
+        // No per-pool position list: treat the pool itself as a single row.
+        const list = positions.length > 0 ? positions : [pool];
+
+        for (const pos of list) {
+          const amtX = Number(pos.total_x_amount ?? pos.totalXAmount ?? 0) / Math.pow(10, decX);
+          const amtY = Number(pos.total_y_amount ?? pos.totalYAmount ?? 0) / Math.pow(10, decY);
+          const feeX = Number(pos.fee_x ?? pos.total_fee_x_pending ?? pos.feeX ?? 0) / Math.pow(10, decX);
+          const feeY = Number(pos.fee_y ?? pos.total_fee_y_pending ?? pos.feeY ?? 0) / Math.pow(10, decY);
+          const usdValue: number | null =
+            pos.total_usd_value != null ? Number(pos.total_usd_value)
+            : pos.usd_value != null ? Number(pos.usd_value)
+            : pos.totalUsdValue != null ? Number(pos.totalUsdValue)
+            : null;
+          items.push({
+            label: pairName,
+            tokens: [
+              { symbol: symA, amount: amtX, logoUri: this.resolveTokenLogo(symA, mintA) },
+              { symbol: symB, amount: amtY, logoUri: this.resolveTokenLogo(symB, mintB) },
+            ],
+            totalUsdValue: usdValue,
+            metadata: {
+              pairAddress,
+              lowerBinId: pos.lower_bin_id ?? pos.lowerBinId ?? null,
+              upperBinId: pos.upper_bin_id ?? pos.upperBinId ?? null,
+              feeOwedA: feeX,
+              feeOwedB: feeY,
+            },
+          });
+        }
+      }
+
+      if (!items.length) return [];
+      const totalUsdValue = items.reduce((s, p) => s + (p.totalUsdValue ?? 0), 0);
       return [{
         protocolId: 'meteora',
         protocolName: 'Meteora DLMM',
         protocolLogoUri: logo,
         category: 'liquidity-pool',
         positions: items,
-        totalUsdValue: 0,
+        totalUsdValue,
       }];
     } catch {
       return [];
@@ -516,12 +590,13 @@ export class DefiPositionsService {
       // Spot balances
       for (const bal of (user.spotPositions ?? user.spot_positions ?? [])) {
         const sym: string = bal.symbol ?? bal.token_symbol ?? `Spot #${bal.marketIndex ?? bal.market_index ?? '?'}`;
+        const mint: string | null = bal.mint ?? bal.token_mint ?? null;
         const amt = Number(bal.scaledBalance ?? bal.balance ?? 0);
         if (amt === 0) continue;
         const usd = Number(bal.usdValue ?? bal.usd_value ?? 0) || null;
         items.push({
           label: `${sym} (Spot)`,
-          tokens: [{ symbol: sym, amount: amt, logoUri: null }],
+          tokens: [{ symbol: sym, amount: amt, logoUri: this.resolveTokenLogo(sym, mint) }],
           totalUsdValue: usd,
           metadata: { type: 'spot', market: bal.marketIndex ?? bal.market_index ?? null },
         });
@@ -537,7 +612,9 @@ export class DefiPositionsService {
         const side = sizeLots > 0 ? 'Long' : 'Short';
         items.push({
           label: `Perp #${marketIdx} ${side}`,
-          tokens: [{ symbol: `PERP-${marketIdx}`, amount: Math.abs(sizeLots), logoUri: null }],
+          // Perp markets don't map to a single SPL mint; fall back to the
+          // generic Drift logo so the row isn't iconless.
+          tokens: [{ symbol: `PERP-${marketIdx}`, amount: Math.abs(sizeLots), logoUri: this.protocolDetection.getProtocolLogo('drift') }],
           totalUsdValue: pnl !== 0 ? pnl : null,
           metadata: { type: 'perp', market: marketIdx, side: side.toLowerCase(), size: Math.abs(sizeLots), pnl },
         });
@@ -581,12 +658,13 @@ export class DefiPositionsService {
         const deposited = Number(s.deposited_amount ?? 0);
         const withdrawn = Number(s.withdrawn_amount ?? 0);
         const remaining = Math.max(0, deposited - withdrawn) / Math.pow(10, decimals);
-        const sym: string = s.token_symbol ?? (s.mint ? s.mint.slice(0, 6) + '...' : 'TOKEN');
+        const mint: string | null = s.mint ?? null;
+        const sym: string = s.token_symbol ?? (mint ? mint.slice(0, 6) + '...' : 'TOKEN');
         const isSender: boolean = (s.sender ?? '').toLowerCase() === wallet.toLowerCase();
         const role = isSender ? 'Sender' : 'Recipient';
         return {
           label: s.name || `Stream ${(s.id ?? s.publicKey ?? '').slice(0, 8)}`,
-          tokens: [{ symbol: sym, amount: remaining, logoUri: null }],
+          tokens: [{ symbol: sym, amount: remaining, logoUri: this.resolveTokenLogo(sym, mint) }],
           totalUsdValue: null,
           metadata: {
             role,

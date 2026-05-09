@@ -1365,21 +1365,37 @@ export class SolanaActionService {
       (action.type === 'swap' && this.isVolatileToken((action.params ?? {})['outputMint'] ?? ''));
     const useJito = this.jitoAutoRoutingEnabled || mevSensitive;
 
-    if (useJito) {
+    // Blockhashes expire ~60s after build. If the user reads/thinks for a
+    // while before signing, preflight at submit fails with "Blockhash not
+    // found" / "block height exceeded". Surface those uniformly so the
+    // action card shows a Retry-friendly message instead of the raw RPC dump.
+    const submitOrThrow = async (raw: Uint8Array): Promise<string> => {
       try {
-        signature = await this.submitViaJito(signedTx.serialize());
-      } catch {
-        // Jito failed — fall back to standard RPC silently
-        signature = await connection.sendRawTransaction(signedTx.serialize(), {
+        return await connection.sendRawTransaction(raw, {
           skipPreflight: false,
           preflightCommitment: 'confirmed',
         });
+      } catch (err: any) {
+        const m = err?.message ?? String(err ?? '');
+        if (/blockhash not found|block height exceeded/i.test(m)) {
+          throw new Error('BLOCKHASH_EXPIRED');
+        }
+        throw err;
+      }
+    };
+
+    if (useJito) {
+      try {
+        signature = await this.submitViaJito(signedTx.serialize());
+      } catch (jitoErr: any) {
+        const m = jitoErr?.message ?? String(jitoErr ?? '');
+        if (/blockhash not found|block height exceeded/i.test(m)) {
+          throw new Error('BLOCKHASH_EXPIRED');
+        }
+        signature = await submitOrThrow(signedTx.serialize());
       }
     } else {
-      signature = await connection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-      });
+      signature = await submitOrThrow(signedTx.serialize());
     }
 
     callbacks.onSubmit?.(signature);

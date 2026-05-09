@@ -683,7 +683,11 @@ async def build_llm_context(
             select(ChatSession.session_state).where(ChatSession.id == uuid.UUID(session_id))
         )
         ss = ss_row.scalar_one_or_none()
-        rendered_state = render_session_state_for_llm(ss, user_message=sanitised_last_user_content or "")
+        rendered_state = render_session_state_for_llm(
+            ss,
+            user_message=sanitised_last_user_content or "",
+            intent=intent,
+        )
         if rendered_state:
             messages.append({"role": "system", "content": rendered_state})
     except Exception:

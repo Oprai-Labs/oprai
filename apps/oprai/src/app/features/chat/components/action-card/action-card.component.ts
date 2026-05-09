@@ -1746,40 +1746,62 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.editSlippage()) mergedParams['slippage'] = this.editSlippage();
     if (this.editPriorityFee()) mergedParams['priorityFee'] = this.editPriorityFee();
     const mergedAction: ParsedAction = { ...this.action, params: mergedParams };
+
+    const callbacks = {
+      onQuote: () => this.status.set('quoting'),
+      onSign: () => this.status.set('signing'),
+      onSubmit: (sig: string) => {
+        this.txSignature.set(sig);
+        this.status.set('submitted');
+        this.startSubmittedTick();
+        this.persistResult({ status: 'submitted', txSignature: sig, errorMessage: null, executedParams: mergedParams });
+      },
+      onConfirm: (result?: string) => {
+        this.stopSubmittedTick();
+        this.status.set('confirmed');
+        if (this.isDataOnly() && result) {
+          this.dataResult.set(result);
+        }
+        const sig = this.txSignature() ?? result ?? '';
+        const stored: StoredActionResult = { status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: mergedParams };
+        this.storeResult(mergedAction, sig);
+        this.persistResult(stored);
+        this.clearDraft();
+        this.actionComplete.emit(stored);
+      },
+    };
+
     try {
-      await this.actionService.executeChain([mergedAction], {
-        onQuote: () => this.status.set('quoting'),
-        onSign: () => this.status.set('signing'),
-        onSubmit: (sig: string) => {
-          this.txSignature.set(sig);
-          this.status.set('submitted');
-          this.startSubmittedTick();
-          // Persist immediately on submit so refresh shows tx hash even before on-chain confirm.
-          this.persistResult({ status: 'submitted', txSignature: sig, errorMessage: null, executedParams: mergedParams });
-        },
-        onConfirm: (result?: string) => {
-          this.stopSubmittedTick();
-          this.status.set('confirmed');
-          if (this.isDataOnly() && result) {
-            this.dataResult.set(result);
-          }
-          const sig = this.txSignature() ?? result ?? '';
-          const stored: StoredActionResult = { status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: mergedParams };
-          this.storeResult(mergedAction, sig);
-          this.persistResult(stored);
-          this.clearDraft();
-          this.actionComplete.emit(stored);
-        },
-      });
+      await this.actionService.executeChain([mergedAction], callbacks);
     } catch (e: any) {
       const msg: string = e?.message ?? String(e ?? '');
       const isUserRejection = /reject|denied|cancel|declined|user refused/i.test(msg);
       if (isUserRejection) {
         this.status.set('pending');
-      } else {
-        this.errorMessage.set(sanitizeErrorMessage(msg) || 'Failed to execute action');
-        this.status.set('error');
+        return;
       }
+      // Blockhash expired between build and submit (user lingered on the
+      // form). Rebuild once with a fresh blockhash and re-prompt for sign —
+      // saves the user a manual Retry click. Limit to one retry to avoid an
+      // infinite loop if the RPC itself is broken.
+      if (/^BLOCKHASH_EXPIRED$|blockhash not found|block height exceeded/i.test(msg)) {
+        try {
+          this.status.set('quoting');
+          await this.actionService.executeChain([mergedAction], callbacks);
+          return;
+        } catch (e2: any) {
+          const m2: string = e2?.message ?? String(e2 ?? '');
+          if (/reject|denied|cancel|declined|user refused/i.test(m2)) {
+            this.status.set('pending');
+            return;
+          }
+          this.errorMessage.set(sanitizeErrorMessage(m2) || 'Failed to execute action');
+          this.status.set('error');
+          return;
+        }
+      }
+      this.errorMessage.set(sanitizeErrorMessage(msg) || 'Failed to execute action');
+      this.status.set('error');
     }
   }
 

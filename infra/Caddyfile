@@ -99,21 +99,21 @@
     }
 }
 
-# ─── Marketing site (oprai.xyz) — uncomment when ready ────────────────────────
-# Requires the marketing-site files to be served by a separate container or
-# a static file_server pointing at a host-mounted directory.
-#
-# {$MARKETING_DOMAIN:oprai.xyz} {
-#     encode zstd gzip
-#     header {
-#         Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-#         X-Content-Type-Options    "nosniff"
-#         Referrer-Policy           "strict-origin-when-cross-origin"
-#         -Server
-#     }
-#     reverse_proxy marketing:80
-# }
-#
-# www.oprai.xyz {
-#     redir https://oprai.xyz{uri} permanent
-# }
+# ─── Marketing site (oprai.xyz + www) ────────────────────────────────────────
+# Static export of apps/marketing-site (Next.js `next export`) served by an
+# nginx container with the host directory /opt/oprai-marketing mounted in.
+{$MARKETING_DOMAIN:oprai.xyz} {
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+    reverse_proxy marketing:80
+}
+
+www.{$MARKETING_DOMAIN:oprai.xyz} {
+    redir https://{$MARKETING_DOMAIN:oprai.xyz}{uri} permanent
+}
