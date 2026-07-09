@@ -55,13 +55,21 @@ class LLMService:
       - "anthropic" → Claude Messages API
     """
 
-    def __init__(self) -> None:
+    def __init__(self, model_override: str | None = None) -> None:
+        """
+        Args:
+            model_override: When set, this model id is used instead of the
+                provider default. Used by the intent-routed analysis path —
+                long/complex turns can route to a more capable model. The
+                override applies to the responder only; classifier and
+                summariser keep their own defaults.
+        """
         self._provider = settings.OPRAI_LLM_PROVIDER.lower()
 
         if self._provider == "anthropic":
             if not settings.OPRAI_ANTHROPIC_API_KEY:
                 raise RuntimeError("LLM provider=anthropic but OPRAI_ANTHROPIC_API_KEY is empty")
-            self._model = settings.OPRAI_RESPONDER_MODEL_ANTHROPIC
+            self._model = model_override or settings.OPRAI_RESPONDER_MODEL_ANTHROPIC
             self._anthropic = AsyncAnthropic(api_key=settings.OPRAI_ANTHROPIC_API_KEY)
             # Unused for Anthropic but referenced by sibling methods — keep set
             # to None so accidental access fails loudly instead of silently.
@@ -75,7 +83,7 @@ class LLMService:
         if not settings.OPRAI_OPENAI_API_KEY:
             raise RuntimeError("LLM integration is not configured: OPRAI_OPENAI_API_KEY is empty")
 
-        self._model = settings.OPRAI_RESPONDER_MODEL_OPENAI
+        self._model = model_override or settings.OPRAI_RESPONDER_MODEL_OPENAI
         self._use_responses_api = self._model in _RESPONSES_API_MODELS
         self._client = AsyncOpenAI(api_key=settings.OPRAI_OPENAI_API_KEY)
         self._anthropic = None
@@ -344,6 +352,26 @@ class LLMService:
                     args = getattr(event, "arguments", fn["arguments"])
                     if fn["name"] and args:
                         yield ("tool_call", fn["name"], args)
+
+            # ── Final usage event ── (Responses API emits `response.completed`
+            # at end-of-stream with the full response object including usage.
+            # Reasoning tokens are folded into output_tokens already; we
+            # surface input + output + reasoning separately so the caller
+            # can attribute cost precisely instead of estimating from chars.)
+            elif etype == "response.completed":
+                resp = getattr(event, "response", None)
+                usage = getattr(resp, "usage", None) if resp is not None else None
+                if usage is not None:
+                    input_t   = int(getattr(usage, "input_tokens",  0) or 0)
+                    output_t  = int(getattr(usage, "output_tokens", 0) or 0)
+                    # `output_tokens_details.reasoning_tokens` ships the
+                    # hidden chain-of-thought portion of output_tokens. It
+                    # is ALREADY included in `output_tokens` (per OpenAI
+                    # docs) — we yield it separately so the caller can
+                    # log it; do NOT double-count when summing.
+                    details   = getattr(usage, "output_tokens_details", None)
+                    reasoning = int(getattr(details, "reasoning_tokens", 0) or 0) if details else 0
+                    yield ("usage", input_t, output_t, reasoning)
 
         if reasoning_started and not reasoning_done:
             yield ("text", "</think>")
@@ -731,11 +759,42 @@ def _convert_tools_openai_to_anthropic(tools: list[dict]) -> list[dict]:
 
 # Channel marker like `to=query_onchain` (with optional trailing words).
 _HARMONY_CHANNEL_RE = re.compile(r"\s*to=[a-zA-Z_][a-zA-Z0-9_]*\b[^\n]*")
-# JSON keys that signal a tool-call leakage object.
-_LEAK_JSON_KEYS = ("tool", "type", "query_type", "action", "category", "name", "function", "arguments")
+# JSON keys that signal a tool-call leakage object. The first group is the
+# tool-dispatch envelope (`{"tool": "...", "arguments": {...}}`); the second
+# is common DeFi action-param keys — when the model dumps the inner params
+# object directly (`{"tokenA": "USDS", "amountB": "4"}`) without the wrapper,
+# we still want to drop it.
+_LEAK_JSON_KEYS = (
+    # Dispatch envelope
+    "tool", "type", "query_type", "action", "category", "name", "function", "arguments",
+    # Action params commonly leaked as bare param-object dumps
+    "tokenA", "tokenB", "mintA", "mintB", "poolId", "inputMint", "outputMint",
+    "inputAmount", "amount", "amountA", "amountB", "slippageBps", "minPrice", "maxPrice",
+    "swapMode", "action_type", "wallet", "to", "recipient", "duration", "limit",
+    "sort_by", "sort_type",
+)
+# Harmony-style parameter declaration: `<parameter name="X">` / `<parameter
+# name=X>` / the broken `<parameter name{` form the model emits when its
+# tool-call streaming hiccups. Any line containing this fragment is leak.
+_HARMONY_PARAMETER_RE = re.compile(r"<\s*parameter\s+name[\s=>{]", re.IGNORECASE)
 # Common self-talk / scratchpad phrases the model leaks when confused.
 _SELFTALK_RE = re.compile(
     r"(?im)^\s*(Ok\s+I[' ]?ll output|Actually use tool call syntax|hmm|code\?|Let me try)[^\n]*\n?"
+)
+# Bare tool name on its own line — `raydium_get_pools`, `query_onchain`,
+# `meteora_dlmm_get_pairs`, etc. Pattern: a line that contains ONLY a
+# snake_case identifier 6+ chars long (typical tool-name shape) with no
+# surrounding prose. Models occasionally emit this as a "scratchpad" line
+# before the actual tool call, leaking the dispatch logic to the user.
+_BARE_TOOL_NAME_RE = re.compile(r"^\s*[a-z][a-z0-9]*(?:_[a-z0-9]+){1,5}\s*$")
+# Single-line JSON tool-args object — `{"query": "USDS USDC"}`,
+# `{"poolId": "..."}`, `{"action_type": "swap", ...}`. Catches the
+# common shape of tool arguments that the model dumps as text when its
+# tool dispatch gets confused. Looking for a `{` followed by a quoted
+# key, a colon, and ending with `}` on the same line — short enough to
+# be tool args, not a prose paragraph containing a JSON snippet.
+_TOOL_ARGS_JSON_RE = re.compile(
+    r'^\s*\{\s*"[a-zA-Z_][a-zA-Z0-9_]*"\s*:[^{}]{0,400}\}\s*$'
 )
 
 # Distinctive tool-call vocabulary that should never appear in user-facing
@@ -764,10 +823,134 @@ _TECHNICAL_LEAK_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Orphan `[` on its own line — a vestige of the legacy `[ACTION:type] {...}` /
+# `[QUERY:type]` / `[CLARIFY:type]` markup the model is forbidden to emit.
+# Models on the OpenAI function-calling path occasionally start typing `[`
+# (then catch themselves and switch to a real tool call), leaving a stray
+# bracket in the prose. Drop any line whose stripped content is `[` alone, or
+# a partial opener like `[A` / `[Q` / `[C` that never completed into a marker.
+_ORPHAN_BRACKET_LINE_RE = re.compile(r"^\s*\[\s*[AQC]?\s*$")
+
+# Partial tool-name fragments — gpt-5.4-mini leaks the trailing half of a
+# tool identifier when its tool-call streaming hiccups, producing user-
+# visible text like `_onchain ฝ่ายขายละครTrending?` (the `_onchain` from
+# `query_onchain`) or `_action 天天中彩票能 Card ready` (the `_action` from
+# `execute_action`). The fragment is short enough that the broader
+# _TECHNICAL_LEAK_RE wouldn't match by name. Treat any line that contains
+# one of these partials at a word boundary as leakage.
+_PARTIAL_TOOL_NAME_RE = re.compile(
+    r"(?:^|\s|[^\w])"                                    # word boundary
+    r"(_onchain|_action|_clarification|_search|_token)"   # known tail fragments
+    r"(?:\b|[\s\W])",
+    re.IGNORECASE,
+)
+
+# Non-Latin token clusters in otherwise-Latin output. mini occasionally
+# emits Chinese / Thai / Arabic glyph runs from its tokenizer when its
+# tool-call attempt fails — they come from token vocabulary collisions
+# (the same token id maps to a Chinese glyph and a latin fragment). Any
+# line with 3+ consecutive CJK / Thai / Devanagari / Hangul characters
+# is treated as leak: the assistant is supposed to respond in the user's
+# language, and the user does not speak in any of those scripts here.
+# (If the user actually wrote in CJK / Thai, the model's reply would be
+# routed through LANGUAGE LOCK and would contain MOSTLY non-Latin text —
+# this pattern only triggers on isolated short clusters.)
+_NON_LATIN_CLUSTER_RE = re.compile(
+    # CJK ideographs + Hiragana/Katakana + Hangul + Thai + Devanagari
+    # + Arabic. Arabic block was missed in first pass — caught by the
+    # /tmp/smoke_leak_filter.py "الجمل البسيطة 中国" case.
+    r"[一-鿿぀-ヿ가-힯฀-๿ऀ-ॿؐ-ۿ]{3,}"
+)
+
 
 def _drop_leak_lines(text: str) -> str:
-    """Drop any line that contains technical tool-call leakage vocabulary."""
-    return "\n".join(ln for ln in text.split("\n") if not _TECHNICAL_LEAK_RE.search(ln))
+    """Drop lines that look like tool-call leakage.
+
+    Five layers:
+      1. `_TECHNICAL_LEAK_RE` — distinctive phrases (`query_onchain`, `tool
+         call`, `Harmony format`, etc.) anywhere in the line.
+      2. `_BARE_TOOL_NAME_RE` — a snake_case identifier alone on a line
+         (e.g. `raydium_get_pools`).
+      3. `_TOOL_ARGS_JSON_RE` — a single-line JSON object that looks like
+         tool args (e.g. `{"query": "USDS USDC"}`).
+      4. `_HARMONY_PARAMETER_RE` — Harmony-style `<parameter name…>` tag
+         fragments opening a multi-line parameter block. Drop the opening
+         line, every JSON-key/value line that follows, and the closing
+         `}`.
+      5. **Orphan JSON-key lines** — when the model dumps the args object
+         WITHOUT the `{` wrapper and WITHOUT the `<parameter` tag, you get
+         a block like:
+             "poolId": "AS5MV3...",
+             "tokenA": "USDS",
+             "amountB": "4"
+             }
+         Any line that matches `^\\s*"<leak_key>"\\s*:` is treated as a
+         leak; a subsequent standalone `}` or `},` closes the block.
+    """
+    out: list[str] = []
+    in_parameter_block = False
+    in_orphan_block = False
+    leak_keys_set = set(_LEAK_JSON_KEYS)
+    # Pre-compile a per-call regex that matches `"key":` where key is one
+    # of the known leak keys. Used to detect orphan param dumps.
+    leak_key_line_re = re.compile(
+        r'^\s*"(' + "|".join(re.escape(k) for k in leak_keys_set) + r')"\s*:',
+    )
+    # Any JSON-key line — looser than `leak_key_line_re`. Used only to
+    # continue an already-open orphan block (so a non-leak param like
+    # `"slippageBps"` doesn't terminate it).
+    any_key_line_re = re.compile(r'^\s*"[a-zA-Z_][a-zA-Z0-9_]*"\s*:')
+
+    for ln in text.split("\n"):
+        stripped = ln.strip()
+
+        if _TECHNICAL_LEAK_RE.search(ln):
+            continue
+        if _PARTIAL_TOOL_NAME_RE.search(ln):
+            continue
+        if _NON_LATIN_CLUSTER_RE.search(ln):
+            continue
+        if _BARE_TOOL_NAME_RE.match(ln):
+            continue
+        if _TOOL_ARGS_JSON_RE.match(ln):
+            continue
+        if _ORPHAN_BRACKET_LINE_RE.match(ln):
+            continue
+        if _HARMONY_PARAMETER_RE.search(ln):
+            in_parameter_block = True
+            continue
+        if in_parameter_block:
+            if stripped == "" or stripped == "}":
+                in_parameter_block = stripped != "}"
+                if stripped == "":
+                    continue
+                continue
+            if any_key_line_re.match(ln):
+                continue
+            in_parameter_block = False
+
+        # Layer 5: orphan param-block detection. Entering the block needs
+        # at least ONE recognised leak key; once in, we eat any JSON-key
+        # line and the closing brace.
+        if leak_key_line_re.match(ln):
+            in_orphan_block = True
+            continue
+        if in_orphan_block:
+            if stripped in ("}", "},"):
+                in_orphan_block = False
+                continue
+            if any_key_line_re.match(ln):
+                continue
+            if stripped == "":
+                # Blank line inside the block: stay in (the dump usually
+                # has no blanks but a model hiccup might insert one).
+                continue
+            # Anything else means real prose — close the block and let the
+            # line fall through to be kept.
+            in_orphan_block = False
+
+        out.append(ln)
+    return "\n".join(out)
 
 
 def _find_balanced_brace(s: str, start: int) -> int:
@@ -867,7 +1050,16 @@ def _strip_tool_call_leakage(buffer: str, *, flush: bool = False) -> tuple[str, 
         # leak token, hold the entire thing — we'll either drop it after
         # the next newline or flush-strip it at end of stream.
         partial_tail = cleaned
-        if _TECHNICAL_LEAK_RE.search(partial_tail):
+        # Three hold-back triggers: known leak vocab, a snake_case identifier
+        # alone (likely bare tool name being typed), or a `{` followed by a
+        # quoted key (tool-args JSON being typed).
+        if (
+            _TECHNICAL_LEAK_RE.search(partial_tail)
+            or _BARE_TOOL_NAME_RE.match(partial_tail)
+            or re.match(r'^\s*\{\s*"[a-zA-Z_]', partial_tail)
+            or _ORPHAN_BRACKET_LINE_RE.match(partial_tail)
+            or re.match(r'^\s*\[(?:ACTION|QUERY|CLARIFY)(?::[a-z_]*)?$', partial_tail, re.IGNORECASE)
+        ):
             return "", buffer
         cleaned_complete = ""
     else:
@@ -876,21 +1068,31 @@ def _strip_tool_call_leakage(buffer: str, *, flush: bool = False) -> tuple[str, 
         cleaned_complete = _drop_leak_lines(complete_part)
         # If the partial tail itself already shows a leak token, hold it
         # so the user never sees the half-formed leak line.
-        if _TECHNICAL_LEAK_RE.search(partial_tail):
+        if (
+            _TECHNICAL_LEAK_RE.search(partial_tail)
+            or _BARE_TOOL_NAME_RE.match(partial_tail)
+            or re.match(r'^\s*\{\s*"[a-zA-Z_]', partial_tail)
+            or _ORPHAN_BRACKET_LINE_RE.match(partial_tail)
+            or re.match(r'^\s*\[(?:ACTION|QUERY|CLARIFY)(?::[a-z_]*)?$', partial_tail, re.IGNORECASE)
+        ):
             return cleaned_complete, partial_tail
 
     visible = cleaned_complete + partial_tail
 
     # Hold back trailing content that may still be growing into a leakage pattern.
     # If the buffer ends with an unclosed `{` whose first key is suspicious, OR a
-    # partial `to=` marker without a newline yet, hold from there.
+    # partial `to=` marker without a newline yet, OR an unclosed `[` (possible
+    # `[ACTION:...]` legacy marker), hold from there.
     last_open = visible.rfind("{")
     last_to = visible.rfind("to=")
+    last_bracket = visible.rfind("[")
     cuts: list[int] = []
     if last_open != -1 and _find_balanced_brace(visible, last_open) == -1:
         cuts.append(last_open)
     if last_to != -1 and "\n" not in visible[last_to:]:
         cuts.append(last_to)
+    if last_bracket != -1 and "]" not in visible[last_bracket:] and "\n" not in visible[last_bracket:]:
+        cuts.append(last_bracket)
 
     # Stream-chunk lookahead: even when no in-progress leak is yet detectable,
     # a Harmony marker like `to=query_onchain` can arrive split across chunks

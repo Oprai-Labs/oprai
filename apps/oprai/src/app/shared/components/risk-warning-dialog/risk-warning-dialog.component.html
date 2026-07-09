@@ -15,24 +15,45 @@
     <div class="dialog-header">
       <div class="dialog-icon">
         @switch (p.severity) {
-          @case ('danger')  { <lucide-icon name="triangle-alert" [size]="20" /> }
-          @case ('warning') { <lucide-icon name="alert-circle"   [size]="20" /> }
-          @default          { <lucide-icon name="info"            [size]="20" /> }
+          @case ('danger')  { <lucide-icon name="triangle-alert" [size]="18" /> }
+          @case ('warning') { <lucide-icon name="alert-circle" [size]="18" /> }
+          @default          { <lucide-icon name="info"           [size]="18" /> }
         }
       </div>
-      <h3 class="dialog-title">{{ p.title }}</h3>
+      <div class="dialog-heading">
+        <span class="dialog-sev">
+          @switch (p.severity) {
+            @case ('danger')  { High risk }
+            @case ('warning') { Caution }
+            @default          { Notice }
+          }
+        </span>
+        <h3 class="dialog-title">{{ p.title }}</h3>
+      </div>
     </div>
 
     <!-- Message -->
     <p class="dialog-message">{{ p.message }}</p>
 
-    <!-- Risk items -->
+    <!-- Key figures -->
+    @if (p.figures && p.figures.length > 0) {
+      <div class="dialog-figures">
+        @for (fig of p.figures; track $index) {
+          <div class="figure" [class.figure--emphasis]="fig.emphasis">
+            <span class="figure__label">{{ fig.label }}</span>
+            <span class="figure__value">{{ fig.value }}</span>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- Risk points -->
     @if (p.items.length > 0) {
       <ul class="dialog-items">
         @for (item of p.items; track $index) {
           <li class="dialog-item">
-            <lucide-icon [name]="item.icon" [size]="14" class="item-icon" />
-            <span>{{ item.text }}</span>
+            <span class="dialog-item__mark" aria-hidden="true"></span>
+            <span class="dialog-item__text">{{ item.text }}</span>
           </li>
         }
       </ul>

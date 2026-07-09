@@ -95,7 +95,8 @@ Rules:
 4. Do NOT include sensitive PII (real names, emails, phone numbers, exact
    wallet balances, transaction signatures). These are operational data,
    not preferences.
-5. Output JSON only. No commentary, no markdown."""
+5. Output JSON only. No commentary, no markdown.
+6. If the user explicitly says to forget, remove, or stop a preference (e.g. "forget my DEX preference", "don't use Meteora anymore", "remove my slippage setting"), emit the fact with confidence=0.0 and fact_value=null. The caller will delete zero-confidence facts."""
 
 
 async def extract_and_upsert(
@@ -171,6 +172,22 @@ async def extract_and_upsert(
             confidence = float(fact.get("confidence", 0.0))
         except (TypeError, ValueError):
             confidence = 0.0
+
+        # Manual override: user explicitly asked to forget this fact.
+        if confidence == 0.0 and fact.get("fact_value") is None:
+            try:
+                await db.execute(
+                    sa_text(
+                        f"DELETE FROM {settings.DB_SCHEMA}.user_facts "
+                        "WHERE wallet = :wallet AND fact_type = :fact_type"
+                    ),
+                    {"wallet": wallet, "fact_type": fact_type},
+                )
+                written += 1
+            except Exception:
+                logger.debug("user_facts delete failed for %s", fact_type, exc_info=True)
+            continue
+
         if confidence < 0.4:
             continue
         confidence = min(max(confidence, 0.0), 1.0)
@@ -203,6 +220,43 @@ async def extract_and_upsert(
             continue
 
     return written
+
+
+async def decay_stale_facts(db: AsyncSession, wallet: str) -> None:
+    """Decay confidence of facts not updated in 90 days and delete those that hit 0.
+
+    Intended to run once per session (not per turn). Silent on any failure.
+    """
+    if not wallet:
+        return
+    try:
+        # Decrease confidence by 0.3 for stale facts, floored at 0.
+        await db.execute(
+            sa_text(
+                f"""
+                UPDATE {settings.DB_SCHEMA}.user_facts
+                SET confidence = GREATEST(0.0, confidence - 0.3)
+                WHERE wallet = :wallet
+                  AND updated_at < now() - INTERVAL '90 days'
+                """
+            ),
+            {"wallet": wallet},
+        )
+        # Delete facts whose confidence has now reached 0.
+        await db.execute(
+            sa_text(
+                f"""
+                DELETE FROM {settings.DB_SCHEMA}.user_facts
+                WHERE wallet = :wallet
+                  AND confidence <= 0.0
+                """
+            ),
+            {"wallet": wallet},
+        )
+        await db.commit()
+    except Exception:
+        logger.debug("user_facts decay skipped for wallet=%s", wallet, exc_info=True)
+        await db.rollback()
 
 
 async def render_for_llm(db: AsyncSession, wallet: str) -> str:

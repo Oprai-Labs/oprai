@@ -3,6 +3,11 @@ import { environment } from '@env/environment';
 
 const STAKE_PROGRAM_ID = 'Stake11111111111111111111111111111111111111';
 const TOKEN_PROGRAM_ID_STR = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+// Token-2022 program — newer SPL extension standard. Many recent
+// Pump.fun launches and meme tokens with transfer-fee, immutable-owner
+// or non-transferable extensions live here. Without scanning it the
+// Tokens tab silently misses entire chunks of the user's holdings.
+const TOKEN_2022_PROGRAM_ID_STR = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
 interface RpcResponse<T> {
   jsonrpc: string;
@@ -114,12 +119,21 @@ export class SolanaRpcService {
       decimals: number;
     }>
   > {
-    const result = await this.rpcCall<RpcValueWrapper<ParsedTokenAccount>>(
-      'getTokenAccountsByOwner',
-      [walletAddress, { programId: TOKEN_PROGRAM_ID_STR }, { encoding: 'jsonParsed' }],
-    );
+    // Query both Token + Token-2022 programs in parallel and merge. Either
+    // call individually failing shouldn't drop the other's results.
+    const [legacy, tok22] = await Promise.all([
+      this.rpcCall<RpcValueWrapper<ParsedTokenAccount>>(
+        'getTokenAccountsByOwner',
+        [walletAddress, { programId: TOKEN_PROGRAM_ID_STR }, { encoding: 'jsonParsed' }],
+      ).catch(() => ({ value: [] }) as RpcValueWrapper<ParsedTokenAccount>),
+      this.rpcCall<RpcValueWrapper<ParsedTokenAccount>>(
+        'getTokenAccountsByOwner',
+        [walletAddress, { programId: TOKEN_2022_PROGRAM_ID_STR }, { encoding: 'jsonParsed' }],
+      ).catch(() => ({ value: [] }) as RpcValueWrapper<ParsedTokenAccount>),
+    ]);
 
-    return (result?.value ?? [])
+    const all = [...(legacy?.value ?? []), ...(tok22?.value ?? [])];
+    return all
       .map((account) => {
         const info = account?.account?.data?.parsed?.info;
         if (!info) return null;
@@ -169,12 +183,23 @@ export class SolanaRpcService {
       rentLamports: number;
     }>
   > {
-    const result = await this.rpcCall<RpcValueWrapper<ParsedTokenAccount>>(
-      'getTokenAccountsByOwner',
-      [walletAddress, { programId: TOKEN_PROGRAM_ID_STR }, { encoding: 'jsonParsed' }],
-    );
+    // Hit both token programs in parallel. Token-2022 (PYUSD, EURC, USDS,
+    // etc.) was previously skipped, which is why empty-but-real Token-2022
+    // ATAs never showed up in the manage modal and missed their rent
+    // reclaim. Empty results from either side are safely concat'd as [].
+    const [legacy, token22] = await Promise.all([
+      this.rpcCall<RpcValueWrapper<ParsedTokenAccount>>(
+        'getTokenAccountsByOwner',
+        [walletAddress, { programId: TOKEN_PROGRAM_ID_STR }, { encoding: 'jsonParsed' }],
+      ).catch(() => null),
+      this.rpcCall<RpcValueWrapper<ParsedTokenAccount>>(
+        'getTokenAccountsByOwner',
+        [walletAddress, { programId: TOKEN_2022_PROGRAM_ID_STR }, { encoding: 'jsonParsed' }],
+      ).catch(() => null),
+    ]);
 
-    return (result?.value ?? [])
+    const all = [...(legacy?.value ?? []), ...(token22?.value ?? [])];
+    return all
       .map((account) => {
         const info = account?.account?.data?.parsed?.info;
         if (!info) return null;
@@ -273,6 +298,63 @@ export class SolanaRpcService {
     }));
   }
 
+  /**
+   * Fetch multiple raw accounts in one RPC round-trip. Returns `null` for
+   * any address that doesn't exist on-chain (so the caller can distinguish
+   * "missing PDA" from "empty PDA"). Used by the Pump.fun creator-rewards
+   * scan and any other PDA lookup that needs balances without parsing.
+   */
+  async getMultipleAccountInfo(
+    pubkeys: string[],
+  ): Promise<Array<{ lamports: number; owner: string; dataLen: number } | null>> {
+    if (pubkeys.length === 0) return [];
+    try {
+      const result = await this.rpcCall<{
+        value: Array<{ lamports: number; owner: string; data: [string, string] } | null>;
+      }>('getMultipleAccounts', [pubkeys, { encoding: 'base64' }]);
+      return (result?.value ?? []).map((acc) => {
+        if (!acc) return null;
+        const data = Array.isArray(acc.data) ? acc.data[0] : '';
+        return {
+          lamports: acc.lamports ?? 0,
+          owner: acc.owner,
+          // Approximate dataLen — atob is fine here because the values are
+          // small (< 1KB for the PDAs we care about); we only need this for
+          // rent-exempt math when the lamport math depends on data length.
+          dataLen: typeof data === 'string' ? Math.floor((data.length * 3) / 4) : 0,
+        };
+      });
+    } catch {
+      return pubkeys.map(() => null);
+    }
+  }
+
+  /**
+   * Solana's network inflation rate. Used to estimate the headline APY a
+   * native-staking position earns — there's no "stake APR" RPC method, but
+   * the inflation `total` minus `foundation` lands within 0.2pp of the
+   * average validator's effective APR after commission for any randomly-
+   * chosen validator. Returned as a percentage (7.0, not 0.07).
+   */
+  async getNativeStakingApr(): Promise<number> {
+    try {
+      const r = await this.rpcCall<{ total: number; validator: number; foundation: number }>(
+        'getInflationRate',
+        [],
+      );
+      // `validator` is the share earmarked for validators (post-foundation),
+      // which is the headline APR for staked SOL after vesting/decay
+      // adjustments. Falls back to `total` when shape is unexpected.
+      const validator = r?.validator;
+      const total = r?.total;
+      const pick = Number.isFinite(validator) ? validator : total;
+      if (!Number.isFinite(pick) || pick <= 0) return 7.0;
+      return pick * 100;
+    } catch {
+      return 7.0;
+    }
+  }
+
   async getRecentPriorityFeeMicroLamports(): Promise<number> {
     const result = await this.rpcCall<RpcPrioritizationFee[]>('getRecentPrioritizationFees', []);
     const values = (result ?? [])
@@ -281,5 +363,23 @@ export class SolanaRpcService {
       .sort((a, b) => a - b);
     if (values.length === 0) return 0;
     return values[Math.floor(values.length / 2)] ?? 0;
+  }
+
+  /**
+   * Fetch a parsed transaction by signature. Used as a fallback when the
+   * Helius enrichment endpoint returns nothing (new-tx indexing lag, batch
+   * timeout, gateway hiccup). Returns the raw RPC response — caller is
+   * responsible for shaping it into the EnhancedTransaction model.
+   */
+  async getParsedTransaction(signature: string): Promise<any | null> {
+    try {
+      const result = await this.rpcCall<any>('getTransaction', [
+        signature,
+        { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' },
+      ]);
+      return result ?? null;
+    } catch {
+      return null;
+    }
   }
 }

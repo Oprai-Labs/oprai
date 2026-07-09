@@ -107,9 +107,33 @@ class RAGService:
 
     async def _get_qdrant(self) -> AsyncQdrantClient:
         if self._client is None:
-            self._client = AsyncQdrantClient(url=self._qdrant_url)
+            self._client = AsyncQdrantClient(
+                url=self._qdrant_url,
+                timeout=settings.QDRANT_TIMEOUT_SEC,
+            )
             await self._ensure_collection()
         return self._client
+
+    async def warmup(self) -> None:
+        """Pre-load the HNSW index and quantization codebook into RAM.
+
+        The knowledge collection is `on_disk=true` with INT8 quantization, so
+        the first query after a Qdrant restart pays a 5-15s page-in cost. We
+        run a tiny query at startup so the first real user request finds the
+        index already hot. Failures are non-fatal — RAG falls back gracefully
+        if Qdrant is unreachable.
+        """
+        try:
+            client = await self._get_qdrant()
+            await client.query_points(
+                collection_name=COLLECTION_NAME,
+                query=[0.0] * EMBEDDING_DIM,
+                using="dense",
+                limit=1,
+            )
+            logger.info("RAG warmup complete (collection '%s' hot)", COLLECTION_NAME)
+        except Exception as exc:
+            logger.warning("RAG warmup skipped: %s", exc)
 
     # ── Collection bootstrap ──────────────────────────────────────────────────
 
@@ -277,8 +301,7 @@ class RAGService:
         header = (
             "[Knowledge Context]\n"
             "The following reference material was retrieved from OPRAI's knowledge base. "
-            "Cite each fact you use as [doc_id:chunk_id] (e.g. [jupiter_dca:2]). "
-            "If the answer is not covered here, say so — do NOT fabricate citations.\n"
+            "Use it to answer accurately. Do NOT fabricate information not present here.\n"
         )
 
         parts = [header]
@@ -294,15 +317,13 @@ class RAGService:
             meta_parts = [p for p in [chunk.protocol, chunk.source_type, ts] if p]
             meta = " / ".join(meta_parts) if meta_parts else ""
 
-            citation_id = f"{chunk.doc_id}:{chunk.chunk_id}"
             section = f"Section: {chunk.section_path}" if chunk.section_path else ""
             title_line = chunk.title if chunk.title else chunk.doc_id
 
             block = (
                 f"---\n"
-                f"[{citation_id}]"
+                + (f"{title_line}" if title_line else "")
                 + (f" ({meta})" if meta else "")
-                + (f" — {title_line}" if title_line != chunk.doc_id else "")
                 + "\n"
                 + (f"{section}\n" if section else "")
                 + chunk.content.strip()

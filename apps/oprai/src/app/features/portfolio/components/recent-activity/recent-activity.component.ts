@@ -345,6 +345,34 @@ export class RecentActivityComponent {
     return new Date(blockTime * 1000).toISOString();
   }
 
+  /** Absolute date for the feed row, e.g. "20 May 2026, 10:36". */
+  getDateAbsolute(blockTime: number | null): string {
+    if (blockTime === null) return '';
+    return new Date(blockTime * 1000).toLocaleString(undefined, {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  /**
+   * Primary platform icon for a tx, with a guaranteed non-empty result
+   * (letter-avatar fallback). Used for the round avatar that leads each
+   * feed row — answers "where did this action happen?".
+   */
+  getTxPlatformIcon(tx: EnhancedTransaction): string {
+    const primary = this.getTxPrimaryProtocol(tx);
+    if (primary) return this.getProtocolIconForKey(primary.key);
+    return this.getPlatformIconSafe(tx.platform);
+  }
+
+  getTxPlatformLabel(tx: EnhancedTransaction): string {
+    const primary = this.getTxPrimaryProtocol(tx);
+    return primary ? primary.label : this.getPlatformLabel(tx.platform);
+  }
+
   openTxDetail(tx: EnhancedTransaction): void {
     this.selectedTx.set(tx);
     this.txModalOpen.set(true);
@@ -590,6 +618,41 @@ export class RecentActivityComponent {
     if (amount === null || amount === undefined) return '--';
     const sign = this.isAmountPositive(tx) ? '+' : '-';
     return `${sign}${this.formatAmount(Math.abs(amount))}`;
+  }
+
+  /**
+   * For swaps: out leg (red) + in leg (green) so the row shows "−1.5 SOL → +120 USDC".
+   * Returns null when the tx isn't a 2-leg swap or the legs aren't both decoded —
+   * caller falls back to the single-amount renderer.
+   */
+  getSwapLegs(tx: EnhancedTransaction): {
+    out: { amount: string; symbol: string; logo: string | null; usd: string | null };
+    in:  { amount: string; symbol: string; logo: string | null; usd: string | null };
+  } | null {
+    const d = tx.details;
+    if (!d || tx.type !== 'swap') return null;
+    const fromAmount = d.fromAmount;
+    const toAmount = d.toAmount;
+    if (fromAmount == null || toAmount == null) return null;
+    const fromSym = d.fromSymbol ?? d.tokenSymbol ?? '';
+    const toSym = d.toSymbol ?? '';
+    if (!fromSym && !toSym) return null;
+    const usd = (v: number | null | undefined): string | null =>
+      v == null ? null : '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return {
+      out: {
+        amount: '−' + this.formatAmount(Math.abs(fromAmount)),
+        symbol: fromSym,
+        logo: d.fromLogoUri ?? null,
+        usd: usd(d.fromUsdValue),
+      },
+      in: {
+        amount: '+' + this.formatAmount(Math.abs(toAmount)),
+        symbol: toSym,
+        logo: d.toLogoUri ?? null,
+        usd: usd(d.toUsdValue),
+      },
+    };
   }
 
   isAmountPositive(tx: EnhancedTransaction): boolean {

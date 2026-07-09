@@ -302,11 +302,15 @@ export class WalletService {
       if (adapter.publicKey) {
         this.removeEvents();
         this._adapter = adapter;
+        const newKey = adapter.publicKey?.toBase58() ?? null;
         this.zone.run(() => {
           this._connected.set(true);
-          this._publicKey.set(adapter.publicKey?.toBase58() ?? null);
+          this._publicKey.set(newKey);
           this._walletName.set(lastWallet);
         });
+        // Fire accountChanged so the auth layer re-binds to this wallet
+        // even on silent (trusted) reconnect at page load.
+        this.accountChanged$.next(newKey);
         this.attachEvents(adapter);
         return true;
       }
@@ -379,12 +383,22 @@ export class WalletService {
       this.removeEvents();
       this._adapter = adapter;
 
+      const newKey = adapter.publicKey?.toBase58() ?? null;
       this.zone.run(() => {
         this._connected.set(true);
-        this._publicKey.set(adapter.publicKey?.toBase58() ?? null);
+        this._publicKey.set(newKey);
         this._walletName.set(walletName);
         this._connecting.set(false);
       });
+
+      // SECURITY: notify subscribers (app.component logout + re-auth) that the
+      // active wallet may have changed. Without this, a disconnect → connect
+      // with a different wallet flow leaves the previous JWT in memory; backend
+      // session-list calls still read the OLD wallet's data via X-User-Wallet
+      // injected from the stale JWT — i.e. the new wallet sees the previous
+      // wallet's chat history. accountChanged$ only fired on adapter native
+      // events before; we explicitly emit on every successful connect now.
+      this.accountChanged$.next(newKey);
 
       localStorage.setItem('oprai-last-wallet', walletName);
       void this.updateMemoryConsent(); // fire-and-forget: non-critical consent update

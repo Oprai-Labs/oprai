@@ -3680,14 +3680,18 @@ class RaydiumGetPoolsAction(BuildableAction):
     @property
     def name(self) -> str: return "raydium_get_pools"
     @property
-    def description(self) -> str: return "List Raydium pools with sorting and filtering"
+    def description(self) -> str: return "List Raydium pools with sorting and filtering — mirrors raydium.io's own ranking"
     @property
     def parameters(self) -> dict[str, dict[str, Any]]:
         return {
-            "poolType":  {"type": "string", "required": False, "description": "Pool type: all, amm, clmm, cpmm"},
-            "sortField": {"type": "string", "required": False, "description": "Sort by: tvl, volume24h, apr"},
-            "page":      {"type": "number", "required": False},
-            "pageSize":  {"type": "number", "required": False},
+            # Raydium API enum values, NOT human-friendly synonyms — the
+            # backend validator rejects anything not in this list. "tvl"
+            # used to be documented here and would 400 every call.
+            "poolType":  {"type": "string", "required": False, "description": "Pool type: all | concentrated | standard | allFarm | concentratedFarm | standardFarm"},
+            "sortField": {"type": "string", "required": False, "description": "Sort by: liquidity (=TVL) | volume24h | fee24h | apr24h | volume7d | fee7d | apr7d. Default: liquidity"},
+            "sortType":  {"type": "string", "required": False, "description": "asc | desc (default: desc)"},
+            "page":      {"type": "number", "required": False, "description": "1-indexed page number"},
+            "pageSize":  {"type": "number", "required": False, "description": "Results per page (default 20, max 1000)"},
         }
 
 
@@ -4733,6 +4737,42 @@ class PumpFunTrendingAction(BuildableAction):
         return {}
 
 
+class PumpFunCurveGlobalAction(BuildableAction):
+    @property
+    def name(self) -> str: return "pumpfun_curve_global"
+    @property
+    def description(self) -> str:
+        return (
+            "Fetch pump.fun's GLOBAL bonding-curve constants live from the on-chain Global PDA AND "
+            "(optionally) compute the answer to a curve-math question deterministically server-side. "
+            "Use for ANY analytical / hypothetical pump.fun bonding-curve question without a specific mint. "
+            "Pass NO params to just get the constants (model does the math). Pass any of the optional "
+            "params below to delegate the arithmetic to the server (more reliable for big numbers / multi-step): "
+            "  • from_mc_sol + to_mc_sol → SOL needed (net + gross with fee) to push market cap from X to Y SOL. "
+            "  • sol_in_fresh → tokens received for that many SOL on a brand-new curve. "
+            "  • tokens_out_fresh → SOL needed to receive that many tokens on a brand-new curve. "
+            "  • mc_to_v_sol → v_sol corresponding to a given market cap (for intermediate steps). "
+            "Result includes `constants`, `derived` formulas, and `computed` block when params are passed. "
+            "Do NOT call for token-specific state — use pumpfun_bonding_curve with a mint for that."
+        )
+    @property
+    def aliases(self) -> list[str]: return ["pumpfun_constants", "pumpfun_global"]
+    @property
+    def parameters(self) -> dict[str, dict[str, Any]]:
+        return {
+            "from_mc_sol": {"type": "number", "required": False,
+                "description": "Optional. Current market cap in SOL. Pair with to_mc_sol to compute SOL needed to move between them."},
+            "to_mc_sol": {"type": "number", "required": False,
+                "description": "Optional. Target market cap in SOL. Pair with from_mc_sol."},
+            "sol_in_fresh": {"type": "number", "required": False,
+                "description": "Optional. SOL spent on a brand-new pump.fun curve → returns tokens_received."},
+            "tokens_out_fresh": {"type": "number", "required": False,
+                "description": "Optional. Tokens to receive on a brand-new curve → returns sol_needed_net + sol_needed_gross."},
+            "mc_to_v_sol": {"type": "number", "required": False,
+                "description": "Optional. Market cap in SOL → returns the corresponding v_sol along the curve."},
+        }
+
+
 class PumpFunPlugin(BasePlugin):
     @property
     def id(self) -> str: return "pumpfun"
@@ -4748,6 +4788,7 @@ class PumpFunPlugin(BasePlugin):
             PumpFunSellAction(),
             PumpFunTokenInfoAction(),
             PumpFunTrendingAction(),
+            PumpFunCurveGlobalAction(),
         ]
 
 

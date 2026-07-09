@@ -22,42 +22,18 @@ export const routes: Routes = [
             (m) => m.PORTFOLIO_ROUTES
           ),
       },
-      {
-        path: 'agents',
-        canActivate: [authGuard],
-        loadChildren: () =>
-          import('./features/projects/projects.routes').then(
-            (m) => m.PROJECTS_ROUTES
-          ),
-      },
-      {
-        path: 'voice',
-        canActivate: [authGuard],
-        loadChildren: () =>
-          import('./features/voice/voice.routes').then(
-            (m) => m.VOICE_ROUTES
-          ),
-      },
-      {
-        path: 'burn',
-        canActivate: [authGuard],
-        loadChildren: () =>
-          import('./features/burn/burn.routes').then(
-            (m) => m.BURN_ROUTES
-          ),
-      },
-      {
-        path: 'stake',
-        canActivate: [authGuard],
-        loadChildren: () =>
-          import('./features/stake/stake.routes').then(
-            (m) => m.STAKE_ROUTES
-          ),
-      },
+      { path: 'agents', redirectTo: '', pathMatch: 'prefix' },
+      { path: 'voice', redirectTo: '', pathMatch: 'prefix' },
+      // Token Manager removed — legacy /burn URLs redirect home.
+      { path: 'burn', redirectTo: '', pathMatch: 'prefix' },
+      { path: 'stake', redirectTo: '', pathMatch: 'prefix' },
       {
         path: 'settings',
-        redirectTo: '',
-        pathMatch: 'full',
+        canActivate: [authGuard],
+        loadComponent: () =>
+          import('./features/settings/pages/settings-page/settings-page.component').then(
+            (m) => m.SettingsPageComponent,
+          ),
       },
       // Backward-compat redirects
       { path: 'market', redirectTo: '', pathMatch: 'full' },

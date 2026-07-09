@@ -150,6 +150,67 @@
                 }
               }
 
+              <!-- Inline query cards — INSIDE the bubble so the intro text and
+                   the QueryCard mini-app render as one visual unit. Same for
+                   action and clarify cards below. -->
+              @if (getQueriesForMessage(message.id).length > 0) {
+                <div class="inline-cards inline-cards--in-bubble">
+                  @for (query of getQueriesForMessage(message.id); track $index) {
+                    <app-query-card
+                      [query]="query"
+                      [sessionId]="message.sessionId"
+                      [messageId]="message.id"
+                      [snapshot]="message.metadata?.query_snapshots?.[querySnapshotKey(query)] ?? null"
+                      (cancelAction)="onCancelAction($event)"
+                      (useAction)="onUseAction($event, message.id)">
+                    </app-query-card>
+                  }
+                </div>
+              }
+
+              @if (getActionsForMessage(message.id).length > 0) {
+                <div class="inline-cards inline-cards--in-bubble">
+                  @if (getActionsForMessage(message.id).length >= 2 && !isBatchRunning(message.id)) {
+                    <button class="run-all-btn" (click)="startBatchRun(message.id)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                      Run All in Sequence
+                    </button>
+                  }
+                  @if (isBatchRunning(message.id)) {
+                    <div class="run-all-progress">
+                      <span class="run-all-spinner"></span>
+                      Running {{ (batchIndex().get(message.id) ?? 0) + 1 }} of {{ getActionsForMessage(message.id).length }}…
+                    </div>
+                  }
+                  @for (action of getActionsForMessage(message.id); track $index; let i = $index) {
+                    <app-action-card
+                      [action]="action"
+                      [allActions]="getActionsForMessage(message.id)"
+                      [sessionId]="message.sessionId"
+                      [messageId]="message.id"
+                      [cachedResult]="message.metadata?.action_results?.[actionResultKey(action)] ?? null"
+                      [cachedQsResult]="message.metadata?.action_results?.[actionResultKey(action) + ':qs'] ?? null"
+                      [autoApprove]="isBatchAction(message.id, i)"
+                      (requestChat)="onRequestChat($event)"
+                      (actionDismissed)="onActionDismissed(message.id, action)"
+                      (executionComplete)="onBatchStepComplete(message.id, $event)">
+                    </app-action-card>
+                  }
+                </div>
+              }
+
+              @if (getClarificationsForMessage(message.id).length > 0) {
+                <div class="inline-cards inline-cards--in-bubble">
+                  @for (clarify of getClarificationsForMessage(message.id); track $index; let ci = $index) {
+                    <app-clarify-card
+                      [clarify]="clarify"
+                      [selectedIndex]="clarifySelectionFor(message.id, ci)"
+                      (optionSelected)="onClarifySelected(message.id, ci, $event)">
+                    </app-clarify-card>
+                  }
+                </div>
+              }
+
               <!-- Message footer: timestamp + copy button + thumbs feedback -->
               @if (message.content && !isLastAssistantMessage(message)) {
                 <div class="msg-footer">
@@ -196,66 +257,6 @@
           }
         </div>
 
-        <!-- Inline query cards -->
-        @if (message.role === 'assistant' && getQueriesForMessage(message.id).length > 0) {
-          <div class="inline-cards">
-            @for (query of getQueriesForMessage(message.id); track $index) {
-              <app-query-card
-                [query]="query"
-                [sessionId]="message.sessionId"
-                [messageId]="message.id"
-                [snapshot]="message.metadata?.query_snapshots?.[querySnapshotKey(query)] ?? null"
-                (cancelAction)="onCancelAction($event)"
-                (useAction)="onUseAction($event, message.id)">
-              </app-query-card>
-            }
-          </div>
-        }
-
-        <!-- Inline action cards -->
-        @if (message.role === 'assistant' && getActionsForMessage(message.id).length > 0) {
-          <div class="inline-cards">
-            @if (getActionsForMessage(message.id).length >= 2 && !isBatchRunning(message.id)) {
-              <button class="run-all-btn" (click)="startBatchRun(message.id)">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                Run All in Sequence
-              </button>
-            }
-            @if (isBatchRunning(message.id)) {
-              <div class="run-all-progress">
-                <span class="run-all-spinner"></span>
-                Running {{ (batchIndex().get(message.id) ?? 0) + 1 }} of {{ getActionsForMessage(message.id).length }}…
-              </div>
-            }
-            @for (action of getActionsForMessage(message.id); track $index; let i = $index) {
-              <app-action-card
-                [action]="action"
-                [allActions]="getActionsForMessage(message.id)"
-                [sessionId]="message.sessionId"
-                [messageId]="message.id"
-                [cachedResult]="message.metadata?.action_results?.[actionResultKey(action)] ?? null"
-                [cachedQsResult]="message.metadata?.action_results?.[actionResultKey(action) + ':qs'] ?? null"
-                [autoApprove]="isBatchAction(message.id, i)"
-                (requestChat)="onRequestChat($event)"
-                (actionDismissed)="onActionDismissed(message.id, action)"
-                (executionComplete)="onBatchStepComplete(message.id, $event)">
-              </app-action-card>
-            }
-          </div>
-        }
-
-        <!-- Clarify cards — protocol selection -->
-        @if (message.role === 'assistant' && getClarificationsForMessage(message.id).length > 0) {
-          <div class="inline-cards">
-            @for (clarify of getClarificationsForMessage(message.id); track $index; let ci = $index) {
-              <app-clarify-card
-                [clarify]="clarify"
-                [selectedIndex]="clarifySelectionFor(message.id, ci)"
-                (optionSelected)="onClarifySelected(message.id, ci, $event)">
-              </app-clarify-card>
-            }
-          </div>
-        }
       }
     <!-- Dynamic spacer: sized by JS to allow scroll-to-user-message -->
     <div class="scroll-spacer" #scrollSpacer></div>

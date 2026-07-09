@@ -13,6 +13,9 @@
 }
 
 .view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 14px;
   background: var(--op-bg-surface-1);
   border: 1px solid var(--op-border-subtle);
@@ -27,6 +30,20 @@
     background: var(--op-bg-surface-2);
     color: var(--op-text-primary);
   }
+}
+
+.nft-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nft-spam-hint {
+  margin-left: 6px;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--op-text-muted, var(--op-text-secondary));
+  opacity: 0.7;
 }
 
 // ──── NFT Grid ────

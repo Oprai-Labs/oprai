@@ -4,7 +4,7 @@ use uuid::Uuid;
 use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
 
 use crate::error::AppError;
-use crate::services::{burn, dca, debridge, helius, jupiter_lend, jupiter_perp, jupiter_query, jito, jupsol, kamino, limit_order, magic_eden, marginfi, marinade, meteora, native_stake, orca, pumpfun, raydium, relay, sns, solend, squid, streamflow, swap, tensor, transfer};
+use crate::services::{burn, dca, debridge, helius, jupiter_lend, jupiter_perp, jupiter_query, jito, jupsol, kamino, limit_order, magic_eden, marginfi, marinade, meteora, native_stake, orca, protocol_reads, pumpfun, raydium, relay, sns, solend, squid, streamflow, swap, tensor, transfer};
 use crate::solana::connection::SolanaRpc;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -647,7 +647,7 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
                 .map_err(|e| AppError::InvalidParams(format!("Invalid jlp params: {e}")))?;
             jupiter_perp::validate_liquidity_params(&p)
         }
-        "pumpfun_buy" | "pumpfun_sell" => {
+        "pumpfun_buy" | "pumpfun_sell" | "pumpfun_initial_buy" => {
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid pumpfun trade params: {e}")))?;
             pumpfun::validate_pumpfun_trade_params(&p)
@@ -657,7 +657,7 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
                 .map_err(|e| AppError::InvalidParams(format!("Invalid params: {e}")))?;
             pumpfun::validate_pumpfun_mint_params(&p)
         }
-        "pumpfun_new" | "pumpfun_graduating" | "pumpfun_koth" | "pumpfun_trending" => {
+        "pumpfun_new" | "pumpfun_graduating" | "pumpfun_koth" | "pumpfun_trending" | "pumpfun_curve_global" => {
             Ok(())
         }
         "pumpfun_search" => {
@@ -2200,6 +2200,9 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         "streamflow_create" | "streamflow_cancel" | "streamflow_withdraw" | "streamflow_transfer"
         | "streamflow_list" | "streamflow_topup" | "streamflow_update"
         | "streamflow_create_multiple" | "streamflow_get_one" => Ok(()),
+        // Read-only actions proxied wholesale to the TS service. No params
+        // validation here — the TS layer reads `wallet` from the auth header.
+        "drift_list_positions" | "marginfi_user_balances" => Ok(()),
         // pumpfun query actions validated in primary validate block above
         "native_stake" => {
             let p: native_stake::NativeStakeParams = serde_json::from_value(params.clone())
@@ -2345,7 +2348,18 @@ pub async fn build_action(
             .await
             .map_err(|e| AppError::Internal(format!("Blocking error: {e}")))??;
 
-            // Transaction is already base64-encoded (may be versioned or legacy)
+            // Transaction is already base64-encoded (may be versioned or legacy).
+            // For launches with an initial buy, `data.initialBuy` tells the frontend to
+            // perform the dev-buy as a follow-up (via `pumpfun_initial_buy`/PumpPortal)
+            // once the create tx confirms — keeps the create tx under the 1232-byte
+            // limit AND handles Mayhem-mode tokens the bonding-curve buy can't.
+            let launch_data = result.initial_buy.map(|ib| serde_json::json!({
+                "initialBuy": {
+                    "mint": ib.mint,
+                    "amountSol": ib.amount_sol,
+                    "mayhem": ib.mayhem,
+                }
+            }));
             Ok(BuildResponse {
                 preview: ActionPreview {
                     id: result.preview.id,
@@ -2362,7 +2376,7 @@ pub async fn build_action(
                 execution_steps: None,
                 quote: None,
                 is_cross_chain: false,
-        data: None,
+                data: launch_data,
             })
         }
         "stake" => {
@@ -2686,6 +2700,13 @@ pub async fn build_action(
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
             pumpfun::build_pumpfun_buy(http, rpc, &user_pubkey.to_string(), &p).await
         }
+        // Token-launch initial dev-buy (via PumpPortal). Called by the frontend as a
+        // follow-up after the create tx confirms — handles Mayhem + freshly-created
+        // tokens that the standard bonding-curve buy can't. See build_pumpfun_initial_buy.
+        "pumpfun_initial_buy" => {
+            let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            pumpfun::build_pumpfun_initial_buy(http, &user_pubkey.to_string(), &p).await
+        }
         "pumpfun_sell" => {
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
             pumpfun::build_pumpfun_sell(http, rpc, &user_pubkey.to_string(), &p).await
@@ -2716,7 +2737,7 @@ pub async fn build_action(
         }
         "raydium_open_position" => {
             let p: raydium::RaydiumOpenPositionParams = serde_json::from_value(params)?;
-            raydium::build_raydium_open_position(http, &user_pubkey.to_string(), &p).await
+            raydium::build_raydium_open_position(http, rpc, &user_pubkey.to_string(), &p).await
         }
         "raydium_close_position" => {
             let p: raydium::RaydiumClosePositionParams = serde_json::from_value(params)?;
@@ -4446,6 +4467,11 @@ pub async fn build_action(
             let p: pumpfun::PumpFunMintParams = serde_json::from_value(params)?;
             pumpfun::build_pumpfun_bonding_curve(http, &user_pubkey.to_string(), &p).await
         }
+        "pumpfun_curve_global" => {
+            // Global curve constants + optional deterministic compute paths
+            // (from_mc_sol/to_mc_sol, sol_in_fresh, tokens_out_fresh, mc_to_v_sol).
+            pumpfun::build_pumpfun_curve_global(rpc, &params).await
+        }
         "pumpswap_pool_info" => {
             let p: pumpfun::PumpFunMintParams = serde_json::from_value(params)?;
             pumpfun::build_pumpswap_pool_info(http, &user_pubkey.to_string(), &p).await
@@ -4974,6 +5000,14 @@ pub async fn build_action(
             let p: streamflow::StreamflowGetOneParams = serde_json::from_value(params)?;
             let result = streamflow::get_stream_by_id(http, &p).await?;
             streamflow_to_build_response(result)
+        }
+
+        // ── Read-only protocol queries (Drift / MarginFi balances) ─────────────
+        "drift_list_positions" => {
+            protocol_reads::drift_list_positions(http, &user_pubkey.to_string()).await
+        }
+        "marginfi_user_balances" => {
+            protocol_reads::marginfi_user_balances(http, &user_pubkey.to_string()).await
         }
 
         // ── Solana Name Service (SNS) ───────────────────────────────────────────────

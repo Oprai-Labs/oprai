@@ -121,15 +121,19 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
 
   private friendlyError(err: unknown): string {
     if (err instanceof HttpErrorResponse && err.status === 0) {
-      return 'Unable to reach the server. Please make sure the backend is running.';
+      // status 0 = offline / DNS / CORS — phrase it as a connectivity hint
+      // without leaking that we have a backend at all.
+      return 'Connection lost. Check your internet and try again.';
     }
     if (err instanceof HttpErrorResponse && err.status >= 500) {
-      return 'Server error. Please try again later.';
+      return 'We\'re having trouble right now. Please try again in a moment.';
     }
     if (err instanceof Error) {
+      // Wallet-adapter / signature-rejection messages reach the user as-is —
+      // they're already user-readable ("User rejected the request", etc.)
       return err.message;
     }
-    return 'Authentication failed';
+    return 'Couldn\'t sign in. Please try again.';
   }
 
   private removeModalFromBody(): void {

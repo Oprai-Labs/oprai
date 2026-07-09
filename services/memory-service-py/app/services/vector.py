@@ -226,6 +226,42 @@ class VectorService:
             logger.exception("Qdrant delete failed for point %s", point_id)
             return False
 
+    async def delete_by_wallet(self, wallet: str) -> int:
+        """Delete every memory point owned by `wallet`.
+
+        Returns the count of points removed. Best-effort: Qdrant does not
+        return per-row deletion counts on filter-based delete, so we count
+        via a scroll first and then issue the bulk delete.
+        """
+        try:
+            point_ids: list[str] = []
+            offset: Any = None
+            while True:
+                points, offset = await self._client.scroll(
+                    collection_name=self._collection,
+                    scroll_filter=Filter(must=[
+                        FieldCondition(key="user_id", match=MatchAny(any=[wallet])),
+                    ]),
+                    with_payload=False,
+                    with_vectors=False,
+                    limit=512,
+                    offset=offset,
+                )
+                point_ids.extend(str(p.id) for p in points)
+                if offset is None:
+                    break
+            if not point_ids:
+                return 0
+            await self._client.delete(
+                collection_name=self._collection,
+                points_selector=point_ids,
+            )
+            logger.info("Deleted %d memory points for wallet %s", len(point_ids), wallet[:10])
+            return len(point_ids)
+        except Exception:
+            logger.exception("Qdrant bulk-delete failed for wallet %s", wallet[:10])
+            return 0
+
     def _build_filter(self, filters: dict[str, Any] | None) -> Filter | None:
         """Build a Qdrant filter from the request-level filter dict."""
         if not filters:

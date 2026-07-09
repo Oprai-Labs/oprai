@@ -76,6 +76,22 @@ func (p *SolanaProxy) PostSubmit(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostVanityMint proxies the launch flow's request for a pre-ground "…pump"
+// vanity mint keypair (or a random one if the backend pool is cold).
+func (p *SolanaProxy) PostVanityMint(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/vanity-mint"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PostPerpExecute proxies a user-signed Jupiter Perps transaction to the Solana
+// service, which forwards it to Jupiter's execute endpoint (Jupiter adds the
+// keeper signatures and submits). Perp txs are multi-signer and cannot be sent
+// via plain RPC, so this is their dedicated submit path.
+func (p *SolanaProxy) PostPerpExecute(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/perp-execute"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // PostSimulate proxies the frontend's defense-in-depth simulation fallback.
 // The action card runs `connection.simulateTransaction` locally first; if the
 // browser's RPC is misbehaving (404 / CORS / timeout) it falls back to this

@@ -101,22 +101,46 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 9px;
+  padding: 3px 10px;
   border-radius: 99px;
   font-size: 0.6875rem;
-  font-weight: 500;
+  font-weight: 600;
   background: var(--op-bg-surface-2);
-  color: var(--op-text-tertiary);
+  color: var(--op-text-secondary);
+  border: 1px solid transparent;
   white-space: nowrap;
   flex-shrink: 0;
+  transition: background var(--op-fast), color var(--op-fast);
 
-  &--confirmed, &--submitted {
-    background: color-mix(in srgb, #52B788 14%, transparent);
-    color: #52B788;
+  // Ready — brand cyan (idle, ready to go)
+  &--pending {
+    color: #22b8cf;
+    background: color-mix(in srgb, #22b8cf 15%, transparent);
+    border-color: color-mix(in srgb, #22b8cf 32%, transparent);
   }
+  // Building / Sign — amber (in progress / needs action)
+  &--quoting, &--signing {
+    color: #e0a33a;
+    background: color-mix(in srgb, #e0a33a 15%, transparent);
+    border-color: color-mix(in srgb, #e0a33a 32%, transparent);
+  }
+  // Sent — blue (submitted on-chain)
+  &--submitted {
+    color: #3a9ae0;
+    background: color-mix(in srgb, #3a9ae0 15%, transparent);
+    border-color: color-mix(in srgb, #3a9ae0 32%, transparent);
+  }
+  // Done — mint green (success)
+  &--confirmed {
+    color: #52B788;
+    background: color-mix(in srgb, #52B788 16%, transparent);
+    border-color: color-mix(in srgb, #52B788 34%, transparent);
+  }
+  // Error — red
   &--error {
-    background: color-mix(in srgb, var(--op-loss) 12%, transparent);
     color: var(--op-loss);
+    background: color-mix(in srgb, var(--op-loss) 15%, transparent);
+    border-color: color-mix(in srgb, var(--op-loss) 32%, transparent);
   }
 }
 
@@ -159,7 +183,7 @@
   padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   background: color-mix(in srgb, #1D3D32 3%, var(--op-bg-surface-1));
 }
 
@@ -167,7 +191,7 @@
 
 .pf-image-preview {
   width: 100%;
-  min-height: 260px;
+  min-height: 168px;
   border: 1.5px dashed var(--op-border-default);
   border-radius: var(--op-radius-md);
   background: var(--op-bg-surface-2);
@@ -175,15 +199,15 @@
   align-items: center;
   justify-content: center;
   position: relative;
-  padding: 20px;
+  padding: 16px;
 
   img {
-    width: 220px;
-    height: 220px;
-    max-width: calc(100% - 40px);
+    width: 150px;
+    height: 150px;
+    max-width: calc(100% - 32px);
     object-fit: contain;
     display: block;
-    border-radius: 16px;
+    border-radius: 14px;
   }
 }
 
@@ -219,8 +243,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 26px 20px 22px;
+  gap: 6px;
+  padding: 30px 20px 26px;
   cursor: pointer;
   transition: border-color var(--op-fast), background var(--op-fast);
   text-align: center;
@@ -274,7 +298,7 @@
 
 .pf-upload-sub {
   font-size: 0.75rem;
-  color: var(--op-text-tertiary);
+  color: var(--op-text-secondary);
 }
 
 .pf-upload-types {
@@ -313,10 +337,351 @@
 
 // ── Editable fields ──
 
+// Collapsible optional sections (socials, banner) — native <details>.
+.pf-collapse {
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-sm);
+  background: var(--op-bg-surface-2);
+  overflow: hidden;
+}
+.pf-collapse__summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--op-text-secondary);
+  user-select: none;
+
+  &::-webkit-details-marker { display: none; }
+}
+.pf-collapse__lead { color: var(--op-text-tertiary); flex-shrink: 0; }
+.pf-collapse__chev {
+  margin-left: auto;
+  color: var(--op-text-tertiary);
+  transition: transform var(--op-fast);
+}
+.pf-collapse[open] .pf-collapse__chev { transform: rotate(180deg); }
+.pf-collapse__body {
+  padding: 2px 11px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+// Upload standards block (pump.fun spec hints).
+.pf-specs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 14px;
+  padding: 8px 11px;
+  border-radius: var(--op-radius-sm);
+  background: var(--op-bg-surface-2);
+}
+.pf-spec__head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--op-text-primary);
+  margin-bottom: 3px;
+}
+.pf-spec ul {
+  margin: 0;
+  padding-left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pf-spec li {
+  font-size: 0.6875rem;
+  color: color-mix(in srgb, var(--op-text-primary) 80%, transparent);
+  line-height: 1.45;
+}
+
+// Banner upload (inside the collapsible section).
+.pf-banner-note {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--op-text-secondary);
+}
+
+.pf-create-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: var(--op-radius-sm);
+  background: var(--op-bg-surface-2);
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--op-text-secondary);
+
+  lucide-icon { flex-shrink: 0; margin-top: 1px; color: var(--op-text-tertiary); }
+}
+
+// Created token contract — copyable mint row shown once the token is launched.
+.pf-contract {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-sm);
+  background: var(--op-bg-surface-2);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--op-fast), background var(--op-fast);
+
+  &:hover {
+    border-color: var(--op-border-strong, var(--op-text-tertiary));
+    background: var(--op-bg-surface-3);
+  }
+
+  &__label {
+    flex-shrink: 0;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--op-text-tertiary);
+  }
+
+  &__addr {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--op-font-mono, ui-monospace, monospace);
+    font-size: 0.6875rem;
+    color: var(--op-text-secondary);
+  }
+
+  lucide-icon { flex-shrink: 0; color: var(--op-text-tertiary); }
+}
+.pf-banner-zone {
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  max-height: 120px;
+  border: 1.5px dashed var(--op-border-default);
+  border-radius: var(--op-radius-md);
+  background: var(--op-bg-surface-1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+  color: var(--op-text-tertiary);
+  transition: border-color var(--op-fast), background var(--op-fast);
+
+  &:hover {
+    border-color: var(--op-border-strong, var(--op-text-tertiary));
+    background: var(--op-bg-surface-3);
+  }
+  &--uploading { cursor: default; pointer-events: none; }
+}
+
+// Option rows (Mayhem / Cash Back) — pump.fun-style icon + text + switch.
+.pf-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pf-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--op-radius-sm);
+  border: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-surface-2);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--op-fast), background var(--op-fast);
+
+  &:hover { border-color: var(--op-border-strong, var(--op-text-tertiary)); }
+  &--on {
+    border-color: #52B788;
+    background: color-mix(in srgb, #52B788 8%, var(--op-bg-surface-2));
+  }
+}
+.pf-opt__icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--op-bg-surface-3);
+  border: 1.5px solid var(--op-border-subtle);
+  color: var(--op-text-secondary);
+
+  // Colour treatments matching the launch-platform look.
+  // Mayhem: green→red gradient ring with an inner circle + accent pulse glyph.
+  &--mayhem {
+    border: none;
+    padding: 2px;
+    background: linear-gradient(to bottom, #86efac, #ef4444);
+  }
+  // Cash back: neutral circle, dollar glyph.
+  &--cash {
+    color: var(--op-text-primary);
+  }
+  // USDC: real token logo fills the circle (no ring/tint).
+  &--usdc {
+    border: none;
+    background: transparent;
+    padding: 0;
+    overflow: hidden;
+  }
+}
+.pf-opt__logo {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+.pf-opt__ring-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--op-bg-surface-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #52B788;
+}
+.pf-opt__text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.pf-opt__title { font-size: 0.8125rem; font-weight: 600; color: var(--op-text-primary); }
+.pf-opt__sub { font-size: 0.6875rem; color: var(--op-text-tertiary); }
+.pf-switch {
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--op-bg-surface-3);
+  border: 1px solid var(--op-border-subtle);
+  position: relative;
+  transition: background var(--op-fast), border-color var(--op-fast);
+
+  &--on { background: #52B788; border-color: #52B788; }
+}
+.pf-switch__knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--op-fast);
+
+  .pf-switch--on & { transform: translateX(16px); }
+}
+
 .pf-fields {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+// Compact identity row: small square image picker beside name/ticker.
+.pf-id-row {
+  display: flex;
   gap: 10px;
+  align-items: stretch;
+}
+
+.pf-id-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+// Left-align the ticker in the compact inline layout (full centered looks odd).
+.pf-field--ticker-inline .pf-input--ticker {
+  text-align: left;
+}
+
+.pf-image-square {
+  width: 88px;
+  align-self: stretch;
+  min-height: 88px;
+  flex-shrink: 0;
+  border-radius: var(--op-radius-md);
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--op-fast), background var(--op-fast);
+
+  img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  &__edit {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity var(--op-fast);
+  }
+  &:hover .pf-image-square__edit { opacity: 1; }
+
+  &__label {
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: var(--op-text-tertiary);
+  }
+
+  &--empty {
+    flex-direction: column;
+    gap: 4px;
+    border: 1.5px dashed var(--op-border-default);
+    color: var(--op-text-tertiary);
+
+    &:hover {
+      border-color: var(--op-border-strong, var(--op-text-tertiary));
+      background: var(--op-bg-surface-3);
+    }
+  }
+
+  &--dragover {
+    border-color: var(--op-text-secondary);
+    background: var(--op-bg-surface-3);
+    border-style: solid;
+  }
+  &--uploading { cursor: default; pointer-events: none; }
+  &--invalid {
+    border-color: var(--op-loss, #ef4444);
+    background: color-mix(in srgb, var(--op-loss) 5%, var(--op-bg-surface-2));
+    animation: shake 0.4s ease-in-out;
+  }
 }
 
 .pf-field {
@@ -337,8 +702,8 @@
 
 .pf-field-label {
   font-size: 0.6875rem;
-  font-weight: 500;
-  color: var(--op-text-tertiary);
+  font-weight: 600;
+  color: var(--op-text-primary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -357,7 +722,7 @@
 
 .pf-input {
   width: 100%;
-  padding: 7px 10px;
+  padding: 8px 11px;
   border-radius: var(--op-radius-sm);
   border: 1px solid var(--op-border-subtle);
   background: var(--op-bg-surface-2);
@@ -373,6 +738,7 @@
   &:focus {
     border-color: #52B788;
     background: color-mix(in srgb, #52B788 5%, var(--op-bg-surface-2));
+    box-shadow: 0 0 0 3px color-mix(in srgb, #52B788 14%, transparent);
   }
 
   &:disabled {
@@ -413,21 +779,21 @@
   display: flex;
   align-items: center;
 
-  .pf-input { padding-right: 36px; }
+  .pf-input { padding-right: 42px; }
 }
 
 .pf-input-suffix {
   position: absolute;
-  right: 10px;
+  right: 8px;
   font-size: 0.6875rem;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--op-text-tertiary);
   pointer-events: none;
 }
 
 .pf-textarea {
   width: 100%;
-  padding: 7px 10px;
+  padding: 8px 11px;
   border-radius: var(--op-radius-sm);
   border: 1px solid var(--op-border-subtle);
   background: var(--op-bg-surface-2);
@@ -485,8 +851,8 @@
 .pf-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
+  gap: 7px;
+  padding: 7px 12px;
   border-radius: var(--op-radius-sm);
   font-size: 0.75rem;
   font-weight: 500;
@@ -882,8 +1248,8 @@
   background: var(--op-bg-surface-2);
   border-radius: var(--op-radius-sm);
   color: var(--op-text-primary);
-  font-size: 0.8rem;
-  font-family: monospace;
+  font-size: 0.8125rem;
+  font-family: var(--op-font-mono, monospace);
   word-break: break-all;
 }
 
@@ -916,7 +1282,7 @@
   border: 1px solid var(--op-border-subtle);
   border-radius: var(--op-radius-sm);
   color: var(--op-text-tertiary);
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   font-family: var(--op-font-body);
   cursor: pointer;
@@ -1081,27 +1447,175 @@
   text-overflow: ellipsis;
 }
 
+// Combined token-chip + inline amount input row (Raydium-style swap form).
+// Default `token` field renders the chip alone; the `--swap` modifier
+// expands the row into a flex container that puts the amount input on the
+// trailing edge of the same panel, so the user sees both legs of the trade
+// without needing a separate AMOUNT field below.
+.proto-token-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+
+  &--swap {
+    background: var(--op-bg-surface-1);
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 10px;
+    padding: 10px 12px;
+    transition: border-color var(--op-fast);
+    &:focus-within { border-color: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 50%, var(--op-border-subtle)); }
+    > .proto-token-chip {
+      flex: 0 0 auto;
+      background: transparent;
+      border: none;
+      padding: 0;
+    }
+  }
+
+  // Non-swap token fields (limit-order SELL/BUY, etc.) render as a full-width
+  // rounded panel matching the swap card's surfaces — bigger icon + symbol so
+  // they sit consistently with the amount panel below, not as tiny chips.
+  &:not(&--swap) > .proto-token-chip {
+    flex: 1;
+    width: 100%;
+    padding: 13px 15px;
+    border-radius: 16px;
+    gap: 11px;
+
+    .proto-token-chip__icon-wrap { width: 34px; height: 34px; }
+    .proto-token-chip__symbol { font-size: 0.9375rem; }
+    .proto-token-chip__name { font-size: 0.75rem; margin-top: 2px; }
+  }
+
+  &__amount {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: right;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--op-text-primary);
+    font-size: 1.125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 0;
+
+    &:disabled {
+      color: var(--op-text-secondary);
+      cursor: default;
+    }
+    &::placeholder { color: var(--op-text-tertiary); font-weight: 400; }
+    // Strip Webkit's number spinner — the form is a chat surface, not a calculator.
+    &::-webkit-outer-spin-button, &::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+  }
+}
+
+.proto-flip-row {
+  grid-column: 1 / -1;   // span the full 2-column grid (parent is display:grid)
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: -4px 0;        // pull the two adjacent fields slightly closer
+  position: relative;
+  z-index: 1;            // sit above any field border to avoid double-line
+  pointer-events: none;  // let clicks fall through except on the button
+  // Belt-and-suspenders for the button itself — explicit auto margins so
+  // even if a parent's flex/grid resets fire, the circle stays on the centre line.
+  > .proto-flip-btn { margin-left: auto; margin-right: auto; }
+}
+
+.proto-flip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--op-bg-surface-1);
+  color: var(--op-text-secondary);
+  border: 1px solid var(--op-border-subtle);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background var(--op-fast), color var(--op-fast),
+              border-color var(--op-fast), transform var(--op-medium, 220ms);
+
+  &:hover {
+    background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 12%, transparent);
+    color: var(--proto-accent, var(--op-brand));
+    border-color: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 36%, transparent);
+    transform: rotate(180deg);
+  }
+}
+
+// Live quote refresh countdown. Sits just left of the status badge, only
+// while polling is active. Subtle so it doesn't compete with the header
+// brand chrome, but tabular numbers so the countdown ticks cleanly.
+.proto-quote-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  margin-right: 6px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 10%, transparent);
+  color: var(--proto-accent, var(--op-brand));
+  font-size: 0.625rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
 .proto-status-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 9px;
+  padding: 3px 10px;
   border-radius: 99px;
   font-size: 0.6875rem;
-  font-weight: 500;
+  font-weight: 600;
   background: var(--op-bg-surface-2);
-  color: var(--op-text-tertiary);
+  color: var(--op-text-secondary);
+  border: 1px solid transparent;
   white-space: nowrap;
   flex-shrink: 0;
   transition: background var(--op-fast), color var(--op-fast);
 
-  &.proto-status--confirmed, &.proto-status--submitted {
-    background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 14%, transparent);
-    color: var(--proto-accent, var(--op-brand));
+  // Ready — brand cyan
+  &.proto-status--pending {
+    color: #22b8cf;
+    background: color-mix(in srgb, #22b8cf 15%, transparent);
+    border-color: color-mix(in srgb, #22b8cf 32%, transparent);
   }
+  // Building / Sign — amber
+  &.proto-status--quoting, &.proto-status--signing {
+    color: #e0a33a;
+    background: color-mix(in srgb, #e0a33a 15%, transparent);
+    border-color: color-mix(in srgb, #e0a33a 32%, transparent);
+  }
+  // Sent — blue
+  &.proto-status--submitted {
+    color: #3a9ae0;
+    background: color-mix(in srgb, #3a9ae0 15%, transparent);
+    border-color: color-mix(in srgb, #3a9ae0 32%, transparent);
+  }
+  // Done — protocol accent (brand identity), made prominent
+  &.proto-status--confirmed {
+    background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 18%, transparent);
+    color: var(--proto-accent, var(--op-brand));
+    border-color: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 36%, transparent);
+  }
+  // Error — red
   &.proto-status--error {
-    background: color-mix(in srgb, var(--op-loss) 12%, transparent);
     color: var(--op-loss);
+    background: color-mix(in srgb, var(--op-loss) 15%, transparent);
+    border-color: color-mix(in srgb, var(--op-loss) 32%, transparent);
   }
 }
 
@@ -1134,6 +1648,43 @@
   gap: 10px 12px;
 
   &--shake { animation: shake 0.4s ease-in-out; }
+
+  // Advanced-order cards (DCA, …): keep the field STRUCTURE but adopt the swap
+  // widget's visual language — rounded 16px surfaces, taller inputs, larger
+  // tabular figures, roomier rhythm. Purely cosmetic; no layout change.
+  &--swaplike {
+    gap: 14px 12px;
+
+    .proto-input {
+      padding: 14px 16px;
+      border-radius: 16px;
+      font-size: 1.0625rem;
+      background: var(--op-bg-surface-2);
+      font-variant-numeric: tabular-nums;
+    }
+    // Selects (perp Market/Side) match the inputs — bigger, rounded, with the
+    // dropdown arrow nudged to clear the roomier padding.
+    .proto-select {
+      padding: 14px 16px;
+      padding-right: 36px;
+      border-radius: 16px;
+      font-size: 1.0625rem;
+      background-position: right 14px center;
+    }
+    // Token/unit suffix pill: recenter against the taller input.
+    .proto-input-suffix {
+      top: 50%;
+      transform: translateY(-50%);
+      right: 12px;
+    }
+    .proto-input-wrap:has(.proto-input-suffix--token) .proto-input {
+      padding-right: 116px;
+    }
+    .proto-field-label {
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+    }
+  }
 }
 
 .proto-field {
@@ -1156,9 +1707,71 @@
 .proto-field-label {
   font-size: 0.6875rem;
   font-weight: 600;
-  color: var(--op-text-tertiary);
+  color: var(--op-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proto-field-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--op-text-tertiary);
+  opacity: 0.7;
+  cursor: default;
+  outline: none;
+  transition: color var(--op-fast), opacity var(--op-fast);
+  &:hover, &:focus-visible {
+    color: var(--proto-accent, var(--op-brand));
+    opacity: 1;
+    .proto-field-info__tip { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+  }
+
+  &__tip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translate(-50%, 4px);
+    z-index: 50;
+    width: max-content;
+    max-width: 240px;
+    padding: 8px 10px;
+    background: var(--op-bg-surface-3, #1a1a2e);
+    color: var(--op-text-primary);
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 6px;
+    font-size: 0.6875rem;
+    font-weight: 400;
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    text-transform: none;
+    white-space: normal;
+    text-align: left;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--op-fast), visibility var(--op-fast), transform var(--op-fast);
+
+    // Little triangle pointing down at the icon.
+    &::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: var(--op-border-subtle);
+      width: 0;
+      height: 0;
+    }
+  }
 }
 
 .proto-field-hint {
@@ -1175,11 +1788,57 @@
   flex-direction: column;
   gap: 6px;
 
+  // Amount + live estimate → swap-card "You pay ↓ You receive" panels.
+  // Two stacked rounded surfaces with a chip arrow straddling them, big
+  // tabular figures — mirrors the pump/Jupiter swap widget. Applies to LST
+  // stake/unstake and any amount-with-estimate action.
   &--paired {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     align-items: stretch;
-    gap: 8px;
+
+    // "You pay" panel: bigger padded input, large amount figure.
+    .proto-input-wrap { width: 100%; }
+    .proto-input {
+      padding: 15px 16px;
+      border-radius: 16px;
+      font-size: 1.375rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    // Keep the token/unit suffix vertically centred against the taller input.
+    .proto-input-suffix {
+      top: 50%;
+      transform: translateY(-50%);
+      right: 12px;
+    }
+
+    // Chip arrow straddling the two panels (Uniswap style).
+    .proto-pair-arrow {
+      align-self: center;
+      width: 34px;
+      height: 34px;
+      margin: -13px auto;
+      z-index: 1;
+      border-radius: 11px;
+      background: var(--op-bg-surface-1);
+      border: 3px solid var(--op-bg-surface-1);
+      box-shadow: 0 0 0 1px var(--op-border-subtle);
+      color: var(--op-text-secondary);
+    }
+
+    // "You receive (estimated)" panel — mirrors the pay side: label on top,
+    // big value on the left, token pill (icon + symbol) on the right.
+    .proto-pair-output {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+      padding: 12px 16px 14px;
+      border-radius: 16px;
+
+      &__value { font-size: 1.375rem; letter-spacing: -0.01em; }
+    }
   }
 }
 
@@ -1194,25 +1853,62 @@
 .proto-pair-output {
   display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 11px;
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 9px 12px;
   border-radius: var(--op-radius-sm);
   border: 1px solid var(--op-border-subtle);
   background: color-mix(in srgb, var(--op-brand) 6%, var(--op-bg-surface-2));
   color: var(--op-text-primary);
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   min-width: 0;
 
-  &__value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  &__suffix {
+  &__icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
     flex-shrink: 0;
+  }
+  // Panel label (top).
+  &__label {
     font-size: 0.6875rem;
     font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--op-brand);
-    text-transform: uppercase;
+    color: var(--op-text-tertiary);
+  }
+  // Value + token-pill row (mirrors the pay input: amount left, pill right).
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+  }
+  &__value {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  // Token pill identical to the input's Uniswap-style suffix badge.
+  &__pill {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 11px 4px 5px;
+    background: var(--op-bg-surface-1);
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 999px;
+  }
+  &__suffix {
+    flex-shrink: 0;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--op-text-primary);
   }
 }
 
@@ -1310,6 +2006,10 @@
 
   .proto-input { padding-right: 42px; }
 
+  // Uniswap-style token badge is wider than a plain "%" suffix — give the
+  // number room so long amounts don't slide under the pill.
+  &:has(.proto-input-suffix--token) .proto-input { padding-right: 104px; }
+
   // DLMM single-sided lock — visually communicate that this token isn't
   // collected by the chosen range, so the user doesn't try to type into it.
   &--locked {
@@ -1361,26 +2061,652 @@
 
 .proto-input-suffix {
   position: absolute;
-  right: 11px;
+  right: 8px;
   font-size: 0.6875rem;
   font-weight: 700;
   color: var(--proto-accent, var(--op-text-tertiary));
   pointer-events: none;
   opacity: 0.8;
 
+  // Uniswap-style token badge: larger circular logo + symbol in a rounded pill.
   &--token {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 7px;
+    padding: 4px 11px 4px 5px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--op-text-primary);
+    background: var(--op-bg-surface-1);
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 999px;
+    opacity: 1;
   }
 }
 
 .proto-suffix-icon {
-  width: 14px;
-  height: 14px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
+}
+
+// ── pump.fun / PumpSwap: mini-Uniswap swap layout ──────────────────────────
+.pump-swap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  &__mint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    margin-bottom: 4px;
+    border-radius: 12px;
+    background: var(--op-bg-surface-2);
+    border: 1px solid var(--op-border-subtle);
+  }
+  &__mint-label {
+    flex-shrink: 0;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--op-text-tertiary);
+  }
+  &__mint-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    color: var(--op-text-primary);
+    font-family: var(--op-font-mono, ui-monospace, monospace);
+    font-size: 0.8125rem;
+    outline: none;
+    text-overflow: ellipsis;
+    &:disabled { color: var(--op-text-secondary); }
+  }
+  &__copy {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--op-text-tertiary);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    &:hover { background: var(--op-bg-surface-3, rgba(255,255,255,0.05)); color: var(--op-text-primary); }
+  }
+
+  // Down-arrow chip straddling the two panels (Uniswap style).
+  &__arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    margin: -13px auto;
+    z-index: 1;
+    border-radius: 11px;
+    background: var(--op-bg-surface-1);
+    border: 3px solid var(--op-bg-surface-1);
+    box-shadow: 0 0 0 1px var(--op-border-subtle);
+    color: var(--op-text-secondary);
+  }
+
+  &__settings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+
+    &--single { grid-template-columns: 1fr; }
+  }
+}
+
+// Limit-order size hint vs Jupiter's $5 minimum — neutral by default, turns
+// to a warning tint when the order is known to be undersized.
+.limit-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--op-text-tertiary);
+
+  &--warn {
+    color: #F59E0B;
+    font-weight: 600;
+  }
+}
+
+.pump-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  transition: border-color 0.12s;
+
+  &:focus-within { border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle)); }
+  &--recv { background: color-mix(in srgb, var(--op-brand) 5%, var(--op-bg-surface-2)); }
+
+  &__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 16px;
+  }
+  &__label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+  }
+  &__bal {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+  &__max {
+    border: none;
+    border-radius: 6px;
+    padding: 2px 7px;
+    background: color-mix(in srgb, var(--op-brand) 16%, transparent);
+    color: var(--op-brand);
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    &:hover { background: color-mix(in srgb, var(--op-brand) 26%, transparent); }
+  }
+  &__refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: var(--op-brand);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  &__amount {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    color: var(--op-text-primary);
+    font-size: 1.625rem;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    outline: none;
+    padding: 0;
+    // strip number spinners
+    &::-webkit-outer-spin-button, &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    -moz-appearance: textfield;
+    appearance: textfield;
+    &:disabled { color: var(--op-text-primary); opacity: 1; }
+    &--out { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    // Read-only derived figure (limit-order receive) rendered as a <span>.
+    &--ro { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    // Muted hint in place of an amount (DCA "To buy" side — market rate).
+    &--muted {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--op-text-tertiary);
+    }
+  }
+  &__ph { color: var(--op-text-tertiary); }
+}
+
+// DCA frequency unit dropdown — sits inside the frequency input, right-aligned.
+.pump-freq-unit {
+  flex-shrink: 0;
+  margin-left: 8px;
+  padding: 3px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-surface-1);
+  color: var(--op-text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  &:focus { border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle)); }
+  &:disabled { cursor: default; opacity: 0.6; }
+}
+
+// DCA optional buy-range: two inputs + dash, full width under the settings grid.
+.pump-range-field { margin-top: 8px; }
+.pump-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  .pump-setting__input { flex: 1; }
+  &__dash { color: var(--op-text-tertiary); flex-shrink: 0; }
+}
+
+// DCA plain-language summary line.
+.pump-summary {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--op-text-secondary);
+
+  strong { color: var(--op-text-primary); font-weight: 600; }
+}
+
+// ── Jupiter perpetuals widget ──────────────────────────────────────────────
+.perp {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.perp-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--op-text-tertiary);
+}
+
+.perp-field { display: flex; flex-direction: column; gap: 8px; }
+
+// Long / Short segmented toggle.
+.perp-side {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+
+  &__btn {
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid var(--op-border-subtle);
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-secondary);
+    font-size: 0.9375rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s, border-color 0.12s;
+    &:disabled { cursor: default; }
+    &--long.is-active {
+      color: var(--op-gain);
+      border-color: color-mix(in srgb, var(--op-gain) 55%, transparent);
+      background: color-mix(in srgb, var(--op-gain) 12%, var(--op-bg-surface-2));
+    }
+    &--short.is-active {
+      color: var(--op-loss);
+      border-color: color-mix(in srgb, var(--op-loss) 55%, transparent);
+      background: color-mix(in srgb, var(--op-loss) 12%, var(--op-bg-surface-2));
+    }
+  }
+}
+
+// Market segmented selector with token icons.
+.perp-market {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+
+  &__opt {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px;
+    border-radius: 14px;
+    border: 1px solid var(--op-border-subtle);
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-secondary);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s, border-color 0.12s;
+    &:disabled { cursor: default; }
+    &.is-active {
+      color: var(--op-text-primary);
+      border-color: color-mix(in srgb, var(--op-brand) 55%, transparent);
+      background: color-mix(in srgb, var(--op-brand) 10%, var(--op-bg-surface-2));
+    }
+  }
+  &__icon {
+    width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+    &--ph {
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 0.625rem; font-weight: 700; color: var(--op-brand);
+      background: color-mix(in srgb, var(--op-brand) 20%, transparent);
+    }
+  }
+}
+
+// Market display (the market the user asked for — not a picker).
+.perp-market-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  align-self: flex-start;
+  padding: 10px 14px 10px 11px;
+  border-radius: 14px;
+  border: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-surface-2);
+
+  .perp-market__icon { width: 24px; height: 24px; }
+
+  &__sym {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    color: var(--op-text-primary);
+    letter-spacing: 0.01em;
+  }
+  &__tag {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--op-brand);
+    background: color-mix(in srgb, var(--op-brand) 16%, transparent);
+    padding: 2px 6px;
+    border-radius: 6px;
+  }
+}
+
+// Leverage slider.
+.perp-lev {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+
+  &__top { display: flex; align-items: center; justify-content: space-between; }
+  &__value {
+    font-size: 1.375rem;
+    font-weight: 700;
+    color: var(--op-brand);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  &__control { display: flex; align-items: center; gap: 12px; }
+  &__btn {
+    flex-shrink: 0;
+    width: 30px; height: 30px;
+    border-radius: 9px;
+    border: 1px solid var(--op-border-subtle);
+    background: var(--op-bg-surface-1);
+    color: var(--op-text-primary);
+    font-size: 1.125rem; font-weight: 700; line-height: 1;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    &:hover:not(:disabled) { border-color: var(--op-brand); }
+    &:disabled { cursor: default; opacity: 0.5; }
+  }
+
+  &__range {
+    flex: 1;
+    min-width: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+    // track fill is set inline via [style.background]
+    &::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--op-brand);
+      border: 3px solid var(--op-bg-surface-1);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--op-brand) 60%, transparent);
+      cursor: pointer;
+    }
+    &::-moz-range-thumb {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--op-brand);
+      border: 3px solid var(--op-bg-surface-1);
+      cursor: pointer;
+    }
+    &:disabled { opacity: 0.6; cursor: default; }
+  }
+
+  &__ticks { display: flex; justify-content: space-between; gap: 4px; }
+  &__tick {
+    border: none;
+    background: none;
+    padding: 2px 4px;
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: var(--op-text-tertiary);
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: color 0.12s;
+    &:hover:not(:disabled) { color: var(--op-text-primary); }
+    &.is-active { color: var(--op-brand); }
+    &:disabled { cursor: default; }
+  }
+}
+
+// Position size / collateral summary.
+.perp-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+
+  &__row { display: flex; align-items: center; justify-content: space-between; font-size: 0.8125rem; }
+  &__k { color: var(--op-text-tertiary); }
+  &__v { color: var(--op-text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  &__usd { color: var(--op-text-tertiary); font-weight: 500; margin-left: 4px; }
+}
+
+// Live quote block reuses .perp-summary; liquidation price flagged in loss red.
+.perp-quote__liq { color: var(--op-loss); }
+
+// Uniswap-style token pill (icon + symbol) inside each panel.
+.pump-token {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 13px 6px 6px;
+  border-radius: 999px;
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+
+  &__icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    &--ph {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: color-mix(in srgb, var(--op-brand) 22%, var(--op-bg-surface-3, #2a2a3a));
+      color: var(--op-text-primary);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+  }
+  &__sym {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--op-text-primary);
+    white-space: nowrap;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.pump-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+
+  &__label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--op-text-tertiary);
+  }
+  &__input {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--op-bg-surface-2);
+    border: 1px solid var(--op-border-subtle);
+    transition: border-color 0.12s;
+    &:focus-within { border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle)); }
+
+    input {
+      flex: 1;
+      min-width: 0;
+      border: none;
+      background: transparent;
+      color: var(--op-text-primary);
+      font-size: 0.9375rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      outline: none;
+      &::-webkit-outer-spin-button, &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+  }
+  &__suffix {
+    flex-shrink: 0;
+    margin-left: 8px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--op-brand);
+  }
+  &__prefix {
+    flex-shrink: 0;
+    margin-right: 6px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--op-text-tertiary);
+  }
+
+  // Direct-routes toggle styled to match the slippage input box (same height).
+  &__toggle {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--op-bg-surface-2);
+    border: 1px solid var(--op-border-subtle);
+    cursor: pointer;
+    transition: border-color 0.12s;
+    &:hover:not(:disabled) { border-color: color-mix(in srgb, var(--op-brand) 40%, var(--op-border-subtle)); }
+    &:disabled { cursor: default; }
+    &.is-on { border-color: color-mix(in srgb, var(--op-brand) 55%, var(--op-border-subtle)); }
+  }
+  &__switch {
+    flex-shrink: 0;
+    position: relative;
+    width: 34px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--op-bg-surface-4, rgba(255, 255, 255, 0.12));
+    transition: background 0.15s;
+    .pump-setting__toggle.is-on & { background: var(--op-brand); }
+  }
+  &__knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.15s;
+    .pump-setting__toggle.is-on & { transform: translateX(14px); }
+  }
+  &__toggle-text {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--op-text-secondary);
+    .pump-setting__toggle.is-on & { color: var(--op-text-primary); }
+  }
+}
+
+// Clickable token selector (generic swap) — pump-token pill that opens the
+// token picker; adds hover affordance + a caret. The pump.fun buy/sell pills
+// stay non-interactive (fixed token), so this only applies to the swap widget.
+.pump-token--select {
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  &:hover:not(:disabled) {
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+    border-color: color-mix(in srgb, var(--op-brand) 40%, var(--op-border-subtle));
+  }
+  &:disabled { cursor: default; }
+}
+.pump-token__caret {
+  flex-shrink: 0;
+  margin-left: -2px;
+  color: var(--op-text-tertiary);
+}
+
+// Flip-direction arrow as a real button (reverses the swap).
+.pump-swap__arrow--btn {
+  padding: 0;
+  button {
+    width: 100%;
+    height: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: inherit;
+    border-radius: inherit;
+    cursor: pointer;
+    transition: color 0.12s, transform 0.2s ease;
+    &:hover:not(:disabled) { color: var(--op-brand); transform: rotate(180deg); }
+    &:disabled { cursor: default; }
+  }
 }
 
 // ── Token chip (type: 'token' fields) ──
@@ -1393,8 +2719,27 @@
   background: var(--op-bg-surface-2);
   border: 1px solid var(--op-border-subtle);
   border-radius: var(--op-radius-sm);
+  text-align: left;
+  font-family: inherit;
+  cursor: default;
+  transition: background var(--op-fast), border-color var(--op-fast);
 
   &--empty { opacity: 0.4; }
+
+  &--clickable {
+    cursor: pointer;
+    &:hover {
+      background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 8%, var(--op-bg-surface-2));
+      border-color: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 32%, var(--op-border-subtle));
+    }
+  }
+  &:disabled { background: var(--op-bg-surface-2); }
+
+  &__caret {
+    margin-left: auto;
+    color: var(--op-text-tertiary);
+    flex-shrink: 0;
+  }
 
   &__icon-wrap {
     position: relative;
@@ -1564,6 +2909,39 @@
   }
 }
 
+// ── Price-impact warning strip ──
+// Renders between the form fields and the footer (Swap / Cancel buttons),
+// tier-colored. `data-tier="danger"` matches the button's hard-disable so
+// the color story is consistent: red strip → red blocked button.
+.proto-impact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px 4px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  line-height: 1.35;
+
+  strong { font-weight: 600; }
+
+  &[data-tier="notice"] {
+    background: color-mix(in srgb, #eab308 14%, transparent);
+    color: #eab308;
+    border: 1px solid color-mix(in srgb, #eab308 30%, transparent);
+  }
+  &[data-tier="warning"] {
+    background: color-mix(in srgb, #f97316 16%, transparent);
+    color: #f97316;
+    border: 1px solid color-mix(in srgb, #f97316 36%, transparent);
+  }
+  &[data-tier="danger"] {
+    background: color-mix(in srgb, #ef4444 18%, transparent);
+    color: #ef4444;
+    border: 1px solid color-mix(in srgb, #ef4444 42%, transparent);
+  }
+}
+
 // ── Footer ──
 
 .proto-footer {
@@ -1648,7 +3026,7 @@
   gap: 5px;
   margin: 0 14px 12px;
   padding: 5px 10px;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--op-text-secondary);
   background: var(--op-bg-surface-2, rgba(0,0,0,0.04));
@@ -1791,7 +3169,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   color: var(--op-text-secondary);
 }
 
@@ -1814,13 +3192,13 @@
 }
 
 .lend-info-label {
-  font-size: 0.71rem;
+  font-size: 0.6875rem;
   color: var(--op-text-secondary);
   white-space: nowrap;
 }
 
 .lend-info-value {
-  font-size: 0.71rem;
+  font-size: 0.6875rem;
   color: var(--op-text-primary);
   font-weight: 500;
   text-align: right;
@@ -1846,7 +3224,7 @@
     color: #f59e0b;
   }
   &--lg {
-    font-size: 0.78rem;
+    font-size: 0.75rem;
   }
 }
 
@@ -1857,7 +3235,7 @@
 }
 
 .bc-section-label {
-  font-size: 0.67rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .05em;
@@ -1869,7 +3247,7 @@
 }
 
 .bc-section-bal {
-  font-size: 0.68rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   text-transform: none;
   letter-spacing: 0;
@@ -1881,7 +3259,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.71rem;
+  font-size: 0.6875rem;
   color: var(--op-text-secondary);
   padding: 4px 0 8px;
 }
@@ -1902,7 +3280,7 @@
   border: 1px solid var(--op-border-subtle);
   background: var(--op-bg-surface-2);
   color: var(--op-text-secondary);
-  font-size: 0.69rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   cursor: pointer;
   transition: all .15s;
@@ -1920,7 +3298,7 @@
 }
 
 .bc-token-bal {
-  font-size: 0.63rem;
+  font-size: 0.625rem;
   opacity: 0.7;
 }
 
@@ -1942,7 +3320,7 @@
   background: none;
   border: none;
   outline: none;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
   color: var(--op-text-primary);
   font-weight: 500;
   min-width: 0;
@@ -1950,14 +3328,14 @@
 }
 
 .bc-amount-symbol {
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--op-brand);
   flex-shrink: 0;
 }
 
 .bc-max-btn {
-  font-size: 0.65rem;
+  font-size: 0.625rem;
   font-weight: 700;
   color: var(--op-brand);
   background: none;
@@ -1969,7 +3347,7 @@
 }
 
 .bc-no-balance-hint {
-  font-size: 0.67rem;
+  font-size: 0.6875rem;
   color: var(--op-text-secondary);
   margin-top: 5px;
   padding: 5px 8px;
@@ -2001,7 +3379,7 @@
 }
 
 .bc-stat-label {
-  font-size: 0.65rem;
+  font-size: 0.625rem;
   color: var(--op-text-secondary);
 }
 
@@ -2019,7 +3397,7 @@
 .bc-hf--danger  { color: #ef4444; }
 
 .bc-hf-label {
-  font-size: 0.65rem;
+  font-size: 0.625rem;
   margin-left: 3px;
   font-weight: 500;
   opacity: 0.85;
@@ -2030,7 +3408,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.70rem;
+  font-size: 0.6875rem;
   color: #ef4444;
   padding-top: 4px;
   border-top: 1px solid color-mix(in srgb, #ef4444 20%, transparent);
@@ -2040,7 +3418,7 @@
   display: flex;
   gap: 12px;
   padding: 7px 12px 10px;
-  font-size: 0.67rem;
+  font-size: 0.6875rem;
   color: var(--op-text-secondary);
   flex-wrap: wrap;
 }
@@ -2053,7 +3431,7 @@
   gap: 7px;
   padding: 8px 10px;
   border-radius: var(--op-radius-sm);
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   line-height: 1.4;
 
@@ -2081,7 +3459,7 @@
 }
 
 .lend-hf-badge {
-  font-size: 0.68rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   padding: 2px 7px;
   border-radius: 20px;
@@ -2105,7 +3483,7 @@
 }
 
 .lend-collateral-req__symbol {
-  font-size: 0.70rem;
+  font-size: 0.6875rem;
   font-weight: 700;
   color: var(--op-brand);
   min-width: 52px;
@@ -2120,13 +3498,13 @@
 }
 
 .lend-collateral-req__safe {
-  font-size: 0.71rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--op-text-primary);
 }
 
 .lend-collateral-req__min {
-  font-size: 0.67rem;
+  font-size: 0.6875rem;
   color: var(--op-text-secondary);
 }
 
@@ -2138,7 +3516,7 @@
   padding: 6px 8px;
   background: color-mix(in srgb, var(--op-brand) 6%, transparent);
   border-radius: var(--op-radius-sm);
-  font-size: 0.67rem;
+  font-size: 0.6875rem;
   color: var(--op-text-secondary);
   line-height: 1.45;
 
@@ -2165,13 +3543,13 @@
 }
 
 .lend-info-no-col-title {
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: #f59e0b;
 }
 
 .lend-info-no-col-desc {
-  font-size: 0.70rem;
+  font-size: 0.6875rem;
   color: var(--op-text-secondary);
 }
 
@@ -2190,7 +3568,7 @@
 }
 
 .lend-info-tag {
-  font-size: 0.65rem;
+  font-size: 0.625rem;
   padding: 1px 5px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--op-brand) 12%, var(--op-bg-surface-2));
@@ -2283,14 +3661,14 @@
 }
 
 .proto-warn-title {
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: #ef4444;
   letter-spacing: 0.01em;
 }
 
 .proto-warn-desc {
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   color: var(--op-text-secondary);
   line-height: 1.4;
 }
@@ -2305,7 +3683,7 @@
   border: 1px solid color-mix(in srgb, var(--op-brand) 40%, transparent);
   background: color-mix(in srgb, var(--op-brand) 10%, transparent);
   color: var(--op-brand);
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
@@ -2347,7 +3725,7 @@
 }
 
 .qs-title {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: var(--op-text-primary);
   letter-spacing: 0.01em;
@@ -2384,7 +3762,7 @@
 }
 
 .qs-panel-label {
-  font-size: 0.65rem;
+  font-size: 0.625rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2405,13 +3783,13 @@
 }
 
 .qs-empty {
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   color: var(--op-text-tertiary);
   padding: 10px 0;
 }
 
 .qs-amount-label {
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #C86EDD;
   margin-bottom: 4px;
@@ -2472,18 +3850,18 @@
 }
 
 .qs-token-sym {
-  font-size: 0.82rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: var(--op-text-primary);
 }
 
 .qs-token-bal {
-  font-size: 0.68rem;
+  font-size: 0.6875rem;
   color: var(--op-text-tertiary);
 }
 
 .qs-amount-badge {
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: #C86EDD;
 }
@@ -2513,7 +3891,7 @@
   border: none;
   background: linear-gradient(135deg, #C86EDD, #9945FF);
   color: #fff;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
   transition: opacity 0.15s;
@@ -2541,7 +3919,7 @@
   background: color-mix(in srgb, #ef4444 10%, transparent);
   border: 1px solid color-mix(in srgb, #ef4444 25%, transparent);
   color: #ef4444;
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
 }
 
 .qs-done {
@@ -2558,14 +3936,14 @@
 }
 
 .qs-done-text {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--op-text-primary);
   line-height: 1.4;
 }
 
 .qs-tx-link {
-  font-size: 0.7rem;
+  font-size: 0.6875rem;
   color: var(--op-brand);
   text-decoration: none;
   &:hover { text-decoration: underline; }
@@ -2648,14 +4026,14 @@
 
 .tx-preview-header__title {
   display: block;
-  font-size: 0.95rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   color: var(--op-text-primary);
 }
 
 .tx-preview-header__subtitle {
   display: block;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: var(--op-text-tertiary);
   margin-top: 2px;
   overflow: hidden;
@@ -2690,7 +4068,7 @@
   gap: 12px;
   padding: 48px 20px;
   color: var(--op-text-tertiary);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .tx-preview-error {
@@ -2713,13 +4091,13 @@
 }
 
 .tx-preview-error__title {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--op-loss);
 }
 
 .tx-preview-error__message {
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: var(--op-text-tertiary);
 }
 
@@ -2732,7 +4110,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--op-text-secondary);
   text-transform: uppercase;
@@ -2787,7 +4165,7 @@
 }
 
 .tx-preview-change__letter {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--op-text-secondary);
 }
@@ -2798,13 +4176,13 @@
 }
 
 .tx-preview-change__symbol {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--op-text-primary);
 }
 
 .tx-preview-change__balance {
-  font-size: 0.7rem;
+  font-size: 0.6875rem;
   color: var(--op-text-tertiary);
   font-family: var(--op-font-mono, monospace);
 }
@@ -2815,7 +4193,7 @@
 
 .tx-preview-change__delta {
   display: block;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   font-family: var(--op-font-mono, monospace);
 
@@ -2830,7 +4208,7 @@
 
 .tx-preview-change__usd {
   display: block;
-  font-size: 0.7rem;
+  font-size: 0.6875rem;
   color: var(--op-text-tertiary);
 }
 
@@ -2838,7 +4216,7 @@
   padding: 24px;
   text-align: center;
   color: var(--op-text-tertiary);
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
 }
 
 .tx-preview-details {
@@ -2855,12 +4233,12 @@
 }
 
 .tx-preview-detail__label {
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: var(--op-text-tertiary);
 }
 
 .tx-preview-detail__value {
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   color: var(--op-text-primary);
   font-family: var(--op-font-mono, monospace);
@@ -2875,7 +4253,7 @@
 }
 
 .tx-preview-detail__usd {
-  font-size: 0.7rem;
+  font-size: 0.6875rem;
   color: var(--op-text-tertiary);
   margin-left: 4px;
 }
@@ -2902,7 +4280,7 @@
   border-radius: 8px;
   background: var(--op-bg-surface-2, rgba(0, 0, 0, 0.04));
   border: 1px solid var(--op-border-subtle);
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   line-height: 1.3;
   min-width: 0;
 }
@@ -2923,7 +4301,7 @@
   display: inline-flex;
   gap: 6px;
   color: var(--op-text-tertiary);
-  font-size: 0.68rem;
+  font-size: 0.6875rem;
 }
 
 .tx-preview-hop__pct {
@@ -2936,7 +4314,7 @@
 
 .tx-preview-hop__sep {
   color: var(--op-text-tertiary);
-  font-size: 0.9rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   padding: 0 2px;
 }
@@ -2975,7 +4353,7 @@
   gap: 8px;
   padding: 12px 16px;
   border-radius: 10px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   border: none;
   cursor: pointer;
@@ -3023,7 +4401,7 @@
   }
 
   &__title {
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     color: var(--op-text-secondary);
     text-transform: uppercase;
@@ -3031,7 +4409,7 @@
   }
 
   &__custom-btn {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--proto-accent, var(--op-brand));
     background: none;
     border: none;
@@ -3042,7 +4420,7 @@
   }
 
   &__loading, &__empty {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--op-text-tertiary);
     display: flex;
     align-items: center;
@@ -3060,7 +4438,7 @@
   }
 
   &__note {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--op-text-tertiary);
     margin: 2px 0 0;
   }
@@ -3089,8 +4467,8 @@
   }
 
   &__addr {
-    font-family: 'SFMono-Regular', Consolas, monospace;
-    font-size: 12px;
+    font-family: var(--op-font-mono, 'SFMono-Regular', Consolas, monospace);
+    font-size: 0.75rem;
     color: var(--op-text-primary);
     font-weight: 500;
   }
@@ -3099,7 +4477,7 @@
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--op-text-secondary);
   }
 
@@ -3114,5 +4492,312 @@
 
   &__stake {
     color: var(--op-text-tertiary);
+  }
+}
+
+// ──── Raydium CLMM open-position form ────────────────────────────────
+// Same visual scale as the DLMM action card (.proto-* family): 11px
+// uppercase labels, 13px input text, 14px section padding. The two cards
+// sit side-by-side in chat history and need to read as one cohesive UI.
+
+.clmm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+
+  &.proto-fields--shake { animation: shake 0.4s ease-in-out; }
+}
+
+.clmm-current-price {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 11px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-sm);
+  font-size: 0.75rem;
+
+  &__label {
+    color: var(--op-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.625rem;
+    font-weight: 600;
+  }
+  &__value { color: var(--op-text-primary); font-variant-numeric: tabular-nums; }
+}
+
+.clmm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px 11px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-sm);
+
+  &__title {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--op-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+}
+
+.clmm-min-hint {
+  font-size: 0.75rem;
+  color: var(--op-text-tertiary);
+  line-height: 1.4;
+  margin-top: -2px;
+  margin-bottom: 2px;
+}
+
+.clmm-range-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.clmm-range-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+
+  label {
+    font-size: 0.625rem;
+    color: var(--op-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+
+  input {
+    background: var(--op-bg-surface-1);
+    border: 1px solid var(--op-border-subtle);
+    border-radius: var(--op-radius-sm);
+    padding: 8px 11px;
+    color: var(--op-text-primary);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    width: 100%;
+    outline: none;
+    transition: border-color var(--op-fast), background var(--op-fast), box-shadow var(--op-fast);
+
+    &:focus {
+      border-color: var(--proto-accent, var(--op-brand));
+      background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 5%, var(--op-bg-surface-2));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--proto-accent, var(--op-brand)) 14%, transparent);
+    }
+    &::-webkit-inner-spin-button, &::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  }
+
+  &__suffix {
+    position: absolute;
+    right: 10px;
+    bottom: 9px;
+    font-size: 0.625rem;
+    color: var(--op-text-tertiary);
+    pointer-events: none;
+  }
+}
+
+.clmm-presets {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.clmm-preset {
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: var(--op-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--op-fast);
+
+  &:hover { background: var(--op-bg-surface-3); color: var(--op-text-primary); }
+
+  &--active {
+    background: var(--proto-accent, var(--op-brand));
+    color: white;
+    border-color: var(--proto-accent, var(--op-brand));
+  }
+}
+
+// Single-line amount row — same vertical density as a `proto-input`.
+// Layout: [icon symbol] · [amount input] · [Max btn], with the balance
+// hint folded into the left side instead of a separate row underneath.
+.clmm-amount-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-sm);
+
+  &__token {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  &__icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--op-bg-surface-2);
+
+    &--letter {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.625rem;
+      font-weight: 600;
+      color: var(--op-text-secondary);
+    }
+  }
+
+  &__symbol-block {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+  }
+
+  &__symbol {
+    font-weight: 600;
+    color: var(--op-text-primary);
+    font-size: 0.75rem;
+  }
+
+  &__balance-inline {
+    font-size: 0.5625rem;
+    color: var(--op-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__input {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+
+    input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--op-text-primary);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      width: 100%;
+      min-width: 0;
+
+      &::-webkit-inner-spin-button, &::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    }
+  }
+}
+
+.clmm-max-btn {
+  background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 14%, transparent);
+  color: var(--proto-accent, var(--op-brand));
+  border: 1px solid color-mix(in srgb, var(--proto-accent, var(--op-brand)) 30%, transparent);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  line-height: 1.4;
+
+  &:hover { background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 22%, transparent); }
+}
+
+.clmm-amount-plus {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--op-text-tertiary);
+  user-select: none;
+  margin: 0;
+  line-height: 1;
+}
+
+.clmm-advanced {
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-sm);
+  padding: 0;
+  background: var(--op-bg-surface-2);
+
+  summary {
+    cursor: pointer;
+    padding: 7px 11px;
+    font-size: 0.75rem;
+    color: var(--op-text-secondary);
+    user-select: none;
+    list-style: none;
+
+    &::-webkit-details-marker { display: none; }
+    &::before {
+      content: '▸';
+      display: inline-block;
+      margin-right: 6px;
+      font-size: 0.625rem;
+      transition: transform var(--op-fast);
+    }
+  }
+
+  &[open] summary::before { transform: rotate(90deg); }
+
+  &__row {
+    padding: 6px 11px 11px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    label {
+      font-size: 0.6875rem;
+      color: var(--op-text-secondary);
+    }
+  }
+
+  &__input {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--op-bg-surface-1);
+    border: 1px solid var(--op-border-subtle);
+    border-radius: var(--op-radius-sm);
+    padding: 4px 8px;
+
+    input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--op-text-primary);
+      font-size: 0.75rem;
+      font-variant-numeric: tabular-nums;
+      width: 48px;
+      text-align: right;
+
+      &::-webkit-inner-spin-button, &::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    }
+
+    span {
+      color: var(--op-text-tertiary);
+      font-size: 0.6875rem;
+    }
   }
 }

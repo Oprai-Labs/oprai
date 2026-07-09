@@ -18,11 +18,20 @@ export interface RiskWarningItem {
   text: string;
 }
 
+/** A compact numeric fact rendered in the key-figures strip (label + value). */
+export interface RiskWarningFigure {
+  label: string;
+  value: string;
+  /** When true, the figure is emphasised in the severity colour (e.g. max loss). */
+  emphasis?: boolean;
+}
+
 export interface RiskWarningPayload {
   title: string;
   message: string;
   severity: 'info' | 'warning' | 'danger';
   items: RiskWarningItem[];
+  figures?: RiskWarningFigure[];
   confirmLabel: string;
   resolve: (confirmed: boolean) => void;
 }
@@ -98,6 +107,7 @@ export class RiskWarningService {
     amountUsd: number,
   ): Omit<RiskWarningPayload, 'resolve'> | null {
     const items: RiskWarningItem[] = [];
+    const figures: RiskWarningFigure[] = [];
     let title = '';
     let message = '';
     let severity: 'info' | 'warning' | 'danger' = 'info';
@@ -108,25 +118,27 @@ export class RiskWarningService {
     if (LEVERAGED_TYPES.has(action.type)) {
       needsWarning = true;
       title = 'Leveraged Position';
-      message = 'This action opens a leveraged position. Losses can exceed your initial investment.';
+      message = 'This action opens a leveraged position. Losses can exceed the collateral you put up.';
       severity = 'danger';
       confirmLabel = 'I understand the risks';
+      // Qualitative risks — plain sentences, no per-row iconography.
       items.push(
-        { icon: 'triangle-alert', text: 'Liquidation risk if price moves against your position' },
-        { icon: 'trending-down',  text: 'Losses can exceed deposited collateral' },
-        { icon: 'clock',          text: 'Funding rates may apply over time' },
+        { icon: '', text: 'Your position can be liquidated if the price moves against you.' },
+        { icon: '', text: 'Losses can exceed the collateral you deposit.' },
+        { icon: '', text: 'Funding fees accrue for as long as the position stays open.' },
       );
+      // Quantitative facts — surfaced as a compact key-figures strip.
       const leverage = Number(action.params['leverage']);
       if (leverage > 0) {
-        items.push({ icon: 'zap', text: `${leverage}x leverage selected` });
-        // Price move % needed to trigger liquidation (approximate, ignores fees)
+        figures.push({ label: 'Leverage', value: `${leverage}x` });
+        // Price move % needed to trigger liquidation (approximate, ignores fees).
         const liqBuffer = (1 / leverage * 100).toFixed(1);
-        items.push({ icon: 'target', text: `Position liquidated if price moves ~${liqBuffer}% against you` });
+        figures.push({ label: 'Liquidation move', value: `~${liqBuffer}%` });
       }
       const collateral = Number(action.params['collateralAmount'] ?? action.params['collateral'] ?? action.params['amount']);
       if (collateral > 0 && leverage > 0) {
         const maxLoss = collateral.toFixed(collateral < 1 ? 4 : 2);
-        items.push({ icon: 'shield-alert', text: `Up to ${maxLoss} ${action.params['token'] ?? 'SOL'} at risk if liquidated` });
+        figures.push({ label: 'Max at risk', value: `${maxLoss} ${action.params['token'] ?? 'SOL'}`, emphasis: true });
       }
     }
 
@@ -195,7 +207,7 @@ export class RiskWarningService {
 
     if (!needsWarning) return null;
 
-    return { title, message, severity, items, confirmLabel };
+    return { title, message, severity, items, figures, confirmLabel };
   }
 
   private formatUsd(amount: number): string {

@@ -16,6 +16,16 @@
       </button>
     </div>
     <div class="total-value">{{ totalValue | currency:'USD':'symbol':'1.2-2' }}</div>
+
+    <!-- 7-day approximate portfolio sparkline. Sits flush on the page (no
+         card background) so it reads as part of the heading rather than a
+         standalone widget. Only renders once the history fetch has either
+         delivered points or completed empty — avoids an indefinite shimmer
+         when the Birdeye OHLCV proxy isn't returning data. -->
+    @if (!historyReady() || history7d().length > 1) {
+      <app-balance-sparkline class="hero-sparkline" [points]="history7d()" />
+    }
+
     @if (portfolioChange) {
       <div class="value-change" [class]="portfolioChange.change24hUsd >= 0 ? 'change-positive' : 'change-negative'">
         {{ portfolioChange.change24hUsd >= 0 ? '+' : '' }}{{ portfolioChange.change24hUsd | currency:'USD':'symbol':'1.2-2' }}

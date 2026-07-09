@@ -152,6 +152,87 @@ def _render_block_summary(s: ChatSummary) -> str:
     return "\n".join(parts)
 
 
+def _render_rolling_summary(summaries: list[ChatSummary]) -> str:
+    """Render ALL block summaries into ONE compact rolling block.
+
+    Why this exists: stacking 5 separate `[Summary of messages …]` system
+    messages bloats context (each is its own message turn) and creates
+    recency bias toward whichever one happens to be later in the list. The
+    LLM also tends to anchor on whichever summary mentions a refusal
+    ("Outcome: ambiguous — user did not commit") and copy the pattern.
+
+    This collapses the chain into:
+        [Conversation history — N earlier turns]
+        Latest goal: <last>
+        Earlier goals: <de-duped list>
+        Key facts: <merged top-10>
+        Recent outcomes: <last 3>
+
+    Capped at ~600 chars so it stays out of the recency spotlight.
+    """
+    if not summaries:
+        return ""
+
+    earlier_goals: list[str] = []
+    facts: list[str] = []
+    outcomes: list[str] = []
+    latest_goal = ""
+    latest_outcome = ""
+
+    for s in summaries:
+        try:
+            data = json.loads(s.summary_text or "")
+        except (json.JSONDecodeError, TypeError):
+            data = None
+        if not isinstance(data, dict):
+            continue
+        goal = str(data.get("user_goal") or "").strip()
+        outcome = str(data.get("outcome") or "").strip()
+        if goal:
+            if goal != latest_goal and goal not in earlier_goals:
+                earlier_goals.append(goal)
+            latest_goal = goal
+        if outcome:
+            outcomes.append(outcome)
+            latest_outcome = outcome
+        for f in (data.get("key_facts") or [])[:5]:
+            sf = str(f).strip()
+            if sf and sf not in facts:
+                facts.append(sf)
+
+    # Drop the latest from "earlier" list (it's surfaced separately)
+    earlier_goals = [g for g in earlier_goals if g != latest_goal][-4:]
+    facts = facts[-10:]
+    # Filter outcomes: drop "awaiting" / "ambiguous" patterns that
+    # represent unresolved threads — replaying them through context
+    # biases later turns toward the SAME unresolved request even when
+    # the user has moved on. Keep only outcomes that describe a real
+    # completion (executed, confirmed, displayed, etc.).
+    _NOISE_OUTCOME = re.compile(
+        r"\b(awaiting|pending|ambiguous|user did not commit|"
+        r"unclear|undecided|to be chosen|to choose)\b",
+        re.IGNORECASE,
+    )
+    completed_outcomes = [o for o in outcomes if not _NOISE_OUTCOME.search(o)]
+    recent_outcomes = completed_outcomes[-3:]
+
+    last_end = summaries[-1].message_end
+    parts = [f"[Conversation history — {last_end} earlier messages, summarised]"]
+    if latest_goal:
+        parts.append(f"Latest goal: {latest_goal}")
+    if earlier_goals:
+        parts.append("Earlier goals: " + "; ".join(earlier_goals))
+    if facts:
+        parts.append("Key facts: " + "; ".join(facts))
+    if recent_outcomes:
+        parts.append("Recent outcomes: " + " → ".join(recent_outcomes))
+
+    block = "\n".join(parts)
+    if len(block) > 600:
+        block = block[:597] + "…"
+    return block
+
+
 async def _build_meta_summary(old_tail: list[ChatSummary]) -> str:
     """Condense N old block summaries into one executive paragraph.
 
@@ -288,6 +369,27 @@ def _sanitize_recalled_memory(text_: str) -> str:
         logger.warning("Injection pattern found in recalled memory — dropping entry")
         return ""
     return text_
+
+
+# Patterns that indicate a stored memory captures a FAILED turn (assistant
+# emitted no action / refused / hedged). Replaying these to the model anchors
+# it on the prior refusal — we want memory to seed positive precedent, not
+# negative. Conservative match: only the explicit "no actions taken" and
+# common refusal verbatim phrases the summariser writes.
+_MEMORY_FAILURE_RE = re.compile(
+    r"(assistant\s+actions:\s*\[\s*\]"
+    r"|outcome:\s*(ambiguous|no\s+action|cancelled|failed|refused|declined)"
+    r"|i\s+(cannot|can'?t)\s+(access|provide|fetch)"
+    r"|no\s+actions\s+(taken|performed))",
+    re.IGNORECASE,
+)
+
+
+def _memory_is_failure_replay(text_: str) -> bool:
+    """True when a memory entry summarises a failed/refused prior turn."""
+    if not text_:
+        return False
+    return bool(_MEMORY_FAILURE_RE.search(text_))
 
 
 async def _fetch_sol_balance(wallet: str) -> float | None:
@@ -553,6 +655,61 @@ async def maybe_create_summary(
     logger.info("Created summary for session %s block %d", session_id, block_index)
 
 
+def _is_chitchat(user_content: str | None, intent: str | None) -> bool:
+    """Detect trivial conversational turns that don't need the heavy context.
+
+    Greetings, acks, thanks, single-word replies — these were being charged
+    the full system-prompt overhead (RAG knowledge block ~20K + token
+    registry ~5K + memory snippets ~1K = ~26K wasted tokens per turn).
+    Short messages classified by greeting whitelist OR by length + lack
+    of DeFi/action keywords are skipped through a fast-path that omits
+    those expensive blocks.
+    """
+    text = (user_content or "").strip().lower()
+    if not text or len(text) > 60:
+        return False
+    # If intent is action or query at all, never treat as chitchat.
+    if intent in ("action", "query"):
+        return False
+    # Whitelist of trivial greetings / acks. If the WHOLE message is one of
+    # these (with optional punctuation), it's chitchat regardless of what
+    # substring overlaps with question words.
+    _GREETING_WHITELIST = {
+        "selam", "merhaba", "merhabalar", "günaydın", "iyi geceler",
+        "iyi günler", "iyi akşamlar", "nasılsın", "naber", "ne haber",
+        "hi", "hello", "hey", "hiya", "yo", "sup",
+        "thanks", "thank you", "thx", "tx", "ty",
+        "teşekkürler", "teşekkür ederim", "sağol", "sağolun",
+        "ok", "okay", "tamam", "anladım", "got it",
+        "bye", "görüşürüz", "hoşçakal", "goodbye",
+    }
+    stripped = "".join(c for c in text if c.isalpha() or c == " ").strip()
+    if stripped in _GREETING_WHITELIST:
+        return True
+    # Anything with a likely-DeFi token name, a number, or a known action /
+    # data verb keeps the full context.
+    _SIGNAL_PATTERNS = (
+        # action verbs (multilingual)
+        "swap", "buy", "sell", "stake", "lend", "borrow", "send", "transfer",
+        "mint", "burn", "claim", "withdraw", "deposit", "long", "short", "close",
+        # asset / data triggers
+        "sol", "usdc", "usdt", "jupiter", "raydium", "orca", "kamino",
+        "marinade", "jito", "meteora", "jup", "fiyat", "price", "pool",
+        "havuz", "tvl", "apy", "apr", "balance", "bakiye", "portföy",
+        "portfolio", "pnl", "kar", "zarar",
+        ".sol",
+        # question / data markers
+        "?", "ne kadar", "nedir", "what is", "how does", "how do",
+        "kaç ", "hangi",
+    )
+    if any(p in text for p in _SIGNAL_PATTERNS):
+        return False
+    # Numbers usually mean "amount" → action / query; keep full context.
+    if any(c.isdigit() for c in text):
+        return False
+    return True
+
+
 async def build_llm_context(
     db: AsyncSession,
     session_id: str,
@@ -562,6 +719,7 @@ async def build_llm_context(
     protocols: list[str] | None = None,
     intent: str | None = None,
     prefetched_knowledge: str | None = None,
+    category_context: str | None = None,
 ) -> list[dict[str, str]]:
     """Build the full messages array for an LLM call.
 
@@ -570,13 +728,25 @@ async def build_llm_context(
     *current_attachments* is an optional list of attachment dicts for the current
     message being processed. They are injected as context for the LLM to understand
     what the user has uploaded.
+
+    Trivial conversational turns (`is_chitchat = True`) skip the heavy
+    knowledge / token-registry / memory blocks so that a "hello" doesn't
+    consume 30K tokens of context the model never reads.
     """
     from app.prompts.loader import get_prompt_loader
     from app.services.memory_client import search_memories
 
-    # Use cached prompt loader (loads once at startup, not per-request)
-    # This is optimized for performance - avoids disk I/O on every request
-    system_prompt = get_prompt_loader().get_prompt_for_protocols(protocols or [])
+    is_chitchat = _is_chitchat(sanitised_last_user_content, intent)
+    # Loader picks the smallest viable prompt: chitchat → base only;
+    # no-protocol + advice → base only; no-protocol + query → base + queries
+    # + market_data; explicit protocol → protocol files. Previously
+    # protocols=[] dumped the full 252KB prompt (~63K tokens) on every
+    # turn that didn't tag a venue — biggest source of token waste.
+    system_prompt = get_prompt_loader().get_prompt_for_protocols(
+        protocols or [],
+        intent=intent,
+        is_chitchat=is_chitchat,
+    )
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_prompt},
@@ -636,16 +806,63 @@ async def build_llm_context(
     )
     messages.append({"role": "system", "content": wallet_context})
 
-    # Knowledge RAG injection — all intents except "action".
+    # ── Verified token registry — authoritative mint addresses ───────────
+    # Without this, the model has been observed fabricating mints for known
+    # LSTs. The block is ~5K tokens, so we inject only when actually needed:
+    #   - chat-service action turns ALWAYS need mints (swap/transfer/stake)
+    #   - query / advice turns need mints only when the user named a token
+    #     by symbol — otherwise the registry is dead weight that bloats
+    #     context and shoves later, more relevant blocks out of attention.
+    #
+    # Skipped for chitchat turns ("selam", "thanks") and for non-action turns
+    # where no known symbol appears.
+    if not is_chitchat:
+        try:
+            from app.services.tokens_generated import VERIFIED_TOKENS
+
+            user_msg_lc = (sanitised_last_user_content or "").lower()
+            needs_registry = (intent == "action")
+            if not needs_registry and user_msg_lc:
+                # Cheap word-boundary scan against known symbols. Matches
+                # case-insensitively so "sol", "USDC", "msol", "jitosol"
+                # all trigger. Sub-3-char symbols are skipped to avoid
+                # false positives ("AI" inside "fail").
+                for t in VERIFIED_TOKENS:
+                    sym = str(t.get("symbol") or "").lower()
+                    if len(sym) < 3:
+                        continue
+                    if re.search(rf"\b{re.escape(sym)}\b", user_msg_lc):
+                        needs_registry = True
+                        break
+
+            if needs_registry:
+                _lines = "\n".join(
+                    f"  {t['symbol']:>10s}  {t['address']}"
+                    for t in VERIFIED_TOKENS
+                )
+                token_registry_block = (
+                    "[Verified Token Registry — authoritative mint addresses]\n"
+                    "When the user names any of the tokens below by symbol, use the "
+                    "EXACT mint address shown. Do NOT generate / guess / 'recall' a "
+                    "similar-looking address. For tokens NOT in this list, call "
+                    "query_onchain('jup_token_search', {'query': '<symbol>'}) before "
+                    "any action.\n\n"
+                    f"{_lines}"
+                )
+                messages.append({"role": "system", "content": token_registry_block})
+            else:
+                logger.debug("token_registry: skipped (no symbol in user msg, intent=%s)", intent)
+        except Exception:
+            logger.debug("Verified token registry injection skipped", exc_info=True)
+
+    # Knowledge RAG injection — all intents except "action" and chitchat.
     # action turns are excluded to protect prompt-cache hit-rate on the
-    # stable execute_action prefix. query/advice/ambiguous turns all
-    # benefit: live data answers gain explanatory KB context, advice turns
-    # get protocol docs, ambiguous turns get both. The KB block is
-    # pre-fetched in parallel with intent classification (message.py step 5)
-    # and passed in via prefetched_knowledge; the fallback path below fires
-    # only if the caller did not supply it (e.g. internal/test callers).
+    # stable execute_action prefix. Chitchat turns are skipped because the
+    # user is not asking about DeFi at all ("selam", "thanks") and the
+    # ~20K KB block was the single largest waste of tokens per turn.
     if (
         intent != "action"
+        and not is_chitchat
         and sanitised_last_user_content
         and settings.KNOWLEDGE_RAG_ENABLED
     ):
@@ -670,6 +887,15 @@ async def build_llm_context(
         else:
             logger.debug("rag_skipped intent=%s reason=%s", intent,
                          "no_chunks" if knowledge_block is not None else "fetch_failed")
+
+    # Category context injection — when IntentRouter detected the user asked
+    # about a token CATEGORY (stables / LSTs / blue-chips), the upstream
+    # caller computes the authoritative list via TokenCategoryService and
+    # passes it in here. The block is the LLM's source of truth for the
+    # response prose — no more 2-of-10 lazy lists, no more mint padding.
+    if category_context:
+        messages.append({"role": "system", "content": category_context})
+        logger.info("category_context_injected chars=%d", len(category_context))
 
     # Inject session_state — the structured "where we are" snapshot updated
     # after each turn. This is the single most reliable input for the responder
@@ -748,31 +974,15 @@ async def build_llm_context(
     if summaries:
         summarised_count = summaries[-1].message_end
 
-        # Hierarchical compression: when there are more than RECENT_BLOCKS
-        # full-resolution summaries, condense the older tail into a single
-        # executive meta-summary so the context stays bounded as
-        # conversations grow past 100 messages.
-        recent_n = max(1, settings.OPRAI_SUMMARY_RECENT_BLOCKS)
-        if len(summaries) > recent_n:
-            old_tail = summaries[: -recent_n]
-            recent = summaries[-recent_n:]
-            meta_text = await _build_meta_summary(old_tail)
-            messages.append({
-                "role": "system",
-                "content": (
-                    f"[Executive summary of messages {old_tail[0].message_start}"
-                    f"-{old_tail[-1].message_end}] {meta_text}"
-                ),
-            })
-            block_iter = recent
-        else:
-            block_iter = summaries
-
-        for s in block_iter:
-            messages.append({
-                "role": "system",
-                "content": _render_block_summary(s),
-            })
+        # ONE rolling summary block — collapsed from the per-block loop that
+        # used to emit N separate `[Summary of messages …]` system messages.
+        # The old design's recency bias made the model anchor on the most
+        # recent summary, and "Outcome: ambiguous — user did not commit"
+        # patterns replayed through every subsequent turn. Single compact
+        # block keeps the facts but removes the recency / anchoring tax.
+        rolling = _render_rolling_summary(summaries)
+        if rolling:
+            messages.append({"role": "system", "content": rolling})
 
     # Fetch remaining raw messages (after the summarised range)
     stmt = (
@@ -801,7 +1011,7 @@ async def build_llm_context(
             last_user_msg = m.content
             break
 
-    if last_user_msg:
+    if last_user_msg and not is_chitchat:
         try:
             memories = await search_memories(
                 wallet=wallet,
@@ -817,6 +1027,15 @@ async def build_llm_context(
                     mem_summary = payload.get("summary", "")
                     mem_score = mem.get("score", 0)
                     if not mem_summary:
+                        continue
+                    # Drop memories that recorded a FAILURE (assistant did
+                    # nothing / refused / no action emitted). Replaying these
+                    # to the model anchors it on the prior refusal pattern:
+                    # the model literally sees "last time I couldn't answer
+                    # this either" and copies the hedge. We want memory to
+                    # surface positive precedent, not negative one.
+                    if _memory_is_failure_replay(mem_summary):
+                        logger.debug("memory: dropped failure-replay entry (%s)", mem_summary[:80])
                         continue
                     # Sanitise recalled text — a user could have stored a delayed
                     # jailbreak payload. Strip injection patterns before re-injecting
@@ -1009,6 +1228,22 @@ async def build_llm_context(
                 error_msg = result.get("errorMessage") or "unknown error"
                 sig_short = f"tx:{tx_sig[:8]}…" if tx_sig else ""
                 params = action_params_map.get(action_key, {})
+
+                # Token launches: surface the FULL created mint (contract) so a later
+                # "sell this / sell <TICKER>" resolves the address. Only launches carry
+                # a client-generated `mintPubkey`, so its presence identifies them.
+                executed = result.get("executedParams") or {}
+                launch_mint = executed.get("mintPubkey") if isinstance(executed, dict) else None
+                if launch_mint and status == "confirmed":
+                    sym = (executed.get("symbol") or params.get("symbol") or "").upper()
+                    name = executed.get("name") or params.get("name") or ""
+                    label = f"{sym}" + (f" ({name})" if name and name.upper() != sym else "")
+                    result_lines.append(
+                        f"✅ [launch_token] created token {label} — mint:{launch_mint} "
+                        f"(use this EXACT mint for any later buy/sell/query on this token) "
+                        f"{sig_short}".strip()
+                    )
+                    continue
                 ctx_parts = []
                 if params.get("amount"):
                     ctx_parts.append(params["amount"])
@@ -1096,5 +1331,54 @@ async def build_llm_context(
                     )
             except Exception:
                 pass
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Hard cap: keep system-message count bounded so the responder model
+    # actually weights the right blocks. message.py appends 3-4 more system
+    # messages AFTER this returns (LANGUAGE LOCK, category re-append,
+    # @-tag hint, error_recovery) so we cap here at 8 system blocks → ≤12
+    # total. Without the cap we observed 17+ system messages and the model
+    # treated everything past block 10 as noise.
+    #
+    # Eviction priority (lowest priority dropped first):
+    #   1. Knowledge Context  (RAG block, ~20K tokens — rarely cited)
+    #   2. Long-term Memory   (already failure-filtered above)
+    #   3. Error Recovery     (only useful on TRANSACTION_FAILED turns)
+    #   4. User Memory        (durable prefs — nice but not critical)
+    # Always kept:
+    #   Base prompt, User Context (wallet), Category context,
+    #   Conversation history, Session State, Token Registry, Attachments
+    _SYS_BLOCK_CAP = 8
+    _DROP_PRIORITY = (
+        "[Knowledge Context]",
+        "[Long-term Memory",
+        "[Error Recovery",
+        "[User Memory",
+    )
+
+    def _count_system(msgs: list[dict]) -> int:
+        return sum(1 for m in msgs if m.get("role") == "system")
+
+    while _count_system(messages) > _SYS_BLOCK_CAP:
+        # Find the lowest-priority droppable block still present.
+        target_idx: int | None = None
+        for marker in _DROP_PRIORITY:
+            for i, m in enumerate(messages):
+                if (
+                    m.get("role") == "system"
+                    and isinstance(m.get("content"), str)
+                    and m["content"].lstrip().startswith(marker)
+                ):
+                    target_idx = i
+                    break
+            if target_idx is not None:
+                break
+        if target_idx is None:
+            break  # nothing droppable — nothing more to do
+        dropped = messages.pop(target_idx)
+        logger.info(
+            "sys_block_cap: dropped block (start=%r) — count now %d",
+            (dropped.get("content") or "")[:40], _count_system(messages),
+        )
 
     return messages

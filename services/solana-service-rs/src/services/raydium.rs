@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use solana_sdk::pubkey::Pubkey;
+use spl_associated_token_account::get_associated_token_address;
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -683,18 +685,39 @@ pub async fn build_raydium_swap(
     let out_amount_f: f64 =
         out_amount_raw.parse::<f64>().unwrap_or(0.0) / 10_f64.powi(out_decimals as i32);
 
-    // Step 2: POST transaction — pass the FULL compute response as `swapResponse`
+    // Step 2: POST transaction — pass the FULL compute response as `swapResponse`.
+    //
+    // Raydium V3 requires `inputAccount` (and `outputAccount` for token outputs)
+    // when the token is NOT native SOL. Skipping it yields `REQ_INPUT_ACCOUT_ERROR`
+    // (Raydium's typo'd code for "required input account error"). Both are simply
+    // the user's associated token accounts for the respective mints — Raydium
+    // creates the output ATA in-tx if it doesn't exist yet.
     let tx_path = if is_base_in { "swap-base-in" } else { "swap-base-out" };
+    let user_pk = Pubkey::from_str(user_pubkey)
+        .map_err(|_| AppError::InvalidParams("Invalid wallet pubkey".into()))?;
+    let mut tx_body = serde_json::json!({
+        "swapResponse": compute_data,
+        "txVersion": "V0",
+        "wallet": user_pubkey,
+        "wrapSol": is_input_sol,
+        "unwrapSol": is_output_sol,
+        "computeUnitPriceMicroLamports": "100000"
+    });
+    if !is_input_sol {
+        let mint_pk = Pubkey::from_str(&input_mint)
+            .map_err(|_| AppError::InvalidParams(format!("Invalid input mint: {input_mint}")))?;
+        let ata = get_associated_token_address(&user_pk, &mint_pk);
+        tx_body["inputAccount"] = serde_json::Value::String(ata.to_string());
+    }
+    if !is_output_sol {
+        let mint_pk = Pubkey::from_str(&output_mint)
+            .map_err(|_| AppError::InvalidParams(format!("Invalid output mint: {output_mint}")))?;
+        let ata = get_associated_token_address(&user_pk, &mint_pk);
+        tx_body["outputAccount"] = serde_json::Value::String(ata.to_string());
+    }
     let tx_resp = http
         .post(format!("{RAYDIUM_HOST}/transaction/{tx_path}"))
-        .json(&serde_json::json!({
-            "swapResponse": compute_data,
-            "txVersion": "V0",
-            "wallet": user_pubkey,
-            "wrapSol": is_input_sol,
-            "unwrapSol": is_output_sol,
-            "computeUnitPriceMicroLamports": "100000"
-        }))
+        .json(&tx_body)
         .send()
         .await
         .map_err(|e| AppError::ProtocolError(format!("Raydium TX build error: {e}")))?;
@@ -948,6 +971,7 @@ pub async fn build_raydium_create_pool(
 
 pub async fn build_raydium_open_position(
     http: &reqwest::Client,
+    rpc: &crate::solana::connection::SolanaRpc,
     user_pubkey: &str,
     params: &RaydiumOpenPositionParams,
 ) -> Result<BuildResponse, AppError> {
@@ -1030,53 +1054,39 @@ pub async fn build_raydium_open_position(
         format!("ticks {} → {}", tick_lower, tick_upper)
     };
 
-    let tx_resp = http
-        .post(format!("{RAYDIUM_HOST}/transaction/open-position"))
-        .json(&serde_json::json!({
-            "owner": user_pubkey,
-            "poolId": pool_id,
-            "inputMint": input_mint,
-            "inputAmount": input_base.to_string(),
-            "tickLower": tick_lower,
-            "tickUpper": tick_upper,
-            "slippageBps": slippage_bps,
-            "txVersion": "V0",
-            "computeUnitPriceMicroLamports": "100000"
-        }))
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Raydium open-position error: {e}")))?;
+    // SDK-based path: parse pool, compute liquidity, encode `open_position_v2`.
+    // See `services/raydium_clmm/builder.rs` for the heavy lifting.
+    use std::str::FromStr;
+    let pool_pk = solana_sdk::pubkey::Pubkey::from_str(&pool_id)
+        .map_err(|e| AppError::InvalidParams(format!("invalid pool_id: {e}")))?;
+    let input_mint_pk = solana_sdk::pubkey::Pubkey::from_str(&input_mint)
+        .map_err(|e| AppError::InvalidParams(format!("invalid input_mint: {e}")))?;
+    let user_pk = solana_sdk::pubkey::Pubkey::from_str(user_pubkey)
+        .map_err(|e| AppError::InvalidParams(format!("invalid user_pubkey: {e}")))?;
 
-    let tx_data: serde_json::Value = tx_resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Raydium open-position parse: {e}")))?;
+    let req = crate::services::raydium_clmm::builder::OpenPositionRequest {
+        user_pubkey: user_pk,
+        pool_id: pool_pk,
+        input_mint: input_mint_pk,
+        input_amount: input_base,
+        tick_lower,
+        tick_upper,
+        slippage_bps: slippage_bps as u32,
+        with_metadata: false,
+    };
+    let (mut response, position_nft_mint) =
+        crate::services::raydium_clmm::builder::build_open_position(rpc, req).await?;
 
-    let tx_b64 = extract_transaction(&tx_data)?;
-
-    Ok(BuildResponse {
-        preview: ActionPreview {
-            id: Uuid::new_v4().to_string(),
-            action_type: "raydium_open_position".to_string(),
-            description: format!(
-                "Open CLMM position: {} {} in pool {} ({})",
-                input_amount_str, sym, short_id(&pool_id), price_desc
-            ),
-            estimated_fee: "~0.01 SOL".to_string(),
-            estimated_refund: None,
-            params: serde_json::to_value(params)?,
-            warnings: vec![
-                "Concentrated liquidity earns fees only while price stays within your range".into(),
-            ],
-            requires_approval: true,
-        },
-        transaction: Some(tx_b64),
-        additional_signers_required: 0,
-        execution_steps: None,
-        quote: None,
-        is_cross_chain: false,
-        data: None,
-    })
+    // Augment description with the human-readable price range + symbol.
+    response.preview.description = format!(
+        "Open Raydium CLMM position: {} {} in pool {} ({}) — NFT {}",
+        input_amount_str,
+        sym,
+        short_id(&pool_id),
+        price_desc,
+        short_id(&position_nft_mint.to_string()),
+    );
+    Ok(response)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1287,6 +1297,21 @@ pub struct RaydiumGetPoolsParams {
     pub page: Option<u32>,
     #[serde(default)]
     pub page_size: Option<u32>,
+    /// Minimum 24h volume in USD. **Defaults to 0 (no filter)** so we
+    /// mirror what raydium.io itself shows — users asking "top pools by
+    /// TVL" expect to see Raydium's own ranking verbatim, including the
+    /// pegged-stable park-pools at the top. Pass a positive value
+    /// (e.g. 1000) only when the LLM detects intent like "active pools
+    /// only" or "exclude dust".
+    #[serde(default)]
+    pub min_volume24h: Option<f64>,
+    /// Minimum vol24h / TVL ratio. **Defaults to 0 (no filter)** for the
+    /// same reason. Useful when the user explicitly wants to drop
+    /// "parking pools" — pegged-stable curiosities like OSRUB/USDT that
+    /// hold $30M+ TVL but trade <$15K/day (ratio ≈ 0.0003). Real pools
+    /// clear 0.005+ easily; 0.001 is a safe threshold.
+    #[serde(default)]
+    pub min_vol_to_tvl_ratio: Option<f64>,
 }
 
 pub fn validate_raydium_get_pools_params(p: &RaydiumGetPoolsParams) -> Result<(), AppError> {
@@ -1297,7 +1322,9 @@ pub fn validate_raydium_get_pools_params(p: &RaydiumGetPoolsParams) -> Result<()
         }
     }
     if let Some(ref s) = p.sort_field {
-        let valid = ["default", "liquidity", "volume24h", "fee24h", "apr24h", "volume7d", "fee7d", "apr7d", "volume30d", "fee30d", "apr30d"];
+        // "tvl" is a common synonym for "liquidity" the LLM might emit;
+        // accept it here so the upstream alias map gets a chance to run.
+        let valid = ["default", "liquidity", "tvl", "volume24h", "fee24h", "apr24h", "volume7d", "fee7d", "apr7d", "volume30d", "fee30d", "apr30d"];
         if !valid.contains(&s.as_str()) {
             return Err(AppError::InvalidParams(format!("sortField must be one of: {}", valid.join(", "))));
         }
@@ -1315,21 +1342,72 @@ pub async fn build_raydium_get_pools(
     params: &RaydiumGetPoolsParams,
 ) -> Result<BuildResponse, AppError> {
     let pool_type = params.pool_type.as_deref().unwrap_or("all");
-    let sort_field = params.sort_field.as_deref().unwrap_or("liquidity");
+    // Accept friendly synonyms the LLM might emit ("tvl" → liquidity,
+    // "amm" → standard, "clmm" → concentrated). Without these aliases the
+    // validator returned a 400 every time the LLM picked "tvl", which
+    // surfaced to the user as a useless "teknik bir sorun" error.
+    let sort_field = match params.sort_field.as_deref().unwrap_or("liquidity") {
+        "tvl" => "liquidity",
+        other => other,
+    };
     let sort_type = params.sort_type.as_deref().unwrap_or("desc");
     let page = params.page.unwrap_or(1);
     let page_size = params.page_size.unwrap_or(20).min(1000);
+    // Default to NO filtering — we want the same list Raydium's own UI
+    // shows when the user asks for "top pools by TVL". Filters only kick
+    // in when the LLM passes them explicitly (intent like "active pools
+    // only" or "exclude parking pools").
+    let min_vol = params.min_volume24h.unwrap_or(0.0);
+    let min_ratio = params.min_vol_to_tvl_ratio.unwrap_or(0.0);
+    let filter_enabled = min_vol > 0.0 || min_ratio > 0.0;
+
+    // Over-fetch when we expect to drop rows so the user-visible page_size
+    // ends up matching the requested page_size. Cap at 200 to keep the
+    // single Raydium round-trip from blowing past their rate limit.
+    let fetch_size = if filter_enabled {
+        (page_size * 4).min(200)
+    } else {
+        page_size
+    };
 
     let url = format!(
-        "{RAYDIUM_API}/pools/info/list?poolType={pool_type}&poolSortField={sort_field}&sortType={sort_type}&page={page}&pageSize={page_size}"
+        "{RAYDIUM_API}/pools/info/list?poolType={pool_type}&poolSortField={sort_field}&sortType={sort_type}&page={page}&pageSize={fetch_size}"
     );
-    let data = raydium_get(http, &url).await?;
+    let mut data = raydium_get(http, &url).await?;
+
+    // Post-filter: drop "parking pools" with no real trading activity.
+    // Raydium's TVL ranking floods the top with pegged stables that hold
+    // $30M+ TVL but trade <$15K/day (OSRUB/USDT, ARUB/USDT, USRUB/USDT…).
+    // The vol-to-TVL ratio is the more reliable signal: real pools turn
+    // over their TVL at least 0.1%/day, parking pools sit at 0.03%.
+    if filter_enabled {
+        if let Some(arr) = data.get_mut("data").and_then(|d| d.get_mut("data")).and_then(|v| v.as_array_mut()) {
+            arr.retain(|p| {
+                let vol = p.get("day")
+                    .and_then(|d| d.get("volume"))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let tvl = p.get("tvl").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let ratio_ok = if min_ratio > 0.0 && tvl > 0.0 {
+                    (vol / tvl) >= min_ratio
+                } else {
+                    true
+                };
+                vol >= min_vol && ratio_ok
+            });
+            // Trim back to the user-requested page_size now that the
+            // volume filter has dropped the parking entries.
+            if arr.len() > page_size as usize {
+                arr.truncate(page_size as usize);
+            }
+        }
+    }
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "raydium_get_pools".to_string(),
-            description: format!("Raydium pools ({pool_type}, by {sort_field} {sort_type})"),
+            description: format!("Raydium pools ({pool_type}, by {sort_field} {sort_type}, minVol=${min_vol:.0}, minRatio={min_ratio:.4})"),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
             params: data,
@@ -1348,14 +1426,24 @@ pub async fn build_raydium_get_pools(
 // ── raydium_search_pools ──────────────────────────────────────────────────────
 
 /// Search Raydium pools by token pair.
+///
+/// The LLM emits this in three shapes:
+///   1. `{tokenA: "USDS", tokenB: "USDC"}`        — canonical
+///   2. `{query: "USDS-USDC"}` / `{query: "USDS USDC"}` — shorthand
+///   3. `{tokenA: "USDS-USDC"}`                   — model crammed both into tokenA
+/// All three resolve to the same upstream query — see `normalize_pair` below.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RaydiumSearchPoolsParams {
-    /// Token A symbol or mint address
-    pub token_a: String,
+    /// Token A symbol or mint address (optional when `query` is provided)
+    #[serde(default)]
+    pub token_a: Option<String>,
     /// Token B symbol or mint address (optional — search by single token if omitted)
     #[serde(default)]
     pub token_b: Option<String>,
+    /// Shorthand: "TOKENA-TOKENB" or "TOKENA TOKENB" → splits into tokenA + tokenB
+    #[serde(default)]
+    pub query: Option<String>,
     /// Pool type filter: "all", "concentrated", "standard", "allFarm", "concentratedFarm", "standardFarm"
     #[serde(default)]
     pub pool_type: Option<String>,
@@ -1365,9 +1453,50 @@ pub struct RaydiumSearchPoolsParams {
     pub page_size: Option<u32>,
 }
 
+/// Coerce the LLM's various input shapes into a canonical (tokenA, Option<tokenB>) pair.
+/// Accepts `query` shorthand ("USDS-USDC" / "USDS USDC") and tokenA-crammed pairs.
+fn normalize_pair(
+    token_a: &Option<String>,
+    token_b: &Option<String>,
+    query: &Option<String>,
+) -> Option<(String, Option<String>)> {
+    let split_pair = |s: &str| -> Option<(String, Option<String>)> {
+        let parts: Vec<&str> = s
+            .split(|c: char| matches!(c, '-' | '/' | ' ' | '_' | ','))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        match parts.len() {
+            1 => Some((parts[0].to_string(), None)),
+            n if n >= 2 => Some((parts[0].to_string(), Some(parts[1].to_string()))),
+            _ => None,
+        }
+    };
+
+    if let Some(q) = query.as_deref() {
+        if !q.trim().is_empty() {
+            return split_pair(q);
+        }
+    }
+    if let Some(a) = token_a.as_deref() {
+        if !a.trim().is_empty() {
+            // tokenA may itself be "USDS-USDC"
+            if token_b.is_none() {
+                if let Some((p1, p2)) = split_pair(a) {
+                    return Some((p1, p2));
+                }
+            }
+            return Some((a.to_string(), token_b.clone()));
+        }
+    }
+    None
+}
+
 pub fn validate_raydium_search_pools_params(p: &RaydiumSearchPoolsParams) -> Result<(), AppError> {
-    if p.token_a.is_empty() {
-        return Err(AppError::InvalidParams("tokenA is required".into()));
+    if normalize_pair(&p.token_a, &p.token_b, &p.query).is_none() {
+        return Err(AppError::InvalidParams(
+            "tokenA (or query) is required".into(),
+        ));
     }
     Ok(())
 }
@@ -1376,7 +1505,10 @@ pub async fn build_raydium_search_pools(
     http: &reqwest::Client,
     params: &RaydiumSearchPoolsParams,
 ) -> Result<BuildResponse, AppError> {
-    let mint1 = resolve_token_address(&params.token_a);
+    let (token_a, token_b) = normalize_pair(&params.token_a, &params.token_b, &params.query)
+        .ok_or_else(|| AppError::InvalidParams("tokenA (or query) is required".into()))?;
+
+    let mint1 = resolve_token_address(&token_a);
     let pool_type = params.pool_type.as_deref().unwrap_or("all");
     let sort_field = params.sort_field.as_deref().unwrap_or("liquidity");
     let page_size = params.page_size.unwrap_or(20).min(1000);
@@ -1384,14 +1516,14 @@ pub async fn build_raydium_search_pools(
     let mut url = format!(
         "{RAYDIUM_API}/pools/info/mint?mint1={mint1}&poolType={pool_type}&poolSortField={sort_field}&sortType=desc&pageSize={page_size}&page=1"
     );
-    if let Some(ref b) = params.token_b {
+    if let Some(ref b) = token_b {
         let mint2 = resolve_token_address(b);
         url.push_str(&format!("&mint2={mint2}"));
     }
 
     let data = raydium_get(http, &url).await?;
-    let sym_a = token_symbol(&params.token_a);
-    let pair_str = match &params.token_b {
+    let sym_a = token_symbol(&token_a);
+    let pair_str = match &token_b {
         Some(b) => format!("{}/{}", sym_a, token_symbol(b)),
         None => sym_a,
     };

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, func, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Index, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -63,4 +63,18 @@ class ChatSession(Base):
     # raw history has been compressed away. See `services.session_state`.
     session_state: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
+    # Per-chat usage counters. `total_tokens` is the running sum of input +
+    # output tokens charged to this conversation. `is_locked` is the durable
+    # flag set when the chat hits its per-chat cap — the frontend disables
+    # the composer for any locked session and forces a new chat. Both are
+    # set by the cost_cap pipeline after each assistant turn.
+    total_tokens: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0", default=0,
+    )
+    is_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False,
+    )
+    locked_reason: Mapped[str | None] = mapped_column(
+        String, nullable=True,
     )

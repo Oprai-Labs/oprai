@@ -15,8 +15,9 @@ import { SessionStorageService, ChatSession, SessionGroup } from '@core/services
 import { ChatApiService, ChatMessage } from '@features/chat/services/chat-api.service';
 import { PositionMonitorService } from '@core/services/position-monitor.service';
 import { SpendingLimitService } from '@core/services/spending-limit.service';
+import { ApiService } from '@core/services/api.service';
 
-export type SettingsTab = 'account' | 'appearance' | 'behavior' | 'data';
+export type SettingsTab = 'account' | 'appearance' | 'behavior' | 'data' | 'memory';
 
 // Search result with match info
 interface SearchResult {
@@ -44,6 +45,7 @@ export class MainLayoutComponent implements OnDestroy {
   readonly themeService = inject(ThemeService);
   readonly sessionStorage = inject(SessionStorageService);
   private readonly chatApi = inject(ChatApiService);
+  private readonly apiService = inject(ApiService);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly positionMonitor = inject(PositionMonitorService);
   readonly spendingLimitService = inject(SpendingLimitService);
@@ -361,6 +363,10 @@ export class MainLayoutComponent implements OnDestroy {
   readonly settingsOpen = signal(false);
   readonly activeSettingsTab = signal<SettingsTab>('account');
 
+  // Settings — Memory
+  readonly memories = signal<Array<{fact_type: string; fact_value: unknown; confidence: number; updated_at: string}>>([]);
+  readonly memoriesLoading = signal(false);
+
   // Settings — Behavior
   slippage = 1;
   preferredDex = 'jupiter';
@@ -570,6 +576,27 @@ export class MainLayoutComponent implements OnDestroy {
 
   setSettingsTab(tab: SettingsTab): void {
     this.activeSettingsTab.set(tab);
+    if (tab === 'memory') this.loadMemories();
+  }
+
+  loadMemories(): void {
+    this.memoriesLoading.set(true);
+    this.apiService.get<{memories: Array<{fact_type: string; fact_value: unknown; confidence: number; updated_at: string}>}>('/api/v1/memories').subscribe({
+      next: (res) => { this.memories.set(res.memories); this.memoriesLoading.set(false); },
+      error: () => this.memoriesLoading.set(false),
+    });
+  }
+
+  deleteMemory(factType: string): void {
+    this.apiService.delete<{deleted: string}>(`/api/v1/memories/${factType}`).subscribe({
+      next: () => this.memories.update(m => m.filter(x => x.fact_type !== factType)),
+    });
+  }
+
+  formatFactValue(val: unknown): string {
+    if (Array.isArray(val)) return val.join(', ');
+    if (typeof val === 'object' && val !== null) return JSON.stringify(val);
+    return String(val ?? '');
   }
 
   setThemePreference(pref: ThemePreference): void {
@@ -869,8 +896,8 @@ export class MainLayoutComponent implements OnDestroy {
     this.searchPreviewLoading.set(true);
     const resolvedId = this.sessionStorage.resolveId(session.id);
     this.previewMessagesSub = this.chatApi.getMessages(resolvedId).subscribe({
-      next: (messages) => {
-        this.searchPreviewMessages.set(messages);
+      next: (resp) => {
+        this.searchPreviewMessages.set(resp.messages);
         this.searchPreviewLoading.set(false);
       },
       error: () => {

@@ -271,8 +271,14 @@ services:
       DATABASE_URL: postgresql+asyncpg://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
       QDRANT_URL: http://qdrant:6333
       OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
+      OPRAI_ANTHROPIC_API_KEY: ${OPRAI_ANTHROPIC_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       MONTHLY_BUDGET_USD: ${KNOWLEDGE_INGESTION_MONTHLY_BUDGET_USD:-50}
+      # Hourly auto-crawl on the production deploy. Each Source's
+      # `crawl_freq` controls how often it actually fetches (news=hourly,
+      # everything else=weekly), so the hourly tick is light most hours.
+      # Override with KNOWLEDGE_CRAWLER_AUTORUN=false to disable.
+      KNOWLEDGE_CRAWLER_AUTORUN: ${KNOWLEDGE_CRAWLER_AUTORUN:-true}
     depends_on:
       pgbouncer:
         condition: service_healthy

@@ -1,21 +1,17 @@
 /**
  * YieldScannerService
  *
- * Aggregates cross-protocol APY data and calculates yield
- * opportunities based on user portfolio.
- *
- * Desteklenen protokoller:
- *   - Kamino K-Lend (supply APY per reserve)
- *   - MarginFi (deposit APY per bank)
- *   - Solend (supply APY per reserve)
- *   - Jito (jitoSOL stake APY)
- *   - Marinade (mSOL stake APY)
- *   - JupSOL (stake APY)
+ * Aggregates cross-protocol APY data and surfaces yield opportunities.
+ * All numbers come from live protocol APIs — no static fallback table.
+ * When a source is unreachable, the corresponding entry is omitted rather
+ * than backfilled with a stale constant (which previously surfaced
+ * months-old APYs as if they were current).
  */
 
 import { Injectable, inject } from '@angular/core';
-import { KaminoService } from './market/kamino.service';
+import { KaminoService, KAMINO_MAIN_MARKET } from './market/kamino.service';
 import { JitoService } from './market/jito.service';
+import { MarinadeService } from './market/marinade.service';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,152 +34,18 @@ export interface ProtocolYield {
 export interface YieldOpportunity {
   token: string;
   mint: string;
-  /** Where idle/currently-earning tokens are now */
   currentProtocol: string;
   currentApy: number;
-  /** Best alternative */
   bestProtocol: ProtocolYield;
-  /** APY improvement */
   apyGain: number;
-  /** Estimated annual gain in USD (requires amount) */
   estimatedAnnualGainUsd?: number;
-  /** Action to move tokens */
   actionType: string;
   actionParams: Record<string, string>;
 }
 
-// ── Static fallback APY data (updated periodically from docs) ─────────────────
-// These represent typical/base APYs — real data is fetched when available
+// ── Constants used to wire action params ─────────────────────────────────────
 
-const STATIC_APY: Record<string, ProtocolYield[]> = {
-  SOL: [
-    {
-      protocol: 'jito',
-      protocolLabel: 'Jito (jitoSOL)',
-      token: 'SOL',
-      mint: 'So11111111111111111111111111111111111111112',
-      type: 'stake',
-      supplyApy: 7.8,
-      tvlUsd: 2_500_000_000,
-      actionType: 'jito_stake',
-      actionParams: {},
-      riskScore: 1,
-    },
-    {
-      protocol: 'marinade',
-      protocolLabel: 'Marinade (mSOL)',
-      token: 'SOL',
-      mint: 'So11111111111111111111111111111111111111112',
-      type: 'stake',
-      supplyApy: 7.2,
-      tvlUsd: 1_500_000_000,
-      actionType: 'marinade_stake',
-      actionParams: {},
-      riskScore: 1,
-    },
-    {
-      protocol: 'jupsol',
-      protocolLabel: 'Jupiter (jupSOL)',
-      token: 'SOL',
-      mint: 'So11111111111111111111111111111111111111112',
-      type: 'stake',
-      supplyApy: 7.5,
-      tvlUsd: 800_000_000,
-      actionType: 'jupsol_stake',
-      actionParams: {},
-      riskScore: 1,
-    },
-    {
-      protocol: 'kamino',
-      protocolLabel: 'Kamino Lend',
-      token: 'SOL',
-      mint: 'So11111111111111111111111111111111111111112',
-      type: 'lend',
-      supplyApy: 3.2,
-      tvlUsd: 600_000_000,
-      actionType: 'kamino_deposit',
-      actionParams: { market: '7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF', mint: 'So11111111111111111111111111111111111111112' },
-      riskScore: 2,
-    },
-    {
-      protocol: 'marginfi',
-      protocolLabel: 'MarginFi',
-      token: 'SOL',
-      mint: 'So11111111111111111111111111111111111111112',
-      type: 'lend',
-      supplyApy: 3.8,
-      tvlUsd: 400_000_000,
-      actionType: 'marginfi_deposit',
-      actionParams: { bank: 'So11111111111111111111111111111111111111112', amount: '' },
-      riskScore: 2,
-    },
-  ],
-  USDC: [
-    {
-      protocol: 'kamino',
-      protocolLabel: 'Kamino Lend',
-      token: 'USDC',
-      mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-      type: 'lend',
-      supplyApy: 8.5,
-      tvlUsd: 800_000_000,
-      actionType: 'kamino_deposit',
-      actionParams: { market: '7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
-      riskScore: 2,
-    },
-    {
-      protocol: 'marginfi',
-      protocolLabel: 'MarginFi',
-      token: 'USDC',
-      mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-      type: 'lend',
-      supplyApy: 7.2,
-      tvlUsd: 600_000_000,
-      actionType: 'marginfi_deposit',
-      actionParams: { bank: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', amount: '' },
-      riskScore: 2,
-    },
-    {
-      protocol: 'solend',
-      protocolLabel: 'Solend',
-      token: 'USDC',
-      mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-      type: 'lend',
-      supplyApy: 5.8,
-      tvlUsd: 300_000_000,
-      actionType: 'kamino_deposit',
-      actionParams: { pool: 'main', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
-      riskScore: 2,
-    },
-
-  ],
-  USDT: [
-    {
-      protocol: 'kamino',
-      protocolLabel: 'Kamino Lend',
-      token: 'USDT',
-      mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-      type: 'lend',
-      supplyApy: 8.1,
-      tvlUsd: 200_000_000,
-      actionType: 'kamino_deposit',
-      actionParams: { market: '7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF', mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' },
-      riskScore: 2,
-    },
-    {
-      protocol: 'marginfi',
-      protocolLabel: 'MarginFi',
-      token: 'USDT',
-      mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-      type: 'lend',
-      supplyApy: 6.9,
-      tvlUsd: 100_000_000,
-      actionType: 'marginfi_deposit',
-      actionParams: { bank: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', amount: '' },
-      riskScore: 2,
-    },
-  ],
-};
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 // ── Service ──────────────────────────────────────────────────────────────────
 
@@ -191,49 +53,121 @@ const STATIC_APY: Record<string, ProtocolYield[]> = {
 export class YieldScannerService {
   private readonly kamino = inject(KaminoService);
   private readonly jito = inject(JitoService);
+  private readonly marinade = inject(MarinadeService);
+
+  /** Cache the full yield list briefly so multiple tabs/components don't refetch. */
+  private cache: { yields: ProtocolYield[]; ts: number } | null = null;
+  private readonly CACHE_MS = 30_000;
 
   /**
-   * Get all available yields for a token symbol, sorted by APY descending.
-   * Merges static fallback data with live data when available.
+   * Fetch every yield we have a live source for. Currently:
+   *   - Kamino: every reserve across every Kamino lending market
+   *   - Jito:   jitoSOL liquid stake APY (SOL → jitoSOL)
+   *   - Marinade: mSOL liquid stake APY (SOL → mSOL)
+   * Anything else (MarginFi, Solend, JupSOL, …) is omitted until a live
+   * APY source is wired — we never inject made-up numbers.
    */
-  async getYieldsForToken(token: string): Promise<ProtocolYield[]> {
-    const yields = [...(STATIC_APY[token.toUpperCase()] ?? [])];
+  private async fetchAllYields(): Promise<ProtocolYield[]> {
+    const out: ProtocolYield[] = [];
 
-    // Try to enrich with live Kamino data
+    // ── Kamino: enumerate markets, then reserves per market ─────────
     try {
       const markets = await this.kamino.getMarkets();
-      for (const market of markets) {
-        const reserves = await this.kamino.getMarketReserves(market.lendingMarket);
-        for (const reserve of reserves) {
-          const sym = reserve.symbol?.toUpperCase();
-          if (sym !== token.toUpperCase()) continue;
-          const supplyApy = parseFloat(reserve.supplyApy ?? '0') * 100;
-          if (!isFinite(supplyApy) || supplyApy <= 0) continue;
-          const existing = yields.find(y => y.protocol === 'kamino' && y.token.toUpperCase() === sym);
-          if (existing) {
-            existing.supplyApy = supplyApy;
-          }
+      // Run reserve lookups in parallel; one slow market shouldn't gate the rest.
+      const perMarket = await Promise.all(markets.map(async (m) => {
+        try { return { market: m, reserves: await this.kamino.getMarketReserves(m.lendingMarket) }; }
+        catch { return { market: m, reserves: [] }; }
+      }));
+      for (const { market, reserves } of perMarket) {
+        for (const r of reserves) {
+          const apy = (parseFloat(r.supplyApy ?? '0') || 0) * 100;
+          if (!(apy > 0)) continue;
+          out.push({
+            protocol: 'kamino',
+            protocolLabel: `Kamino Lend${market.isPrimary ? '' : ` — ${market.name}`}`,
+            token: r.liquidityToken,
+            mint: r.liquidityTokenMint,
+            type: 'lend',
+            supplyApy: apy,
+            borrowApy: (parseFloat(r.borrowApy ?? '0') || 0) * 100,
+            tvlUsd: r.totalSupplyUsd,
+            actionType: 'kamino_deposit',
+            actionParams: {
+              market: market.lendingMarket,
+              mint: r.liquidityTokenMint,
+            },
+            riskScore: 2,
+          });
         }
       }
-    } catch { /* use static */ }
+    } catch { /* upstream Kamino unavailable — skip silently */ }
 
-    // Try to enrich with live Jito APY
-    if (token.toUpperCase() === 'SOL') {
-      try {
-        const apy = await this.jito.getCurrentApy();
-        if (apy !== null) {
-          const jitoEntry = yields.find(y => y.protocol === 'jito');
-          if (jitoEntry) jitoEntry.supplyApy = apy;
-        }
-      } catch { /* use static */ }
+    // ── Jito jitoSOL ────────────────────────────────────────────────
+    try {
+      const apy = await this.jito.getCurrentApy();
+      if (typeof apy === 'number' && apy > 0) {
+        out.push({
+          protocol: 'jito',
+          protocolLabel: 'Jito (jitoSOL)',
+          token: 'SOL',
+          mint: SOL_MINT,
+          type: 'stake',
+          supplyApy: apy,
+          actionType: 'jito_stake',
+          actionParams: {},
+          riskScore: 1,
+        });
+      }
+    } catch { /* skip */ }
+
+    // ── Marinade mSOL ───────────────────────────────────────────────
+    try {
+      const stats = await this.marinade.getStats();
+      const apy = stats?.apy;
+      if (typeof apy === 'number' && apy > 0) {
+        out.push({
+          protocol: 'marinade',
+          protocolLabel: 'Marinade (mSOL)',
+          token: 'SOL',
+          mint: SOL_MINT,
+          type: 'stake',
+          supplyApy: apy,
+          tvlUsd: stats?.tvl ?? undefined,
+          actionType: 'marinade_stake',
+          actionParams: {},
+          riskScore: 1,
+        });
+      }
+    } catch { /* skip */ }
+
+    return out;
+  }
+
+  private async getAllCached(): Promise<ProtocolYield[]> {
+    if (this.cache && Date.now() - this.cache.ts < this.CACHE_MS) {
+      return this.cache.yields;
     }
-
-    return yields.sort((a, b) => b.supplyApy - a.supplyApy);
+    const yields = await this.fetchAllYields();
+    this.cache = { yields, ts: Date.now() };
+    return yields;
   }
 
   /**
-   * Given a list of token holdings (token → amount in USD),
-   * return yield opportunities sorted by estimated annual gain.
+   * Get yields for a specific token symbol, highest APY first. Returns
+   * an empty list when no live source is reachable — callers should
+   * render an "unavailable" state rather than show stale numbers.
+   */
+  async getYieldsForToken(token: string): Promise<ProtocolYield[]> {
+    const sym = token.toUpperCase();
+    const all = await this.getAllCached();
+    return all
+      .filter((y) => y.token.toUpperCase() === sym)
+      .sort((a, b) => b.supplyApy - a.supplyApy);
+  }
+
+  /**
+   * Match holdings against live yields and surface opportunities sorted
+   * by estimated annual USD gain. Skips holdings below $10 (dust).
    */
   async findOpportunities(
     holdings: Array<{ token: string; mint: string; amountUsd: number; currentProtocol?: string; currentApy?: number }>,
@@ -242,20 +176,18 @@ export class YieldScannerService {
     const { minGainPct = 0.5, maxRisk = 4 } = options;
     const opps: YieldOpportunity[] = [];
 
-    await Promise.all(holdings.map(async holding => {
-      if (holding.amountUsd < 10) return; // Skip dust
+    await Promise.all(holdings.map(async (holding) => {
+      if (holding.amountUsd < 10) return;
       const yields = await this.getYieldsForToken(holding.token);
-      const eligible = yields.filter(y => y.riskScore <= maxRisk);
+      const eligible = yields.filter((y) => y.riskScore <= maxRisk);
       if (eligible.length === 0) return;
 
       const best = eligible[0];
       const currentApy = holding.currentApy ?? 0;
       const apyGain = best.supplyApy - currentApy;
-
       if (apyGain < minGainPct) return;
 
       const estimatedAnnualGainUsd = (holding.amountUsd * apyGain) / 100;
-
       const params = { ...best.actionParams, amount: holding.amountUsd.toFixed(2) };
 
       opps.push({
@@ -274,12 +206,12 @@ export class YieldScannerService {
     return opps.sort((a, b) => (b.estimatedAnnualGainUsd ?? 0) - (a.estimatedAnnualGainUsd ?? 0));
   }
 
-  /**
-   * Get all yields across all tracked tokens, sorted by APY.
-   */
+  /** All yields we have a live signal for, sorted by APY. */
   async getAllYields(): Promise<ProtocolYield[]> {
-    const tokens = Object.keys(STATIC_APY);
-    const results = await Promise.all(tokens.map(t => this.getYieldsForToken(t)));
-    return results.flat().sort((a, b) => b.supplyApy - a.supplyApy);
+    const all = await this.getAllCached();
+    return [...all].sort((a, b) => b.supplyApy - a.supplyApy);
   }
 }
+
+// Re-export so callers don't import from kamino.service directly.
+export { KAMINO_MAIN_MARKET };

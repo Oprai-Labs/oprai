@@ -250,12 +250,15 @@ pub async fn get_swap_quote(
     let output_mint = resolve_token_address(&params.output_mint);
     let slippage_bps = params.slippage_bps.unwrap_or(50);
 
-    let input_token = get_token_info(&params.input_mint);
-    let input_decimals = input_token.map(|t| t.decimals).unwrap_or(9);
-
-    let amount_in_smallest = parse_amount_to_base_units(&params.amount, input_decimals)?;
-
-    // Normalize swapMode: accept both shorthand ("in"/"out") and canonical ("ExactIn"/"ExactOut").
+    // Normalize swapMode FIRST so we know which token's decimals the `amount`
+    // is denominated in. Jupiter's `amount` parameter is the EXACT side:
+    //   ExactIn  → amount = input quantity   (input decimals)
+    //   ExactOut → amount = output quantity  (output decimals)
+    // Treating it as input always (the old bug) silently mis-scales every
+    // ExactOut quote — "buy 5 USDC" with 9-decimal SOL would request
+    // 5_000_000_000 USDC out (5e9 atomic = 5_000 USDC). The Jupiter response
+    // looked plausible because Jupiter just routes whatever atomic amount it
+    // gets, so the user ended up paying ~1000× the SOL they expected.
     let swap_mode_raw = params.swap_mode.as_deref().unwrap_or("ExactIn");
     let swap_mode = match swap_mode_raw.to_lowercase().as_str() {
         "in" | "exactin" => "ExactIn",
@@ -265,6 +268,14 @@ pub async fn get_swap_quote(
             "ExactIn"
         }
     };
+
+    let amount_decimals = if swap_mode == "ExactOut" {
+        get_token_info(&params.output_mint).map(|t| t.decimals).unwrap_or(9)
+    } else {
+        get_token_info(&params.input_mint).map(|t| t.decimals).unwrap_or(9)
+    };
+
+    let amount_in_smallest = parse_amount_to_base_units(&params.amount, amount_decimals)?;
     let only_direct = params.only_direct_routes.unwrap_or(false);
 
     let restrict_intermediate = params.restrict_intermediate_tokens.unwrap_or(false);

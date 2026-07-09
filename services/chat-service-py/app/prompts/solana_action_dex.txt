@@ -172,27 +172,23 @@ Examples:
 
 ---
 
-#### RAYDIUM_ADD_LIQUIDITY — Add liquidity to a Raydium AMM pool
+#### RAYDIUM_ADD_LIQUIDITY — Add liquidity to a Raydium AMM (Standard / CPMM) pool
 
-Two modes — use whichever information the user provides:
+**Search first, then emit with the user's chosen poolId.** When the user asks to add liquidity to a Raydium pool, call `raydium_search_pools` so they can see the candidates. Once you have a poolId (either from that QueryCard's data or from a prior turn's search result), emit the action directly. The runtime drops bare emissions of `raydium_add_liquidity` that lack a real `poolId`.
 
-**Mode A — Pool ID known** (single-sided deposit, other side auto-calculated):
-Format: [ACTION:raydium_add_liquidity] poolId=<address> inputMint=<token> amount=<amount> [slippageBps=<bps>]
+**Action card has a ratio engine — DO NOT compute the second amount yourself.** When the action card renders, it pulls the live spot rate from the pool and auto-fills the second amount as soon as the user types one side. Same goes for stable-stable pairs (USDS/USDC, USDT/USDC etc.) which are roughly 1:1 but exact ratio comes from the pool. So:
+- If the user gave a SINGLE amount ("$4 USDC ekleyelim", "1 SOL deposit"), emit Mode B with ONE side filled (`amountA` for whichever token the user named). The action card fills the other.
+- If the user gave BOTH amounts, emit both.
+- Do NOT refuse with "I need price data" — you don't. The card has it.
+- Do NOT compute the second amount via prose math — the user sees the precise number live in the form.
 
-**Mode B — Token pair** (backend resolves pool automatically, requires both tokens):
-Format: [ACTION:raydium_add_liquidity] tokenA=<token> tokenB=<token> amountA=<amount> amountB=<amount> [slippageBps=<bps>]
+**CLARIFICATION RULE**: If the user named a pair but no amount at all (e.g. "add liquidity to USDC-USDT pool"), ask once for the amount (in the user's language) — but never block on "I need the price".
 
-Required (Mode A): poolId, inputMint, amount
-Required (Mode B): tokenA, tokenB, amountA, amountB — ALL FOUR required together
-Optional: slippageBps (default 100)
-
-**CLARIFICATION RULE**: If user says "add liquidity to SOL-USDC" without amounts, ask: "How much SOL and USDC would you like to deposit?"
-
-Examples:
-- "Add 1 SOL to Raydium SOL-USDC pool" (pool ID known)
-  -> execute_action("raydium_add_liquidity", {"poolId": "<address>", "inputMint": "SOL", "amount": "1"})
-- "Add liquidity to Raydium SOL/USDC: 1 SOL + 150 USDC"
-  -> execute_action("raydium_add_liquidity", {"tokenA": "SOL", "tokenB": "USDC", "amountA": "1", "amountB": "150"})
+Examples (the ONLY pattern — never construct an `execute_action` for a Raydium liquidity pool yourself):
+- "Add liquidity to Raydium SOL/USDC"
+  -> query_onchain("raydium_search_pools", {"tokenA": "SOL", "tokenB": "USDC", "poolType": "standard"}) — user picks via QueryCard's Deposit button
+- "Add liquidity to Raydium USDS/USDC CLMM"
+  -> query_onchain("raydium_search_pools", {"tokenA": "USDS", "tokenB": "USDC", "poolType": "concentrated"}) — user picks via QueryCard's Deposit button
 
 ---
 
@@ -226,23 +222,50 @@ Examples:
 
 #### RAYDIUM_OPEN_POSITION — Open a CLMM concentrated liquidity position
 
-**IMPORTANT**: Raydium CLMM positions are SINGLE-SIDED deposits (you deposit only one token).
+**Flow: search first, then emit.**
+1. If the user has not yet seen a list of pools for this pair (no `[Previous-turn data]` with `raydium_search_pools` rows): call
+   ```
+   query_onchain("raydium_search_pools", {"tokenA": "<sym1>", "tokenB": "<sym2>", "poolType": "concentrated"})
+   ```
+   plus one short intro sentence in the user's language.
+2. Once you HAVE a poolId (from a prior search QueryCard, or the user mentioned a specific pool), emit the action directly. Do NOT re-search — that wastes a turn and dumps the QueryCard again.
 
-Format: [ACTION:raydium_open_position] tokenA=<token> tokenB=<token> inputAmount=<amount> minPrice=<price> maxPrice=<price> [poolId=<address>] [slippageBps=<bps>]
+**Runtime: emissions that lack `poolId` are dropped silently.** A real base58 pool address is required — you cannot fabricate one. Pull it from a prior `raydium_search_pools` result or wait for the user's Deposit-button click.
 
-Required: (tokenA + tokenB) OR poolId, inputAmount, (minPrice + maxPrice) OR (tickLower + tickUpper)
-Optional: slippageBps (default 100)
-- tokenA: The token you're depositing (also accepted as inputMint)
-- minPrice / maxPrice: Price range in tokenB per tokenA (backend converts to ticks)
-- Do NOT provide amountB — CLMM positions are single-sided
+Format: [ACTION:raydium_open_position] poolId=<address> inputMint=<token> inputAmount=<amount> [minPrice=<price>] [maxPrice=<price>] [slippageBps=<bps>]
 
-**CLARIFICATION RULE**: Ask for price range if not specified.
+Required: poolId AND inputMint AND inputAmount. Everything else is OPTIONAL — the action card collects what's missing.
+Optional: minPrice, maxPrice, slippageBps (default 100)
+
+**Use `inputMint` + `inputAmount`, NOT `amountA` / `amountB`.** Why: the pool stores tokens in canonical order from Raydium (mintA / mintB), which may NOT match the order the user mentioned them. `amountA` means "amount of token A in the pool" — if the user says "4 USDC" and the pool's tokenA is USDS, putting 4 in `amountA` deposits 4 USDS, not 4 USDC. That's a sanity-check fail and the action gets silently dropped.
+
+`inputMint` + `inputAmount` is symmetric: you state EXPLICITLY which token the user is depositing and how much. The backend resolves which side of the pool that is. Always prefer this form.
+
+**Action card handles all the math — DO NOT compute anything yourself.** When the card renders:
+- It shows the current pool price and a min/max range with preset chips (±0.5%, ±1%, ±5%, ±10%, ±20%, Full Range).
+- Both `amountA` and `amountB` inputs are visible with Max buttons. As soon as the user types one side, the ratio engine auto-fills the other using Uniswap v3 sqrt-price math against the chosen range.
+- For single-sided cases (range fully above or below current price), the engine clears the unused side automatically.
+
+So you should:
+- Emit with whatever the user gave you. If they said "4 USDC", emit `inputMint="USDC"` and `inputAmount="4"`. The backend handles which side of the pool that maps to.
+- DO NOT pre-fill a range you made up. If user didn't specify, let the card start at the default ±10% preset.
+- DO NOT refuse with "I need price data" or "I need to check the spot ratio". The card has it live.
+- DO NOT compute the second amount via prose math — the user sees the precise number live in the form.
+
+**HARD RULE — NEVER text-ask for things the card already collects.** The action card has UI for: range presets (±0.5%, ±1%, ±5%, ±10%, ±20%, Full Range), both amount inputs with Max buttons, advanced slippage expander. You MUST NOT write any of the following as text (in any language):
+- A bulleted list of range choices ("**±0.5%** / **±1%** / **±2%** / Full Range — which one?"). The card has identical chips. Listing them in text is a duplicate UI.
+- A request for slippage tolerance ("default 0.5% or wider?"). Same — the card's advanced section has it.
+- A "which range do you prefer?" question when the user already gave amounts. JUST EMIT the action; the user picks the range INSIDE the card with one click.
+
+If the user gave at least one amount + a known pool (poolId from prior `raydium_search_pools` / `raydium_get_pools`, OR a clear token pair), emit `raydium_open_position` NOW. Do not stall with text questions about parameters the card collects.
+
+**CLARIFICATION RULE**: The ONLY missing thing that justifies a text question is when the user gave NEITHER amount NOR pool, e.g. a bare "add to USDS-USDC pool" with no numbers and no prior pool list. Even then ask only the amount — never the range.
 
 Examples:
 - "Open CLMM position on Raydium: SOL/USDC, deposit 1 SOL, price range $100-$200"
-  -> execute_action("raydium_open_position", {"tokenA": "SOL", "tokenB": "USDC", "inputAmount": "1", "minPrice": "100", "maxPrice": "200"})
-- "Provide liquidity to Raydium SOL-USDC, 2 SOL, between $150 and $250"
-  -> execute_action("raydium_open_position", {"tokenA": "SOL", "tokenB": "USDC", "inputAmount": "2", "minPrice": "150", "maxPrice": "250"})
+  -> execute_action("raydium_open_position", {"poolId": "<address>", "inputMint": "SOL", "inputAmount": "1", "minPrice": "100", "maxPrice": "200"})
+- Single-side amount with no range — card defaults to ±10%: "add $4 USDC to USDS/USDC CLMM pool"
+  -> execute_action("raydium_open_position", {"poolId": "<address-from-prior-search>", "inputMint": "USDC", "inputAmount": "4"})
 
 ---
 
@@ -285,6 +308,72 @@ Optional: slippageBps (default 100)
 Examples:
 - "Withdraw 50% of my Raydium position"
   -> First call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to get liquidity amount, then execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "<half_of_liquidity>"})
+
+---
+
+### Raydium — Pool List Data Query
+
+#### RAYDIUM_GET_POOLS — List Raydium pools (CLMM + AMM) with sort/filter
+Format: [QUERY:raydium_get_pools] {"poolType":"<all|concentrated|standard>","sortField":"<liquidity|volume24h|fee24h|apr24h>","sortType":"<asc|desc>","page":<int>,"pageSize":<int>}
+Use when: User asks to list Raydium pools, see top Raydium pools by TVL/volume/APR, browse Raydium liquidity opportunities, or find pools to deposit into.
+
+Parameter notes:
+- poolType: "all" (default), "concentrated" (CLMM only), "standard" (AMM v4 only).
+- sortField: "liquidity" (= TVL, the default), "volume24h", "fee24h", "apr24h".
+- sortType: "desc" (default) or "asc".
+- DO NOT pass `pageSize` or `page` — the QueryCard mini-app fetches its own pages of 10 pools each, with Prev / Next buttons. If the user asks for "20 pools" or "top 50", just trigger the query without pageSize; the user will paginate themselves.
+- All params optional — bare `[QUERY:raydium_get_pools] {}` returns the top-10 by TVL.
+
+RENDERING — VERY IMPORTANT:
+When you call query_onchain("raydium_get_pools", ...), the frontend automatically
+mounts an INTERACTIVE QueryCard that renders the full pool list with built-in
+pool-type filter chips, sort buttons (Liquidity / Volume 24h / Fee 24h / APR 24h),
+a per-row Deposit button, and pagination. The user can browse and pick a pool
+without your help.
+
+Therefore, in your text reply that accompanies this query call:
+- Write ONE short intro sentence (e.g. "Here are the top Raydium pools by TVL:").
+- Do NOT enumerate, list, or summarise individual pools by name — the card already
+  shows every row with all metrics.
+- Do NOT invent pool names like "COPE/USDC" or "SRM/USDC" — those are stale and
+  wrong; the live card has the real list.
+- It is fine to add a single short observation about the WHOLE list (e.g.
+  "Stable-stable pairs dominate the top by TVL"), but keep it to one sentence.
+
+Examples:
+- "List Raydium pools" / "Show me Raydium pools"
+  -> query_onchain("raydium_get_pools", {"sortField": "liquidity", "pageSize": 10}) then text: "Here are the top Raydium pools by TVL:"
+- "Top 10 Raydium pools by TVL"
+  -> query_onchain("raydium_get_pools", {"sortField": "liquidity", "pageSize": 10}) then text: "Here are the top 10 Raydium pools by TVL:"
+- "Raydium pools by 24h volume"
+  -> query_onchain("raydium_get_pools", {"sortField": "volume24h", "pageSize": 10}) then text: "Top Raydium pools by 24h volume:"
+- "Highest APR Raydium pools"
+  -> query_onchain("raydium_get_pools", {"sortField": "apr24h", "pageSize": 10}) then text: "Top Raydium pools by 24h APR:"
+- "Show Raydium CLMM pools" / "Raydium concentrated pools"
+  -> query_onchain("raydium_get_pools", {"poolType": "concentrated", "sortField": "liquidity"}) then text: "Top Raydium CLMM pools:"
+- "Raydium AMM pools" / "Standard Raydium pools"
+  -> query_onchain("raydium_get_pools", {"poolType": "standard", "sortField": "liquidity"}) then text: "Top Raydium AMM pools:"
+- Same intents in any other language (Turkish, Spanish, Portuguese, etc.): match by semantics, not surface forms
+  -> query_onchain("raydium_get_pools", {"sortField": "liquidity", "pageSize": 10}) then a 1-sentence intro in the user's language.
+
+#### RAYDIUM_SEARCH_POOLS — Filter Raydium pools by token pair
+Format: [QUERY:raydium_search_pools] {"tokenA":"<symbol|mint>","tokenB":"<symbol|mint>","poolType":"<all|concentrated|standard>","sortField":"<liquidity|volume24h|...>"}
+Use when: User names a SPECIFIC pair (any language: e.g. "USDS/USDC pool", "SOL-JitoSOL pool", "what pools exist for USDC + X"). NEVER fall back to `raydium_get_pools` (which returns ALL pools unfiltered) — that ignores the user's pair and looks like a bug.
+
+Parameter notes:
+- `tokenA` is required; pass the FIRST symbol the user named (e.g. "USDS").
+- `tokenB` is the SECOND symbol if the user named a pair (e.g. "USDC"). Omit for single-token searches.
+- DO NOT pack both tokens into a single `tokenA` ("USDS-USDC"). Split them. The backend tolerates joined forms as a fallback but prompt-side discipline avoids surprises.
+- DO NOT use a `query` field. Use `tokenA` + `tokenB` explicitly.
+- Common synonyms map to canonical symbols (USDS, USDC, USDT, SOL, jitoSOL, JLP, etc.). If unsure of a symbol, call `jup_token_search` first.
+
+Examples:
+- User names a pair: "USDS/USDC pools"
+  -> query_onchain("raydium_search_pools", {"tokenA": "USDS", "tokenB": "USDC"}) then 1-sentence intro.
+- User names a pair with hyphen: "Raydium SOL-jitoSOL pool"
+  -> query_onchain("raydium_search_pools", {"tokenA": "SOL", "tokenB": "jitoSOL"}) then 1-sentence intro.
+- User names a single token: "show JUP pools"
+  -> query_onchain("raydium_search_pools", {"tokenA": "JUP"}) then 1-sentence intro.
 
 ---
 

@@ -74,6 +74,9 @@ export class UploadService {
     if (metadata.twitter)  formData.append('twitter',  metadata.twitter);
     if (metadata.telegram) formData.append('telegram', metadata.telegram);
     if (metadata.website)  formData.append('website',  metadata.website);
+    // Optional coin-page banner. pump.fun's IPFS endpoint ignores unknown fields,
+    // so this is best-effort; the on-chain fallback metadata also carries banner.
+    if (metadata.banner)   formData.append('banner',   metadata.banner);
     formData.append('showName', 'true');
     formData.append('createdOn', 'https://pump.fun');
 

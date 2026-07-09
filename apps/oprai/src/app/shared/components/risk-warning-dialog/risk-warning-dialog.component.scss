@@ -5,10 +5,10 @@
 .dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
+  background: rgba(6, 8, 15, 0.6);
+  backdrop-filter: blur(6px);
   z-index: 500;
-  animation: fade-in 0.15s ease;
+  animation: fade-in 0.16s ease;
 }
 
 .dialog {
@@ -17,20 +17,23 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 501;
-  width: min(420px, calc(100vw - 32px));
-  background: var(--op-bg-surface-2);
-  border: 1px solid var(--op-border);
-  border-radius: 14px;
-  padding: 24px;
+  width: min(440px, calc(100vw - 32px));
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-xl);
+  padding: 22px 22px 18px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  animation: slide-up 0.2s ease;
+  box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.5);
+  animation: pop-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 
-  // Severity accent on left border
-  &--danger  { border-left: 3px solid var(--op-danger, #ef4444); }
-  &--warning { border-left: 3px solid var(--op-warning, #f59e0b); }
-  &--info    { border-left: 3px solid var(--op-brand, #6366f1); }
+  // Severity tints only the header icon, the small label and the confirm
+  // button. Everything else stays neutral so it reads as part of the app.
+  --sev: var(--op-brand);
+  &--danger  { --sev: var(--op-loss); }
+  &--warning { --sev: var(--op-warning); }
+  &--info    { --sev: var(--op-brand); }
 }
 
 // ── Header ──────────────────────────────────────────────────────────────────
@@ -38,28 +41,44 @@
 .dialog-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .dialog-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--op-radius-md);
   flex-shrink: 0;
+  color: var(--sev);
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+}
 
-  .dialog--danger  & { background: color-mix(in srgb, var(--op-danger, #ef4444) 15%, transparent); color: var(--op-danger, #ef4444); }
-  .dialog--warning & { background: color-mix(in srgb, var(--op-warning, #f59e0b) 15%, transparent); color: var(--op-warning, #f59e0b); }
-  .dialog--info    & { background: color-mix(in srgb, var(--op-brand, #6366f1) 15%, transparent); color: var(--op-brand, #6366f1); }
+.dialog-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.dialog-sev {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--sev);
 }
 
 .dialog-title {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: -0.01em;
   color: var(--op-text-primary);
   margin: 0;
+  line-height: 1.25;
 }
 
 // ── Message ──────────────────────────────────────────────────────────────────
@@ -67,36 +86,78 @@
 .dialog-message {
   font-size: 13px;
   color: var(--op-text-secondary);
-  line-height: 1.55;
+  line-height: 1.6;
   margin: 0;
 }
 
-// ── Items ────────────────────────────────────────────────────────────────────
+// ── Key figures ──────────────────────────────────────────────────────────────
+
+.dialog-figures {
+  display: flex;
+  gap: 8px;
+}
+
+.figure {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-md);
+
+  &__label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--op-text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  &__value {
+    font-size: 14.5px;
+    font-weight: 650;
+    color: var(--op-text-primary);
+    letter-spacing: -0.01em;
+  }
+
+  // "Max at risk" carries weight through the label + bold value, not colour.
+  &--emphasis {
+    background: var(--op-bg-surface-3, var(--op-bg-surface-2));
+    .figure__value { color: var(--op-text-primary); }
+  }
+}
+
+// ── Risk points ───────────────────────────────────────────────────────────────
 
 .dialog-items {
   list-style: none;
   margin: 0;
-  padding: 12px 14px;
-  background: var(--op-bg-surface-1);
-  border: 1px solid var(--op-border);
-  border-radius: 8px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .dialog-item {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--op-text-secondary);
-  line-height: 1.4;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.5;
 
-  .item-icon {
+  &__mark {
     flex-shrink: 0;
-    margin-top: 1px;
-    color: var(--op-text-tertiary, var(--op-text-secondary));
+    width: 5px;
+    height: 5px;
+    margin-top: 7px;
+    border-radius: 50%;
+    background: var(--op-text-tertiary);
+  }
+  &__text {
+    color: var(--op-text-secondary);
   }
 }
 
@@ -104,50 +165,49 @@
 
 .dialog-actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.btn-cancel,
+.btn-confirm {
+  padding: 10px 18px;
+  border-radius: var(--op-radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+
+  &:active { transform: translateY(1px); }
 }
 
 .btn-cancel {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--op-border);
+  border: 1px solid var(--op-border-default);
   background: transparent;
   color: var(--op-text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
 
   &:hover {
-    background: var(--op-bg-surface-3, var(--op-bg-surface-2));
+    background: var(--op-bg-surface-2);
     color: var(--op-text-primary);
+    border-color: var(--op-border-strong);
   }
 }
 
 .btn-confirm {
-  padding: 8px 18px;
-  border-radius: 8px;
-  border: none;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-
-  &:hover { opacity: 0.88; }
-
-  // Default (info)
-  background: var(--op-brand, #6366f1);
+  border: 1px solid transparent;
   color: #fff;
+  background: var(--op-brand);
+
+  &:hover { background: var(--op-brand-hover); }
 
   &--warning {
-    background: var(--op-warning, #f59e0b);
-    color: #000;
+    background: var(--op-warning);
+    &:hover { background: color-mix(in srgb, var(--op-warning) 82%, #000); }
   }
-
   &--danger {
-    background: var(--op-danger, #ef4444);
-    color: #fff;
+    background: var(--op-loss);
+    &:hover { background: color-mix(in srgb, var(--op-loss) 82%, #000); }
   }
 }
 
@@ -158,7 +218,11 @@
   to   { opacity: 1; }
 }
 
-@keyframes slide-up {
-  from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)); }
-  to   { opacity: 1; transform: translate(-50%, -50%); }
+@keyframes pop-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.97); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog, .dialog-backdrop { animation: none; }
 }

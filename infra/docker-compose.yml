@@ -156,13 +156,14 @@ services:
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
-      AUTH_SERVICE_URL: http://auth-service-go:3010
+      TRUST_PROXY_HEADERS: "true"
+      AUTH_SERVICE_HTTP: http://auth-service-go:3010
       AUTH_SERVICE_GRPC: auth-service-go:50051
-      CHAT_SERVICE_URL: http://chat-service-py:3020
+      CHAT_SERVICE_HTTP: http://chat-service-py:3020
       CHAT_SERVICE_GRPC: chat-service-py:50052
-      SOLANA_SERVICE_URL: http://solana-service-rs:3030
+      SOLANA_SERVICE_HTTP: http://solana-service-rs:3030
       SOLANA_SERVICE_GRPC: solana-service-rs:50053
-      MEMORY_SERVICE_URL: http://memory-service-py:3040
+      MEMORY_SERVICE_HTTP: http://memory-service-py:3040
       MEMORY_SERVICE_GRPC: memory-service-py:50054
       REDIS_URL: redis://redis:6379
     healthcheck:
@@ -199,6 +200,9 @@ services:
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
       DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
       REDIS_URL: redis://redis:6379
+      # Trust X-Forwarded-For / X-Real-IP from caddy+gateway so per-IP rate
+      # limiting tracks real client IPs, not the shared proxy container IP.
+      TRUST_PROXY_HEADERS: "true"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3010/health || exit 1"]
       interval: 15s
@@ -251,6 +255,7 @@ services:
     environment:
       PORT: 3020
       GRPC_PORT: 50052
+      GRPC_HOST: 0.0.0.0
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
       # asyncpg driver — chat-service-py uses SQLAlchemy async engine
@@ -260,8 +265,16 @@ services:
       OPRAI_ANTHROPIC_API_KEY: ${OPRAI_ANTHROPIC_API_KEY:-}
       OPRAI_RESPONDER_MODEL_OPENAI: ${OPRAI_RESPONDER_MODEL_OPENAI:-gpt-4o-mini}
       OPRAI_RESPONDER_MODEL_ANTHROPIC: ${OPRAI_RESPONDER_MODEL_ANTHROPIC:-claude-haiku-4-5}
+      OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI: ${OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI:-gpt-4o-mini}
       MEMORY_SERVICE_URL: http://memory-service-py:3040
       MEMORY_SERVICE_GRPC: memory-service-py:50054
+      GATEWAY_URL: http://gateway-go:3001
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
+      JUPITER_API_KEY: ${JUPITER_API_KEY:-}
+      HELIUS_API_KEY: ${HELIUS_API_KEY:-}
+      BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:-}
     # `python -m app.main` loads main.py as __main__, then uvicorn re-imports it
     # as app.main, double-registering Prometheus Counters. `python -m uvicorn`
     # only loads app.main once.
@@ -288,6 +301,7 @@ services:
     environment:
       PORT: 3040
       GRPC_PORT: 50054
+      GRPC_HOST: 0.0.0.0
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
       # asyncpg driver — memory-service-py uses SQLAlchemy async engine
@@ -330,6 +344,10 @@ services:
       DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
       SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
       SOLANA_NETWORK: ${SOLANA_NETWORK:-mainnet-beta}
+      JUPITER_API_KEY: ${JUPITER_API_KEY:-}
+      HELIUS_API_KEY: ${HELIUS_API_KEY:-}
+      BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:-}
+      AUTH_SERVICE_HTTP: http://auth-service-go:3010
     healthcheck:
       # solana-service-rs runtime is debian-slim without wget/curl; bash /dev/tcp probe.
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3030"]

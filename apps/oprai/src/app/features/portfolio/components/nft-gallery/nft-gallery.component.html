@@ -10,28 +10,39 @@
       }
     </div>
   </div>
-} @else if (loadingState === 'loaded' && nfts.length === 0) {
+} @else if (loadingState === 'loaded' && visibleNfts().length === 0 && spamCount() === 0) {
   <div class="empty-state">
     <lucide-icon name="image" [size]="40" />
     <p>No NFTs found in this wallet</p>
   </div>
 } @else if (loadingState === 'loaded') {
   <div class="nft-header">
-    <span class="nft-count">{{ nfts.length }} NFTs</span>
-    <button class="view-toggle" (click)="toggleView()">
-      @if (viewMode() === 'all') {
-        <lucide-icon name="grid-2x2" [size]="16" />
-        By Collection
-      } @else {
-        <lucide-icon name="layout-grid" [size]="16" />
-        All
+    <span class="nft-count">
+      {{ visibleNfts().length }} NFTs
+      @if (hideSpam() && spamCount() > 0) {
+        <span class="nft-spam-hint">· {{ spamCount() }} spam hidden</span>
       }
-    </button>
+    </span>
+    <div class="nft-header-actions">
+      <button class="view-toggle" (click)="toggleHideSpam()" [title]="hideSpam() ? 'Show spam' : 'Hide spam'">
+        <lucide-icon [name]="hideSpam() ? 'shield' : 'shield-off'" [size]="14" />
+        {{ hideSpam() ? 'Spam hidden' : 'Show all' }}
+      </button>
+      <button class="view-toggle" (click)="toggleView()">
+        @if (viewMode() === 'all') {
+          <lucide-icon name="grid-2x2" [size]="16" />
+          By Collection
+        } @else {
+          <lucide-icon name="layout-grid" [size]="16" />
+          All
+        }
+      </button>
+    </div>
   </div>
 
   @if (viewMode() === 'all') {
     <div class="nft-grid">
-      @for (nft of nfts; track nft.id) {
+      @for (nft of visibleNfts(); track nft.id) {
         <div class="nft-card">
           <div class="nft-image-wrapper">
             @if (nft.imageUri) {
@@ -59,7 +70,7 @@
       }
     </div>
   } @else {
-    @for (collection of collections; track collection.id) {
+    @for (collection of visibleCollections(); track collection.id) {
       <div class="collection-group">
         <div class="collection-header">
           <span class="collection-name">{{ collection.name }}</span>

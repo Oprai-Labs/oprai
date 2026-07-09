@@ -175,12 +175,73 @@
 }
 
 .col-value {
-  width: 16%;
+  width: 14%;
   text-align: right;
   font-family: var(--op-font-mono);
   font-size: 13px;
   font-weight: 600;
   color: var(--op-text-primary);
+}
+
+// PnL (all time) column — two-line stacked cell with the dollar amount
+// on top and the percentage below. Greyed "—" placeholder until the
+// chat-service has walked the wallet's Helius history.
+.col-pnl {
+  width: 12%;
+  text-align: right;
+  font-family: var(--op-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pnl-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.25;
+
+  .pnl-amount {
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .pnl-pct {
+    font-size: 10.5px;
+    opacity: 0.85;
+  }
+
+  &.pnl-positive { color: var(--op-gain); }
+  &.pnl-negative { color: var(--op-loss); }
+}
+
+// Inline LST yield indicator next to the token name ("5.80%"). Subtle so it
+// reads as metadata, not a CTA — the user already holds this LST.
+.token-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.apy-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--op-radius-sm, 4px);
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--op-gain);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--op-font-body);
+  letter-spacing: 0.2px;
+  flex-shrink: 0;
+}
+
+// Header "Manage accounts" entrypoint — same chip style as the other
+// filter buttons, lightly themed so the icon reads clearly.
+.filter-btn--manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 // ──── Price Change Colors ────
@@ -256,6 +317,49 @@
   color: var(--op-text-secondary);
 }
 
+// Copyable contract address — same line as the symbol; copy icon
+// reveals on hover, swaps to a "Copied!" pill for 1.5s after click.
+.token-symbol--copyable {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: background 120ms ease;
+
+  .copy-icon {
+    opacity: 0;
+    color: var(--op-text-secondary);
+    transition: opacity 120ms ease;
+  }
+
+  &:hover {
+    background: var(--op-bg-surface-2);
+    .copy-icon { opacity: 1; }
+  }
+
+  .copy-badge {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--op-brand);
+    background: color-mix(in srgb, var(--op-brand) 18%, transparent);
+    padding: 1px 6px;
+    border-radius: 999px;
+    animation: copy-pop 200ms ease;
+  }
+}
+
+@keyframes copy-pop {
+  0%   { opacity: 0; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
 .no-data {
   color: var(--op-text-secondary);
   opacity: 0.4;
@@ -290,6 +394,58 @@
   background: var(--op-bg-surface-1);
   border: 1px solid var(--op-border-subtle);
   border-radius: var(--op-radius-lg);
+}
+
+// ──── Per-row hide / show action ────
+// Reserve a tight column on the right of every row. The button itself is
+// transparent until row hover (or always-visible for already-hidden
+// rows) so the table stays clean on full lists.
+.col-actions {
+  width: 36px;
+  text-align: right;
+  padding-right: 12px !important;
+}
+
+.row-action-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--op-radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--op-text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--op-fast), background var(--op-fast), border-color var(--op-fast), color var(--op-fast);
+
+  &:hover {
+    background: var(--op-bg-surface-2, var(--op-bg-surface-1));
+    border-color: var(--op-border-subtle);
+    color: var(--op-text-primary);
+  }
+}
+
+.token-row:hover .row-action-btn,
+.token-row--hidden .row-action-btn {
+  opacity: 1;
+}
+
+// Hidden-state row dimming — only kicks in when the user has expanded the
+// list to show hidden tokens (otherwise the row is filtered out).
+.token-row--hidden {
+  opacity: 0.55;
+
+  .token-name,
+  .token-symbol,
+  .col-price,
+  .col-change,
+  .col-amount,
+  .col-alloc,
+  .col-value {
+    color: var(--op-text-secondary);
+  }
 }
 
 // ──── Responsive ────

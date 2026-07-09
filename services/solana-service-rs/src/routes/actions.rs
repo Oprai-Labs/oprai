@@ -4,6 +4,7 @@ use chrono::Utc;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use serde::Deserialize;
+use solana_sdk::signature::Signer;
 use solana_sdk::transaction::VersionedTransaction;
 use uuid::Uuid;
 
@@ -14,7 +15,7 @@ use crate::db::tx_events;
 use crate::error::AppError;
 use crate::middleware::auth::UserWallet;
 use crate::services::builder::{self, BuildRequest};
-use crate::services::{dca, limit_order, simulation};
+use crate::services::{dca, jupiter_perp, limit_order, simulation};
 use crate::services::relay::{self, CrossChainSwapParams, RelayExecutePermitsRequest, RelayIndexTransactionRequest, RelaySingleTransactionRequest, RelayDepositAddressReindexRequest, RelayClaimAppFeesRequest, RelayFastFillRequest, RelayExecuteRequest};
 use crate::services::mint_security::SharedMintSecurityCache;
 use crate::services::spending_client::SpendingClient;
@@ -261,6 +262,85 @@ pub async fn post_build(
     );
 
     Ok(HttpResponse::Ok().json(result))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /actions/perp-execute
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerpExecuteBody {
+    /// Jupiter action tag: "increase-position" | "decrease-position".
+    pub action: String,
+    /// The user-signed transaction, base64-encoded.
+    pub serialized_tx_base64: String,
+}
+
+/// Hand a user-signed Jupiter Perps transaction to Jupiter's execute endpoint,
+/// which adds the keeper signatures and submits it. Returns the on-chain txid.
+/// Perp txs cannot be submitted via plain RPC — they are multi-signer and only
+/// Jupiter's backend holds the remaining keys.
+#[post("/perp-execute")]
+pub async fn post_perp_execute(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<PerpExecuteBody>,
+) -> Result<HttpResponse, AppError> {
+    // Require an authenticated wallet (gateway injects it) so this can't be
+    // used as an open relay to Jupiter.
+    let _wallet = wallet_from_req(&req)?;
+
+    let action = body.action.as_str();
+    if action != "increase-position" && action != "decrease-position" {
+        return Err(AppError::InvalidParams(
+            "action must be 'increase-position' or 'decrease-position'".into(),
+        ));
+    }
+
+    let result = jupiter_perp::execute_perp_transaction(
+        &state.http,
+        state.jupiter_api_key.as_deref(),
+        action,
+        &body.serialized_tx_base64,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().json(result))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /actions/vanity-mint
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Hand the client a mint keypair for a pump.fun launch whose address ends in
+/// the `pump` vanity suffix. Pops a pre-ground keypair from the background pool
+/// for an instant response; if the pool is cold/empty it returns a plain random
+/// keypair (`vanity: false`) so a launch never blocks.
+///
+/// Returning the secret is safe: a pump.fun mint keypair is a throwaway that
+/// controls nothing after `create` (mint authority is a program PDA), and it is
+/// the same secret the client would otherwise have generated locally.
+#[post("/vanity-mint")]
+pub async fn post_vanity_mint(
+    req: HttpRequest,
+    _state: web::Data<AppState>,
+) -> Result<HttpResponse, AppError> {
+    // Require an authenticated wallet, matching every other /actions endpoint.
+    let _wallet = wallet_from_req(&req)?;
+
+    let (keypair, vanity) = match crate::services::vanity::take_vanity_mint() {
+        Some(kp) => (kp, true),
+        None => (solana_sdk::signature::Keypair::new(), false),
+    };
+    // 64-byte [secret32 || public32] layout — identical to web3.js
+    // Keypair.fromSecretKey, so the client can reconstruct it directly.
+    let secret_key = keypair.to_bytes().to_vec();
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "publicKey": keypair.pubkey().to_string(),
+        "secretKey": secret_key,
+        "vanity": vanity,
+    })))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

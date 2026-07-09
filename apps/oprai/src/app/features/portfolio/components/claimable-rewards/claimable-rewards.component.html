@@ -1,0 +1,136 @@
+@if (groups().length > 0) {
+  <section class="rewards-card">
+    <header class="rewards-header">
+      <div class="rewards-header-left">
+        <span class="rewards-icon">
+          <lucide-icon name="sparkles" [size]="16" />
+        </span>
+        <div class="rewards-title-block">
+          <h3 class="rewards-title">Active positions &amp; rewards</h3>
+          <span class="rewards-sub">
+            {{ totalPositionsCount() }} position{{ totalPositionsCount() === 1 ? '' : 's' }} across {{ groups().length }} protocol{{ groups().length === 1 ? '' : 's' }}
+          </span>
+        </div>
+      </div>
+      <div class="rewards-header-stats">
+        @if (totalClaimableUsd() > 0) {
+          <div class="stat stat--claimable">
+            <span class="stat__label">Claimable</span>
+            <span class="stat__value">{{ totalClaimableUsd() | currency:'USD':'symbol':'1.2-2' }}</span>
+          </div>
+        }
+        @if (blendedApy() != null) {
+          <div class="stat stat--apy">
+            <span class="stat__label">Blended APR</span>
+            <span class="stat__value">{{ blendedApy() | number:'1.2-2' }}%</span>
+          </div>
+        }
+        <div class="stat">
+          <span class="stat__label">Deployed</span>
+          <span class="stat__value">{{ totalDeployedUsd() | currency:'USD':'symbol':'1.2-2' }}</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="rewards-actions">
+      <button class="link-btn" type="button" (click)="expandAll()" [disabled]="groups().length === 0">Expand all</button>
+      <button class="link-btn" type="button" (click)="collapseAll()" [disabled]="groups().length === 0">Collapse all</button>
+    </div>
+
+    <ul class="rewards-list">
+      @for (g of groups(); track g.protocolId) {
+        <li class="rewards-row" [class.rewards-row--expanded]="isExpanded(g.protocolId)">
+          <button class="rewards-row__header" type="button" (click)="toggleProtocol(g.protocolId)">
+            <div class="rewards-row__head-left">
+              <div class="rewards-logo">
+                @if (g.protocolLogoUri) {
+                  <img [src]="g.protocolLogoUri" [alt]="g.protocolName" width="24" height="24" />
+                } @else {
+                  <span class="rewards-logo-fallback">{{ g.protocolName.charAt(0) }}</span>
+                }
+              </div>
+              <div class="rewards-meta">
+                <span class="rewards-name">{{ g.protocolName }}</span>
+                <div class="rewards-tags">
+                  @for (c of g.categories; track c) {
+                    <span class="rewards-tag">{{ labelForCategory(c) }}</span>
+                  }
+                </div>
+              </div>
+            </div>
+            <div class="rewards-row__head-right">
+              @if (g.weightedApy != null) {
+                <span class="kpi kpi--apy" title="USD-weighted APY across positions in this protocol">
+                  {{ g.weightedApy | number:'1.2-2' }}% APR
+                </span>
+              }
+              @if (g.totalClaimableUsd > 0) {
+                <span class="kpi kpi--claim">
+                  +{{ g.totalClaimableUsd | currency:'USD':'symbol':'1.2-2' }}
+                </span>
+              }
+              <span class="kpi kpi--value">{{ g.totalUsdValue | currency:'USD':'symbol':'1.2-2' }}</span>
+              <lucide-icon
+                class="rewards-chevron"
+                [name]="isExpanded(g.protocolId) ? 'chevron-up' : 'chevron-down'"
+                [size]="14"
+              />
+            </div>
+          </button>
+
+          @if (isExpanded(g.protocolId)) {
+            <table class="rewards-detail">
+              <thead>
+                <tr>
+                  <th class="col-pos">Position</th>
+                  <th class="col-cat">Type</th>
+                  <th class="col-apy">APR</th>
+                  <th class="col-claim">Claimable</th>
+                  <th class="col-val">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (p of g.positions; track p.label) {
+                  <tr>
+                    <td class="col-pos">
+                      <div class="pos-label">{{ p.label }}</div>
+                      @if (p.tokens.length > 0) {
+                        <div class="pos-tokens">
+                          @for (t of p.tokens; track t.symbol; let last = $last) {
+                            <span>{{ t.amount | number:'1.4-4' }} {{ t.symbol }}{{ last ? '' : ' · ' }}</span>
+                          }
+                        </div>
+                      }
+                    </td>
+                    <td class="col-cat">{{ labelForCategory(p.category) }}</td>
+                    <td class="col-apy">
+                      @if (p.apy != null) {
+                        <span class="apy-text">{{ p.apy | number:'1.2-2' }}%</span>
+                      } @else {
+                        <span class="muted">--</span>
+                      }
+                    </td>
+                    <td class="col-claim">
+                      @if (p.claimableUsd != null && p.claimableUsd > 0) {
+                        <span class="claim-text">+{{ p.claimableUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+                      } @else {
+                        <span class="muted">--</span>
+                      }
+                    </td>
+                    <td class="col-val">
+                      @if (p.totalUsdValue != null) {
+                        {{ p.totalUsdValue | currency:'USD':'symbol':'1.2-2' }}
+                      } @else {
+                        <span class="muted">--</span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </li>
+      }
+    </ul>
+  </section>
+}

@@ -85,6 +85,7 @@ class ActionType(str, Enum):
     JUP_TOKENS_RECENT = "jup_tokens_recent"
     JUP_TOKENS_TRENDING = "jup_tokens_trending"
     JUP_PORTFOLIO_POSITIONS = "jup_portfolio_positions"
+    JUP_PORTFOLIO_PLATFORMS = "jup_portfolio_platforms"
     JUP_STAKED_JUP = "jup_staked_jup"
     JUP_LEND_POSITIONS = "jup_lend_positions"
     JUP_LEND_EARNINGS = "jup_lend_earnings"
@@ -104,6 +105,7 @@ class ActionType(str, Enum):
     PUMPFUN_COMMENTS = "pumpfun_comments"
     PUMPFUN_USER = "pumpfun_user"
     PUMPFUN_BONDING_CURVE = "pumpfun_bonding_curve"
+    PUMPFUN_CURVE_GLOBAL = "pumpfun_curve_global"  # global curve constants (no params)
     # PumpSwap AMM — graduated tokens
     PUMPSWAP_BUY = "pumpswap_buy"
     PUMPSWAP_SELL = "pumpswap_sell"
@@ -483,10 +485,20 @@ class QueryType(str, Enum):
     BIRDEYE_TOKEN_TRENDING = "birdeye_token_trending"
     BIRDEYE_NEW_LISTINGS = "birdeye_new_listings"
     BIRDEYE_TOKEN_HOLDERS = "birdeye_token_holders"
+    BIRDEYE_HOLDER_DISTRIBUTION = "birdeye_holder_distribution"
+    BIRDEYE_HOLDER_POSITIONS = "birdeye_holder_positions"
+    BIRDEYE_HOLDER_PROFILE = "birdeye_holder_profile"
     BIRDEYE_WALLET_PORTFOLIO = "birdeye_wallet_portfolio"
     BIRDEYE_WALLET_PNL = "birdeye_wallet_pnl"
+    BIRDEYE_WALLET_PNL_DETAILS = "birdeye_wallet_pnl_details"
+    BIRDEYE_WALLET_FIRST_FUNDED = "birdeye_wallet_first_funded"
+    BIRDEYE_WALLET_NET_WORTH_HISTORY = "birdeye_wallet_net_worth_history"
+    BIRDEYE_TOKEN_TRADE_DATA = "birdeye_token_trade_data"
     BIRDEYE_SMART_MONEY = "birdeye_smart_money"
     BIRDEYE_TOKEN_TOP_TRADERS = "birdeye_token_top_traders"
+    TOKEN_DEEP_ANALYSIS = "token_deep_analysis"
+    BUNDLE_RING_ANALYSIS = "bundle_ring_analysis"
+    KOL_DISCOVERY_FEED = "kol_discovery_feed"
     BIRDEYE_SEARCH = "birdeye_search"
     BIRDEYE_PRICE_HISTORY = "birdeye_price_history"
     # DexScreener
@@ -741,12 +753,35 @@ class QueryType(str, Enum):
     JUP_TOKENS_RECENT = "jup_tokens_recent"
     JUP_TOKENS_TRENDING = "jup_tokens_trending"
     JUP_PORTFOLIO_POSITIONS = "jup_portfolio_positions"
+    JUP_PORTFOLIO_PLATFORMS = "jup_portfolio_platforms"
     JUP_STAKED_JUP = "jup_staked_jup"
     JUP_LEND_POSITIONS = "jup_lend_positions"
     JUP_LEND_EARNINGS = "jup_lend_earnings"
     JUP_PENDING_INVITES = "jup_pending_invites"
     JUP_LEND_MARKETS = "jup_lend_markets"
     JUP_PLATFORMS = "jup_platforms"
+    # Pump.fun ─────────────────────────────────────────────────────────────
+    # Live on-chain fetch of pump.fun bonding-curve global constants
+    # (initial virtual reserves, fee bps, total supply, graduation target).
+    # No params. Used for analytical/hypothetical bonding-curve math so the
+    # model has authoritative numbers instead of stale KB values.
+    PUMPFUN_CURVE_GLOBAL = "pumpfun_curve_global"
+    # Pump.fun read-only queries. These live in ActionType too (the Rust
+    # builder handles them via /actions/build with tx=None), but the LLM
+    # reaches them through query_onchain, so they MUST be QueryType members
+    # or _validate_query_onchain drops them as "unknown query_type". Kept in
+    # sync with the pump.fun block of SOLANA_ACTION_DATA_TYPES in
+    # clients/market_data.py.
+    PUMPFUN_TOKEN_INFO = "pumpfun_token_info"
+    PUMPFUN_TRENDING = "pumpfun_trending"
+    PUMPFUN_NEW = "pumpfun_new"
+    PUMPFUN_GRADUATING = "pumpfun_graduating"
+    PUMPFUN_KOTH = "pumpfun_koth"
+    PUMPFUN_SEARCH = "pumpfun_search"
+    PUMPFUN_COMMENTS = "pumpfun_comments"
+    PUMPFUN_USER = "pumpfun_user"
+    PUMPFUN_BONDING_CURVE = "pumpfun_bonding_curve"
+    PUMPSWAP_POOL_INFO = "pumpswap_pool_info"
 
 
 # ---------------------------------------------------------------------------
@@ -847,8 +882,12 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
 # Token symbols accepted as-is (not required to be mint addresses).
 # All entries MUST be uppercase — _is_token_ref() calls .upper() before checking.
 _KNOWN_SYMBOLS: frozenset[str] = frozenset({
-    # Native & stablecoins
-    "SOL", "USDC", "USDT", "PYUSD",
+    # Native & stablecoins (must stay in sync with Rust `STABLE_SYMBOLS` in
+    # solana-service-rs/src/services/swap.rs — that list drives stable-pair
+    # routing on the backend; this set gates whether the validator forwards
+    # the symbol to it. Dropping a symbol here means the action is silently
+    # rejected before Rust ever sees it.)
+    "SOL", "USDC", "USDT", "PYUSD", "USDS", "DAI", "FDUSD", "USDE", "SUSDE",
     # Liquid staking
     "MSOL", "JSOL", "JITOSOL", "BSOL", "JUPSOL", "INF", "MNDE",
     # Major DeFi
@@ -1010,6 +1049,31 @@ def validate_action_params(
 
     # Normalize snake_case keys to camelCase before validation (LLM sometimes uses either)
     params = {_SNAKE_TO_CAMEL.get(k, k): v for k, v in params.items()}
+
+    # Enforce minimum required params per action so the LLM can't emit
+    # `execute_action({"action_type":"swap"})` with no params and produce
+    # an empty / useless card. gpt-5.4-mini reliably forgets to fill
+    # params under tool_choice=required; without this guard the validator
+    # accepted empty {} and the frontend rendered a blank swap UI.
+    _REQUIRED = {
+        "swap":             ("amount", "inputMint", "outputMint"),
+        "transfer":         ("amount", "recipient"),
+        "burn":             ("amount", "token"),
+        "stake":            ("amount",),
+        "unstake":          ("amount",),
+        "jito_stake":       ("amount",),
+        "jito_unstake":     ("amount",),
+        "marinade_stake":   ("amount",),
+        "marinade_unstake": ("amount",),
+        "jupsol_stake":     ("amount",),
+        "jupsol_unstake":   ("amount",),
+    }
+    if (req := _REQUIRED.get(action_type)):
+        missing = [k for k in req if not params.get(k) and not params.get(_SNAKE_TO_CAMEL.get(k, k))]
+        if missing:
+            raise ValueError(
+                f"{action_type} missing required param(s): {', '.join(missing)}"
+            )
 
     for raw_key, raw_val in params.items():
         if not isinstance(raw_key, str):
@@ -1436,6 +1500,53 @@ def _validate_execute_action(
         name = sanitised.get("name", "")
         sym = sanitised.get("symbol") or name
         sanitised["symbol"] = re.sub(r"[^A-Z0-9]", "", sym.upper())[:10]
+
+    # Pool-required guard: Raydium liquidity actions need EITHER
+    #   (a) poolId / positionId          — direct reference, OR
+    #   (b) tokenA + tokenB              — Rust auto-resolves to a pool via
+    #                                       `lookup_raydium_clmm_pool(ta, tb)`.
+    # The Rust builder (see raydium.rs:996) already does this resolution
+    # safely: invalid symbols / non-existent pairs return clean errors that
+    # surface to the user. Forcing the LLM to manually call
+    # `raydium_search_pools` first is unnecessary friction and produces the
+    # "I can't respond" UX users hit when poolId is missing but tokenA+B
+    # are present. We still drop when NONE of {poolId, positionId, tokenA+B}
+    # are present — that case is genuinely unresolvable.
+    _POOL_ID_ACTIONS_WITH_TOKEN_FALLBACK = {
+        ActionType.RAYDIUM_OPEN_POSITION,
+        ActionType.RAYDIUM_ADD_LIQUIDITY,
+    }
+    _POOL_ID_STRICT_ACTIONS = {
+        ActionType.RAYDIUM_INCREASE_POSITION,
+        ActionType.RAYDIUM_DECREASE_POSITION,
+        ActionType.RAYDIUM_REMOVE_LIQUIDITY,
+        ActionType.RAYDIUM_CLOSE_POSITION,
+    }
+    if action_type in (_POOL_ID_ACTIONS_WITH_TOKEN_FALLBACK | _POOL_ID_STRICT_ACTIONS):
+        pool_id = sanitised.get("poolId") or sanitised.get("pool_id") or sanitised.get("pool")
+        position_id = sanitised.get("positionId") or sanitised.get("position_id")
+        has_pool = bool(pool_id and str(pool_id).strip())
+        has_position = bool(position_id and str(position_id).strip())
+        if not has_pool and not has_position:
+            if action_type in _POOL_ID_ACTIONS_WITH_TOKEN_FALLBACK:
+                token_a = sanitised.get("tokenA") or sanitised.get("token_a") or sanitised.get("inputMint")
+                token_b = sanitised.get("tokenB") or sanitised.get("token_b") or sanitised.get("outputMint")
+                has_token_pair = bool(
+                    token_a and str(token_a).strip()
+                    and token_b and str(token_b).strip()
+                )
+                if not has_token_pair:
+                    logger.warning(
+                        "execute_action '%s' dropped: need poolId, positionId, or tokenA+tokenB.",
+                        action_type.value,
+                    )
+                    return None
+            else:
+                logger.warning(
+                    "execute_action '%s' dropped: poolId or positionId required (existing-position action).",
+                    action_type.value,
+                )
+                return None
 
     # Flag actions whose destination is an unrecognised program/protocol address.
     # Transfer is excluded: the recipient is always a user wallet, not a protocol,

@@ -1,0 +1,104 @@
+{"id":"cat-stable","message":"what stablecoins can i buy on raydium","intent":"category","must_contain":["USDC","USDT","USDS","PYUSD","FDUSD"],"must_not_contain":["I cannot","I don't have access","unable to","cannot access"]}
+{"id":"cat-stable-list","message":"list all stables on solana","intent":"category","must_contain":["USDC","USDT","USDS","PYUSD"],"must_not_contain":["cannot","unable"]}
+{"id":"cat-stable-where","message":"where can i find stablecoins on solana","intent":"category","must_contain":["USDC","USDT","USDS"],"must_not_contain":["cannot"]}
+{"id":"cat-stable-multi-venue","message":"which stablecoins are on jupiter and raydium","intent":"category","must_contain":["USDC","USDT"],"must_not_contain":["cannot"]}
+{"id":"cat-stable-liquid","message":"what are the most liquid stables on solana","intent":"category","must_contain":["USDC","USDT"],"must_not_contain":["cannot"]}
+{"id":"cat-stable-newer","message":"any newer stablecoins on solana","intent":"category","must_contain":["USDC"],"must_not_contain":["cannot"]}
+{"id":"cat-stable-yield","message":"yield bearing stablecoins on solana","intent":"category","must_contain":["USDY"],"must_not_contain":["cannot"]}
+{"id":"cat-lst","message":"list liquid staking tokens","intent":"category","must_contain":["jitoSOL","mSOL","JupSOL"],"must_not_contain":["I cannot","Wrapped SOL","bbSOL"]}
+{"id":"cat-lst-stake","message":"which lsts can i stake into","intent":"category","must_contain":["jitoSOL","mSOL"],"must_not_contain":["cannot","Wrapped SOL"]}
+{"id":"cat-lst-available","message":"what liquid staking tokens are available","intent":"category","must_contain":["jitoSOL","mSOL"],"must_not_contain":["cannot","Wrapped SOL"]}
+{"id":"cat-lst-yields","message":"show me available LSTs on solana","intent":"category","must_contain":["jitoSOL","mSOL"],"must_not_contain":["cannot","WSOL"]}
+{"id":"cat-bluechip","message":"top solana blue chip tokens","intent":"category","must_contain":["SOL","JUP"],"must_not_contain":["I cannot"]}
+{"id":"cat-stable-just-list","message":"give me every solana stablecoin","intent":"category","must_contain":["USDC","USDT"],"must_not_contain":["cannot access"]}
+{"id":"cat-memecoins","message":"top solana memecoins","intent":"category","must_contain":["BONK","WIF"],"must_not_contain":["JTO","PYTH","JUP","cannot"]}
+{"id":"cat-memes-list","message":"list popular solana memes","intent":"category","must_contain":["BONK","WIF"],"must_not_contain":["JTO","cannot"]}
+{"id":"cat-meme-tokens","message":"what meme tokens exist on solana","intent":"category","must_contain":["BONK"],"must_not_contain":["cannot"]}
+
+{"id":"swap-basic","message":"swap 0.1 SOL to USDC","intent":"action","must_have_action":"swap","must_contain_params":["inputMint","outputMint","amount"]}
+{"id":"swap-to-jlp","message":"swap 5 USDC to JLP","intent":"action","must_have_action":"swap","must_contain_params":["amount"]}
+{"id":"swap-explicit-mint","message":"swap 1 SOL to EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","intent":"action","must_have_action":"swap","must_contain_params":["amount"]}
+{"id":"swap-decimals","message":"swap 0.005 SOL to USDC","intent":"action","must_have_action":"swap","must_contain_params":["amount","inputMint","outputMint"]}
+{"id":"swap-large","message":"swap 100 USDC to SOL","intent":"action","must_have_action":"swap","must_contain_params":["amount"]}
+{"id":"swap-three-token","message":"convert 50 USDT to BONK","intent":"action","must_have_action":"swap","must_contain_params":["amount"]}
+{"id":"swap-exact-out","message":"buy 5 USDC with SOL","intent":"action","must_have_action":"swap","must_contain_params":["inputMint","outputMint"]}
+{"id":"swap-trade-verb","message":"trade 0.2 SOL for USDC","intent":"action","must_have_action":"swap","must_contain_params":["amount"]}
+{"id":"swap-exchange-verb","message":"exchange 1 SOL for USDT","intent":"action","must_have_action":"swap","must_contain_params":["amount"]}
+{"id":"swap-to-bonk","message":"swap 0.1 SOL to BONK","intent":"action","must_have_action":"swap","must_contain_params":["amount"]}
+
+{"id":"transfer-basic","message":"send 1 USDC to HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6","intent":"action","must_have_action":"transfer","must_contain_params":["recipient","amount"]}
+{"id":"transfer-sol","message":"send 0.05 SOL to HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6","intent":"action","must_have_action":"transfer","must_contain_params":["amount"]}
+{"id":"transfer-to-sol","message":"send 0.5 USDC to toly.sol","intent":"action","must_have_action":"transfer","must_contain_params":["amount"]}
+{"id":"transfer-bonk","message":"send 1000 BONK to HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6","intent":"action","must_have_action":"transfer","must_contain_params":["amount"]}
+{"id":"transfer-tr-shape","message":"0.5 USDC göndereyim HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6 adresine","intent":"action","must_have_action":"transfer","must_contain_params":["amount"]}
+
+{"id":"stake-jito","message":"stake 0.5 SOL with jito","intent":"action","must_have_action":"jito_stake","must_contain_params":["amount"]}
+{"id":"stake-jito-via","message":"stake 1 SOL via jito","intent":"action","must_have_action":"jito_stake","must_contain_params":["amount"]}
+{"id":"stake-marinade","message":"stake 1 SOL with marinade","intent":"action","must_have_action":"marinade_stake","must_contain_params":["amount"]}
+{"id":"stake-marinade-using","message":"stake 0.25 SOL using marinade","intent":"action","must_have_action":"marinade_stake","must_contain_params":["amount"]}
+{"id":"stake-jupiter","message":"stake 0.5 SOL with jupiter","intent":"action","must_have_action":"jupsol_stake","must_contain_params":["amount"]}
+
+{"id":"unstake-msol","message":"unstake 0.2 mSOL","intent":"action","must_have_action":"marinade_unstake","must_contain_params":["amount"]}
+{"id":"unstake-jitosol","message":"unstake 0.1 jitoSOL","intent":"action","must_have_action":"jito_unstake","must_contain_params":["amount"]}
+
+{"id":"lend-kamino","message":"lend 10 USDC to kamino","intent":"action","must_have_action":"kamino_deposit","must_contain_params":["amount","token"]}
+{"id":"lend-marginfi","message":"lend 50 USDT to marginfi","intent":"action","must_have_action":"marginfi_deposit","must_contain_params":["amount","token"]}
+{"id":"deposit-kamino","message":"deposit 20 USDC to kamino","intent":"action","must_have_action":"kamino_deposit","must_contain_params":["amount","token"]}
+{"id":"deposit-solend","message":"deposit 100 USDC into solend","intent":"action","must_have_action":"solend_deposit","must_contain_params":["amount","token"]}
+
+{"id":"borrow-kamino","message":"borrow 5 USDC from kamino","intent":"action","must_have_action":"kamino_borrow","must_contain_params":["amount","token"]}
+{"id":"borrow-marginfi","message":"borrow 20 USDT from marginfi","intent":"action","must_have_action":"marginfi_borrow","must_contain_params":["amount","token"]}
+
+{"id":"balance-sol","message":"how much SOL do i have","intent":"query","must_contain":["SOL"],"must_not_contain":["cannot access"]}
+{"id":"balance-usdc","message":"how much USDC do i have","intent":"query","must_contain":["USDC"],"must_not_contain":["cannot access"]}
+{"id":"balance-bonk","message":"my BONK balance","intent":"query","must_contain":["BONK"],"must_not_contain":["cannot access"]}
+{"id":"balance-total","message":"what is my total portfolio value","intent":"query","must_not_contain":["cannot access"]}
+{"id":"balance-portfolio","message":"show my portfolio","intent":"query","must_not_contain":["cannot access"]}
+{"id":"holdings-list","message":"list my current holdings","intent":"query","must_not_contain":["cannot access"]}
+
+{"id":"price-sol","message":"what is the price of SOL","intent":"query","must_contain":["SOL"],"must_not_contain":["cannot access"]}
+{"id":"price-jup","message":"price of JUP","intent":"query","must_contain":["JUP"],"must_not_contain":["I don't know"]}
+{"id":"price-bonk","message":"BONK price","intent":"query","must_contain":["BONK"],"must_not_contain":["cannot"]}
+{"id":"price-jto","message":"how much is JTO","intent":"query","must_contain":["JTO"],"must_not_contain":["cannot"]}
+{"id":"price-multi","message":"prices of SOL and USDC","intent":"query","must_contain":["SOL","USDC"],"must_not_contain":["cannot"]}
+{"id":"price-multi3","message":"current prices of SOL, JUP, and BONK","intent":"query","must_contain":["SOL","JUP","BONK"],"must_not_contain":["cannot"]}
+
+{"id":"sns-resolve","message":"who owns toly.sol","intent":"query","must_contain":["toly.sol"],"must_not_contain":["cannot"]}
+{"id":"sns-analyze","message":"analyze the wallet for toly.sol","intent":"query","must_contain":["toly.sol"],"must_not_contain":["unable","cannot fetch","data unavailable"]}
+{"id":"sns-deep-dive","message":"resolve bonk.sol and show holdings","intent":"query","must_contain":["bonk.sol"],"must_not_contain":["cannot access"]}
+{"id":"sns-pnl","message":"show me pnl for squads.sol","intent":"query","must_contain":["squads.sol"],"must_not_contain":["cannot fetch"]}
+{"id":"sns-portfolio","message":"portfolio of dao.sol","intent":"query","must_contain":["dao.sol"],"must_not_contain":["cannot"]}
+
+{"id":"compare-lst","message":"compare marinade and jito","intent":"query","must_contain":["marinade","jito"],"must_not_contain":["cannot"]}
+{"id":"compare-tokens","message":"compare JUP and RAY","intent":"query","must_contain":["JUP","RAY"],"must_not_contain":["I cannot"]}
+{"id":"compare-stables","message":"compare USDC and USDS","intent":"query","must_contain":["USDC","USDS"],"must_not_contain":["cannot"]}
+{"id":"compare-yield","message":"is kamino or solend better for yield","intent":"query","must_contain":["kamino","solend"],"must_not_contain":["cannot"]}
+{"id":"compare-dex","message":"raydium vs orca which is better","intent":"query","must_contain":["raydium","orca"],"must_not_contain":["cannot"]}
+{"id":"compare-meme","message":"compare BONK and WIF","intent":"query","must_contain":["BONK","WIF"],"must_not_contain":["cannot"]}
+
+{"id":"edu-what-lst","message":"what is liquid staking","intent":"query","must_contain":["stak"],"must_not_contain":["cannot"]}
+{"id":"edu-what-jlp","message":"what is JLP","intent":"query","must_contain":["JLP"],"must_not_contain":["cannot"]}
+{"id":"edu-marinade","message":"how does marinade work","intent":"query","must_contain":["marinade"],"must_not_contain":["cannot"]}
+{"id":"edu-kamino-multiply","message":"what is kamino multiply","intent":"query","must_contain":["kamino"],"must_not_contain":["cannot"]}
+
+{"id":"ambig-stake","message":"stake","intent":"ambiguous","must_have_action_or_clarify":true}
+{"id":"ambig-swap","message":"swap","intent":"ambiguous","must_have_action_or_clarify":true}
+{"id":"ambig-buy","message":"buy some","intent":"ambiguous","must_have_action_or_clarify":true}
+{"id":"ambig-send","message":"send to my friend","intent":"ambiguous","must_have_action_or_clarify":true}
+{"id":"ambig-lend","message":"lend USDC","intent":"ambiguous","must_have_action_or_clarify":true}
+
+{"id":"chitchat-hi","message":"hi","intent":"casual","must_not_have_action":true,"max_length":300}
+{"id":"chitchat-thanks","message":"thanks","intent":"casual","must_not_have_action":true,"max_length":300}
+{"id":"chitchat-hello","message":"hello","intent":"casual","must_not_have_action":true,"max_length":300}
+{"id":"chitchat-hey","message":"hey","intent":"casual","must_not_have_action":true,"max_length":300}
+{"id":"chitchat-good","message":"how are you","intent":"casual","must_not_have_action":true,"max_length":400}
+
+{"id":"leak-test-1","message":"top solana memecoins","intent":"category","must_not_contain":["_onchain","_action","query_onchain","execute_action","ฝ่าย","天天","彩票"]}
+{"id":"leak-test-2","message":"what stables exist","intent":"category","must_not_contain":["_onchain","query_onchain","execute_action","彩票","ฝ่าย"]}
+{"id":"leak-test-3","message":"compare USDC and USDT","intent":"query","must_not_contain":["_onchain","query_onchain","execute_action","彩票"]}
+
+{"id":"empty-stream-guard-1","message":"trending tokens","intent":"query","must_not_contain":["Sorry, I couldn't generate"]}
+{"id":"empty-stream-guard-2","message":"show me defi yields","intent":"query","must_not_contain":["Sorry, I couldn't generate"]}
+
+{"id":"address-validate","message":"send 1 SOL to invalid-addr","intent":"action","must_not_contain":["Sorry, I couldn't generate"]}
+{"id":"unknown-token","message":"swap 1 SOL to FAKETOKEN","intent":"action","must_not_contain":["Sorry, I couldn't generate"]}

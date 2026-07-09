@@ -10,6 +10,8 @@ import { TokenListComponent } from '../../components/token-list/token-list.compo
 import { DefiPositionsComponent } from '../../components/defi-positions/defi-positions.component';
 import { NftGalleryComponent } from '../../components/nft-gallery/nft-gallery.component';
 import { RecentActivityComponent } from '../../components/recent-activity/recent-activity.component';
+import { ClaimableRewardsComponent } from '../../components/claimable-rewards/claimable-rewards.component';
+import { TokenAccountsModalComponent } from '../../components/token-accounts-modal/token-accounts-modal.component';
 import type { PortfolioTab } from '../../models/portfolio.models';
 
 interface HeaderMetric {
@@ -40,6 +42,8 @@ const ETH_LOGO_URI =
     DefiPositionsComponent,
     NftGalleryComponent,
     RecentActivityComponent,
+    ClaimableRewardsComponent,
+    TokenAccountsModalComponent,
   ],
   templateUrl: './portfolio-shell.component.html',
   styleUrl: './portfolio-shell.component.scss',
@@ -85,6 +89,7 @@ export class PortfolioShellComponent implements OnDestroy {
   // New signals
   readonly activeTab = this.portfolioService.activeTab;
   readonly protocolPositions = this.portfolioService.protocolPositions;
+  readonly protocolPositionsLoading = this.portfolioService.protocolPositionsLoading;
   readonly portfolioChange = this.portfolioService.portfolioChange;
   readonly nfts = this.portfolioService.nfts;
   readonly nftCollections = this.portfolioService.nftCollections;
@@ -93,6 +98,27 @@ export class PortfolioShellComponent implements OnDestroy {
   readonly historyLoadingState = this.portfolioService.historyLoadingState;
   readonly historyHasMore = this.portfolioService.historyHasMore;
   readonly historyLoadingMore = this.portfolioService.historyLoadingMore;
+
+  // Token Accounts Manager modal — opened from the token-list header.
+  readonly accountsModalOpen = signal(false);
+
+  openAccountsModal(): void {
+    this.accountsModalOpen.set(true);
+  }
+  closeAccountsModal(): void {
+    this.accountsModalOpen.set(false);
+  }
+  /**
+   * Re-fetch the wallet portfolio after a successful close/burn batch so
+   * the freed lamports flow back into the SOL balance card and the closed
+   * mints drop from the token list. Fire-and-forget — the modal stays open
+   * (the user may want to run a second pass) and surfaces its own success
+   * banner regardless.
+   */
+  onAccountsReclaimed(): void {
+    const key = this.publicKey();
+    if (key) this.portfolioService.loadPortfolio(key).catch(() => {});
+  }
 
   private readonly walletEffect = effect(() => {
     const key = this.publicKey();

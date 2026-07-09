@@ -1,46 +1,47 @@
-// ──── Category Group ────
-.category-group {
-  margin-bottom: 8px;
+// ──── Protocol block (one per protocol, DeBank-style) ────
+.protocol-block {
+  margin-bottom: 20px;
 }
 
-.category-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 0 8px;
-}
-
-.category-badge {
-  display: inline-block;
-  padding: 4px 14px;
-  font-size: 11px;
-  font-weight: 700;
-  color: white;
-  border-radius: var(--op-radius-full);
-  background: var(--op-gradient);
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-}
-
-.category-total {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--op-text-secondary);
-  font-family: var(--op-font-body);
-}
-
-// ──── Protocol Header (DeBank style) ────
+// ──── Protocol Header — name + logo prominent, category as small pill ────
 .protocol-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 0 8px;
+  padding: 16px 0 10px;
 }
 
 .protocol-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.protocol-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.category-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.category-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--op-text-secondary);
+  background: var(--op-bg-surface-2, var(--op-bg-surface-1));
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-full);
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
 }
 
 .protocol-logo {
@@ -74,6 +75,40 @@
   font-weight: 700;
   color: var(--op-text-primary);
   font-family: var(--op-font-body);
+}
+
+// Right-side cluster: optional "X Reclaim" pill + USD total. Pill renders
+// only when totalClaimableUsd > 0 so headers without claimable rewards stay
+// tight against the value.
+.protocol-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reclaim-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 4px 10px;
+  border-radius: var(--op-radius-full);
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--op-gain);
+  cursor: help;
+
+  .reclaim-count {
+    background: var(--op-gain);
+    color: var(--op-bg-surface-0, #0b0e13);
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: var(--op-radius-full);
+    font-size: 10px;
+    min-width: 18px;
+    text-align: center;
+  }
 }
 
 // ──── Protocol Card Body (DeBank style) ────
@@ -127,11 +162,11 @@
 }
 
 .col-label {
-  width: 35%;
+  width: 30%;
 }
 
 .col-tokens {
-  width: 35%;
+  width: 28%;
 }
 
 .col-balance {
@@ -142,12 +177,56 @@
   width: 18%;
 }
 
+// New optional columns — narrower than label/tokens, right-aligned numbers.
+// Only one or two of these typically render per section (see has* helpers in
+// the .ts) so layout stays comfortable.
+.col-fees,
+.col-apy,
+.col-pnl {
+  width: 14%;
+  text-align: right;
+  font-family: var(--op-font-mono);
+  font-size: 13px;
+}
+
 .col-value {
-  width: 22%;
+  width: 18%;
   text-align: right;
   font-family: var(--op-font-mono);
   font-weight: 600;
   color: var(--op-text-primary);
+}
+
+.claimable-amount {
+  color: var(--op-gain);
+  font-weight: 600;
+}
+
+.apy-amount {
+  color: var(--op-gain);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.pnl-amount {
+  font-weight: 600;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+
+  &.pnl-positive {
+    color: var(--op-gain);
+  }
+  &.pnl-negative {
+    color: var(--op-loss, #ef4444);
+  }
+}
+
+.pnl-pct {
+  font-size: 11px;
+  opacity: 0.85;
+  font-weight: 500;
 }
 
 .position-label {
@@ -304,4 +383,80 @@
   th.col-tokens {
     display: none;
   }
+}
+
+// ──── Loading skeleton ────
+// Mirrors the real protocol-card layout (header strip + 4-row table) so
+// the page doesn't reflow when real data swaps in.
+.defi-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-top: 8px;
+}
+.defi-sk-group {
+  animation: defi-sk-fade 320ms ease both;
+}
+.defi-sk-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px 10px;
+}
+.defi-sk-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--op-bg-surface-2);
+  position: relative;
+  overflow: hidden;
+}
+.defi-sk-bar {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--op-bg-surface-2);
+  position: relative;
+  overflow: hidden;
+  flex: 1 1 auto;
+  &.wide   { max-width: 160px; }
+  &.short  { max-width: 80px; }
+  &.narrow { max-width: 60px; }
+  &.right  { margin-left: auto; }
+}
+.defi-sk-card {
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-md);
+  padding: 4px 0;
+  background: color-mix(in srgb, var(--op-bg-surface-1) 70%, transparent);
+}
+.defi-sk-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--op-border-subtle);
+  animation: defi-sk-fade 320ms ease both;
+  &:last-child { border-bottom: none; }
+}
+.defi-sk-circle::after,
+.defi-sk-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--op-text-secondary) 18%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: defi-sk-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes defi-sk-shimmer {
+  0%   { background-position:  200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes defi-sk-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

@@ -4,7 +4,7 @@
  * Renders parsed actions (swaps, transfers, stakes, token launches, etc.)
  * with protocol-specific branding, editable fields, and execution flow.
  */
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, SimpleChanges, ViewChild, ElementRef, inject, signal, computed, effect } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, SimpleChanges, ViewChild, ElementRef, inject, signal, computed, effect, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { ParsedAction, IntentParserService } from '../../services/intent-parser.service';
@@ -16,6 +16,7 @@ import { WalletService } from '@core/services/wallet.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
 import { TransactionPreviewService, TransactionPreview, BalanceChange } from '../../services/transaction-preview.service';
 import { JargonTooltipComponent } from '@shared/components/jargon-tooltip/jargon-tooltip.component';
+import { TokenPickerComponent } from '../token-picker/token-picker.component';
 import { JupiterSwapService } from '@core/services/market/jupiter-swap.service';
 import { RollbackService } from '@core/services/rollback.service';
 import { SolanaRpcService } from '../../../../features/portfolio/services/solana-rpc.service';
@@ -24,7 +25,9 @@ import { JitoService } from '@core/services/market/jito.service';
 import { MarinadeService } from '@core/services/market/marinade.service';
 import { JupSolService } from '@core/services/market/jupsol.service';
 import { MeteoraService } from '@core/services/market/meteora.service';
+import { ApiService } from '@core/services/api.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
+import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../../../environments/environment';
 
 const ACTION_RESULTS_KEY = 'oprai-action-results';
@@ -36,6 +39,9 @@ const ACTION_RESULTS_KEY = 'oprai-action-results';
  */
 function resizeImageToSquare(file: File, size: number): Promise<File> {
   if (!file.type.startsWith('image/')) return Promise.resolve(file);
+  // GIFs are left untouched — drawing to a canvas would flatten an animated GIF to
+  // a single static frame. pump.fun accepts GIFs as-is, so preserve the animation.
+  if (file.type === 'image/gif') return Promise.resolve(file);
   return new Promise((resolve, reject) => {
     const img = new Image();
     const blobUrl = URL.createObjectURL(file);
@@ -46,6 +52,11 @@ function resizeImageToSquare(file: File, size: number): Promise<File> {
       canvas.height = size;
       const ctx = canvas.getContext('2d');
       if (!ctx) { reject(new Error('Canvas not supported')); return; }
+      // Preserve transparency: PNG/WebP sources (logos) have an alpha channel.
+      // Encoding to JPEG flattens unpainted/transparent pixels to BLACK (JPEG has no
+      // alpha), which is why transparent logos showed up as a solid black square.
+      // Emit PNG for alpha-capable sources so transparency survives; else JPEG.
+      const keepPng = file.type === 'image/png' || file.type === 'image/webp';
       // Center-crop: take the largest centered square from the source image.
       const side = Math.min(img.naturalWidth, img.naturalHeight);
       const sx = (img.naturalWidth - side) / 2;
@@ -54,8 +65,10 @@ function resizeImageToSquare(file: File, size: number): Promise<File> {
       canvas.toBlob(blob => {
         if (!blob) { reject(new Error('Failed to encode resized image')); return; }
         const baseName = file.name.replace(/\.[^.]+$/, '') || 'image';
-        resolve(new File([blob], baseName + '.jpg', { type: 'image/jpeg' }));
-      }, 'image/jpeg', 0.92);
+        const ext = keepPng ? '.png' : '.jpg';
+        const type = keepPng ? 'image/png' : 'image/jpeg';
+        resolve(new File([blob], baseName + ext, { type }));
+      }, keepPng ? 'image/png' : 'image/jpeg', 0.92);
     };
     img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('Failed to load image for resize')); };
     img.src = blobUrl;
@@ -75,23 +88,75 @@ const SIM_ERROR_MESSAGES: Record<string, string> = {
 };
 
 /**
- * Best-effort English translation of a Marinade/Jito/Marinade-style custom
- * error code. These are the codes we've seen in practice; everything else
- * gets a "code N" fallback.
+ * Best-effort English translation of common low-numbered custom error
+ * codes. Many Solana programs return `ProgramError::Custom(N)` for
+ * generic preconditions — keep the wording PROTOCOL-NEUTRAL because
+ * the same code (e.g. 101) means different things on different
+ * programs (Marinade: min stake; Raydium CLMM: invalid input). Mention
+ * a specific protocol only inside the action's own handler, not here.
  */
 const SIM_GENERIC_HINTS: Record<string, string> = {
-  // Marinade — most-common minimum-stake/account-state codes seen in the
-  // wild. The protocol does not publish a stable enum index, so labels are
-  // intentionally non-committal.
   '101':
-    "The stake amount is below the protocol minimum or your wallet does not meet the protocol's prerequisites. Try a larger amount (Marinade requires ≥ 0.01 SOL above rent + fees).",
+    "The amount is below the protocol's minimum, or one of the input accounts isn't in the state the program expects. Try a slightly larger amount.",
   '102':
-    "Account state precondition failed. Make sure your wallet is funded and not currently liquidating a stake.",
+    "Account state precondition failed. Make sure the right wallet is connected and that no conflicting transaction is in flight.",
 };
 
-function sanitizeErrorMessage(msg: string): string {
+/**
+ * Action-specific overrides for known simulation error codes. Raydium /
+ * Meteora / Orca all reuse low Anchor framework codes (101 = ConstraintRaw,
+ * 102 = ConstraintSeeds, etc.) for protocol-level constraint failures.
+ * Those codes have NOTHING to do with "minimum amount" — surfacing the
+ * generic hint actively misleads the user. When we know the action and the
+ * code, use the more accurate explanation.
+ */
+const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
+  raydium_open_position: {
+    '101':
+      "Pool returned a constraint error. Most common causes: tick range falls outside the pool's tracked observation window, the pool isn't a CLMM pool (no concentrated-liquidity support for this pair), or the deposit ratio doesn't match the current price. Try the Full range preset, refresh the pool data, or use Raydium Add Liquidity (CPMM) instead.",
+    '102':
+      "Pool seed/account constraint failed. Likely a stale pool reference. Refresh the page and re-pick the pool.",
+  },
+  raydium_add_liquidity: {
+    '101':
+      "Pool constraint failed. Verify the pair is a Raydium CPMM/standard pool and that both deposit amounts are non-zero.",
+  },
+  meteora_dlmm_add_liquidity: {
+    '101':
+      "DLMM bin constraint failed. The price range may cross more bins than the per-tx limit (commonly ≤ 70 bins). Narrow the range or split into multiple positions.",
+  },
+  orca_open_position: {
+    '101':
+      "Whirlpool constraint failed. Range tick alignment or pool state issue. Try a wider range or refresh the pool data.",
+  },
+};
+
+function sanitizeErrorMessage(msg: string, actionType?: string): string {
   // Strip internal API instructions (e.g. "Upload via POST /upload/...") that leak from backend errors.
   let out = msg.replace(/\.\s+(Upload|Call|Use|POST|GET|See|Retry)\s+.*/i, '.').trim();
+
+  // Pre-flight SOL-fee-shortfall thrown by solana-action.service before signing.
+  // Format: "insufficient_fee:need=0.000010,have=0.000000"
+  // Translate to plain English with concrete numbers and an actionable next step.
+  const feeMatch = out.match(/insufficient_fee:need=([\d.]+),have=([\d.]+)/);
+  if (feeMatch) {
+    const need = feeMatch[1];
+    const have = feeMatch[2];
+    const haveNum = parseFloat(have);
+    const shortage = (parseFloat(need) - haveNum).toFixed(6);
+    if (haveNum === 0) {
+      return `Your wallet has 0 SOL — Solana needs at least ${need} SOL to pay the transaction fee. Top up the connected wallet with a small amount of SOL (a few cents' worth is enough) and try again.`;
+    }
+    return `Wallet has ${have} SOL but needs ${need} SOL to cover the transaction fee. Add about ${shortage} more SOL and retry.`;
+  }
+
+  // Build a "concrete floor" suffix from the action catalog so error
+  // messages tell the user the EXACT minimum to type (e.g. "Try at least
+  // 0.001 SOL"), not just the generic "try a slightly larger amount."
+  const minCfg = actionType ? ACTION_MIN_AMOUNT[actionType] : undefined;
+  const floorSuffix = minCfg
+    ? ` This action's minimum is ${minCfg.amount}${minCfg.unit ? ` ${minCfg.unit}` : ''}.`
+    : '';
 
   // Translate machine codes from `parseSimulationError`. The shape is one of:
   //   sim:insufficient_tokens
@@ -106,12 +171,18 @@ function sanitizeErrorMessage(msg: string): string {
   const generic = out.match(/sim:generic:([A-Za-z0-9_-]+)/);
   if (generic) {
     const code = generic[1];
+    // Action-specific override takes priority — protocol-level codes
+    // (Raydium / Meteora / Orca 101 etc.) get accurate context instead of
+    // the misleading "below minimum" fallback.
+    const actionHints = actionType ? SIM_HINTS_BY_ACTION[actionType] : undefined;
+    const actionHint = actionHints?.[code];
+    if (actionHint) return actionHint;
     const hint = SIM_GENERIC_HINTS[code];
-    if (hint) return hint;
+    if (hint) return hint + floorSuffix;
     if (/^\d+$/.test(code)) {
-      return `The transaction simulation failed (program error ${code}). The most common causes are insufficient balance for fees + rent, or an amount below the protocol's minimum. Try a slightly larger amount.`;
+      return `The transaction simulation failed (program error ${code}). The most common causes are insufficient balance for fees + rent, or an amount below the protocol's minimum.${floorSuffix} Try a slightly larger amount.`;
     }
-    return "The transaction simulation failed before signing. Check that your wallet has enough SOL for fees and that the amount meets the protocol's minimum.";
+    return `The transaction simulation failed before signing. Check that your wallet has enough SOL for fees and that the amount meets the protocol's minimum.${floorSuffix}`;
   }
 
   return out;
@@ -135,7 +206,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   jito:      { name: 'Jito',       icon: 'assets/icons/protocols/jito.webp',      accent: '#7df65c', accentBg: 'rgba(125,246,92,0.10)' },
   kamino:    { name: 'Kamino',     icon: 'assets/icons/protocols/kamino.svg',     accent: '#6C5CE7', accentBg: 'rgba(108,92,231,0.12)' },
   orca:      { name: 'Orca',       icon: 'assets/icons/protocols/orca.svg',       accent: '#06B6D4', accentBg: 'rgba(6,182,212,0.12)' },
-  raydium:   { name: 'Raydium',    icon: 'assets/icons/protocols/raydium.svg',    accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.12)' },
+  raydium:   { name: 'Raydium',    icon: 'assets/icons/protocols/raydium.png',    accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.12)' },
   marginfi:  { name: 'MarginFi',   icon: 'assets/icons/protocols/marginfi.svg',   accent: '#F59E0B', accentBg: 'rgba(245,158,11,0.12)' },
   meteora:   { name: 'Meteora',    icon: 'assets/icons/protocols/meteora.webp',    accent: '#10B981', accentBg: 'rgba(16,185,129,0.12)' },
   marinade:  { name: 'Marinade',   icon: 'assets/icons/protocols/marinade.webp',  accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)' },
@@ -151,7 +222,9 @@ function getProtocolKey(action: ParsedAction): string {
   const p = (action.params['protocol'] ?? '').toLowerCase();
   if (p && PROTOCOL_CONFIGS[p]) return p;
   const t = action.type;
+  // Jupiter surface: swaps, limit/DCA, perpetuals, JLP — all Jupiter products.
   if (t === 'swap' || t === 'limit_order' || t === 'dca') return 'jupiter';
+  if (t === 'perp_open' || t === 'perp_close' || t === 'jlp_add' || t === 'jlp_remove') return 'jupiter';
   if (t === 'stake') return p || 'jito';
   if (t === 'unstake') return p || 'jito';
   if (t.startsWith('native_stake')) return 'default';
@@ -292,7 +365,95 @@ function formatDlmmAmount(n: number): string {
   return n.toFixed(dp).replace(/\.?0+$/, '');
 }
 
-function getActionFields(action: ParsedAction): FieldDef[] {
+/**
+ * Per-action MIN AMOUNT guardrails — surfaced on the amount input so users
+ * see the required floor BEFORE submitting (and before the on-chain "below
+ * protocol's minimum" rejection). Values reflect protocol-side minimums
+ * plus typical rent-exempt overheads on Solana:
+ *   - 0.000891 SOL = wallet account creation rent (transfer to a new wallet)
+ *   - 0.00204 SOL  = SPL token ATA rent (recipient or LST receiving account)
+ *   - 0.001 SOL    = practical floor for most LST + bonding-curve flows
+ *   - 1 SOL        = native delegated stake minimum (cluster policy)
+ *
+ * The `hint` is what shows above the input. The `min` enforces HTML5
+ * client-side validation on the number field. Both are advisory — final
+ * authority is the on-chain program — but most "amount below minimum"
+ * errors come from users typing 0 or sub-dust values.
+ */
+const ACTION_MIN_AMOUNT: Record<string, { amount: number; hint: string; unit?: string }> = {
+  // Pump.fun bonding curve buys/sells
+  pumpfun_buy:    { amount: 0.001,    hint: 'Minimum 0.001 SOL — sub-dust trades fail on the bonding curve', unit: 'SOL' },
+  pumpswap_buy:   { amount: 0.001,    hint: 'Minimum 0.001 SOL — PumpSwap AMM rejects micro trades',         unit: 'SOL' },
+  pumpfun_sell:   { amount: 1,        hint: 'Token units — sub-1 amounts round to zero given pump.fun decimals' },
+  pumpswap_sell:  { amount: 1,        hint: 'Token units' },
+  // Jupiter aggregator
+  swap:           { amount: 0.000001, hint: '' },
+  // Plain transfers — account creation rent matters if recipient is brand-new
+  transfer:       { amount: 0.000001, hint: 'New wallet recipients require ~0.000891 SOL for account rent' },
+  // Liquid staking (jito / marinade / jupSOL / bSOL)
+  stake:          { amount: 0.001,    hint: 'Minimum 0.001 SOL — most LSTs reject smaller deposits',  unit: 'SOL' },
+  unstake:        { amount: 0.001,    hint: 'Minimum 0.001 token' },
+  jito_stake:     { amount: 0.001,    hint: 'Minimum 0.001 SOL', unit: 'SOL' },
+  marinade_stake: { amount: 0.001,    hint: 'Minimum 0.001 SOL', unit: 'SOL' },
+  jupsol_stake:   { amount: 0.001,    hint: 'Minimum 0.001 SOL', unit: 'SOL' },
+  bsol_stake:     { amount: 0.001,    hint: 'Minimum 0.001 SOL', unit: 'SOL' },
+  // Native delegated stake (cluster minimum)
+  native_stake:   { amount: 1,        hint: 'Minimum 1 SOL (Solana cluster rule)', unit: 'SOL' },
+  // Lending markets — Kamino / MarginFi / Solend dust thresholds
+  lend:           { amount: 0.000001, hint: 'Smallest meaningful amount; markets reject true zero' },
+  withdraw:       { amount: 0.000001, hint: 'Use "all" to withdraw the full balance' },
+  borrow:         { amount: 0.000001, hint: 'Below dust threshold borrows revert' },
+  repay:          { amount: 0.000001, hint: 'Use "all" to clear the debt completely' },
+  // Liquidity provision (generic)
+  add_liquidity:    { amount: 0.001, hint: 'Each side at least 0.001 token to clear pool minimums' },
+  remove_liquidity: { amount: 0.000001, hint: 'Use "all" to close the position' },
+  // Raydium CLMM / AMM
+  raydium_open_position:     { amount: 0.001, hint: 'Each side ≥ 0.001 token; very tight ranges need larger deposits to clear pool liquidity minimums. Try a wider range if it fails.' },
+  raydium_add_liquidity:     { amount: 0.001, hint: 'Each side ≥ 0.001 token. Wider range = easier minimum.' },
+  raydium_increase_position: { amount: 0.001, hint: 'Minimum 0.001 token' },
+  raydium_decrease_position: { amount: 0.000001, hint: 'Use "all" to remove all liquidity' },
+  // Meteora DLMM / DAMM
+  meteora_dlmm_add_liquidity:   { amount: 0.001, hint: 'Each bin needs ≥ 0.001 token; wider bin spread = easier minimum' },
+  meteora_dammv2_add_liquidity: { amount: 0.001, hint: 'Each side ≥ 0.001 token' },
+  meteora_open_position:        { amount: 0.001, hint: 'Each side ≥ 0.001 token' },
+  meteora_add_to_position:      { amount: 0.001, hint: 'Minimum 0.001 token' },
+  // Orca Whirlpool
+  orca_open_position:        { amount: 0.001, hint: 'Each side ≥ 0.001 token; tight ranges need larger deposits' },
+  orca_increase_liquidity:   { amount: 0.001, hint: 'Minimum 0.001 token' },
+  orca_decrease_liquidity:   { amount: 0.000001, hint: 'Use "all" to remove all' },
+  // Cross-chain
+  bridge:           { amount: 0.5,   hint: 'Bridge solvers typically require ≥ 0.5 USDC equivalent', unit: 'USDC' },
+  relay_bridge:     { amount: 0.5,   hint: 'Bridge solvers typically require ≥ 0.5 USDC equivalent', unit: 'USDC' },
+};
+
+/**
+ * Apply min + hint from the catalog to an amount field, but never overwrite
+ * a hint a specific action config has already set (action-specific advice
+ * wins over the generic catalog entry).
+ */
+function applyMinAmountGuard(field: FieldDef, actionType: string): FieldDef {
+  const cfg = ACTION_MIN_AMOUNT[actionType];
+  if (!cfg) return field;
+  return {
+    ...field,
+    min: field.min ?? cfg.amount,
+    hint: field.hint ?? cfg.hint,
+    step: field.step ?? (cfg.amount < 0.001 ? '0.000001' : cfg.amount < 1 ? '0.001' : '0.01'),
+  };
+}
+
+/**
+ * Build the field schema for an action. `liveParams` is the *current*
+ * editable params (post-flip, post-normalization) — for fields whose schema
+ * depends on token / mode state (notably swap: ExactIn ↔ ExactOut affects
+ * label, suffix, ordering), we must read from the live edit-state, not the
+ * frozen LLM emission. Defaults to `action.params` for the cold path.
+ */
+function getActionFields(
+  action: ParsedAction,
+  liveParams?: Record<string, string | undefined>,
+): FieldDef[] {
+  const params = liveParams ?? action.params;
   const fields: FieldDef[] = [];
   const t = action.type;
   if (t === 'launch_token' || t === 'token_launch' || t === 'pumpfun_launch') return [];
@@ -317,12 +478,22 @@ function getActionFields(action: ParsedAction): FieldDef[] {
     return fields;
   }
   if (t === 'swap') {
+    // Raydium-style dual-amount layout: each token row carries its OWN amount
+    // input inline. The user types into either side; whichever was typed last
+    // is the EXACT side (drives `swapMode`), and the other side renders as a
+    // live counterparty estimate from `swapEstimate`. The separate "Amount"
+    // field that used to live below the tokens is gone — duplicated info.
     fields.push(
-      { key: 'inputMint', label: 'From Token', type: 'token', required: true },
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: action.params['inputMint'] ?? 'SOL', required: true },
-      { key: 'outputMint', label: 'To Token', type: 'token', required: true },
+      { key: 'inputMint',  label: 'From', type: 'token', required: true },
+      { key: 'outputMint', label: 'To',   type: 'token', required: true },
       { key: 'slippageBps', label: 'Slippage', type: 'number', placeholder: '0.5', suffix: '%', half: true, min: 0, max: 100, step: '0.1', divisor: 100 },
-      { key: 'onlyDirectRoutes', label: 'Direct routes only', type: 'toggle', half: true },
+      {
+        key: 'onlyDirectRoutes',
+        label: 'Direct routes only',
+        type: 'toggle',
+        half: true,
+        hint: 'Skip multi-hop routing — single AMM pool only. Off gives a better price most of the time.',
+      },
     );
   } else if (t === 'transfer') {
     fields.push(
@@ -372,7 +543,7 @@ function getActionFields(action: ParsedAction): FieldDef[] {
       { key: 'inputMint', label: 'Sell Token', type: 'token', required: true },
       { key: 'outputMint', label: 'Buy Token', type: 'token', required: true },
       { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', required: true },
-      { key: 'targetPrice', label: 'Target Price', type: 'number', placeholder: '0', required: true, hint: 'Price per output token in input token' },
+      { key: 'targetPrice', label: 'Target Price', type: 'number', placeholder: '0', required: true, hint: 'Output tokens received per 1 input token sold' },
       { key: 'expirySeconds', label: 'Expiry (sec)', type: 'number', placeholder: '86400', half: true, hint: 'Leave blank for GTC' },
     );
   } else if (t === 'cancel_limit_order') {
@@ -388,8 +559,8 @@ function getActionFields(action: ParsedAction): FieldDef[] {
       { key: 'totalAmount', label: 'Total Amount', type: 'number', placeholder: '0', required: true },
       { key: 'numberOfOrders', label: 'Orders', type: 'number', placeholder: '10', required: true, min: 1, half: true },
       { key: 'intervalSeconds', label: 'Interval (sec)', type: 'number', placeholder: '86400', required: true, half: true, hint: '3600=h 86400=d 604800=w' },
-      { key: 'minOutPerCycle', label: 'Min Out/Cycle', type: 'number', placeholder: '0', half: true },
-      { key: 'maxOutPerCycle', label: 'Max Out/Cycle', type: 'number', placeholder: '0', half: true },
+      { key: 'minPrice', label: 'Min Price', type: 'number', placeholder: '0', half: true },
+      { key: 'maxPrice', label: 'Max Price', type: 'number', placeholder: '0', half: true },
     );
   } else if (t === 'cancel_dca') {
     fields.push(
@@ -495,14 +666,35 @@ function getActionFields(action: ParsedAction): FieldDef[] {
       { key: 'tickSpacing', label: 'Tick Spacing', type: 'number', placeholder: '60', half: true },
     );
   } else if (t === 'raydium_open_position') {
+    // Raydium CLMM concentrated liquidity.
+    //
+    // The dedicated `<div class="clmm-form">` template (rendered by
+    // action-card.html when `isRaydiumOpenPosition()` is true) replaces this
+    // generic field list — it shows: current price + 24h range, dual-amount
+    // inputs (auto-balanced via `clmmRatio`), `±0.5% / ±1% / ±5% / ±10% /
+    // Full Range` preset chips, and slippage in an "Advanced" expander.
+    //
+    // We still register the underlying fields here so saveDraft/restore +
+    // payload normalization picks them up — the template just supplies a
+    // bespoke layout for them.
     fields.push(
       { key: 'poolId', label: 'Pool ID', type: 'address', placeholder: 'Pool address...', required: true },
-      { key: 'tokenA', label: 'Token A', type: 'token', required: true },
-      { key: 'tokenB', label: 'Token B', type: 'token', required: true },
-      { key: 'inputAmount', label: 'Deposit Amount', type: 'number', placeholder: '0', required: true },
+      { key: 'amountA', label: 'Token A Amount', type: 'number', placeholder: '0', required: true, half: true },
+      { key: 'amountB', label: 'Token B Amount', type: 'number', placeholder: '0', required: true, half: true },
       { key: 'minPrice', label: 'Min Price', type: 'number', placeholder: '0', required: true, half: true },
       { key: 'maxPrice', label: 'Max Price', type: 'number', placeholder: '0', required: true, half: true },
-      { key: 'slippageBps', label: 'Slippage', type: 'number', placeholder: '0.5', suffix: '%', half: true, min: 0, max: 100, step: '0.1', divisor: 100 },
+      {
+        key: 'slippageBps',
+        label: 'Slippage',
+        type: 'number',
+        placeholder: '0.5',
+        suffix: '%',
+        half: true,
+        min: 0,
+        max: 100,
+        step: '0.1',
+        divisor: 100,
+      },
     );
   } else if (t === 'raydium_close_position') {
     fields.push(
@@ -1027,7 +1219,7 @@ type ActionStatus = 'pending' | 'quoting' | 'signing' | 'submitted' | 'confirmed
 @Component({
   selector: 'app-action-card',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule, JargonTooltipComponent],
+  imports: [CommonModule, LucideAngularModule, JargonTooltipComponent, TokenPickerComponent],
   templateUrl: './action-card.component.html',
   styleUrls: ['./action-card.component.scss'],
 })
@@ -1061,10 +1253,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly marinadeService = inject(MarinadeService);
   private readonly jupSolService = inject(JupSolService);
   private readonly meteoraService = inject(MeteoraService);
+  private readonly apiService = inject(ApiService);
 
   /** Cache so a Meteora pool address is fetched once per card lifecycle even
    *  if `editParams.poolId` thrashes (e.g. on draft restore). */
   private _resolvedMeteoraPool: string | null = null;
+  /** Same idea for Raydium CLMM pool enrichment — fetch tokenA/B + currentPrice
+   *  exactly once per card when the LLM emitted poolId without symbols. */
+  private _enrichedRaydiumPool: string | null = null;
 
   @ViewChild('imageFileInput') imageFileInput!: ElementRef<HTMLInputElement>;
   @ViewChild('bannerFileInput') bannerFileInput!: ElementRef<HTMLInputElement>;
@@ -1096,21 +1292,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly editMayhemMode = signal(false);
   readonly editCashback = signal(false);
   readonly editTokenizedAgent = signal(false);
+  /** Mint (contract) of the token created by this launch card, once known. */
+  readonly createdMint = signal<string | null>(null);
 
   // Image
   readonly uploadingImage = signal(false);
   readonly imageUploadError = signal<string | null>(null);
-  readonly bannerUrl = signal<string | null>(null);
   private uploadedImageUrl = signal<string | null>(null);
   readonly effectiveImageUrl = computed(() => this.uploadedImageUrl() || this.action?.params['image'] || this.action?.params['imageUrl'] || null);
   readonly isDragOver = signal(false);
   // Raw resized file kept for pump.fun IPFS upload at launch time
   private resizedImageFile: File | null = null;
 
-  // Banner
+  // Banner (optional pump.fun coin-page banner, 3:1 / 1500×500, set at creation only)
   readonly uploadingBanner = signal(false);
   readonly bannerUploadError = signal<string | null>(null);
   readonly uploadedBannerUrl = signal<string | null>(null);
+  readonly bannerUrl = signal<string | null>(null);
   readonly effectiveBannerUrl = computed(() => this.uploadedBannerUrl() || this.bannerUrl());
 
   // Advanced options
@@ -1119,7 +1317,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly editPriorityFee = signal('0.0005');
 
   // Edit params
-  readonly editParams = signal<Record<string, string>>({});
+  readonly editParams = signal<Record<string, string | undefined>>({});
 
   // Auto-save edits to localStorage so they survive page refresh for pending actions.
   private readonly _draftEffect = effect(() => {
@@ -1144,6 +1342,113 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     };
     try { localStorage.setItem(`draft:${this.sessionId}:${this.messageId}`, JSON.stringify(draft)); } catch {}
   });
+
+  // Re-fetch balances whenever the connected wallet changes (disconnect,
+  // reconnect, or switch-and-back). Without this, an action card mounted
+  // before the wallet finished connecting shows "0" forever — the balance
+  // loaders fire once in initFromAction() and never observe the wallet
+  // becoming available. Tracks publicKey so a fresh fetch + cache write
+  // happens for each new wallet.
+  private _lastBalanceWallet: string | null = null;
+  private readonly _walletBalanceEffect = effect(() => {
+    const wallet = this.walletService.publicKey();
+    if (wallet === this._lastBalanceWallet) return;
+    this._lastBalanceWallet = wallet;
+    // Drop stale balance display tied to the previous wallet.
+    this.inputBalance.set(null);
+    this.secondaryBalance.set(null);
+    if (!wallet) return;
+    untracked(() => {
+      if (this.inputBalanceMint()) void this.loadInputBalance();
+      if (this.secondaryBalanceMint()) void this.loadSecondaryBalance();
+    });
+  });
+
+  // Input-token USD price, used to flag Jupiter's minimum order sizes UP FRONT
+  // (limit order ≥ $5 total; DCA ≥ $50 per suborder) instead of surfacing the
+  // backend rejection after submit. Refetches when the input token changes.
+  readonly inputUsdPrice = signal<number | null>(null);
+  private readonly _inputPriceEffect = effect(() => {
+    const mint = this.inputBalanceMint();
+    const t = this.action?.type;
+    if ((t !== 'limit_order' && t !== 'dca' && t !== 'perp_open') || !mint) return;
+    untracked(() => {
+      this.inputUsdPrice.set(null);
+      void this.priceFeed.getPrice(mint).then(p => this.inputUsdPrice.set(p));
+    });
+  });
+
+  // Live perp quote (entry, liquidation, fees) fetched from the perps API via
+  // /actions/build. Debounced so it re-quotes as the user edits market / side /
+  // collateral / leverage.
+  readonly perpQuote = signal<{
+    entryPrice: number; liqPrice: number; sizeUsd: number;
+    openFeeUsd: number; priceImpactFeeUsd: number; borrowFeeUsd: number; totalFeeUsd: number;
+  } | null>(null);
+  readonly perpQuoteLoading = signal(false);
+  private _perpQuoteSeq = 0;
+  private _perpQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly _perpQuoteEffect = effect(() => {
+    if (this.action?.type !== 'perp_open') { this.perpQuote.set(null); return; }
+    // Track the inputs that change the quote.
+    const market = this.perpMarket();
+    const side = this.perpSide();
+    const coll = this.getEditParam('collateralAmount');
+    const lev = this.getEditParam('leverage');
+    const collToken = this.getEditParam('collateralToken');
+    const belowMin = this.perpBelowMinCollateral();
+    const collNum = parseFloat(coll);
+    if (!Number.isFinite(collNum) || collNum <= 0 || belowMin) { this.perpQuote.set(null); return; }
+
+    const seq = ++this._perpQuoteSeq;
+    if (this._perpQuoteTimer) clearTimeout(this._perpQuoteTimer);
+    this._perpQuoteTimer = setTimeout(() => {
+      untracked(() => this.fetchPerpQuote(seq, { market, side, collateralAmount: coll, leverage: lev, collateralToken: collToken }));
+    }, 600);
+  });
+
+  /** Fetch the perps-api quote for the current open params (discarding the tx). */
+  private async fetchPerpQuote(
+    seq: number,
+    params: { market: string; side: string; collateralAmount: string; leverage: string; collateralToken: string },
+  ): Promise<void> {
+    this.perpQuoteLoading.set(true);
+    try {
+      const body: Record<string, unknown> = {
+        market: params.market,
+        side: params.side,
+        collateralAmount: params.collateralAmount,
+        leverage: params.leverage || '2',
+        slippageBps: 200,
+      };
+      if (params.collateralToken) body['collateralToken'] = params.collateralToken;
+      const res = await firstValueFrom(
+        this.apiService.post<{ quote?: any }>('/actions/build', { type: 'perp_open', params: body }),
+      );
+      if (seq !== this._perpQuoteSeq) return; // superseded by a newer edit
+      // Rust returns the full perps-api response under `quote`; the numeric
+      // quote is nested one level in (`quote.quote`). All USD fields are micro-USD.
+      const q = res?.quote?.quote ?? res?.quote ?? null;
+      if (!q) { this.perpQuote.set(null); return; }
+      const usd = (v: unknown) => parseFloat(String(v ?? '0')) / 1e6;
+      const openFee = usd(q.openFeeUsd);
+      const priceImpact = usd(q.priceImpactFeeUsd);
+      const borrow = usd(q.outstandingBorrowFeeUsd);
+      this.perpQuote.set({
+        entryPrice: usd(q.averagePriceUsd),
+        liqPrice: usd(q.liquidationPriceUsd),
+        sizeUsd: usd(q.sizeUsdDelta),
+        openFeeUsd: openFee,
+        priceImpactFeeUsd: priceImpact,
+        borrowFeeUsd: borrow,
+        totalFeeUsd: openFee + priceImpact + borrow,
+      });
+    } catch {
+      if (seq === this._perpQuoteSeq) this.perpQuote.set(null);
+    } finally {
+      if (seq === this._perpQuoteSeq) this.perpQuoteLoading.set(false);
+    }
+  }
 
   // Validator picker (native_stake only)
   readonly validators = signal<ValidatorInfo[]>([]);
@@ -1172,13 +1477,47 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   //   tokenA via this same signal.
   readonly inputBalance = signal<number | null>(null);
   readonly inputBalanceLoading = signal(false);
-  readonly inputBalanceMint = computed(() =>
-    this.editParams()['inputMint']
-    ?? this.editParams()['inputToken']
-    ?? this.editParams()['token']
-    ?? this.editParams()['tokenA']
-    ?? this.editParams()['tokenXMint']
-    ?? '');
+  readonly inputBalanceMint = computed(() => {
+    const p = this.editParams();
+    // For dual-token forms (CLMM / DLMM / DAMM open-position, add-liquidity), the
+    // LLM often emits BOTH inputMint=<one side> AND tokenA/tokenB=<pair>. Picking
+    // `inputMint` first then makes the primary row resolve to the same mint as
+    // `secondaryBalanceMint` (which reads tokenB), so both balance lines show the
+    // same number. When a tokenA/tokenB pair is present, prefer tokenA and ignore
+    // `inputMint` to keep the two rows distinct.
+    // pump.fun / PumpSwap: the "spent" token is SOL on a buy and the token
+    // itself on a sell (unless the amount is explicitly SOL-denominated). This
+    // drives both the balance line and the amount-input icon (base coin).
+    const pumpCfg = this.pumpActionConfig();
+    if (pumpCfg) {
+      return this.pumpAmountInSol(pumpCfg.side, p)
+        ? this.SOL_MINT
+        : (p['mint'] ?? p['token'] ?? '');
+    }
+    // LST stake/unstake: the "You pay" token is SOL when staking, the LST
+    // itself when unstaking. Drives both the balance line and the amount-input
+    // token pill (so the pay side shows a real icon, matching the receive side).
+    const lstCfg = this.lstActionConfig();
+    if (lstCfg) {
+      return lstCfg.direction === 'stake'
+        ? this.SOL_MINT
+        : (this.tokenRegistry.getBySymbol(lstCfg.lstSymbol)?.address ?? '');
+    }
+    // Perp: collateral token drives the balance line + price. Long uses the
+    // market's base token (SOL for SOL-PERP), short uses USDC — matching the
+    // backend's collateral default.
+    if (this.action?.type === 'perp_open') {
+      return this.perpCollateralMint();
+    }
+    const tokenA = p['tokenA'] ?? p['tokenXMint'];
+    const tokenB = p['tokenB'] ?? p['tokenYMint'];
+    if (tokenA && tokenB) return tokenA;
+    return p['inputMint']
+      ?? p['inputToken']
+      ?? p['token']
+      ?? tokenA
+      ?? '';
+  });
   readonly inputBalanceSymbol = computed(() => this.resolveTokenDisplay(this.inputBalanceMint()).symbol || '');
   // ─ Secondary: serves the `amountB` field on dual-token actions
   //   (meteora_add_liquidity, *_dammv2_add_liquidity, raydium_clmm,
@@ -1279,10 +1618,145 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return null;
   });
 
+  /**
+   * Raydium CLMM (concentrated liquidity) ratio. Active when the action
+   * carries `currentPrice`, `minPrice`, `maxPrice` — same Uniswap v3 math
+   * Raydium uses on its own UI:
+   *
+   *   sa = sqrt(minPrice), sb = sqrt(maxPrice), s = sqrt(currentPrice)
+   *   in-range:   amountB / amountA = (s - sa) × s × sb / (sb - s)
+   *   above max:  position is 100% Token A   → singleSided: 'A'
+   *   below min:  position is 100% Token B   → singleSided: 'B'
+   *
+   * Returns null when any input is missing/invalid so the form falls back
+   * to independent amount fields.
+   */
+  readonly clmmRatio = computed<
+    { yPerX: number; xPerY: number; singleSided?: 'A' | 'B' } | null
+  >(() => {
+    const p = this.editParams();
+    const cur = parseFloat(p['currentPrice'] ?? '');
+    const lo  = parseFloat(p['minPrice'] ?? '');
+    const hi  = parseFloat(p['maxPrice'] ?? '');
+    if (!(cur > 0) || !(lo > 0) || !(hi > 0) || lo >= hi) return null;
+
+    if (cur >= hi) {
+      // Price above the upper bound → position holds only Token A
+      // (waiting for price to come back down into range).
+      return { yPerX: 0, xPerY: Infinity, singleSided: 'A' };
+    }
+    if (cur <= lo) {
+      // Price below the lower bound → position holds only Token B
+      // (waiting for price to climb back into range).
+      return { yPerX: Infinity, xPerY: 0, singleSided: 'B' };
+    }
+
+    const s  = Math.sqrt(cur);
+    const sa = Math.sqrt(lo);
+    const sb = Math.sqrt(hi);
+    const yPerX = (s - sa) * s * sb / (sb - s);
+    return yPerX > 0
+      ? { yPerX, xPerY: 1 / yPerX }
+      : null;
+  });
+
+  /** True when the current action is Raydium CLMM open_position — the
+   *  template flips the field-list-based form into the dedicated CLMM layout
+   *  (current price + range presets + dual amounts + advanced expander). */
+  readonly isRaydiumOpenPosition = computed(
+    () => this.action.type === 'raydium_open_position',
+  );
+
+  /** "1 OSRUB ≈ 0.010002 USDT" line shown above the inputs. Derived purely
+   *  from `currentPrice` carried in editParams, so it survives draft restore. */
+  readonly clmmCurrentPriceDisplay = computed(() => {
+    const p = this.editParams();
+    const cur = parseFloat(p['currentPrice'] ?? '');
+    if (!(cur > 0)) return null;
+    return {
+      symA: p['tokenASymbol'] || 'A',
+      symB: p['tokenBSymbol'] || 'B',
+      price: cur,
+    };
+  });
+
+  /** True when the user's chosen range straddles the current pool price.
+   *  Drives the highlight on the matching range-preset chip. */
+  readonly clmmActiveRangePct = computed<number | null>(() => {
+    const p = this.editParams();
+    const cur = parseFloat(p['currentPrice'] ?? '');
+    const lo  = parseFloat(p['minPrice'] ?? '');
+    const hi  = parseFloat(p['maxPrice'] ?? '');
+    if (!(cur > 0) || !(lo > 0) || !(hi > 0)) return null;
+    const loPct = (cur - lo) / cur;
+    const hiPct = (hi - cur) / cur;
+    if (Math.abs(loPct - hiPct) > 0.001) return null; // asymmetric → no preset match
+    const pct = Math.round(loPct * 1000) / 10; // %, one decimal
+    return pct;
+  });
+
+  /** Preset buttons rendered under the min/max inputs. `Full` opens the
+   *  widest practical range — Raydium itself caps at ±100x, but for a UI
+   *  hint a 100x window is "effectively full" without breaking the math. */
+  readonly CLMM_RANGE_PRESETS: ReadonlyArray<{ label: string; pct: number }> = [
+    { label: '±0.5%', pct: 0.5 },
+    { label: '±1%',   pct: 1   },
+    { label: '±5%',   pct: 5   },
+    { label: '±10%',  pct: 10  },
+    { label: '±20%',  pct: 20  },
+    { label: 'Full',  pct: 9900 }, // ~ ±100x, treated as "full range" preset
+  ];
+
+  /** Apply a ±N% range preset around the current price. */
+  applyClmmRangePreset(pct: number): void {
+    const p = this.editParams();
+    const cur = parseFloat(p['currentPrice'] ?? '');
+    if (!(cur > 0)) return;
+    const factor = pct / 100;
+    const minP = cur * (1 - factor);
+    const maxP = cur * (1 + factor);
+    // toPrecision keeps small-price tokens (OSRUB ≈ 0.01) readable, large-price
+    // tokens (BTC-style) compact. 6 sig figs covers both extremes.
+    this.editParams.update(ep => ({
+      ...ep,
+      minPrice: Math.max(minP, 1e-12).toPrecision(6),
+      maxPrice: maxP.toPrecision(6),
+    }));
+    // Trigger a recompute on whichever side the user last edited.
+    // If they haven't edited yet, default to A.
+    if (!this.dlmmLastEdited()) this.dlmmLastEdited.set('A');
+  }
+
+  /**
+   * Called from approve() when the card is in the error state. For
+   * raydium_open_position on a stable-stable pair with a wide range, the
+   * on-chain failure mode is "tick range outside observation window".
+   * Auto-narrowing to ±1% gives Retry a real chance of succeeding without
+   * forcing the user to click the preset themselves.
+   */
+  private maybeAutoTightenStableRange(): void {
+    if (this.action?.type !== 'raydium_open_position') return;
+    const p = this.editParams();
+    // Stable check is driven by TokenRegistry (Jupiter tags + symbol/name
+    // heuristics) so this catches any future USD-stable without a code change.
+    const symA = p['tokenASymbol'] ?? p['tokenA'] ?? '';
+    const symB = p['tokenBSymbol'] ?? p['tokenB'] ?? '';
+    if (!this.tokenRegistry.isStable(symA) || !this.tokenRegistry.isStable(symB)) return;
+    const cur = parseFloat(p['currentPrice'] ?? '');
+    const lo  = parseFloat(p['minPrice'] ?? '');
+    const hi  = parseFloat(p['maxPrice'] ?? '');
+    if (!(cur > 0 && lo > 0 && hi > 0)) return;
+    const spreadPct = Math.max(((cur - lo) / cur), ((hi - cur) / cur)) * 100;
+    if (spreadPct <= 5) return; // already tight enough
+    this.applyClmmRangePreset(1);
+  }
+
   private dlmmRatioEffect = effect(() => {
-    // Two ratio sources: DLMM (range × strategy × active bin) or AMM
-    // (constant-product reserves). DLMM wins when both are present.
+    // Three ratio sources: DLMM (range × strategy × active bin),
+    // CLMM (Uniswap-v3 sqrt-price math), or AMM (constant-product reserves).
+    // Priority: DLMM > CLMM > AMM (a single action only ever surfaces one).
     const dlmm = this.dlmmRatio();
+    const clmm = this.clmmRatio();
     const amm = this.ammRatio();
     const params = this.editParams();
     const last = this.dlmmLastEdited();
@@ -1308,15 +1782,37 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       }
     }
 
+    // CLMM single-sided (range entirely above or below current price): zero
+    // out the unused side so the user can't accidentally deposit a token
+    // the protocol won't accept at this range.
+    if (clmm?.singleSided === 'A') {
+      if (params['amountB'] && params['amountB'] !== '0') {
+        this.dlmmInternalWrite = true;
+        this.editParams.update(ep => ({ ...ep, amountB: '0' }));
+        this.dlmmInternalWrite = false;
+      }
+      return;
+    }
+    if (clmm?.singleSided === 'B') {
+      if (params['amountA'] && params['amountA'] !== '0') {
+        this.dlmmInternalWrite = true;
+        this.editParams.update(ep => ({ ...ep, amountA: '0' }));
+        this.dlmmInternalWrite = false;
+      }
+      return;
+    }
+
     // Pick effective ratio. DLMM yPerX is in raw units (needs decimal
-    // scale baked in); AMM yPerX is already human-unit. Distinguish so the
-    // arithmetic is right either way.
+    // scale baked in); CLMM and AMM yPerX are already human-unit.
     let humanYPerX: number | null = null;
     let humanXPerY: number | null = null;
     if (dlmm && dlmm.yPerX !== null && dlmm.xPerY !== null) {
       const scale = this.dlmmDecimalScale();
       humanYPerX = dlmm.yPerX * scale;
       humanXPerY = dlmm.xPerY / scale;
+    } else if (clmm && Number.isFinite(clmm.yPerX) && Number.isFinite(clmm.xPerY)) {
+      humanYPerX = clmm.yPerX;
+      humanXPerY = clmm.xPerY;
     } else if (amm) {
       humanYPerX = amm.yPerX;
       humanXPerY = amm.xPerY;
@@ -1406,11 +1902,55 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.dlmmLastEdited.set(side);
   }
 
+  /**
+   * True when the action's `amount` field represents an OUTPUT quantity
+   * (Jupiter ExactOut "buy N TOKEN" semantics) instead of an input. Drives
+   * both the suffix-side rendering ("5 USDC" instead of "5 SOL") and the
+   * insufficientFunds skip — for ExactOut we can't pre-check the input
+   * balance because the input cost is whatever the route quotes.
+   */
+  readonly swapAmountIsOutput = computed<boolean>(() => {
+    if (!this.action || this.action.type !== 'swap') return false;
+    const rawMode = String(this.editParams()['swapMode'] ?? '').toLowerCase();
+    return rawMode === 'exactout' || rawMode === 'out';
+  });
+
   readonly insufficientFunds = computed(() => {
+    if (this.swapAmountIsOutput()) return false;
     const bal = this.inputBalance();
     const amt = parseFloat(this.editParams()['amount'] ?? '0');
     return bal !== null && amt > 0 && amt > bal;
   });
+
+  /**
+   * Per-side display value for the inline swap amount inputs. The side whose
+   * mode is "exact" reads from the editable `amount` field; the other side
+   * reads from the live counterparty estimate so the user sees both legs.
+   */
+  swapInputValueFor(fieldKey: 'inputMint' | 'outputMint'): string {
+    const p = this.editParams();
+    const mode = String(p['swapMode'] ?? '').toLowerCase();
+    const isExactOut = mode === 'exactout' || mode === 'out';
+    const isExactInputSide = (fieldKey === 'inputMint' && !isExactOut) || (fieldKey === 'outputMint' && isExactOut);
+    if (isExactInputSide) return p['amount'] ?? '';
+    const est = this.swapEstimate();
+    return est?.counterUi ?? '';
+  }
+
+  /**
+   * Called when the user types into one of the inline amount inputs. Pins the
+   * `amount` to the edited side and flips `swapMode` so the OTHER side
+   * becomes the floating counterparty estimate.
+   */
+  onSwapAmountInput(fieldKey: 'inputMint' | 'outputMint', raw: string): void {
+    const value = this.normalizeDecimal(raw);
+    this.editParams.update(prev => {
+      const next = { ...prev };
+      next['amount'] = value;
+      next['swapMode'] = fieldKey === 'inputMint' ? 'ExactIn' : 'ExactOut';
+      return next;
+    });
+  }
   readonly belowMinAmount = signal<number | null>(null);
 
   // Liquid staking conversion preview. exchange_rate is always SOL per LST
@@ -1450,6 +1990,151 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
+  // ── pump.fun / PumpSwap live counterparty estimate ──────────────────────
+  // Same idea as the LST estimate + the swap poller: while a pump.fun /
+  // PumpSwap buy/sell card is pending, show the *other* leg of the trade
+  // ("1 SOL ≈ N TOKEN") refreshed every POLL_INTERVAL_S so the user sees the
+  // live conversion, with icons for both the spent and received token.
+  readonly SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+  /** buy = spend SOL → receive token; sell = spend token → receive SOL. */
+  pumpActionConfig(): { side: 'buy' | 'sell' } | null {
+    switch (this.action?.type) {
+      case 'pumpfun_buy':
+      case 'pumpswap_buy':  return { side: 'buy' };
+      case 'pumpfun_sell':
+      case 'pumpswap_sell': return { side: 'sell' };
+      default: return null;
+    }
+  }
+
+  /** Is the typed `amount` denominated in SOL for this pump action? */
+  private pumpAmountInSol(side: 'buy' | 'sell', params: Record<string, string | undefined>): boolean {
+    // buy defaults to SOL-denominated (spend N SOL); sell defaults to token units.
+    return side === 'buy'
+      ? (params['denominatedInSol'] ?? 'true') !== 'false'
+      : (params['denominatedInSol'] ?? 'false') === 'true';
+  }
+
+  // Raw quote result in BASE units + the counter mint. Display is derived in
+  // `pumpEstimate` so it self-corrects once the registry resolves the token's
+  // real decimals / logo (first quote may run before metadata arrives).
+  private readonly _pumpQuoteRaw = signal<{ counterBase: number; counterMint: string } | null>(null);
+
+  readonly pumpEstimate = computed<{ amount: number; symbol: string; logoURI: string | null } | null>(() => {
+    const raw = this._pumpQuoteRaw();
+    if (!raw) return null;
+    this.tokenRegistry.version(); // reactive: re-derive when decimals/logo resolve
+    const td = this.resolveTokenDisplay(raw.counterMint);
+    const dec = td.decimals ?? (raw.counterMint === this.SOL_MINT ? 9 : 6);
+    return { amount: raw.counterBase / Math.pow(10, dec), symbol: td.symbol, logoURI: td.logoURI ?? null };
+  });
+
+  /**
+   * Logo for the RECEIVED (counterparty) token in the paired "≈ N SYMBOL"
+   * output, for whichever estimate is active. Kept as a computed so the
+   * template stays strictly typed (the LST and pump estimate shapes differ).
+   */
+  readonly pairedOutputLogo = computed<string | null>(() => {
+    const lst = this.lstEstimate();
+    if (lst) return this.resolveTokenDisplay(lst.symbol).logoURI ?? null;
+    const pump = this.pumpEstimate();
+    if (pump) return pump.logoURI;
+    return null;
+  });
+
+  /** True for pump.fun / PumpSwap buy+sell — renders the mini-Uniswap layout. */
+  readonly isPumpSwapForm = computed(() => this.pumpActionConfig() !== null);
+
+  /** The RECEIVED token mint: buy → the pump token, sell → SOL. */
+  readonly pumpReceiveMint = computed(() => {
+    const cfg = this.pumpActionConfig();
+    if (!cfg) return '';
+    const p = this.editParams();
+    return cfg.side === 'buy' ? (p['mint'] ?? p['token'] ?? '') : this.SOL_MINT;
+  });
+
+  private _pumpEstimateTimer: ReturnType<typeof setTimeout> | null = null;
+  private _pumpEstimateSeq = 0;
+
+  private readonly _pumpEstimateEffect = effect(() => {
+    const params = this.editParams();
+    const cfg = this.pumpActionConfig();
+    if (!cfg) { this._pumpQuoteRaw.set(null); return; }
+    const mint = (params['mint'] ?? params['token'] ?? '').trim();
+    const amt = parseFloat((params['amount'] ?? '').trim());
+    if (!mint || !Number.isFinite(amt) || amt <= 0) { this._pumpQuoteRaw.set(null); return; }
+    const inSol = this.pumpAmountInSol(cfg.side, params);
+    const seq = ++this._pumpEstimateSeq;
+    if (this._pumpEstimateTimer) clearTimeout(this._pumpEstimateTimer);
+    this._pumpEstimateTimer = setTimeout(() => {
+      this.fetchPumpEstimate(seq, cfg.side, mint, amt, inSol);
+    }, 400);
+    // Edit = interaction → full poll-lifetime reset (mirrors the swap effect).
+    if (this._pollIntervalId !== null) {
+      this._pollVisibleElapsedMs = 0;
+      this._pollSecondsSinceQuote = 0;
+      this.quoteCountdown.set(this.POLL_INTERVAL_S);
+    }
+  });
+
+  private async fetchPumpEstimate(
+    seq: number, side: 'buy' | 'sell', mint: string, amt: number, amountInSol: boolean,
+  ): Promise<void> {
+    // The backend /actions/quote refuses unverified tokens, so pump.fun mints
+    // (not in the strict registry) can't be priced there. Hit Jupiter's public
+    // quote API directly instead — it routes both graduated (PumpSwap AMM) and
+    // bonding-curve pump tokens. Amount must be in BASE units, so we need the
+    // pump mint's real decimals (usually 6) — resolve them up front.
+    const mintMeta = await this.tokenRegistry.resolveTokenMeta(mint).catch(() => null);
+    if (seq !== this._pumpEstimateSeq) return;
+    const mintDecimals = mintMeta?.decimals ?? 6;
+    const SOL = this.SOL_MINT;
+    // Quote direction + which leg the user typed vs. receives.
+    //   buy  + SOL amount   → ExactIn  SOL→mint,  counter = tokens out
+    //   buy  + token amount → ExactOut SOL→mint,  counter = SOL cost (in)
+    //   sell + token amount → ExactIn  mint→SOL,  counter = SOL out
+    //   sell + SOL amount   → ExactOut mint→SOL,  counter = tokens needed (in)
+    const inAddr = side === 'buy' ? SOL : mint;
+    const outAddr = side === 'buy' ? mint : SOL;
+    const amountIsInput = side === 'buy' ? amountInSol : !amountInSol;
+    const mode: 'ExactIn' | 'ExactOut' = amountIsInput ? 'ExactIn' : 'ExactOut';
+    // Jupiter's `amount` denominates the leg the mode fixes: ExactIn → input,
+    // ExactOut → output. Convert the typed UI amount to that leg's base units.
+    const amountLeg = amountIsInput ? inAddr : outAddr;
+    const amountDecimals = amountLeg === SOL ? 9 : mintDecimals;
+    const baseAmount = Math.round(amt * Math.pow(10, amountDecimals));
+    if (!(baseAmount > 0)) { this._pumpQuoteRaw.set(null); return; }
+    try {
+      const url = `https://api.jup.ag/swap/v1/quote?inputMint=${inAddr}&outputMint=${outAddr}`
+        + `&amount=${baseAmount}&slippageBps=50&swapMode=${mode}`;
+      const q = await fetch(url).then(r => (r.ok ? r.json() : null));
+      if (seq !== this._pumpEstimateSeq) return;
+      if (!q || !q.outAmount || !q.inAmount) { this._pumpQuoteRaw.set(null); return; }
+      // Counter (what we DISPLAY) = the leg the user did NOT type.
+      const counterBase = parseInt(amountIsInput ? q.outAmount : q.inAmount, 10);
+      const counterMint = amountIsInput ? outAddr : inAddr;
+      if (!Number.isFinite(counterBase) || counterBase <= 0) { this._pumpQuoteRaw.set(null); return; }
+      this._pumpQuoteRaw.set({ counterBase, counterMint });
+    } catch {
+      // No route (e.g. brand-new token Jupiter hasn't indexed yet) — clear the
+      // estimate; the card still works, just without the live preview.
+      if (seq === this._pumpEstimateSeq) this._pumpQuoteRaw.set(null);
+    }
+  }
+
+  private async refreshPumpQuoteSilently(): Promise<void> {
+    const cfg = this.pumpActionConfig();
+    if (!cfg) return;
+    const p = this.editParams();
+    const mint = (p['mint'] ?? p['token'] ?? '').trim();
+    const amt = parseFloat(p['amount'] ?? '');
+    if (!mint || !Number.isFinite(amt) || amt <= 0) return;
+    const inSol = this.pumpAmountInSol(cfg.side, p);
+    const seq = ++this._pumpEstimateSeq;
+    await this.fetchPumpEstimate(seq, cfg.side, mint, amt, inSol);
+  }
+
   // Lend
   readonly lendInfo = signal<LendActionInfo | null>(null);
   readonly lendInfoLoading = signal(false);
@@ -1472,7 +2157,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Computed (template direct access)
   get protocolConfig(): ProtocolConfig { return PROTOCOL_CONFIGS[getProtocolKey(this.action)] ?? PROTOCOL_CONFIGS['default']; }
   get actionLabel(): string { return getActionLabel(this.action); }
-  get actionFields(): FieldDef[] { return getActionFields(this.action); }
+  get actionFields(): FieldDef[] {
+    // Post-process: stamp protocol-aware MIN/hint on every amount-shaped input
+    // so the user sees the floor before submitting (prevents the on-chain
+    // "amount below protocol's minimum" rejection). We do this here so each
+    // action handler in getActionFields stays minimal — the catalog
+    // (ACTION_MIN_AMOUNT) is the single source of truth.
+    const AMOUNT_KEYS = new Set([
+      'amount', 'amountA', 'amountB', 'amountX', 'amountY',
+      'inputAmount', 'totalAmount',
+    ]);
+    return getActionFields(this.action, this.editParams()).map(f =>
+      AMOUNT_KEYS.has(f.key) ? applyMinAmountGuard(f, this.action.type) : f
+    );
+  }
   get confirmButtonLabel(): string {
     const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity' };
     return labels[this.action?.type] ?? 'Confirm';
@@ -1507,6 +2205,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   ngOnInit(): void {
     if (this.action) this.initFromAction();
     this.maybeLoadLstRate();
+    this.maybeEnrichRaydiumPool();
+    this.maybeNormalizeExactOutToExactIn();
   }
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['action'] && this.action) {
@@ -1515,11 +2215,143 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.lstRateError.set(null);
       this.lstRateLoading.set(false);
       this.maybeLoadLstRate();
+      this._enrichedRaydiumPool = null;
+      this.maybeEnrichRaydiumPool();
+      this.maybeNormalizeExactOutToExactIn();
       return;
     }
     // Re-apply cached result if it arrives after the component was already initialized
     if (changes['cachedResult'] && this.cachedResult && this.status() === 'pending') {
       this.initFromAction();
+    }
+  }
+
+  /**
+   * Fetch Raydium CLMM pool details when the LLM emitted only `poolId` +
+   * `inputMint` + `inputAmount` (no `tokenASymbol` / `tokenBSymbol` /
+   * `currentPrice`). Without these, the form shows generic "Token A" / "Token B"
+   * labels and the ratio engine has no anchor price.
+   *
+   * The QueryCard path (`useRaydiumPool` in query-card.component.ts) already
+   * fills these in directly from the row data, so the fetch is a no-op there.
+   */
+  async maybeEnrichRaydiumPool(): Promise<void> {
+    if (this.action?.type !== 'raydium_open_position') return;
+    const p = this.editParams();
+    const poolId = (p['poolId'] ?? '').trim();
+    if (!poolId) return;
+    // ALWAYS strip the LLM's raw `inputMint`/`inputAmount` before anything
+    // else — they have no business in the CLMM form's editParams. Leaving
+    // `inputMint='USDC'` (a literal symbol) in place makes the form's
+    // `inputBalanceMint()` chain resolve BOTH rows to the same token
+    // (USDC's mint), so both rows show USDC's icon and balance. The
+    // submission path (`solana-action.service.ts → raydium_open_position`)
+    // re-derives inputMint from whichever amountA/amountB is non-zero, so
+    // dropping them here doesn't break the build payload.
+    if (p['inputMint'] !== undefined || p['inputAmount'] !== undefined) {
+      const inputMintRaw = (p['inputMint'] ?? '').trim();
+      const inputAmountRaw = (p['inputAmount'] ?? '').trim();
+      const cleaned = { ...p };
+      delete cleaned['inputMint'];
+      delete cleaned['inputAmount'];
+      // Route the LLM's "4 USDC" into amountA/amountB if symbols are
+      // already known (draft restore path). The async enrichment below
+      // handles the cold-start path separately.
+      if (inputMintRaw && inputAmountRaw && cleaned['tokenASymbol']) {
+        const upper = inputMintRaw.toUpperCase();
+        const isA =
+          inputMintRaw === cleaned['tokenA'] ||
+          upper === (cleaned['tokenASymbol'] || '').toUpperCase();
+        if (isA && !cleaned['amountA']) { cleaned['amountA'] = inputAmountRaw; this.dlmmLastEdited.set('A'); }
+        else if (!isA && !cleaned['amountB']) { cleaned['amountB'] = inputAmountRaw; this.dlmmLastEdited.set('B'); }
+      }
+      this.editParams.set(cleaned);
+      // Re-fire balance loaders since inputBalanceMint() now resolves
+      // to tokenA (not the deleted inputMint) — different mint → fresh fetch.
+      this.inputBalance.set(null);
+      this.secondaryBalance.set(null);
+      if (this.inputBalanceMint()) this.loadInputBalance();
+      if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
+    }
+    if (this.editParams()['tokenASymbol'] && this.editParams()['tokenBSymbol']) return; // already enriched
+    if (this._enrichedRaydiumPool === poolId) return; // tried once
+    this._enrichedRaydiumPool = poolId;
+    try {
+      // Use the gateway's `/actions/build` raydium_get_pool_info — same
+      // response shape the QueryCard's pool rows use (mintA/mintB carry
+      // `{address, symbol, decimals, logoURI}` objects, not just strings).
+      const resp = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', {
+          type: 'raydium_get_pool_info',
+          params: { ids: poolId },
+        }),
+      );
+      const rows = resp?.preview?.params?.data;
+      const pool = Array.isArray(rows) ? rows[0] : null;
+      if (!pool) return;
+      const patched = { ...this.editParams() };
+      const mintA = pool.mintA ?? {};
+      const mintB = pool.mintB ?? {};
+      if (!patched['tokenA']) patched['tokenA'] = mintA.address ?? '';
+      if (!patched['tokenB']) patched['tokenB'] = mintB.address ?? '';
+      if (!patched['tokenASymbol']) patched['tokenASymbol'] = mintA.symbol ?? 'A';
+      if (!patched['tokenBSymbol']) patched['tokenBSymbol'] = mintB.symbol ?? 'B';
+      if (!patched['tokenADecimals']) patched['tokenADecimals'] = String(mintA.decimals ?? 9);
+      if (!patched['tokenBDecimals']) patched['tokenBDecimals'] = String(mintB.decimals ?? 9);
+      const price = typeof pool.price === 'number' ? pool.price : parseFloat(pool.price ?? '');
+      if (!patched['currentPrice'] && Number.isFinite(price) && price > 0) {
+        patched['currentPrice'] = String(price);
+        // Stable-stable pairs trade in a ~1% band; ±20% creates a position
+        // whose ticks fall outside the pool's observation arrays and the open
+        // call reverts with a constraint error. Default to ±1% for stables.
+        // Pair detection is driven by TokenRegistry (Jupiter tags + symbol/name
+        // heuristics) so any future USD-stable works without code changes.
+        const symA = patched['tokenASymbol'] ?? mintA.address ?? '';
+        const symB = patched['tokenBSymbol'] ?? mintB.address ?? '';
+        const isStablePair = this.tokenRegistry.isStable(symA) && this.tokenRegistry.isStable(symB);
+        const factor = isStablePair ? 0.01 : 0.2;
+        if (!patched['minPrice']) patched['minPrice'] = (price * (1 - factor)).toPrecision(6);
+        if (!patched['maxPrice']) patched['maxPrice'] = (price * (1 + factor)).toPrecision(6);
+      }
+      // Single-sided input from the LLM ("4 USDC") → drop the user-supplied
+      // amount into whichever side `inputMint` resolves to, then DELETE the
+      // raw inputMint/inputAmount keys. The form's balance/icon resolvers
+      // (`inputBalanceMint`, `secondaryBalanceMint`) read `inputMint` before
+      // falling through to `tokenA`/`tokenB` — if we leave `inputMint='USDC'`
+      // in place, BOTH rows end up resolving to USDC's mint and the user
+      // sees identical icons and only one balance line.
+      // The submission path (`solana-action.service.ts → raydium_open_position`)
+      // already re-derives inputMint/inputAmount from whichever amount side
+      // is non-zero, so dropping these here doesn't break the build payload.
+      const inputMint = (this.action.params['inputMint'] ?? '').trim();
+      const inputAmount = (this.action.params['inputAmount'] ?? '').trim();
+      let prefilledSide: 'A' | 'B' | null = null;
+      if (inputMint && inputAmount) {
+        const upper = inputMint.toUpperCase();
+        const isA =
+          inputMint === patched['tokenA'] ||
+          upper === (patched['tokenASymbol'] || '').toUpperCase();
+        if (isA && !patched['amountA']) { patched['amountA'] = inputAmount; prefilledSide = 'A'; }
+        else if (!isA && !patched['amountB']) { patched['amountB'] = inputAmount; prefilledSide = 'B'; }
+        delete patched['inputMint'];
+        delete patched['inputAmount'];
+      }
+      this.editParams.set(patched);
+      // The balance loaders fired in ngOnInit before this async enrichment
+      // landed. At that point inputMint was still the literal "USDC" so
+      // loadInputBalance fetched USDC's balance into the primary signal,
+      // and tokenB was empty so loadSecondaryBalance never ran. Re-fire
+      // both now that the mints are correct.
+      this.inputBalance.set(null);
+      this.secondaryBalance.set(null);
+      if (this.inputBalanceMint()) this.loadInputBalance();
+      if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
+      // Kick the auto-balance ratio engine so the OTHER side fills in
+      // immediately. Without this the user sees "4 USDC" but USDS stays
+      // empty until they touch a field manually.
+      if (prefilledSide) this.dlmmLastEdited.set(prefilledSide);
+    } catch (err) {
+      console.warn('[raydium-clmm] pool enrichment failed', err);
     }
   }
 
@@ -1531,6 +2363,380 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * the UI shows an explicit "live rate unavailable" message and the user
    * can retry.
    */
+  /**
+   * Normalize an ExactOut swap action to its ExactIn equivalent at card mount,
+   * by pre-quoting Jupiter for the required input amount.
+   *
+   * Why: the LLM emits ExactOut for "buy 5 USDC for SOL" — semantically that's
+   * "receive 5 USDC, input floats". But every DEX UI (Jupiter/Raydium/Orca)
+   * shows the trade as "spend X SOL → receive Y USDC" with the input pinned.
+   * Users see `BUY AMOUNT: 5 USDC` next to `PAYING WITH: SOL` and read it as
+   * "this trade costs 5 USDC", which is wrong and undermines trust.
+   *
+   * Fix: at card open we ask Jupiter "how much SOL does 5 USDC out cost
+   * right now?" and rewrite editParams in-place to ExactIn with the quoted
+   * SOL amount. The card then renders as a normal ExactIn — amount in the
+   * input token (SOL), receive estimate in the output (USDC).
+   *
+   * Market drift is normal DEX behavior — final amounts are determined by
+   * the route quote computed at sign time, not at card open.
+   */
+  readonly exactOutNormalizing = signal(false);
+
+  /**
+   * Live counterparty estimate for a swap: the *other* side of the trade
+   * computed from a Jupiter quote, so the user sees BOTH legs (Raydium-style
+   * dual-amount feel) without needing to type into a second input.
+   *
+   * Updated by `_swapEstimateEffect` whenever editParams.amount /
+   * inputMint / outputMint / swapMode changes, debounced ~400 ms so we
+   * don't fan out quote calls on every keystroke.
+   */
+  readonly swapEstimate = signal<{
+    counterUi: string;        // formatted counterparty amount (e.g. "5.0234")
+    counterSymbol: string;    // counter token symbol
+    counterIsOutput: boolean; // true if counter is the output side (ExactIn)
+    pricePerInput: number;    // output per 1 input
+    priceImpactPct: number;   // Jupiter quote priceImpactPct × 100 (e.g. 3.2 = 3.2%)
+  } | null>(null);
+
+  // Separate from `swapEstimate=null` (which also covers "not quoted yet" /
+  // "inputs missing"). True only after a quote attempt with valid inputs
+  // came back as "no route" — Jupiter literally has no path between these
+  // mints. Signals a dead pair, drives the danger banner.
+  readonly swapNoRoute = signal(false);
+
+  /**
+   * Frozen pay/receive amounts captured at the moment of submit. Once a swap is
+   * executed the card must keep showing *what was actually swapped* — not the
+   * live `swapInputValueFor()` value, which re-reads the (now post-swap) balance
+   * and last quote and would otherwise drift to the remaining balance. Rendered
+   * only when the card is no longer editable (submitted / confirmed).
+   */
+  readonly executedSwapView = signal<{ pay: string; receive: string } | null>(null);
+
+  /** The exact (user-edited) params handed to the last submit. Used by the
+   *  async confirmation callbacks so they persist what was submitted rather
+   *  than the pre-edit `this.action.params`. */
+  private lastSubmittedParams: Record<string, string> | null = null;
+
+  /** Frozen swap pay/receive captured at submit, persisted with the result. */
+  private lastSwapView: { pay: string; receive: string } | null = null;
+
+  /**
+   * Severity tier for the live quote's price impact. Drives both the warning
+   * banner colour in the card and whether the Swap button is hard-gated.
+   *
+   *   safe     → no badge, no banner. Default "good route" path.
+   *   notice   → yellow banner, button enabled. Inform but don't block.
+   *   warning  → orange banner, button enabled with extra confirmation copy.
+   *   danger   → red banner, button DISABLED. Pair has no/awful liquidity
+   *              and signing would be self-harm; user must change tokens.
+   *
+   * Thresholds match what most DEX UIs (Jupiter, Raydium, Orca) use as
+   * warning/danger cutoffs.
+   */
+  readonly swapImpactTier = computed<'safe' | 'notice' | 'warning' | 'danger'>(() => {
+    if (this.swapNoRoute()) return 'danger';
+    const est = this.swapEstimate();
+    if (!est) return 'safe';
+    const p = est.priceImpactPct;
+    if (!Number.isFinite(p)) return 'safe';
+    if (p >= 10) return 'danger';
+    if (p >= 5) return 'warning';
+    if (p >= 1) return 'notice';
+    return 'safe';
+  });
+
+  /** True when the swap should be blocked — extreme price impact or no route. */
+  readonly swapBlockedByImpact = computed(() => this.swapImpactTier() === 'danger');
+
+  private _swapEstimateTimer: ReturnType<typeof setTimeout> | null = null;
+  private _swapEstimateSeq = 0;
+
+  /**
+   * Auto-refresh polling for swap quotes while the card is pending. Spec:
+   *  - 10 s interval (Jupiter/Raydium/Phantom standard)
+   *  - Only when action.type === 'swap' AND status === 'pending'
+   *  - Only while the tab is visible — `document.hidden` pauses
+   *  - Edit (amount/mint/mode change) resets the countdown
+   *  - Hard lifetime cap: 90 s from card open; if the user hasn't acted
+   *    by then, polling stops to avoid background spam
+   *  - On manual refresh / visibility-resume, fires immediately and resets
+   */
+  readonly POLL_INTERVAL_S = 3;
+  private readonly POLL_LIFETIME_MS = 60_000;
+  readonly quoteCountdown = signal<number | null>(null); // null = polling not active
+  private _pollIntervalId: ReturnType<typeof setInterval> | null = null;
+  // Visible-elapsed timer — hidden tab seconds don't count toward the cap.
+  // Wall-clock would expire the polling silently in the background, then
+  // the user returns to find a dead card with no fresh quote.
+  private _pollVisibleElapsedMs = 0;
+  private _pollSecondsSinceQuote = 0;
+  private _visibilityHandler: (() => void) | null = null;
+
+  private readonly _swapEstimateEffect = effect(() => {
+    // Touch the signals we want to track. Effect re-runs on any change.
+    const params = this.editParams();
+    const actionType = this.action?.type;
+    if (actionType !== 'swap') {
+      this.swapEstimate.set(null);
+      return;
+    }
+    const inMintRaw = (params['inputMint'] ?? '').trim();
+    const outMintRaw = (params['outputMint'] ?? '').trim();
+    const amtRaw = (params['amount'] ?? '').trim();
+    const mode = String(params['swapMode'] ?? '').toLowerCase();
+    if (!inMintRaw || !outMintRaw || !amtRaw) { this.swapEstimate.set(null); return; }
+    const amt = parseFloat(amtRaw);
+    if (!Number.isFinite(amt) || amt <= 0) { this.swapEstimate.set(null); return; }
+
+    // Debounce — bump the seq so any in-flight quote resolves into a no-op.
+    const seq = ++this._swapEstimateSeq;
+    if (this._swapEstimateTimer) clearTimeout(this._swapEstimateTimer);
+    this._swapEstimateTimer = setTimeout(() => {
+      this.fetchSwapEstimate(seq, inMintRaw, outMintRaw, amt, mode);
+    }, 400);
+
+    // Edit IS interaction — full lifetime reset, not just the per-tick
+    // countdown. Otherwise editing at t=55s only buys you 5 more seconds of
+    // live quotes, which is hostile UX.
+    if (this._pollIntervalId !== null) {
+      this._pollVisibleElapsedMs = 0;
+      this._pollSecondsSinceQuote = 0;
+      this.quoteCountdown.set(this.POLL_INTERVAL_S);
+    }
+  });
+
+  // Start / stop polling based on action type + card status. Effect re-runs
+  // whenever `status()` changes, so submit / cancel / error all stop it.
+  private readonly _quotePollLifecycleEffect = effect(() => {
+    const isPollable = this.action?.type === 'swap' || this.pumpActionConfig() !== null;
+    const shouldPoll = isPollable && this.status() === 'pending';
+    if (shouldPoll) this.startQuotePolling();
+    else this.stopQuotePolling();
+  });
+
+  /**
+   * Bound to a click on the card root. Re-arms the polling lifetime so an
+   * idle-but-pending card the user re-engages with starts fetching fresh
+   * quotes again. No-op when the card isn't in a polling-eligible state
+   * (not a swap, or status != pending).
+   */
+  onCardInteract(): void {
+    const eligible = (this.action?.type === 'swap' || this.pumpActionConfig() !== null)
+                     && this.status() === 'pending';
+    if (!eligible) return;
+    this._pollVisibleElapsedMs = 0;
+    if (this._pollIntervalId === null) {
+      // Polling had expired — start fresh AND fire an immediate quote so the
+      // user doesn't have to wait 3s after re-engaging the card.
+      this.startQuotePolling();
+      this.refreshQuoteSilently();
+    } else {
+      // Already running — just reset the per-tick counter so the user sees
+      // a full 3s before the next quote, not a stale partial countdown.
+      this._pollSecondsSinceQuote = 0;
+      this.quoteCountdown.set(this.POLL_INTERVAL_S);
+    }
+  }
+
+  private startQuotePolling(): void {
+    if (this._pollIntervalId !== null) return;
+    this._pollVisibleElapsedMs = 0;
+    this._pollSecondsSinceQuote = 0;
+    this.quoteCountdown.set(this.POLL_INTERVAL_S);
+
+    this._pollIntervalId = setInterval(() => this._pollTick(), 1000);
+
+    // Visibility: pause countdown while the tab is hidden, fire an immediate
+    // refresh when it comes back so the user never sees a stale number on
+    // tab-switch return.
+    if (typeof document !== 'undefined' && !this._visibilityHandler) {
+      this._visibilityHandler = () => {
+        if (!document.hidden && this._pollIntervalId !== null) {
+          this._pollSecondsSinceQuote = 0;
+          this.quoteCountdown.set(this.POLL_INTERVAL_S);
+          this.refreshQuoteSilently();
+        }
+      };
+      document.addEventListener('visibilitychange', this._visibilityHandler);
+    }
+  }
+
+  private stopQuotePolling(): void {
+    if (this._pollIntervalId !== null) {
+      clearInterval(this._pollIntervalId);
+      this._pollIntervalId = null;
+    }
+    if (this._visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
+    this.quoteCountdown.set(null);
+  }
+
+  private _pollTick(): void {
+    // Hidden tab = paused. Lifetime check must come AFTER this so background
+    // seconds don't burn down the user's quota of fresh quotes.
+    if (typeof document !== 'undefined' && document.hidden) return;
+
+    this._pollVisibleElapsedMs += 1000;
+    if (this._pollVisibleElapsedMs > this.POLL_LIFETIME_MS) {
+      this.stopQuotePolling();
+      return;
+    }
+
+    this._pollSecondsSinceQuote++;
+    const remaining = this.POLL_INTERVAL_S - this._pollSecondsSinceQuote;
+    this.quoteCountdown.set(Math.max(0, remaining));
+    if (this._pollSecondsSinceQuote >= this.POLL_INTERVAL_S) {
+      this._pollSecondsSinceQuote = 0;
+      this.quoteCountdown.set(this.POLL_INTERVAL_S);
+      this.refreshQuoteSilently();
+    }
+  }
+
+  private async refreshQuoteSilently(): Promise<void> {
+    // Route pump.fun / PumpSwap cards through their own estimator.
+    if (this.pumpActionConfig()) { await this.refreshPumpQuoteSilently(); return; }
+    const p = this.editParams();
+    const inMintRaw = (p['inputMint'] ?? '').trim();
+    const outMintRaw = (p['outputMint'] ?? '').trim();
+    const amtRaw = (p['amount'] ?? '').trim();
+    const mode = String(p['swapMode'] ?? '').toLowerCase();
+    const amt = parseFloat(amtRaw);
+    if (!inMintRaw || !outMintRaw || !Number.isFinite(amt) || amt <= 0) return;
+    const seq = ++this._swapEstimateSeq;
+    await this.fetchSwapEstimate(seq, inMintRaw, outMintRaw, amt, mode);
+  }
+
+  private async fetchSwapEstimate(
+    seq: number,
+    inMintRaw: string,
+    outMintRaw: string,
+    amt: number,
+    mode: string,
+  ): Promise<void> {
+    await this.tokenRegistry.ensureLoaded();
+    if (seq !== this._swapEstimateSeq) return;
+    const inT = this.tokenRegistry.getBySymbol(inMintRaw) ?? this.tokenRegistry.getToken(inMintRaw);
+    const outT = this.tokenRegistry.getBySymbol(outMintRaw) ?? this.tokenRegistry.getToken(outMintRaw);
+    if (!inT || !outT) return;
+    const isExactOut = mode === 'exactout' || mode === 'out';
+    const swapMode: 'ExactIn' | 'ExactOut' = isExactOut ? 'ExactOut' : 'ExactIn';
+    try {
+      const quote = await this.swapService.getQuote(
+        inT.address, outT.address, String(amt), 50, swapMode,
+      );
+      if (seq !== this._swapEstimateSeq) return;
+      if (!quote) {
+        // Jupiter responded but found no route — distinct from "network
+        // error" so we surface a deterministic "no liquidity" banner.
+        this.swapNoRoute.set(true);
+        this.swapEstimate.set(null);
+        return;
+      }
+      this.swapNoRoute.set(false);
+      const inAt = parseInt(quote.inAmount, 10);
+      const outAt = parseInt(quote.outAmount, 10);
+      if (!Number.isFinite(inAt) || !Number.isFinite(outAt) || inAt <= 0 || outAt <= 0) return;
+      const inUi = inAt / Math.pow(10, inT.decimals ?? 9);
+      const outUi = outAt / Math.pow(10, outT.decimals ?? 9);
+      // Counter side = the OTHER side from the editable amount. ExactIn ⇒
+      // amount is input, counter is output. ExactOut ⇒ amount is output,
+      // counter is input.
+      const counterUi = isExactOut ? inUi : outUi;
+      const counterSymbol = isExactOut ? (inT.symbol ?? '') : (outT.symbol ?? '');
+      const pricePerInput = inUi > 0 ? outUi / inUi : 0;
+      // Jupiter returns priceImpactPct as a fraction string ("0.0032" = 0.32%).
+      // Multiply to a percentage so downstream thresholds (1% / 5% / 10%) read
+      // intuitively. Defensive parse so a missing field falls to 0 (safe tier)
+      // rather than NaN (which the computed treats as safe anyway, but explicit).
+      const rawImpact = parseFloat(String(quote.priceImpactPct ?? '0'));
+      const priceImpactPct = Number.isFinite(rawImpact) ? rawImpact * 100 : 0;
+      this.swapEstimate.set({
+        counterUi: counterUi.toLocaleString(undefined, { maximumFractionDigits: 6 }),
+        counterSymbol,
+        counterIsOutput: !isExactOut,
+        pricePerInput,
+        priceImpactPct,
+      });
+    } catch {
+      // Quote failure (no route, network error, etc.) is itself a danger
+      // signal — surface it through swapEstimate=null + we'll render a
+      // "no liquidity for this pair" banner from that state in the template.
+      if (seq === this._swapEstimateSeq) this.swapEstimate.set(null);
+    }
+  }
+
+  async maybeNormalizeExactOutToExactIn(): Promise<void> {
+    if (!this.action || this.action.type !== 'swap') return;
+    const p = this.editParams();
+    const mode = String(p['swapMode'] ?? '').toLowerCase();
+    if (mode !== 'exactout' && mode !== 'out') return;
+
+    const inputMintRaw = (p['inputMint'] ?? '').trim();
+    const outputMintRaw = (p['outputMint'] ?? '').trim();
+    const outAmountUi = (p['amount'] ?? '').trim();
+    if (!inputMintRaw || !outputMintRaw || !outAmountUi) return;
+    const outAmount = parseFloat(outAmountUi);
+    if (!Number.isFinite(outAmount) || outAmount <= 0) return;
+
+    await this.tokenRegistry.ensureLoaded();
+    const inToken = this.tokenRegistry.getBySymbol(inputMintRaw) ?? this.tokenRegistry.getToken(inputMintRaw);
+    const outToken = this.tokenRegistry.getBySymbol(outputMintRaw) ?? this.tokenRegistry.getToken(outputMintRaw);
+    if (!inToken || !outToken) return;
+    const inDecimals = inToken.decimals ?? 9;
+    const outDecimals = outToken.decimals ?? 9;
+
+    // Capture the params snapshot we're quoting against. If the user flips
+    // direction (or otherwise mutates editParams) before the quote resolves,
+    // we must NOT clobber their new state with stale results.
+    //
+    // The `amount` field is HUMAN-READABLE (e.g. "5") — the backend's
+    // `parse_amount_to_base_units` multiplies by 10^decimals itself. Passing
+    // pre-multiplied atomic ("5000000") would get re-multiplied to 5e12.
+    const stake = {
+      inMint: inToken.address,
+      outMint: outToken.address,
+      outAmount: String(outAmount),
+    };
+
+    this.exactOutNormalizing.set(true);
+    try {
+      const quote = await this.swapService.getQuote(
+        stake.inMint, stake.outMint, stake.outAmount, 50, 'ExactOut',
+      );
+      if (!quote) return;
+      const inAtomic = parseInt(quote.inAmount, 10);
+      if (!Number.isFinite(inAtomic) || inAtomic <= 0) return;
+      const inUi = inAtomic / Math.pow(10, inDecimals);
+      const inUiStr = inUi.toFixed(Math.min(inDecimals, 9)).replace(/\.?0+$/, '');
+
+      const live = this.editParams();
+      const liveInRaw = (live['inputMint'] ?? '').trim();
+      const liveOutRaw = (live['outputMint'] ?? '').trim();
+      const liveIn = this.tokenRegistry.getBySymbol(liveInRaw) ?? this.tokenRegistry.getToken(liveInRaw);
+      const liveOut = this.tokenRegistry.getBySymbol(liveOutRaw) ?? this.tokenRegistry.getToken(liveOutRaw);
+      if (liveIn?.address !== stake.inMint || liveOut?.address !== stake.outMint) return;
+      const liveMode = String(live['swapMode'] ?? '').toLowerCase();
+      if (liveMode !== 'exactout' && liveMode !== 'out') return;
+
+      this.editParams.update(prev => {
+        const next = { ...prev };
+        next['swapMode'] = 'ExactIn';
+        next['amount'] = inUiStr;
+        return next;
+      });
+    } catch {
+      // Quote failed — leave the action as ExactOut. The card will still
+      // submit correctly; we just couldn't pre-render the SOL-side preview.
+    } finally {
+      this.exactOutNormalizing.set(false);
+    }
+  }
+
   async maybeLoadLstRate(): Promise<void> {
     const cfg = this.lstActionConfig();
     if (!cfg) return;
@@ -1573,6 +2779,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.status.set(this.cachedResult.status);
       if (this.cachedResult.txSignature) this.txSignature.set(this.cachedResult.txSignature);
       if (this.cachedResult.errorMessage) this.errorMessage.set(this.cachedResult.errorMessage);
+      // Restore the created token's mint (contract) so it survives a page reload.
+      const restoredMint = this.cachedResult.executedParams?.['mintPubkey'];
+      if (restoredMint) this.createdMint.set(restoredMint);
+      // Restore the frozen swap pay/receive so a re-hydrated card shows exactly
+      // what was swapped (the edited amount), not a live/blank re-quote.
+      if (this.cachedResult.swapView) this.executedSwapView.set(this.cachedResult.swapView);
       // Restored "submitted" — start the elapsed ticker + auto re-check once,
       // so a page refresh after a network blip surfaces a recovery path.
       if (this.cachedResult.status === 'submitted' && this.cachedResult.txSignature) {
@@ -1606,7 +2818,49 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (p['pool']    && !p['poolId'])  p['poolId']  = p['pool'];
     if (p['amountX'] && !p['amountA']) p['amountA'] = p['amountX'];
     if (p['amountY'] && !p['amountB']) p['amountB'] = p['amountY'];
+    // Apply known-field sensible defaults *only when the LLM (or restored
+    // executedParams) didn't already set the value*. Without this, swap /
+    // LP / lend cards across Raydium / Jupiter / Orca / Meteora opened
+    // with `slippage = 0`, which made every quote fail with
+    // "slippage_exceeded" the second prices nudged. Defaults match the
+    // placeholders shown in the field configs (0.5% slippage, 0.0005 SOL
+    // priority fee) so the input cell is never blank-and-functional-as-zero.
+    //
+    // For `slippageBps` we store the bps integer (= percent × 100). The
+    // input shows the divided value via `field.divisor`, so the same
+    // 50-bps store appears as "0.5" in the UI.
+    const FIELD_DEFAULTS: Record<string, string> = {
+      slippageBps: '50',         // → 0.5 %
+      slippage: '0.5',           // pump.fun / non-bps fields
+      priorityFee: '0.0005',     // SOL
+    };
+    for (const [key, def] of Object.entries(FIELD_DEFAULTS)) {
+      if (p[key] === undefined || p[key] === '' || p[key] === null) {
+        p[key] = def;
+      }
+    }
     this.editParams.set({ ...p });
+    // Limit order: seed the BUY-panel amount. The backend defines
+    // targetPrice = OUTPUT tokens per INPUT token (takingAmount = amount ×
+    // targetPrice), so buyAmount = sellAmount × targetPrice.
+    if (this.action?.type === 'limit_order') {
+      const amt = parseFloat(p['amount'] ?? '');
+      const price = parseFloat(p['targetPrice'] ?? '');
+      this.limitBuyAmount.set(
+        Number.isFinite(amt) && amt > 0 && Number.isFinite(price) && price > 0
+          ? String(+(amt * price).toFixed(9))
+          : '');
+    }
+    // DCA: seed the frequency value + unit from the raw interval seconds.
+    if (this.action?.type === 'dca') {
+      this.seedDcaFrequency(parseInt(p['intervalSeconds'] ?? '', 10));
+    }
+    // Perp: the leverage slider is authoritative — clear any LLM sizeUsd override
+    // and ensure a sane default leverage so the slider isn't empty.
+    if (this.action?.type === 'perp_open') {
+      if (!p['leverage']) this.setEditParam('leverage', '2');
+      this.setEditParam('sizeUsd', '');
+    }
     this.editName.set(p['name'] ?? p['tokenName'] ?? '');
     this.editSymbol.set(p['symbol'] ?? p['ticker'] ?? '');
     this.editDescription.set(p['description'] ?? '');
@@ -1681,8 +2935,27 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   async approve(): Promise<void> {
+    // Stable-pair Raydium CLMM with a wide range almost always reverts on-chain
+    // (tick range outside the pool's observation arrays). Auto-narrow to ±1%
+    // BEFORE every submit — not only on retry — so the first attempt succeeds.
+    // The helper is a no-op when the pair isn't stable or range is already tight.
+    this.maybeAutoTightenStableRange();
+
+    // Freeze the swap's pay/receive as currently displayed so the confirmed
+    // card keeps showing what was actually swapped (not the post-swap balance).
+    // Persisted in the stored result too, so a re-hydrated card restores it.
+    if (this.action?.type === 'swap') {
+      this.lastSwapView = {
+        pay: this.swapInputValueFor('inputMint'),
+        receive: this.swapInputValueFor('outputMint'),
+      };
+      this.executedSwapView.set(this.lastSwapView);
+    }
+
     this.status.set('quoting');
-    const mergedParams = { ...this.editParams() };
+    const mergedParams: Record<string, string> = Object.fromEntries(
+      Object.entries(this.editParams()).filter(([, v]) => v !== undefined),
+    ) as Record<string, string>;
     if (this.isLaunchAction()) {
       mergedParams['name'] = this.editName();
       mergedParams['symbol'] = this.editSymbol().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -1711,6 +2984,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           ...(this.editTwitter()       ? { twitter:  this.editTwitter()       } : {}),
           ...(this.editTelegram()      ? { telegram: this.editTelegram()      } : {}),
           ...(this.editWebsite()       ? { website:  this.editWebsite()       } : {}),
+          ...(this.effectiveBannerUrl() ? { banner: this.effectiveBannerUrl()! } : {}),
         };
 
         // Prefer pump.fun IPFS when we have the raw file (guarantees external reachability).
@@ -1746,15 +3020,25 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.editSlippage()) mergedParams['slippage'] = this.editSlippage();
     if (this.editPriorityFee()) mergedParams['priorityFee'] = this.editPriorityFee();
     const mergedAction: ParsedAction = { ...this.action, params: mergedParams };
+    // Remember the EDITED params so the late async confirmations (RPC poll /
+    // manual re-check, which run after this method returns) persist what was
+    // actually submitted — not the original `this.action.params`. Without this
+    // the card reverts to the pre-edit amount once it re-hydrates from the
+    // stored result (e.g. after the message list re-renders the card).
+    this.lastSubmittedParams = mergedParams;
 
     const callbacks = {
       onQuote: () => this.status.set('quoting'),
       onSign: () => this.status.set('signing'),
+      // For launches: record the generated mint (contract) into the params that get
+      // persisted, so the created token's address lands in chat history and the LLM
+      // can resolve it for a later "sell this / sell <TICKER>".
+      onMintGenerated: (mint: string) => { mergedParams['mintPubkey'] = mint; this.createdMint.set(mint); },
       onSubmit: (sig: string) => {
         this.txSignature.set(sig);
         this.status.set('submitted');
         this.startSubmittedTick();
-        this.persistResult({ status: 'submitted', txSignature: sig, errorMessage: null, executedParams: mergedParams });
+        this.persistResult({ status: 'submitted', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined });
       },
       onConfirm: (result?: string) => {
         this.stopSubmittedTick();
@@ -1763,7 +3047,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           this.dataResult.set(result);
         }
         const sig = this.txSignature() ?? result ?? '';
-        const stored: StoredActionResult = { status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: mergedParams };
+        const stored: StoredActionResult = { status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined };
         this.storeResult(mergedAction, sig);
         this.persistResult(stored);
         this.clearDraft();
@@ -1771,8 +3055,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       },
     };
 
+    // Race the chain against a hard timeout so the card never sits on
+    // "Building transaction..." indefinitely when the backend stalls (slow
+    // RPC, hanging Raydium CLMM enrichment, etc.). User gets a clear failure
+    // they can Retry, instead of a silent spinner. Threshold covers build +
+    // sign + first confirmation hop — wallets that hang the sign popup are
+    // the user's call, not ours, so this is generous.
+    const TIMEOUT_MS = 45_000;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new Error('Request timed out. The protocol may be slow or unreachable — try again.')),
+        TIMEOUT_MS,
+      );
+    });
+
     try {
-      await this.actionService.executeChain([mergedAction], callbacks);
+      await Promise.race([
+        this.actionService.executeChain([mergedAction], callbacks),
+        timeoutPromise,
+      ]);
     } catch (e: any) {
       const msg: string = e?.message ?? String(e ?? '');
       const isUserRejection = /reject|denied|cancel|declined|user refused/i.test(msg);
@@ -1795,13 +3097,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
             this.status.set('pending');
             return;
           }
-          this.errorMessage.set(sanitizeErrorMessage(m2) || 'Failed to execute action');
+          this.errorMessage.set(sanitizeErrorMessage(m2, this.action?.type) || 'Failed to execute action');
           this.status.set('error');
           return;
         }
       }
-      this.errorMessage.set(sanitizeErrorMessage(msg) || 'Failed to execute action');
+      this.errorMessage.set(sanitizeErrorMessage(msg, this.action?.type) || 'Failed to execute action');
       this.status.set('error');
+    } finally {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     }
   }
 
@@ -1837,7 +3141,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   triggerImageUpload(): void { this.imageFileInput?.nativeElement?.click(); }
-  triggerBannerUpload(): void { this.bannerFileInput?.nativeElement?.click(); }
 
   // pump.fun rule: Mayhem-mode launches require >= 0.05 SOL initial buy.
   // Auto-bump the user's input when they enable Mayhem so the backend doesn't reject the launch.
@@ -1883,6 +3186,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     finally { this.uploadingImage.set(false); }
   }
 
+  triggerBannerUpload(): void { this.bannerFileInput?.nativeElement?.click(); }
   async onBannerFileSelected(event: Event): Promise<void> { const f = (event.target as HTMLInputElement).files?.[0]; if (f) await this.uploadBannerFile(f); }
 
   private async uploadBannerFile(file: File): Promise<void> {
@@ -1890,13 +3194,365 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     try {
       const result = await this.uploadService.uploadImage(file).toPromise();
       if (result) this.uploadedBannerUrl.set(this.uploadService.getGatewayUrl(result.url));
-    } catch (e: any) { this.bannerUploadError.set(e?.message || 'Upload failed'); }
+      else this.uploadedBannerUrl.set(URL.createObjectURL(file));
+    } catch { this.uploadedBannerUrl.set(URL.createObjectURL(file)); }
     finally { this.uploadingBanner.set(false); }
   }
 
   getEditParam(key: string): string { return this.editParams()[key] ?? ''; }
   setEditParam(key: string, value: string): void { this.editParams.update(p => ({ ...p, [key]: value })); }
+
+  // ── Limit order: sell/buy amounts drive the (derived) target price ─────────
+  // A limit order is "sell N of X to receive M of Y". The user enters both
+  // amounts directly in the SELL / BUY panels; `targetPrice` (input-per-output,
+  // per the backend field) is derived = sellAmount ÷ buyAmount. `limitBuyAmount`
+  // is the source of truth for the buy input (seeded in initFromAction), so the
+  // field never fights the user's keystrokes.
+  readonly limitBuyAmount = signal<string>('');
+
+  onLimitSellInput(v: string): void {
+    this.setEditParam('amount', v);
+    this.syncLimitTargetPrice();
+  }
+  onLimitBuyInput(v: string): void {
+    this.limitBuyAmount.set(v);
+    this.syncLimitTargetPrice();
+  }
+  /** Pin sell amount to the whole input balance, then rederive target price. */
+  limitSetMaxSell(): void {
+    this.setMaxAmount('amount');
+    this.syncLimitTargetPrice();
+  }
+  /** targetPrice = buyAmount ÷ sellAmount (OUTPUT tokens per 1 INPUT token —
+   *  the backend's definition: takingAmount = amount × targetPrice). */
+  private syncLimitTargetPrice(): void {
+    const sell = parseFloat(this.getEditParam('amount'));
+    const buy = parseFloat(this.limitBuyAmount());
+    this.setEditParam('targetPrice',
+      Number.isFinite(sell) && sell > 0 && Number.isFinite(buy) && buy > 0
+        ? String(buy / sell)
+        : '');
+  }
+  /** Implied rate for the helper line: output tokens per 1 input token. */
+  limitRate(): number | null {
+    const sell = parseFloat(this.getEditParam('amount'));
+    const buy = parseFloat(this.limitBuyAmount());
+    if (!Number.isFinite(sell) || sell <= 0 || !Number.isFinite(buy) || buy <= 0) return null;
+    return buy / sell;
+  }
+
+  /** Jupiter's minimum limit-order size, in USD. */
+  readonly MIN_LIMIT_USD = 5;
+  /** Estimated USD value of the order (sell side), or null if price unknown. */
+  limitOrderUsd(): number | null {
+    const price = this.inputUsdPrice();
+    const sell = parseFloat(this.getEditParam('amount'));
+    if (price === null || !Number.isFinite(sell) || sell <= 0) return null;
+    return sell * price;
+  }
+  /** True only when we KNOW the order is under the $5 minimum. */
+  limitBelowMin(): boolean {
+    const usd = this.limitOrderUsd();
+    return usd !== null && usd < this.MIN_LIMIT_USD;
+  }
+
+  // ── DCA (recurring): total amount lives in the Spend panel ─────────────────
+  /** Pin the total spend to the whole / half input balance. */
+  dcaSetMax(): void {
+    const b = this.inputBalance();
+    if (b !== null && b > 0) this.setEditParam('totalAmount', String(b));
+  }
+  dcaSetHalf(): void {
+    const b = this.inputBalance();
+    if (b !== null && b > 0) this.setEditParam('totalAmount', String(+(b / 2).toFixed(9)));
+  }
+  /** Per-cycle spend = total ÷ orders, for the summary line. */
+  dcaPerCycle(): number | null {
+    const total = parseFloat(this.getEditParam('totalAmount'));
+    const orders = parseInt(this.getEditParam('numberOfOrders'), 10);
+    if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(orders) || orders <= 0) return null;
+    return total / orders;
+  }
+  /** Jupiter's minimum value PER DCA suborder, in USD. */
+  readonly MIN_DCA_ORDER_USD = 50;
+  /** Estimated USD value of one suborder (perCycle × input price), or null. */
+  dcaPerOrderUsd(): number | null {
+    const price = this.inputUsdPrice();
+    const per = this.dcaPerCycle();
+    if (price === null || per === null) return null;
+    return per * price;
+  }
+  /** True only when we KNOW a suborder is under the $50 minimum. */
+  dcaBelowMin(): boolean {
+    const usd = this.dcaPerOrderUsd();
+    return usd !== null && usd < this.MIN_DCA_ORDER_USD;
+  }
+
+  // Frequency control (value + unit) → intervalSeconds, Jupiter-style, instead
+  // of a raw seconds field. Value/unit are the source of truth; intervalSeconds
+  // in editParams is derived from them.
+  private readonly DCA_UNIT_SECONDS: Record<string, number> = {
+    minute: 60, hour: 3600, day: 86400, week: 604800,
+  };
+  readonly dcaFreqValue = signal<string>('1');
+  readonly dcaFreqUnit = signal<'minute' | 'hour' | 'day' | 'week'>('day');
+
+  onDcaFreqValue(v: string): void { this.dcaFreqValue.set(v); this.syncDcaInterval(); }
+  onDcaFreqUnit(u: string): void {
+    if (u === 'minute' || u === 'hour' || u === 'day' || u === 'week') this.dcaFreqUnit.set(u);
+    this.syncDcaInterval();
+  }
+  private syncDcaInterval(): void {
+    const val = parseFloat(this.dcaFreqValue());
+    const unitSec = this.DCA_UNIT_SECONDS[this.dcaFreqUnit()] ?? 86400;
+    this.setEditParam('intervalSeconds',
+      Number.isFinite(val) && val > 0 ? String(Math.round(val * unitSec)) : '');
+  }
+  /** Seed the frequency value+unit from a raw intervalSeconds (largest even unit). */
+  private seedDcaFrequency(intervalSeconds: number): void {
+    if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
+      this.dcaFreqUnit.set('day');
+      this.dcaFreqValue.set('1');
+      return;
+    }
+    let unit: 'minute' | 'hour' | 'day' | 'week' = 'minute';
+    for (const u of ['week', 'day', 'hour', 'minute'] as const) {
+      if (intervalSeconds % this.DCA_UNIT_SECONDS[u] === 0) { unit = u; break; }
+    }
+    this.dcaFreqUnit.set(unit);
+    this.dcaFreqValue.set(String(intervalSeconds / this.DCA_UNIT_SECONDS[unit]));
+  }
+
+  /** Human label for the interval (seconds → "day"/"hour"/"week"/"N min"…). */
+  dcaIntervalLabel(): string {
+    const s = parseInt(this.getEditParam('intervalSeconds'), 10);
+    if (!Number.isFinite(s) || s <= 0) return '';
+    if (s % 604800 === 0) { const n = s / 604800; return n === 1 ? 'week' : `${n} weeks`; }
+    if (s % 86400 === 0) { const n = s / 86400; return n === 1 ? 'day' : `${n} days`; }
+    if (s % 3600 === 0) { const n = s / 3600; return n === 1 ? 'hour' : `${n} hours`; }
+    if (s % 60 === 0) { const n = s / 60; return n === 1 ? 'minute' : `${n} min`; }
+    return `${s}s`;
+  }
+
+  // ── Perp (Jupiter perpetuals): market + side + collateral + leverage slider ─
+  private readonly PERP_MARKET_MINTS: Record<string, string> = {
+    SOL: 'So11111111111111111111111111111111111111112',
+    wETH: '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs',
+    wBTC: '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',
+  };
+  readonly PERP_MARKETS = ['SOL', 'wETH', 'wBTC'];
+  readonly PERP_MIN_LEV = 1.1;
+  readonly PERP_MAX_LEV = 250;
+  /** Slider tick labels shown under the leverage rail. */
+  readonly PERP_LEV_TICKS = [1.1, 50, 100, 150, 200, 250];
+
+  perpMarket(): string {
+    const m = this.getEditParam('market');
+    return this.PERP_MARKETS.includes(m) ? m : 'SOL';
+  }
+  perpSide(): 'long' | 'short' {
+    return this.getEditParam('side').toLowerCase() === 'short' ? 'short' : 'long';
+  }
+  perpMarketMint(m: string = this.perpMarket()): string {
+    return this.PERP_MARKET_MINTS[m] ?? this.PERP_MARKET_MINTS['SOL'];
+  }
+  /** Long collateral = market base token; short collateral = USDC (backend default). */
+  perpCollateralMint(): string {
+    return this.perpSide() === 'short'
+      ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+      : this.perpMarketMint();
+  }
+  perpMarketTd() { return this.resolveTokenDisplay(this.perpMarketMint()); }
+  perpCollateralTd() { return this.resolveTokenDisplay(this.perpCollateralMint()); }
+
+  setPerpMarket(m: string): void { if (this.isEditable()) this.setEditParam('market', m); }
+  setPerpSide(s: 'long' | 'short'): void { if (this.isEditable()) this.setEditParam('side', s); }
+
+  /** Current leverage, clamped to [1.1, 250]. Default 2×. */
+  perpLeverage(): number {
+    const v = parseFloat(this.getEditParam('leverage'));
+    if (!Number.isFinite(v)) return 2;
+    return Math.min(this.PERP_MAX_LEV, Math.max(this.PERP_MIN_LEV, v));
+  }
+  setPerpLeverage(v: string | number): void {
+    const n = typeof v === 'number' ? v : parseFloat(v);
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.min(this.PERP_MAX_LEV, Math.max(this.PERP_MIN_LEV, n));
+    // Leverage is authoritative — drop any LLM-supplied sizeUsd override so the
+    // backend derives size from collateral × leverage.
+    this.setEditParam('leverage', String(+clamped.toFixed(1)));
+    this.setEditParam('sizeUsd', '');
+  }
+  nudgePerpLeverage(delta: number): void { this.setPerpLeverage(this.perpLeverage() + delta); }
+  /** Slider fill / handle position, 0–100%. */
+  perpLevPercent(): number {
+    return ((this.perpLeverage() - this.PERP_MIN_LEV) / (this.PERP_MAX_LEV - this.PERP_MIN_LEV)) * 100;
+  }
+
+  /** Position size in USD = collateral × collateral-token price × leverage. */
+  perpSizeUsd(): number | null {
+    const coll = parseFloat(this.getEditParam('collateralAmount'));
+    const price = this.inputUsdPrice();
+    if (!Number.isFinite(coll) || coll <= 0 || price === null) return null;
+    return coll * price * this.perpLeverage();
+  }
+  /** Collateral value in USD (before leverage). */
+  perpCollateralUsd(): number | null {
+    const coll = parseFloat(this.getEditParam('collateralAmount'));
+    const price = this.inputUsdPrice();
+    if (!Number.isFinite(coll) || coll <= 0 || price === null) return null;
+    return coll * price;
+  }
+  /** Jupiter Perps requires ≥ $10 collateral to open a new position. */
+  readonly PERP_MIN_COLLATERAL_USD = 10;
+  /** True when the entered collateral is below Jupiter's $10 minimum. */
+  perpBelowMinCollateral(): boolean {
+    const usd = this.perpCollateralUsd();
+    return usd !== null && usd < this.PERP_MIN_COLLATERAL_USD;
+  }
+  /** Pin collateral to the whole / half balance. */
+  perpSetMaxCollateral(): void {
+    const b = this.inputBalance();
+    if (b !== null && b > 0) this.setEditParam('collateralAmount', String(b));
+  }
+  perpSetHalfCollateral(): void {
+    const b = this.inputBalance();
+    if (b !== null && b > 0) this.setEditParam('collateralAmount', String(+(b / 2).toFixed(9)));
+  }
+
+  /**
+   * Catalog-driven minimum amount hint for amount-style inputs that live
+   * outside the generic FieldDef grid (e.g. the bespoke Raydium CLMM /
+   * DLMM forms). Returns empty when no catalog entry exists for the
+   * current action type — caller `@if (minAmountHint())` hides the row.
+   */
+  minAmountHint(): string {
+    const cfg = ACTION_MIN_AMOUNT[this.action?.type];
+    return cfg?.hint ?? '';
+  }
+
+  /**
+   * Locale-safe decimal normalizer for free-text amount inputs.
+   *
+   * European locales (Turkish, German, French, …) type "5,00052" with a
+   * comma as the decimal separator. Native `<input type="number">` only
+   * accepts a dot — typed commas show as "valid values: 0 and 1" browser
+   * validation noise. We use `type="text"` + this normalizer so the input
+   * accepts either separator and stores the canonical dot form for the
+   * downstream Solana action builder.
+   *
+   * Also strips any non-numeric chars except for one decimal point — this
+   * way paste-ing "$5.00" or "1 234.56" still produces a clean number.
+   */
+  normalizeDecimal(value: string): string {
+    if (!value) return '';
+    // Convert comma → dot, drop everything else except digits and the first dot.
+    let out = value.replace(',', '.').replace(/[^0-9.]/g, '');
+    const firstDot = out.indexOf('.');
+    if (firstDot !== -1) {
+      out = out.slice(0, firstDot + 1) + out.slice(firstDot + 1).replace(/\./g, '');
+    }
+    return out;
+  }
   toggleEditParam(key: string): void { this.setEditParam(key, this.getEditParam(key) === 'true' ? 'false' : 'true'); }
+
+  // ── Token picker modal ──────────────────────────────────────────────────
+  // Opened when the user clicks a swap-row token chip (FROM / TO). Holds the
+  // field key being edited so the picked mint goes to the right side of the
+  // trade. `null` means modal is closed.
+  readonly tokenPickerField = signal<'inputMint' | 'outputMint' | null>(null);
+
+  openTokenPicker(fieldKey: 'inputMint' | 'outputMint', ev: Event): void {
+    if (!this.isEditable() || this.action?.type !== 'swap') return;
+    // Stop the click from bubbling to the card root and triggering the
+    // poll-lifetime reset twice / the card's own click handlers.
+    ev.stopPropagation();
+    this.tokenPickerField.set(fieldKey);
+  }
+
+  closeTokenPicker(): void {
+    this.tokenPickerField.set(null);
+  }
+
+  /**
+   * User selected a token from the picker. Write the mint into the right side
+   * of the swap, close the modal — the existing edit-effect will auto-fire a
+   * fresh quote, so the counterparty estimate updates without extra wiring.
+   */
+  onTokenPicked(mint: string): void {
+    const fieldKey = this.tokenPickerField();
+    if (!fieldKey) return;
+    this.editParams.update(prev => {
+      const next = { ...prev };
+      // If the user picks the SAME token on the other side, swap them so we
+      // never end up with input == output (Jupiter would reject the quote).
+      const otherKey = fieldKey === 'inputMint' ? 'outputMint' : 'inputMint';
+      if ((next[otherKey] ?? '') === mint) {
+        next[otherKey] = next[fieldKey] ?? '';
+      }
+      next[fieldKey] = mint;
+      return next;
+    });
+    this.closeTokenPicker();
+  }
+
+  /**
+   * Resolve `editParams[fieldKey]` (which may be a symbol like "SOL" *or* a
+   * raw mint address) to a canonical mint address. Required because the
+   * picker filters / highlights by address only — a literal "SOL" entry
+   * would never match a TokenMeta whose `address` is the wrapped-SOL mint.
+   */
+  private resolveToMint(raw: string): string {
+    if (!raw) return '';
+    const trimmed = raw.trim();
+    // Base58-looking → already a mint
+    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) return trimmed;
+    return this.tokenRegistry.getBySymbol(trimmed)?.address ?? '';
+  }
+
+  /** Resolve the mint to show as "currently selected" inside the picker. */
+  currentPickerMint(): string {
+    const k = this.tokenPickerField();
+    if (!k) return '';
+    return this.resolveToMint(this.editParams()[k] ?? '');
+  }
+
+  /** Mint to HIDE in the picker (the other side of the swap — no self-swap). */
+  excludedPickerMint(): string {
+    const k = this.tokenPickerField();
+    if (!k) return '';
+    const otherKey = k === 'inputMint' ? 'outputMint' : 'inputMint';
+    return this.resolveToMint(this.editParams()[otherKey] ?? '');
+  }
+
+  /**
+   * Reverse a swap's direction without re-prompting the LLM. Swaps inputMint
+   * with outputMint AND toggles swapMode so the amount's *denomination token*
+   * is preserved across the flip:
+   *
+   *   Pre:  in=SOL, out=USDC, amount=5, ExactOut  → "receive 5 USDC, pay SOL"
+   *   Post: in=USDC, out=SOL, amount=5, ExactIn   → "spend 5 USDC, get SOL"
+   *
+   * The "5" stays attached to USDC (which moves from outputMint to inputMint),
+   * exactly what users mean when they hit ↕ after typing an amount. If we
+   * only swapped tokens without flipping mode, "5 USDC ExactOut" would
+   * become "5 SOL ExactOut" — silently inflating the trade by ~25× because
+   * the unit changed under them.
+   */
+  flipSwapDirection(): void {
+    if (!this.action || this.action.type !== 'swap' || !this.isEditable()) return;
+    this.editParams.update(p => {
+      const next = { ...p };
+      const inMint = next['inputMint'] ?? '';
+      const outMint = next['outputMint'] ?? '';
+      next['inputMint'] = outMint;
+      next['outputMint'] = inMint;
+      const mode = String(next['swapMode'] ?? '').toLowerCase();
+      const wasExactOut = mode === 'exactout' || mode === 'out';
+      next['swapMode'] = wasExactOut ? 'ExactIn' : 'ExactOut';
+      return next;
+    });
+  }
   /**
    * Fill a numeric amount field with the user's full balance for the
    * matching token. Default field is `amount` (single-token actions);
@@ -1909,11 +3565,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   setMaxAmount(fieldKey: string = 'amount'): void {
     const b = (fieldKey === 'amountB') ? this.secondaryBalance() : this.inputBalance();
-    if (b !== null && b > 0) {
-      this.setEditParam(fieldKey, b.toString());
-      if (fieldKey === 'amountA') this.dlmmLastEdited.set('A');
-      else if (fieldKey === 'amountB') this.dlmmLastEdited.set('B');
+    if (b === null || b <= 0) return;
+    // Swap's inline amount input lives on `inputMint`/`outputMint` rows now —
+    // Max means "spend my whole input balance", so it always pins the trade
+    // to ExactIn regardless of which mode the LLM emitted.
+    if (this.action?.type === 'swap' && (fieldKey === 'inputMint' || fieldKey === 'outputMint')) {
+      this.editParams.update(prev => ({ ...prev, amount: b.toString(), swapMode: 'ExactIn' }));
+      return;
     }
+    this.setEditParam(fieldKey, b.toString());
+    if (fieldKey === 'amountA') this.dlmmLastEdited.set('A');
+    else if (fieldKey === 'amountB') this.dlmmLastEdited.set('B');
   }
 
   async copyValue(value: string): Promise<void> { try { await navigator.clipboard.writeText(value); this.copiedField.set(value); setTimeout(() => this.copiedField.set(null), 2000); } catch {} }
@@ -1977,10 +3639,32 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         const acct = await this.solanaRpc.getTokenBalance(wallet, resolved);
         balance = acct?.balance ?? 0;
       }
+      // Diagnostic — surfaces in DevTools so we can tell "0 because no ATA",
+      // "0 because RPC returned empty", or "0 because the wrong mint was
+      // resolved" apart. Don't ship verbose logs to users; console only.
+      try {
+        // eslint-disable-next-line no-console
+        console.debug('[oprai] balance_fetch', {
+          wallet,
+          raw,
+          resolved,
+          balance,
+        });
+      } catch { /* console may be sandboxed */ }
       setBalance(balance);
       this.writeBalanceCache(wallet, resolved, balance);
       onResolved?.(balance);
-    } catch {
+    } catch (err) {
+      // Diagnostic — distinguish "RPC error" from "0 balance" in console.
+      try {
+        // eslint-disable-next-line no-console
+        console.warn('[oprai] balance_fetch_failed', {
+          wallet,
+          raw,
+          resolved,
+          err: (err as Error)?.message ?? String(err),
+        });
+      } catch { /* ignore */ }
       // Keep cached value when RPC fails; only reset to null on a cold cache.
       if (cached === null) setBalance(null);
     } finally {
@@ -2050,7 +3734,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   async showTransactionPreview(): Promise<void> {
     this.showPreview.set(true); this.loadingPreview.set(true);
-    try { this.preview.set(await this.previewService.preview({ ...this.action, params: { ...this.editParams() } })); }
+    try {
+      const previewParams: Record<string, string> = Object.fromEntries(
+        Object.entries(this.editParams()).filter(([, v]) => v !== undefined),
+      ) as Record<string, string>;
+      this.preview.set(await this.previewService.preview({ ...this.action, params: previewParams }));
+    }
     catch { this.preview.set(null); } finally { this.loadingPreview.set(false); }
   }
   formatPreviewChange(change: BalanceChange): string { return this.previewService.formatChange(change); }
@@ -2060,6 +3749,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.stopSubmittedTick();
+    this.stopQuotePolling();
+    if (this._swapEstimateTimer) clearTimeout(this._swapEstimateTimer);
+    if (this._pumpEstimateTimer) clearTimeout(this._pumpEstimateTimer);
   }
 
   /** Start counting how long the tx has been waiting for confirmation, and
@@ -2114,7 +3806,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (value?.confirmationStatus === 'confirmed' || value?.confirmationStatus === 'finalized') {
         this.stopSubmittedTick();
         this.status.set('confirmed');
-        this.persistResult({ status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: this.action.params });
+        this.persistResult({ status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: this.lastSubmittedParams ?? this.action.params, swapView: this.lastSwapView ?? undefined });
         return;
       }
     } catch { /* RPC blip — try again on the next 3s tick */ }
@@ -2150,7 +3842,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       } else if (value?.confirmationStatus === 'confirmed' || value?.confirmationStatus === 'finalized') {
         this.stopSubmittedTick();
         this.status.set('confirmed');
-        this.persistResult({ status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: this.action.params });
+        this.persistResult({ status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: this.lastSubmittedParams ?? this.action.params, swapView: this.lastSwapView ?? undefined });
       }
       // else: still pending — leave UI as-is.
     } catch {

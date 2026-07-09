@@ -1,7 +1,7 @@
 """
 Relay.link — Kapsamlı LLM Kalite Testi
 
-Tüm Relay chain aksiyonları için 5-10 senaryo:
+Tüm Relay aksiyonları için 5-10 senaryo:
   1.  relay_bridge                    — cross-chain köprüleme
   2.  relay_get_quote                 — köprü fiyat teklifi
   3.  relay_get_chains                — desteklenen zincirler
@@ -78,7 +78,7 @@ SAMPLE_TX_HASH_EVM  = "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1
 SAMPLE_TX_HASH_SOL  = "5HueCGU8rMFej5YVzHkjgQ3MFkWM9XzVE4gZkLRZ3EKTh"
 SAMPLE_DEPOSIT_ADDR = "0xDEaDBEEf1234567890abcdef1234567890abcdef"
 
-# Relay chain ID'leri
+# Relay-supported chain ID'leri
 CHAIN_SOL  = 900
 CHAIN_ETH  = 1
 CHAIN_BASE = 8453
@@ -322,6 +322,59 @@ class TestRelayBridge:
                 f"Kaynak zincir Solana (900) bekleniyor. Params: {p}"
             assert "200" in str(p), f"amount=200 bekleniyor. Params: {p}"
 
+    def test_implicit_crosschain_no_provider_named(self, chat_client):
+        """Regression: cross-chain inferred from chain names alone (no 'Relay' word).
+
+        Reproduces the failing screenshot: user wrote
+        "1 sol karşılığı base ağında ethereum al" — Solana→Base cross-chain swap
+        without naming any bridge provider. Must route to relay_bridge (the
+        default cross-chain provider) and not fall back to clarification or
+        hallucinated Wormhole/Squid routes.
+        """
+        r = _chat(chat_client, "1 sol karşılığı base ağında ethereum al")
+        triggered_any(r, "relay_bridge", "bridge")
+        p = r.params_for(relay_bridge_key(r))
+        if p:
+            assert "900" in str(p) or "solana" in str(p).lower(), \
+                f"originChainId=900 (Solana) bekleniyor. Params: {p}"
+            assert "8453" in str(p) or "base" in str(p).lower(), \
+                f"destinationChainId=8453 (Base) bekleniyor. Params: {p}"
+
+    def test_buy_token_on_chain_pattern_turkish(self, chat_client):
+        """Regression: "X SOL ile Y'de Z al" must be ONE relay_bridge call.
+
+        Second screenshot bug: model wrongly proposed a multi-step path
+        "Solana → Base → Ethereum" and asked for clarification, instead of
+        recognising this as a single SOL→ETH(on Base) cross-chain swap.
+        Must call relay_bridge directly, NOT request_clarification.
+        """
+        r = _chat(chat_client, "0.1 sol ile base ethereum al")
+        triggered_any(r, "relay_bridge", "bridge")
+        # Must NOT have asked for clarification — all 6 params are derivable.
+        assert "request_clarification" not in r.types(), (
+            "Tüm parametreler türetilebilir; clarification gerekmiyor. "
+            f"Tetiklenenler: {r.types()}"
+        )
+        p = r.params_for(relay_bridge_key(r))
+        if p:
+            assert "900" in str(p) or "solana" in str(p).lower(), \
+                f"originChainId=900 (Solana) bekleniyor. Params: {p}"
+            assert "8453" in str(p) or "base" in str(p).lower(), \
+                f"destinationChainId=8453 (Base) bekleniyor — ETH on Base, NOT Ethereum mainnet. Params: {p}"
+            assert "0.1" in str(p), f"amount=0.1 bekleniyor. Params: {p}"
+
+    def test_buy_token_on_chain_pattern_english(self, chat_client):
+        """English variant of "buy X on Y" cross-chain pattern."""
+        r = _chat(chat_client, "buy 0.1 ETH on Base with SOL")
+        triggered_any(r, "relay_bridge", "bridge")
+        assert "request_clarification" not in r.types(), (
+            f"Clarification gerekmiyor. Tetiklenenler: {r.types()}"
+        )
+        p = r.params_for(relay_bridge_key(r))
+        if p:
+            assert "8453" in str(p) or "base" in str(p).lower(), \
+                f"destinationChainId=8453 (Base) bekleniyor. Params: {p}"
+
     def test_same_chain_not_relay_bridge(self, chat_client):
         r = _chat(chat_client,
             "Swap 1 SOL for USDC on Solana only — same chain, no bridging, use Jupiter or Relay DEX aggregator")
@@ -426,7 +479,7 @@ class TestRelayGetChains:
         no_hallucination(r)
 
     def test_filter_by_chain(self, chat_client):
-        r = _chat(chat_client, "Show me Relay chain info for Ethereum and Base only")
+        r = _chat(chat_client, "Show me Relay support info for Ethereum and Base only")
         triggered(r, "relay_get_chains")
 
     def test_solana_support_query(self, chat_client):

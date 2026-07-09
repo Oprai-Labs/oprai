@@ -42,6 +42,29 @@ const KAMINO_API: &str = "https://api.kamino.finance";
 /// Kamino main K-Lend market — used when the caller omits `market`.
 const KAMINO_MAIN_MARKET: &str = "7u3HeL2w1613C9uTdnK9GkfFfByNTYT1Y5MiUBHTrfip";
 
+/// Resolve a `market` param: blank/None or a symbolic alias ("main", "default",
+/// "primary") → KAMINO_MAIN_MARKET. A base58-looking string (32–44 chars,
+/// no spaces) passes through. Anything else also falls back to MAIN — Kamino
+/// API would 400 otherwise, and a 400 turn produces a confused user
+/// experience while masking the real issue (the model said "main" instead of
+/// looking up a pubkey).
+fn resolve_kamino_market<'a>(market: Option<&'a str>) -> &'a str {
+    match market.map(str::trim) {
+        None => KAMINO_MAIN_MARKET,
+        Some("") => KAMINO_MAIN_MARKET,
+        Some(m) => {
+            let lower = m.to_ascii_lowercase();
+            if matches!(lower.as_str(), "main" | "default" | "primary" | "kamino_main" | "klend_main") {
+                KAMINO_MAIN_MARKET
+            } else if m.len() >= 32 && m.len() <= 44 && !m.contains(' ') {
+                m
+            } else {
+                KAMINO_MAIN_MARKET
+            }
+        }
+    }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // K-LEND Parameter Types
 // ──────────────────────────────────────────────────────────────────────────────
@@ -528,7 +551,7 @@ pub async fn build_kamino_deposit(
     params: &KaminoDepositParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_deposit_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
@@ -567,7 +590,7 @@ pub async fn build_kamino_withdraw(
     params: &KaminoWithdrawParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_withdraw_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
@@ -606,7 +629,7 @@ pub async fn build_kamino_borrow(
     params: &KaminoBorrowParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_borrow_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
@@ -645,7 +668,7 @@ pub async fn build_kamino_repay(
     params: &KaminoRepayParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_repay_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
@@ -1124,7 +1147,7 @@ pub async fn build_kamino_market_reserves(
     params: &KaminoMarketReservesParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_market_reserves_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env { query.push(("env", e.clone())); }
     let data =
@@ -1158,7 +1181,7 @@ pub async fn build_kamino_user_obligations(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_obligations_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env { query.push(("env", e.clone())); }
     let data = kamino_get_q(
@@ -2398,7 +2421,7 @@ pub async fn build_kamino_market_detail(
     params: &KaminoMarketDetailParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_market_detail_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref p) = params.program_id { query.push(("programId", p.clone())); }
     let data = kamino_get_q(http, &format!("/v2/kamino-market/{market}"), &query).await?;
@@ -2429,7 +2452,7 @@ pub async fn build_kamino_market_reserve_history(
     params: &KaminoMarketReserveHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_market_reserve_history_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(s) = params.start       { query.push(("start", s.to_string())); }
     if let Some(e) = params.end         { query.push(("end", e.to_string())); }
@@ -2472,7 +2495,7 @@ pub async fn build_kamino_market_leverage_metrics(
     params: &KaminoMarketLeverageMetricsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_market_leverage_metrics_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env { query.push(("env", e.clone())); }
     let data = kamino_get_q(http, &format!("/kamino-market/{market}/leverage/metrics"), &query).await?;
@@ -2840,7 +2863,7 @@ pub async fn build_kamino_obligation_pnl(
     params: &KaminoObligationPnlParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_obligation_pnl_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env        { query.push(("env", e.clone())); }
     if let Some(ref p) = params.program_id { query.push(("programId", p.clone())); }
@@ -2881,7 +2904,7 @@ pub async fn build_kamino_obligation_metrics_history(
     params: &KaminoObligationMetricsHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_obligation_metrics_history_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env                         { query.push(("env", e.clone())); }
     if let Some(s) = params.start                           { query.push(("start", s.to_string())); }
@@ -2999,7 +3022,7 @@ pub async fn build_kamino_borrow_instructions(
     params: &KaminoBorrowInstructionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_borrow_instructions_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
@@ -3055,7 +3078,7 @@ pub async fn build_kamino_repay_instructions(
     params: &KaminoRepayInstructionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_repay_instructions_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
@@ -3211,7 +3234,7 @@ pub async fn build_kamino_deposit_instructions(
     params: &KaminoDepositInstructionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_deposit_instructions_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
@@ -3267,7 +3290,7 @@ pub async fn build_kamino_withdraw_instructions(
     params: &KaminoWithdrawInstructionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_withdraw_instructions_params(params)?;
-    let market = params.market.as_deref().unwrap_or(KAMINO_MAIN_MARKET);
+    let market = resolve_kamino_market(params.market.as_deref());
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,

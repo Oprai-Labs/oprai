@@ -248,55 +248,14 @@ export class DeFiStrategyOptimizerService {
         });
       }
 
-      // Fetch Solend yields
-      try {
-        const solendRes = await firstValueFrom(
-          this.http.get<any>('https://api.solend.fi/v1/config?markets=main')
-        ).catch(() => null);
-
-        if (solendRes?.markets?.main?.reserves) {
-          for (const reserve of solendRes.markets.main.reserves) {
-            const symbol = reserve.asset?.symbol ?? '';
-            if (!symbol) continue;
-            results.push({
-              protocol: 'Solend',
-              protocolIcon: '🦇',
-              protocolColor: '#8B5CF6',
-              tokenMint: reserve.asset?.mintAddress ?? '',
-              action: 'lend',
-              token: symbol,
-              apy: (reserve.stats?.supplyApy ?? 0) * 100,
-              apr: (reserve.stats?.supplyApy ?? 0) * 100 * 0.95,
-              tvl: reserve.liquidity?.totalSupplyUsd ?? 0,
-              riskLevel: 'low',
-            });
-          }
-        }
-      } catch {}
-
-      // Fetch MarginFi yields
-      try {
-        const marginFiRes = await firstValueFrom(
-          this.http.get<any[]>('https://app.marginfi.com/api/v1/banks')
-        ).catch(() => []);
-
-        for (const bank of marginFiRes) {
-          const symbol = bank?.asset?.symbol ?? bank?.name ?? '';
-          if (!symbol) continue;
-          results.push({
-            protocol: 'MarginFi',
-            protocolIcon: '📊',
-            protocolColor: '#EC4899',
-            tokenMint: bank?.asset?.mint ?? '',
-            action: 'lend',
-            token: symbol,
-            apy: (bank?.depositRate ?? bank?.supplyApy ?? 0) * 100,
-            apr: (bank?.depositRate ?? bank?.supplyApy ?? 0) * 100 * 0.95,
-            tvl: bank?.tvl ?? bank?.totalDeposits ?? 0,
-            riskLevel: 'low',
-          });
-        }
-      } catch {}
+      // Solend + MarginFi yield fetches are disabled — both vendors took
+      // their public REST APIs offline:
+      //   - `api.solend.fi/v1/config` → 404
+      //   - `app.marginfi.com/api/v1/banks` → 404 / CORS blocked
+      // The yield rows from these protocols won't appear in the optimizer
+      // output until we replace these calls with on-chain reads through the
+      // gateway. Caught-and-swallowed errors used to mask this as silent
+      // empty results; better to surface the gap explicitly.
 
       // Fetch Marinade yields
       try {

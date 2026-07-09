@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 from app.logging_config import configure_logging
 configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"), fmt=os.environ.get("LOG_FORMAT", "json"))
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -198,6 +198,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     _grpc_server = await start_grpc_server()
     logger.info("gRPC server started on port %d", settings.GRPC_PORT)
+
+    # Warm the RAG index. Fires-and-forgets so a slow Qdrant cold-start
+    # doesn't block service readiness, but the warmup query is in flight
+    # by the time the first user request arrives — the typical case is
+    # the index is hot in RAM and the user pays no first-query penalty.
+    if settings.KNOWLEDGE_RAG_ENABLED:
+        from app.rag import get_rag_service
+        asyncio.create_task(get_rag_service().warmup())
 
     yield
 
@@ -491,6 +499,75 @@ async def optimize_portfolio_endpoint(
     except Exception as e:
         logger.error("Failed to optimize portfolio", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# Portfolio Analytics — per-token cost basis & all-time PnL
+# ---------------------------------------------------------------------------
+# These routes feed the "PnL (all time)" column on the portfolio page.
+# `read_costbasis` is the hot path — every page load hits it. `refresh` is
+# the cold path — frontend fires it after the initial render (debounced
+# 5 minutes per wallet) so subsequent loads see fresh data without
+# blocking first paint.
+
+from app.services.portfolio_analytics import (  # noqa: E402
+    sync_wallet_costbasis,
+    read_costbasis,
+)
+
+
+# Per-wallet debounce so back-to-back refresh calls don't fan out
+# duplicate Helius pages. Lives in-memory because the work is cheap to
+# re-run if a replica restarts (worst case: one extra sync), and a
+# distributed lock would be overkill for a non-critical background job.
+_refresh_debounce: dict[str, float] = {}
+_REFRESH_DEBOUNCE_SECONDS = 300.0
+
+
+@app.get("/portfolio/pnl/{wallet}")
+async def portfolio_pnl(
+    wallet: str,
+    auth_wallet: str = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """Per-mint cost basis for the connected wallet.
+
+    Returns one row per mint with `totalBoughtAmount`, `totalBoughtUsd`,
+    `totalSoldAmount`, `totalSoldUsd`. The frontend joins this against the
+    current balance + current price to compute realized + unrealized PnL.
+
+    The endpoint enforces caller == subject — a user can only read their
+    own cost basis. This is a privacy concern more than a security one
+    (PnL leakage), but cheap to enforce.
+    """
+    if wallet != auth_wallet:
+        raise HTTPException(status_code=403, detail="Can only read own cost basis")
+    rows = await read_costbasis(session, wallet)
+    return {"wallet": wallet, "positions": rows}
+
+
+@app.post("/portfolio/refresh/{wallet}")
+async def portfolio_refresh(
+    wallet: str,
+    auth_wallet: str = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """Trigger an incremental cost-basis sync from Helius.
+
+    Debounced 5 minutes per wallet — repeated calls inside the window
+    return the cached "already running / recently ran" status without
+    re-fanning out Helius pages. The frontend can safely fire-and-forget
+    this on every portfolio load.
+    """
+    if wallet != auth_wallet:
+        raise HTTPException(status_code=403, detail="Can only refresh own cost basis")
+    now = asyncio.get_event_loop().time()
+    last = _refresh_debounce.get(wallet)
+    if last is not None and (now - last) < _REFRESH_DEBOUNCE_SECONDS:
+        return {"status": "debounced", "retry_after_seconds": int(_REFRESH_DEBOUNCE_SECONDS - (now - last))}
+    _refresh_debounce[wallet] = now
+    summary = await sync_wallet_costbasis(session, wallet)
+    return {"status": "ok", "summary": summary}
 
 
 # ---------------------------------------------------------------------------
@@ -2095,6 +2172,37 @@ async def pin_session_route(
     return {"ok": True}
 
 
+# ---------------------------------------------------------------------------
+# Settings — Account / Usage / Privacy
+#
+# Order matters: `/sessions/all` MUST be declared before the
+# `/sessions/{session_id}` catch-all DELETE below, otherwise FastAPI
+# matches "all" as a session_id and the bulk-delete endpoint is unreachable.
+# ---------------------------------------------------------------------------
+
+@app.delete("/sessions/all")
+async def delete_all_sessions_route(
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+):
+    """Soft-delete every session belonging to the authenticated wallet.
+
+    Used by Settings → Privacy → "Delete chat history". Rows are kept
+    in the DB with `is_deleted=True` for audit / recovery; visible UI
+    history is wiped immediately.
+    """
+    count = await session_svc.delete_all_sessions(db, wallet)
+    _audit(db, AuditEvent(
+        event_type=AuditEventType.ACTION_EXECUTED,
+        severity=AuditEventSeverity.WARNING,
+        entity_type=AuditEntityType.SESSION,
+        entity_id="all",
+        wallet_address=wallet,
+        event_data={"action": "all_sessions_deleted", "count": count},
+    ))
+    return {"ok": True, "deleted": count}
+
+
 @app.delete("/sessions/{session_id}")
 async def delete_session_route(
     session_id: str,
@@ -2116,6 +2224,48 @@ async def delete_session_route(
     return {"ok": True}
 
 
+@app.get("/usage")
+async def get_usage(wallet: str = Depends(require_auth)):
+    """Per-wallet usage snapshot for the Settings → Usage card.
+
+    Returns daily / weekly / monthly token + message counters along with
+    each timeframe's reset boundary and the per-chat cap values. The
+    frontend renders three progress cards and the composer banner reads
+    `chat.tokenCap` / `chat.messageCap` to label the per-chat lock.
+    """
+    from app.services.cost_cap import get_usage_snapshot
+    return await get_usage_snapshot(wallet)
+
+
+@app.delete("/user/memories")
+async def delete_all_memories_route(
+    wallet: str = Depends(require_auth),
+):
+    """Proxy to memory-service to delete every memory for this wallet.
+
+    Used by Settings → Privacy → "Delete saved memories". The memory
+    service owns the Qdrant collection; we authenticate via wallet auth
+    here and forward with the internal-service header pair so the
+    memory-service's `require_auth` accepts the call.
+    """
+    memory_base = os.environ.get("MEMORY_SERVICE_URL", "http://localhost:3040").rstrip("/")
+    headers = {
+        "X-User-Wallet": wallet,
+        "X-Internal-Api-Key": settings.OPRAI_INTERNAL_API_KEY,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            r = await c.delete(
+                f"{memory_base}/memories",
+                params={"wallet": wallet},
+                headers=headers,
+            )
+            r.raise_for_status()
+            return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"ok": True}
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"memory-service unreachable: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Message Routes
 # ---------------------------------------------------------------------------
@@ -2127,13 +2277,24 @@ async def get_messages(
     limit: int | None = Query(None, ge=1, le=200),
     offset: int | None = Query(None, ge=0),
 ):
-    # Verify session ownership
+    # Verify session ownership AND surface the per-chat lock state so the
+    # frontend can render the locked composer on reload (the lock is a
+    # durable DB flag — must not depend on transient SSE error state).
     session = await session_svc.get_session(db, wallet, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Not found")
 
     messages = await message_svc.get_messages(db, wallet, session_id, limit=limit, offset=offset)
-    return {"messages": messages}
+    return {
+        "messages": messages,
+        "session": {
+            "id":           session.get("id"),
+            "messageCount": session.get("messageCount", 0),
+            "totalTokens":  session.get("totalTokens", 0),
+            "isLocked":     session.get("isLocked", False),
+            "lockedReason": session.get("lockedReason"),
+        },
+    }
 
 
 class PatchMessageMetaRequest(BaseModel):
@@ -3794,6 +3955,57 @@ async def me_marketplace_popular_collections(
     except Exception:
         logger.error("ME marketplace popular collections failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden popular collections")
+
+
+# ---------------------------------------------------------------------------
+# User memory (facts) endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/memories")
+async def get_memories(
+    x_user_wallet: str = Header(..., alias="X-User-Wallet"),
+    db: AsyncSession = Depends(get_session),
+):
+    """Return this wallet's durable memory facts (confidence >= 0.4, newest first, max 12)."""
+    rows = await db.execute(
+        sa_text(
+            f"SELECT fact_type, fact_value, confidence, updated_at "
+            f"FROM {settings.DB_SCHEMA}.user_facts "
+            "WHERE wallet = :w AND confidence >= 0.4 "
+            "ORDER BY updated_at DESC LIMIT 12"
+        ),
+        {"w": x_user_wallet},
+    )
+    items = rows.fetchall()
+    return {
+        "memories": [
+            {
+                "fact_type": ft,
+                "fact_value": fv,
+                "confidence": float(conf),
+                "updated_at": str(ua),
+            }
+            for ft, fv, conf, ua in items
+        ]
+    }
+
+
+@app.delete("/api/v1/memories/{fact_type}")
+async def delete_memory(
+    fact_type: str,
+    x_user_wallet: str = Header(..., alias="X-User-Wallet"),
+    db: AsyncSession = Depends(get_session),
+):
+    """Delete a specific memory fact for this wallet."""
+    await db.execute(
+        sa_text(
+            f"DELETE FROM {settings.DB_SCHEMA}.user_facts "
+            "WHERE wallet = :w AND fact_type = :ft"
+        ),
+        {"w": x_user_wallet, "ft": fact_type},
+    )
+    await db.commit()
+    return {"deleted": fact_type}
 
 
 # ---------------------------------------------------------------------------

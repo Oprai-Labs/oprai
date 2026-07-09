@@ -51,6 +51,7 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "jup_tokens_recent":        _A({"dex", "jupiter"}),
     "jup_tokens_trending":      _A({"dex", "jupiter", "analysis"}),
     "jup_portfolio_positions":  _A({"dex", "jupiter", "portfolio", "analysis"}),
+    "jup_portfolio_platforms":  _A({"dex", "jupiter", "portfolio", "analysis"}),
     "jup_staked_jup":           _A({"dex", "jupiter", "staking"}),
     "jup_lend_positions":       _A({"lending", "jupiter"}),
     "jup_lend_earnings":        _A({"lending", "jupiter"}),
@@ -337,21 +338,22 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "solend_market":             _A({"lending", "solend", "analysis"}),
 
     # ── NFT / PumpFun ─────────────────────────────────────────────────────────
-    "launch_token":         _A({"nft", "token_launch", "pumpfun"}),
-    "pumpfun_launch":       _A({"nft", "token_launch", "pumpfun"}),
-    "pumpfun_buy":          _A({"nft", "pumpfun"}),
-    "pumpfun_sell":         _A({"nft", "pumpfun"}),
-    "pumpswap_buy":         _A({"nft", "pumpfun", "dex"}),
-    "pumpswap_sell":        _A({"nft", "pumpfun", "dex"}),
-    "pumpfun_token_info":   _A({"nft", "pumpfun", "price", "analysis"}),
-    "pumpfun_trending":     _A({"nft", "pumpfun", "analysis"}),
-    "pumpfun_new":          _A({"nft", "pumpfun"}),
-    "pumpfun_graduating":   _A({"nft", "pumpfun"}),
-    "pumpfun_koth":         _A({"nft", "pumpfun", "analysis"}),
-    "pumpfun_search":       _A({"nft", "pumpfun", "analysis"}),
-    "pumpfun_comments":     _A({"nft", "pumpfun"}),
-    "pumpfun_user":         _A({"nft", "pumpfun"}),
-    "pumpfun_bonding_curve":_A({"nft", "pumpfun", "analysis"}),
+    # pump.fun is NOT an NFT protocol — activates via the "pumpfun" tag, not "nft".
+    "launch_token":         _A({"token_launch", "pumpfun"}),
+    "pumpfun_launch":       _A({"token_launch", "pumpfun"}),
+    "pumpfun_buy":          _A({"pumpfun"}),
+    "pumpfun_sell":         _A({"pumpfun"}),
+    "pumpswap_buy":         _A({"pumpfun", "dex"}),
+    "pumpswap_sell":        _A({"pumpfun", "dex"}),
+    "pumpfun_token_info":   _A({"pumpfun", "price", "analysis"}),
+    "pumpfun_trending":     _A({"pumpfun", "analysis"}),
+    "pumpfun_new":          _A({"pumpfun"}),
+    "pumpfun_graduating":   _A({"pumpfun"}),
+    "pumpfun_koth":         _A({"pumpfun", "analysis"}),
+    "pumpfun_search":       _A({"pumpfun", "analysis"}),
+    "pumpfun_comments":     _A({"pumpfun"}),
+    "pumpfun_user":         _A({"pumpfun"}),
+    "pumpfun_bonding_curve":_A({"pumpfun", "analysis"}),
     "pumpswap_pool_info":   _A({"dex", "pumpfun", "analysis"}),
 
     # ── Magic Eden ───────────────────────────────────────────────────────────
@@ -448,8 +450,17 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "birdeye_token_holders":    _A({"analysis"}),
     "birdeye_wallet_portfolio": _A({"always", "portfolio", "analysis"}),
     "birdeye_wallet_pnl":       _A({"portfolio", "analysis"}),
+    "birdeye_wallet_pnl_details": _A({"portfolio", "analysis"}),
+    "birdeye_wallet_first_funded": _A({"portfolio", "analysis"}),
+    "birdeye_wallet_net_worth_history": _A({"portfolio", "analysis"}),
+    "birdeye_token_trade_data": _A({"analysis"}),
     "birdeye_smart_money":      _A({"analysis"}),
     "birdeye_token_top_traders":_A({"analysis"}),
+    "birdeye_holder_distribution": _A({"analysis"}),
+    "birdeye_holder_positions":    _A({"analysis"}),
+    "birdeye_holder_profile":      _A({"analysis"}),
+    # token_deep_analysis / bundle_ring_analysis / kol_discovery_feed tags now
+    # come from the @query_tool registry (merged in below via REGISTRY_TAGS).
     "birdeye_search":           _A({"price", "analysis"}),
     "birdeye_price_history":    _A({"price", "analysis"}),
     # DexScreener
@@ -586,6 +597,20 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     "native_stake":_A({"native_stake", "staking"}),
 }
 
+# The protocol-identity tags (the values above, flattened). A query tool that
+# carries one of these is protocol-SPECIFIC and is only sent when that protocol
+# is active. A query tool with NONE of these (birdeye/helius/dex/token_deep_
+# analysis/portfolio/balance/yield…) is cross-cutting and always sent.
+# `"always"`-tagged tools (e.g. jup_price) are always sent regardless.
+#
+# Category tags are subtracted: they are NOT protocol identities. Notably
+# `native_stake` maps to {native_stake, staking}, so "staking" would otherwise
+# leak in and wrongly gate cross-cutting tools like `yield` / `top_validators`.
+_CATEGORY_TAGS: frozenset[str] = frozenset(
+    {"always", "core", "analysis", "portfolio", "price", "dex", "lending", "staking"}
+)
+PROTOCOL_TAGS: frozenset[str] = frozenset().union(*PROTOCOL_TO_TAGS.values()) - _CATEGORY_TAGS
+
 
 # ---------------------------------------------------------------------------
 # Protocol detection — delegated to the LLM IntentRouter
@@ -612,6 +637,10 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
 # they could trigger a wallet prompt — and it falls back to weaker aggregators.
 # Source of truth: market_data.SOLANA_ACTION_DATA_TYPES.
 from app.clients import market_data as _md  # noqa: E402
+from app.services.tool_descriptions import (  # noqa: E402
+    audit_coverage,
+    build_query_reference,
+)
 
 for _at in _md.SOLANA_ACTION_DATA_TYPES:
     if _at in ACTION_TAGS:
@@ -620,12 +649,45 @@ for _at in _md.SOLANA_ACTION_DATA_TYPES:
         # Tag-less entry (still routable by name when no protocol filter active).
         QUERY_TAGS[_at] = _A({"analysis"})
 
+# Merge tags declared via the @query_tool registry (single source of truth for
+# those tools — see market_data.query_tool). Registry wins on conflict.
+QUERY_TAGS.update(_md.REGISTRY_TAGS)
+
+
+def validate_tool_registry() -> None:
+    """Fail loudly at import if a python query tool drifts out of sync across the
+    3 machine-checkable places (dispatch ↔ QueryType enum ↔ tags). This is the
+    guard that makes the 4-place rule self-enforcing: forgetting the enum or the
+    tag entry becomes an ImportError instead of a silent "tool never fires" bug.
+    (The 4th place — the prose prompt doc — cannot be validated automatically.)"""
+    qvals = {q.value for q in QueryType}
+    problems: list[str] = []
+    for name in _md._DISPATCH:
+        if name in _md.SOLANA_ACTION_DATA_TYPES:
+            continue  # Rust passthrough — validated via ActionType/QueryType elsewhere
+        if name not in qvals:
+            problems.append(f"{name!r}: in _DISPATCH but missing from QueryType enum")
+        if name not in QUERY_TAGS and name not in ACTION_TAGS:
+            problems.append(f"{name!r}: in _DISPATCH but has no tag entry")
+    if problems:
+        raise RuntimeError(
+            "Tool registry inconsistency (fix in market_data / action_schemas):\n  "
+            + "\n  ".join(problems)
+        )
+
+
+validate_tool_registry()
+
 # ---------------------------------------------------------------------------
 # Schema builder
 # ---------------------------------------------------------------------------
 
 _ALL_ACTION_VALUES = [e.value for e in ActionType if e.value not in _md.SOLANA_ACTION_DATA_TYPES]
 _ALL_QUERY_VALUES  = [e.value for e in QueryType]
+
+# Coverage guard: log any query tool still lacking a real description (map,
+# docstring, or prompt). After tool_descriptions was populated this should be 0.
+audit_coverage(_ALL_QUERY_VALUES)
 
 
 def _build_tools(action_types: list[str], query_types: list[str]) -> list[dict[str, Any]]:
@@ -701,7 +763,11 @@ def _build_tools(action_types: list[str], query_types: list[str]) -> list[dict[s
                         "query_type": {
                             "type": "string",
                             "enum": query_types,
-                            "description": "Type of data to query.",
+                            "description": (
+                                "Type of data to query. Pick the ONE that best matches the "
+                                "request — each option and what it returns:\n"
+                                + build_query_reference(query_types)
+                            ),
                         },
                         "params": {
                             "type": "object",
@@ -823,29 +889,29 @@ class ToolSelector:
             proto.lower().replace("-", "_") for proto in (protocols or [])
         }
 
-        # Query filtering: if ALL detected protocols are staking-only and no
-        # DEX venue was named, remove DEX pool query tools so the model cannot
-        # route "jitoSOL APR?" to `meteora_dlmm_get_pairs` instead of `yield`.
-        staking_only = (
-            bool(active_protos)
-            and active_protos <= self._STAKING_PROTOCOLS
-            and not (active_protos & self._DEX_PROTOCOLS)
-        )
-        if staking_only:
-            sel_queries = [
-                v for v in _ALL_QUERY_VALUES
-                if "dex" not in QUERY_TAGS.get(v, _A())
-                # Also exclude lending-only tools that aren't staking-relevant
-                # (e.g. jup_lend_markets has {"lending","jupiter"} — no "staking"
-                # or "always" tag — and confuses "jitoSOL APR" with lending rates).
-                and not (
-                    "lending" in QUERY_TAGS.get(v, _A())
-                    and "staking" not in QUERY_TAGS.get(v, _A())
-                    and "always" not in QUERY_TAGS.get(v, _A())
-                )
-            ]
-        else:
-            sel_queries = _ALL_QUERY_VALUES
+        # Active protocol-identity tags for this turn.
+        active_proto_tags: set[str] = set()
+        for proto in active_protos:
+            active_proto_tags |= PROTOCOL_TO_TAGS.get(proto, set())
+
+        # Query filtering: send cross-cutting data tools always; send a
+        # protocol's own query tools only when that protocol is active. This
+        # keeps the query enum small (~75 cross-cutting instead of ~290) so the
+        # model isn't picking the right tool out of a haystack — the earlier
+        # cause of e.g. `pumpfun_token_info` being chosen over `token_deep_
+        # analysis`. Subsumes the old staking-only DEX-exclusion (meteora/raydium
+        # pool tools are protocol-specific → already dropped when only jito/
+        # marinade is active).
+        def _query_allowed(v: str) -> bool:
+            tags = QUERY_TAGS.get(v, _A())
+            if "always" in tags:
+                return True  # e.g. jup_price — force-include regardless of protocol
+            proto_on_tool = tags & PROTOCOL_TAGS
+            if not proto_on_tool:
+                return True  # cross-cutting (birdeye/helius/dex/portfolio/analysis)
+            return bool(proto_on_tool & active_proto_tags)
+
+        sel_queries = [v for v in _ALL_QUERY_VALUES if _query_allowed(v)]
 
         # Actions: scope to the supplied protocols, or full set when empty.
         if active_protos:
@@ -857,7 +923,7 @@ class ToolSelector:
             sel_actions = _ALL_ACTION_VALUES
 
         logger.debug(
-            "ToolSelector: protocols=%s staking_only=%s → actions=%d queries=%d",
-            sorted(active_protos), staking_only, len(sel_actions), len(sel_queries),
+            "ToolSelector: protocols=%s → actions=%d queries=%d",
+            sorted(active_protos), len(sel_actions), len(sel_queries),
         )
         return _build_tools(sel_actions, sel_queries)

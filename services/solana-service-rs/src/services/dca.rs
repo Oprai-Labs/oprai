@@ -29,12 +29,13 @@ pub struct DcaParams {
     /// Optional Unix timestamp to start. None = start immediately.
     #[serde(default)]
     pub start_at: Option<u64>,
-    /// Optional minimum output amount per cycle (slippage floor). Human-readable.
+    /// Optional minimum execution price (Jupiter `minPrice`). Orders only fill
+    /// at or above this price. Human-readable number.
     #[serde(default)]
-    pub min_out_per_cycle: Option<String>,
-    /// Optional maximum output amount per cycle (slippage ceiling). Human-readable.
+    pub min_price: Option<String>,
+    /// Optional maximum execution price (Jupiter `maxPrice`). Human-readable.
     #[serde(default)]
-    pub max_out_per_cycle: Option<String>,
+    pub max_price: Option<String>,
 }
 
 /// Parameters for cancelling an active DCA order.
@@ -96,8 +97,9 @@ fn interval_label(secs: u64) -> &'static str {
 
 /// Build a DCA order transaction via Jupiter Recurring API.
 ///
-/// The `inAmount` param to Jupiter is the *total* amount; `inAmountPerCycle` is
-/// derived as `inAmount / numberOfOrders`.
+/// The Recurring `time` variant takes `inAmount` = the TOTAL raw input amount
+/// (Jupiter splits it across `numberOfOrders` internally) plus optional
+/// `minPrice`/`maxPrice` execution bounds.
 pub async fn create_dca_transaction(
     http: &reqwest::Client,
     jupiter_api_key: Option<&str>,
@@ -112,7 +114,7 @@ pub async fn create_dca_transaction(
     let input_token = get_token_info(&params.input_mint);
     let output_token = get_token_info(&params.output_mint);
     let input_decimals = input_token.map(|t| t.decimals).unwrap_or(9) as i32;
-    let output_decimals = output_token.map(|t| t.decimals).unwrap_or(6) as i32;
+    let _output_decimals = output_token.map(|t| t.decimals).unwrap_or(6) as i32;
     let input_symbol = input_token
         .map(|t| t.symbol.to_string())
         .unwrap_or_else(|| input_mint[..8.min(input_mint.len())].to_string());
@@ -122,24 +124,25 @@ pub async fn create_dca_transaction(
 
     let total_float: f64 = params.total_amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid total_amount".into()))?;
     let per_cycle_float = total_float / params.number_of_orders as f64;
-    // Jupiter Recurring API expects the per-cycle input amount, not the total.
-    let in_amount_per_cycle = (per_cycle_float * 10_f64.powi(input_decimals)) as u64;
+    // Jupiter Recurring `time` expects the TOTAL raw input amount as `inAmount`;
+    // it derives the per-cycle amount from numberOfOrders itself.
+    let in_amount_total = (total_float * 10_f64.powi(input_decimals)) as u64;
 
-    // Build optional min/max per-cycle amounts.
-    let min_out_per_cycle: Option<u64> = params
-        .min_out_per_cycle
+    // Optional execution price bounds — Jupiter `minPrice`/`maxPrice` are plain
+    // price numbers (NOT scaled by token decimals like an amount).
+    let min_price: Option<f64> = params
+        .min_price
         .as_deref()
         .and_then(|v| v.parse::<f64>().ok())
-        .map(|v| (v * 10_f64.powi(output_decimals)) as u64);
-
-    let max_out_per_cycle: Option<u64> = params
-        .max_out_per_cycle
+        .filter(|v| *v > 0.0);
+    let max_price: Option<f64> = params
+        .max_price
         .as_deref()
         .and_then(|v| v.parse::<f64>().ok())
-        .map(|v| (v * 10_f64.powi(output_decimals)) as u64);
+        .filter(|v| *v > 0.0);
 
     let mut time_params = json!({
-        "inAmountPerCycle": in_amount_per_cycle,
+        "inAmount": in_amount_total,
         "numberOfOrders": params.number_of_orders,
         "interval": params.interval_seconds,
     });
@@ -147,11 +150,11 @@ pub async fn create_dca_transaction(
     if let Some(start) = params.start_at {
         time_params["startAt"] = json!(start);
     }
-    if let Some(min) = min_out_per_cycle {
-        time_params["minOutAmount"] = json!(min);
+    if let Some(min) = min_price {
+        time_params["minPrice"] = json!(min);
     }
-    if let Some(max) = max_out_per_cycle {
-        time_params["maxOutAmount"] = json!(max);
+    if let Some(max) = max_price {
+        time_params["maxPrice"] = json!(max);
     }
 
     let body = json!({

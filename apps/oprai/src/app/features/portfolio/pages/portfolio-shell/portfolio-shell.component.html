@@ -93,6 +93,10 @@
           [portfolioChange]="portfolioChange()"
         />
 
+        <!-- Cross-protocol claimable rewards summary — hidden when nothing
+             is claimable so it doesn't clutter the dashboard. -->
+        <app-claimable-rewards [protocolPositions]="protocolPositions()" />
+
         <!-- Tab Navigation -->
         <app-portfolio-tabs
           [activeTab]="activeTab()"
@@ -101,16 +105,19 @@
 
         <!-- Tab Content -->
         @switch (activeTab()) {
-          @case ('tokens') {
+          @case ('portfolio') {
+            <!-- Tokens table first, then each DeFi protocol detail section
+                 stacked below — single Portfolio surface, no separate
+                 DeFi tab. -->
             <app-token-list
               [tokens]="summary()!.tokens"
               [solBalance]="summary()!.solBalance"
+              (openAccountsManager)="openAccountsModal()"
             />
-          }
-          @case ('defi') {
             <app-defi-positions
-              [positions]="defiPositions()!"
+              [positions]="defiPositions()"
               [protocolPositions]="protocolPositions()"
+              [loading]="protocolPositionsLoading()"
             />
           }
           @case ('nfts') {
@@ -131,3 +138,12 @@
     }
   </main>
 </div>
+
+<!-- Token Accounts Manager — centered modal listing every open SPL ATA.
+     Mounted at the shell so it overlays the whole portfolio view, not just
+     the token-list section. -->
+<app-token-accounts-modal
+  [isOpen]="accountsModalOpen()"
+  (close)="closeAccountsModal()"
+  (reclaimed)="onAccountsReclaimed()"
+/>

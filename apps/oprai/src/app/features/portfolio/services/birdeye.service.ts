@@ -106,7 +106,130 @@ export class BirdeyeService {
       }
     }
 
+    // Second pass: DexScreener caps per-request pairs at ~30 ranked by
+    // global liquidity, so SOL+USDC will always crowd out smaller mints in
+    // a batched response — even when the pair exists. Re-query each
+    // missing mint solo so memecoins / Pump.fun tokens with low-but-real
+    // liquidity get their price.
+    const stillMissingAfterBatch = mints.filter(m => !result.has(m));
+    if (stillMissingAfterBatch.length > 0) {
+      // Cap parallelism to avoid hammering DexScreener; their public API
+      // throttles per-IP at ~300 req/min.
+      const PARALLEL = 6;
+      for (let i = 0; i < stillMissingAfterBatch.length; i += PARALLEL) {
+        const slice = stillMissingAfterBatch.slice(i, i + PARALLEL);
+        await Promise.all(slice.map(async mint => {
+          try {
+            const r = await fetch(`${DEXSCREENER_URL}/${mint}`);
+            if (!r.ok) return;
+            const j = await r.json() as { pairs?: Array<{
+              chainId: string;
+              baseToken?: { address?: string; name?: string; symbol?: string };
+              priceUsd?: string;
+              priceChange?: { h24?: number };
+              liquidity?: { usd?: number };
+              info?: { imageUrl?: string };
+            }> };
+            const solPairs = (j.pairs ?? []).filter(p => p.chainId === 'solana');
+            // Pick highest-liquidity pair for this mint.
+            const best = solPairs.reduce<typeof solPairs[number] | null>(
+              (acc, p) => (!acc || (p.liquidity?.usd ?? 0) > (acc.liquidity?.usd ?? 0)) ? p : acc,
+              null,
+            );
+            if (best?.priceUsd) {
+              const tp: BirdeyeTokenPrice = {
+                price: parseFloat(best.priceUsd),
+                change24h: typeof best.priceChange?.h24 === 'number' ? best.priceChange.h24 : null,
+              };
+              this.cache.set(mint, { data: tp, ts: now });
+              result.set(mint, tp);
+            }
+            const baseToken = best?.baseToken;
+            if (baseToken?.name && baseToken?.symbol && !this.metaCache.has(mint)) {
+              this.metaCache.set(mint, {
+                name: baseToken.name,
+                symbol: baseToken.symbol,
+                imageUrl: best?.info?.imageUrl ?? null,
+              });
+            }
+          } catch {
+            // Single-mint hiccup — Jupiter fallback below catches it.
+          }
+        }));
+      }
+    }
+
+    // Third pass: fall back to Jupiter Lite Price for any mint *both*
+    // DexScreener passes missed. Pump.fun launches that haven't graduated
+    // to a Solana DEX pair yet still route through Jupiter's bonding-curve
+    // quoter, so this is the last reliable price source.
+    const stillMissing = mints.filter(m => !result.has(m));
+    if (stillMissing.length > 0) {
+      try {
+        const jupRes = await this.fetchJupiterLitePrices(stillMissing);
+        for (const [mint, tp] of jupRes) {
+          this.cache.set(mint, { data: tp, ts: now });
+          result.set(mint, tp);
+        }
+      } catch {
+        // Network blip — caller already has whatever DexScreener returned.
+      }
+    }
+
     return result;
+  }
+
+  /**
+   * Jupiter Lite Price v3. Free, no auth, batch up to 100 mint ids per
+   * request. Returns USD price + 24h change derived from Jupiter's routes
+   * (bonding-curve math for pump.fun, AMM TWAP elsewhere). The previous v2
+   * URL was retired in early 2026 — v3 returns a flat object keyed by
+   * mint with `usdPrice` + `priceChange24h` (already a percentage, e.g.
+   * -0.07 means -0.07%, not -7%).
+   * https://lite-api.jup.ag/price/v3?ids=mint1,mint2
+   */
+  private async fetchJupiterLitePrices(mints: string[]): Promise<Map<string, BirdeyeTokenPrice>> {
+    const out = new Map<string, BirdeyeTokenPrice>();
+    if (!mints.length) return out;
+
+    const BATCH = 100;
+    for (let i = 0; i < mints.length; i += BATCH) {
+      const batch = mints.slice(i, i + BATCH);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(
+          `https://lite-api.jup.ag/price/v3?ids=${batch.join(',')}`,
+          { signal: controller.signal },
+        );
+        clearTimeout(timeout);
+        if (!res.ok) continue;
+
+        interface JupV3Price {
+          usdPrice?: number;
+          priceChange24h?: number;
+          liquidity?: number;
+          decimals?: number;
+        }
+        // v3 returns a flat map (no `data` wrapper). Tokens with no
+        // liquidity are present in the response but lack `usdPrice`.
+        const json = (await res.json()) as Record<string, JupV3Price | null>;
+        for (const mint of batch) {
+          const entry = json[mint];
+          if (!entry || typeof entry.usdPrice !== 'number') continue;
+          const price = entry.usdPrice;
+          if (!Number.isFinite(price) || price <= 0) continue;
+          const changePct = entry.priceChange24h;
+          const change24h = typeof changePct === 'number' && Number.isFinite(changePct)
+            ? changePct
+            : null;
+          out.set(mint, { price, change24h });
+        }
+      } catch {
+        clearTimeout(timeout);
+      }
+    }
+    return out;
   }
 
   async getPriceChanges(mints: string[]): Promise<Map<string, number>> {
@@ -135,5 +258,16 @@ export class BirdeyeService {
 
   getAllTokenMeta(): Map<string, DexScreenerTokenMeta> {
     return this.metaCache;
+  }
+
+  /**
+   * Wipe the in-memory price cache. Called on a manual portfolio refresh so
+   * a previously-partial fetch (DexScreener dropped pump mints; Jupiter v3
+   * timed out) doesn't get re-served from cache for the next 60s. The
+   * metadata cache is preserved — symbols + names rarely change and are
+   * useful even when prices missed.
+   */
+  clearCache(): void {
+    this.cache.clear();
   }
 }

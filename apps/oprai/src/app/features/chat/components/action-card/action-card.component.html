@@ -1,7 +1,8 @@
 <div class="action-card"
      [class]="'action-card--' + status()"
      [style.--proto-accent]="protocolConfig.accent"
-     [style.--proto-bg]="protocolConfig.accentBg">
+     [style.--proto-bg]="protocolConfig.accentBg"
+     (click)="onCardInteract()">
 
   <!-- ══════════════════════════════════════════════════════════
        TOKEN LAUNCH MINI-APP — pump.fun
@@ -23,107 +24,108 @@
           @case ('quoting')   { <span class="pf-dot pf-dot--spin"></span><span>Building...</span> }
           @case ('signing')   { <span class="pf-dot pf-dot--spin"></span><span>Sign</span> }
           @case ('submitted') { <span class="pf-dot pf-dot--green"></span><span>Sent</span> }
-          @case ('confirmed') { <span class="pf-dot pf-dot--green"></span><span>Confirmed</span> }
+          @case ('confirmed') { <span class="pf-dot pf-dot--green"></span><span>Done</span> }
           @case ('error')     { <span class="pf-dot pf-dot--red"></span><span>Error</span> }
         }
       </div>
     </div>
 
-    @if (effectiveBannerUrl()) {
-      <div class="token-banner">
-        <img [src]="effectiveBannerUrl()" [alt]="editName() + ' banner'" />
-        @if (isEditable()) {
-          <button class="pf-banner-change" (click)="triggerBannerUpload()">
-            <lucide-icon name="pencil" [size]="12" /> Change banner
-          </button>
-        }
-      </div>
-    }
-
     <!-- Body -->
     <div class="pf-body">
       <input #imageFileInput type="file"
-        accept=".jpg,.jpeg,.png,.gif,.mp4,image/jpeg,image/png,image/gif,video/mp4"
+        accept=".jpg,.jpeg,.png,.gif,.webp,.mp4,image/jpeg,image/png,image/gif,image/webp,video/mp4"
         style="display:none"
         (change)="onImageFileSelected($event)" />
-      <input #bannerFileInput type="file"
-        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-        style="display:none"
-        (change)="onBannerFileSelected($event)" />
-
-      <!-- Image upload / preview -->
-      @if (effectiveImageUrl()) {
-        <div class="pf-image-preview">
-          <img [src]="effectiveImageUrl()" [alt]="editName() || 'Token'" />
-          @if (isEditable()) {
-            <button class="pf-image-change" (click)="triggerImageUpload()">
-              <lucide-icon name="pencil" [size]="12" /> Change
-            </button>
-          }
-        </div>
-      } @else {
-        <div class="pf-upload-zone"
-          [class.pf-upload-zone--dragover]="isDragOver()"
-          [class.pf-upload-zone--uploading]="uploadingImage()"
-          [class.pf-upload-zone--invalid]="isImageInvalid"
-          (click)="triggerImageUpload()"
-          (dragover)="onDragOver($event)"
-          (dragleave)="onDragLeave()"
-          (drop)="onDrop($event)">
-          @if (uploadingImage()) {
-            <span class="pf-spinner"></span>
-            <span class="pf-upload-text">Uploading...</span>
-          } @else {
-            <div class="pf-upload-icon-wrap">
-              <lucide-icon name="upload-cloud" [size]="28" />
-            </div>
-            <span class="pf-upload-text">Select image or video <span class="pf-required">*</span></span>
-            <span class="pf-upload-sub">or drag and drop</span>
-            <div class="pf-upload-types">
-              <span>jpg · png · gif · mp4</span>
-              <span class="pf-upload-dot">·</span>
-              <span>max 15 MB / 30 MB</span>
-            </div>
-          }
-        </div>
-        @if (imageUploadError()) {
-          <p class="pf-upload-error">
-            <lucide-icon name="alert-circle" [size]="13" />
-            {{ imageUploadError() }}
-          </p>
-        }
-      }
-
       <!-- Editable fields -->
       <div class="pf-fields" [class.pf-fields--shake]="shake()">
 
+        <!-- 1. Coin name + ticker (equal columns) -->
         <div class="pf-field-row">
           <div class="pf-field pf-field--grow">
-            <label class="pf-field-label">Full name <span class="pf-required">*</span></label>
+            <label class="pf-field-label">Coin name <span class="pf-required">*</span></label>
             <input class="pf-input" [class.pf-input--invalid]="isNameInvalid()"
-              type="text" placeholder="Token name"
+              type="text" placeholder="Name your coin"
               [value]="editName()"
               (input)="editName.set($any($event.target).value)"
               [disabled]="!isEditable()" />
           </div>
-          <div class="pf-field pf-field--ticker">
+          <div class="pf-field pf-field--grow">
             <label class="pf-field-label">Ticker <span class="pf-required">*</span></label>
             <input class="pf-input pf-input--ticker" [class.pf-input--invalid]="isSymbolInvalid()"
-              type="text" placeholder="SYM" maxlength="10"
+              type="text" placeholder="e.g. DOGE" maxlength="10"
               [value]="editSymbol()"
               (input)="onTickerInput($event)"
               [disabled]="!isEditable()" />
           </div>
         </div>
 
+        <!-- 2. Description -->
         <div class="pf-field">
           <label class="pf-field-label">Description <span class="pf-optional">(optional)</span></label>
-          <textarea class="pf-textarea" rows="3" placeholder="Describe your token..."
+          <textarea class="pf-textarea" rows="3" placeholder="Write a short description"
             [value]="editDescription()"
             (input)="editDescription.set($any($event.target).value)"
             [disabled]="!isEditable()"></textarea>
         </div>
 
+        <!-- 3. Social links (collapsible) -->
+        <details class="pf-collapse">
+          <summary class="pf-collapse__summary">
+            <lucide-icon name="share-2" [size]="13" class="pf-collapse__lead" />
+            <span>Add social links <span class="pf-optional">(optional)</span></span>
+            <lucide-icon name="chevron-down" [size]="15" class="pf-collapse__chev" />
+          </summary>
+          <div class="pf-collapse__body">
+            <div class="pf-socials-edit">
+              <div class="pf-social-row">
+                <svg class="pf-social-icon" width="13" height="13" viewBox="0 0 1200 1227" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M714.163 519.284L1160.89 0H1055.03L667.137 450.887L357.328 0H0L468.492 681.821L0 1226.37H105.866L515.491 750.218L842.672 1226.37H1200L714.163 519.284ZM569.165 687.828L521.697 619.934L144.011 79.6944H306.615L611.412 515.685L658.88 583.579L1055.08 1150.3H892.476L569.165 687.828Z"/>
+                </svg>
+                <input class="pf-input pf-input--social" type="text" placeholder="X (Twitter) handle or URL"
+                  [value]="editTwitter()" (input)="editTwitter.set($any($event.target).value)"
+                  [disabled]="!isEditable()" />
+              </div>
+              <div class="pf-social-row">
+                <lucide-icon name="send" [size]="13" class="pf-social-icon" />
+                <input class="pf-input pf-input--social" type="text" placeholder="Telegram handle or URL"
+                  [value]="editTelegram()" (input)="editTelegram.set($any($event.target).value)"
+                  [disabled]="!isEditable()" />
+              </div>
+              <div class="pf-social-row">
+                <lucide-icon name="globe" [size]="13" class="pf-social-icon" />
+                <input class="pf-input pf-input--social" type="text" placeholder="Website URL"
+                  [value]="editWebsite()" (input)="editWebsite.set($any($event.target).value)"
+                  [disabled]="!isEditable()" />
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- 4. Launch options: Mayhem / Cash Back -->
+        @if (isTokenLaunch()) {
+          <div class="pf-opts">
+            <button class="pf-opt" [class.pf-opt--on]="editMayhemMode()" type="button"
+              (click)="isEditable() && toggleMayhemMode()">
+              <span class="pf-opt__icon pf-opt__icon--mayhem"><span class="pf-opt__ring-inner"><lucide-icon name="activity" [size]="14" /></span></span>
+              <span class="pf-opt__text">
+                <span class="pf-opt__title">Mayhem Mode</span>
+                <span class="pf-opt__sub">Increased price volume · min 0.05 SOL initial buy</span>
+              </span>
+              <span class="pf-switch" [class.pf-switch--on]="editMayhemMode()"><span class="pf-switch__knob"></span></span>
+            </button>
+            <button class="pf-opt" [class.pf-opt--on]="editCashback()" type="button"
+              (click)="isEditable() && editCashback.set(!editCashback())">
+              <span class="pf-opt__icon pf-opt__icon--cash"><lucide-icon name="circle-dollar-sign" [size]="15" /></span>
+              <span class="pf-opt__text">
+                <span class="pf-opt__title">Cash Back</span>
+                <span class="pf-opt__sub">Creator rewards go to traders</span>
+              </span>
+              <span class="pf-switch" [class.pf-switch--on]="editCashback()"><span class="pf-switch__knob"></span></span>
+            </button>
+          </div>
+        }
+
+        <!-- 5. Initial buy -->
         <div class="pf-field pf-field--half">
           <label class="pf-field-label">Initial buy (SOL)</label>
           <div class="pf-input-wrap">
@@ -135,89 +137,124 @@
           </div>
         </div>
 
-        <div class="pf-field">
-          <label class="pf-field-label">Social links</label>
-          <div class="pf-socials-edit">
-            <div class="pf-social-row">
-              <svg class="pf-social-icon" width="13" height="13" viewBox="0 0 1200 1227" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                <path d="M714.163 519.284L1160.89 0H1055.03L667.137 450.887L357.328 0H0L468.492 681.821L0 1226.37H105.866L515.491 750.218L842.672 1226.37H1200L714.163 519.284ZM569.165 687.828L521.697 619.934L144.011 79.6944H306.615L611.412 515.685L658.88 583.579L1055.08 1150.3H892.476L569.165 687.828Z"/>
-              </svg>
-              <input class="pf-input pf-input--social" type="text" placeholder="X (Twitter) handle or URL"
-                [value]="editTwitter()" (input)="editTwitter.set($any($event.target).value)"
-                [disabled]="!isEditable()" />
-            </div>
-            <div class="pf-social-row">
-              <lucide-icon name="send" [size]="13" class="pf-social-icon" />
-              <input class="pf-input pf-input--social" type="text" placeholder="Telegram handle or URL"
-                [value]="editTelegram()" (input)="editTelegram.set($any($event.target).value)"
-                [disabled]="!isEditable()" />
-            </div>
-            <div class="pf-social-row">
-              <lucide-icon name="globe" [size]="13" class="pf-social-icon" />
-              <input class="pf-input pf-input--social" type="text" placeholder="Website URL"
-                [value]="editWebsite()" (input)="editWebsite.set($any($event.target).value)"
-                [disabled]="!isEditable()" />
-            </div>
-          </div>
-        </div>
-
-        <!-- Banner image upload -->
-        <div class="pf-field">
-          <label class="pf-field-label">Banner image <span class="pf-optional">(optional)</span></label>
-          @if (!effectiveBannerUrl()) {
-            <div class="pf-upload-zone pf-upload-zone--banner"
-              [class.pf-upload-zone--uploading]="uploadingBanner()"
-              (click)="isEditable() && triggerBannerUpload()">
-              @if (uploadingBanner()) {
-                <span class="pf-spinner"></span>
-                <span class="pf-upload-text">Uploading...</span>
-              } @else {
-                <lucide-icon name="image" [size]="18" />
-                <span class="pf-upload-text">Upload banner</span>
-                <span class="pf-upload-sub">jpg · png · recommended 1500×500</span>
-              }
-            </div>
-            @if (bannerUploadError()) {
-              <p class="pf-upload-error">
-                <lucide-icon name="alert-circle" [size]="13" />
-                {{ bannerUploadError() }}
-              </p>
+        <!-- 6. Image upload (prominent) + standards -->
+        @if (effectiveImageUrl()) {
+          <div class="pf-image-preview">
+            <img [src]="effectiveImageUrl()" [alt]="editName() || 'Token'" />
+            @if (isEditable()) {
+              <button class="pf-image-change" (click)="triggerImageUpload()">
+                <lucide-icon name="pencil" [size]="12" /> Change
+              </button>
             }
-          } @else {
-            <div class="pf-banner-preview">
-              <img [src]="effectiveBannerUrl()" alt="Banner preview" />
-              @if (isEditable()) {
-                <button class="pf-image-change" type="button" (click)="triggerBannerUpload()">
-                  <lucide-icon name="pencil" [size]="12" /> Change
-                </button>
-              }
-            </div>
+          </div>
+        } @else {
+          <div class="pf-upload-zone"
+            [class.pf-upload-zone--dragover]="isDragOver()"
+            [class.pf-upload-zone--uploading]="uploadingImage()"
+            [class.pf-upload-zone--invalid]="isImageInvalid"
+            (click)="triggerImageUpload()"
+            (dragover)="onDragOver($event)"
+            (dragleave)="onDragLeave()"
+            (drop)="onDrop($event)">
+            @if (uploadingImage()) {
+              <span class="pf-spinner"></span>
+              <span class="pf-upload-text">Uploading...</span>
+            } @else {
+              <div class="pf-upload-icon-wrap">
+                <lucide-icon name="image" [size]="24" />
+              </div>
+              <span class="pf-upload-text">Select image or video <span class="pf-required">*</span></span>
+              <span class="pf-upload-sub">or drag and drop</span>
+            }
+          </div>
+          @if (imageUploadError()) {
+            <p class="pf-upload-error">
+              <lucide-icon name="alert-circle" [size]="13" />
+              {{ imageUploadError() }}
+            </p>
           }
+        }
+
+        <div class="pf-specs">
+          <div class="pf-spec">
+            <div class="pf-spec__head"><lucide-icon name="file" [size]="12" /> File size and type</div>
+            <ul>
+              <li>Image — max 15MB · .jpg, .gif or .png recommended (.webp supported)</li>
+              <li>Video — max 30MB · .mp4</li>
+            </ul>
+          </div>
+          <div class="pf-spec">
+            <div class="pf-spec__head"><lucide-icon name="image" [size]="12" /> Resolution &amp; aspect ratio</div>
+            <ul>
+              <li>Image — min 1000×1000px, 1:1 square</li>
+              <li>Video — 16:9 or 9:16, 1080p+</li>
+            </ul>
+          </div>
         </div>
 
-        @if (isTokenLaunch()) {
-          <div class="pf-toggles">
-            <button class="pf-toggle" [class.pf-toggle--on]="editMayhemMode()" type="button"
-              (click)="isEditable() && toggleMayhemMode()"
-              title="Mayhem Mode requires a minimum 0.05 SOL initial buy.">
-              <lucide-icon name="zap" [size]="12" />
-              <span>Mayhem Mode</span>
-              @if (editMayhemMode()) { <span class="pf-toggle-on-badge">ON</span> }
-            </button>
-            <button class="pf-toggle" [class.pf-toggle--on]="editCashback()" type="button"
-              (click)="isEditable() && editCashback.set(!editCashback())">
-              <lucide-icon name="circle-dollar-sign" [size]="12" />
-              <span>Cash Back</span>
-              @if (editCashback()) { <span class="pf-toggle-on-badge">ON</span> }
-            </button>
-            <button class="pf-toggle pf-toggle--disabled" type="button" disabled
-              title="Tokenized Agent integration is not yet implemented.">
-              <lucide-icon name="bot" [size]="12" />
-              <span>Tokenized Agent</span>
-              <span class="pf-toggle-soon-badge">SOON</span>
-            </button>
+        <!-- 7. Optional coin-page banner (pump.fun: 3:1 / 1500×500, set at creation only) -->
+        <details class="pf-collapse">
+          <summary class="pf-collapse__summary">
+            <lucide-icon name="image" [size]="13" class="pf-collapse__lead" />
+            <span>Add banner <span class="pf-optional">(optional)</span></span>
+            <lucide-icon name="chevron-down" [size]="15" class="pf-collapse__chev" />
+          </summary>
+          <div class="pf-collapse__body">
+            <input #bannerFileInput type="file"
+              accept=".jpg,.jpeg,.png,.gif,image/jpeg,image/png,image/gif"
+              style="display:none"
+              (change)="onBannerFileSelected($event)" />
+            <p class="pf-banner-note">
+              Shown on the coin page in addition to the token image. Up to 5MB, 3:1 (1500×500).
+              Can only be set at creation and can't be changed later.
+            </p>
+            @if (!effectiveBannerUrl()) {
+              <div class="pf-banner-zone"
+                [class.pf-banner-zone--uploading]="uploadingBanner()"
+                (click)="isEditable() && triggerBannerUpload()">
+                @if (uploadingBanner()) {
+                  <span class="pf-spinner"></span>
+                  <span class="pf-upload-text">Uploading...</span>
+                } @else {
+                  <lucide-icon name="image" [size]="18" />
+                  <span class="pf-upload-text">Upload banner</span>
+                  <span class="pf-upload-sub">jpg · png · gif · 3:1 · 1500×500</span>
+                }
+              </div>
+              @if (bannerUploadError()) {
+                <p class="pf-upload-error">
+                  <lucide-icon name="alert-circle" [size]="13" />
+                  {{ bannerUploadError() }}
+                </p>
+              }
+            } @else {
+              <div class="pf-banner-preview">
+                <img [src]="effectiveBannerUrl()" alt="Banner preview" />
+                @if (isEditable()) {
+                  <button class="pf-image-change" type="button" (click)="triggerBannerUpload()">
+                    <lucide-icon name="pencil" [size]="12" /> Change
+                  </button>
+                }
+              </div>
+            }
           </div>
+        </details>
+
+        <!-- Created token contract (shown once the mint is known) -->
+        @if (createdMint(); as mint) {
+          <button class="pf-contract" type="button" (click)="copyValue(mint)"
+                  [title]="'Copy contract address'">
+            <span class="pf-contract__label">Contract</span>
+            <span class="pf-contract__addr">{{ mint }}</span>
+            <lucide-icon [name]="copiedField() === mint ? 'check' : 'copy'" [size]="13" />
+          </button>
         }
+
+        <!-- 8. Immutability note -->
+        <p class="pf-create-note">
+          <lucide-icon name="info" [size]="13" />
+          Coin data (social links, banner, etc.) can only be added now — it can't be changed after creation.
+        </p>
 
 
       </div><!-- /pf-fields -->
@@ -312,6 +349,15 @@
       <div class="proto-header-info">
         <span class="proto-name">{{ protocolConfig.name }}</span>
       </div>
+      <!-- Live quote countdown — only renders while the polling effect is
+           active (status pending, lifetime not exceeded, tab visible). Hides
+           silently the moment status transitions out of pending. -->
+      @if (quoteCountdown() !== null) {
+        <span class="proto-quote-countdown" title="Quote auto-refreshes every {{ POLL_INTERVAL_S }}s">
+          <lucide-icon name="refresh-cw" [size]="11" />
+          <span>{{ quoteCountdown() }}s</span>
+        </span>
+      }
       <div class="proto-status-badge" [class]="'proto-status--' + status()">
         @switch (status()) {
           @case ('pending')   { <span>Ready</span> }
@@ -327,7 +373,835 @@
     <!-- Editable fields -->
     @if (actionFields.length > 0) {
       <div class="proto-body">
-        <div class="proto-fields" [class.proto-fields--shake]="shake()">
+
+        <!-- ─────────── pump.fun / PumpSwap: mini-Uniswap swap layout ─────────── -->
+        <!-- Bespoke "You pay / You receive" two-panel swap widget (like a small
+             Uniswap swap card) for pump.fun & PumpSwap buy/sell. All values
+             still live in editParams / editSlippage / editPriorityFee so
+             save/restore + submit keep working — only rendering is bespoke. -->
+        @if (isPumpSwapForm()) {
+          @let payTd = resolveTokenDisplay(inputBalanceMint());
+          @let recvTd = resolveTokenDisplay(pumpReceiveMint());
+          @let est = pumpEstimate();
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+
+            <!-- Token mint (compact strip) -->
+            <div class="pump-swap__mint">
+              <span class="pump-swap__mint-label">Token Mint</span>
+              <input type="text" class="pump-swap__mint-input"
+                     placeholder="Token mint address..."
+                     [value]="getEditParam('mint')"
+                     (input)="setEditParam('mint', $any($event.target).value)"
+                     [disabled]="!isEditable()" />
+              @if (getEditParam('mint').length > 8 && isEditable()) {
+                <button class="pump-swap__copy" type="button"
+                        (click)="copyValue(getEditParam('mint'))" title="Copy mint">
+                  <lucide-icon [name]="copiedField() === getEditParam('mint') ? 'check' : 'copy'" [size]="14" />
+                </button>
+              }
+            </div>
+
+            <!-- You pay -->
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">You pay</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="number" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value)"
+                       [disabled]="!isEditable()" min="0" step="any" />
+                <div class="pump-token">
+                  @if (payTd.logoURI) {
+                    <img [src]="payTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (payTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ payTd.symbol }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Swap direction arrow -->
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="arrow-down" [size]="16" />
+            </div>
+
+            <!-- You receive (estimated, live) -->
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">You receive (estimated)</span>
+                @if (quoteCountdown() !== null) {
+                  <span class="pump-panel__refresh" title="Auto-refreshes every {{ POLL_INTERVAL_S }}s">
+                    <lucide-icon name="refresh-cw" [size]="10" /> {{ quoteCountdown() }}s
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <span class="pump-panel__amount pump-panel__amount--out">
+                  @if (est) { ≈ {{ est.amount | number:'1.0-6' }} }
+                  @else { <span class="pump-panel__ph">—</span> }
+                </span>
+                <div class="pump-token">
+                  @if (recvTd.logoURI) {
+                    <img [src]="recvTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (recvTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ recvTd.symbol }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slippage + Priority Fee -->
+            <div class="pump-swap__settings">
+              <div class="pump-setting">
+                <label class="pump-setting__label">Slippage</label>
+                <div class="pump-setting__input">
+                  <input type="number" [value]="editSlippage()"
+                         (input)="editSlippage.set($any($event.target).value)"
+                         [disabled]="!isEditable()" min="0" max="100" step="0.1" />
+                  <span class="pump-setting__suffix">%</span>
+                </div>
+              </div>
+              <div class="pump-setting">
+                <label class="pump-setting__label">Priority Fee</label>
+                <div class="pump-setting__input">
+                  <input type="number" [value]="editPriorityFee()"
+                         (input)="editPriorityFee.set($any($event.target).value)"
+                         [disabled]="!isEditable()" min="0" step="0.0001" />
+                  <span class="pump-setting__suffix">SOL</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        } @else if (action.type === 'swap') {
+          <!-- ─────── Generic swap (Jupiter / Raydium / …): mini-Uniswap layout ─────── -->
+          <!-- Same "You pay / You receive" two-panel widget as pump.fun, but with
+               clickable token SELECTORS (open the token picker) and a live Jupiter
+               quote on the counter side. All values stay in editParams /
+               swapMode, so save/restore + submit are unchanged. -->
+          @let payTd = resolveTokenDisplay(getEditParam('inputMint'));
+          @let recvTd = resolveTokenDisplay(getEditParam('outputMint'));
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+
+            <!-- You pay -->
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">You pay</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMaxAmount('inputMint')">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="!isEditable() && executedSwapView() ? executedSwapView()!.pay : swapInputValueFor('inputMint')"
+                       (input)="onSwapAmountInput('inputMint', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <button type="button" class="pump-token pump-token--select"
+                        [disabled]="!isEditable()"
+                        (click)="openTokenPicker('inputMint', $event)"
+                        aria-label="Change pay token">
+                  @if (payTd.logoURI) {
+                    <img [src]="payTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="onTokenImgError($event, getEditParam('inputMint'))" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (payTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ payTd.symbol }}</span>
+                  @if (isEditable()) { <lucide-icon name="chevron-down" [size]="14" class="pump-token__caret" /> }
+                </button>
+              </div>
+            </div>
+
+            <!-- Flip direction -->
+            <div class="pump-swap__arrow pump-swap__arrow--btn">
+              <button type="button" [disabled]="!isEditable()" (click)="flipSwapDirection()"
+                      title="Reverse direction" aria-label="Reverse swap direction">
+                <lucide-icon name="arrow-down" [size]="16" />
+              </button>
+            </div>
+
+            <!-- You receive (estimated, live) -->
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">You receive (estimated)</span>
+                @if (quoteCountdown() !== null) {
+                  <span class="pump-panel__refresh" title="Auto-refreshes every {{ POLL_INTERVAL_S }}s">
+                    <lucide-icon name="refresh-cw" [size]="10" /> {{ quoteCountdown() }}s
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="!isEditable() && executedSwapView() ? executedSwapView()!.receive : swapInputValueFor('outputMint')"
+                       (input)="onSwapAmountInput('outputMint', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <button type="button" class="pump-token pump-token--select"
+                        [disabled]="!isEditable()"
+                        (click)="openTokenPicker('outputMint', $event)"
+                        aria-label="Change receive token">
+                  @if (recvTd.logoURI) {
+                    <img [src]="recvTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="onTokenImgError($event, getEditParam('outputMint'))" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (recvTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ recvTd.symbol }}</span>
+                  @if (isEditable()) { <lucide-icon name="chevron-down" [size]="14" class="pump-token__caret" /> }
+                </button>
+              </div>
+            </div>
+
+            <!-- Slippage + Direct routes -->
+            <div class="pump-swap__settings">
+              <div class="pump-setting">
+                <label class="pump-setting__label">Slippage</label>
+                <div class="pump-setting__input">
+                  <input type="number"
+                         [value]="((+(editParams()['slippageBps'] ?? '50')) / 100)"
+                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))"
+                         [disabled]="!isEditable()" min="0" max="100" step="0.1" />
+                  <span class="pump-setting__suffix">%</span>
+                </div>
+              </div>
+              <div class="pump-setting">
+                <label class="pump-setting__label">Direct routes only</label>
+                <button type="button" class="pump-setting__toggle"
+                        [class.is-on]="getEditParam('onlyDirectRoutes') === 'true'"
+                        [disabled]="!isEditable()"
+                        (click)="isEditable() && toggleEditParam('onlyDirectRoutes')"
+                        role="switch"
+                        [attr.aria-checked]="getEditParam('onlyDirectRoutes') === 'true'">
+                  <span class="pump-setting__switch"><span class="pump-setting__knob"></span></span>
+                  <span class="pump-setting__toggle-text">{{ getEditParam('onlyDirectRoutes') === 'true' ? 'Enabled' : 'Disabled' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        } @else if (action.type === 'limit_order') {
+          <!-- ─────── Jupiter limit order: sell N of X to receive M of Y ─────── -->
+          <!-- NOT an AMM swap: the BUY amount is the user's LIMIT target (typed,
+               not a live market quote). targetPrice (input-per-output) is derived
+               from the two amounts and kept in editParams for submit. -->
+          @let loSellTd = resolveTokenDisplay(getEditParam('inputMint'));
+          @let loBuyTd = resolveTokenDisplay(getEditParam('outputMint'));
+          @let loRate = limitRate();
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+
+            <!-- Sell -->
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Sell</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="limitSetMaxSell()">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="onLimitSellInput($any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <button type="button" class="pump-token pump-token--select"
+                        [disabled]="!isEditable()"
+                        (click)="openTokenPicker('inputMint', $event)"
+                        aria-label="Change sell token">
+                  @if (loSellTd.logoURI) {
+                    <img [src]="loSellTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="onTokenImgError($event, getEditParam('inputMint'))" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (loSellTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ loSellTd.symbol }}</span>
+                  @if (isEditable()) { <lucide-icon name="chevron-down" [size]="14" class="pump-token__caret" /> }
+                </button>
+              </div>
+            </div>
+
+            <!-- Divider arrow (static — sell/buy sides are fixed) -->
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="arrow-down" [size]="16" />
+            </div>
+
+            <!-- Buy at your target price -->
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Buy (at your price)</span>
+                @if (loRate !== null) {
+                  <span class="pump-panel__bal">1 {{ loSellTd.symbol }} = {{ loRate | number:'1.0-6' }} {{ loBuyTd.symbol }}</span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="limitBuyAmount()"
+                       (input)="onLimitBuyInput($any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <button type="button" class="pump-token pump-token--select"
+                        [disabled]="!isEditable()"
+                        (click)="openTokenPicker('outputMint', $event)"
+                        aria-label="Change buy token">
+                  @if (loBuyTd.logoURI) {
+                    <img [src]="loBuyTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="onTokenImgError($event, getEditParam('outputMint'))" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (loBuyTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ loBuyTd.symbol }}</span>
+                  @if (isEditable()) { <lucide-icon name="chevron-down" [size]="14" class="pump-token__caret" /> }
+                </button>
+              </div>
+            </div>
+
+            <!-- Order size vs Jupiter's $5 minimum — surfaced up-front, not after submit -->
+            @if (limitOrderUsd() !== null) {
+              <div class="limit-size" [class.limit-size--warn]="limitBelowMin()">
+                @if (limitBelowMin()) { <lucide-icon name="triangle-alert" [size]="13" /> }
+                <span>
+                  Order size ≈ ${{ limitOrderUsd() | number:'1.2-2' }}
+                  @if (limitBelowMin()) { — below the ${{ MIN_LIMIT_USD }} minimum, increase the sell amount }
+                </span>
+              </div>
+            }
+
+            <!-- Expiry -->
+            <div class="pump-swap__settings pump-swap__settings--single">
+              <div class="pump-setting">
+                <label class="pump-setting__label">Expiry (sec)</label>
+                <div class="pump-setting__input">
+                  <input type="number" placeholder="Leave blank for GTC"
+                         [value]="getEditParam('expirySeconds')"
+                         (input)="setEditParam('expirySeconds', $any($event.target).value)"
+                         [disabled]="!isEditable()" min="0" step="1" />
+                </div>
+              </div>
+            </div>
+          </div>
+        } @else if (action.type === 'dca') {
+          <!-- ─────── Jupiter DCA / recurring: swap-style layout, DCA fields ─────── -->
+          <!-- Total amount lives INSIDE the Spend panel (no separate field). The
+               optional USD price range maps to Jupiter's minPrice/maxPrice — orders
+               only execute while price is in range. All stays in editParams. -->
+          @let dcaSpendTd = resolveTokenDisplay(getEditParam('inputMint'));
+          @let dcaBuyTd = resolveTokenDisplay(getEditParam('outputMint'));
+          @let dcaPer = dcaPerCycle();
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+
+            <!-- Spend (allocate) — token + total amount -->
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Spend</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="dcaSetHalf()">Half</button>
+                        <button class="pump-panel__max" type="button" (click)="dcaSetMax()">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('totalAmount')"
+                       (input)="setEditParam('totalAmount', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <button type="button" class="pump-token pump-token--select"
+                        [disabled]="!isEditable()"
+                        (click)="openTokenPicker('inputMint', $event)"
+                        aria-label="Change spend token">
+                  @if (dcaSpendTd.logoURI) {
+                    <img [src]="dcaSpendTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="onTokenImgError($event, getEditParam('inputMint'))" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (dcaSpendTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ dcaSpendTd.symbol }}</span>
+                  @if (isEditable()) { <lucide-icon name="chevron-down" [size]="14" class="pump-token__caret" /> }
+                </button>
+              </div>
+            </div>
+
+            <!-- Divider arrow (static) -->
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="arrow-down" [size]="16" />
+            </div>
+
+            <!-- To buy — token only (bought at market each cycle) -->
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">To buy</span>
+              </div>
+              <div class="pump-panel__row">
+                <span class="pump-panel__amount pump-panel__amount--muted">Market rate each cycle</span>
+                <button type="button" class="pump-token pump-token--select"
+                        [disabled]="!isEditable()"
+                        (click)="openTokenPicker('outputMint', $event)"
+                        aria-label="Change buy token">
+                  @if (dcaBuyTd.logoURI) {
+                    <img [src]="dcaBuyTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="onTokenImgError($event, getEditParam('outputMint'))" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (dcaBuyTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ dcaBuyTd.symbol }}</span>
+                  @if (isEditable()) { <lucide-icon name="chevron-down" [size]="14" class="pump-token__caret" /> }
+                </button>
+              </div>
+            </div>
+
+            <!-- Frequency (value + unit) + Total suborders — Jupiter-style -->
+            <div class="pump-swap__settings">
+              <div class="pump-setting">
+                <label class="pump-setting__label">Frequency</label>
+                <div class="pump-setting__input">
+                  <input type="number" placeholder="1"
+                         [value]="dcaFreqValue()"
+                         (input)="onDcaFreqValue($any($event.target).value)"
+                         [disabled]="!isEditable()" min="1" step="1" />
+                  <select class="pump-freq-unit"
+                          (change)="onDcaFreqUnit($any($event.target).value)"
+                          [disabled]="!isEditable()">
+                    <option value="minute" [selected]="dcaFreqUnit() === 'minute'">min</option>
+                    <option value="hour" [selected]="dcaFreqUnit() === 'hour'">hour</option>
+                    <option value="day" [selected]="dcaFreqUnit() === 'day'">day</option>
+                    <option value="week" [selected]="dcaFreqUnit() === 'week'">week</option>
+                  </select>
+                </div>
+              </div>
+              <div class="pump-setting">
+                <label class="pump-setting__label">Total suborders</label>
+                <div class="pump-setting__input">
+                  <input type="number" placeholder="10"
+                         [value]="getEditParam('numberOfOrders')"
+                         (input)="setEditParam('numberOfOrders', $any($event.target).value)"
+                         [disabled]="!isEditable()" min="1" step="1" />
+                </div>
+              </div>
+            </div>
+
+            <!-- USD price range (optional) — Jupiter minPrice/maxPrice -->
+            <div class="pump-setting pump-range-field">
+              <label class="pump-setting__label">USD price range (optional)</label>
+              <div class="pump-range">
+                <div class="pump-setting__input">
+                  <span class="pump-setting__prefix">$</span>
+                  <input type="number" placeholder="0.00"
+                         [value]="getEditParam('minPrice')"
+                         (input)="setEditParam('minPrice', $any($event.target).value)"
+                         [disabled]="!isEditable()" min="0" step="any" />
+                </div>
+                <span class="pump-range__dash">—</span>
+                <div class="pump-setting__input">
+                  <span class="pump-setting__prefix">$</span>
+                  <input type="number" placeholder="0.00"
+                         [value]="getEditParam('maxPrice')"
+                         (input)="setEditParam('maxPrice', $any($event.target).value)"
+                         [disabled]="!isEditable()" min="0" step="any" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Per-suborder size vs Jupiter's $50 minimum — surfaced up-front -->
+            @if (dcaPerOrderUsd() !== null) {
+              <div class="limit-size" [class.limit-size--warn]="dcaBelowMin()">
+                @if (dcaBelowMin()) { <lucide-icon name="triangle-alert" [size]="13" /> }
+                <span>
+                  Each order ≈ ${{ dcaPerOrderUsd() | number:'1.2-2' }}
+                  @if (dcaBelowMin()) { — below the ${{ MIN_DCA_ORDER_USD }} minimum, raise the total or lower the order count }
+                </span>
+              </div>
+            }
+
+            <!-- Plain-language summary -->
+            @if (dcaPer !== null && dcaIntervalLabel()) {
+              <div class="pump-summary">
+                Swap <strong>{{ dcaPer | number:'1.0-6' }} {{ dcaSpendTd.symbol }}</strong>
+                to {{ dcaBuyTd.symbol }} every <strong>{{ dcaIntervalLabel() }}</strong>
+                over <strong>{{ getEditParam('numberOfOrders') }}</strong> orders
+                ({{ getEditParam('totalAmount') }} {{ dcaSpendTd.symbol }} total).
+              </div>
+            }
+          </div>
+        } @else if (action.type === 'perp_open') {
+          <!-- ─────── Jupiter perpetuals: Long/Short, market, collateral, leverage ─────── -->
+          @let perpColl = perpCollateralTd();
+          @let perpSz = perpSizeUsd();
+          <div class="perp" [class.proto-fields--shake]="shake()">
+
+            <!-- Long / Short toggle -->
+            <div class="perp-side">
+              <button type="button" class="perp-side__btn perp-side__btn--long"
+                      [class.is-active]="perpSide() === 'long'"
+                      [disabled]="!isEditable()" (click)="setPerpSide('long')">Long</button>
+              <button type="button" class="perp-side__btn perp-side__btn--short"
+                      [class.is-active]="perpSide() === 'short'"
+                      [disabled]="!isEditable()" (click)="setPerpSide('short')">Short</button>
+            </div>
+
+            <!-- Market — the one the user asked for (icon display, not a picker) -->
+            @let perpMktTd = perpMarketTd();
+            <div class="perp-field">
+              <label class="perp-label">Market</label>
+              <div class="perp-market-display">
+                @if (perpMktTd.logoURI) {
+                  <img [src]="perpMktTd.logoURI" class="perp-market__icon" alt=""
+                       (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="perp-market__icon perp-market__icon--ph">{{ perpMarket().charAt(0) }}</span>
+                }
+                <span class="perp-market-display__sym">{{ perpMarket() }}</span>
+                <span class="perp-market-display__tag">PERP</span>
+              </div>
+            </div>
+
+            <!-- Collateral panel (amount + fixed collateral-token pill) -->
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Collateral</span>
+                @if (inputBalance() !== null || inputBalanceLoading()) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="perpSetHalfCollateral()">Half</button>
+                        <button class="pump-panel__max" type="button" (click)="perpSetMaxCollateral()">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('collateralAmount')"
+                       (input)="setEditParam('collateralAmount', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (perpColl.logoURI) {
+                    <img [src]="perpColl.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (perpColl.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ perpColl.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Leverage slider (1.1x → 250x) -->
+            <div class="perp-lev">
+              <div class="perp-lev__top">
+                <span class="perp-label">Leverage</span>
+                <span class="perp-lev__value">{{ perpLeverage() | number:'1.1-1' }}x</span>
+              </div>
+              <div class="perp-lev__control">
+                <button type="button" class="perp-lev__btn" [disabled]="!isEditable()"
+                        (click)="nudgePerpLeverage(-0.1)" aria-label="Decrease leverage">−</button>
+                <input type="range" class="perp-lev__range" min="1.1" max="250" step="0.1"
+                       [value]="perpLeverage()"
+                       [style.background]="'linear-gradient(to right, var(--op-brand) 0%, var(--op-brand) ' + perpLevPercent() + '%, var(--op-bg-surface-3, rgba(255,255,255,0.08)) ' + perpLevPercent() + '%, var(--op-bg-surface-3, rgba(255,255,255,0.08)) 100%)'"
+                       (input)="setPerpLeverage($any($event.target).value)"
+                       [disabled]="!isEditable()" aria-label="Leverage" />
+                <button type="button" class="perp-lev__btn" [disabled]="!isEditable()"
+                        (click)="nudgePerpLeverage(0.1)" aria-label="Increase leverage">+</button>
+              </div>
+              <div class="perp-lev__ticks">
+                @for (t of PERP_LEV_TICKS; track t) {
+                  <button type="button" class="perp-lev__tick"
+                          [class.is-active]="perpLeverage() >= t"
+                          [disabled]="!isEditable()" (click)="setPerpLeverage(t)">{{ t }}x</button>
+                }
+              </div>
+            </div>
+
+            <!-- Position size / collateral summary -->
+            <div class="perp-summary">
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">Position size</span>
+                <span class="perp-summary__v">{{ perpSz !== null ? '$' + (perpSz | number:'1.2-2') : '—' }}</span>
+              </div>
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">Collateral</span>
+                <span class="perp-summary__v">
+                  {{ getEditParam('collateralAmount') || '0' }} {{ perpColl.symbol }}
+                  @if (perpCollateralUsd() !== null) {
+                    <span class="perp-summary__usd">≈ ${{ perpCollateralUsd() | number:'1.2-2' }}</span>
+                  }
+                </span>
+              </div>
+            </div>
+
+            <!-- Live quote from Jupiter: entry, liquidation, slippage, fees -->
+            @let pq = perpQuote();
+            @if (pq || perpQuoteLoading()) {
+              <div class="perp-summary perp-quote">
+                <div class="perp-summary__row">
+                  <span class="perp-summary__k">Entry Price</span>
+                  <span class="perp-summary__v">{{ pq ? ('$' + (pq.entryPrice | number:'1.2-2')) : '…' }}</span>
+                </div>
+                <div class="perp-summary__row">
+                  <span class="perp-summary__k">Liquidation Price</span>
+                  <span class="perp-summary__v perp-quote__liq">{{ pq ? ('$' + (pq.liqPrice | number:'1.2-2')) : '…' }}</span>
+                </div>
+                <div class="perp-summary__row">
+                  <span class="perp-summary__k">Slippage</span>
+                  <span class="perp-summary__v">Max 2%</span>
+                </div>
+                <div class="perp-summary__row">
+                  <span class="perp-summary__k">Total Fees</span>
+                  <span class="perp-summary__v">{{ pq ? ('≈ $' + (pq.totalFeeUsd | number:'1.2-2')) : '…' }}</span>
+                </div>
+              </div>
+            }
+
+            <!-- Jupiter's $10 minimum collateral, surfaced upfront -->
+            <div class="limit-size" [class.limit-size--warn]="perpBelowMinCollateral()">
+              @if (perpBelowMinCollateral()) { <lucide-icon name="triangle-alert" [size]="13" /> }
+              <span>
+                Minimum ${{ PERP_MIN_COLLATERAL_USD }} collateral
+                @if (perpBelowMinCollateral()) { — add more collateral to open the position }
+              </span>
+            </div>
+          </div>
+        } @else if (isRaydiumOpenPosition()) {
+          @let cp = clmmCurrentPriceDisplay();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+
+            <!-- Current price line -->
+            @if (cp) {
+              <div class="clmm-current-price">
+                <span class="clmm-current-price__label">Current price</span>
+                <span class="clmm-current-price__value">
+                  1 {{ cp.symA }} ≈ <strong>{{ cp.price | number:'1.0-6' }}</strong> {{ cp.symB }}
+                </span>
+              </div>
+            }
+
+            <!-- Section: Set Price Range -->
+            <div class="clmm-section">
+              <div class="clmm-section__title">Set Price Range</div>
+              <div class="clmm-range-inputs">
+                <div class="clmm-range-input">
+                  <label>Min Price</label>
+                  <input
+                    type="number"
+                    inputmode="decimal"
+                    placeholder="0"
+                    [value]="editParams()['minPrice'] ?? ''"
+                    (input)="setEditParam('minPrice', $any($event.target).value)" />
+                  @if (cp) { <span class="clmm-range-input__suffix">{{ cp.symB }} per {{ cp.symA }}</span> }
+                </div>
+                <div class="clmm-range-input">
+                  <label>Max Price</label>
+                  <input
+                    type="number"
+                    inputmode="decimal"
+                    placeholder="0"
+                    [value]="editParams()['maxPrice'] ?? ''"
+                    (input)="setEditParam('maxPrice', $any($event.target).value)" />
+                  @if (cp) { <span class="clmm-range-input__suffix">{{ cp.symB }} per {{ cp.symA }}</span> }
+                </div>
+              </div>
+
+              <!-- Preset chips -->
+              <div class="clmm-presets">
+                @for (preset of CLMM_RANGE_PRESETS; track preset.label) {
+                  <button
+                    type="button"
+                    class="clmm-preset"
+                    [class.clmm-preset--active]="clmmActiveRangePct() === preset.pct"
+                    (click)="applyClmmRangePreset(preset.pct)">
+                    {{ preset.label }}
+                  </button>
+                }
+              </div>
+            </div>
+
+            <!-- Section: Add Deposit Amount -->
+            <div class="clmm-section">
+              <div class="clmm-section__title">Add Deposit Amount</div>
+              @if (minAmountHint()) {
+                <div class="clmm-min-hint">{{ minAmountHint() }}</div>
+              }
+
+              @let symA = editParams()['tokenASymbol'] || 'Token A';
+              @let symB = editParams()['tokenBSymbol'] || 'Token B';
+              @let balA = inputBalance();
+              @let balB = secondaryBalance();
+              @let mintA = inputBalanceMint();
+              @let mintB = secondaryBalanceMint();
+              @let tdA = mintA ? resolveTokenDisplay(mintA) : null;
+              @let tdB = mintB ? resolveTokenDisplay(mintB) : null;
+
+              <!-- Token A row — single line: icon + symbol/balance stack on
+                   left, amount input + Max on right. Same vertical density
+                   as a `proto-input` for visual consistency with DLMM. -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__token">
+                  @if (tdA?.logoURI) {
+                    <img [src]="tdA?.logoURI ?? ''" [alt]="symA" class="clmm-amount-row__icon"
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="clmm-amount-row__icon clmm-amount-row__icon--letter">{{ symA.charAt(0) }}</span>
+                  }
+                  <div class="clmm-amount-row__symbol-block">
+                    <span class="clmm-amount-row__symbol">{{ symA }}</span>
+                    @if (balA !== null) {
+                      <span class="clmm-amount-row__balance-inline">
+                        Balance: {{ balA | number:'1.0-6' }}
+                      </span>
+                    }
+                  </div>
+                </div>
+                <div class="clmm-amount-row__input">
+                  <input
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="editParams()['amountA'] ?? ''"
+                    (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
+                </div>
+                @if (balA !== null && balA > 0) {
+                  <button type="button" class="clmm-max-btn" (click)="setMaxAmount('amountA')">Max</button>
+                }
+              </div>
+
+              <div class="clmm-amount-plus">+</div>
+
+              <!-- Token B row -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__token">
+                  @if (tdB?.logoURI) {
+                    <img [src]="tdB?.logoURI ?? ''" [alt]="symB" class="clmm-amount-row__icon"
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="clmm-amount-row__icon clmm-amount-row__icon--letter">{{ symB.charAt(0) }}</span>
+                  }
+                  <div class="clmm-amount-row__symbol-block">
+                    <span class="clmm-amount-row__symbol">{{ symB }}</span>
+                    @if (balB !== null) {
+                      <span class="clmm-amount-row__balance-inline">
+                        Balance: {{ balB | number:'1.0-6' }}
+                      </span>
+                    }
+                  </div>
+                </div>
+                <div class="clmm-amount-row__input">
+                  <input
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="editParams()['amountB'] ?? ''"
+                    (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
+                </div>
+                @if (balB !== null && balB > 0) {
+                  <button type="button" class="clmm-max-btn" (click)="setMaxAmount('amountB')">Max</button>
+                }
+              </div>
+            </div>
+
+            <!-- Advanced (slippage) -->
+            <details class="clmm-advanced">
+              <summary>Advanced</summary>
+              <div class="clmm-advanced__row">
+                <label>Slippage tolerance</label>
+                <div class="clmm-advanced__input">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    [value]="((+(editParams()['slippageBps'] ?? '50')) / 100)"
+                    (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))" />
+                  <span>%</span>
+                </div>
+              </div>
+            </details>
+          </div>
+        } @else if (action.type === 'perp_close') {
+          <!-- ─────── Close perp: same header language as the open card ─────── -->
+          @let perpCloseMkt = perpMarketTd();
+          <div class="perp" [class.proto-fields--shake]="shake()">
+
+            <!-- Long / Short toggle — which side's position to close -->
+            <div class="perp-side">
+              <button type="button" class="perp-side__btn perp-side__btn--long"
+                      [class.is-active]="perpSide() === 'long'"
+                      [disabled]="!isEditable()" (click)="setPerpSide('long')">Long</button>
+              <button type="button" class="perp-side__btn perp-side__btn--short"
+                      [class.is-active]="perpSide() === 'short'"
+                      [disabled]="!isEditable()" (click)="setPerpSide('short')">Short</button>
+            </div>
+
+            <!-- Market display pill -->
+            <div class="perp-field">
+              <label class="perp-label">Market</label>
+              <div class="perp-market-display">
+                @if (perpCloseMkt.logoURI) {
+                  <img [src]="perpCloseMkt.logoURI" class="perp-market__icon" alt=""
+                       (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="perp-market__icon perp-market__icon--ph">{{ perpMarket().charAt(0) }}</span>
+                }
+                <span class="perp-market-display__sym">{{ perpMarket() }}</span>
+                <span class="perp-market-display__tag">PERP</span>
+              </div>
+            </div>
+
+            <!-- What will happen -->
+            <div class="perp-summary">
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">Action</span>
+                <span class="perp-summary__v">Close {{ perpMarket() }}-PERP {{ perpSide() }}</span>
+              </div>
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">Amount</span>
+                <span class="perp-summary__v">Entire position</span>
+              </div>
+            </div>
+          </div>
+        } @else {
+          <div class="proto-fields" [class.proto-fields--shake]="shake()"
+               [class.proto-fields--swaplike]="false">
 
           @for (field of actionFields; track field.key) {
             <div class="proto-field" [class.proto-field--half]="field.half">
@@ -336,17 +1210,31 @@
                 <label class="proto-field-label">
                   {{ field.label }}
                   @if (field.required) { <span class="proto-required">*</span> }
+                  <!-- Long hints used to render inline beside the label, which
+                       made any field with a hint visually taller than its
+                       siblings (SLIPPAGE vs DIRECT ROUTES ONLY asymmetry).
+                       Collapse to an info-icon-on-hover with a CSS popup. -->
+                  @if (field.hint) {
+                    <span class="proto-field-info" tabindex="0" aria-label="More info">
+                      <lucide-icon name="info" [size]="12" />
+                      <span class="proto-field-info__tip" role="tooltip">{{ field.hint }}</span>
+                    </span>
+                  }
                 </label>
-                @if (field.hint) {
-                  <span class="proto-field-hint">{{ field.hint }}</span>
-                }
                 @let isPrimaryAmount = field.key === 'amount' || field.key === 'amountA' || field.key === 'amountX';
                 @let isSecondaryAmount = field.key === 'amountB' || field.key === 'amountY';
-                @let fieldBalance = isSecondaryAmount ? secondaryBalance() : (isPrimaryAmount ? inputBalance() : null);
-                @let fieldBalanceLoading = isSecondaryAmount ? secondaryBalanceLoading() : (isPrimaryAmount ? inputBalanceLoading() : false);
-                @let fieldBalanceMint = isSecondaryAmount ? secondaryBalanceMint() : (isPrimaryAmount ? inputBalanceMint() : '');
-                @let fieldBalanceSymbol = isSecondaryAmount ? secondaryBalanceSymbol() : (isPrimaryAmount ? inputBalanceSymbol() : '');
-                @if ((isPrimaryAmount || isSecondaryAmount) && fieldBalanceMint && (fieldBalance !== null || fieldBalanceLoading)) {
+                <!-- Swap rows have an inline amount input on the `inputMint`
+                     (FROM) row, so balance + Max naturally belong there too —
+                     the FROM token is always what the user spends. -->
+                @let isInputTokenForSwap = action.type === 'swap' && field.key === 'inputMint';
+                @let attachBalanceHere = isSecondaryAmount
+                                       || (isPrimaryAmount && !swapAmountIsOutput())
+                                       || isInputTokenForSwap;
+                @let fieldBalance = isSecondaryAmount ? secondaryBalance() : (attachBalanceHere ? inputBalance() : null);
+                @let fieldBalanceLoading = isSecondaryAmount ? secondaryBalanceLoading() : (attachBalanceHere ? inputBalanceLoading() : false);
+                @let fieldBalanceMint = isSecondaryAmount ? secondaryBalanceMint() : (attachBalanceHere ? inputBalanceMint() : '');
+                @let fieldBalanceSymbol = isSecondaryAmount ? secondaryBalanceSymbol() : (attachBalanceHere ? inputBalanceSymbol() : '');
+                @if (attachBalanceHere && fieldBalanceMint && (fieldBalance !== null || fieldBalanceLoading)) {
                   <span class="proto-balance-hint">
                     @if (fieldBalanceLoading) {
                       <span class="proto-balance-dots">···</span>
@@ -359,10 +1247,21 @@
                                (error)="$any($event.target).style.display='none'" />
                         }
                       </span>
-                      {{ (borrowLiquidityMode() && field.key === 'amount') ? 'Vault:' : 'Balance:' }} {{ fieldBalance | number:'1.0-6' }} {{ fieldBalanceSymbol }}
+                      @if (borrowLiquidityMode() && field.key === 'amount') {
+                        Vault:
+                      } @else {
+                        Balance:
+                      }
+                      {{ fieldBalance | number:'1.0-6' }} {{ fieldBalanceSymbol }}
                     }
                   </span>
-                  @if (isEditable() && !fieldBalanceLoading && !(borrowLiquidityMode() && field.key === 'amount')) {
+                  <!-- "Max" spends the entire FROM balance. For swap that's
+                       always an ExactIn op (input-side fully drained) — the
+                       button is allowed on the inputMint row too, not just
+                       number-field rows. -->
+                  @if (isEditable() && !fieldBalanceLoading
+                       && (isPrimaryAmount || isSecondaryAmount || isInputTokenForSwap)
+                       && !(borrowLiquidityMode() && field.key === 'amount')) {
                     <button class="proto-max-btn" type="button" (click)="setMaxAmount(field.key)">Max</button>
                   }
                 }
@@ -371,7 +1270,7 @@
               @switch (field.type) {
 
                 @case ('number') {
-                  @let amountEst = field.key === 'amount' ? lstEstimate() : null;
+                  @let amountEst = field.key === 'amount' ? (lstEstimate() ?? pumpEstimate()) : null;
                   @let isAmountField = field.key === 'amount';
                   @let isLstField = isAmountField && lstActionConfig() !== null;
                   @let dlmmLockA = field.key === 'amountA' && dlmmSingleSidedY();
@@ -388,13 +1287,23 @@
                              (input)="setEditParam(field.key, field.divisor ? ('' + (+$any($event.target).value * field.divisor)) : $any($event.target).value); field.key === 'amountA' ? noteAmountEdit('A') : (field.key === 'amountB' ? noteAmountEdit('B') : null)"
                              [disabled]="!isEditable() || dlmmLocked" />
                       @if ((isPrimaryAmount || isSecondaryAmount) && fieldBalanceMint) {
-                        @let sufTd = resolveTokenDisplay(fieldBalanceMint);
+                        <!-- Suffix denotes what `amount` is denominated in.
+                             For an ExactOut swap that's the OUTPUT token (the
+                             user is buying N of it). The balance hint above
+                             still shows the INPUT side because that's what
+                             actually gets debited. swapAmountIsOutput() flags
+                             the case so we resolve the suffix against the
+                             output token instead of the (input) balance. -->
+                        @let suffixMint = swapAmountIsOutput() && field.key === 'amount'
+                                          ? (editParams()['outputMint'] || field.suffix || '')
+                                          : fieldBalanceMint;
+                        @let sufTd = resolveTokenDisplay(suffixMint);
                         <span class="proto-input-suffix proto-input-suffix--token">
                           @if (sufTd.logoURI) {
                             <img [src]="sufTd.logoURI" [alt]="sufTd.symbol" class="proto-suffix-icon"
                                  (error)="$any($event.target).style.display='none'" />
                           }
-                          {{ fieldBalanceSymbol || field.suffix }}
+                          {{ sufTd.symbol || field.suffix }}
                         </span>
                       } @else if (field.suffix) {
                         <span class="proto-input-suffix">{{ field.suffix }}</span>
@@ -402,11 +1311,20 @@
                     </div>
                     @if (amountEst; as est) {
                       <div class="proto-pair-arrow" aria-hidden="true">
-                        <lucide-icon name="arrow-right" [size]="14" />
+                        <lucide-icon name="arrow-down" [size]="16" />
                       </div>
                       <div class="proto-pair-output" [attr.title]="'You receive ≈ ' + (est.amount | number:'1.0-6') + ' ' + est.symbol">
-                        <span class="proto-pair-output__value">≈ {{ est.amount | number:'1.0-6' }}</span>
-                        <span class="proto-pair-output__suffix">{{ est.symbol }}</span>
+                        <span class="proto-pair-output__label">You receive (estimated)</span>
+                        <div class="proto-pair-output__row">
+                          <span class="proto-pair-output__value">≈ {{ est.amount | number:'1.0-6' }}</span>
+                          <span class="proto-pair-output__pill">
+                            @if (pairedOutputLogo(); as poLogo) {
+                              <img [src]="poLogo" class="proto-pair-output__icon" alt=""
+                                   (error)="$any($event.target).style.display='none'" />
+                            }
+                            <span class="proto-pair-output__suffix">{{ est.symbol }}</span>
+                          </span>
+                        </div>
                       </div>
                     }
                   </div>
@@ -485,20 +1403,39 @@
                 }
 
                 @case ('token') {
+                  @let isSwapSide = action.type === 'swap' && (field.key === 'inputMint' || field.key === 'outputMint');
                   @if (getEditParam(field.key); as raw) {
                     @let td = resolveTokenDisplay(raw);
-                    <div class="proto-token-chip">
-                      <div class="proto-token-chip__icon-wrap">
-                        <div class="proto-token-chip__letter">{{ td.symbol.charAt(0) }}</div>
-                        @if (td.logoURI) {
-                          <img [src]="td.logoURI" [alt]="td.symbol" class="proto-token-chip__icon"
-                               (error)="onTokenImgError($event, raw)" />
+                    <div class="proto-token-row" [class.proto-token-row--swap]="isSwapSide">
+                      <button type="button"
+                              class="proto-token-chip"
+                              [class.proto-token-chip--clickable]="isSwapSide && isEditable()"
+                              [disabled]="!(isSwapSide && isEditable())"
+                              (click)="openTokenPicker($any(field.key), $event)"
+                              [attr.aria-label]="isSwapSide ? 'Change ' + field.label + ' token' : null">
+                        <div class="proto-token-chip__icon-wrap">
+                          <div class="proto-token-chip__letter">{{ td.symbol.charAt(0) }}</div>
+                          @if (td.logoURI) {
+                            <img [src]="td.logoURI" [alt]="td.symbol" class="proto-token-chip__icon"
+                                 (error)="onTokenImgError($event, raw)" />
+                          }
+                        </div>
+                        <div class="proto-token-chip__info">
+                          <span class="proto-token-chip__symbol">{{ td.symbol }}</span>
+                          <span class="proto-token-chip__name">{{ td.name }}</span>
+                        </div>
+                        @if (isSwapSide && isEditable()) {
+                          <lucide-icon name="chevron-down" [size]="14" class="proto-token-chip__caret" />
                         }
-                      </div>
-                      <div class="proto-token-chip__info">
-                        <span class="proto-token-chip__symbol">{{ td.symbol }}</span>
-                        <span class="proto-token-chip__name">{{ td.name }}</span>
-                      </div>
+                      </button>
+                      @if (isSwapSide) {
+                        <input class="proto-token-row__amount"
+                               type="text" inputmode="decimal"
+                               placeholder="0"
+                               [value]="swapInputValueFor($any(field.key))"
+                               (input)="onSwapAmountInput($any(field.key), $any($event.target).value)"
+                               [disabled]="!isEditable()" />
+                      }
                     </div>
                   } @else {
                     <div class="proto-token-chip proto-token-chip--empty">
@@ -512,6 +1449,23 @@
 
               }<!-- /switch field.type -->
             </div><!-- /proto-field -->
+            <!-- Flip-direction button between the two token fields. Inserted
+                 after the inputMint row so the button visually divides the
+                 PAYING WITH / YOU'LL RECEIVE pair (ExactOut order) or the
+                 FROM TOKEN / AMOUNT pair (ExactIn order). Click toggles both
+                 the tokens AND swapMode so the amount's denomination
+                 carries with its token — see flipSwapDirection(). -->
+            @if (action.type === 'swap' && isEditable() && field.key === 'inputMint') {
+              <div class="proto-flip-row">
+                <button class="proto-flip-btn"
+                        type="button"
+                        title="Reverse direction"
+                        aria-label="Reverse swap direction"
+                        (click)="flipSwapDirection()">
+                  <lucide-icon name="arrow-down-up" [size]="14" />
+                </button>
+              </div>
+            }
           }<!-- /for fields -->
 
           <!-- DLMM info strip — shows active price + range hint when the
@@ -544,6 +1498,7 @@
           }
 
         </div><!-- /proto-fields -->
+        }<!-- /else (non-CLMM) -->
       </div><!-- /proto-body -->
     }
 
@@ -798,8 +1753,10 @@
       </div>
     }
 
-    <!-- Insufficient balance → inline QuickSwap widget or compact warning -->
-    @if (insufficientFunds() && inputBalance() !== null && !inputBalanceLoading()) {
+    <!-- Insufficient balance → inline QuickSwap widget or compact warning.
+         Only while the card is still actionable — a submitted/confirmed/done
+         order already spent the balance, so the warning is stale noise. -->
+    @if (isEditable() && insufficientFunds() && inputBalance() !== null && !inputBalanceLoading()) {
 
       @if (!showQuickSwap()) {
         <!-- Compact warning with "Buy via swap" CTA -->
@@ -980,14 +1937,42 @@
     @switch (status()) {
 
       @case ('pending') {
+        <!-- Price-impact warning strip — informational at <1% (no strip),
+             notice 1-5%, warning 5-10%, danger 10%+ or no-route. Drives both
+             the strip colour and (for `danger`) Swap-button hard-disable. -->
+        @if (action.type === 'swap' && swapImpactTier() !== 'safe') {
+          <div class="proto-impact" [attr.data-tier]="swapImpactTier()">
+            <lucide-icon name="alert-circle" [size]="14" />
+            @if (swapNoRoute()) {
+              <span>No liquidity for this pair — Jupiter can't route it. Pick a different token.</span>
+            } @else {
+              @if (swapEstimate(); as est) {
+                <span>
+                  Price impact <strong>{{ est.priceImpactPct | number:'1.0-2' }}%</strong>
+                  @if (swapImpactTier() === 'danger') {
+                    — execution will be terrible. Pick a more liquid token.
+                  } @else if (swapImpactTier() === 'warning') {
+                    — you'll lose significantly to slippage. Confirm only if you're sure.
+                  } @else {
+                    — slightly worse than mid-market.
+                  }
+                </span>
+              }
+            }
+          </div>
+        }
+
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove()"
-                  [disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove()"
+                  [class.proto-btn-confirm--disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact()"
+                  [disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact()"
                   (click)="approve()">
             @if (insufficientFunds()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Insufficient balance
+            } @else if (swapBlockedByImpact()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              {{ swapNoRoute() ? 'No route' : 'Price impact too high' }}
             } @else if (!canApprove()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Insufficient collateral
@@ -1090,6 +2075,19 @@
   }<!-- /@else protocol mini-app -->
 
 </div>
+
+<!-- Token picker modal — opened by clicking a FROM/TO chip in the swap form.
+     Rendered at card root so the fixed-position overlay isn't clipped by any
+     scroll container inside the proto-body. -->
+@if (tokenPickerField(); as fieldKey) {
+  <op-token-picker
+    [title]="fieldKey === 'inputMint' ? 'From token' : 'To token'"
+    [currentMint]="currentPickerMint()"
+    [excludeMint]="excludedPickerMint()"
+    initialCategory="all"
+    (picked)="onTokenPicked($event)"
+    (closed)="closeTokenPicker()" />
+}
 
 <!-- ══════════════════════════════════════════════════════════
      TRANSACTION PREVIEW OVERLAY

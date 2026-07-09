@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, inject, signal, computed, effect, viewChild, ElementRef, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
@@ -168,6 +168,25 @@ interface AlertItem {
   currentValue: string;
   status: 'active' | 'triggered' | 'expired';
   createdAt: string;
+}
+
+/**
+ * Single row from the Raydium V3 `/pools/info/list` API response. Defined
+ * inline (vs. lifting into a shared service file) because it's only used by
+ * the QueryCard's Raydium pool list mini-app — no other consumer.
+ */
+interface RaydiumPool {
+  id: string;
+  /** "Concentrated" (CLMM) | "Standard" (AMM v4) — drives Deposit routing. */
+  type: string;
+  mintA: { address: string; symbol: string; decimals: number; logoURI?: string };
+  mintB: { address: string; symbol: string; decimals: number; logoURI?: string };
+  tvl: number;
+  /** Spot price of mintA in mintB units (used to pre-fill CLMM range). */
+  price?: number;
+  /** Time-windowed metrics; only `day` is rendered in the table. */
+  day?: { volume?: number; fee?: number; apr?: number };
+  week?: { volume?: number; fee?: number; apr?: number };
 }
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -346,6 +365,57 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly dammV1SearchRaw = signal('');
   readonly dammV1Fetching = signal(false);
   private dammV1SearchDebounce: ReturnType<typeof setTimeout> | null = null;
+
+  // ── Raydium pool list (server-side pagination, no search) ────────────────
+  // Raydium V3 `/pools/info/list` accepts poolType / poolSortField / sortType
+  // / page / pageSize but no `query` param — so we expose filter chips +
+  // sort buttons only. Mirrors the DLMM mini-app otherwise.
+  readonly RAYDIUM_PAGE_SIZE = 10;
+  readonly RAYDIUM_POOL_TYPES: { value: 'all' | 'concentrated' | 'standard'; label: string }[] = [
+    { value: 'all',          label: 'All' },
+    { value: 'concentrated', label: 'CLMM' },
+    { value: 'standard',     label: 'AMM' },
+  ];
+  readonly RAYDIUM_SORT_OPTIONS: { field: 'liquidity' | 'volume24h' | 'fee24h' | 'apr24h'; label: string }[] = [
+    { field: 'liquidity',  label: 'Liquidity' },
+    { field: 'volume24h',  label: 'Volume 24h' },
+    { field: 'fee24h',     label: 'Fee 24h' },
+    { field: 'apr24h',     label: 'APR 24h' },
+  ];
+  raydiumResults: RaydiumPool[] = [];
+  readonly raydiumPage        = signal(1);
+  // Raydium V3 doesn't expose a total-pool count — `data.count` is the
+  // page size, not the total — so we drive Next/Prev via `hasNextPage`
+  // instead of computing total pages.
+  readonly raydiumHasNextPage = signal(false);
+  readonly raydiumPoolType    = signal<'all' | 'concentrated' | 'standard'>('all');
+  readonly raydiumSortField   = signal<'liquidity' | 'volume24h' | 'fee24h' | 'apr24h'>('liquidity');
+  readonly raydiumSortDir     = signal<'asc' | 'desc'>('desc');
+  readonly raydiumFetching    = signal(false);
+
+  // Infinite-scroll plumbing. The template parks a `<div #raydiumSentinel>`
+  // just below the last row; when it enters the viewport we auto-page. The
+  // 200px rootMargin pre-fetches before the user hits the actual bottom so
+  // scrolling feels continuous, not staccato. Prev/Next buttons stay in the
+  // footer as a manual fallback (and for going backwards).
+  readonly raydiumSentinel = viewChild<ElementRef<HTMLElement>>('raydiumSentinel');
+  private _raydiumScrollObserver?: IntersectionObserver;
+  private readonly _raydiumScrollEffect = effect(() => {
+    const ref = this.raydiumSentinel();
+    this._raydiumScrollObserver?.disconnect();
+    this._raydiumScrollObserver = undefined;
+    if (!ref || typeof IntersectionObserver === 'undefined') return;
+    this._raydiumScrollObserver = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some(e => e.isIntersecting)) return;
+        if (!this.raydiumHasNextPage() || this.raydiumFetching()) return;
+        this.raydiumNextPage();
+      },
+      { rootMargin: '200px 0px' },
+    );
+    this._raydiumScrollObserver.observe(ref.nativeElement);
+  });
+
   priceResult: PriceResult | null = null;
   positionResults: PositionResult[] = [];
   transactionResults: TransactionResult[] = [];
@@ -386,6 +456,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'meteora_dammv2_get_pools':
       case 'meteora_dammv1_get_pools':
         return 'assets/icons/protocols/meteora.webp';
+      case 'raydium_get_pools':
+      case 'raydium_search_pools':
+        return 'assets/icons/protocols/raydium.png';
       default:
         return null;
     }
@@ -403,7 +476,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return (
       this.query.type === 'meteora_dlmm_get_pairs' ||
       this.query.type === 'meteora_dammv2_get_pools' ||
-      this.query.type === 'meteora_dammv1_get_pools'
+      this.query.type === 'meteora_dammv1_get_pools' ||
+      this.query.type === 'raydium_get_pools' ||
+      this.query.type === 'raydium_search_pools'
     );
   }
 
@@ -414,6 +489,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'meteora_dlmm_get_pairs':    void this.fetchDlmmPairs();   break;
       case 'meteora_dammv2_get_pools':  void this.fetchDammV2Pools(); break;
       case 'meteora_dammv1_get_pools':  void this.fetchDammV1Pools(); break;
+      case 'raydium_get_pools':         void this.fetchRaydiumPools(); break;
+      case 'raydium_search_pools':      void this.fetchRaydiumPools(); break;
     }
   }
 
@@ -427,6 +504,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       const ageMs = Date.now() - (Number.isFinite(fetchedMs) ? fetchedMs : 0);
       if (this.isLivePoolList && ageMs > 60_000) {
         this.refreshLiveData();
+      }
+      // Perp positions are a record: a position closed since the snapshot (by
+      // the card's × or via chat) should stay in the card flagged "closed",
+      // not silently vanish. Reconcile the restored list against live state.
+      if (this.query.type === 'perp_positions') {
+        void this.reconcilePerpPositions();
       }
     } else {
       this.simulateQuery();
@@ -442,9 +525,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         // Don't stack concurrent fetches — whichever fetching signal is
         // relevant for this card type acts as the busy guard.
         const busy =
-          (this.query.type === 'meteora_dlmm_get_pairs'   && this.dlmmFetching())   ||
-          (this.query.type === 'meteora_dammv2_get_pools' && this.dammV2Fetching()) ||
-          (this.query.type === 'meteora_dammv1_get_pools' && this.dammV1Fetching());
+          (this.query.type === 'meteora_dlmm_get_pairs'   && this.dlmmFetching())    ||
+          (this.query.type === 'meteora_dammv2_get_pools' && this.dammV2Fetching())  ||
+          (this.query.type === 'meteora_dammv1_get_pools' && this.dammV1Fetching())  ||
+          ((this.query.type === 'raydium_get_pools' || this.query.type === 'raydium_search_pools') && this.raydiumFetching());
         if (busy) return;
         this.refreshLiveData();
       }, 30_000);
@@ -456,6 +540,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       clearInterval(this.livePollTimer);
       this.livePollTimer = null;
     }
+    this._raydiumScrollObserver?.disconnect();
+    this._raydiumScrollObserver = undefined;
   }
 
   private restoreSnapshot(snap: QuerySnapshot): void {
@@ -478,6 +564,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['trendingResults'])   this.trendingResults   = d['trendingResults']   as TrendingResult[];
     if (d['networkResult'])     this.networkResult     = d['networkResult']     as NetworkResult;
     if (d['yieldResults'])      this.yieldResults      = d['yieldResults']      as YieldResult[];
+    if (d['perpPositions'])     this.perpPositions     = d['perpPositions']     as PerpPosition[];
     if (d['analyticsResult'])   this.analyticsResult   = d['analyticsResult']   as AnalyticsResult;
     if (d['nftResults'])        this.nftResults        = d['nftResults']        as NftItem[];
     if (d['airdropResults'])    this.airdropResults    = d['airdropResults']    as AirdropResult[];
@@ -509,6 +596,16 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         ?? 'pool_tvl');
       this.dammV1SortDir.set((d['dammV1SortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
     }
+    if (d['raydiumResults']) {
+      this.raydiumResults = d['raydiumResults'] as RaydiumPool[];
+      this.raydiumHasNextPage.set((d['raydiumHasNextPage'] as boolean | undefined) ?? false);
+      this.raydiumPage.set((d['raydiumPage'] as number | undefined) ?? 1);
+      this.raydiumPoolType.set(
+        (d['raydiumPoolType'] as 'all' | 'concentrated' | 'standard' | undefined) ?? 'all');
+      this.raydiumSortField.set(
+        (d['raydiumSortField'] as 'liquidity' | 'volume24h' | 'fee24h' | 'apr24h' | undefined) ?? 'liquidity');
+      this.raydiumSortDir.set((d['raydiumSortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
+    }
     this.loading.set(false);
   }
 
@@ -523,6 +620,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.trendingResults.length)    d['trendingResults']    = this.trendingResults;
     if (this.networkResult)             d['networkResult']      = this.networkResult;
     if (this.yieldResults.length)       d['yieldResults']       = this.yieldResults;
+    if (this.perpPositions.length)      d['perpPositions']      = this.perpPositions;
     if (this.analyticsResult)           d['analyticsResult']    = this.analyticsResult;
     if (this.nftResults.length)         d['nftResults']         = this.nftResults;
     if (this.airdropResults.length)     d['airdropResults']     = this.airdropResults;
@@ -551,6 +649,14 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       d['dammV1Page']      = this.dammV1Page();
       d['dammV1SortField'] = this.dammV1SortField();
       d['dammV1SortDir']   = this.dammV1SortDir();
+    }
+    if (this.raydiumResults.length) {
+      d['raydiumResults']     = this.raydiumResults;
+      d['raydiumHasNextPage'] = this.raydiumHasNextPage();
+      d['raydiumPage']        = this.raydiumPage();
+      d['raydiumPoolType']    = this.raydiumPoolType();
+      d['raydiumSortField']   = this.raydiumSortField();
+      d['raydiumSortDir']     = this.raydiumSortDir();
     }
     return d;
   }
@@ -798,6 +904,28 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.error.set('Failed to load lending positions');
       this.loading.set(false);
     }
+  }
+
+  /**
+   * Merge live perp state into a restored snapshot: positions still open are
+   * refreshed with live values; positions no longer open are marked `closed`
+   * and KEPT (so a closed position reads as closed instead of disappearing).
+   */
+  private async reconcilePerpPositions(): Promise<void> {
+    const wallet = this.walletService.publicKey();
+    if (!wallet || this.perpPositions.length === 0) return;
+    // Only reconcile on a CONFIRMED live result. A transient/failed fetch must
+    // never flip an open position to "closed" — that's how a still-open Jupiter
+    // position wrongly showed as closed.
+    const { ok, positions: live } = await this.jupiterPerp.getPositionsResult(wallet);
+    if (!ok) return;
+    const liveByKey = new Map(live.map(p => [`${p.market}:${p.side}`, p]));
+    this.perpPositions = this.perpPositions.map(p => {
+      const l = liveByKey.get(`${p.market}:${p.side}`);
+      // Present in live → still open (refresh values). Absent → genuinely closed.
+      return l ? { ...l, closed: false } : { ...p, closed: true };
+    });
+    this.persistSnapshot();
   }
 
   private async fetchPerpPositions(): Promise<void> {
@@ -1098,6 +1226,190 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return parseFloat(s ?? '0') || 0;
   }
 
+  // ── Raydium pools ───────────────────────────────────────────────────────
+  /**
+   * Fetch one server-side page of Raydium pools from `/actions/build` with
+   * `type=raydium_get_pools`. The Rust solana-service forwards to the V3
+   * `/pools/info/list` endpoint and embeds the raw response under
+   * `preview.params` — Raydium V3 wraps the pool array two levels deep,
+   * which is why we drill `preview.params.data.data` to reach rows.
+   */
+  private async fetchRaydiumPools(): Promise<void> {
+    this.raydiumFetching.set(true);
+    this.error.set(null);
+
+    // When the query came in as a pair-filtered search (`raydium_search_pools`),
+    // route to the search-by-mint endpoint with tokenA/tokenB from query.params.
+    // Pool-type chips still apply so the user can flip CLMM ↔ Standard within
+    // the same pair. Same response shape as `/pools/info/list`, so the rest of
+    // the render path is unchanged.
+    const isSearch = this.query.type === 'raydium_search_pools';
+    const tokenA = isSearch ? (this.query.params?.['tokenA'] as string | undefined) : undefined;
+    const tokenB = isSearch ? (this.query.params?.['tokenB'] as string | undefined) : undefined;
+    const body = isSearch && tokenA
+      ? {
+          type: 'raydium_search_pools',
+          params: {
+            tokenA,
+            ...(tokenB ? { tokenB } : {}),
+            poolType: this.raydiumPoolType(),
+            sortField: this.raydiumSortField(),
+            pageSize: this.RAYDIUM_PAGE_SIZE,
+          },
+        }
+      : {
+          type: 'raydium_get_pools',
+          params: {
+            poolType: this.raydiumPoolType(),
+            sortField: this.raydiumSortField(),
+            sortType: this.raydiumSortDir(),
+            page: this.raydiumPage(),
+            pageSize: this.RAYDIUM_PAGE_SIZE,
+          },
+        };
+
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', body));
+      // preview.params holds the unmodified Raydium API envelope:
+      //   { id, success, data: { count, hasNextPage, data: RaydiumPool[] } }
+      // Raydium V3 quirk: `count` is the page size (10), NOT the total —
+      // there's no field that exposes the total pool count. We drive
+      // pagination off `hasNextPage` instead.
+      const apiData = resp?.preview?.params?.data;
+      const rows: RaydiumPool[] = Array.isArray(apiData?.data) ? apiData.data : [];
+      const hasNext: boolean = !!apiData?.hasNextPage;
+
+      // Append vs replace: page == 1 is a fresh load (initial mount, sort or
+      // filter change, manual refresh) — replace. page > 1 is the user (or
+      // the auto-scroll observer) asking for the next slice — append.
+      //
+      // Defense in depth: dedupe by pool id when appending. If the backend
+      // (or upstream Raydium API) returns the same row across pages — a known
+      // failure mode for badly-paginated APIs — silently dropping the dupes
+      // keeps `@for ... track p.id` happy and prevents the table from
+      // visually inflating with phantom rows. If EVERY appended row is a
+      // dup, the page added nothing real → flip `hasNextPage` off so the
+      // observer stops re-firing on an unchanged sentinel position.
+      let effectiveHasNext = hasNext;
+      if (this.raydiumPage() > 1) {
+        const seen = new Set(this.raydiumResults.map(r => r.id));
+        const fresh = rows.filter(r => !seen.has(r.id));
+        if (fresh.length === 0) {
+          // Backend claimed more pages but returned only dupes → stop looping.
+          effectiveHasNext = false;
+        } else {
+          this.raydiumResults = [...this.raydiumResults, ...fresh];
+        }
+      } else {
+        this.raydiumResults = rows;
+      }
+      this.raydiumHasNextPage.set(effectiveHasNext);
+      this.raydiumFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Raydium pools');
+      this.raydiumFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  onRaydiumPoolTypeChange(t: 'all' | 'concentrated' | 'standard'): void {
+    if (this.raydiumPoolType() === t) return;
+    this.raydiumPoolType.set(t);
+    this.raydiumPage.set(1);
+    void this.fetchRaydiumPools();
+  }
+
+  onRaydiumSortChange(field: 'liquidity' | 'volume24h' | 'fee24h' | 'apr24h'): void {
+    if (this.raydiumSortField() === field) {
+      this.raydiumSortDir.update(d => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      this.raydiumSortField.set(field);
+      this.raydiumSortDir.set('desc');
+    }
+    this.raydiumPage.set(1);
+    void this.fetchRaydiumPools();
+  }
+
+  raydiumPrevPage(): void {
+    if (this.raydiumPage() > 1) {
+      this.raydiumPage.update(p => p - 1);
+      void this.fetchRaydiumPools();
+    }
+  }
+
+  raydiumNextPage(): void {
+    if (!this.raydiumHasNextPage()) return;
+    // Synchronous race guard — set fetching=true here, BEFORE awaiting the
+    // async fetch, so a second observer firing or rapid scroll burst can't
+    // sneak through the guard in the IntersectionObserver callback. Without
+    // this, the page counter could advance multiple times before the first
+    // fetch resolved, causing pages 2 / 3 / 4 to race and append in arbitrary
+    // order (and on a backend that ignores the `page` param, the same rows
+    // would land 3× as duplicates).
+    if (this.raydiumFetching()) return;
+    this.raydiumFetching.set(true);
+    this.raydiumPage.update(p => p + 1);
+    void this.fetchRaydiumPools();
+  }
+
+  /**
+   * Footer counter for infinite scroll. Returns the accumulated row count —
+   * the per-page `from/to` from the old paginated UI no longer applies once
+   * pages append into a single growing list. V3 doesn't expose the total so
+   * we just show what we have plus a "more available" hint when applicable.
+   */
+  get raydiumShowingRange(): { from: number; to: number } {
+    return { from: this.raydiumResults.length > 0 ? 1 : 0, to: this.raydiumResults.length };
+  }
+
+
+  /** Format the day APR (already a percentage in the Raydium response). */
+  raydiumApr24h(p: RaydiumPool): number {
+    return p.day?.apr ?? 0;
+  }
+
+  raydiumVolume24h(p: RaydiumPool): number {
+    return p.day?.volume ?? 0;
+  }
+
+  /**
+   * Spawn an add-liquidity action card for the row. Concentrated pools route
+   * to `raydium_open_position` (CLMM, single-sided range deposit); standard
+   * AMM pools route to `raydium_add_liquidity`. Both action types live in
+   * KNOWN_ACTION_TYPES already.
+   */
+  useRaydiumPool(p: RaydiumPool): void {
+    const isCLMM = (p.type ?? '').toLowerCase() === 'concentrated';
+    const params: Record<string, string> = {
+      poolId: p.id,
+      tokenA: p.mintA.address,
+      tokenB: p.mintB.address,
+      tokenASymbol: p.mintA.symbol,
+      tokenBSymbol: p.mintB.symbol,
+      tokenADecimals: String(p.mintA.decimals ?? 9),
+      tokenBDecimals: String(p.mintB.decimals ?? 9),
+    };
+    // For CLMM pools, pre-fill a balanced ±20% range around the current
+    // pool price so the user has a sane starting range — they can still
+    // tighten or widen it before confirming. AMM v4 (Standard) ignores
+    // these fields, so we only set them on CLMM.
+    if (isCLMM && typeof p.price === 'number' && p.price > 0) {
+      // Pre-fill ±20% range and the current price so the action card's CLMM
+      // ratio engine has a reference price to compute amountB-per-amountA.
+      params['currentPrice'] = String(p.price);
+      params['minPrice'] = (p.price * 0.8).toPrecision(6);
+      params['maxPrice'] = (p.price * 1.2).toPrecision(6);
+    }
+    const type = isCLMM ? 'raydium_open_position' : 'raydium_add_liquidity';
+    this.useAction.emit({
+      type,
+      params,
+      raw: `[ACTION:${type}] ${JSON.stringify(params)}`,
+    });
+  }
+
   /**
    * Plain string equality on `query.type`. Wraps the comparison in a
    * non-discriminating function call so Angular's strict template type
@@ -1320,6 +1632,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   onClosePerpPosition(market: string, side: string): void {
+    // Just start the close flow (opens a perp_close action card to sign). Do
+    // NOT mark the position closed here — it is only truly closed once the user
+    // signs and the tx lands. `reconcilePerpPositions()` flips it to "closed"
+    // when a live fetch confirms it's gone, so the card never claims a position
+    // is closed before the on-chain close actually happened.
     this.cancelAction.emit({
       type: 'perp_close',
       params: { market, side },
@@ -1400,6 +1717,16 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'meteora_dammv1_get_pools':
         await this.fetchDammV1Pools();
         return;
+      case 'raydium_get_pools':
+      case 'raydium_search_pools':
+        await this.fetchRaydiumPools();
+        return;
+      case 'analytics':
+        await this.fetchAnalytics();
+        return;
+      case 'yield':
+        await this.fetchYields();
+        return;
       case 'solend_user_info':
       case 'solend_reserves':
       case 'solend_market':
@@ -1418,15 +1745,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         this.loading.set(false);
         return;
       default:
-        // Mock data for queries without a real backend yet (yield, analytics, nft_collection, airdrops, tax_report, alerts)
+        // Mock data for queries without a real backend yet (nft_collection, airdrops, tax_report, alerts).
+        // `analytics` and `yield` are handled above with live fetches — no mock fallback.
         setTimeout(() => {
           switch (this.query.type) {
-            case 'yield':
-              this.yieldResults = this.getMockYields();
-              break;
-            case 'analytics':
-              this.analyticsResult = this.getMockAnalytics();
-              break;
             case 'nft_collection':
               this.nftResults = this.getMockNfts();
               break;
@@ -1541,7 +1863,14 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     ]);
     if (!acct || acct.balance <= 0) return [];
 
-    const meta = this.tokenRegistry.getToken(mint);
+    // Resolve display metadata. For a freshly-launched pump.fun token the sync
+    // registry lookup is empty (not in Jupiter yet) — await the on-chain
+    // (Helius DAS) metadata fetch instead of falling back to the raw mint
+    // address, which is what made the "TOKEN" column show the contract string.
+    let meta = this.tokenRegistry.getToken(mint);
+    if (!meta?.symbol || meta.name === mint || meta.symbol.endsWith('…')) {
+      meta = (await this.tokenRegistry.resolveTokenMeta(mint)) ?? meta;
+    }
     const symbol = meta?.symbol ?? KNOWN_TOKENS[mint]?.symbol ?? tokenParam.toUpperCase();
     const name   = meta?.name   ?? symbol;
     const p = prices.get(mint);
@@ -1840,6 +2169,86 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Live PnL fetch from Birdeye via gateway proxy. Used by `analytics` query.
+   * Requires a connected wallet (or wallet param). On any upstream failure or
+   * empty result we render an explicit "data unavailable" state — we never
+   * fall back to the old mock numbers, since fake portfolio stats are worse
+   * than no stats at all.
+   */
+  private async fetchAnalytics(): Promise<void> {
+    const walletParam = (this.query.params['wallet'] ?? '').trim();
+    const wallet = walletParam || this.walletService.publicKey();
+    if (!wallet) {
+      this.error.set('Connect your wallet to see portfolio analytics.');
+      this.loading.set(false);
+      return;
+    }
+    const rawDuration = (this.query.params['period'] ?? this.query.params['duration'] ?? '30d').toString();
+    const allowed = new Set(['all', '90d', '30d', '7d', '24h']);
+    const duration = allowed.has(rawDuration) ? rawDuration : '30d';
+
+    try {
+      const [summary, details] = await Promise.all([
+        firstValueFrom(this.api.get<any>('/market/wallet/pnl-summary', { wallet, duration })).catch(() => null),
+        firstValueFrom(this.api.get<any>('/market/wallet/pnl-details', { wallet, duration, limit: '10' })).catch(() => null),
+      ]);
+
+      const s = summary?.data ?? summary ?? {};
+      const items: any[] = details?.data?.items ?? details?.items ?? details?.data ?? [];
+
+      const realized   = Number(s.realized_pnl   ?? s.realizedPnl   ?? s.realized   ?? 0);
+      const unrealized = Number(s.unrealized_pnl ?? s.unrealizedPnl ?? s.unrealized ?? 0);
+      const totalPnl   = Number(s.total_pnl ?? s.totalPnl ?? (realized + unrealized));
+      const pnlPercent = Number(s.total_pnl_percent ?? s.pnl_percent ?? s.pnlPercent ?? 0);
+      const winRate    = Number(s.win_rate ?? s.winRate ?? 0);
+      const totalTrades= Number(s.trades_count ?? s.tradesCount ?? s.total_trades ?? s.totalTrades ?? 0);
+
+      if (!summary && items.length === 0) {
+        this.error.set('Portfolio analytics unavailable right now — try again in a moment.');
+        this.loading.set(false);
+        return;
+      }
+
+      const topTokens = items
+        .map((it) => {
+          const symbol = (it.token_symbol ?? it.symbol ?? '').toString();
+          const realizedT = Number(it.realized_pnl ?? it.realizedPnl ?? 0);
+          const unrealizedT = Number(it.unrealized_pnl ?? it.unrealizedPnl ?? 0);
+          const pnl = Number(it.total_pnl ?? it.totalPnl ?? (realizedT + unrealizedT));
+          const trades = Number(it.trades_count ?? it.tradesCount ?? it.trade_count ?? 0);
+          return { symbol, pnl, trades };
+        })
+        .filter((t) => t.symbol)
+        .sort((a, b) => b.pnl - a.pnl);
+
+      const best  = [...items].sort((a, b) => Number(b.total_pnl ?? b.totalPnl ?? 0) - Number(a.total_pnl ?? a.totalPnl ?? 0))[0];
+      const worst = [...items].sort((a, b) => Number(a.total_pnl ?? a.totalPnl ?? 0) - Number(b.total_pnl ?? b.totalPnl ?? 0))[0];
+      const bestStr = best
+        ? `${Number(best.total_pnl ?? best.totalPnl ?? 0) >= 0 ? '+' : ''}${this.formatUsd(Number(best.total_pnl ?? best.totalPnl ?? 0))} (${best.token_symbol ?? best.symbol ?? ''})`
+        : '—';
+      const worstStr = worst
+        ? `${Number(worst.total_pnl ?? worst.totalPnl ?? 0) >= 0 ? '+' : ''}${this.formatUsd(Number(worst.total_pnl ?? worst.totalPnl ?? 0))} (${worst.token_symbol ?? worst.symbol ?? ''})`
+        : '—';
+
+      this.analyticsResult = {
+        totalPnl,
+        pnlPercent,
+        winRate,
+        totalTrades,
+        bestTrade: bestStr,
+        worstTrade: worstStr,
+        avgHoldTime: '—',
+        topTokens,
+      };
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Portfolio analytics unavailable right now — try again in a moment.');
+      this.loading.set(false);
+    }
+  }
+
   private async fetchWalletInfo(): Promise<void> {
     const wallet = this.query.params['wallet'] ?? this.walletService.publicKey();
     if (!wallet) {
@@ -1912,32 +2321,45 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     };
   }
 
-  private getMockYields(): YieldResult[] {
-    return [
-      { protocol: 'Marinade', token: 'mSOL', apy: 7.2, tvl: 1_200_000_000, risk: 'Low' },
-      { protocol: 'Jito', token: 'jitoSOL', apy: 7.8, tvl: 800_000_000, risk: 'Low' },
-      { protocol: 'Raydium', token: 'SOL-USDC LP', apy: 24.5, tvl: 450_000_000, risk: 'Medium' },
-      { protocol: 'Kamino', token: 'USDC', apy: 12.1, tvl: 320_000_000, risk: 'Low' },
-      { protocol: 'Marginfi', token: 'USDC', apy: 8.3, tvl: 280_000_000, risk: 'Low' },
-    ];
-  }
-
-  private getMockAnalytics(): AnalyticsResult {
-    return {
-      totalPnl: 2847.32,
-      pnlPercent: 18.4,
-      winRate: 64.2,
-      totalTrades: 142,
-      bestTrade: '+$890 (SOL/USDC)',
-      worstTrade: '-$234 (BONK/SOL)',
-      avgHoldTime: '4.2 days',
-      topTokens: [
-        { symbol: 'SOL', pnl: 1420.50, trades: 45 },
-        { symbol: 'JUP', pnl: 680.20, trades: 28 },
-        { symbol: 'BONK', pnl: 340.12, trades: 35 },
-        { symbol: 'WIF', pnl: -120.40, trades: 12 },
-      ],
-    };
+  /**
+   * Fetch LIVE yields from the backend `/yields` aggregator (Jito, Marinade,
+   * Jupsol/Kamino LST feeds, or lending markets) — replaces the old hardcoded
+   * mock that listed unrelated USDC pools with stale numbers. Category is
+   * inferred from the query: SOL/LST tokens → liquid_staking, else lending.
+   */
+  private async fetchYields(): Promise<void> {
+    this.loading.set(true);
+    this.error.set(null);
+    const p = this.query.params ?? {};
+    const token = String(p['token'] ?? '').toUpperCase();
+    const rawCat = String(p['category'] ?? '').toLowerCase();
+    const isLst = !token || /SOL$/.test(token) || ['SOL', 'MSOL', 'JITOSOL', 'JUPSOL', 'BSOL', 'INF'].includes(token);
+    const category = rawCat === 'lending' || rawCat === 'liquid_staking'
+      ? rawCat
+      : (isLst ? 'liquid_staking' : 'lending');
+    try {
+      const resp = await firstValueFrom(this.api.get<any>('/yields', { category, limit: '10' }));
+      const rows: any[] = Array.isArray(resp?.yields) ? resp.yields : [];
+      this.yieldResults = rows
+        .filter((r) => typeof r?.apy === 'number' && r.apy > 0)
+        .map((r) => ({
+          protocol: r.name ?? r.protocol ?? '—',
+          token: (r.mint && this.tokenRegistry.getToken(r.mint)?.symbol) || r.name || r.protocol || '',
+          // The aggregator is unit-inconsistent: LST feeds return a FRACTION
+          // (0.0649 = 6.49%) while some lending feeds already return a percent
+          // (8.3). Real DeFi yields sit in ~3–25%, so a value < 1 is a fraction
+          // that needs ×100; a value ≥ 1 is already a percentage.
+          apy: r.apy < 1 ? r.apy * 100 : r.apy,
+          tvl: typeof r.tvl === 'number' ? r.tvl : 0,
+          risk: category === 'liquid_staking' ? 'Low' : (r.risk ?? 'Low'),
+        }) as YieldResult);
+      if (!this.yieldResults.length) this.error.set('No live yield data available right now.');
+    } catch {
+      this.error.set('Could not load yields. Please try again.');
+    } finally {
+      this.loading.set(false);
+      this.persistSnapshot();
+    }
   }
 
   private getMockNfts(): NftItem[] {
@@ -2056,6 +2478,14 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     ];
   }
 
+  /** True when at least one token row has a non-zero trade count. Used by
+   *  the analytics PnL card to hide the "Trades" column when Birdeye's
+   *  response omits per-token trade counts (some durations don't ship them).
+   */
+  hasTradeCounts(rows: { trades: number }[]): boolean {
+    return rows.some((r) => (r?.trades ?? 0) > 0);
+  }
+
   formatNumber(n: number): string {
     if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -2086,5 +2516,49 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   riskBadgeClass(risk: string): string {
     return 'risk-badge--' + risk.toLowerCase();
+  }
+
+  /** Maps a yield row's protocol/token to a colourful protocol logo asset so
+   *  each row shows a real brand mark (Marinade/Jito/Jupiter…) like the swap
+   *  card's protocol icon — far livelier than a monochrome glyph. Returns null
+   *  when no logo matches, so the template falls back to a lettered avatar. */
+  yieldLogo(y: YieldResult): string | null {
+    const hay = `${y.protocol} ${y.token}`.toLowerCase();
+    // Order matters: most-specific token hints first, then protocol names.
+    const map: Array<[RegExp, string]> = [
+      [/marinade|msol/, 'marinade.webp'],
+      [/jupsol|jupiter/, 'jupiter.webp'],
+      [/jito/, 'jito.webp'],
+      [/blaze|bsol/, 'blazestake.webp'],
+      [/sanctum|\binf\b/, 'sanctum.webp'],
+      [/lido|steth/, 'lido.webp'],
+      [/kamino/, 'kamino.webp'],
+      [/marginfi/, 'marginfi.webp'],
+      [/solend/, 'solend.svg'],
+      [/drift/, 'drift.webp'],
+      [/meteora/, 'meteora.webp'],
+      [/raydium/, 'raydium.webp'],
+      [/orca/, 'orca.webp'],
+    ];
+    for (const [re, file] of map) {
+      if (re.test(hay)) return `assets/icons/protocols/${file}`;
+    }
+    return null;
+  }
+
+  /** First letter for the fallback lettered avatar when no logo matches. */
+  yieldInitial(y: YieldResult): string {
+    return (y.protocol || y.token || '?').trim().charAt(0).toUpperCase();
+  }
+
+  /** Token logo for a perp market (SOL / BTC / ETH), via the token registry. */
+  perpMarketLogo(market: string): string | null {
+    const sym = (market || '').toUpperCase();
+    const candidates = sym === 'BTC' ? ['BTC', 'WBTC'] : sym === 'ETH' ? ['ETH', 'WETH'] : [sym];
+    for (const c of candidates) {
+      const t = this.tokenRegistry.getBySymbol(c);
+      if (t?.logoURI) return t.logoURI;
+    }
+    return null;
   }
 }

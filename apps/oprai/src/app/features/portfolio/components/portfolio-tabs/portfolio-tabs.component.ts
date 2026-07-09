@@ -8,14 +8,13 @@ import type { PortfolioTab } from '../../models/portfolio.models';
   styleUrl: './portfolio-tabs.component.scss',
 })
 export class PortfolioTabsComponent {
-  @Input() activeTab: PortfolioTab = 'tokens';
+  @Input() activeTab: PortfolioTab = 'portfolio';
   @Output() tabChange = new EventEmitter<PortfolioTab>();
 
   readonly tabs: Array<{ id: PortfolioTab; label: string }> = [
-    { id: 'tokens', label: 'Tokens' },
-    { id: 'defi', label: 'DeFi' },
+    { id: 'portfolio', label: 'Portfolio' },
     { id: 'nfts', label: 'NFTs' },
-    { id: 'history', label: 'History' },
+    { id: 'history', label: 'Transactions' },
   ];
 
   selectTab(tab: PortfolioTab): void {

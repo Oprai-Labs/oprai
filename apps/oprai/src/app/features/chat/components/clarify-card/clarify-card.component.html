@@ -27,9 +27,28 @@
             <img [src]="getProtocolInfo(option)?.icon" [alt]="option.label" />
           </div>
         } @else {
-          <div class="clarify-option__icon">
-            <lucide-angular [name]="icon()" [size]="16" />
-          </div>
+          @if (optionTokens(option); as pair) {
+            <div class="clarify-option__pair">
+              @if (pair.from; as t) {
+                @if (t.logoURI) {
+                  <img class="clarify-option__pair-coin" [src]="t.logoURI" [alt]="t.symbol" />
+                } @else {
+                  <span class="clarify-option__pair-coin clarify-option__pair-coin--letter">{{ t.symbol.charAt(0) }}</span>
+                }
+              }
+              @if (pair.to; as t) {
+                @if (t.logoURI) {
+                  <img class="clarify-option__pair-coin clarify-option__pair-coin--to" [src]="t.logoURI" [alt]="t.symbol" />
+                } @else {
+                  <span class="clarify-option__pair-coin clarify-option__pair-coin--to clarify-option__pair-coin--letter">{{ t.symbol.charAt(0) }}</span>
+                }
+              }
+            </div>
+          } @else {
+            <div class="clarify-option__icon">
+              <lucide-angular [name]="icon()" [size]="16" />
+            </div>
+          }
         }
 
         <div class="clarify-option__content">

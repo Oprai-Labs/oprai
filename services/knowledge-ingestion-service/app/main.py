@@ -16,6 +16,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,6 +31,47 @@ from app.sources.base import SourceConfig
 
 logger = logging.getLogger(__name__)
 
+# Read once at module load so the toggle is visible in startup logs. The
+# scheduler is meant to run only on the production deploy; local dev runs
+# the service for the REST API but doesn't need the hourly burn. Toggle
+# with KNOWLEDGE_CRAWLER_AUTORUN=true|false in .env.
+_AUTORUN_DEFAULT = os.environ.get("ENVIRONMENT", "").lower() == "production"
+AUTORUN_ENABLED = (
+    os.environ.get("KNOWLEDGE_CRAWLER_AUTORUN", str(_AUTORUN_DEFAULT)).lower()
+    in ("true", "1", "yes", "on")
+)
+
+
+async def _run_scheduled_crawl() -> None:
+    """Top-level scheduler job. Imports crawl_all lazily so a missing
+    OPRAI_ANTHROPIC_API_KEY in the env doesn't kill the entire service at
+    import-time (crawl_all.py calls sys.exit on missing keys). Each
+    invocation walks every Source; sources whose `crawl_freq` window hasn't
+    elapsed since the last successful run are skipped by
+    `should_skip_source` (see crawl_all.py) — that's the whole point of the
+    freq system. Concurrent invocations are blocked by APScheduler's
+    `max_instances=1` so a long crawl can't overlap with the next tick.
+    """
+    try:
+        # Lazy import — the module top-level reads ANTHROPIC_KEY and calls
+        # sys.exit on absence; importing inside the job means missing keys
+        # only break the crawl, not the whole FastAPI process.
+        import crawl_all  # type: ignore[import-not-found]
+    except SystemExit:
+        logger.error("crawl_all import failed: API keys missing — scheduler tick skipped")
+        return
+    except Exception as e:
+        logger.error("crawl_all import failed: %s", e)
+        return
+
+    logger.info("[scheduler] Crawl tick starting")
+    try:
+        await crawl_all.main(groups=set(), dry_run=False)
+        logger.info("[scheduler] Crawl tick done")
+    except Exception as e:
+        logger.error("[scheduler] Crawl tick failed: %s", e, exc_info=True)
+
+
 # ── Startup / shutdown ────────────────────────────────────────────────────────
 
 
@@ -39,7 +82,31 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS ingestion_schema"))
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Knowledge Ingestion Service started on port %d", settings.PORT)
+
+    scheduler: Optional[AsyncIOScheduler] = None
+    if AUTORUN_ENABLED:
+        # Top-of-the-hour crawl. Each Source uses its own `crawl_freq` so
+        # the bulk of the 190 weekly sources do nothing 6 days out of 7 —
+        # only the news feeds (freq=hourly) actually fetch every tick.
+        scheduler = AsyncIOScheduler(timezone="UTC")
+        scheduler.add_job(
+            _run_scheduled_crawl,
+            CronTrigger(minute=0),
+            id="crawl_all_hourly",
+            max_instances=1,   # never overlap; if a tick is still running, the next is dropped
+            coalesce=True,     # if we missed several ticks (deploy/restart), merge into one
+            misfire_grace_time=60 * 30,  # accept ticks up to 30 min late
+        )
+        scheduler.start()
+        logger.info("[scheduler] hourly crawler scheduled (cron: minute=0)")
+    else:
+        logger.info("[scheduler] autorun disabled (set KNOWLEDGE_CRAWLER_AUTORUN=true to enable)")
+
     yield
+
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+        logger.info("[scheduler] shut down")
     logger.info("Knowledge Ingestion Service shutting down")
 
 

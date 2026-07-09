@@ -75,6 +75,11 @@ borsh = "1"
 sha2 = "0.10"
 subtle = "2"
 
+# Raydium CLMM — pure-Rust sqrt-price / tick / liquidity math (no on-chain deps).
+# Used by raydium_open_position TX builder to compute liquidity-from-amount,
+# tick-from-price, and the inverse for slippage envelopes.
+solana-clmm-raydium = "0.3"
+
 # Error handling
 thiserror = "2"
 anyhow = "1"
@@ -92,3 +97,15 @@ futures = "0.3.32"
 [build-dependencies]
 tonic-build = "0.12"
 # test
+
+# Optimize the ed25519 crypto crates even in debug builds. The vanity-mint
+# grinder generates millions of keypairs to find a "…pump" address; unoptimized
+# curve25519/ed25519/sha2 make that ~10-30× slower, so the local dev pool never
+# fills. These packages compile at opt-level 3 while the rest of the app stays
+# debug-fast to rebuild.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+[profile.dev.package.ed25519-dalek]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3

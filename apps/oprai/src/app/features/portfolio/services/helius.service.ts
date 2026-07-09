@@ -56,6 +56,62 @@ export class HeliusService {
     return allAssets;
   }
 
+  /**
+   * Resolve metadata for arbitrary mints via Helius `getAssetBatch`. This
+   * reads the on-chain Metaplex metadata (or token-2022 extensions) so it
+   * covers Pump.fun and any small-cap tokens that don't appear in the
+   * Jupiter strict list or DexScreener cache. Returns a map keyed by mint.
+   */
+  async getAssetBatch(mints: string[]): Promise<Map<string, { name: string; symbol: string; logoUri: string | null }>> {
+    const out = new Map<string, { name: string; symbol: string; logoUri: string | null }>();
+    if (!mints.length) return out;
+
+    try {
+      // Helius caps batch size at 1000 — slice defensively for callers.
+      const ids = mints.slice(0, 1000);
+      const response = await fetch(environment.solanaRpc, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          Authorization: `Bearer ${localStorage.getItem('oprai-auth-token') ?? ''}`,
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'asset-batch',
+          method: 'getAssetBatch',
+          params: { ids, displayOptions: { showCollectionMetadata: false } },
+        }),
+      });
+
+      if (!response.ok) return out;
+      const json = await response.json() as { result?: any[] };
+      const items = json.result ?? [];
+
+      for (const it of items) {
+        if (!it?.id) continue;
+        const meta = it.content?.metadata ?? {};
+        const links = it.content?.links ?? {};
+        const files = it.content?.files ?? [];
+        const logoUri =
+          links.image ??
+          files.find((f: any) => f?.uri && /image|png|jpg|webp|svg/i.test(f?.mime ?? f?.uri))?.uri ??
+          files[0]?.uri ??
+          null;
+        out.set(it.id, {
+          name: meta.name ?? '',
+          symbol: meta.symbol ?? '',
+          logoUri,
+        });
+      }
+    } catch {
+      // Network blip — caller falls back to existing partial metadata.
+    }
+
+    return out;
+  }
+
   async parseTransactions(signatures: string[]): Promise<HeliusParsedTransaction[]> {
     if (signatures.length === 0) return [];
 
