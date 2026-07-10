@@ -940,6 +940,10 @@ _TOKEN_REF_PARAMS: frozenset[str] = frozenset({
 # Special token values allowed for the `burn` action that aren't valid symbols/addresses
 # e.g. `token=dust` means "burn all dust tokens", `token=empty_accounts` means close accounts
 _BURN_SPECIAL_TOKENS: frozenset[str] = frozenset({"dust", "empty_accounts"})
+# Percentage sentinel ("32%", "50%") — resolved against the live balance at
+# signing, same class as the "all" sentinel.
+_PERCENT_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*%$")
+
 # Params that must be numeric (or the special string "all" / "auto").
 # Add every param that the prompt uses as a number — covers perp, LP, DCA, pools.
 _NUMERIC_PARAMS: frozenset[str] = frozenset({
@@ -1138,11 +1142,20 @@ def validate_action_params(
                 )
 
         if key in _NUMERIC_PARAMS and val not in ("all", "auto"):
+            # Percentage sentinel ("32%", "50%") — the frontend resolves it
+            # against the live balance at signing, same as "all". Accept 0<p<=100.
+            _pct = _PERCENT_RE.match(str(val).strip()) if isinstance(val, str) else None
+            if _pct:
+                p = float(_pct.group(1))
+                if not (0 < p <= 100):
+                    raise ValueError(f"'{key}' percentage must be between 0 and 100, got: {val!r}")
+                sanitised[key] = str(val).strip()
+                continue
             try:
                 num = float(val)
             except ValueError:
                 raise ValueError(
-                    f"'{key}' must be numeric (or 'all'/'auto'), got: {val!r}"
+                    f"'{key}' must be numeric (or 'all'/'auto'/'N%'), got: {val!r}"
                 )
             if num < 0:
                 raise ValueError(

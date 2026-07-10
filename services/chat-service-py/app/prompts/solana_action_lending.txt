@@ -23,9 +23,17 @@ Jupiter Lend (Earn) ONLY supports: **USDC, USDT, jupSOL, jitoSOL, EURC**
   Instead, inform the user: "Jupiter Lend does not currently support [TOKEN]. Supported assets are: USDC, USDT, jupSOL, jitoSOL, EURC. Would you like to use a different protocol (MarginFi, Kamino) or switch to a supported asset?"
 - Exception: MarginFi and Kamino support SOL and many other assets — only Jupiter Lend has this restriction.
 
+**"deposit" / "supply" / "earn" / "lend" all map to this LEND action with the
+named protocol. Do NOT use `kamino_deposit` unless the user explicitly names a
+Kamino reserve/market — plain "deposit to Jupiter Lend" is `lend` protocol=jupiter.**
+
 Examples:
 - "Lend 100 USDC on Marginfi"
   -> execute_action("lend", {"token": "USDC", "amount": "100", "protocol": "marginfi"})
+- "Deposit 100 USDC to Jupiter Lend" / "supply USDC to Jupiter Earn"
+  -> execute_action("lend", {"token": "USDC", "amount": "100", "protocol": "jupiter"})
+- "Deposit 32% of my USDC to Jupiter Lend" (percentage → sentinel, do NOT query balance)
+  -> execute_action("lend", {"token": "USDC", "amount": "32%", "protocol": "jupiter"})
 
 ### 17. WITHDRAW_LEND — Withdraw previously supplied tokens from a lending protocol
 Format: [ACTION:withdraw_lend] token=<symbol_or_mint> amount=<amount> protocol=<marginfi|kamino|jupiter>
