@@ -184,10 +184,12 @@ pub async fn create_dca_transaction(
         .map_err(|e| AppError::JupiterApiError(format!("Jupiter Recurring API error: {e}")))?;
 
     if !resp.status().is_success() {
+        let status = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
-        return Err(AppError::JupiterApiError(format!(
-            "DCA order creation failed: {body_text}"
-        )));
+        tracing::warn!("DCA order creation failed ({status}): {body_text}");
+        return Err(AppError::JupiterApiError(
+            "Couldn't set up the DCA order right now. Please check the amount and try again.".into(),
+        ));
     }
 
     let data: serde_json::Value = resp
@@ -324,10 +326,12 @@ pub async fn cancel_dca_transaction(
         .map_err(|e| AppError::JupiterApiError(format!("Cancel DCA API error: {e}")))?;
 
     if !resp.status().is_success() {
+        let status = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
-        return Err(AppError::JupiterApiError(format!(
-            "Cancel DCA failed: {body_text}"
-        )));
+        tracing::warn!("Cancel DCA failed ({status}): {body_text}");
+        return Err(AppError::JupiterApiError(
+            "Couldn't cancel the DCA order right now. Please try again in a moment.".into(),
+        ));
     }
 
     let data: serde_json::Value = resp

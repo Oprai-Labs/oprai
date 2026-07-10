@@ -2151,7 +2151,11 @@ pub async fn build_pumpfun_initial_buy(
             Err(e) => last_err = format!("PumpPortal request error: {e}"),
         }
     }
-    Err(AppError::Internal(format!("Initial buy build failed (token may not be indexed yet): {last_err}")))
+    // Log the raw upstream detail; return a clean, user-facing message.
+    tracing::warn!("PumpPortal initial-buy build failed: {last_err}");
+    Err(AppError::Internal(
+        "The token isn't ready to trade yet — give it a few seconds after launch and try again.".into(),
+    ))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2165,15 +2169,22 @@ async fn pumpfun_get(http: &reqwest::Client, path: &str) -> Result<Value, AppErr
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|e| AppError::Internal(format!("PumpFun API error: {e}")))?;
+        .map_err(|e| {
+            tracing::warn!("PumpFun API request error: {e}");
+            AppError::Internal("Pump.fun is temporarily unavailable. Please try again in a moment.".into())
+        })?;
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::Internal(format!("PumpFun API {status}: {body}")));
+        tracing::warn!("PumpFun API {status}: {body}");
+        return Err(AppError::Internal(
+            "Pump.fun is temporarily unavailable. Please try again in a moment.".into(),
+        ));
     }
-    resp.json::<Value>()
-        .await
-        .map_err(|e| AppError::Internal(format!("PumpFun API parse: {e}")))
+    resp.json::<Value>().await.map_err(|e| {
+        tracing::warn!("PumpFun API parse error: {e}");
+        AppError::Internal("Pump.fun returned an unexpected response. Please try again.".into())
+    })
 }
 
 fn pf_response(action_type: &str, desc: String, data: Value) -> BuildResponse {

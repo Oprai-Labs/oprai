@@ -298,16 +298,20 @@ pub async fn get_swap_quote(
     }
     let response = req.send().await?;
     if !response.status().is_success() {
+        let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(AppError::JupiterApiError(format!(
-            "Jupiter quote failed: {body}"
-        )));
+        // Log the raw upstream body for debugging, but return a clean message —
+        // never surface Jupiter's raw response to the user.
+        tracing::warn!("Jupiter quote failed ({status}): {body}");
+        return Err(AppError::JupiterApiError(
+            "No route available for this trade right now. The pair may lack liquidity or the amount may be too small.".into(),
+        ));
     }
 
-    let quote: SwapQuote = response
-        .json()
-        .await
-        .map_err(|e| AppError::JupiterApiError(format!("Failed to parse quote: {e}")))?;
+    let quote: SwapQuote = response.json().await.map_err(|e| {
+        tracing::warn!("Failed to parse Jupiter quote: {e}");
+        AppError::JupiterApiError("Couldn't read the swap quote. Please try again in a moment.".into())
+    })?;
     Ok(quote)
 }
 
@@ -355,10 +359,12 @@ pub async fn build_swap_transaction(
     let swap_response = req.send().await?;
 
     if !swap_response.status().is_success() {
+        let status = swap_response.status();
         let body = swap_response.text().await.unwrap_or_default();
-        return Err(AppError::JupiterApiError(format!(
-            "Jupiter swap transaction failed: {body}"
-        )));
+        tracing::warn!("Jupiter swap build failed ({status}): {body}");
+        return Err(AppError::JupiterApiError(
+            "Couldn't build this transaction right now. Please try again in a moment.".into(),
+        ));
     }
 
     let swap_data: serde_json::Value = swap_response.json().await?;

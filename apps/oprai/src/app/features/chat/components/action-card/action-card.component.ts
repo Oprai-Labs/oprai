@@ -185,6 +185,46 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
     return `The transaction simulation failed before signing. Check that your wallet has enough SOL for fees and that the amount meets the protocol's minimum.${floorSuffix}`;
   }
 
+  // ── Never surface a raw upstream API response body to the user ────────────
+  // Backend errors arrive wrapped in an AppError Display prefix, e.g.
+  // "Jupiter API error: <message>" or "Internal error: Jupiter Perps API error
+  // (500): <message>". Strip those prefixes so a clean tail shows through, then
+  // map known raw shapes to friendly text and nuke anything still raw-looking.
+  out = out
+    .replace(/^(Failed to execute action:\s*)/i, '')
+    .replace(/^((Jupiter( Perps)?|Relay|PumpFun|Pump\.fun) API error|Internal error|Protocol error|Solana RPC error|Invalid parameters?)(\s*\(\d+\))?:\s*/i, '')
+    .replace(/^((Jupiter( Perps)?|Relay) API error|Internal error)(\s*\(\d+\))?:\s*/i, '')
+    .trim();
+
+  const lower = out.toLowerCase();
+
+  // Known raw upstream shapes → friendly text.
+  if (/quote failed|could not find any route|no route.*(found|available)|not enough liquidity|routeplan|no liquidity for this pair/i.test(lower)) {
+    return 'No route available for this trade right now — the pair may lack liquidity or the amount may be too small. Try a different amount or token.';
+  }
+  if (/swap transaction failed|failed to (build|parse).*(swap|quote)|couldn.t build this transaction/i.test(lower)) {
+    return 'Couldn’t build this transaction right now. Please try again in a moment.';
+  }
+  if (/dca order creation failed|create.*dca.*failed|set up the dca order/i.test(lower)) {
+    return 'Couldn’t set up the DCA order right now. Please check the amount and try again.';
+  }
+  if (/cancel dca failed|cancel the dca order/i.test(lower)) {
+    return 'Couldn’t cancel the DCA order right now. Please try again in a moment.';
+  }
+  if (/pumpportal|initial buy build failed|may not be indexed yet|isn.t ready to trade yet/i.test(lower)) {
+    return 'The token isn’t ready to trade yet — give it a few seconds after launch and try again.';
+  }
+  if (/pumpfun api|pump\.fun (api|is temporarily)/i.test(lower)) {
+    return 'Pump.fun is temporarily unavailable. Please try again in a moment.';
+  }
+
+  // Catch-all: only fires when the message STILL looks like a raw technical
+  // body (JSON, status codes, parse/reqwest errors, HTML, a URL) — clean
+  // sentences from the backend fall through and are shown as-is.
+  if (/error decoding response|failed to parse|reqwest|panicked|status \d{3}|\{\s*"|https?:\/\/|<[a-z!/]/i.test(out)) {
+    return 'Something went wrong completing this action. Please try again in a moment.';
+  }
+
   return out;
 }
 
