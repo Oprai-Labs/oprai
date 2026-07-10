@@ -2031,6 +2031,28 @@ async def stream_chat_response(
             _sns_map = {}
 
         chain_depth = 0
+        # Deterministic lending-protocol correction. gpt-5.4-mini intermittently
+        # emits a Kamino-specific action (kamino_deposit / kamino_withdraw /
+        # kamino_borrow / kamino_repay) even when the user named Jupiter or
+        # MarginFi ("deposit to Jupiter Lend"). The generic lend / withdraw_lend
+        # / borrow / repay actions carry an explicit `protocol` param, so remap
+        # when the message names a DIFFERENT lending protocol and never mentions
+        # Kamino. Requests with no named protocol are left alone — Kamino stays a
+        # fine default there.
+        _KAMINO_LEND_REMAP = {
+            "kamino_deposit": "lend",
+            "kamino_withdraw": "withdraw_lend",
+            "kamino_borrow": "borrow",
+            "kamino_repay": "repay",
+        }
+        _msg_lower = (user_content or "").lower()
+        _names_kamino = any(k in _msg_lower for k in ("kamino", "klend", "k-lend", "k lend"))
+        _named_lender = None
+        if not _names_kamino:
+            if any(k in _msg_lower for k in ("jupiter", "juplend", "jup lend", "jup earn")):
+                _named_lender = "jupiter"
+            elif any(k in _msg_lower for k in ("marginfi", "margin fi", "mfi")):
+                _named_lender = "marginfi"
         for tc_name, tc_args in collected_tool_calls:
             # Inject chain depth into args so _validate_execute_action can enforce the cap.
             # Never reset chain_depth to 0 — prevents bypass by interspersing non-chained actions.
@@ -2040,6 +2062,21 @@ async def stream_chat_response(
                     chain_depth += 1
                 # Non-chained actions do NOT reset depth — cumulative cap enforced.
                 _tc_args_parsed["_chain_depth"] = chain_depth
+                if (
+                    tc_name == "execute_action"
+                    and _named_lender
+                    and (_generic := _KAMINO_LEND_REMAP.get(_tc_args_parsed.get("action_type")))
+                ):
+                    _p = _tc_args_parsed.get("params")
+                    if not isinstance(_p, dict):
+                        _p = {}
+                    _p["protocol"] = _named_lender
+                    _tc_args_parsed["params"] = _p
+                    _log.info(
+                        "lend_protocol_remap: %s -> %s protocol=%s (wallet=%s)",
+                        _tc_args_parsed.get("action_type"), _generic, _named_lender, wallet[:16] + "…",
+                    )
+                    _tc_args_parsed["action_type"] = _generic
                 # Gap-fill: if execute_action's params are empty/partial AND
                 # pre_compute extracted params for the SAME action_type, merge.
                 # Model's emitted params win on conflict; we only fill gaps.
