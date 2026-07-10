@@ -36,9 +36,11 @@ export interface RiskWarningPayload {
   resolve: (confirmed: boolean) => void;
 }
 
-// Action types that are inherently risky regardless of amount
+// Action types that OPEN leveraged exposure. Closes are excluded — closing a
+// position de-risks (realizes PnL + pays a close fee), it doesn't open leverage,
+// so it shouldn't trigger the "opens a leveraged position" gate.
 const LEVERAGED_TYPES = new Set([
-  'perp_open', 'perp_close',
+  'perp_open',
   'kamino_multiply_open', 'kamino_multiply_add', 'kamino_long_open', 'kamino_short_open',
 ]);
 
@@ -125,27 +127,32 @@ export class RiskWarningService {
     if (LEVERAGED_TYPES.has(action.type)) {
       needsWarning = true;
       title = 'Leveraged Position';
-      message = 'This action opens a leveraged position. Losses can exceed the collateral you put up.';
+      message = 'This action opens a leveraged position. You can lose your entire collateral if the price moves against you.';
       severity = 'danger';
       confirmLabel = 'I understand the risks';
       // Qualitative risks — plain sentences, no per-row iconography.
+      // Jupiter Perps uses ISOLATED margin: liquidation caps your loss at the
+      // collateral you deposit, and it charges an hourly BORROW fee (paid to the
+      // JLP pool), not a funding-rate payment.
       items.push(
         { icon: '', text: 'Your position can be liquidated if the price moves against you.' },
-        { icon: '', text: 'Losses can exceed the collateral you deposit.' },
-        { icon: '', text: 'Funding fees accrue for as long as the position stays open.' },
+        { icon: '', text: 'You can lose your entire deposited collateral.' },
+        { icon: '', text: 'A borrow fee accrues hourly for as long as the position stays open.' },
       );
       // Quantitative facts — surfaced as a compact key-figures strip.
       const leverage = Number(action.params['leverage']);
       if (leverage > 0) {
         figures.push({ label: 'Leverage', value: `${leverage}x` });
-        // Price move % needed to trigger liquidation (approximate, ignores fees).
+        // Approx price move against you that wipes the collateral. Real
+        // liquidation triggers slightly earlier (fees + maintenance margin).
         const liqBuffer = (1 / leverage * 100).toFixed(1);
         figures.push({ label: 'Liquidation move', value: `~${liqBuffer}%` });
       }
       const collateral = Number(action.params['collateralAmount'] ?? action.params['collateral'] ?? action.params['amount']);
-      if (collateral > 0 && leverage > 0) {
+      if (collateral > 0) {
         const maxLoss = collateral.toFixed(collateral < 1 ? 4 : 2);
-        figures.push({ label: 'Max at risk', value: `${maxLoss} ${action.params['token'] ?? 'SOL'}`, emphasis: true });
+        const collToken = action.params['collateralToken'] ?? action.params['token'] ?? '';
+        figures.push({ label: 'Max at risk', value: `${maxLoss}${collToken ? ' ' + collToken : ''}`, emphasis: true });
       }
     }
 
