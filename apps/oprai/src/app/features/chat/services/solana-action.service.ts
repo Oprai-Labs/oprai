@@ -1183,11 +1183,12 @@ export class SolanaActionService {
       return this.executeFrontendAction(action, callbacks);
     }
 
-    // ── Resolve amount=all / amount=max before building ──────────────────
+    // ── Resolve amount=all / amount=max / amount="X%" before building ────
     const rawAmount = action.params['amount'];
-    if (rawAmount === 'all' || rawAmount === 'max') {
-      // jlp_remove spends JLP (the `token` param is the RECEIVE token), so "all"
-      // must resolve against the JLP balance — not the receive token.
+    const pctMatch = typeof rawAmount === 'string' ? rawAmount.trim().match(/^(\d+(?:\.\d+)?)\s*%$/) : null;
+    if (rawAmount === 'all' || rawAmount === 'max' || pctMatch) {
+      // jlp_remove spends JLP (the `token` param is the RECEIVE token), so the
+      // sentinel must resolve against the JLP balance — not the receive token.
       const JLP_MINT = '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4';
       const mint = action.type === 'jlp_remove'
         ? JLP_MINT
@@ -1201,8 +1202,12 @@ export class SolanaActionService {
       const SOL_MINT = 'So11111111111111111111111111111111111111112';
       const isSol = !mint || mint === 'SOL' || mint === SOL_MINT;
       const SOL_RESERVE = 0.01; // ~$1.5 today; safer than minimums.
-      const adjusted = isSol ? Math.max(resolved - SOL_RESERVE, 0) : resolved;
-      if (isSol && resolved <= SOL_RESERVE) {
+      // A percentage keeps the remainder, so no fee reserve is needed — only a
+      // full drain ("all"/"max") must hold SOL back for fees.
+      const adjusted = pctMatch
+        ? resolved * (parseFloat(pctMatch[1]) / 100)
+        : (isSol ? Math.max(resolved - SOL_RESERVE, 0) : resolved);
+      if (!pctMatch && isSol && resolved <= SOL_RESERVE) {
         throw new Error(
           `Not enough SOL to cover transaction fee + rent (you have ${resolved.toFixed(4)} SOL, ` +
           `need at least ${SOL_RESERVE} SOL reserved). Top up your wallet first.`,

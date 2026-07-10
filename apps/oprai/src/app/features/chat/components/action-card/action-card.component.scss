@@ -2536,6 +2536,43 @@
 // Live quote block reuses .perp-summary; liquidation price flagged in loss red.
 .perp-quote__liq { color: var(--op-loss); }
 
+// Jupiter Lend (earn): APY headline pill + rate/position breakdown.
+.lend-apy-pill {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--op-gain, #16c784);
+  background: color-mix(in srgb, var(--op-gain, #16c784) 14%, transparent);
+}
+.lend-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  font-size: 0.8125rem;
+
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    span:first-child { color: var(--op-text-tertiary); }
+    span:last-child { color: var(--op-text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+    &--strong {
+      padding-top: 6px;
+      border-top: 1px solid var(--op-border-subtle);
+      span:first-child { color: var(--op-text-secondary); }
+      span:last-child { color: var(--op-brand); }
+    }
+  }
+}
+
 // cancel_dca: compact summary of the order being cancelled.
 .dca-cancel-summary {
   display: flex;

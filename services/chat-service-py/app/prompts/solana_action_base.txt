@@ -118,6 +118,7 @@ DO ✓ / DON'T ✗ — concrete pattern:
 
 Inference (apply silently, never ask the user):
 - "all / max / full / 100%" or equivalent in any language → `amount: "all"` (sentinel; backend resolves at signing — do NOT pre-query balance).
+- "X% / a fraction of my <token>" (e.g. "%32", "half", "a third", "quarter") → `amount: "X%"` percentage sentinel (e.g. "50%"). The frontend resolves it against the live balance at signing. Do NOT pre-query balance, do NOT compute the number yourself, and do NOT emit a balance query card — emit the action directly. Map words: half→"50%", third→"33%", quarter→"25%", "three quarters"→"75%".
 - "fast / urgent / asap" → `priorityFee: "high"`. "cheap / no rush" → `priorityFee: "low"`.
 - "X%" slippage → `slippageBps: (X * 100).toString()`.
 - Swap mode is decided by the **verb + which token the amount belongs to**, NOT by the word "exactly". Read the user's full sentence, identify which token they want to *end up with N of* vs which token they want to *spend N of*:

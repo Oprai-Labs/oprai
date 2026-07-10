@@ -1199,6 +1199,91 @@
               </div>
             </div>
           </div>
+        } @else if (action.type === 'lend') {
+          <!-- ─────── Jupiter Lend (Earn): deposit a token, earn APY (swap-card look) ─────── -->
+          @let lendTd = lendTokenTd();
+          @let lendEarn = lendInfo()?.kind === 'earn' ? lendInfo()!.data : null;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Deposit</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (lendTd.logoURI) {
+                    <img [src]="lendTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (lendTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ lendTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="arrow-down" [size]="16" />
+            </div>
+
+            <!-- Earn panel: APY headline + what you'll hold -->
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Earn</span>
+                @if (lendEarn) {
+                  <span class="lend-apy-pill">{{ $any(lendEarn).totalApy | number:'1.2-2' }}% APY</span>
+                } @else {
+                  <span class="pump-panel__bal"><span class="proto-balance-dots">···</span></span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                @if (lendEarn) {
+                  <span class="pump-panel__amount pump-panel__amount--muted">
+                    Deposits accrue interest every block
+                  </span>
+                } @else {
+                  <span class="pump-panel__amount pump-panel__amount--muted">Loading rate…</span>
+                }
+              </div>
+            </div>
+
+            <!-- Rate breakdown + your current position -->
+            @if (lendEarn) {
+              <div class="lend-summary">
+                <div class="lend-summary__row">
+                  <span>Base APY</span>
+                  <span>{{ $any(lendEarn).supplyApy | number:'1.2-2' }}%</span>
+                </div>
+                @if ($any(lendEarn).rewardsApy > 0) {
+                  <div class="lend-summary__row">
+                    <span>JUP rewards</span>
+                    <span>+{{ $any(lendEarn).rewardsApy | number:'1.2-2' }}%</span>
+                  </div>
+                }
+                @if ($any(lendEarn).userDepositedAssets !== undefined && $any(lendEarn).userDepositedAssets > 0) {
+                  <div class="lend-summary__row lend-summary__row--strong">
+                    <span>Your current deposit</span>
+                    <span>{{ $any(lendEarn).userDepositedAssets | number:'1.2-6' }} {{ $any(lendEarn).assetSymbol }}</span>
+                  </div>
+                }
+              </div>
+            }
+          </div>
         } @else if (action.type === 'jlp_add') {
           <!-- ─────── Jupiter JLP: deposit a token to mint JLP (swap-card look) ─────── -->
           @let jlpTd = jlpTokenTd();

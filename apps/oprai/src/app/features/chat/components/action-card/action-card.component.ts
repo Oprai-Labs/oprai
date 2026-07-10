@@ -3550,6 +3550,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // inputBalanceMint, which for a remove now points at JLP).
   jlpReceiveTd() { return this.resolveTokenDisplay(this.editParams()['token'] ?? 'USDC'); }
 
+  // Jupiter Lend (earn) deposit-token pill display.
+  lendTokenTd() { return this.resolveTokenDisplay(this.editParams()['token'] ?? 'USDC'); }
+
   setPerpMarket(m: string): void { if (this.isEditable()) this.setEditParam('market', m); }
   setPerpSide(s: 'long' | 'short'): void { if (this.isEditable()) this.setEditParam('side', s); }
 
@@ -3887,6 +3890,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const cur = (params['amount'] ?? '').trim().toLowerCase();
     if (cur === 'all' || cur === 'max' || cur === 'full' || cur === '100%') {
       this.setEditParam('amount', balance.toString());
+      return;
+    }
+    // Percentage sentinel ("32%", "50 %") → that fraction of the balance.
+    const pct = cur.match(/^(\d+(?:\.\d+)?)\s*%$/);
+    if (pct) {
+      const frac = parseFloat(pct[1]) / 100;
+      if (frac > 0 && frac < 1) this.setEditParam('amount', (balance * frac).toString());
     }
   }
 
