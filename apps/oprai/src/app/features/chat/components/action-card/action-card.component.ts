@@ -3442,6 +3442,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   perpMarketTd() { return this.resolveTokenDisplay(this.perpMarketMint()); }
   perpCollateralTd() { return this.resolveTokenDisplay(this.perpCollateralMint()); }
 
+  // JLP: the deposit (add) or receive (remove) token pill display. Reuses the
+  // balance-mint resolver so the pill icon matches the balance line.
+  jlpTokenTd() { return this.resolveTokenDisplay(this.inputBalanceMint()); }
+
   setPerpMarket(m: string): void { if (this.isEditable()) this.setEditParam('market', m); }
   setPerpSide(s: 'long' | 'short'): void { if (this.isEditable()) this.setEditParam('side', s); }
 

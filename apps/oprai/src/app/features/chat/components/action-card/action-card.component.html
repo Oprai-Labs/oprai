@@ -1199,6 +1199,102 @@
               </div>
             </div>
           </div>
+        } @else if (action.type === 'jlp_add') {
+          <!-- ─────── Jupiter JLP: deposit a token to mint JLP (swap-card look) ─────── -->
+          @let jlpTd = jlpTokenTd();
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Deposit</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (jlpTd.logoURI) {
+                    <img [src]="jlpTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (jlpTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ jlpTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="arrow-down" [size]="16" />
+            </div>
+
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Receive</span>
+              </div>
+              <div class="pump-panel__row">
+                <span class="pump-panel__amount pump-panel__amount--muted">JLP at pool rate</span>
+                <span class="pump-token">
+                  <span class="pump-token__icon pump-token__icon--ph">J</span>
+                  <span class="pump-token__sym">JLP</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        } @else if (action.type === 'jlp_remove') {
+          <!-- ─────── Jupiter JLP: redeem JLP back into a token (swap-card look) ─────── -->
+          @let jlpRecvTd = jlpTokenTd();
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Redeem</span>
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  <span class="pump-token__icon pump-token__icon--ph">J</span>
+                  <span class="pump-token__sym">JLP</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="arrow-down" [size]="16" />
+            </div>
+
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Receive</span>
+              </div>
+              <div class="pump-panel__row">
+                <span class="pump-panel__amount pump-panel__amount--muted">{{ jlpRecvTd.symbol }} at pool rate</span>
+                <span class="pump-token">
+                  @if (jlpRecvTd.logoURI) {
+                    <img [src]="jlpRecvTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (jlpRecvTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ jlpRecvTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+          </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
                [class.proto-fields--swaplike]="false">
