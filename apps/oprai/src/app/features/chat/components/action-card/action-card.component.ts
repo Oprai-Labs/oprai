@@ -563,9 +563,10 @@ function getActionFields(
       { key: 'maxPrice', label: 'Max Price', type: 'number', placeholder: '0', half: true },
     );
   } else if (t === 'cancel_dca') {
-    fields.push(
-      { key: 'dcaAccount', label: 'DCA Account', type: 'address', placeholder: 'DCA pubkey...', required: true },
-    );
+    // No editable fields — the DCA order address (`order`) is resolved
+    // server-side (the LLM can't see it, and the user shouldn't have to paste a
+    // pubkey). It arrives as order="self" from chat, or as an explicit address
+    // from the DCA card's Cancel button; both pass straight through to build.
   // ── Jupiter Perpetuals ────────────────────────────────────────────────────
   } else if (t === 'perp_open') {
     const perpMarkets = [{ label: 'SOL', value: 'SOL' }, { label: 'wETH', value: 'wETH' }, { label: 'wBTC', value: 'wBTC' }];
