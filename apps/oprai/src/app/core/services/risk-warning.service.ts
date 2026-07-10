@@ -38,8 +38,15 @@ export interface RiskWarningPayload {
 
 // Action types that are inherently risky regardless of amount
 const LEVERAGED_TYPES = new Set([
-  'perp_open', 'perp_close', 'jlp_add', 'jlp_remove',
+  'perp_open', 'perp_close',
   'kamino_multiply_open', 'kamino_multiply_add', 'kamino_long_open', 'kamino_short_open',
+]);
+
+// JLP liquidity (add/remove) — NOT leveraged. You can't be liquidated and can't
+// lose more than you deposit, but JLP is not a stablecoin: it tracks a basket
+// (SOL/ETH/BTC + stables) and you're the counterparty to perp traders.
+const JLP_TYPES = new Set([
+  'jlp_add', 'jlp_remove',
 ]);
 
 const BORROW_TYPES = new Set([
@@ -140,6 +147,23 @@ export class RiskWarningService {
         const maxLoss = collateral.toFixed(collateral < 1 ? 4 : 2);
         figures.push({ label: 'Max at risk', value: `${maxLoss} ${action.params['token'] ?? 'SOL'}`, emphasis: true });
       }
+    }
+
+    // ── JLP liquidity (add / remove) ─────────────────────────────────────────
+    else if (JLP_TYPES.has(action.type)) {
+      needsWarning = true;
+      title = action.type === 'jlp_remove' ? 'Redeem JLP' : 'Provide JLP Liquidity';
+      message = action.type === 'jlp_remove'
+        ? 'Redeeming JLP sells your pool share back at the current pool price.'
+        : 'JLP is a liquidity position, not a stablecoin. Its value moves with the pool and is not guaranteed.';
+      severity = 'warning';
+      confirmLabel = action.type === 'jlp_remove' ? 'Redeem JLP' : 'Provide liquidity';
+      // Accurate, non-leverage risks. No liquidation, no losses beyond deposit.
+      items.push(
+        { icon: '', text: 'JLP tracks a basket (SOL, ETH, BTC + stablecoins) — its price can fall if those drop.' },
+        { icon: '', text: 'As a liquidity provider you are the counterparty to perp traders; when traders profit, the pool can lose.' },
+        { icon: '', text: 'A pool fee and price impact apply when you enter or exit.' },
+      );
     }
 
     // ── Borrowing ───────────────────────────────────────────────────────────
