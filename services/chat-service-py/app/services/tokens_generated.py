@@ -45,6 +45,13 @@ VERIFIED_TOKENS: list[VerifiedToken] = [
         "logoURI": "https://img-v1.raydium.io/icon/USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA.png",
     },
     {
+        "address": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
+        "symbol": "JLP",
+        "name": "Jupiter Perps LP",
+        "decimals": 6,
+        "logoURI": "https://static.jup.ag/jlp/icon.png",
+    },
+    {
         "address": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
         "symbol": "BONK",
         "name": "Bonk",

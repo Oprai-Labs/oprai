@@ -3445,6 +3445,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // JLP: the deposit (add) or receive (remove) token pill display. Reuses the
   // balance-mint resolver so the pill icon matches the balance line.
   jlpTokenTd() { return this.resolveTokenDisplay(this.inputBalanceMint()); }
+  // The JLP token itself (real SPL mint) — resolves the official Jupiter icon
+  // from the token registry instead of a "J" placeholder.
+  jlpMintTd() { return this.resolveTokenDisplay('27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4'); }
 
   setPerpMarket(m: string): void { if (this.isEditable()) this.setEditParam('market', m); }
   setPerpSide(s: 'long' | 'short'): void { if (this.isEditable()) this.setEditParam('side', s); }

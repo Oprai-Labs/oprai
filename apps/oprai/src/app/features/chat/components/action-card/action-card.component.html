@@ -1246,8 +1246,14 @@
               </div>
               <div class="pump-panel__row">
                 <span class="pump-panel__amount pump-panel__amount--muted">JLP at pool rate</span>
+                @let jlpTok = jlpMintTd();
                 <span class="pump-token">
-                  <span class="pump-token__icon pump-token__icon--ph">J</span>
+                  @if (jlpTok.logoURI) {
+                    <img [src]="jlpTok.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">J</span>
+                  }
                   <span class="pump-token__sym">JLP</span>
                 </span>
               </div>
@@ -1266,8 +1272,14 @@
                        [value]="getEditParam('amount')"
                        (input)="setEditParam('amount', $any($event.target).value)"
                        [disabled]="!isEditable()" />
+                @let jlpRedeemTok = jlpMintTd();
                 <span class="pump-token">
-                  <span class="pump-token__icon pump-token__icon--ph">J</span>
+                  @if (jlpRedeemTok.logoURI) {
+                    <img [src]="jlpRedeemTok.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">J</span>
+                  }
                   <span class="pump-token__sym">JLP</span>
                 </span>
               </div>
