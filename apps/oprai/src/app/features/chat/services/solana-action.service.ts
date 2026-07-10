@@ -1186,7 +1186,12 @@ export class SolanaActionService {
     // ── Resolve amount=all / amount=max before building ──────────────────
     const rawAmount = action.params['amount'];
     if (rawAmount === 'all' || rawAmount === 'max') {
-      const mint = action.params['inputMint'] ?? action.params['mint'] ?? action.params['token'] ?? '';
+      // jlp_remove spends JLP (the `token` param is the RECEIVE token), so "all"
+      // must resolve against the JLP balance — not the receive token.
+      const JLP_MINT = '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4';
+      const mint = action.type === 'jlp_remove'
+        ? JLP_MINT
+        : action.params['inputMint'] ?? action.params['mint'] ?? action.params['token'] ?? '';
       const resolved = await this.getTokenBalance(mint);
       // SOL needs to keep a small reserve for the tx fee + any token-account
       // rent we'll create in this transaction. Without this, "swap all SOL"

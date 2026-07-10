@@ -1612,6 +1612,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action?.type === 'perp_open') {
       return this.perpCollateralMint();
     }
+    // JLP remove: the token being SPENT (and whose balance drives Max / the
+    // "all" sentinel) is JLP — NOT `token`, which here is the RECEIVE token.
+    // Without this, "sell all JLP" resolved to the receive-token balance.
+    if (this.action?.type === 'jlp_remove') {
+      return '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4';
+    }
     const tokenA = p['tokenA'] ?? p['tokenXMint'];
     const tokenB = p['tokenB'] ?? p['tokenYMint'];
     if (tokenA && tokenB) return tokenA;
@@ -3540,6 +3546,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // The JLP token itself (real SPL mint) — resolves the official Jupiter icon
   // from the token registry instead of a "J" placeholder.
   jlpMintTd() { return this.resolveTokenDisplay('27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4'); }
+  // jlp_remove receive token — comes from the `token` param directly (NOT
+  // inputBalanceMint, which for a remove now points at JLP).
+  jlpReceiveTd() { return this.resolveTokenDisplay(this.editParams()['token'] ?? 'USDC'); }
 
   setPerpMarket(m: string): void { if (this.isEditable()) this.setEditParam('market', m); }
   setPerpSide(s: 'long' | 'short'): void { if (this.isEditable()) this.setEditParam('side', s); }

@@ -1265,11 +1265,23 @@
           </div>
         } @else if (action.type === 'jlp_remove') {
           <!-- ─────── Jupiter JLP: redeem JLP back into a token (swap-card look) ─────── -->
-          @let jlpRecvTd = jlpTokenTd();
+          @let jlpRecvTd = jlpReceiveTd();
           <div class="pump-swap" [class.proto-fields--shake]="shake()">
             <div class="pump-panel">
               <div class="pump-panel__top">
                 <span class="pump-panel__label">Redeem</span>
+                @if (inputBalance() !== null || inputBalanceLoading()) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }} JLP
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                      }
+                    }
+                  </span>
+                }
               </div>
               <div class="pump-panel__row">
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
