@@ -204,9 +204,13 @@ export class RiskWarningService {
     }
 
     // ── Swap all SOL (no fee reserve) ──────────────────────────────────────
+    // `inputMint` can arrive as the "SOL" symbol OR the wrapped-SOL mint, so
+    // match both — otherwise the warning silently never fires on the mint form.
     else if (
       action.type === 'swap' &&
-      String(action.params['inputMint']).toUpperCase() === 'SOL' &&
+      ['SOL', 'SO11111111111111111111111111111111111111112'].includes(
+        String(action.params['inputMint']).toUpperCase(),
+      ) &&
       String(action.params['amount']).toLowerCase() === 'all'
     ) {
       needsWarning = true;
@@ -229,10 +233,15 @@ export class RiskWarningService {
       title = isDanger ? 'Large Transaction' : 'High-Value Transaction';
       message = `This transaction is worth ${this.formatUsd(amountUsd)}. Please verify all details before proceeding.`;
       confirmLabel = isDanger ? 'Confirm large transaction' : 'Confirm';
+      // Only a transfer has a "recipient"; swaps/stakes/lends/DCA etc. don't —
+      // point those at the token + amount instead of a non-existent recipient.
+      const verifyText = action.type === 'transfer'
+        ? 'Double-check the recipient address'
+        : 'Double-check the token and amount';
       items.push(
         { icon: 'dollar-sign',   text: `Amount: ${this.formatUsd(amountUsd)}` },
-        { icon: 'shield-check',  text: 'Double-check recipient / token addresses' },
-        { icon: 'rotate-ccw',    text: 'Blockchain transactions are irreversible' },
+        { icon: 'shield-check',  text: verifyText },
+        { icon: 'rotate-ccw',    text: 'Once signed, the transaction cannot be reversed' },
       );
     }
 
