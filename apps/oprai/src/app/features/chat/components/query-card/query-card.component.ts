@@ -843,19 +843,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
           const outputMint: string = order.outputMint ?? '';
           const inputSymbol = this.resolveTokenSymbol(inputMint);
           const outputSymbol = this.resolveTokenSymbol(outputMint);
-          const inputDecimals = this.resolveTokenDecimals(inputMint);
 
-          const perCycleRaw = parseFloat(order.inAmountPerCycle ?? '0');
-          const perCycleAmount = perCycleRaw / Math.pow(10, inputDecimals);
-
-          const cycleFrequency: number = order.cycleFrequency ?? 86400;
-          const frequency = this.formatCycleFrequency(cycleFrequency);
-
-          const totalCycles: number = order.numberOfOrders ?? 0;
-          const cyclesExecuted: number = order.cyclesExecuted ?? 0;
+          // Jupiter Recurring v1 returns human-readable amounts (inAmountPerCycle,
+          // inDeposited, inUsed); `raw*` are the base-unit variants. Cycle counts
+          // are not returned — derive them from deposited/used ÷ per-cycle.
+          const perCycleAmount = parseFloat(order.inAmountPerCycle ?? '0');
+          const deposited = parseFloat(order.inDeposited ?? '0');
+          const used = parseFloat(order.inUsed ?? '0');
+          const totalCycles = perCycleAmount > 0 ? Math.round(deposited / perCycleAmount) : 0;
+          const cyclesExecuted = perCycleAmount > 0 ? Math.round(used / perCycleAmount) : 0;
           const remaining = Math.max(0, totalCycles - cyclesExecuted);
 
-          const nextCycleAt: number = order.nextCycleAt ?? 0;
+          const cycleFrequency: number = Number(order.cycleFrequency ?? 86400);
+          const frequency = this.formatCycleFrequency(cycleFrequency);
+
+          const nextCycleAt: number = Number(order.nextCycleAt ?? 0);
           const nextExecution = this.formatNextCycle(nextCycleAt);
 
           const statusRaw = (order.orderStatus ?? order.status ?? '').toLowerCase();

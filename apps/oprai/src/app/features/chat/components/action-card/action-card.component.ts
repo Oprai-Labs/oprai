@@ -2265,15 +2265,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
       const inputMint: string = picked.inputMint ?? '';
       const outputMint: string = picked.outputMint ?? '';
-      const inDecimals = this.tokenRegistry.getToken(inputMint)?.decimals ?? 9;
-      const perCycle = parseFloat(picked.inAmountPerCycle ?? '0') / Math.pow(10, inDecimals);
-      const total: number = picked.numberOfOrders ?? 0;
-      const executed: number = picked.cyclesExecuted ?? 0;
+      // Jupiter Recurring returns human-readable amounts already (inAmountPerCycle,
+      // inDeposited, inUsed) — the `raw*` variants are the base-unit versions.
+      // Cycle counts aren't returned directly; derive them from deposited/used.
+      const perCycle = parseFloat(picked.inAmountPerCycle ?? '0');
+      const deposited = parseFloat(picked.inDeposited ?? '0');
+      const used = parseFloat(picked.inUsed ?? '0');
+      const total = perCycle > 0 ? Math.round(deposited / perCycle) : 0;
+      const executed = perCycle > 0 ? Math.round(used / perCycle) : 0;
       this.cancelDcaTarget.set({
         input: this.tokenRegistry.getToken(inputMint)?.symbol ?? (inputMint ? inputMint.slice(0, 4) : '—'),
         output: this.tokenRegistry.getToken(outputMint)?.symbol ?? (outputMint ? outputMint.slice(0, 4) : '—'),
-        perCycle,
-        frequency: this.formatDcaFrequency(picked.cycleFrequency ?? 86400),
+        perCycle: Number(perCycle.toFixed(6)),
+        frequency: this.formatDcaFrequency(Number(picked.cycleFrequency ?? 86400)),
         remaining: Math.max(0, total - executed),
         total,
       });

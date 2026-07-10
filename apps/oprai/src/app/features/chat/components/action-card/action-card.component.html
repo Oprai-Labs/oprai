@@ -1505,7 +1505,7 @@
     <!-- ══════════════════════════════════════════════════════════
          CANCEL DCA — show the active order being cancelled
          ══════════════════════════════════════════════════════════ -->
-    @if (action?.type === 'cancel_dca') {
+    @if (action.type === 'cancel_dca') {
       <div class="proto-body">
         @if (cancelDcaTarget(); as d) {
           <div class="dca-cancel-summary">
