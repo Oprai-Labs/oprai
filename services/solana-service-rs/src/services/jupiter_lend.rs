@@ -37,23 +37,6 @@ pub struct JupiterBorrowParams {
     pub amount: String,
 }
 
-/// Tokens supported by Jupiter Lend Earn.
-const JUP_LEND_EARN_TOKENS: &[&str] = &["USDC", "USDT", "jupSOL", "jitoSOL", "EURC"];
-
-pub fn validate_jup_lend_token(token: &str) -> Result<(), AppError> {
-    if !JUP_LEND_EARN_TOKENS
-        .iter()
-        .any(|t| t.eq_ignore_ascii_case(token))
-    {
-        return Err(AppError::InvalidParams(format!(
-            "Jupiter Lend does not support '{}'. Supported tokens: {}",
-            token,
-            JUP_LEND_EARN_TOKENS.join(", ")
-        )));
-    }
-    Ok(())
-}
-
 pub fn validate_lend_params(params: &JupiterLendParams) -> Result<(), AppError> {
     let amount: f64 = params
         .amount
@@ -67,7 +50,10 @@ pub fn validate_lend_params(params: &JupiterLendParams) -> Result<(), AppError> 
             "Operation must be 'deposit' or 'withdraw'".into(),
         ));
     }
-    validate_jup_lend_token(&params.token)
+    // Token support is validated against the LIVE earn-token list in
+    // build_lend_transaction — never a hardcoded set here (Jupiter adds assets
+    // like WSOL/USDG/USDS/JupUSD over time and a static list goes stale).
+    Ok(())
 }
 
 pub fn validate_borrow_params(params: &JupiterBorrowParams) -> Result<(), AppError> {
@@ -86,27 +72,107 @@ pub fn validate_borrow_params(params: &JupiterBorrowParams) -> Result<(), AppErr
     Ok(())
 }
 
-/// Get lending market data from Jupiter API.
+// ── Live Jupiter Lend API shapes ────────────────────────────────────────────
+// The old `/lend/markets` endpoint is dead (404). Earn assets live at
+// `/lend/v1/earn/tokens`, borrow vaults at `/lend/v1/borrow/vaults`. Rates and
+// factors arrive as basis-point strings ("503" = 5.03%, "800" = 80% factor).
+
+fn parse_rate(s: &Option<String>) -> f64 {
+    s.as_deref().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0)
+}
+
+#[derive(Debug, Deserialize)]
+struct RawLendAsset {
+    address: String,
+    #[serde(default)]
+    symbol: String,
+    #[serde(rename = "uiSymbol", default)]
+    ui_symbol: Option<String>,
+    #[serde(default)]
+    decimals: u8,
+}
+
+impl RawLendAsset {
+    /// User-facing symbol: prefer uiSymbol (e.g. WSOL → "SOL") over the raw symbol.
+    fn display_symbol(&self) -> String {
+        self.ui_symbol
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&self.symbol)
+            .to_string()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RawEarnToken {
+    asset: RawLendAsset,
+    #[serde(rename = "totalRate", default)]
+    total_rate: Option<String>,
+    #[serde(rename = "rewardsRate", default)]
+    rewards_rate: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawBorrowVault {
+    #[serde(rename = "borrowToken")]
+    borrow_token: RawLendAsset,
+    #[serde(rename = "borrowRate", default)]
+    borrow_rate: Option<String>,
+    #[serde(rename = "collateralFactor", default)]
+    collateral_factor: Option<String>,
+}
+
+/// Get lending market data from the LIVE Jupiter Lend API.
+///
+/// Earn markets are authoritative (drive deposit/withdraw validation); borrow
+/// vaults are best-effort — a borrow-endpoint failure yields an empty borrow
+/// list rather than failing the whole call, so Earn keeps working.
 pub async fn get_lend_markets(http: &reqwest::Client) -> Result<LendMarketsResponse, AppError> {
-    let response = http
-        .get("https://lite-api.jup.ag/lend/markets")
+    let earn_raw: Vec<RawEarnToken> = http
+        .get("https://lite-api.jup.ag/lend/v1/earn/tokens")
         .send()
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to fetch lend markets: {}", e)))?;
-
-    if !response.status().is_success() {
-        return Err(AppError::Internal(format!(
-            "Lend markets API error: {}",
-            response.status()
-        )));
-    }
-
-    let data: LendMarketsResponse = response
+        .map_err(|e| AppError::Internal(format!("Failed to fetch lend earn tokens: {}", e)))?
         .json()
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to parse lend markets: {}", e)))?;
+        .map_err(|e| AppError::Internal(format!("Failed to parse lend earn tokens: {}", e)))?;
 
-    Ok(data)
+    let earn: Vec<EarnMarket> = earn_raw
+        .into_iter()
+        .map(|t| EarnMarket {
+            symbol: t.asset.display_symbol(),
+            mint: t.asset.address,
+            decimals: t.asset.decimals,
+            supply_apy: parse_rate(&t.total_rate) / 100.0,
+            rewards_apy: Some(parse_rate(&t.rewards_rate) / 100.0),
+        })
+        .collect();
+
+    let borrow: Vec<BorrowMarket> = match http
+        .get("https://lite-api.jup.ag/lend/v1/borrow/vaults")
+        .send()
+        .await
+    {
+        Ok(resp) => resp
+            .json::<Vec<RawBorrowVault>>()
+            .await
+            .map(|vaults| {
+                vaults
+                    .into_iter()
+                    .map(|v| BorrowMarket {
+                        symbol: v.borrow_token.display_symbol(),
+                        mint: v.borrow_token.address,
+                        decimals: v.borrow_token.decimals,
+                        borrow_apy: parse_rate(&v.borrow_rate) / 100.0,
+                        collateral_factor: parse_rate(&v.collateral_factor) / 1000.0,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+
+    Ok(LendMarketsResponse { earn, borrow })
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,18 +222,30 @@ pub async fn build_lend_transaction(
     // Fetch market data for APY info
     let markets = get_lend_markets(http).await?;
 
-    // Find the requested asset
-    let asset_info = markets
-        .earn
-        .iter()
-        .find(|m| m.symbol.eq_ignore_ascii_case(&params.token));
+    // Find the requested asset in the LIVE earn list. Match on symbol or mint,
+    // and treat SOL / WSOL as equivalent (the API lists native SOL as WSOL).
+    let want = params.token.trim();
+    let want_sol = want.eq_ignore_ascii_case("SOL") || want.eq_ignore_ascii_case("WSOL");
+    let asset_info = markets.earn.iter().find(|m| {
+        m.symbol.eq_ignore_ascii_case(want)
+            || m.mint == want
+            || (want_sol
+                && (m.symbol.eq_ignore_ascii_case("SOL")
+                    || m.symbol.eq_ignore_ascii_case("WSOL")))
+    });
 
     let (symbol, apy) = if let Some(asset) = asset_info {
         (asset.symbol.clone(), asset.supply_apy)
     } else {
+        let supported = markets
+            .earn
+            .iter()
+            .map(|m| m.symbol.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(AppError::InvalidParams(format!(
-            "Unsupported token: {}. Supported: USDC, USDT, jupSOL, jitoSOL, EURC",
-            params.token
+            "Jupiter Lend doesn't support '{}' yet. Currently supported: {}",
+            params.token, supported
         )));
     };
 

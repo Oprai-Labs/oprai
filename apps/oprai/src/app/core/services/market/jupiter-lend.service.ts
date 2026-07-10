@@ -116,9 +116,58 @@ export class JupiterLendService {
     return new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
   }
 
-  /** Return the list of supported lending assets. */
+  /** Return the list of supported lending assets (static seed — for display
+   *  fallbacks only; the authoritative set comes from loadLiveAssets()). */
   getSupportedAssets(): LendAsset[] {
     return LEND_SUPPORTED_ASSETS;
+  }
+
+  /** In-memory cache of the LIVE earn-asset list. */
+  private liveAssets: LendAsset[] | null = null;
+  private liveAssetsAt = 0;
+
+  /** Fetch the live Jupiter Lend earn-asset list (cached ~5 min). Jupiter adds
+   *  assets (WSOL/USDG/USDS/JupUSD…) over time, so this — not the static seed —
+   *  is the source of truth. Falls back to the seed only if the API is down. */
+  private async loadLiveAssets(): Promise<LendAsset[]> {
+    const FRESH_MS = 5 * 60 * 1000;
+    if (this.liveAssets && Date.now() - this.liveAssetsAt < FRESH_MS) return this.liveAssets;
+    try {
+      const res = await fetch(`${LEND_API}/v1/earn/tokens`);
+      if (res.ok) {
+        const tokens: any[] = await res.json();
+        const assets: LendAsset[] = tokens
+          .map(t => t.asset)
+          .filter(a => a?.address)
+          .map(a => ({
+            symbol: (a.uiSymbol || a.symbol || '').toString(),
+            mint: a.address as string,
+            decimals: typeof a.decimals === 'number' ? a.decimals : 6,
+          }));
+        if (assets.length) {
+          this.liveAssets = assets;
+          this.liveAssetsAt = Date.now();
+        }
+      }
+    } catch {
+      /* network failure — fall through to the seed list */
+    }
+    return this.liveAssets ?? LEND_SUPPORTED_ASSETS;
+  }
+
+  /** Resolve a lend asset by symbol or mint against the LIVE supported list.
+   *  Treats SOL and WSOL as equivalent (the API lists native SOL as WSOL). */
+  async resolveAsset(symbolOrMint: string): Promise<LendAsset | undefined> {
+    const assets = await this.loadLiveAssets();
+    const q = symbolOrMint.trim();
+    const upper = q.toUpperCase();
+    const wantSol = upper === 'SOL' || upper === 'WSOL';
+    return assets.find(
+      a =>
+        a.symbol.toUpperCase() === upper ||
+        a.mint === q ||
+        (wantSol && (a.symbol.toUpperCase() === 'SOL' || a.symbol.toUpperCase() === 'WSOL')),
+    );
   }
 
   // ─── Market Data API ────────────────────────────────────────────────────

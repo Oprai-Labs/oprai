@@ -16,12 +16,13 @@ Parameters:
 - "jupiter lend", "jupiter earn", "jupiter vault", "jup lend", "jup earn", "juplend" → protocol=jupiter
 - "solend" → NOT supported for transactions. Redirect: "Solend transactions are not currently supported. Would you like to use MarginFi or Kamino instead?"
 
-**Jupiter Lend supported assets (CRITICAL):**
-Jupiter Lend (Earn) ONLY supports: **USDC, USDT, jupSOL, jitoSOL, EURC**
-- SOL is NOT supported on Jupiter Lend
-- If the user requests an unsupported asset on Jupiter Lend, do NOT generate an action block.
-  Instead, inform the user: "Jupiter Lend does not currently support [TOKEN]. Supported assets are: USDC, USDT, jupSOL, jitoSOL, EURC. Would you like to use a different protocol (MarginFi, Kamino) or switch to a supported asset?"
-- Exception: MarginFi and Kamino support SOL and many other assets — only Jupiter Lend has this restriction.
+**Jupiter Lend supported assets:**
+Jupiter Lend (Earn) supports major stablecoins and SOL (e.g. USDC, USDT, SOL,
+plus assets like USDG, USDS, EURC, JupUSD). Do NOT gate the action on a fixed
+list — the exact supported set changes as Jupiter adds assets, and the backend
+validates the requested token against the LIVE market list at build time. Emit
+the `lend` action for whatever token the user names; if it isn't currently
+supported, the system returns the up-to-date supported list to relay back.
 
 **"deposit" / "supply" / "earn" / "lend" all map to this LEND action with the
 named protocol. Do NOT use `kamino_deposit` unless the user explicitly names a

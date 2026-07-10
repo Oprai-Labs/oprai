@@ -1826,7 +1826,7 @@ export class SolanaActionService {
     switch (action.type) {
       // ── Jupiter Lend: Earn ──────────────────────────────────────────────
       case 'lend': {
-        const asset = this.lendService.findAsset(action.params['token'] ?? 'USDC');
+        const asset = await this.lendService.resolveAsset(action.params['token'] ?? 'USDC');
         if (!asset) throw new Error(`Unsupported lend asset: ${action.params['token']}`);
         const result = await this.lendService.buildDepositTransaction(
           asset,
@@ -1836,7 +1836,7 @@ export class SolanaActionService {
         break;
       }
       case 'withdraw_lend': {
-        const asset = this.lendService.findAsset(action.params['token'] ?? 'USDC');
+        const asset = await this.lendService.resolveAsset(action.params['token'] ?? 'USDC');
         if (!asset) throw new Error(`Unsupported lend asset: ${action.params['token']}`);
         const result = await this.lendService.buildWithdrawTransaction(
           asset,
@@ -1849,9 +1849,9 @@ export class SolanaActionService {
       // ── Jupiter Lend: Borrow / Repay ────────────────────────────────────
       case 'borrow':
       case 'repay': {
-        const colAsset = this.lendService.findAsset(action.params['collateral'] ?? 'SOL') ??
+        const colAsset = (await this.lendService.resolveAsset(action.params['collateral'] ?? 'SOL')) ??
           { symbol: 'SOL', mint: 'So11111111111111111111111111111111111111112', decimals: 9 };
-        const debtAsset = this.lendService.findAsset(action.params['token'] ?? 'USDC') ??
+        const debtAsset = (await this.lendService.resolveAsset(action.params['token'] ?? 'USDC')) ??
           { symbol: 'USDC', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 };
         const rawAmount = parseFloat(action.params['amount'] ?? '0');
         const debtDelta = action.type === 'borrow' ? rawAmount : -rawAmount;
