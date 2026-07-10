@@ -72,6 +72,7 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "meteora":   ("meteora", "dlmm", "damm", "m3m3", "stake2earn"),
     "raydium":   ("raydium", "clmm"),
     "orca":      ("orca", "whirlpool"),
+    "jupiter":   ("jupiter", "juplend", "jup lend", "jup earn"),
     "kamino":    ("kamino", "klend", "k-lend", "kswap"),
     "marginfi":  ("marginfi", "mrgn", "mfi"),
     "jito":      ("jito", "jitosol"),
@@ -121,6 +122,25 @@ def _augment_protocols_from_keywords(
         if any(_kw_regex(kw).search(msg) for kw in keywords):
             augmented.add(proto)
     return tuple(sorted(augmented))
+
+
+def named_protocols(msg: str) -> frozenset[str]:
+    """Protocols whose product name appears *literally* in the message.
+
+    This is the deterministic half of detection — it reflects only what the
+    user actually typed, with none of the classifier's semantic inference. Use
+    it when downstream code must distinguish "the user named protocol X" from
+    "the classifier guessed X" (e.g. correcting a wrong-protocol action). Same
+    centralized `_PROTOCOL_KEYWORDS` table and word-boundary matching as the
+    augmentation net — never grow a parallel keyword list elsewhere.
+    """
+    if not msg:
+        return frozenset()
+    return frozenset(
+        proto
+        for proto, keywords in _PROTOCOL_KEYWORDS.items()
+        if any(_kw_regex(kw).search(msg) for kw in keywords)
+    )
 
 
 @dataclass(frozen=True)

@@ -2034,24 +2034,26 @@ async def stream_chat_response(
         # Deterministic lending-protocol correction. gpt-5.4-mini intermittently
         # emits a Kamino-specific action (kamino_deposit / kamino_withdraw /
         # kamino_borrow / kamino_repay) even when the user named Jupiter or
-        # MarginFi ("deposit to Jupiter Lend"). The generic lend / withdraw_lend
-        # / borrow / repay actions carry an explicit `protocol` param, so remap
-        # when the message names a DIFFERENT lending protocol and never mentions
-        # Kamino. Requests with no named protocol are left alone — Kamino stays a
-        # fine default there.
+        # MarginFi ("deposit to Jupiter Lend") — the shared lending prompt keeps
+        # Kamino's examples in view. The generic lend / withdraw_lend / borrow /
+        # repay actions carry an explicit `protocol` param, so remap when the
+        # user *literally* named a different lending protocol and never named
+        # Kamino. Detection reuses intent_router's centralized product-name net
+        # (named_protocols) — no bespoke keyword list here. Requests that name
+        # no lending protocol are left alone; Kamino stays a fine default.
         _KAMINO_LEND_REMAP = {
             "kamino_deposit": "lend",
             "kamino_withdraw": "withdraw_lend",
             "kamino_borrow": "borrow",
             "kamino_repay": "repay",
         }
-        _msg_lower = (user_content or "").lower()
-        _names_kamino = any(k in _msg_lower for k in ("kamino", "klend", "k-lend", "k lend"))
+        from app.services.intent_router import named_protocols as _named_protocols
+        _named = _named_protocols(user_content or "")
         _named_lender = None
-        if not _names_kamino:
-            if any(k in _msg_lower for k in ("jupiter", "juplend", "jup lend", "jup earn")):
+        if "kamino" not in _named:
+            if "jupiter" in _named:
                 _named_lender = "jupiter"
-            elif any(k in _msg_lower for k in ("marginfi", "margin fi", "mfi")):
+            elif "marginfi" in _named:
                 _named_lender = "marginfi"
         for tc_name, tc_args in collected_tool_calls:
             # Inject chain depth into args so _validate_execute_action can enforce the cap.
