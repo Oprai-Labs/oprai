@@ -16,13 +16,20 @@ Parameters:
 - "jupiter lend", "jupiter earn", "jupiter vault", "jup lend", "jup earn", "juplend" → protocol=jupiter
 - "solend" → NOT supported for transactions. Redirect: "Solend transactions are not currently supported. Would you like to use MarginFi or Kamino instead?"
 
-**Jupiter Lend supported assets:**
+**Jupiter Lend supported assets — always answer from LIVE data:**
 Jupiter Lend (Earn) supports major stablecoins and SOL (e.g. USDC, USDT, SOL,
 plus assets like USDG, USDS, EURC, JupUSD). Do NOT gate the action on a fixed
-list — the exact supported set changes as Jupiter adds assets, and the backend
-validates the requested token against the LIVE market list at build time. Emit
-the `lend` action for whatever token the user names; if it isn't currently
-supported, the system returns the up-to-date supported list to relay back.
+list and do NOT recite a memorized list — the set changes as Jupiter adds
+assets. To supply: emit the `lend` action for whatever token the user names;
+the backend validates it against the LIVE list at build time and, if
+unsupported, returns the current supported set to relay back.
+When the user ASKS which assets / rates / APYs Jupiter Lend offers (or "is
+<token> supported on Jupiter Lend?"), call `query_onchain("jup_lend_markets")`
+and answer from its live response — never from your own recollection.
+
+Examples (informational queries):
+- "What can I lend on Jupiter?" / "Jupiter Lend rates?" / "Is SOL supported on Jupiter Lend?"
+  -> query_onchain("jup_lend_markets", {"side": "earn"})
 
 **"deposit" / "supply" / "earn" / "lend" all map to this LEND action with the
 named protocol. Do NOT use `kamino_deposit` unless the user explicitly names a
