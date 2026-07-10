@@ -42,7 +42,12 @@ pub struct DcaParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CancelDcaParams {
-    /// On-chain DCA order account pubkey.
+    /// On-chain DCA order account pubkey. Optional: when omitted (or set to
+    /// "self"/"all"/"auto"), the backend resolves the user's single active DCA
+    /// order automatically. The LLM cannot see the order address (the DCA list
+    /// is a self-fetching frontend card), so it emits cancel_dca without one and
+    /// we look it up here.
+    #[serde(default)]
     pub order: String,
 }
 
@@ -232,15 +237,76 @@ pub async fn create_dca_transaction(
 // Cancel DCA order
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// Extract the DCA order accounts array from a Jupiter `getRecurringOrders`
+/// response, tolerating the various keys the API/proxy have used (`time` is the
+/// current one for time-based recurring orders; `orders`/`all` are legacy).
+fn extract_dca_orders(data: &serde_json::Value) -> Vec<serde_json::Value> {
+    for key in ["time", "orders", "all"] {
+        if let Some(arr) = data.get(key).and_then(|v| v.as_array()) {
+            return arr.clone();
+        }
+    }
+    // Some responses return a bare array.
+    if let Some(arr) = data.as_array() {
+        return arr.clone();
+    }
+    Vec::new()
+}
+
+/// Pull the on-chain order account pubkey out of a single DCA order object.
+fn order_account(order: &serde_json::Value) -> Option<String> {
+    for key in ["orderKey", "publicKey", "account", "dcaKey", "pubkey"] {
+        if let Some(s) = order.get(key).and_then(|v| v.as_str()) {
+            if !s.is_empty() {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Cancel an active DCA order via Jupiter Recurring API.
+///
+/// The order account address can be supplied explicitly (e.g. from the
+/// frontend DCA card's Cancel button) or resolved server-side when the chat
+/// LLM emits `cancel_dca` without one — the LLM never sees the address because
+/// the DCA list is a self-fetching frontend card.
 pub async fn cancel_dca_transaction(
     http: &reqwest::Client,
     jupiter_api_key: Option<&str>,
     user_pubkey: &str,
     params: &CancelDcaParams,
 ) -> Result<BuildResponse, AppError> {
+    let requested = params.order.trim();
+    let needs_lookup = requested.is_empty()
+        || matches!(
+            requested.to_ascii_lowercase().as_str(),
+            "self" | "all" | "auto" | "mine" | "active"
+        );
+
+    let order_address = if needs_lookup {
+        let data = get_dca_orders(http, jupiter_api_key, user_pubkey, "open").await?;
+        let orders = extract_dca_orders(&data);
+        let addresses: Vec<String> = orders.iter().filter_map(order_account).collect();
+        match addresses.len() {
+            0 => {
+                return Err(AppError::InvalidParams(
+                    "You have no active DCA orders to cancel.".into(),
+                ));
+            }
+            1 => addresses.into_iter().next().unwrap(),
+            n => {
+                return Err(AppError::InvalidParams(format!(
+                    "You have {n} active DCA orders. Please specify which one to cancel by its order address."
+                )));
+            }
+        }
+    } else {
+        requested.to_string()
+    };
+
     let body = json!({
-        "order": params.order,
+        "order": order_address,
         "user": user_pubkey,
         "recurringType": "time",
     });
@@ -274,14 +340,14 @@ pub async fn cancel_dca_transaction(
         .ok_or_else(|| AppError::JupiterApiError("Missing transaction in cancel DCA response".into()))?
         .to_string();
 
-    let short_order = &params.order[..8.min(params.order.len())];
+    let short_order = &order_address[..8.min(order_address.len())];
     let preview = ActionPreview {
         id: Uuid::new_v4().to_string(),
         action_type: "cancel_dca".to_string(),
         description: format!("Cancel DCA order {}...", short_order),
         estimated_fee: "~0.001 SOL".to_string(),
         estimated_refund: None,
-        params: serde_json::to_value(params).unwrap_or_default(),
+        params: json!({ "order": order_address }),
         warnings: vec![],
         requires_approval: true,
     };
@@ -341,11 +407,7 @@ pub async fn build_jup_dca_orders(
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let data = get_dca_orders(http, jupiter_api_key, target, &params.status).await?;
 
-    let count = data
-        .get("orders")
-        .and_then(|v| v.as_array())
-        .map(|a| a.len())
-        .unwrap_or(0);
+    let count = extract_dca_orders(&data).len();
 
     let wallet_short = if target.len() > 8 {
         format!("{}...{}", &target[..4], &target[target.len() - 4..])

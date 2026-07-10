@@ -79,16 +79,22 @@ Examples:
   -> execute_action("cancel_all_limit_orders", {})
 
 #### 14b. CANCEL_DCA — Cancel an active Jupiter DCA order
-Format: [ACTION:cancel_dca] order=<order_id>
+Format: [ACTION:cancel_dca] order=<order_id|self>
 
 Parameters:
-- order: The DCA order account address to cancel (from QUERY:dca response)
+- order: The DCA order account address to cancel. Optional — omit it (or use
+  "self") and the backend automatically resolves the user's single active DCA
+  order. Only pass an explicit address when the user has multiple DCA orders
+  and names a specific one.
+
+Do NOT try to look up the order address yourself first — you cannot see it. Emit
+the cancel action directly and let the backend find the active order.
 
 Examples:
 - "Cancel my DCA"
-  -> First call query_onchain("dca", {"wallet": "self"}) to find the order address, then execute_action("cancel_dca", {"order": "<address>"})
-- "Stop my DCA"
-  -> First call query_onchain("dca", {"wallet": "self"}), then execute_action("cancel_dca", {"order": "<address>"})
+  -> execute_action("cancel_dca", {"order": "self"})
+- "Stop my DCA" / "cancel it" (after a DCA was just listed)
+  -> execute_action("cancel_dca", {"order": "self"})
 
 #### JUPITER PERPETUALS (JLP) — Trade perpetual futures via Jupiter's JLP pool
 

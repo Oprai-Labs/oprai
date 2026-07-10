@@ -481,8 +481,11 @@ export class IntentParserService {
         return `Remove Liquidity`;
       case 'dca':
         return `DCA ${action.params['totalAmount'] ?? action.params['amount'] ?? ''} ${action.params['inputMint'] ?? ''} → ${action.params['outputMint'] ?? ''} ×${action.params['numberOfOrders'] ?? ''} (${action.params['frequency'] ?? action.params['intervalSeconds'] ?? ''})`;
-      case 'cancel_dca':
-        return `Cancel DCA order ${(action.params['order'] ?? '').slice(0, 8)}...`;
+      case 'cancel_dca': {
+        const dcaOrder = String(action.params['order'] ?? '');
+        const isAuto = !dcaOrder || ['self', 'all', 'auto', 'mine', 'active'].includes(dcaOrder.toLowerCase());
+        return isAuto ? 'Cancel DCA order' : `Cancel DCA order ${dcaOrder.slice(0, 8)}...`;
+      }
       case 'limit_order':
         return `Limit Order: ${action.params['amount'] ?? ''} ${action.params['inputMint'] ?? ''} at $${action.params['targetPrice'] ?? ''}`;
       case 'cancel_limit_order':
