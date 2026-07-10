@@ -2536,6 +2536,63 @@
 // Live quote block reuses .perp-summary; liquidation price flagged in loss red.
 .perp-quote__liq { color: var(--op-loss); }
 
+// cancel_dca: compact summary of the order being cancelled.
+.dca-cancel-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  font-size: 0.8125rem;
+
+  &--loading, &--muted {
+    color: var(--op-text-tertiary);
+    font-size: 0.8125rem;
+  }
+
+  &__pair {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  &__route {
+    color: var(--op-text-primary);
+    font-weight: 700;
+    font-size: 0.9375rem;
+    font-variant-numeric: tabular-nums;
+  }
+  &__tag {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--op-brand);
+    background: color-mix(in srgb, var(--op-brand) 14%, transparent);
+  }
+
+  &__rows { display: flex; flex-direction: column; gap: 6px; }
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    span:first-child { color: var(--op-text-tertiary); }
+    span:last-child { color: var(--op-text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  }
+
+  &__note {
+    color: var(--op-text-tertiary);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    padding-top: 2px;
+    border-top: 1px solid var(--op-border-subtle);
+  }
+}
+
 // Uniswap-style token pill (icon + symbol) inside each panel.
 .pump-token {
   flex-shrink: 0;

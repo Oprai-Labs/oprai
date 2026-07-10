@@ -222,8 +222,9 @@ function getProtocolKey(action: ParsedAction): string {
   const p = (action.params['protocol'] ?? '').toLowerCase();
   if (p && PROTOCOL_CONFIGS[p]) return p;
   const t = action.type;
-  // Jupiter surface: swaps, limit/DCA, perpetuals, JLP — all Jupiter products.
+  // Jupiter surface: swaps, limit/DCA (incl. cancels), perpetuals, JLP — all Jupiter products.
   if (t === 'swap' || t === 'limit_order' || t === 'dca') return 'jupiter';
+  if (t === 'cancel_dca' || t === 'cancel_limit_order' || t === 'cancel_all_limit_orders') return 'jupiter';
   if (t === 'perp_open' || t === 'perp_close' || t === 'jlp_add' || t === 'jlp_remove') return 'jupiter';
   if (t === 'stake') return p || 'jito';
   if (t === 'unstake') return p || 'jito';
@@ -1320,6 +1321,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Edit params
   readonly editParams = signal<Record<string, string | undefined>>({});
 
+  // cancel_dca: the active DCA order this card will cancel, fetched on init so
+  // the card shows *what* is being cancelled (the order address is resolved
+  // server-side, so the LLM/action carries no details).
+  readonly cancelDcaTarget = signal<{
+    input: string; output: string; perCycle: number; frequency: string;
+    remaining: number; total: number;
+  } | null>(null);
+  readonly cancelDcaLoading = signal(false);
+
   // Auto-save edits to localStorage so they survive page refresh for pending actions.
   private readonly _draftEffect = effect(() => {
     const status = this.status();
@@ -2208,6 +2218,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeLoadLstRate();
     this.maybeEnrichRaydiumPool();
     this.maybeNormalizeExactOutToExactIn();
+    this.maybeLoadCancelDcaTarget();
   }
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['action'] && this.action) {
@@ -2219,11 +2230,72 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this._enrichedRaydiumPool = null;
       this.maybeEnrichRaydiumPool();
       this.maybeNormalizeExactOutToExactIn();
+      this.cancelDcaTarget.set(null);
+      this.maybeLoadCancelDcaTarget();
       return;
     }
     // Re-apply cached result if it arrives after the component was already initialized
     if (changes['cachedResult'] && this.cachedResult && this.status() === 'pending') {
       this.initFromAction();
+    }
+  }
+
+  /**
+   * For a `cancel_dca` card, fetch the user's active DCA order(s) so the card
+   * can show *what* is being cancelled. The order address itself is resolved
+   * server-side at build time; this is purely for display. If an explicit order
+   * address was supplied (frontend card Cancel button), we match it; otherwise
+   * we show the single active order (the same one the backend will resolve).
+   */
+  async maybeLoadCancelDcaTarget(): Promise<void> {
+    if (this.action?.type !== 'cancel_dca') return;
+    this.cancelDcaLoading.set(true);
+    try {
+      const resp = await firstValueFrom(
+        this.apiService.get<any>('/actions/dca-orders', { status: 'open' }),
+      );
+      // Jupiter Recurring API v1: time-based orders under resp.time.
+      const orders: any[] = resp?.time ?? resp?.orders ?? resp?.all ?? [];
+      const explicit = String(this.editParams()['order'] ?? '').trim().toLowerCase();
+      const isAuto = !explicit || ['self', 'all', 'auto', 'mine', 'active'].includes(explicit);
+      const picked = isAuto
+        ? orders[0]
+        : orders.find(o => (o.orderKey ?? o.publicKey ?? '').toLowerCase() === explicit) ?? orders[0];
+      if (!picked) { this.cancelDcaTarget.set(null); return; }
+
+      const inputMint: string = picked.inputMint ?? '';
+      const outputMint: string = picked.outputMint ?? '';
+      const inDecimals = this.tokenRegistry.getToken(inputMint)?.decimals ?? 9;
+      const perCycle = parseFloat(picked.inAmountPerCycle ?? '0') / Math.pow(10, inDecimals);
+      const total: number = picked.numberOfOrders ?? 0;
+      const executed: number = picked.cyclesExecuted ?? 0;
+      this.cancelDcaTarget.set({
+        input: this.tokenRegistry.getToken(inputMint)?.symbol ?? (inputMint ? inputMint.slice(0, 4) : '—'),
+        output: this.tokenRegistry.getToken(outputMint)?.symbol ?? (outputMint ? outputMint.slice(0, 4) : '—'),
+        perCycle,
+        frequency: this.formatDcaFrequency(picked.cycleFrequency ?? 86400),
+        remaining: Math.max(0, total - executed),
+        total,
+      });
+    } catch {
+      this.cancelDcaTarget.set(null);
+    } finally {
+      this.cancelDcaLoading.set(false);
+    }
+  }
+
+  private formatDcaFrequency(secs: number): string {
+    switch (secs) {
+      case 60: return 'every minute';
+      case 3600: return 'hourly';
+      case 86400: return 'daily';
+      case 604800: return 'weekly';
+      case 2592000: return 'monthly';
+      default: {
+        if (secs % 86400 === 0) return `every ${secs / 86400} days`;
+        if (secs % 3600 === 0) return `every ${secs / 3600} hours`;
+        return `every ${secs}s`;
+      }
     }
   }
 

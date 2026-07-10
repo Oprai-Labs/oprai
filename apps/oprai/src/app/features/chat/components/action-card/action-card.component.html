@@ -1503,6 +1503,37 @@
     }
 
     <!-- ══════════════════════════════════════════════════════════
+         CANCEL DCA — show the active order being cancelled
+         ══════════════════════════════════════════════════════════ -->
+    @if (action?.type === 'cancel_dca') {
+      <div class="proto-body">
+        @if (cancelDcaTarget(); as d) {
+          <div class="dca-cancel-summary">
+            <div class="dca-cancel-summary__pair">
+              <span class="dca-cancel-summary__route">{{ d.input }} → {{ d.output }}</span>
+              <span class="dca-cancel-summary__tag">DCA</span>
+            </div>
+            <div class="dca-cancel-summary__rows">
+              <div class="dca-cancel-summary__row">
+                <span>Buys</span>
+                <span>{{ d.perCycle }} {{ d.input }} {{ d.frequency }}</span>
+              </div>
+              <div class="dca-cancel-summary__row">
+                <span>Cycles left</span>
+                <span>{{ d.remaining }} / {{ d.total }}</span>
+              </div>
+            </div>
+            <div class="dca-cancel-summary__note">This will stop the order and unlock any remaining funds.</div>
+          </div>
+        } @else if (cancelDcaLoading()) {
+          <div class="dca-cancel-summary dca-cancel-summary--loading">Loading your DCA order…</div>
+        } @else {
+          <div class="dca-cancel-summary dca-cancel-summary--muted">Cancels your active DCA order.</div>
+        }
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
          VALIDATOR PICKER — native_stake only
          ══════════════════════════════════════════════════════════ -->
     @if (isNativeStake() && isEditable()) {
