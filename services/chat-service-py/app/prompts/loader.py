@@ -17,8 +17,10 @@ logger = logging.getLogger(__name__)
 # Protocol → prompt files that must be included (in addition to _always files).
 # Files are merged in PROMPT_FILES order so context stays coherent.
 PROTOCOL_FILE_MAP: dict[str, list[str]] = {
-    # DEX / Swap
-    "jupiter":      ["solana_action_core.txt", "solana_action_dex.txt", "solana_action_market_data.txt"],
+    # DEX / Swap / Lend — Jupiter is also a lending protocol (Jupiter Lend:
+    # Earn + Borrow), so the lending fragment must load or "jupiter lend" has no
+    # action grammar and the model falls back to a balance query.
+    "jupiter":      ["solana_action_core.txt", "solana_action_dex.txt", "solana_action_lending.txt", "solana_action_market_data.txt"],
     "raydium":      ["solana_action_core.txt", "solana_action_dex.txt"],
     "orca":         ["solana_action_core.txt", "solana_action_dex.txt"],
     "meteora":      ["solana_action_core.txt", "solana_action_dex.txt"],
