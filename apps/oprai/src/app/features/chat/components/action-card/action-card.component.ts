@@ -1461,6 +1461,58 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
+  // JLP add/remove live estimate — how much JLP (add) or token (remove) the
+  // user receives. Backend routes JLP through the Jupiter swap, so /actions/build
+  // returns a swap quote (camelCase outAmount, in output-token base units).
+  readonly jlpQuote = signal<{ out: number; symbol: string } | null>(null);
+  readonly jlpQuoteLoading = signal(false);
+  private _jlpQuoteSeq = 0;
+  private _jlpQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly _jlpQuoteEffect = effect(() => {
+    const t = this.action?.type;
+    if (t !== 'jlp_add' && t !== 'jlp_remove') { this.jlpQuote.set(null); return; }
+    const amount = this.getEditParam('amount');
+    const token = this.getEditParam('token');
+    const amtNum = parseFloat(amount);
+    if (!Number.isFinite(amtNum) || amtNum <= 0) { this.jlpQuote.set(null); return; }
+    const seq = ++this._jlpQuoteSeq;
+    if (this._jlpQuoteTimer) clearTimeout(this._jlpQuoteTimer);
+    this._jlpQuoteTimer = setTimeout(() => {
+      untracked(() => this.fetchJlpQuote(seq, t, { operation: t === 'jlp_add' ? 'add' : 'remove', amount, token }));
+    }, 600);
+  });
+
+  private async fetchJlpQuote(
+    seq: number,
+    type: 'jlp_add' | 'jlp_remove',
+    params: { operation: string; amount: string; token: string },
+  ): Promise<void> {
+    this.jlpQuoteLoading.set(true);
+    try {
+      const res = await firstValueFrom(
+        this.apiService.post<{ quote?: any }>('/actions/build', { type, params }),
+      );
+      if (seq !== this._jlpQuoteSeq) return;
+      const q = res?.quote ?? null;
+      const outRaw = q ? parseFloat(String(q.outAmount ?? '0')) : NaN;
+      if (!Number.isFinite(outRaw) || outRaw <= 0) { this.jlpQuote.set(null); return; }
+      // Output token: JLP (6 dp) when adding; the receive token when removing.
+      const JLP_MINT = '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4';
+      if (type === 'jlp_add') {
+        this.jlpQuote.set({ out: outRaw / 1e6, symbol: 'JLP' });
+      } else {
+        const outMint = String(q.outputMint ?? this.inputBalanceMint());
+        const tok = this.tokenRegistry.getToken(outMint);
+        const dec = tok?.decimals ?? 6;
+        this.jlpQuote.set({ out: outRaw / Math.pow(10, dec), symbol: tok?.symbol ?? (params.token || '') });
+      }
+    } catch {
+      if (seq === this._jlpQuoteSeq) this.jlpQuote.set(null);
+    } finally {
+      if (seq === this._jlpQuoteSeq) this.jlpQuoteLoading.set(false);
+    }
+  }
+
   // Validator picker (native_stake only)
   readonly validators = signal<ValidatorInfo[]>([]);
   readonly validatorsLoading = signal(false);

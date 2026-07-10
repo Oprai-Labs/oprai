@@ -1245,7 +1245,11 @@
                 <span class="pump-panel__label">Receive</span>
               </div>
               <div class="pump-panel__row">
-                <span class="pump-panel__amount pump-panel__amount--muted">JLP at pool rate</span>
+                @if (jlpQuote(); as jq) {
+                  <span class="pump-panel__amount">≈ {{ jq.out | number:'1.0-4' }}</span>
+                } @else {
+                  <span class="pump-panel__amount pump-panel__amount--muted">{{ jlpQuoteLoading() ? 'Estimating…' : 'JLP at pool rate' }}</span>
+                }
                 @let jlpTok = jlpMintTd();
                 <span class="pump-token">
                   @if (jlpTok.logoURI) {
@@ -1294,7 +1298,11 @@
                 <span class="pump-panel__label">Receive</span>
               </div>
               <div class="pump-panel__row">
-                <span class="pump-panel__amount pump-panel__amount--muted">{{ jlpRecvTd.symbol }} at pool rate</span>
+                @if (jlpQuote(); as jq) {
+                  <span class="pump-panel__amount">≈ {{ jq.out | number:'1.0-4' }}</span>
+                } @else {
+                  <span class="pump-panel__amount pump-panel__amount--muted">{{ jlpQuoteLoading() ? 'Estimating…' : jlpRecvTd.symbol + ' at pool rate' }}</span>
+                }
                 <span class="pump-token">
                   @if (jlpRecvTd.logoURI) {
                     <img [src]="jlpRecvTd.logoURI" class="pump-token__icon" alt=""

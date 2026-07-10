@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::services::builder::{ActionPreview, BuildResponse};
+use crate::services::swap;
 
 /// Jupiter Perps hosted API v2 — the endpoint the official `jup` CLI and the
 /// jup.ag/perps frontend use to build open/close transactions.
@@ -23,10 +24,6 @@ use crate::services::builder::{ActionPreview, BuildResponse};
 ///   GET  /positions?walletAddress=…            → { dataList, count }
 /// `inputToken`/`receiveToken`/`asset` are SYMBOLS ("SOL"|"BTC"|"ETH"|"USDC"), NOT mints.
 const JUPITER_PERPS_API: &str = "https://perps-api.jup.ag/v2";
-
-/// Legacy JLP liquidity base (add/remove-liquidity). NOTE: JLP is a separate
-/// surface and is not part of the v2 perps API above.
-const JUPITER_PERP_API: &str = "https://api.jup.ag/perp/v2";
 
 // Collateral token mints
 const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
@@ -468,7 +465,7 @@ pub async fn build_perp_liquidity_transaction(
     // For remove-liquidity: `token` = what the user receives, BUT the input amount
     //   is always JLP (6 decimals). These are treated separately below.
     let token_sym = params.token.as_deref().unwrap_or("SOL");
-    let (token_mint, token_decimals): (&str, u8) = match token_sym.to_uppercase().as_str() {
+    let (token_mint, _token_decimals): (&str, u8) = match token_sym.to_uppercase().as_str() {
         "USDC" => (USDC_MINT, 6),
         "USDT" => ("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", 6),
         "WETH" | "ETH" => (WETH_MINT, 8),
@@ -477,74 +474,47 @@ pub async fn build_perp_liquidity_transaction(
         _ => (SOL_MINT, 9),
     };
 
-    let (api_path, body, description) = if params.operation == "add" {
-        // amount = deposit token amount; use that token's decimals
-        let amount_lamports = (amount * 10f64.powi(token_decimals as i32)) as u64;
-        let desc = format!("Add {} {} to Jupiter JLP pool", amount, token_sym.to_uppercase());
-        let req_body = serde_json::json!({
-            "wallet": user_pubkey,
-            "mint": token_mint,
-            "amount": amount_lamports.to_string(),
-            "slippageBps": 100,
-        });
-        (format!("{}/add-liquidity", JUPITER_PERP_API), req_body, desc)
+    // JLP add/remove is economically a swap into/out of the JLP mint — Jupiter's
+    // aggregator routes through the pool's mint/redeem program and returns a real
+    // quote (exactly how much JLP / token the user receives). The old dedicated
+    // add-liquidity / remove-liquidity REST endpoints (api.jup.ag/perp/v2) are
+    // dead and return an unparseable body, so we route through the swap builder.
+    let (input_mint_addr, output_mint_addr, description) = if params.operation == "add" {
+        (
+            token_mint.to_string(),
+            JLP_MINT.to_string(),
+            format!("Add {} {} to Jupiter JLP pool", amount, token_sym.to_uppercase()),
+        )
     } else {
-        // amount = JLP tokens to burn (JLP has 6 decimals, independent of the receive token)
-        const JLP_DECIMALS: u8 = 6;
-        let jlp_lamports = (amount * 10f64.powi(JLP_DECIMALS as i32)) as u64;
-        let desc = format!(
-            "Remove {} JLP from Jupiter pool, receive {}",
-            amount,
-            token_sym.to_uppercase()
-        );
-        let req_body = serde_json::json!({
-            "wallet": user_pubkey,
-            "mint": token_mint,      // token to receive
-            "amount": jlp_lamports.to_string(), // JLP amount to burn (6 decimals)
-            "slippageBps": 100,
-        });
-        (format!("{}/remove-liquidity", JUPITER_PERP_API), req_body, desc)
+        (
+            JLP_MINT.to_string(),
+            token_mint.to_string(),
+            format!(
+                "Remove {} JLP from Jupiter pool, receive {}",
+                amount,
+                token_sym.to_uppercase()
+            ),
+        )
     };
 
-    let mut req = http.post(&api_path).json(&body);
-    if let Some(key) = jupiter_api_key {
-        req = req.header("x-api-key", key);
-    }
-    let response = req
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(format!("Jupiter Perp JLP API error: {}", e)))?;
+    let swap_params = swap::SwapParams {
+        input_mint: input_mint_addr,
+        output_mint: output_mint_addr,
+        amount: params.amount.clone(),
+        slippage_bps: Some(100),
+        only_direct_routes: None,
+        swap_mode: Some("ExactIn".to_string()),
+        priority_fee: None,
+        restrict_intermediate_tokens: None,
+    };
 
-    let status = response.status();
-    let resp_json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to parse JLP response: {}", e)))?;
-
-    if !status.is_success() {
-        let err_msg = resp_json
-            .get("error")
-            .and_then(|v| v.as_str())
-            .or_else(|| resp_json.get("message").and_then(|v| v.as_str()))
-            .unwrap_or("Unknown JLP API error");
-        return Err(AppError::Internal(format!(
-            "Jupiter JLP API error ({}): {}",
-            status, err_msg
-        )));
-    }
-
-    let transaction = resp_json
-        .get("transaction")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let action_type = format!("jlp_{}", params.operation);
+    let result = swap::build_swap_transaction(http, jupiter_api_key, user_pubkey, &swap_params).await?;
 
     let preview = ActionPreview {
         id: Uuid::new_v4().to_string(),
-        action_type,
+        action_type: format!("jlp_{}", params.operation),
         description,
-        estimated_fee: "10000".to_string(),
+        estimated_fee: result.preview.estimated_fee.clone(),
         estimated_refund: None,
         params: serde_json::to_value(params).unwrap_or_default(),
         warnings: vec![],
@@ -553,10 +523,12 @@ pub async fn build_perp_liquidity_transaction(
 
     Ok(BuildResponse {
         preview,
-        transaction,
+        transaction: Some(result.transaction_base64),
         additional_signers_required: 0,
         execution_steps: None,
-        quote: Some(resp_json),
+        // Jupiter swap quote (camelCase: outAmount, inAmount, outputMint, …) so
+        // the frontend can show how much JLP / token the user will receive.
+        quote: Some(serde_json::to_value(&result.quote).unwrap_or_default()),
         is_cross_chain: false,
         data: None,
     })
