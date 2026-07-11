@@ -2547,6 +2547,11 @@
   color: var(--op-gain, #16c784);
   background: color-mix(in srgb, var(--op-gain, #16c784) 14%, transparent);
 }
+/* Borrow rate is a cost, not a yield — amber, so it never reads as "earn". */
+.lend-apy-pill--borrow {
+  color: var(--op-warn, #f5a623);
+  background: color-mix(in srgb, var(--op-warn, #f5a623) 14%, transparent);
+}
 .lend-summary {
   display: flex;
   flex-direction: column;
@@ -3362,7 +3367,8 @@
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  margin-bottom: 8px;
+  margin-top: 10px;
+  margin-bottom: 2px;
 }
 
 .bc-token-btn {

@@ -1415,9 +1415,160 @@
             </div>
           </div>
         } @else if (action.type === 'borrow') {
-          <!-- Full professional borrow card is rendered by the borrow panel
-               below (collateral picker + live health/liquidation stats). The
-               generic token/amount fields are intentionally suppressed here. -->
+          <!-- ─────── Jupiter Lend borrow: deposit collateral → receive debt (swap-card look) ─────── -->
+          @let stats = borrowLiveStats;
+          @let opts = collateralOptions();
+          @let selCol = selectedCollateral();
+          @let debtTd = resolveTokenDisplay(getEditParam('token') || 'USDC');
+          @let colTd = selCol ? resolveTokenDisplay(selCol.mint) : null;
+          @let v0 = borrowSelectedVault;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+
+            <!-- Collateral (you deposit) -->
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Collateral</span>
+                @if (selCol && selCol.balance > 0) {
+                  <span class="pump-panel__bal">
+                    Balance: {{ selCol.balance | number:'1.0-4' }} {{ selCol.symbol }}
+                    @if (isEditable()) {
+                      <button class="pump-panel__max" type="button" (click)="setMaxCollateral()">Max</button>
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('collateralAmount')"
+                       (input)="setEditParam('collateralAmount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (colTd?.logoURI) {
+                    <img [src]="colTd!.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (selCol?.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ selCol?.symbol || '—' }}</span>
+                </span>
+              </div>
+
+              <!-- Collateral picker: choose which asset to lock -->
+              @if (borrowCapacity() === null || borrowCapacity()!.loading) {
+                <div class="bc-loading"><span class="proto-spinner"></span> Loading collateral options…</div>
+              } @else {
+                <div class="bc-token-row">
+                  @for (opt of opts; track opt.mint) {
+                    <button class="bc-token-btn"
+                            [class.bc-token-btn--active]="selCol?.mint === opt.mint"
+                            [class.bc-token-btn--empty]="opt.balance <= 0"
+                            type="button"
+                            [disabled]="!isEditable()"
+                            (click)="selectCollateral(opt)">
+                      {{ opt.symbol }}
+                      @if (opt.balance > 0) {
+                        <span class="bc-token-bal">{{ opt.balance | number:'1.2-4' }}</span>
+                      }
+                    </button>
+                  }
+                </div>
+                @if (selCol && selCol.balance <= 0) {
+                  <div class="bc-no-balance-hint">
+                    No {{ selCol.symbol }} in your wallet — enter an amount to simulate.
+                  </div>
+                }
+              }
+            </div>
+
+            <!-- Arrow: collateral secures the borrow -->
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="arrow-down" [size]="16" />
+            </div>
+
+            <!-- Borrow (you receive) -->
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Borrow</span>
+                @if (v0) {
+                  <span class="lend-apy-pill lend-apy-pill--borrow">{{ v0.borrowApy | number:'1.2-2' }}% APR</span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (debtTd.logoURI) {
+                    <img [src]="debtTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (debtTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ debtTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Live position stats: collateral value, max borrowable, HF, liq price -->
+            @if (stats) {
+              <div class="bc-stats"
+                   [class.bc-stats--safe]="stats.hfClass === 'safe'"
+                   [class.bc-stats--caution]="stats.hfClass === 'caution'"
+                   [class.bc-stats--danger]="stats.hfClass === 'danger'">
+                <div class="bc-stat">
+                  <span class="bc-stat-label">Collateral value</span>
+                  <span class="bc-stat-value">${{ stats.collateralUsd | number:'1.0-2' }}</span>
+                </div>
+                <div class="bc-stat">
+                  <span class="bc-stat-label">Max borrowable</span>
+                  <span class="bc-stat-value bc-stat-value--brand">{{ stats.maxBorrowable | number:'1.2-2' }} {{ selCol?.debtSymbol }}</span>
+                </div>
+                <div class="bc-stat">
+                  <span class="bc-stat-label"><app-jargon term="Health Factor">Health Factor</app-jargon></span>
+                  <span class="bc-stat-value"
+                        [class.bc-hf--safe]="stats.hfClass === 'safe'"
+                        [class.bc-hf--caution]="stats.hfClass === 'caution'"
+                        [class.bc-hf--danger]="stats.hfClass === 'danger'">
+                    {{ stats.healthFactorLabel }}
+                    @if (stats.healthFactorLabel !== '—') {
+                      <span class="bc-hf-label">
+                        {{ stats.hfClass === 'safe' ? '✓ Safe' : stats.hfClass === 'caution' ? '⚠ Caution' : '✗ Risky' }}
+                      </span>
+                    }
+                  </span>
+                </div>
+                <div class="bc-stat">
+                  <span class="bc-stat-label">Liquidation price <span style="opacity:.6">({{ selCol?.symbol }})</span></span>
+                  <span class="bc-stat-value bc-stat-value--warn">{{ stats.liquidationPriceLabel }}</span>
+                </div>
+
+                @if (stats.errorMsg) {
+                  <div class="bc-error">
+                    <lucide-icon name="alert-circle" [size]="12" />
+                    {{ stats.errorMsg }}
+                  </div>
+                }
+              </div>
+
+              @if (stats.hfClass !== 'safe') {
+                <div class="lend-hf-explain">
+                  <lucide-icon name="info" [size]="11" />
+                  If HF drops below 1.0 you will be liquidated automatically. Recommended minimum HF is 1.5×. Increase collateral.
+                </div>
+              }
+            }
+
+            <!-- Market rates for the selected collateral's vault -->
+            @if (v0) {
+              <div class="bc-footer-rates">
+                <span>Borrow rate: <strong>{{ v0.borrowApy | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
+                <span><app-jargon term="LTV">LTV</app-jargon>: <strong>{{ (v0.maxLtv * 100) | number:'1.0-0' }}%</strong></span>
+                <span><app-jargon term="Liquidation LTV">Liquidation</app-jargon>: <strong class="lend-info-value--warn">{{ (v0.liquidationThreshold * 100) | number:'1.0-0' }}%</strong></span>
+                <span>Available: <strong>{{ v0.availableLiquidity | number:'1.0-0' }} {{ v0.debtSymbol }}</strong></span>
+              </div>
+            }
+          </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
                [class.proto-fields--swaplike]="false">
@@ -1828,7 +1979,7 @@
     }
 
     <!-- Jupiter Lend info panel -->
-    @if (lendInfo() !== null || lendInfoLoading() || action.type === 'borrow') {
+    @if (lendInfo() !== null || lendInfoLoading()) {
       <div class="lend-info-panel">
         @if (lendInfoLoading()) {
           <div class="lend-info-loading">
@@ -1881,148 +2032,6 @@
               }
             }
           </div>
-        } @else if (action.type === 'borrow') {
-          @let stats = borrowLiveStats;
-          @let opts = collateralOptions();
-          @let selCol = selectedCollateral();
-          @let debtTd = resolveTokenDisplay(getEditParam('token') || 'USDC');
-
-          <!-- ══ BORROW (you receive) ══ -->
-          <div class="bc-section">
-            <div class="bc-section-label">Borrow</div>
-            <div class="bc-amount-row">
-              <input class="bc-amount-input" type="text" inputmode="decimal"
-                     [value]="getEditParam('amount')"
-                     (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
-                     [disabled]="!isEditable()"
-                     placeholder="0.0" />
-              <span class="bc-amount-symbol">
-                @if (debtTd.logoURI) {
-                  <img [src]="debtTd.logoURI" class="bc-token-icon" alt=""
-                       (error)="$any($event.target).style.display='none'" />
-                }
-                {{ debtTd.symbol }}
-              </span>
-            </div>
-          </div>
-
-          <!-- ══ COLLATERAL PICKER ══ -->
-          <div class="bc-section">
-            <div class="bc-section-label">
-              Collateral
-              @if (selCol && selCol.balance > 0) {
-                <span class="bc-section-bal">Balance: {{ selCol.balance | number:'1.3-6' }} {{ selCol.symbol }}</span>
-              }
-            </div>
-
-            <!-- Token selector tabs -->
-            @if (borrowCapacity() === null || borrowCapacity()!.loading) {
-              <div class="bc-loading"><span class="proto-spinner"></span> Loading collateral options...</div>
-            } @else {
-              <div class="bc-token-row">
-                @for (opt of opts; track opt.mint) {
-                  <button class="bc-token-btn"
-                          [class.bc-token-btn--active]="selCol?.mint === opt.mint"
-                          [class.bc-token-btn--empty]="opt.balance <= 0"
-                          type="button"
-                          (click)="selectCollateral(opt)">
-                    {{ opt.symbol }}
-                    @if (opt.balance > 0) {
-                      <span class="bc-token-bal">{{ opt.balance | number:'1.2-4' }}</span>
-                    }
-                  </button>
-                }
-              </div>
-
-              <!-- Collateral amount input -->
-              @if (selCol) {
-                <div class="bc-amount-row">
-                  <input class="bc-amount-input"
-                         type="text"
-                         inputmode="decimal"
-                         [value]="getEditParam('collateralAmount')"
-                         (input)="setEditParam('collateralAmount', $any($event.target).value.replace(',','.'))"
-                         [disabled]="!isEditable()"
-                         placeholder="0.0" />
-                  <span class="bc-amount-symbol">{{ selCol.symbol }}</span>
-                  @if (selCol.balance > 0) {
-                    <button class="bc-max-btn" type="button"
-                            (click)="setMaxCollateral()">Max</button>
-                  }
-                </div>
-                @if (selCol.balance <= 0) {
-                  <div class="bc-no-balance-hint">
-                    No {{ selCol.symbol }} in your wallet.
-                    You can enter the collateral amount manually to simulate.
-                  </div>
-                }
-              }
-            }
-          </div>
-
-          <!-- ══ LIVE STATS ══ -->
-          @if (stats) {
-            <div class="bc-stats"
-                 [class.bc-stats--safe]="stats.hfClass === 'safe'"
-                 [class.bc-stats--caution]="stats.hfClass === 'caution'"
-                 [class.bc-stats--danger]="stats.hfClass === 'danger'">
-
-              <div class="bc-stat">
-                <span class="bc-stat-label">Collateral value</span>
-                <span class="bc-stat-value">${{ stats.collateralUsd | number:'1.0-2' }}</span>
-              </div>
-              <div class="bc-stat">
-                <span class="bc-stat-label">Max borrowable</span>
-                <span class="bc-stat-value bc-stat-value--brand">{{ stats.maxBorrowable | number:'1.2-2' }} {{ selCol?.debtSymbol }}</span>
-              </div>
-              <div class="bc-stat">
-                <span class="bc-stat-label">
-                  <app-jargon term="Health Factor">Health Factor</app-jargon>
-                </span>
-                <span class="bc-stat-value"
-                      [class.bc-hf--safe]="stats.hfClass === 'safe'"
-                      [class.bc-hf--caution]="stats.hfClass === 'caution'"
-                      [class.bc-hf--danger]="stats.hfClass === 'danger'">
-                  {{ stats.healthFactorLabel }}
-                  @if (stats.healthFactorLabel !== '—') {
-                    <span class="bc-hf-label">
-                      {{ stats.hfClass === 'safe' ? '✓ Safe' : stats.hfClass === 'caution' ? '⚠ Caution' : '✗ Risky' }}
-                    </span>
-                  }
-                </span>
-              </div>
-              <div class="bc-stat">
-                <span class="bc-stat-label">Liquidation price <span style="opacity:.6">({{ selCol?.symbol }})</span></span>
-                <span class="bc-stat-value bc-stat-value--warn">{{ stats.liquidationPriceLabel }}</span>
-              </div>
-
-              @if (stats.errorMsg) {
-                <div class="bc-error">
-                  <lucide-icon name="alert-circle" [size]="12" />
-                  {{ stats.errorMsg }}
-                </div>
-              }
-            </div>
-
-            <!-- Info: what SF means -->
-            @if (stats.hfClass !== 'safe') {
-              <div class="lend-hf-explain">
-                <lucide-icon name="info" [size]="11" />
-                If HF drops below 1.0 you will be liquidated automatically. Recommended minimum HF is 1.5×. Increase collateral.
-              </div>
-            }
-          }
-
-          <!-- Market rates for the selected collateral's vault -->
-          @let v0 = borrowSelectedVault;
-          @if (v0) {
-          <div class="bc-footer-rates">
-            <span>Borrow rate: <strong>{{ v0.borrowApy | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
-            <span><app-jargon term="LTV">LTV</app-jargon>: <strong>{{ (v0.maxLtv * 100) | number:'1.0-0' }}%</strong></span>
-            <span><app-jargon term="Liquidation LTV">Liquidation</app-jargon>: <strong class="lend-info-value--warn">{{ (v0.liquidationThreshold * 100) | number:'1.0-0' }}%</strong></span>
-            <span>Available: <strong>{{ v0.availableLiquidity | number:'1.0-0' }} {{ v0.debtSymbol }}</strong></span>
-          </div>
-          }
         }
       </div>
     }
