@@ -3372,34 +3372,41 @@
 }
 
 .bc-token-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: 20px;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
   border: 1px solid var(--op-border-subtle);
-  background: var(--op-bg-surface-2);
+  background: var(--op-bg-surface-1);
   color: var(--op-text-secondary);
-  font-size: 0.6875rem;
-  font-weight: 500;
+  font-size: 0.75rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all .15s;
+  transition: border-color .14s, background .14s, color .14s;
 
-  &:hover { border-color: var(--op-brand); color: var(--op-text-primary); }
+  &:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--op-brand) 55%, var(--op-border-subtle));
+    color: var(--op-text-primary);
+  }
 
   &--active {
     border-color: var(--op-brand);
-    background: color-mix(in srgb, var(--op-brand) 12%, var(--op-bg-surface-2));
+    background: color-mix(in srgb, var(--op-brand) 14%, var(--op-bg-surface-1));
     color: var(--op-brand);
-    font-weight: 600;
   }
 
-  &--empty { opacity: 0.45; }
+  &--empty:not(.bc-token-btn--active) { opacity: 0.5; }
+
+  &:disabled { cursor: default; }
 }
 
 .bc-token-bal {
   font-size: 0.625rem;
-  opacity: 0.7;
+  font-weight: 600;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
 }
 
 .bc-amount-row {
@@ -3466,37 +3473,47 @@
 }
 
 // ── Borrow Live Stats ──
+// Full-width so it aligns edge-to-edge with the pump panels above; same
+// 16px radius + surface as a panel so the whole card reads as one system.
 
 .bc-stats {
-  margin: 8px 12px 0;
-  padding: 10px 12px;
-  border-radius: var(--op-radius-sm);
+  margin-top: 2px;
+  padding: 14px 16px;
+  border-radius: 16px;
   border: 1px solid var(--op-border-subtle);
   background: var(--op-bg-surface-2);
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px 12px;
+  gap: 14px 16px;
 
-  &--safe    { border-color: color-mix(in srgb, #22c55e 25%, transparent); }
-  &--caution { border-color: color-mix(in srgb, #f59e0b 30%, transparent); }
-  &--danger  { border-color: color-mix(in srgb, #ef4444 35%, transparent); }
+  &--safe    { border-color: color-mix(in srgb, #22c55e 30%, transparent); background: color-mix(in srgb, #22c55e 4%, var(--op-bg-surface-2)); }
+  &--caution { border-color: color-mix(in srgb, #f59e0b 32%, transparent); background: color-mix(in srgb, #f59e0b 4%, var(--op-bg-surface-2)); }
+  &--danger  { border-color: color-mix(in srgb, #ef4444 36%, transparent); background: color-mix(in srgb, #ef4444 4%, var(--op-bg-surface-2)); }
 }
 
 .bc-stat {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  min-width: 0;
 }
 
 .bc-stat-label {
-  font-size: 0.625rem;
-  color: var(--op-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--op-text-tertiary);
+  letter-spacing: 0.01em;
 }
 
 .bc-stat-value {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.9375rem;
+  font-weight: 700;
   color: var(--op-text-primary);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
 
   &--brand { color: var(--op-brand); }
   &--warn  { color: #f59e0b; }
@@ -3507,30 +3524,35 @@
 .bc-hf--danger  { color: #ef4444; }
 
 .bc-hf-label {
-  font-size: 0.625rem;
-  margin-left: 3px;
-  font-weight: 500;
-  opacity: 0.85;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  opacity: 0.9;
 }
 
 .bc-error {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 0.6875rem;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: #ef4444;
-  padding-top: 4px;
-  border-top: 1px solid color-mix(in srgb, #ef4444 20%, transparent);
+  padding-top: 10px;
+  margin-top: 2px;
+  border-top: 1px solid color-mix(in srgb, #ef4444 22%, transparent);
 }
 
 .bc-footer-rates {
   display: flex;
-  gap: 12px;
-  padding: 7px 12px 10px;
-  font-size: 0.6875rem;
-  color: var(--op-text-secondary);
+  gap: 8px 18px;
+  padding: 4px 4px 0;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--op-text-tertiary);
   flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+
+  strong { color: var(--op-text-secondary); font-weight: 700; }
 }
 
 // ── Borrow guidance header ──

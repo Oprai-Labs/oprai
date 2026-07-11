@@ -2378,17 +2378,22 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       ? borrowUsd / (colAmt * vault.liquidationThreshold)
       : 0;
 
-    // No debt typed yet → health factor is not applicable (neutral, not "0").
-    const hfApplies = borrowUsd > 0;
+    // Health factor only applies once BOTH sides have a value. With debt but no
+    // collateral the ratio is 0 (instant-liquidation) — but no position exists
+    // yet, so it's clearer to show "—" and prompt for collateral than a red 0.00.
+    const hfApplies = borrowUsd > 0 && collateralUsd > 0;
     const hfClass = !hfApplies || !isFinite(healthFactor) || healthFactor >= 1.6
       ? 'safe'
       : healthFactor >= 1.2 ? 'caution' : 'danger';
-    const healthFactorLabel = !hfApplies
+    const healthFactorLabel = borrowUsd <= 0
       ? '—'
+      : collateralUsd <= 0 ? '—'
       : !isFinite(healthFactor) ? '∞' : healthFactor.toFixed(2);
 
     let errorMsg: string | undefined;
-    if (debtAmt > 0 && debtAmt > vault.availableLiquidity) {
+    if (debtAmt > 0 && colAmt <= 0) {
+      errorMsg = `Enter a collateral amount to secure this borrow.`;
+    } else if (debtAmt > 0 && debtAmt > vault.availableLiquidity) {
       errorMsg = `Only ${vault.availableLiquidity.toFixed(2)} ${vault.debtSymbol} available to borrow right now.`;
     } else if (debtAmt > 0 && maxBorrowable > 0 && debtAmt > maxBorrowable) {
       errorMsg = `Exceeds max borrowable — add collateral or borrow ≤ ${maxBorrowable.toFixed(2)} ${vault.debtSymbol}.`;
