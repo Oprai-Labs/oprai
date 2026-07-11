@@ -405,6 +405,17 @@ export class WalletService {
       this.attachEvents(adapter);
     } catch (err) {
       this._connecting.set(false);
+      const e = err as { code?: number; message?: string };
+      console.error('[wallet] connect failed:', walletName, 'code=', e?.code, 'msg=', e?.message, err);
+      // Phantom/Solana wallets surface an internal failure as JSON-RPC code
+      // -32603 with the opaque text "Unexpected error". It's a wallet-side /
+      // connection-state issue (not a user rejection), so give the user an
+      // actionable next step instead of the raw string.
+      if (e?.code === -32603 || /unexpected error/i.test(e?.message ?? '')) {
+        throw new Error(
+          'Your wallet hit an internal error. Reload the page and make sure the wallet is unlocked, then try again. If it keeps failing, open your wallet, remove this site from its connected apps, and reconnect.',
+        );
+      }
       throw err;
     }
   }
