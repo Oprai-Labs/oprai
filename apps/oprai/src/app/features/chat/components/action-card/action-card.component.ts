@@ -2024,8 +2024,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return rawMode === 'exactout' || rawMode === 'out';
   });
 
+  /**
+   * Actions whose `amount` is RECEIVED (borrow) or drawn from a protocol
+   * position (withdraw from a lending market) rather than spent from the user's
+   * wallet balance of the named token. A wallet-balance check is meaningless
+   * here — you don't need 1000 USDC in your wallet to *borrow* 1000 USDC; you
+   * post collateral. Gating the CTA on it wrongly blocks the action.
+   */
+  private readonly NON_WALLET_SPEND_ACTIONS = new Set<string>([
+    'borrow', 'kamino_borrow', 'marginfi_borrow', 'solend_borrow',
+    'withdraw_lend', 'kamino_withdraw', 'marginfi_withdraw', 'solend_withdraw',
+  ]);
+
   readonly insufficientFunds = computed(() => {
     if (this.swapAmountIsOutput()) return false;
+    if (this.action && this.NON_WALLET_SPEND_ACTIONS.has(this.action.type)) return false;
     const bal = this.inputBalance();
     const amt = parseFloat(this.editParams()['amount'] ?? '0');
     return bal !== null && amt > 0 && amt > bal;
