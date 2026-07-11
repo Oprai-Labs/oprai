@@ -3400,6 +3400,26 @@
   &--empty:not(.bc-token-btn--active) { opacity: 0.5; }
 
   &:disabled { cursor: default; }
+
+  &__icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    margin-left: -3px;
+
+    &--ph {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: color-mix(in srgb, var(--op-brand) 22%, var(--op-bg-surface-3, #2a2a3a));
+      color: var(--op-text-primary);
+      font-size: 0.5625rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+  }
 }
 
 .bc-token-bal {

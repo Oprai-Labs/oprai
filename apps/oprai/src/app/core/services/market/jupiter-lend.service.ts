@@ -101,6 +101,7 @@ export interface LendBorrowInfo {
   debtSymbol: string;
   collateralSymbol: string;
   collateralMint: string;
+  collateralLogo: string;        // Jupiter's authoritative token logo URL (may be '')
   collateralPrice: number;       // USD price of collateral
   debtPrice: number;             // USD price of debt token
   borrowApy: number;              // e.g. 3.89 (%)
@@ -261,6 +262,7 @@ export class JupiterLendService {
             debtSymbol:            v.borrowToken?.uiSymbol ?? v.borrowToken?.symbol ?? '',
             collateralSymbol:      v.supplyToken?.uiSymbol ?? v.supplyToken?.symbol ?? '',
             collateralMint:        v.supplyToken?.address ?? '',
+            collateralLogo:        v.supplyToken?.logoUrl ?? '',
             collateralPrice:       parseFloat(v.supplyToken?.price ?? '0'),
             debtPrice:             parseFloat(v.borrowToken?.price ?? '1'),
             borrowApy:             (v.borrowRate ?? 0) / 100,

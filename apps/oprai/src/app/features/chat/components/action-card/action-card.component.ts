@@ -1268,6 +1268,15 @@ function getActionFields(
 
 type ActionStatus = 'pending' | 'quoting' | 'signing' | 'submitted' | 'confirmed' | 'error';
 
+/** A selectable collateral in the borrow card's picker. */
+interface CollateralOption {
+  mint: string;
+  symbol: string;
+  logo: string;
+  balance: number;
+  debtSymbol: string;
+}
+
 @Component({
   selector: 'app-action-card',
   standalone: true,
@@ -2278,8 +2287,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly borrowLiquidityMode = signal(false);
 
   // Collateral
-  readonly collateralOptions = signal<Array<{ mint: string; symbol: string; balance: number; debtSymbol: string }>>([]);
-  readonly selectedCollateral = signal<{ mint: string; symbol: string; balance: number; debtSymbol: string } | null>(null);
+  readonly collateralOptions = signal<CollateralOption[]>([]);
+  readonly selectedCollateral = signal<CollateralOption | null>(null);
   readonly collateralInput = signal('');
   readonly borrowCapacity = signal<{ loading: boolean; maxBorrow: number } | null>(null);
   // Live Jupiter Lend borrow vaults for the chosen debt token (one per collateral).
@@ -2477,9 +2486,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       // rather than one getTokenBalance per collateral vault (~19 calls). Build
       // a mint -> uiAmount map and annotate each collateral option from it.
       const balanceByMint = await this.loadWalletBalanceMap();
-      const opts = vaults.map(v => ({
+      const opts: CollateralOption[] = vaults.map(v => ({
         mint: v.collateralMint,
         symbol: v.collateralSymbol,
+        logo: v.collateralLogo,
         debtSymbol: v.debtSymbol,
         balance: balanceByMint.get(v.collateralMint) ?? 0,
       }));
@@ -4128,7 +4138,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     catch { this.lendInfo.set(null); } finally { this.lendInfoLoading.set(false); }
   }
 
-  selectCollateral(opt: { mint: string; symbol: string; balance: number; debtSymbol: string }): void {
+  selectCollateral(opt: CollateralOption): void {
     this.selectedCollateral.set(opt);
     // Keep editParams in sync so the built tx uses the chosen collateral.
     this.setEditParam('collateral', opt.symbol);

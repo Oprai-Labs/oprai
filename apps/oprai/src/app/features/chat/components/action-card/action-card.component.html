@@ -1420,7 +1420,7 @@
           @let opts = collateralOptions();
           @let selCol = selectedCollateral();
           @let debtTd = resolveTokenDisplay(getEditParam('token') || 'USDC');
-          @let colTd = selCol ? resolveTokenDisplay(selCol.mint) : null;
+          @let colLogo = selCol ? (selCol.logo || resolveTokenDisplay(selCol.mint).logoURI) : '';
           @let v0 = borrowSelectedVault;
           <div class="pump-swap" [class.proto-fields--shake]="shake()">
 
@@ -1443,8 +1443,8 @@
                        (input)="setEditParam('collateralAmount', $any($event.target).value.replace(',','.'))"
                        [disabled]="!isEditable()" />
                 <span class="pump-token">
-                  @if (colTd?.logoURI) {
-                    <img [src]="colTd!.logoURI" class="pump-token__icon" alt=""
+                  @if (colLogo) {
+                    <img [src]="colLogo" class="pump-token__icon" alt=""
                          (error)="$any($event.target).style.display='none'" />
                   } @else {
                     <span class="pump-token__icon pump-token__icon--ph">{{ (selCol?.symbol || '?').charAt(0) }}</span>
@@ -1459,12 +1459,19 @@
               } @else {
                 <div class="bc-token-row">
                   @for (opt of opts; track opt.mint) {
+                    @let optLogo = opt.logo || resolveTokenDisplay(opt.mint).logoURI;
                     <button class="bc-token-btn"
                             [class.bc-token-btn--active]="selCol?.mint === opt.mint"
                             [class.bc-token-btn--empty]="opt.balance <= 0"
                             type="button"
                             [disabled]="!isEditable()"
                             (click)="selectCollateral(opt)">
+                      @if (optLogo) {
+                        <img [src]="optLogo" class="bc-token-btn__icon" alt=""
+                             (error)="$any($event.target).style.display='none'" />
+                      } @else {
+                        <span class="bc-token-btn__icon bc-token-btn__icon--ph">{{ (opt.symbol || '?').charAt(0) }}</span>
+                      }
                       {{ opt.symbol }}
                       @if (opt.balance > 0) {
                         <span class="bc-token-bal">{{ opt.balance | number:'1.2-4' }}</span>
