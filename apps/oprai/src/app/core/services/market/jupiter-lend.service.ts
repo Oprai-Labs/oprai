@@ -34,7 +34,7 @@ import BN from 'bn.js';
 import { getDepositIxs, getWithdrawIxs } from '@jup-ag/lend/earn';
 import { getOperateIx, getVaultsProgram, MAX_REPAY_AMOUNT, MAX_WITHDRAW_AMOUNT } from '@jup-ag/lend/borrow';
 import { WalletService } from '@core/services/wallet.service';
-import { environment } from '../../../../environments/environment';
+import { createSolanaConnection } from '@core/utils/solana-connection';
 
 const LEND_API = 'https://lite-api.jup.ag/lend';
 
@@ -124,7 +124,11 @@ export class JupiterLendService {
   private readonly walletService = inject(WalletService);
 
   private get connection(): Connection {
-    return new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+    // Route through the shared factory so the /api/rpc proxy receives the auth
+    // cookie (credentials: 'include' via fetchMiddleware). A bare Connection
+    // omits it → the gateway's RequireWallet on /rpc returns 401 and the
+    // borrow SDK fails with "failed to get info about account …: 401".
+    return createSolanaConnection('confirmed');
   }
 
   /** Return the list of supported lending assets (static seed — for display

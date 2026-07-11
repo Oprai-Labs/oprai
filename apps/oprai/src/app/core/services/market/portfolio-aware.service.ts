@@ -10,6 +10,7 @@
  */
 import { Injectable, inject } from '@angular/core';
 import { Connection, PublicKey } from '@solana/web3.js';
+import { createSolanaConnection } from '@core/utils/solana-connection';
 import { firstValueFrom } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
@@ -77,7 +78,7 @@ export class PortfolioAwareService {
   private connection: Connection;
 
   constructor() {
-    this.connection = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+    this.connection = createSolanaConnection('confirmed');
   }
 
   /**

@@ -11,9 +11,14 @@ export function createSolanaConnection(commitment: Commitment = 'confirmed'): Co
     httpHeaders: {
       'X-Requested-With': 'XMLHttpRequest',
     },
+    // The /api/rpc proxy is gated by the gateway's RequireWallet middleware,
+    // which reads the HttpOnly auth cookie. web3.js' bare fetch would omit it,
+    // so force credentials: 'include' on every RPC request. Guard against an
+    // undefined init (web3.js can call the middleware without one).
     fetchMiddleware: (url, options, fetch) => {
-      (options as RequestInit).credentials = 'include';
-      return fetch(url, options);
+      const init = (options ?? {}) as RequestInit;
+      init.credentials = 'include';
+      return fetch(url, init);
     },
   });
 }

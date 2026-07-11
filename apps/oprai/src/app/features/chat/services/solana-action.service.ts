@@ -10,7 +10,7 @@ import { JupiterLendService } from '@core/services/market/jupiter-lend.service';
 import { PumpFunService } from '@core/services/market/pumpfun.service';
 import { JitoService } from '@core/services/market/jito.service';
 import { PriceFeedService } from '@core/services/market/price-feed.service';
-import { environment } from '../../../../environments/environment';
+import { createSolanaConnection } from '@core/utils/solana-connection';
 import { Keypair } from '@solana/web3.js';
 import type { Transaction, VersionedTransaction } from '@solana/web3.js';
 
@@ -917,8 +917,8 @@ export class SolanaActionService {
   async getTokenBalance(mint: string): Promise<number> {
     const wallet = this.walletService.publicKey();
     if (!wallet) return 0;
-    const { Connection, PublicKey } = await import('@solana/web3.js');
-    const connection = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const { PublicKey } = await import('@solana/web3.js');
+    const connection = createSolanaConnection('confirmed');
     const isSol = !mint || mint === 'SOL' || mint === SolanaActionService.SOL_MINT;
     if (isSol) {
       return (await connection.getBalance(new PublicKey(wallet))) / 1e9;
@@ -1400,7 +1400,7 @@ export class SolanaActionService {
 
     // Step 3b: Deserialize tx + precise fee check — must happen before wallet dialog
     const web3 = await import('@solana/web3.js');
-    const connection = new web3.Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const connection = createSolanaConnection('confirmed');
 
     const txBuffer = this.base64ToUint8Array(buildResult.transaction!);
     // Detect versioned-vs-legacy from the bytes themselves, not just the static
@@ -1905,11 +1905,11 @@ export class SolanaActionService {
         if (this.isVersionedTxBytes(pumpTxBytes)) {
           // Graduated token routed through Jupiter → versioned tx. Sign + submit
           // inline (the shared legacy tail below can't handle a VersionedTransaction).
-          const { VersionedTransaction, Connection } = await import('@solana/web3.js');
+          const { VersionedTransaction } = await import('@solana/web3.js');
           const vtx = VersionedTransaction.deserialize(pumpTxBytes);
           callbacks.onSign?.();
           const signedVtx = await this.walletService.signTransaction(vtx) as InstanceType<typeof VersionedTransaction>;
-          const rpcConn = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+          const rpcConn = createSolanaConnection('confirmed');
           const sig = await rpcConn.sendRawTransaction(signedVtx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
           callbacks.onSubmit?.(sig);
           this.tracker
@@ -1938,7 +1938,7 @@ export class SolanaActionService {
     // Pre-flight simulation (frontend actions — legacy or v0 TX)
     try {
       const web3 = await import('@solana/web3.js');
-      const feCon = new web3.Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const feCon = createSolanaConnection('confirmed');
       let sim;
       if (transaction instanceof web3.VersionedTransaction) {
         // v0 tx already carries a blockhash from build; simulate it directly and

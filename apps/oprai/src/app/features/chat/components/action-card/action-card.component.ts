@@ -28,7 +28,7 @@ import { MeteoraService } from '@core/services/market/meteora.service';
 import { ApiService } from '@core/services/api.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
 import { firstValueFrom } from 'rxjs';
-import { environment } from '../../../../../environments/environment';
+import { createSolanaConnection } from '@core/utils/solana-connection';
 
 const ACTION_RESULTS_KEY = 'oprai-action-results';
 
@@ -4215,8 +4215,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
     try {
-      const web3 = await import('@solana/web3.js');
-      const conn = new web3.Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const conn = createSolanaConnection('confirmed');
       const status = await conn.getSignatureStatus(sig, { searchTransactionHistory: true });
       const value = status.value;
       if (value?.err) {
@@ -4253,8 +4252,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!sig || this.recheckInProgress()) return;
     this.recheckInProgress.set(true);
     try {
-      const web3 = await import('@solana/web3.js');
-      const conn = new web3.Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const conn = createSolanaConnection('confirmed');
       const status = await conn.getSignatureStatus(sig, { searchTransactionHistory: true });
       const value = status.value;
       if (value?.err) {
