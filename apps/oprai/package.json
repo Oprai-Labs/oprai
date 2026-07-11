@@ -24,6 +24,7 @@
     "@angular/platform-browser-dynamic": "^19.0.0",
     "@angular/router": "^19.0.0",
     "@jup-ag/lend": "^0.1.8",
+    "@solana/spl-token": "^0.4.15",
     "@solana/wallet-adapter-base": "^0.9.23",
     "@solana/web3.js": "^1.95.0",
     "bs58": "^6.0.0",

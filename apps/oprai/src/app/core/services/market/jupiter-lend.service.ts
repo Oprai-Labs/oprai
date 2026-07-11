@@ -18,8 +18,16 @@ import { Injectable, inject } from '@angular/core';
 import {
   Connection,
   PublicKey,
+  SystemProgram,
   Transaction,
 } from '@solana/web3.js';
+import {
+  NATIVE_MINT,
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountIdempotentInstruction,
+  createSyncNativeInstruction,
+  createCloseAccountInstruction,
+} from '@solana/spl-token';
 import BN from 'bn.js';
 import { getDepositIxs, getWithdrawIxs } from '@jup-ag/lend/earn';
 import { getOperateIx, getVaultsProgram, MAX_REPAY_AMOUNT, MAX_WITHDRAW_AMOUNT } from '@jup-ag/lend/borrow';
@@ -355,6 +363,7 @@ export class JupiterLendService {
     const connection = this.connection;
 
     const amountLamports = new BN(Math.floor(amount * 10 ** asset.decimals).toString());
+    const isNativeSol = asset.mint === NATIVE_MINT.toBase58();
 
     const { ixs } = await getDepositIxs({
       amount: amountLamports,
@@ -367,7 +376,33 @@ export class JupiterLendService {
     const { blockhash } = await connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
     tx.feePayer = user;
+
+    // getDepositIxs creates only the OUTPUT jlToken ATA; it neither creates the
+    // input WSOL account nor wraps SOL. For native SOL we must wrap first —
+    // create the WSOL ATA (idempotent), fund it with exactly the deposit
+    // amount, and syncNative — or the deposit references an uninitialized WSOL
+    // account and simulation fails with Anchor 3012 (AccountNotInitialized).
+    if (isNativeSol) {
+      const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user);
+      tx.add(
+        createAssociatedTokenAccountIdempotentInstruction(user, wsolAta, user, NATIVE_MINT),
+        SystemProgram.transfer({
+          fromPubkey: user,
+          toPubkey: wsolAta,
+          lamports: BigInt(amountLamports.toString()),
+        }),
+        createSyncNativeInstruction(wsolAta),
+      );
+    }
+
     tx.add(...ixs);
+
+    // The deposit drained the wrapped balance; close the WSOL ATA to reclaim
+    // its rent back to the user as native SOL.
+    if (isNativeSol) {
+      const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user);
+      tx.add(createCloseAccountInstruction(wsolAta, user, user));
+    }
 
     return {
       transaction: tx,
@@ -395,6 +430,7 @@ export class JupiterLendService {
     const connection = this.connection;
 
     const amountLamports = new BN(Math.floor(amount * 10 ** asset.decimals).toString());
+    const isNativeSol = asset.mint === NATIVE_MINT.toBase58();
 
     const { ixs } = await getWithdrawIxs({
       amount: amountLamports,
@@ -408,6 +444,13 @@ export class JupiterLendService {
     tx.recentBlockhash = blockhash;
     tx.feePayer = user;
     tx.add(...ixs);
+
+    // getWithdrawIxs returns the underlying to the user's WSOL ATA. For native
+    // SOL, close it afterwards so the user receives spendable SOL, not WSOL.
+    if (isNativeSol) {
+      const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user);
+      tx.add(createCloseAccountInstruction(wsolAta, user, user));
+    }
 
     return {
       transaction: tx,
