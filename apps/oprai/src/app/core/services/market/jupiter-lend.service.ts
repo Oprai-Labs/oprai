@@ -20,6 +20,7 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
   TransactionMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
@@ -551,6 +552,46 @@ export class JupiterLendService {
       ? []
       : (operateResult.addressLookupTableAccounts ?? []);
 
+    // getOperateIx neither wraps SOL nor creates the debt-token account, so it
+    // references uninitialized accounts and simulation fails with Anchor 3012
+    // (AccountNotInitialized). Bracket it with the same account setup the earn
+    // deposit path uses:
+    //   • depositing SOL collateral → wrap exactly colAmount into WSOL first,
+    //     then close the WSOL ATA after (operate drains it into the vault) to
+    //     reclaim the rent as native SOL.
+    //   • borrowing → create the debt-token ATA (idempotent) so the borrowed
+    //     funds have somewhere to land.
+    //   • withdrawing SOL collateral → operate returns WSOL; close the ATA so
+    //     the user receives native SOL.
+    const preIxs: TransactionInstruction[] = [];
+    const postIxs: TransactionInstruction[] = [];
+    const colIsNativeSol = colAsset.mint === NATIVE_MINT.toBase58();
+    const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user);
+
+    if (colIsNativeSol && colAmount > 0) {
+      preIxs.push(
+        createAssociatedTokenAccountIdempotentInstruction(user, wsolAta, user, NATIVE_MINT),
+        SystemProgram.transfer({
+          fromPubkey: user,
+          toPubkey: wsolAta,
+          lamports: BigInt(colLamports.toString()),
+        }),
+        createSyncNativeInstruction(wsolAta),
+      );
+      postIxs.push(createCloseAccountInstruction(wsolAta, user, user));
+    } else if (colIsNativeSol && colAmount < 0) {
+      preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, wsolAta, user, NATIVE_MINT));
+      postIxs.push(createCloseAccountInstruction(wsolAta, user, user));
+    }
+
+    if (debtAmount > 0) {
+      const debtMint = new PublicKey(debtAsset.mint);
+      const debtAta = getAssociatedTokenAddressSync(debtMint, user);
+      preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint));
+    }
+
+    const allIxs = [...preIxs, ...ixs, ...postIxs];
+
     // The operate instruction touches many accounts (tick arrays, oracles,
     // vault PDAs), so a legacy tx overflows the 1232-byte limit (~1407B).
     // Compile a v0 tx over the vault program's Address Lookup Table(s) — account
@@ -560,7 +601,7 @@ export class JupiterLendService {
     const messageV0 = new TransactionMessage({
       payerKey: user,
       recentBlockhash: blockhash,
-      instructions: ixs,
+      instructions: allIxs,
     }).compileToV0Message(luts);
     const tx = new VersionedTransaction(messageV0);
 
