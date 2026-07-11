@@ -20,6 +20,8 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionMessage,
+  VersionedTransaction,
 } from '@solana/web3.js';
 import {
   NATIVE_MINT,
@@ -485,7 +487,7 @@ export class JupiterLendService {
     debtAmount: number,
     colAsset: LendAsset,
     debtAsset: LendAsset
-  ): Promise<{ transaction: Transaction; description: string }> {
+  ): Promise<{ transaction: VersionedTransaction; description: string }> {
     const walletPubkey = this.walletService.publicKey();
     if (!walletPubkey) throw new Error('No wallet connected');
 
@@ -539,12 +541,22 @@ export class JupiterLendService {
       signer: user,
     });
     const ixs = Array.isArray(operateResult) ? operateResult : operateResult.ixs;
+    const luts = Array.isArray(operateResult)
+      ? []
+      : (operateResult.addressLookupTableAccounts ?? []);
 
-    const tx = new Transaction();
+    // The operate instruction touches many accounts (tick arrays, oracles,
+    // vault PDAs), so a legacy tx overflows the 1232-byte limit (~1407B).
+    // Compile a v0 tx over the vault program's Address Lookup Table(s) — account
+    // refs pack into 1 byte each — so it fits. Wallets sign VersionedTransaction
+    // the same way, and signAndSubmit serializes both transparently.
     const { blockhash } = await this.connection.getLatestBlockhash();
-    tx.recentBlockhash = blockhash;
-    tx.feePayer = user;
-    tx.add(...ixs);
+    const messageV0 = new TransactionMessage({
+      payerKey: user,
+      recentBlockhash: blockhash,
+      instructions: ixs,
+    }).compileToV0Message(luts);
+    const tx = new VersionedTransaction(messageV0);
 
     // Build description
     let description: string;
@@ -569,10 +581,10 @@ export class JupiterLendService {
 
   // ─── Sign & Submit ───────────────────────────────────────────────────────
 
-  async signAndSubmit(transaction: Transaction): Promise<string> {
-    const signed = await this.walletService.signTransaction(transaction);
+  async signAndSubmit(transaction: Transaction | VersionedTransaction): Promise<string> {
+    const signed = await this.walletService.signTransaction(transaction as Transaction);
     const signature = await this.connection.sendRawTransaction(
-      (signed as Transaction).serialize(),
+      (signed as Transaction | VersionedTransaction).serialize(),
       { skipPreflight: false, preflightCommitment: 'confirmed' }
     );
 

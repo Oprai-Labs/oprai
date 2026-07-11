@@ -1821,7 +1821,7 @@ export class SolanaActionService {
     action: ParsedAction,
     callbacks: ActionCallbacks
   ): Promise<string> {
-    let transaction: Transaction;
+    let transaction: Transaction | VersionedTransaction;
 
     switch (action.type) {
       // ── Jupiter Lend: Earn ──────────────────────────────────────────────
@@ -1935,13 +1935,20 @@ export class SolanaActionService {
         throw new Error(`Unknown frontend action type: ${action.type}`);
     }
 
-    // Pre-flight simulation (frontend actions — legacy TX)
+    // Pre-flight simulation (frontend actions — legacy or v0 TX)
     try {
-      const { Connection } = await import('@solana/web3.js');
-      const feCon = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
-      const { blockhash } = await feCon.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      const sim = await feCon.simulateTransaction(transaction.compileMessage());
+      const web3 = await import('@solana/web3.js');
+      const feCon = new web3.Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+      let sim;
+      if (transaction instanceof web3.VersionedTransaction) {
+        // v0 tx already carries a blockhash from build; simulate it directly and
+        // let the RPC swap in a fresh blockhash so a stale one doesn't fail sim.
+        sim = await feCon.simulateTransaction(transaction, { replaceRecentBlockhash: true, sigVerify: false });
+      } else {
+        const { blockhash } = await feCon.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        sim = await feCon.simulateTransaction(transaction.compileMessage());
+      }
       if (sim.value.err) {
         console.error('[Sim] err:', JSON.stringify(sim.value.err), '\nlogs:', sim.value.logs);
         throw new Error(SolanaActionService.parseSimulationError(sim.value.err, sim.value.logs ?? []));
