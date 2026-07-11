@@ -431,11 +431,44 @@ export class WalletService {
 
     const result = await this._adapter.signMessage(message);
 
-    if (result instanceof Uint8Array) return result;
-    if (result && typeof result === 'object' && 'signature' in result) {
-      return (result as { signature: Uint8Array }).signature;
-    }
+    const sig = WalletService.coerceSignatureBytes(result);
+    if (sig && sig.length > 0) return sig;
+
+    // Log the actual shape so an unexpected wallet return is diagnosable.
+    console.error('[wallet] unexpected signMessage response:', result);
     throw new Error('Unexpected signMessage response format');
+  }
+
+  /**
+   * Normalize a wallet's signMessage return into raw signature bytes. Wallets
+   * return this in several shapes: a plain Uint8Array (standard adapter), a
+   * `{ signature }` wrapper (Phantom), a Buffer-JSON `{ type:'Buffer', data }`,
+   * a number[], or an array-like object. Critically, a Uint8Array minted inside
+   * the extension's realm can fail `instanceof Uint8Array` in the page — so we
+   * detect typed arrays via `ArrayBuffer.isView` instead of instanceof.
+   */
+  private static coerceSignatureBytes(input: unknown): Uint8Array | null {
+    if (input == null) return null;
+    if (ArrayBuffer.isView(input)) {
+      const view = input as ArrayBufferView;
+      return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    }
+    if (input instanceof ArrayBuffer) return new Uint8Array(input);
+    if (Array.isArray(input)) return Uint8Array.from(input as number[]);
+    if (typeof input === 'object') {
+      const obj = input as Record<string, unknown>;
+      if ('signature' in obj) return WalletService.coerceSignatureBytes(obj['signature']);
+      if (Array.isArray(obj['data'])) return Uint8Array.from(obj['data'] as number[]);
+      // Array-like plain object: { 0: .., 1: .., length? }
+      const numeric = Object.keys(obj)
+        .filter(k => /^\d+$/.test(k))
+        .sort((a, b) => Number(a) - Number(b))
+        .map(k => obj[k]);
+      if (numeric.length > 0 && numeric.every(v => typeof v === 'number')) {
+        return Uint8Array.from(numeric as number[]);
+      }
+    }
+    return null;
   }
 
   /** Sign a transaction with the connected wallet. */
