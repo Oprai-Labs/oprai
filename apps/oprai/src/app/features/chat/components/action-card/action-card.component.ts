@@ -11,7 +11,7 @@ import { ParsedAction, IntentParserService } from '../../services/intent-parser.
 import { SolanaActionService, ValidatorInfo } from '../../services/solana-action.service';
 import { ChatApiService, StoredActionResult } from '../../services/chat-api.service';
 import { UploadService } from '@core/services/upload.service';
-import { JupiterLendService, LEND_SUPPORTED_ASSETS, LendActionInfo } from '@core/services/market/jupiter-lend.service';
+import { JupiterLendService, LEND_SUPPORTED_ASSETS, LendActionInfo, LendBorrowInfo } from '@core/services/market/jupiter-lend.service';
 import { WalletService } from '@core/services/wallet.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
 import { TransactionPreviewService, TransactionPreview, BalanceChange } from '../../services/transaction-preview.service';
@@ -2282,6 +2282,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly selectedCollateral = signal<{ mint: string; symbol: string; balance: number; debtSymbol: string } | null>(null);
   readonly collateralInput = signal('');
   readonly borrowCapacity = signal<{ loading: boolean; maxBorrow: number } | null>(null);
+  // Live Jupiter Lend borrow vaults for the chosen debt token (one per collateral).
+  readonly borrowVaults = signal<LendBorrowInfo[]>([]);
 
   // Undo
   undoPrompt = false;
@@ -2331,13 +2333,171 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   });
   readonly unverifiedDestination = computed(() => this.action?.warnUnverifiedDestination ?? false);
 
+  /**
+   * Block the Borrow CTA while the inputs are incomplete or unsafe: no debt /
+   * collateral amount, or the live stats flagged an error (over max borrowable,
+   * insufficient collateral, below-minimum, or thin liquidity).
+   */
+  readonly borrowInputInvalid = computed(() => {
+    if (this.action?.type !== 'borrow') return false;
+    const debt = parseFloat(this.getEditParam('amount') || '0') || 0;
+    const col = parseFloat(this.getEditParam('collateralAmount') || '0') || 0;
+    if (debt <= 0 || col <= 0) return true;
+    return !!this.borrowLiveStats?.errorMsg;
+  });
+
   // Quick swap getters (template direct access)
   get qsFromToken(): { mint: string; symbol: string; balance: number; logoURI?: string } | null { return this.qsTokenList().find(t => t.mint === this.qsFromMint()) ?? null; }
   get qsFromBalance(): number { return this.qsFromToken?.balance ?? 0; }
   get qsNeededAmount(): number { return Math.max(0, +(parseFloat(this.editParams()['amount'] ?? '0') - (this.inputBalance() ?? 0)).toFixed(6)); }
   get qsToTokenData(): { symbol: string; name: string; logoURI?: string } { return this.resolveTokenDisplay(this.inputBalanceMint()); }
 
-  get borrowLiveStats(): { collateralUsd: number; maxBorrowable: number; healthFactor: number; hfClass: string; liquidationPriceLabel: string; errorMsg?: string } | null { return null; }
+  /**
+   * Live borrow-position projection for the selected collateral + typed amounts.
+   * Standard money-market math off Jupiter's live vault prices/LTV:
+   *   collateralUsd  = collateralAmount × collateralPrice
+   *   maxBorrowable  = collateralUsd × maxLtv ÷ debtPrice           (debt units)
+   *   healthFactor   = (collateralUsd × liquidationThreshold) ÷ borrowUsd
+   *   liquidation px = borrowUsd ÷ (collateralAmount × liquidationThreshold)
+   * Returns null (stats hidden) until a collateral is picked.
+   */
+  get borrowLiveStats(): { collateralUsd: number; maxBorrowable: number; healthFactor: number; healthFactorLabel: string; hfClass: string; liquidationPriceLabel: string; errorMsg?: string } | null {
+    const sel = this.selectedCollateral();
+    if (!sel) return null;
+    const vault = this.borrowVaults().find(v => v.collateralMint === sel.mint);
+    if (!vault) return null;
+
+    const colAmt = parseFloat(this.getEditParam('collateralAmount') || '0') || 0;
+    const debtAmt = parseFloat(this.getEditParam('amount') || '0') || 0;
+
+    const collateralUsd = colAmt * vault.collateralPrice;
+    const maxBorrowable = vault.debtPrice > 0 ? (collateralUsd * vault.maxLtv) / vault.debtPrice : 0;
+    const borrowUsd = debtAmt * vault.debtPrice;
+    const healthFactor = borrowUsd > 0 ? (collateralUsd * vault.liquidationThreshold) / borrowUsd : Infinity;
+    const liquidationPrice = (colAmt > 0 && vault.liquidationThreshold > 0)
+      ? borrowUsd / (colAmt * vault.liquidationThreshold)
+      : 0;
+
+    // No debt typed yet → health factor is not applicable (neutral, not "0").
+    const hfApplies = borrowUsd > 0;
+    const hfClass = !hfApplies || !isFinite(healthFactor) || healthFactor >= 1.6
+      ? 'safe'
+      : healthFactor >= 1.2 ? 'caution' : 'danger';
+    const healthFactorLabel = !hfApplies
+      ? '—'
+      : !isFinite(healthFactor) ? '∞' : healthFactor.toFixed(2);
+
+    let errorMsg: string | undefined;
+    if (debtAmt > 0 && debtAmt > vault.availableLiquidity) {
+      errorMsg = `Only ${vault.availableLiquidity.toFixed(2)} ${vault.debtSymbol} available to borrow right now.`;
+    } else if (debtAmt > 0 && maxBorrowable > 0 && debtAmt > maxBorrowable) {
+      errorMsg = `Exceeds max borrowable — add collateral or borrow ≤ ${maxBorrowable.toFixed(2)} ${vault.debtSymbol}.`;
+    } else if (colAmt > 0 && sel.balance > 0 && colAmt > sel.balance) {
+      errorMsg = `You only have ${sel.balance.toFixed(4)} ${sel.symbol} — reduce the collateral amount.`;
+    } else if (debtAmt > 0 && vault.minimumBorrow > 0 && debtAmt < vault.minimumBorrow) {
+      errorMsg = `Minimum borrow is ${vault.minimumBorrow} ${vault.debtSymbol}.`;
+    }
+
+    const liquidationPriceLabel = borrowUsd > 0 && liquidationPrice > 0
+      ? `$${liquidationPrice < 1 ? liquidationPrice.toFixed(4) : liquidationPrice.toFixed(2)}`
+      : '—';
+
+    return {
+      collateralUsd,
+      maxBorrowable,
+      healthFactor: isFinite(healthFactor) ? healthFactor : 0,
+      healthFactorLabel,
+      hfClass,
+      liquidationPriceLabel,
+      errorMsg,
+    };
+  }
+
+  /** The live vault matching the selected collateral (falls back to the first). */
+  get borrowSelectedVault(): LendBorrowInfo | undefined {
+    const sel = this.selectedCollateral();
+    const vaults = this.borrowVaults();
+    return vaults.find(v => v.collateralMint === sel?.mint) ?? vaults[0];
+  }
+
+  /**
+   * Bulk-load the wallet's balances into a mint -> uiAmount map with a single
+   * getTokenAccounts sweep (2 RPC calls) plus native SOL. Native SOL is keyed
+   * under both the WSOL mint and the literal 'SOL' sentinel so collateral
+   * vaults that reference either resolve correctly.
+   */
+  private async loadWalletBalanceMap(): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    const wallet = this.walletService.publicKey();
+    if (!wallet) return map;
+    const SOL_MINT = 'So11111111111111111111111111111111111111112';
+    try {
+      const [sol, tokens] = await Promise.all([
+        this.solanaRpc.getBalance(wallet).catch(() => 0),
+        this.solanaRpc.getTokenAccounts(wallet).catch(() => []),
+      ]);
+      for (const t of tokens) map.set(t.mint, t.balance);
+      const nativeSol = sol / 1e9;
+      // Surface native SOL as WSOL collateral balance (borrow vaults list SOL
+      // under the WSOL mint); never let a stray WSOL ATA hide the native lamports.
+      map.set(SOL_MINT, Math.max(map.get(SOL_MINT) ?? 0, nativeSol));
+      map.set('SOL', nativeSol);
+    } catch {
+      /* leave map empty on total failure */
+    }
+    return map;
+  }
+
+  /**
+   * Load the live Jupiter Lend borrow vaults for the current debt token, build
+   * the collateral picker (one option per vault, annotated with the user's
+   * wallet balance), and pick a sensible default collateral. Drives the
+   * professional borrow card (picker + live health/liquidation stats).
+   */
+  async loadBorrowInfo(): Promise<void> {
+    if (this.action?.type !== 'borrow') return;
+    const debt = this.getEditParam('token') || 'USDC';
+    this.lendInfoLoading.set(true);
+    this.borrowCapacity.set({ loading: true, maxBorrow: 0 });
+    try {
+      const vaults = await this.jupiterLend.getBorrowInfo(debt);
+      this.borrowVaults.set(vaults);
+      if (!vaults.length) {
+        this.collateralOptions.set([]);
+        this.selectedCollateral.set(null);
+        this.borrowCapacity.set({ loading: false, maxBorrow: 0 });
+        return;
+      }
+      // One bulk balance fetch (getTokenAccounts = 2 RPC calls) + native SOL,
+      // rather than one getTokenBalance per collateral vault (~19 calls). Build
+      // a mint -> uiAmount map and annotate each collateral option from it.
+      const balanceByMint = await this.loadWalletBalanceMap();
+      const opts = vaults.map(v => ({
+        mint: v.collateralMint,
+        symbol: v.collateralSymbol,
+        debtSymbol: v.debtSymbol,
+        balance: balanceByMint.get(v.collateralMint) ?? 0,
+      }));
+      this.collateralOptions.set(opts);
+
+      // Default: the collateral the user named (if any), else the one they hold
+      // the most of, else the first vault.
+      const wanted = (this.getEditParam('collateral') || '').toUpperCase();
+      const sel = opts.find(o => o.symbol.toUpperCase() === wanted)
+        ?? [...opts].sort((a, b) => b.balance - a.balance)[0];
+      if (sel) {
+        this.selectedCollateral.set(sel);
+        this.setEditParam('collateral', sel.symbol);
+      }
+      this.borrowCapacity.set({ loading: false, maxBorrow: 0 });
+    } catch {
+      this.borrowVaults.set([]);
+      this.collateralOptions.set([]);
+      this.borrowCapacity.set({ loading: false, maxBorrow: 0 });
+    } finally {
+      this.lendInfoLoading.set(false);
+    }
+  }
 
   ngOnInit(): void {
     if (this.action) this.initFromAction();
@@ -2356,6 +2516,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!this.editParams()['collateral']) {
       this.editParams.update(prev => ({ ...prev, collateral: 'SOL' }));
     }
+    // Load live vaults + collateral options + balances for the pro borrow card.
+    void this.loadBorrowInfo();
   }
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['action'] && this.action) {
@@ -3961,7 +4123,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     catch { this.lendInfo.set(null); } finally { this.lendInfoLoading.set(false); }
   }
 
-  selectCollateral(opt: any): void { this.selectedCollateral.set(opt); }
+  selectCollateral(opt: { mint: string; symbol: string; balance: number; debtSymbol: string }): void {
+    this.selectedCollateral.set(opt);
+    // Keep editParams in sync so the built tx uses the chosen collateral.
+    this.setEditParam('collateral', opt.symbol);
+  }
+
+  /** Set the collateral amount to the user's full balance of the picked asset. */
+  setMaxCollateral(): void {
+    const sel = this.selectedCollateral();
+    if (sel && sel.balance > 0) this.setEditParam('collateralAmount', sel.balance.toString());
+  }
 
   openQuickSwap(): void { this.showQuickSwap.set(true); this.loadQsBalances(); }
   private async loadQsBalances(): Promise<void> { this.qsBalancesLoading.set(true); try { this.qsTokenList.set([]); } finally { this.qsBalancesLoading.set(false); } }

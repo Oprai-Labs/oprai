@@ -3426,6 +3426,16 @@
   font-weight: 600;
   color: var(--op-brand);
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.bc-token-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .bc-max-btn {
