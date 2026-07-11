@@ -1256,8 +1256,10 @@
                   <span class="pump-panel__amount pump-panel__amount--muted">
                     Deposits accrue interest every block
                   </span>
-                } @else {
+                } @else if (lendInfoLoading()) {
                   <span class="pump-panel__amount pump-panel__amount--muted">Loading rate…</span>
+                } @else {
+                  <span class="pump-panel__amount pump-panel__amount--muted">Rate unavailable</span>
                 }
               </div>
             </div>

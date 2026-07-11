@@ -179,15 +179,26 @@ export class JupiterLendService {
       if (!res.ok) return null;
       const tokens: any[] = await res.json();
       const upper = symbolOrMint.toUpperCase();
-      const t = tokens.find(
-        x => x.asset?.symbol?.toUpperCase() === upper || x.asset?.address === symbolOrMint
-      );
+      // The API lists native SOL as WSOL (asset.symbol="WSOL", uiSymbol="SOL"),
+      // so match symbol OR uiSymbol OR mint, with SOL<->WSOL treated as equal —
+      // otherwise "lend SOL" leaves the rate stuck on "Loading rate...".
+      const wantSol = upper === 'SOL' || upper === 'WSOL';
+      const t = tokens.find(x => {
+        const sym = (x.asset?.symbol ?? '').toUpperCase();
+        const ui = (x.asset?.uiSymbol ?? '').toUpperCase();
+        return (
+          sym === upper ||
+          ui === upper ||
+          x.asset?.address === symbolOrMint ||
+          (wantSol && (sym === 'SOL' || sym === 'WSOL' || ui === 'SOL' || ui === 'WSOL'))
+        );
+      });
       if (!t) return null;
 
       const decimals = t.asset?.decimals ?? 6;
       const info: LendEarnInfo = {
         jlSymbol:          t.symbol ?? '',
-        assetSymbol:       t.asset?.symbol ?? upper,
+        assetSymbol:       t.asset?.uiSymbol ?? t.asset?.symbol ?? upper,
         supplyApy:         (t.supplyRate ?? 0) / 100,
         rewardsApy:        ((t.totalRate ?? 0) - (t.supplyRate ?? 0)) / 100,
         totalApy:          (t.totalRate ?? 0) / 100,
