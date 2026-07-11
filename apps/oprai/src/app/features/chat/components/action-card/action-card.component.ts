@@ -567,7 +567,17 @@ function getActionFields(
       { key: 'destinationStakeAccount', label: 'Destination Account', type: 'address', placeholder: 'Destination stake account...', required: true, hint: 'Keeps the balance after merge' },
       { key: 'sourceStakeAccount', label: 'Source Account', type: 'address', placeholder: 'Source stake account...', required: true, hint: 'Will be closed after merge' },
     );
-  } else if (['lend', 'withdraw', 'borrow', 'repay'].includes(t)) {
+  } else if (t === 'borrow') {
+    // Borrowing needs collateral — you don't spend the debt token, you post an
+    // asset to back the loan. Without these fields the loan had no collateral
+    // to build against (and the card looked like a plain "spend USDC" form).
+    fields.push(
+      { key: 'token', label: 'Borrow Token', type: 'token', required: true },
+      { key: 'amount', label: 'Borrow Amount', type: 'number', placeholder: '0', required: true },
+      { key: 'collateral', label: 'Collateral Token', type: 'token', required: true, hint: 'Asset you deposit to back the loan (e.g. SOL, jitoSOL, JLP)' },
+      { key: 'collateralAmount', label: 'Collateral Amount', type: 'number', placeholder: '0', required: true },
+    );
+  } else if (['lend', 'withdraw', 'repay'].includes(t)) {
     fields.push(
       { key: 'token', label: 'Token', type: 'token', required: true },
       { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', required: true },
@@ -1618,6 +1628,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action?.type === 'jlp_remove') {
       return '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4';
     }
+    // Borrow: the `amount` is the DEBT you receive, not something you spend, so
+    // no wallet-balance line belongs on it (the collateral is a separate field).
+    if (this.action?.type === 'borrow') {
+      return '';
+    }
     const tokenA = p['tokenA'] ?? p['tokenXMint'];
     const tokenB = p['tokenB'] ?? p['tokenYMint'];
     if (tokenA && tokenB) return tokenA;
@@ -2330,6 +2345,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeEnrichRaydiumPool();
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
+    this.maybeDefaultBorrowCollateral();
+  }
+
+  /** Borrow needs a collateral asset; when the user didn't name one ("borrow
+   *  1000 USDC"), pre-fill SOL so the card is usable instead of blocking on an
+   *  empty required field. The user can still switch the collateral token. */
+  private maybeDefaultBorrowCollateral(): void {
+    if (this.action?.type !== 'borrow') return;
+    if (!this.editParams()['collateral']) {
+      this.editParams.update(prev => ({ ...prev, collateral: 'SOL' }));
+    }
   }
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['action'] && this.action) {
@@ -2343,6 +2369,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.maybeNormalizeExactOutToExactIn();
       this.cancelDcaTarget.set(null);
       this.maybeLoadCancelDcaTarget();
+      this.maybeDefaultBorrowCollateral();
       return;
     }
     // Re-apply cached result if it arrives after the component was already initialized
