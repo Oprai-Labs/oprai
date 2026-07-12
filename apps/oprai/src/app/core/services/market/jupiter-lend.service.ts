@@ -21,8 +21,6 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
-  TransactionInstruction,
-  TransactionMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
 import {
@@ -562,24 +560,30 @@ export class JupiterLendService {
       if (supplyInfo && debtInfo) { this._setupCache.add(cacheKey); return; }
     }
 
+    // Build a LEGACY transaction — exactly like the working deposit/withdraw
+    // flows. A v0 tx with NO address lookup tables is an unusual shape that
+    // Phantom's balance-change preview simulator mishandles (it hangs on grey
+    // skeletons with Approve disabled); legacy txs and v0-with-ALT (swaps)
+    // both preview fine. This setup tx is tiny, so legacy stays well under
+    // the 1232-byte limit.
     const colLamports = BigInt(Math.round(colAmount * 10 ** colAsset.decimals));
-    const ixs: TransactionInstruction[] = [
+    const tx = new Transaction();
+    const { blockhash } = await this.connection.getLatestBlockhash();
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = user;
+    tx.add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }),
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
       createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, colMint, colProgram),
-    ];
+    );
     if (colIsNativeSol) {
-      ixs.push(
+      tx.add(
         SystemProgram.transfer({ fromPubkey: user, toPubkey: supplyAta, lamports: colLamports }),
         createSyncNativeInstruction(supplyAta),
       );
     }
-    ixs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
+    tx.add(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
 
-    const { blockhash } = await this.connection.getLatestBlockhash();
-    const tx = new VersionedTransaction(
-      new TransactionMessage({ payerKey: user, recentBlockhash: blockhash, instructions: ixs }).compileToV0Message(),
-    );
     const sig = await this.signAndSubmit(tx);   // approval #1 — trivial, wallet previews instantly
     await this.waitForOnChain(sig);             // must land before the operate references it
     if (!colIsNativeSol) this._setupCache.add(cacheKey); // SPL ATAs persist; SOL re-wraps every time
