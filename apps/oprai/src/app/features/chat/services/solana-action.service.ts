@@ -630,6 +630,17 @@ export class SolanaActionService {
       return 'sim:insufficient_tokens';
     }
 
+    // Anchor 3012 (AccountNotInitialized) — surface the exact offending account
+    // name from the program logs so a missing token-account/position is obvious
+    // rather than a misleading "amount below minimum" fallback. Anchor logs:
+    //   "AnchorError caused by account: signer_borrow_token_account. Error
+    //    Code: AccountNotInitialized. Error Number: 3012. …"
+    if (errorCode === 3012 || logsStr.includes('accountnotinitialized')) {
+      const acctMatch = logs.join('\n').match(/AnchorError caused by account:\s*([A-Za-z0-9_]+)/i);
+      const acct = acctMatch ? acctMatch[1] : 'unknown';
+      return `sim:account_not_init:${acct}`;
+    }
+
     return `sim:generic:${errorCode ?? errStr.substring(0, 80)}`;
   }
 

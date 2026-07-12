@@ -129,6 +129,12 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
     '101':
       "Whirlpool constraint failed. Range tick alignment or pool state issue. Try a wider range or refresh the pool data.",
   },
+  borrow: {
+    // Jupiter Lend vaults program: position would exceed the vault's collateral
+    // factor (borrow too large / collateral too small).
+    '6011':
+      "This borrow would exceed what your collateral supports — the position's LTV is above the vault's limit. Add more collateral or borrow a smaller amount.",
+  },
 };
 
 function sanitizeErrorMessage(msg: string, actionType?: string): string {
@@ -167,6 +173,14 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
   const known = out.match(/sim:(insufficient_tokens|slippage_exceeded)/);
   if (known) {
     return SIM_ERROR_MESSAGES[known[1]] ?? out;
+  }
+  // Anchor AccountNotInitialized (3012) — name the account so the exact missing
+  // setup (a token account or lending position) is visible instead of a vague
+  // "below minimum" message.
+  const acctNotInit = out.match(/sim:account_not_init:([A-Za-z0-9_]+)/);
+  if (acctNotInit) {
+    const acct = acctNotInit[1] === 'unknown' ? 'a required account' : `the "${acctNotInit[1]}" account`;
+    return `Simulation failed: ${acct} isn't initialized yet. A token account or lending position still needs to be created first.${floorSuffix}`;
   }
   const generic = out.match(/sim:generic:([A-Za-z0-9_-]+)/);
   if (generic) {
