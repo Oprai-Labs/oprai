@@ -628,38 +628,80 @@ pub async fn build_jup_lend_positions(
     let earn = earn.unwrap_or_else(|_| serde_json::json!([]));
     let borrow = borrow.unwrap_or_else(|_| serde_json::json!([]));
 
-    // Jupiter returns a row for EVERY jlToken / vault the wallet has ever
-    // touched — most with a zero balance. Those empty rows are noise: they made
-    // "list my positions" show 6 dust jlTokens the user never actually holds.
-    // Keep only rows with a live balance. Field values arrive as strings OR
-    // numbers, so test both. Earn: shares > 0. Borrow: supply or debt > 0.
-    let is_positive = |v: Option<&serde_json::Value>| -> bool {
+    // Reduce both sides to a LEAN, LLM-readable summary. Two reasons:
+    //   1. Jupiter returns a row for EVERY jlToken/vault the wallet ever touched
+    //      — mostly zero-balance dust. Skip those (keep only live balances).
+    //   2. Each raw borrow row carries a ~40-field `vault` blob (oracle arrays,
+    //      liquidity data, metadata). Serialized + truncated at the chat layer
+    //      it buried/clipped the actual debt, so the model reported "no borrows"
+    //      even though the data was present. Emit only the fields that matter.
+    // Values arrive as strings OR numbers → parse tolerantly.
+    let num = |v: Option<&serde_json::Value>| -> f64 {
         match v {
-            Some(serde_json::Value::String(s)) => !s.is_empty() && s != "0" && s.trim_start_matches('0') != "",
-            Some(serde_json::Value::Number(n)) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
-            _ => false,
+            Some(serde_json::Value::String(s)) => s.parse::<f64>().unwrap_or(0.0),
+            Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0),
+            _ => 0.0,
         }
     };
-    let filter_rows = |v: serde_json::Value, keep: &dyn Fn(&serde_json::Value) -> bool| -> serde_json::Value {
-        let arr = v.as_array().cloned()
-            .or_else(|| v.get("positions").and_then(|p| p.as_array()).cloned());
-        match arr {
-            Some(items) => serde_json::Value::Array(items.into_iter().filter(|e| keep(e)).collect()),
-            None => v,
-        }
+    let as_arr = |v: &serde_json::Value| -> Vec<serde_json::Value> {
+        v.as_array().cloned()
+            .or_else(|| v.get("positions").and_then(|p| p.as_array()).cloned())
+            .unwrap_or_default()
     };
-    let earn = filter_rows(earn, &|e| is_positive(e.get("shares")) || is_positive(e.get("underlyingAssets")));
-    let borrow = filter_rows(borrow, &|b| is_positive(b.get("borrow")) || is_positive(b.get("supply")));
+    let round2 = |x: f64| -> f64 { (x * 100.0).round() / 100.0 };
 
-    let arr_len = |v: &serde_json::Value| -> usize {
-        v.as_array()
-            .map(|a| a.len())
-            .or_else(|| v.get("positions").and_then(|p| p.as_array()).map(|a| a.len()))
-            .unwrap_or(0)
-    };
-    let earn_count = arr_len(&earn);
-    let borrow_count = arr_len(&borrow);
+    let earn_summary: Vec<serde_json::Value> = as_arr(&earn).iter().filter_map(|e| {
+        let underlying = num(e.get("underlyingAssets"));
+        if underlying <= 0.0 && num(e.get("shares")) <= 0.0 { return None; }
+        let token = e.get("token");
+        let asset = token.and_then(|t| t.get("asset"));
+        let symbol = asset.and_then(|a| a.get("symbol")).and_then(|s| s.as_str())
+            .or_else(|| token.and_then(|t| t.get("symbol")).and_then(|s| s.as_str()))
+            .unwrap_or("?");
+        let decimals = asset.and_then(|a| a.get("decimals")).and_then(|d| d.as_u64())
+            .or_else(|| token.and_then(|t| t.get("decimals")).and_then(|d| d.as_u64()))
+            .unwrap_or(6) as i32;
+        Some(serde_json::json!({
+            "asset": symbol,
+            "depositedAmount": underlying / 10f64.powi(decimals),
+        }))
+    }).collect();
+
+    let borrow_summary: Vec<serde_json::Value> = as_arr(&borrow).iter().filter_map(|b| {
+        let vault = b.get("vault");
+        let st = vault.and_then(|v| v.get("supplyToken"));
+        let bt = vault.and_then(|v| v.get("borrowToken"));
+        let col_dec = st.and_then(|t| t.get("decimals")).and_then(|d| d.as_u64()).unwrap_or(9) as i32;
+        let debt_dec = bt.and_then(|t| t.get("decimals")).and_then(|d| d.as_u64()).unwrap_or(6) as i32;
+        let col_amt = num(b.get("supply")) / 10f64.powi(col_dec);
+        let debt_amt = num(b.get("borrow")) / 10f64.powi(debt_dec);
+        if debt_amt <= 0.0 && col_amt <= 0.0 { return None; }
+        let col_sym = st.and_then(|t| t.get("uiSymbol").or_else(|| t.get("symbol"))).and_then(|s| s.as_str()).unwrap_or("?");
+        let debt_sym = bt.and_then(|t| t.get("uiSymbol").or_else(|| t.get("symbol"))).and_then(|s| s.as_str()).unwrap_or("?");
+        let col_usd = col_amt * num(st.and_then(|t| t.get("price")));
+        let debt_usd = debt_amt * num(bt.and_then(|t| t.get("price")));
+        let ltv = if col_usd > 0.0 { debt_usd / col_usd } else { 0.0 };
+        let liq_thresh = num(vault.and_then(|v| v.get("liquidationThreshold"))) / 1000.0; // 850 → 0.85
+        let health = if ltv > 0.0 { liq_thresh / ltv } else { 999.0 };
+        let liq_price = if col_amt > 0.0 && liq_thresh > 0.0 { debt_usd / (col_amt * liq_thresh) } else { 0.0 };
+        Some(serde_json::json!({
+            "collateral": col_sym,
+            "collateralAmount": col_amt,
+            "debt": debt_sym,
+            "debtAmount": debt_amt,
+            "ltvPct": round2(ltv * 100.0),
+            "liquidationThresholdPct": round2(liq_thresh * 100.0),
+            "healthFactor": round2(health),
+            "liquidationPriceUsd": round2(liq_price),
+            "isLiquidated": b.get("isLiquidated").and_then(|x| x.as_bool()).unwrap_or(false),
+        }))
+    }).collect();
+
+    let earn_count = earn_summary.len();
+    let borrow_count = borrow_summary.len();
     let count = earn_count + borrow_count;
+    let earn = serde_json::Value::Array(earn_summary);
+    let borrow = serde_json::Value::Array(borrow_summary);
 
     let wallet_short = if target.len() > 8 {
         format!("{}...{}", &target[..4], &target[target.len() - 4..])
