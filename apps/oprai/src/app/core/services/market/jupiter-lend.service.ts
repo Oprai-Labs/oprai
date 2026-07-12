@@ -26,6 +26,8 @@ import {
 } from '@solana/web3.js';
 import {
   NATIVE_MINT,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction,
   createSyncNativeInstruction,
@@ -473,6 +475,22 @@ export class JupiterLendService {
   // ─── Borrow: Operate ────────────────────────────────────────────────────
 
   /**
+   * Resolve the SPL token program that owns a mint (standard Token vs
+   * Token-2022) so ATAs are derived/created with the same program the vault
+   * uses. Falls back to the classic Token program if the mint can't be read.
+   */
+  private async getTokenProgram(mint: PublicKey): Promise<PublicKey> {
+    if (mint.equals(NATIVE_MINT)) return TOKEN_PROGRAM_ID;
+    try {
+      const info = await this.connection.getAccountInfo(mint);
+      if (info?.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
+    } catch {
+      /* fall through to classic Token program */
+    }
+    return TOKEN_PROGRAM_ID;
+  }
+
+  /**
    * Build a borrow-vault operation transaction using @jup-ag/lend/borrow SDK.
    *
    * Supports:
@@ -555,43 +573,50 @@ export class JupiterLendService {
       ? []
       : (operateResult.addressLookupTableAccounts ?? []);
 
-    // getOperateIx neither wraps SOL nor creates the debt-token account, so it
-    // references uninitialized accounts and simulation fails with Anchor 3012
-    // (AccountNotInitialized). Bracket it with the same account setup the earn
-    // deposit path uses:
-    //   • depositing SOL collateral → wrap exactly colAmount into WSOL first,
-    //     then close the WSOL ATA after (operate drains it into the vault) to
-    //     reclaim the rent as native SOL.
-    //   • borrowing → create the debt-token ATA (idempotent) so the borrowed
-    //     funds have somewhere to land.
-    //   • withdrawing SOL collateral → operate returns WSOL; close the ATA so
-    //     the user receives native SOL.
+    // getOperateIx assumes the user's supply (collateral) and borrow (debt)
+    // token accounts already exist and, for native SOL, that the WSOL account is
+    // funded. It creates none of them, so simulation fails with Anchor 3012
+    // (AccountNotInitialized) naming signer_supply_token_account /
+    // signer_borrow_token_account. Bracket the operate ix with that setup.
+    //
+    // The ATA program must match what the vault derives (getAccountOwner of the
+    // mint) or the address won't line up and 3012 persists — so resolve each
+    // mint's owning token program (Token vs Token-2022) rather than assuming.
+    const colMint = new PublicKey(colAsset.mint);
+    const debtMint = new PublicKey(debtAsset.mint);
+    const colIsNativeSol = colAsset.mint === NATIVE_MINT.toBase58();
+    const [colProgram, debtProgram] = await Promise.all([
+      this.getTokenProgram(colMint),
+      this.getTokenProgram(debtMint),
+    ]);
+    const supplyAta = getAssociatedTokenAddressSync(colMint, user, true, colProgram);
+    const debtAta = getAssociatedTokenAddressSync(debtMint, user, true, debtProgram);
+
     const preIxs: TransactionInstruction[] = [];
     const postIxs: TransactionInstruction[] = [];
-    const colIsNativeSol = colAsset.mint === NATIVE_MINT.toBase58();
-    const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user);
 
+    // Collateral (supply) account: operate always references it. Create it
+    // idempotently for every collateral; for native SOL also wrap the deposit
+    // amount into it and close afterward (operate drains it into the vault) to
+    // reclaim the rent as native SOL.
+    preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, colMint, colProgram));
     if (colIsNativeSol && colAmount > 0) {
       preIxs.push(
-        createAssociatedTokenAccountIdempotentInstruction(user, wsolAta, user, NATIVE_MINT),
         SystemProgram.transfer({
           fromPubkey: user,
-          toPubkey: wsolAta,
+          toPubkey: supplyAta,
           lamports: BigInt(colLamports.toString()),
         }),
-        createSyncNativeInstruction(wsolAta),
+        createSyncNativeInstruction(supplyAta),
       );
-      postIxs.push(createCloseAccountInstruction(wsolAta, user, user));
-    } else if (colIsNativeSol && colAmount < 0) {
-      preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, wsolAta, user, NATIVE_MINT));
-      postIxs.push(createCloseAccountInstruction(wsolAta, user, user));
+    }
+    if (colIsNativeSol && colAmount !== 0) {
+      postIxs.push(createCloseAccountInstruction(supplyAta, user, user));
     }
 
-    if (debtAmount > 0) {
-      const debtMint = new PublicKey(debtAsset.mint);
-      const debtAta = getAssociatedTokenAddressSync(debtMint, user);
-      preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint));
-    }
+    // Debt (borrow) account: create it idempotently so borrowed funds have a
+    // destination (and repay has a source).
+    preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
 
     const allIxs = [...preIxs, ...ixs, ...postIxs];
 
