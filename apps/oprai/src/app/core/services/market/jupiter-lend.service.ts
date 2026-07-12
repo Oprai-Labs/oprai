@@ -124,12 +124,15 @@ export type LendActionInfo =
 export class JupiterLendService {
   private readonly walletService = inject(WalletService);
 
+  private _connection: Connection | null = null;
   private get connection(): Connection {
     // Route through the shared factory so the /api/rpc proxy receives the auth
     // cookie (credentials: 'include' via fetchMiddleware). A bare Connection
     // omits it → the gateway's RequireWallet on /rpc returns 401 and the
-    // borrow SDK fails with "failed to get info about account …: 401".
-    return createSolanaConnection('confirmed');
+    // borrow SDK fails with "failed to get info about account …: 401" or
+    // "failed to get recent blockhash: 401". Memoized to a single instance so
+    // every call in a build/submit flow shares the same credentialed transport.
+    return (this._connection ??= createSolanaConnection('confirmed'));
   }
 
   /** Return the list of supported lending assets (static seed — for display
