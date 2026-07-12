@@ -710,33 +710,52 @@ export class JupiterLendService {
   // ─── Sign & Submit ───────────────────────────────────────────────────────
 
   async signAndSubmit(transaction: Transaction | VersionedTransaction): Promise<string> {
-    // Prefer the wallet's native signAndSendTransaction (Phantom & co.): it
-    // reliably renders the approval popup for v0 transactions with Address
-    // Lookup Tables and resolves the ALTs / refreshes the blockhash internally.
-    // The borrow operate tx is v0 + ALT, and plain signTransaction() can hang
-    // there (popup never resolves) in some wallets — signAndSend does not.
+    // A hung wallet dialog must not leave the card in "waiting for wallet
+    // signature" forever — race every wallet call against a 2-minute timeout so
+    // it surfaces a retryable error instead (matches the backend-action path).
+    const SIGN_TIMEOUT_MS = 120_000;
+    const withTimeout = <T>(p: Promise<T>): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Wallet signing timed out. Please try again.')), SIGN_TIMEOUT_MS),
+        ),
+      ]);
+
+    // Try the wallet's native signAndSendTransaction first (it resolves the
+    // ALTs and refreshes the blockhash internally). Fall back to sign + our own
+    // send when the wallet lacks it.
     try {
-      // skipPreflight: we already pre-flight simulated in the app, so skip the
-      // wallet's redundant preflight — matches the proven pump.fun/graduated
-      // path and avoids a second simulation stalling the approval.
-      const directSig = await this.walletService.signAndSendTransaction(transaction, {
-        skipPreflight: true,
-      });
+      const directSig = await withTimeout(
+        this.walletService.signAndSendTransaction(transaction, { skipPreflight: true }),
+      );
       if (directSig) return directSig;
-      // null → wallet doesn't support it; fall through to manual sign + send.
     } catch (e: any) {
-      // A genuine user rejection must propagate, not silently retry.
-      if (/reject|denied|cancel|declined|user refused|user rejected/i.test(e?.message ?? '')) {
+      const msg = e?.message ?? '';
+      // User rejection or our own timeout must propagate — never silently
+      // re-prompt (a second popup on top of a stuck one is worse UX).
+      if (/reject|denied|cancel|declined|user refused|user rejected|timed out/i.test(msg)) {
         throw e;
       }
-      // Any other failure → fall through to the manual path below.
+      // Any other failure → fall through to the manual sign + send path.
     }
 
-    const signed = await this.walletService.signTransaction(transaction as Transaction);
-    const signature = await this.connection.sendRawTransaction(
-      (signed as Transaction | VersionedTransaction).serialize(),
-      { skipPreflight: false, preflightCommitment: 'confirmed' }
+    const signed = await withTimeout(
+      this.walletService.signTransaction(transaction as Transaction),
     );
+    let signature: string;
+    try {
+      signature = await this.connection.sendRawTransaction(
+        (signed as Transaction | VersionedTransaction).serialize(),
+        { skipPreflight: true, preflightCommitment: 'confirmed' },
+      );
+    } catch (err: any) {
+      const m = err?.message ?? String(err ?? '');
+      if (/blockhash not found|block height exceeded/i.test(m)) {
+        throw new Error('BLOCKHASH_EXPIRED');
+      }
+      throw err;
+    }
 
     this.connection
       .getLatestBlockhash()
