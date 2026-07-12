@@ -547,27 +547,45 @@ export class JupiterLendService {
     ]);
     const supplyAta = getAssociatedTokenAddressSync(colMint, user, true, colProgram);
     const debtAta = getAssociatedTokenAddressSync(debtMint, user, true, debtProgram);
+    const colLamports = BigInt(Math.round(colAmount * 10 ** colAsset.decimals));
 
-    // Native SOL is NEVER cached: the wrapped WSOL is consumed into the vault by
-    // the operate tx, so a fresh deposit must re-wrap every time. Only the SPL
-    // "both ATAs already exist" fast-path is safe to cache (ATAs persist).
-    const cacheKey = `${user.toBase58()}:${vaultId}`;
-    if (!colIsNativeSol) {
-      if (this._setupCache.has(cacheKey)) return;
+    // Read the ACTUAL on-chain precondition via the reliable Helius proxy
+    // (this.connection), not a signature lookup: does the debt ATA exist, and —
+    // for native SOL — does the WSOL account already hold enough collateral?
+    // This drives both the "already funded, skip approval" fast path and the
+    // post-submit confirmation, so a wrap that landed but was slow to confirm
+    // isn't re-done and the flow can proceed straight to the operate step.
+    const readState = async (): Promise<{ debtExists: boolean; supplyExists: boolean; wsolBal: bigint }> => {
       const [supplyInfo, debtInfo] = await Promise.all([
         this.connection.getAccountInfo(supplyAta).catch(() => null),
         this.connection.getAccountInfo(debtAta).catch(() => null),
       ]);
-      if (supplyInfo && debtInfo) { this._setupCache.add(cacheKey); return; }
-    }
+      let wsolBal = 0n;
+      if (colIsNativeSol && supplyInfo) {
+        try { wsolBal = BigInt((await this.connection.getTokenAccountBalance(supplyAta)).value.amount); }
+        catch { wsolBal = 0n; }
+      }
+      return { debtExists: !!debtInfo, supplyExists: !!supplyInfo, wsolBal };
+    };
+    const isReady = (s: { debtExists: boolean; supplyExists: boolean; wsolBal: bigint }): boolean =>
+      s.debtExists && (colIsNativeSol ? s.wsolBal >= colLamports : s.supplyExists);
+
+    // Fast path: SPL ATAs persist, so cache "both exist". Native SOL is never
+    // cached — the wrapped WSOL is consumed into the vault by operate.
+    const cacheKey = `${user.toBase58()}:${vaultId}`;
+    if (!colIsNativeSol && this._setupCache.has(cacheKey)) return;
+
+    const state = await readState();
+    if (isReady(state)) { if (!colIsNativeSol) this._setupCache.add(cacheKey); return; }
 
     // Build a LEGACY transaction — exactly like the working deposit/withdraw
     // flows. A v0 tx with NO address lookup tables is an unusual shape that
     // Phantom's balance-change preview simulator mishandles (it hangs on grey
     // skeletons with Approve disabled); legacy txs and v0-with-ALT (swaps)
     // both preview fine. This setup tx is tiny, so legacy stays well under
-    // the 1232-byte limit.
-    const colLamports = BigInt(Math.round(colAmount * 10 ** colAsset.decimals));
+    // the 1232-byte limit. For native SOL, wrap only the MISSING amount so a
+    // partially-funded WSOL account (e.g. from a prior attempt) isn't stacked.
+    const wrapLamports = colIsNativeSol && colLamports > state.wsolBal ? colLamports - state.wsolBal : 0n;
     const tx = new Transaction();
     const { blockhash } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
@@ -577,36 +595,26 @@ export class JupiterLendService {
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
       createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, colMint, colProgram),
     );
-    if (colIsNativeSol) {
+    if (wrapLamports > 0n) {
       tx.add(
-        SystemProgram.transfer({ fromPubkey: user, toPubkey: supplyAta, lamports: colLamports }),
+        SystemProgram.transfer({ fromPubkey: user, toPubkey: supplyAta, lamports: wrapLamports }),
         createSyncNativeInstruction(supplyAta),
       );
     }
     tx.add(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
 
     hooks?.onSetupSign?.();                      // card → "signing"; also resets its stall timer
-    const sig = await this.signAndSubmit(tx);   // approval #1 — trivial, wallet previews instantly
-    await this.waitForOnChain(sig, 45_000, hooks?.onProgress); // must land before operate references it
-    if (!colIsNativeSol) this._setupCache.add(cacheKey); // SPL ATAs persist; SOL re-wraps every time
-  }
+    await this.signAndSubmit(tx);               // approval #1 — trivial, wallet previews instantly
 
-  /** Poll a public RPC until a signature confirms (or throw on failure/timeout). */
-  private async waitForOnChain(signature: string, timeoutMs = 45_000, onProgress?: () => void): Promise<void> {
-    const pub = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+    // Confirm by polling the ACTUAL precondition state via Helius — reliable,
+    // and it doesn't matter which RPC the wallet broadcast through. Must be
+    // ready before the operate tx references these accounts.
     const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      onProgress?.();   // keep the card's stall timer alive across the confirmation poll
-      try {
-        const st = await pub.getSignatureStatus(signature, { searchTransactionHistory: true });
-        if (st?.value?.err) throw new Error('Collateral setup failed on-chain.');
-        const s = st?.value?.confirmationStatus;
-        if (s === 'confirmed' || s === 'finalized') return;
-      } catch (e: any) {
-        if (/failed on-chain/i.test(e?.message ?? '')) throw e;
-        /* transient RPC error — keep polling */
-      }
-      await new Promise(r => setTimeout(r, 2000));
+    while (Date.now() - start < 60_000) {
+      hooks?.onProgress?.();                     // keep the card's stall timer alive
+      await new Promise(r => setTimeout(r, 2500));
+      try { if (isReady(await readState())) { if (!colIsNativeSol) this._setupCache.add(cacheKey); return; } }
+      catch { /* transient RPC error — keep polling */ }
     }
     throw new Error('Collateral setup did not confirm in time. Please try again.');
   }
