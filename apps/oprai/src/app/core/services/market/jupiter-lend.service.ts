@@ -36,7 +36,7 @@ import {
 } from '@solana/spl-token';
 import BN from 'bn.js';
 import { getDepositIxs, getWithdrawIxs } from '@jup-ag/lend/earn';
-import { getInitPositionIx, getOperateIx, getVaultsProgram, MAX_REPAY_AMOUNT, MAX_WITHDRAW_AMOUNT } from '@jup-ag/lend/borrow';
+import { MAX_REPAY_AMOUNT, MAX_WITHDRAW_AMOUNT } from '@jup-ag/lend/borrow';
 import { WalletService } from '@core/services/wallet.service';
 import { createSolanaConnection } from '@core/utils/solana-connection';
 
@@ -517,37 +517,72 @@ export class JupiterLendService {
     return TOKEN_PROGRAM_ID;
   }
 
-  // Position NFTs created this session, keyed by `${wallet}:${vaultId}`, so a
-  // retry after a failed operate reuses the position instead of minting a new one.
-  private readonly _positionCache = new Map<string, number>();
+  // Collateral setups completed this session, keyed by `${wallet}:${vaultId}:${colAmount}`,
+  // so a retry after a failed operate doesn't wrap the collateral a second time.
+  private readonly _setupCache = new Set<string>();
 
   /**
-   * Ensure the user has a borrow-position NFT for this vault, creating one in a
-   * dedicated (wallet-previewable) transaction if needed, and return its id.
-   * The position must be confirmed on-chain before the operate tx references it.
+   * Jupiter's operate tx assumes the user's collateral (supply) and debt
+   * (borrow) token accounts already exist, and — for native SOL — that the WSOL
+   * account is funded with the collateral. A first-time borrower has none of
+   * that, so pre-flight sim fails with 3012 (signer_supply_token_account). Do
+   * the setup in its OWN lightweight, wallet-previewable transaction: create
+   * both ATAs (idempotent) and, for SOL collateral, wrap the deposit amount.
+   * Skips entirely when nothing is needed (non-SOL collateral, both ATAs exist).
    */
-  private async ensureBorrowPosition(vaultId: number, user: PublicKey): Promise<number> {
+  private async ensureBorrowSetup(
+    vaultId: number,
+    user: PublicKey,
+    colAsset: LendAsset,
+    debtAsset: LendAsset,
+    colAmount: number,
+  ): Promise<void> {
+    if (colAmount <= 0) return; // only collateral deposits need funding/setup
+
+    const colMint = new PublicKey(colAsset.mint);
+    const debtMint = new PublicKey(debtAsset.mint);
+    const colIsNativeSol = colAsset.mint === NATIVE_MINT.toBase58();
+    const [colProgram, debtProgram] = await Promise.all([
+      this.getTokenProgram(colMint),
+      this.getTokenProgram(debtMint),
+    ]);
+    const supplyAta = getAssociatedTokenAddressSync(colMint, user, true, colProgram);
+    const debtAta = getAssociatedTokenAddressSync(debtMint, user, true, debtProgram);
+
+    // Native SOL is NEVER cached: the wrapped WSOL is consumed into the vault by
+    // the operate tx, so a fresh deposit must re-wrap every time. Only the SPL
+    // "both ATAs already exist" fast-path is safe to cache (ATAs persist).
     const cacheKey = `${user.toBase58()}:${vaultId}`;
-    const cached = this._positionCache.get(cacheKey);
-    if (cached != null) return cached;
+    if (!colIsNativeSol) {
+      if (this._setupCache.has(cacheKey)) return;
+      const [supplyInfo, debtInfo] = await Promise.all([
+        this.connection.getAccountInfo(supplyAta).catch(() => null),
+        this.connection.getAccountInfo(debtAta).catch(() => null),
+      ]);
+      if (supplyInfo && debtInfo) { this._setupCache.add(cacheKey); return; }
+    }
 
-    const { ix, nftId } = await getInitPositionIx({ vaultId, connection: this.connection, signer: user });
+    const colLamports = BigInt(Math.round(colAmount * 10 ** colAsset.decimals));
+    const ixs: TransactionInstruction[] = [
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }),
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
+      createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, colMint, colProgram),
+    ];
+    if (colIsNativeSol) {
+      ixs.push(
+        SystemProgram.transfer({ fromPubkey: user, toPubkey: supplyAta, lamports: colLamports }),
+        createSyncNativeInstruction(supplyAta),
+      );
+    }
+    ixs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
+
     const { blockhash } = await this.connection.getLatestBlockhash();
-    const messageV0 = new TransactionMessage({
-      payerKey: user,
-      recentBlockhash: blockhash,
-      instructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }),
-        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
-        ix,
-      ],
-    }).compileToV0Message();
-    const tx = new VersionedTransaction(messageV0);
-
-    const sig = await this.signAndSubmit(tx);        // wallet approval #1 (plain NFT mint)
-    await this.waitForOnChain(sig);                  // must land before the operate references it
-    this._positionCache.set(cacheKey, nftId);
-    return nftId;
+    const tx = new VersionedTransaction(
+      new TransactionMessage({ payerKey: user, recentBlockhash: blockhash, instructions: ixs }).compileToV0Message(),
+    );
+    const sig = await this.signAndSubmit(tx);   // approval #1 — trivial, wallet previews instantly
+    await this.waitForOnChain(sig);             // must land before the operate references it
+    if (!colIsNativeSol) this._setupCache.add(cacheKey); // SPL ATAs persist; SOL re-wraps every time
   }
 
   /** Poll a public RPC until a signature confirms (or throw on failure/timeout). */
@@ -557,7 +592,7 @@ export class JupiterLendService {
     while (Date.now() - start < timeoutMs) {
       try {
         const st = await pub.getSignatureStatus(signature, { searchTransactionHistory: true });
-        if (st?.value?.err) throw new Error('Position creation failed on-chain.');
+        if (st?.value?.err) throw new Error('Collateral setup failed on-chain.');
         const s = st?.value?.confirmationStatus;
         if (s === 'confirmed' || s === 'finalized') return;
       } catch (e: any) {
@@ -566,7 +601,7 @@ export class JupiterLendService {
       }
       await new Promise(r => setTimeout(r, 2000));
     }
-    throw new Error('Position creation did not confirm in time. Please try again.');
+    throw new Error('Collateral setup did not confirm in time. Please try again.');
   }
 
   /**
@@ -622,14 +657,17 @@ export class JupiterLendService {
       vaultId = pool[0].vaultId;
     }
 
-    // Build the transaction via Jupiter's OFFICIAL borrow API. Its backend
-    // returns a lean, wallet-previewable v0 tx — ComputeBudget + init position +
-    // operate, ~3 instructions, ~866 bytes — that Phantom can simulate and
-    // approve. A hand-assembled getOperateIx tx (expanded Metaplex position-NFT
-    // mint + separate ATA/wrap/close ixs, ~9 instructions) is too heavy for the
-    // wallet's preview simulation, so the balance-change preview never resolves
-    // and the Approve button stays disabled. This is the same endpoint
-    // jup.ag/lend/borrow itself uses (Client.borrow.operate).
+    // Jupiter's operate tx assumes the collateral/debt token accounts exist (and
+    // for SOL, that WSOL is funded). Create/fund them in a separate lightweight
+    // tx first — folding them into the operate tx makes it ~9 heavy instructions
+    // the wallet can't preview. Skips when nothing is needed.
+    await this.ensureBorrowSetup(vaultId, user, colAsset, debtAsset, colAmount);
+
+    // Build the operate transaction via Jupiter's OFFICIAL borrow API. Its
+    // backend returns a lean, wallet-previewable v0 tx — ComputeBudget + init
+    // position + operate, ~3 instructions, ~866 bytes — that Phantom simulates
+    // and approves fine. This is the same endpoint jup.ag/lend/borrow uses
+    // (Client.borrow.operate).
     const amtStr = (amt: number, decimals: number, maxNegSentinel: BN): string => {
       // -1 = MAX_REPAY, -2 = MAX_WITHDRAW app-level sentinels → program's max value.
       if (amt === -1 || amt === -2) return maxNegSentinel.toString();
