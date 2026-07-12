@@ -887,7 +887,7 @@ _KNOWN_SYMBOLS: frozenset[str] = frozenset({
     # routing on the backend; this set gates whether the validator forwards
     # the symbol to it. Dropping a symbol here means the action is silently
     # rejected before Rust ever sees it.)
-    "SOL", "USDC", "USDT", "PYUSD", "USDS", "DAI", "FDUSD", "USDE", "SUSDE",
+    "SOL", "WSOL", "USDC", "USDT", "PYUSD", "USDS", "DAI", "FDUSD", "USDE", "SUSDE",
     # Liquid staking
     "MSOL", "JSOL", "JITOSOL", "BSOL", "JUPSOL", "INF", "MNDE",
     # Major DeFi

@@ -1204,7 +1204,26 @@ export class SolanaActionService {
     // ── Resolve amount=all / amount=max / amount="X%" before building ────
     const rawAmount = action.params['amount'];
     const pctMatch = typeof rawAmount === 'string' ? rawAmount.trim().match(/^(\d+(?:\.\d+)?)\s*%$/) : null;
-    if (rawAmount === 'all' || rawAmount === 'max' || pctMatch) {
+    // Jupiter Lend Earn withdrawal drains the DEPOSITED position, not the wallet
+    // balance — "withdraw all WSOL" means the full Earn deposit (which is often
+    // larger than any wSOL sitting loose in the wallet). Resolve against the
+    // live earn position for this asset so "all"/"max"/"X%" targets the deposit.
+    if ((rawAmount === 'all' || rawAmount === 'max' || pctMatch) && action.type === 'withdraw_lend') {
+      const wallet = this.walletService.publicKey();
+      const positions = wallet ? await this.lendService.getAllEarnPositions(wallet) : [];
+      const ref = (action.params['token'] ?? '').toUpperCase();
+      const solAlias = ref === 'SOL' || ref === 'WSOL';
+      const pos = positions.find(p => {
+        const sym = p.asset.symbol.toUpperCase();
+        return sym === ref || (solAlias && (sym === 'SOL' || sym === 'WSOL'));
+      });
+      const deposited = pos?.depositedAmount ?? 0;
+      const adjusted = pctMatch ? deposited * (parseFloat(pctMatch[1]) / 100) : deposited;
+      if (deposited <= 0) {
+        throw new Error(`No ${action.params['token'] ?? 'that asset'} deposit found in Jupiter Lend to withdraw.`);
+      }
+      action = { ...action, params: { ...action.params, amount: adjusted.toString() } };
+    } else if (rawAmount === 'all' || rawAmount === 'max' || pctMatch) {
       // jlp_remove spends JLP (the `token` param is the RECEIVE token), so the
       // sentinel must resolve against the JLP balance — not the receive token.
       const JLP_MINT = '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4';
