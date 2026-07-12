@@ -1685,6 +1685,48 @@
               Repays your outstanding {{ repayTd.symbol }} debt on Jupiter Lend. Use Max to clear it in full.
             </div>
           </div>
+        } @else if (action.type === 'kamino_deposit') {
+          <!-- ─────── Kamino Lend deposit: supply a token to earn + back borrows ─────── -->
+          @let kmDepTd = resolveTokenDisplay(getEditParam('token') || getEditParam('reserve') || 'USDC');
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Deposit</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmDepTd.logoURI) {
+                    <img [src]="kmDepTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmDepTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmDepTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="lend-hf-explain">
+              <lucide-icon name="info" [size]="11" />
+              Supplies {{ kmDepTd.symbol }} to Kamino Lend — earns yield and can back borrows.
+            </div>
+          </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
                [class.proto-fields--swaplike]="false">
