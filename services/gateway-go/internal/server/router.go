@@ -305,9 +305,15 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Get("/pumpfun/rewards/{wallet}", marketProxy.GetPumpfunCreatorRewards)
 	})
 
-	// Solana JSON-RPC proxy — keeps Helius API key server-side.
-	// RequireWallet prevents unauthenticated quota abuse.
-	r.With(defaultTimeout, middleware.RequireWallet).Post("/rpc", marketProxy.PostRpc)
+	// Solana JSON-RPC proxy — keeps the Helius API key server-side. NOT
+	// wallet-gated: browser web3.js Connections can't reliably attach the auth
+	// cookie/JWT to their fetches, and gating this behind RequireWallet
+	// intermittently 401'd legitimate reads (blockhash, account info) and tx
+	// submits, freezing wallet flows. Broadcasting a signed tx and reading
+	// public chain state need no auth anyway. Abuse is bounded by the CSRF
+	// (X-Requested-With) check + global rate limiting; the Helius key stays
+	// server-side.
+	r.With(defaultTimeout).Post("/rpc", marketProxy.PostRpc)
 
 	// Upload handler — stores files locally, serves via /uploads/*
 	uploadHandler := handlers.NewUploadHandler(cfg.UploadDir, cfg.PublicBaseURL)
