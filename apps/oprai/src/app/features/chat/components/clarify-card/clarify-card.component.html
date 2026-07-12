@@ -11,6 +11,7 @@
   <p class="clarify-card__question">{{ clarify.question }}</p>
 
   <!-- Options -->
+  @let mode = distinguishBy();
   <div class="clarify-card__options">
     @for (option of clarify.options; track option.action; let i = $index) {
       <button
@@ -22,7 +23,15 @@
         [disabled]="selectedIndex !== null"
         (click)="select(option, i)"
       >
-        @if (hasProtocolInfo(option)) {
+        @if (mode === 'token' && optionSingleToken(option); as tok) {
+          <div class="clarify-option__token-icon">
+            @if (tok.logoURI) {
+              <img [src]="tok.logoURI" [alt]="tok.symbol" />
+            } @else {
+              <span class="clarify-option__token-letter">{{ tok.symbol.charAt(0) }}</span>
+            }
+          </div>
+        } @else if (hasProtocolInfo(option)) {
           <div class="clarify-option__protocol-icon">
             <img [src]="getProtocolInfo(option)?.icon" [alt]="option.label" />
           </div>

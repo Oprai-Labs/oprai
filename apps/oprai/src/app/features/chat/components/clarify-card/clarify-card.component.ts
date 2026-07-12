@@ -132,6 +132,30 @@ export class ClarifyCardComponent {
     return !!this.optionTokens(option);
   }
 
+  /**
+   * Card-level: are the options distinguished by PROTOCOL or by TOKEN? When
+   * every option is the same protocol but a different token (e.g. "USDC vs SOL
+   * deposit on Kamino"), repeating the protocol logo on every row is noise —
+   * the TOKEN is what the user is choosing, so show token icons instead.
+   */
+  distinguishBy(): 'protocol' | 'token' {
+    const opts = this.clarify.options ?? [];
+    const protocols = new Set(
+      opts.map(o => (o.action.includes('_') ? o.action.split('_')[0] : o.action)),
+    );
+    if (protocols.size > 1) return 'protocol';
+    const tokens = new Set(
+      opts.map(o => this.optionSingleToken(o)?.symbol).filter(Boolean),
+    );
+    return tokens.size > 1 ? 'token' : 'protocol';
+  }
+
+  /** The single distinguishing token for an option (the `to`/deposited token). */
+  optionSingleToken(option: ClarifyOption): OptionToken | null {
+    const t = this.optionTokens(option);
+    return t ? (t.to ?? t.from) : null;
+  }
+
   /** Resolve an address or symbol to display bits; null if unknown/empty. */
   private resolveToken(idOrSymbol?: string): OptionToken | null {
     const raw = (idOrSymbol ?? '').trim().replace(/^\$/, '');

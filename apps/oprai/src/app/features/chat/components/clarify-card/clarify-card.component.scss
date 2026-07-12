@@ -153,6 +153,32 @@
     }
   }
 
+  // Single token coin — shown when options differ by token, not protocol
+  // (e.g. "USDC vs SOL deposit on Kamino"). Same 36px slot, round like a coin.
+  &__token-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--op-bg-surface-1);
+    flex-shrink: 0;
+    overflow: hidden;
+
+    img {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+  }
+  &__token-letter {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--op-brand);
+  }
+
   // Token-route pair: two overlapping coins (from → to) sized to fill the same
   // 36px slot as the protocol/generic icons.
   &__pair {
