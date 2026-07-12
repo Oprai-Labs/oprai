@@ -354,21 +354,36 @@ export class JupiterLendService {
       if (!res.ok) return [];
       const positions: any[] = await res.json();
 
+      // The borrow API shape: each row has `supply` (collateral lamports) and
+      // `borrow` (debt lamports) at the top level, and the token metadata +
+      // risk params live under `vault.{supplyToken,borrowToken,collateralFactor,
+      // liquidationThreshold}`. (The old code read collateralAmount/debtAmount/
+      // collateralToken/ltv — none of which exist — so every borrow got filtered
+      // out and the card showed nothing.)
       return positions
-        .filter(p => parseFloat(p.debtAmount ?? '0') > 0)
+        .filter(p => parseFloat(p.borrow ?? '0') > 0)
         .map(p => {
-          const colMint: string = p.collateralToken?.address ?? '';
-          const debtMint: string = p.borrowToken?.address ?? '';
+          const vault = p.vault ?? {};
+          const st = vault.supplyToken ?? {};
+          const bt = vault.borrowToken ?? {};
+          const colMint: string = st.address ?? '';
+          const debtMint: string = bt.address ?? '';
+          const colDecimals = st.decimals ?? 9;
+          const debtDecimals = bt.decimals ?? 6;
           const colAsset: LendAsset = LEND_SUPPORTED_ASSETS.find(a => a.mint === colMint)
-            ?? { symbol: p.collateralToken?.uiSymbol ?? p.collateralToken?.symbol ?? '?', mint: colMint, decimals: 9 };
+            ?? { symbol: st.uiSymbol ?? st.symbol ?? '?', mint: colMint, decimals: colDecimals };
           const debtAsset: LendAsset = LEND_SUPPORTED_ASSETS.find(a => a.mint === debtMint)
-            ?? { symbol: p.borrowToken?.uiSymbol ?? p.borrowToken?.symbol ?? '?', mint: debtMint, decimals: 6 };
+            ?? { symbol: bt.uiSymbol ?? bt.symbol ?? '?', mint: debtMint, decimals: debtDecimals };
 
-          const collateralAmount = parseFloat(p.collateralAmount ?? '0') / Math.pow(10, colAsset.decimals);
-          const debtAmount = parseFloat(p.debtAmount ?? '0') / Math.pow(10, debtAsset.decimals);
-          const ltv = parseFloat(p.ltv ?? '0');
-          const liqThresh = (p.liquidationThreshold ?? 0) / 1000;
-          const healthFactor = liqThresh > 0 && ltv > 0 ? liqThresh / ltv : 999;
+          const collateralAmount = parseFloat(p.supply ?? '0') / Math.pow(10, colDecimals);
+          const debtAmount = parseFloat(p.borrow ?? '0') / Math.pow(10, debtDecimals);
+
+          // LTV + health from USD values (vault carries live oracle token prices).
+          const collateralUsd = collateralAmount * parseFloat(st.price ?? '0');
+          const debtUsd = debtAmount * parseFloat(bt.price ?? '0');
+          const ltv = collateralUsd > 0 ? debtUsd / collateralUsd : 0;
+          const liqThresh = (vault.liquidationThreshold ?? 0) / 1000; // e.g. 850 → 0.85
+          const healthFactor = ltv > 0 ? liqThresh / ltv : 999;
 
           return { collateralAsset: colAsset, debtAsset, collateralAmount, debtAmount, ltv, liquidationThreshold: liqThresh, healthFactor } as BorrowPosition;
         });

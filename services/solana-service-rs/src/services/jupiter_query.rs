@@ -628,6 +628,29 @@ pub async fn build_jup_lend_positions(
     let earn = earn.unwrap_or_else(|_| serde_json::json!([]));
     let borrow = borrow.unwrap_or_else(|_| serde_json::json!([]));
 
+    // Jupiter returns a row for EVERY jlToken / vault the wallet has ever
+    // touched — most with a zero balance. Those empty rows are noise: they made
+    // "list my positions" show 6 dust jlTokens the user never actually holds.
+    // Keep only rows with a live balance. Field values arrive as strings OR
+    // numbers, so test both. Earn: shares > 0. Borrow: supply or debt > 0.
+    let is_positive = |v: Option<&serde_json::Value>| -> bool {
+        match v {
+            Some(serde_json::Value::String(s)) => !s.is_empty() && s != "0" && s.trim_start_matches('0') != "",
+            Some(serde_json::Value::Number(n)) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
+            _ => false,
+        }
+    };
+    let filter_rows = |v: serde_json::Value, keep: &dyn Fn(&serde_json::Value) -> bool| -> serde_json::Value {
+        let arr = v.as_array().cloned()
+            .or_else(|| v.get("positions").and_then(|p| p.as_array()).cloned());
+        match arr {
+            Some(items) => serde_json::Value::Array(items.into_iter().filter(|e| keep(e)).collect()),
+            None => v,
+        }
+    };
+    let earn = filter_rows(earn, &|e| is_positive(e.get("shares")) || is_positive(e.get("underlyingAssets")));
+    let borrow = filter_rows(borrow, &|b| is_positive(b.get("borrow")) || is_positive(b.get("supply")));
+
     let arr_len = |v: &serde_json::Value| -> usize {
         v.as_array()
             .map(|a| a.len())
