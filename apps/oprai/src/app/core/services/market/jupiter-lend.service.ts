@@ -16,11 +16,14 @@
  */
 import { Injectable, inject } from '@angular/core';
 import {
+  AddressLookupTableAccount,
   ComputeBudgetProgram,
   Connection,
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
+  TransactionMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
 import {
@@ -515,110 +518,6 @@ export class JupiterLendService {
     return TOKEN_PROGRAM_ID;
   }
 
-  // Collateral setups completed this session, keyed by `${wallet}:${vaultId}:${colAmount}`,
-  // so a retry after a failed operate doesn't wrap the collateral a second time.
-  private readonly _setupCache = new Set<string>();
-
-  /**
-   * Jupiter's operate tx assumes the user's collateral (supply) and debt
-   * (borrow) token accounts already exist, and — for native SOL — that the WSOL
-   * account is funded with the collateral. A first-time borrower has none of
-   * that, so pre-flight sim fails with 3012 (signer_supply_token_account). Do
-   * the setup in its OWN lightweight, wallet-previewable transaction: create
-   * both ATAs (idempotent) and, for SOL collateral, wrap the deposit amount.
-   * Skips entirely when nothing is needed (non-SOL collateral, both ATAs exist).
-   */
-  private async ensureBorrowSetup(
-    vaultId: number,
-    user: PublicKey,
-    colAsset: LendAsset,
-    debtAsset: LendAsset,
-    colAmount: number,
-    hooks?: { onSetupSign?: () => void; onProgress?: () => void },
-  ): Promise<void> {
-    if (colAmount <= 0) return; // only collateral deposits need funding/setup
-
-    const colMint = new PublicKey(colAsset.mint);
-    const debtMint = new PublicKey(debtAsset.mint);
-    const colIsNativeSol = colAsset.mint === NATIVE_MINT.toBase58();
-    const [colProgram, debtProgram] = await Promise.all([
-      this.getTokenProgram(colMint),
-      this.getTokenProgram(debtMint),
-    ]);
-    const supplyAta = getAssociatedTokenAddressSync(colMint, user, true, colProgram);
-    const debtAta = getAssociatedTokenAddressSync(debtMint, user, true, debtProgram);
-    const colLamports = BigInt(Math.round(colAmount * 10 ** colAsset.decimals));
-
-    // Read the ACTUAL on-chain precondition via the reliable Helius proxy
-    // (this.connection), not a signature lookup: does the debt ATA exist, and —
-    // for native SOL — does the WSOL account already hold enough collateral?
-    // This drives both the "already funded, skip approval" fast path and the
-    // post-submit confirmation, so a wrap that landed but was slow to confirm
-    // isn't re-done and the flow can proceed straight to the operate step.
-    const readState = async (): Promise<{ debtExists: boolean; supplyExists: boolean; wsolBal: bigint }> => {
-      const [supplyInfo, debtInfo] = await Promise.all([
-        this.connection.getAccountInfo(supplyAta).catch(() => null),
-        this.connection.getAccountInfo(debtAta).catch(() => null),
-      ]);
-      let wsolBal = 0n;
-      if (colIsNativeSol && supplyInfo) {
-        try { wsolBal = BigInt((await this.connection.getTokenAccountBalance(supplyAta)).value.amount); }
-        catch { wsolBal = 0n; }
-      }
-      return { debtExists: !!debtInfo, supplyExists: !!supplyInfo, wsolBal };
-    };
-    const isReady = (s: { debtExists: boolean; supplyExists: boolean; wsolBal: bigint }): boolean =>
-      s.debtExists && (colIsNativeSol ? s.wsolBal >= colLamports : s.supplyExists);
-
-    // Fast path: SPL ATAs persist, so cache "both exist". Native SOL is never
-    // cached — the wrapped WSOL is consumed into the vault by operate.
-    const cacheKey = `${user.toBase58()}:${vaultId}`;
-    if (!colIsNativeSol && this._setupCache.has(cacheKey)) return;
-
-    const state = await readState();
-    if (isReady(state)) { if (!colIsNativeSol) this._setupCache.add(cacheKey); return; }
-
-    // Build a LEGACY transaction — exactly like the working deposit/withdraw
-    // flows. A v0 tx with NO address lookup tables is an unusual shape that
-    // Phantom's balance-change preview simulator mishandles (it hangs on grey
-    // skeletons with Approve disabled); legacy txs and v0-with-ALT (swaps)
-    // both preview fine. This setup tx is tiny, so legacy stays well under
-    // the 1232-byte limit. For native SOL, wrap only the MISSING amount so a
-    // partially-funded WSOL account (e.g. from a prior attempt) isn't stacked.
-    const wrapLamports = colIsNativeSol && colLamports > state.wsolBal ? colLamports - state.wsolBal : 0n;
-    const tx = new Transaction();
-    const { blockhash } = await this.connection.getLatestBlockhash();
-    tx.recentBlockhash = blockhash;
-    tx.feePayer = user;
-    tx.add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }),
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
-      createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, colMint, colProgram),
-    );
-    if (wrapLamports > 0n) {
-      tx.add(
-        SystemProgram.transfer({ fromPubkey: user, toPubkey: supplyAta, lamports: wrapLamports }),
-        createSyncNativeInstruction(supplyAta),
-      );
-    }
-    tx.add(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
-
-    hooks?.onSetupSign?.();                      // card → "signing"; also resets its stall timer
-    await this.signAndSubmit(tx);               // approval #1 — trivial, wallet previews instantly
-
-    // Confirm by polling the ACTUAL precondition state via Helius — reliable,
-    // and it doesn't matter which RPC the wallet broadcast through. Must be
-    // ready before the operate tx references these accounts.
-    const start = Date.now();
-    while (Date.now() - start < 60_000) {
-      hooks?.onProgress?.();                     // keep the card's stall timer alive
-      await new Promise(r => setTimeout(r, 2500));
-      try { if (isReady(await readState())) { if (!colIsNativeSol) this._setupCache.add(cacheKey); return; } }
-      catch { /* transient RPC error — keep polling */ }
-    }
-    throw new Error('Collateral setup did not confirm in time. Please try again.');
-  }
-
   /**
    * Build a borrow-vault operation transaction using @jup-ag/lend/borrow SDK.
    *
@@ -644,7 +543,6 @@ export class JupiterLendService {
     debtAmount: number,
     colAsset: LendAsset,
     debtAsset: LendAsset,
-    hooks?: { onSetupSign?: () => void; onProgress?: () => void },
   ): Promise<{ transaction: VersionedTransaction; description: string }> {
     const walletPubkey = this.walletService.publicKey();
     if (!walletPubkey) throw new Error('No wallet connected');
@@ -673,18 +571,6 @@ export class JupiterLendService {
       vaultId = pool[0].vaultId;
     }
 
-    // Jupiter's operate tx assumes the collateral/debt token accounts exist (and
-    // for SOL, that WSOL is funded). Create/fund them in a separate lightweight
-    // tx first — folding them into the operate tx makes it ~9 heavy instructions
-    // the wallet can't preview. Skips when nothing is needed.
-    await this.ensureBorrowSetup(vaultId, user, colAsset, debtAsset, colAmount, hooks);
-    hooks?.onProgress?.();  // setup done — keep the card's stall timer alive into the operate build
-
-    // Build the operate transaction via Jupiter's OFFICIAL borrow API. Its
-    // backend returns a lean, wallet-previewable v0 tx — ComputeBudget + init
-    // position + operate, ~3 instructions, ~866 bytes — that Phantom simulates
-    // and approves fine. This is the same endpoint jup.ag/lend/borrow uses
-    // (Client.borrow.operate).
     const amtStr = (amt: number, decimals: number, maxNegSentinel: BN): string => {
       // -1 = MAX_REPAY, -2 = MAX_WITHDRAW app-level sentinels → program's max value.
       if (amt === -1 || amt === -2) return maxNegSentinel.toString();
@@ -693,16 +579,79 @@ export class JupiterLendService {
     const colStr = amtStr(colAmount, colAsset.decimals, MAX_WITHDRAW_AMOUNT);
     const debtStr = amtStr(debtAmount, debtAsset.decimals, MAX_REPAY_AMOUNT);
 
-    const opRes = await jupFetch(`${LEND_API}/v1/borrow/operate`, 12_000, {
+    // Fetch the borrow operation as RAW instructions (+ ALT) so we can prepend
+    // the collateral setup and submit ONE atomic, single-approval tx. Jupiter's
+    // instructions assume the user's supply/borrow token accounts already exist
+    // and — for native SOL — that WSOL is funded; they don't wrap or create
+    // ATAs. We prepend that here and compile everything into one v0+ALT tx.
+    // Doing it in a single tx is BOTH wallet-previewable (v0-with-ALT previews
+    // like a swap) AND atomic — nothing half-completes, so a failure can't
+    // leave the user with stranded wrapped SOL and no borrow.
+    const opRes = await jupFetch(`${LEND_API}/v1/borrow/operate-instructions`, 12_000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ signer: user.toBase58(), vaultId, positionId, colAmount: colStr, debtAmount: debtStr }),
     });
     if (!opRes.ok) throw new Error('Jupiter borrow service is unavailable right now. Please try again.');
-    const opData = await opRes.json() as { nftId?: number; transaction?: string };
-    if (!opData.transaction) throw new Error('Jupiter borrow service returned no transaction.');
-    const tx = VersionedTransaction.deserialize(
-      Uint8Array.from(atob(opData.transaction), c => c.charCodeAt(0)),
+    const opData = await opRes.json() as {
+      nftId?: number;
+      instructions?: { programId: string; accounts: { pubkey: string; isSigner: boolean; isWritable: boolean }[]; data: string }[];
+      addressLookupTableAddresses?: string[];
+    };
+    if (!opData.instructions?.length) throw new Error('Jupiter borrow service returned no instructions.');
+    const jupIxs = opData.instructions.map(i => new TransactionInstruction({
+      programId: new PublicKey(i.programId),
+      keys: i.accounts.map(a => ({ pubkey: new PublicKey(a.pubkey), isSigner: a.isSigner, isWritable: a.isWritable })),
+      data: Buffer.from(i.data, 'base64'),
+    }));
+
+    // Prepend collateral setup for a deposit (colAmount > 0): create the
+    // supply/debt ATAs (idempotent — no-ops if they exist) and, for native SOL,
+    // wrap ONLY the missing amount so an existing WSOL balance (e.g. left by a
+    // prior attempt) is consumed rather than stacked.
+    const setupIxs: TransactionInstruction[] = [
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
+    ];
+    if (colAmount > 0) {
+      const colMint = new PublicKey(colAsset.mint);
+      const debtMint = new PublicKey(debtAsset.mint);
+      const colIsNativeSol = colAsset.mint === NATIVE_MINT.toBase58();
+      const [colProgram, debtProgram] = await Promise.all([
+        this.getTokenProgram(colMint),
+        this.getTokenProgram(debtMint),
+      ]);
+      const supplyAta = getAssociatedTokenAddressSync(colMint, user, true, colProgram);
+      const debtAta = getAssociatedTokenAddressSync(debtMint, user, true, debtProgram);
+      setupIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, colMint, colProgram));
+      if (colIsNativeSol) {
+        const colLamports = BigInt(Math.round(colAmount * 10 ** colAsset.decimals));
+        let wsolBal = 0n;
+        try { wsolBal = BigInt((await this.connection.getTokenAccountBalance(supplyAta)).value.amount); }
+        catch { /* ATA missing → treat as 0 */ }
+        const wrapLamports = colLamports > wsolBal ? colLamports - wsolBal : 0n;
+        if (wrapLamports > 0n) {
+          setupIxs.push(
+            SystemProgram.transfer({ fromPubkey: user, toPubkey: supplyAta, lamports: wrapLamports }),
+            createSyncNativeInstruction(supplyAta),
+          );
+        }
+      }
+      setupIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
+    }
+
+    // Resolve Jupiter's address lookup tables and compile ONE v0 tx.
+    const luts = (await Promise.all(
+      (opData.addressLookupTableAddresses ?? []).map(a =>
+        this.connection.getAddressLookupTable(new PublicKey(a)).then(r => r.value).catch(() => null)),
+    )).filter((v): v is AddressLookupTableAccount => v !== null);
+    const { blockhash } = await this.connection.getLatestBlockhash();
+    const tx = new VersionedTransaction(
+      new TransactionMessage({
+        payerKey: user,
+        recentBlockhash: blockhash,
+        instructions: [...setupIxs, ...jupIxs],
+      }).compileToV0Message(luts),
     );
 
     // Build description

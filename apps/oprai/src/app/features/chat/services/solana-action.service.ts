@@ -1880,11 +1880,6 @@ export class SolanaActionService {
           debtDelta,
           colAsset,
           debtAsset,
-          // Setup (WSOL wrap + ATAs) runs as its own approval + confirmation
-          // BEFORE this returns. Signal the card on the first setup approval so
-          // it shows "signing", and ping keep-alive throughout so the 45s stall
-          // timeout doesn't kill a flow that's legitimately waiting on the user.
-          { onSetupSign: () => callbacks.onSign?.(), onProgress: () => callbacks.onProgress?.() },
         );
         transaction = result.transaction;
         break;
