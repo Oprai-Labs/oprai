@@ -675,6 +675,25 @@ export class JupiterLendService {
   // ─── Sign & Submit ───────────────────────────────────────────────────────
 
   async signAndSubmit(transaction: Transaction | VersionedTransaction): Promise<string> {
+    // Prefer the wallet's native signAndSendTransaction (Phantom & co.): it
+    // reliably renders the approval popup for v0 transactions with Address
+    // Lookup Tables and resolves the ALTs / refreshes the blockhash internally.
+    // The borrow operate tx is v0 + ALT, and plain signTransaction() can hang
+    // there (popup never resolves) in some wallets — signAndSend does not.
+    try {
+      const directSig = await this.walletService.signAndSendTransaction(transaction, {
+        skipPreflight: false,
+      });
+      if (directSig) return directSig;
+      // null → wallet doesn't support it; fall through to manual sign + send.
+    } catch (e: any) {
+      // A genuine user rejection must propagate, not silently retry.
+      if (/reject|denied|cancel|declined|user refused|user rejected/i.test(e?.message ?? '')) {
+        throw e;
+      }
+      // Any other failure → fall through to the manual path below.
+    }
+
     const signed = await this.walletService.signTransaction(transaction as Transaction);
     const signature = await this.connection.sendRawTransaction(
       (signed as Transaction | VersionedTransaction).serialize(),
