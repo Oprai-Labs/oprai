@@ -586,6 +586,40 @@ export class JupiterLendService {
       vaultId = pool[0].vaultId;
     }
 
+    // Resolve the REAL position for any op that touches an existing one (repay,
+    // withdraw, or borrowing more against a position you already have). Sending
+    // positionId=0 makes the program open a NEW empty position, so a repay then
+    // reverts with 6018 (VaultExcessDebtPayback) — you can't pay debt that isn't
+    // there. Look up the user's live position in this vault, and for a near-full
+    // repay/withdraw switch to the MAX sentinel: debt accrues interest every
+    // slot, so repaying a snapshot amount leaves dust the program rejects (6025
+    // VaultUserDebtTooLow) and over-repaying reverts (6018). MAX clears it exact.
+    if (positionId <= 0 || debtAmount < 0 || colAmount < 0) {
+      try {
+        const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users=${user.toBase58()}`);
+        if (res.ok) {
+          const rows = await res.json() as Array<{ id?: number; vaultId?: number; supply?: string; borrow?: string }>;
+          const existing = rows.find(p => Number(p.vaultId) === vaultId &&
+            (parseFloat(p.borrow ?? '0') > 0 || parseFloat(p.supply ?? '0') > 0));
+          if (existing) {
+            if (existing.id != null) positionId = existing.id;
+            // Near-full (≥99% of current debt) → MAX_REPAY. Covers the typed
+            // exact amount (which is stale-low vs accrued debt) AND slight over.
+            if (debtAmount < 0) {
+              const requested = BigInt(Math.round(Math.abs(debtAmount) * 10 ** debtAsset.decimals));
+              const debtLamports = BigInt(existing.borrow ?? '0');
+              if (debtLamports > 0n && requested * 100n >= debtLamports * 99n) debtAmount = -1;
+            }
+            if (colAmount < 0) {
+              const reqCol = BigInt(Math.round(Math.abs(colAmount) * 10 ** colAsset.decimals));
+              const supplyLamports = BigInt(existing.supply ?? '0');
+              if (supplyLamports > 0n && reqCol * 100n >= supplyLamports * 99n) colAmount = -2;
+            }
+          }
+        }
+      } catch { /* fall through — positionId/amounts stay as given */ }
+    }
+
     const amtStr = (amt: number, decimals: number, maxNegSentinel: BN): string => {
       // -1 = MAX_REPAY, -2 = MAX_WITHDRAW app-level sentinels → program's max value.
       if (amt === -1 || amt === -2) return maxNegSentinel.toString();
@@ -669,20 +703,23 @@ export class JupiterLendService {
       }).compileToV0Message(luts),
     );
 
-    // Build description
+    // Build description. -1/-2 are the MAX_REPAY / MAX_WITHDRAW sentinels, so
+    // render those as "full … debt" / "all … collateral" rather than "1"/"2".
+    const debtLabel = debtAmount === -1 ? `full ${debtAsset.symbol} debt` : `${Math.abs(debtAmount)} ${debtAsset.symbol}`;
+    const colLabel = colAmount === -2 ? `all ${colAsset.symbol} collateral` : `${Math.abs(colAmount)} ${colAsset.symbol} collateral`;
     let description: string;
     if (debtAmount > 0 && colAmount > 0) {
       description = `Borrow ${debtAmount} ${debtAsset.symbol}, deposit ${colAmount} ${colAsset.symbol} collateral`;
     } else if (debtAmount > 0) {
       description = `Borrow ${debtAmount} ${debtAsset.symbol}`;
     } else if (debtAmount < 0 && colAmount === 0) {
-      description = `Repay ${Math.abs(debtAmount)} ${debtAsset.symbol}`;
+      description = `Repay ${debtLabel}`;
     } else if (debtAmount < 0) {
-      description = `Repay ${Math.abs(debtAmount)} ${debtAsset.symbol}, withdraw ${Math.abs(colAmount)} ${colAsset.symbol}`;
+      description = `Repay ${debtLabel}, withdraw ${colLabel}`;
     } else if (colAmount > 0) {
       description = `Add ${colAmount} ${colAsset.symbol} collateral`;
     } else if (colAmount < 0) {
-      description = `Withdraw ${Math.abs(colAmount)} ${colAsset.symbol} collateral`;
+      description = `Withdraw ${colLabel}`;
     } else {
       description = 'Manage collateral';
     }
