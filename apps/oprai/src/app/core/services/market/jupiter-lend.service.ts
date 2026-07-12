@@ -534,6 +534,7 @@ export class JupiterLendService {
     colAsset: LendAsset,
     debtAsset: LendAsset,
     colAmount: number,
+    hooks?: { onSetupSign?: () => void; onProgress?: () => void },
   ): Promise<void> {
     if (colAmount <= 0) return; // only collateral deposits need funding/setup
 
@@ -584,16 +585,18 @@ export class JupiterLendService {
     }
     tx.add(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
 
+    hooks?.onSetupSign?.();                      // card → "signing"; also resets its stall timer
     const sig = await this.signAndSubmit(tx);   // approval #1 — trivial, wallet previews instantly
-    await this.waitForOnChain(sig);             // must land before the operate references it
+    await this.waitForOnChain(sig, 45_000, hooks?.onProgress); // must land before operate references it
     if (!colIsNativeSol) this._setupCache.add(cacheKey); // SPL ATAs persist; SOL re-wraps every time
   }
 
   /** Poll a public RPC until a signature confirms (or throw on failure/timeout). */
-  private async waitForOnChain(signature: string, timeoutMs = 45_000): Promise<void> {
+  private async waitForOnChain(signature: string, timeoutMs = 45_000, onProgress?: () => void): Promise<void> {
     const pub = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
+      onProgress?.();   // keep the card's stall timer alive across the confirmation poll
       try {
         const st = await pub.getSignatureStatus(signature, { searchTransactionHistory: true });
         if (st?.value?.err) throw new Error('Collateral setup failed on-chain.');
@@ -632,7 +635,8 @@ export class JupiterLendService {
     colAmount: number,
     debtAmount: number,
     colAsset: LendAsset,
-    debtAsset: LendAsset
+    debtAsset: LendAsset,
+    hooks?: { onSetupSign?: () => void; onProgress?: () => void },
   ): Promise<{ transaction: VersionedTransaction; description: string }> {
     const walletPubkey = this.walletService.publicKey();
     if (!walletPubkey) throw new Error('No wallet connected');
@@ -665,7 +669,8 @@ export class JupiterLendService {
     // for SOL, that WSOL is funded). Create/fund them in a separate lightweight
     // tx first — folding them into the operate tx makes it ~9 heavy instructions
     // the wallet can't preview. Skips when nothing is needed.
-    await this.ensureBorrowSetup(vaultId, user, colAsset, debtAsset, colAmount);
+    await this.ensureBorrowSetup(vaultId, user, colAsset, debtAsset, colAmount, hooks);
+    hooks?.onProgress?.();  // setup done — keep the card's stall timer alive into the operate build
 
     // Build the operate transaction via Jupiter's OFFICIAL borrow API. Its
     // backend returns a lean, wallet-previewable v0 tx — ComputeBudget + init

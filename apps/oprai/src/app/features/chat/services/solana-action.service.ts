@@ -31,6 +31,13 @@ export interface ActionCallbacks {
   /** Called during chain execution to report progress. */
   onStatus?: (status: string) => void;
   /**
+   * Keep-alive ping for long multi-step flows (e.g. a borrow that needs a
+   * separate collateral-setup approval + on-chain confirmation before the main
+   * tx). Lets the card reset its stall timeout so the flow isn't killed while
+   * legitimately waiting on a second wallet approval or a confirmation poll.
+   */
+  onProgress?: () => void;
+  /**
    * Called for token launches with the browser-generated mint (base58) as soon as
    * it's created — before signing. Lets the card persist the new token's contract
    * address into chat history so later "sell this / sell HOOD4" turns can resolve it.
@@ -1872,7 +1879,12 @@ export class SolanaActionService {
           parseFloat(action.params['collateralAmount'] ?? '0'),
           debtDelta,
           colAsset,
-          debtAsset
+          debtAsset,
+          // Setup (WSOL wrap + ATAs) runs as its own approval + confirmation
+          // BEFORE this returns. Signal the card on the first setup approval so
+          // it shows "signing", and ping keep-alive throughout so the 45s stall
+          // timeout doesn't kill a flow that's legitimately waiting on the user.
+          { onSetupSign: () => callbacks.onSign?.(), onProgress: () => callbacks.onProgress?.() },
         );
         transaction = result.transaction;
         break;

@@ -2831,6 +2831,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Frozen swap pay/receive captured at submit, persisted with the result. */
   private lastSwapView: { pay: string; receive: string } | null = null;
 
+  /** Re-arms the execute() stall timeout; set per-run, called on each progress event. */
+  private resetStallTimeout: () => void = () => {};
+
   /**
    * Severity tier for the live quote's price impact. Drives both the warning
    * banner colour in the card and whether the Swap button is hard-gated.
@@ -3436,13 +3439,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.lastSubmittedParams = mergedParams;
 
     const callbacks = {
-      onQuote: () => this.status.set('quoting'),
-      onSign: () => this.status.set('signing'),
+      onQuote: () => { this.resetStallTimeout(); this.status.set('quoting'); },
+      onSign: () => { this.resetStallTimeout(); this.status.set('signing'); },
+      // Keep-alive from long multi-step flows (e.g. borrow's setup approval +
+      // confirmation). Re-arms the stall timer without changing visible status.
+      onProgress: () => this.resetStallTimeout(),
       // For launches: record the generated mint (contract) into the params that get
       // persisted, so the created token's address lands in chat history and the LLM
       // can resolve it for a later "sell this / sell <TICKER>".
       onMintGenerated: (mint: string) => { mergedParams['mintPubkey'] = mint; this.createdMint.set(mint); },
       onSubmit: (sig: string) => {
+        this.resetStallTimeout();
         this.txSignature.set(sig);
         this.status.set('submitted');
         this.startSubmittedTick();
@@ -3463,20 +3470,28 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       },
     };
 
-    // Race the chain against a hard timeout so the card never sits on
+    // Race the chain against a stall timeout so the card never sits on
     // "Building transaction..." indefinitely when the backend stalls (slow
     // RPC, hanging Raydium CLMM enrichment, etc.). User gets a clear failure
-    // they can Retry, instead of a silent spinner. Threshold covers build +
-    // sign + first confirmation hop — wallets that hang the sign popup are
-    // the user's call, not ours, so this is generous.
+    // they can Retry, instead of a silent spinner. This is a STALL timeout,
+    // not a total-time budget: each progress callback (quote/sign/submit/
+    // keep-alive) re-arms it, so a legitimately long flow — e.g. a borrow that
+    // needs a separate collateral-setup approval + on-chain confirmation before
+    // the main tx — isn't killed as long as it keeps making progress. Only a
+    // genuine stall (no progress for TIMEOUT_MS) trips it.
     const TIMEOUT_MS = 45_000;
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
+    let rejectTimeout: (e: Error) => void = () => {};
+    const armTimeout = () => {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       timeoutHandle = setTimeout(
-        () => reject(new Error('Request timed out. The protocol may be slow or unreachable — try again.')),
+        () => rejectTimeout(new Error('Request timed out. The protocol may be slow or unreachable — try again.')),
         TIMEOUT_MS,
       );
-    });
+    };
+    this.resetStallTimeout = armTimeout;
+    const timeoutPromise = new Promise<never>((_, reject) => { rejectTimeout = reject; });
+    armTimeout();
 
     try {
       await Promise.race([
