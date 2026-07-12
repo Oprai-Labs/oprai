@@ -1,0 +1,40 @@
+<div class="card">
+  <div class="row">
+    <div class="row-label">
+      <span class="row-title">Theme</span>
+      <span class="row-meta">Choose how OPRAI looks on this device.</span>
+    </div>
+    <div class="segmented" role="radiogroup" aria-label="Theme preference">
+      @for (opt of options; track opt.value) {
+        <button
+          type="button"
+          role="radio"
+          [attr.aria-checked]="preference() === opt.value"
+          class="segmented-btn"
+          [class.segmented-btn--active]="preference() === opt.value"
+          (click)="setTheme(opt.value)"
+        >
+          <lucide-icon [name]="opt.icon" [size]="14" />
+          <span>{{ opt.label }}</span>
+        </button>
+      }
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="row">
+    <div class="row-label">
+      <span class="row-title">Language</span>
+      <span class="row-meta">More languages coming soon.</span>
+    </div>
+    <div class="select-wrap">
+      <select class="select" [(ngModel)]="selectedLanguage" disabled aria-label="Interface language">
+        @for (lang of languageOptions; track lang.value) {
+          <option [value]="lang.value">{{ lang.label }}</option>
+        }
+      </select>
+      <lucide-icon class="select-chevron" name="chevron-down" [size]="14" />
+    </div>
+  </div>
+</div>

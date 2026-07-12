@@ -302,11 +302,15 @@ export class WalletService {
       if (adapter.publicKey) {
         this.removeEvents();
         this._adapter = adapter;
+        const newKey = adapter.publicKey?.toBase58() ?? null;
         this.zone.run(() => {
           this._connected.set(true);
-          this._publicKey.set(adapter.publicKey?.toBase58() ?? null);
+          this._publicKey.set(newKey);
           this._walletName.set(lastWallet);
         });
+        // Fire accountChanged so the auth layer re-binds to this wallet
+        // even on silent (trusted) reconnect at page load.
+        this.accountChanged$.next(newKey);
         this.attachEvents(adapter);
         return true;
       }
@@ -379,18 +383,39 @@ export class WalletService {
       this.removeEvents();
       this._adapter = adapter;
 
+      const newKey = adapter.publicKey?.toBase58() ?? null;
       this.zone.run(() => {
         this._connected.set(true);
-        this._publicKey.set(adapter.publicKey?.toBase58() ?? null);
+        this._publicKey.set(newKey);
         this._walletName.set(walletName);
         this._connecting.set(false);
       });
+
+      // SECURITY: notify subscribers (app.component logout + re-auth) that the
+      // active wallet may have changed. Without this, a disconnect → connect
+      // with a different wallet flow leaves the previous JWT in memory; backend
+      // session-list calls still read the OLD wallet's data via X-User-Wallet
+      // injected from the stale JWT — i.e. the new wallet sees the previous
+      // wallet's chat history. accountChanged$ only fired on adapter native
+      // events before; we explicitly emit on every successful connect now.
+      this.accountChanged$.next(newKey);
 
       localStorage.setItem('oprai-last-wallet', walletName);
       void this.updateMemoryConsent(); // fire-and-forget: non-critical consent update
       this.attachEvents(adapter);
     } catch (err) {
       this._connecting.set(false);
+      const e = err as { code?: number; message?: string };
+      console.error('[wallet] connect failed:', walletName, 'code=', e?.code, 'msg=', e?.message, err);
+      // Phantom/Solana wallets surface an internal failure as JSON-RPC code
+      // -32603 with the opaque text "Unexpected error". It's a wallet-side /
+      // connection-state issue (not a user rejection), so give the user an
+      // actionable next step instead of the raw string.
+      if (e?.code === -32603 || /unexpected error/i.test(e?.message ?? '')) {
+        throw new Error(
+          'Your wallet hit an internal error. Reload the page and make sure the wallet is unlocked, then try again. If it keeps failing, open your wallet, remove this site from its connected apps, and reconnect.',
+        );
+      }
       throw err;
     }
   }
@@ -417,11 +442,44 @@ export class WalletService {
 
     const result = await this._adapter.signMessage(message);
 
-    if (result instanceof Uint8Array) return result;
-    if (result && typeof result === 'object' && 'signature' in result) {
-      return (result as { signature: Uint8Array }).signature;
-    }
+    const sig = WalletService.coerceSignatureBytes(result);
+    if (sig && sig.length > 0) return sig;
+
+    // Log the actual shape so an unexpected wallet return is diagnosable.
+    console.error('[wallet] unexpected signMessage response:', result);
     throw new Error('Unexpected signMessage response format');
+  }
+
+  /**
+   * Normalize a wallet's signMessage return into raw signature bytes. Wallets
+   * return this in several shapes: a plain Uint8Array (standard adapter), a
+   * `{ signature }` wrapper (Phantom), a Buffer-JSON `{ type:'Buffer', data }`,
+   * a number[], or an array-like object. Critically, a Uint8Array minted inside
+   * the extension's realm can fail `instanceof Uint8Array` in the page — so we
+   * detect typed arrays via `ArrayBuffer.isView` instead of instanceof.
+   */
+  private static coerceSignatureBytes(input: unknown): Uint8Array | null {
+    if (input == null) return null;
+    if (ArrayBuffer.isView(input)) {
+      const view = input as ArrayBufferView;
+      return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    }
+    if (input instanceof ArrayBuffer) return new Uint8Array(input);
+    if (Array.isArray(input)) return Uint8Array.from(input as number[]);
+    if (typeof input === 'object') {
+      const obj = input as Record<string, unknown>;
+      if ('signature' in obj) return WalletService.coerceSignatureBytes(obj['signature']);
+      if (Array.isArray(obj['data'])) return Uint8Array.from(obj['data'] as number[]);
+      // Array-like plain object: { 0: .., 1: .., length? }
+      const numeric = Object.keys(obj)
+        .filter(k => /^\d+$/.test(k))
+        .sort((a, b) => Number(a) - Number(b))
+        .map(k => obj[k]);
+      if (numeric.length > 0 && numeric.every(v => typeof v === 'number')) {
+        return Uint8Array.from(numeric as number[]);
+      }
+    }
+    return null;
   }
 
   /** Sign a transaction with the connected wallet. */

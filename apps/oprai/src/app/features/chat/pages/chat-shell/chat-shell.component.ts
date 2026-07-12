@@ -49,6 +49,20 @@ export class ChatShellComponent implements OnInit, OnDestroy {
   readonly authError = signal<string | null>(null);
   readonly currentThinking = signal<string | null>(null);
   readonly chatLimitReached = signal(false);
+  /**
+   * When the backend rejects a request because a daily wallet cap was hit,
+   * the error payload carries the cap details so we can render an accurate
+   * "you used X of Y, resets at Z" banner instead of the generic
+   * "conversation limit reached" line. Null when no cap has been hit
+   * or when the limit is a conversation-level one (chat_limit), in which
+   * case the generic banner copy is the right wording.
+   */
+  readonly capInfo = signal<{
+    unit: 'messages' | 'tokens';
+    used: number;
+    cap: number;
+    resetsAt: string;
+  } | null>(null);
   readonly messageActions = signal<Map<string, ParsedAction[]>>(new Map());
   readonly messageQueries = signal<Map<string, ParsedQuery[]>>(new Map());
   readonly messageClarifications = signal<Map<string, ParsedClarify[]>>(new Map());
@@ -113,6 +127,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       this.streaming.set(false);
       this.lastFailedContent.set(null);
       this.chatLimitReached.set(false);
+      this.capInfo.set(null);
     });
 
     // ── Liquidation Monitor ──────────────────────────────────────────────
@@ -205,6 +220,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
         this._pendingClarifications = [];
         this.sessionStorage.setActiveSession(null);
         this.chatLimitReached.set(false);
+      this.capInfo.set(null);
       }
     });
   }
@@ -293,6 +309,31 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     this.messageActions.update(m => evict(m) as typeof m);
     this.messageQueries.update(m => evict(m) as typeof m);
     this.messageClarifications.update(m => evict(m) as typeof m);
+  }
+
+  /** Human-readable copy for an llm_daily_cap event. Rendered inside the
+   *  assistant bubble so the user sees the reason without having to look
+   *  at the composer banner at the bottom of the page. */
+  private _formatCapMessage(
+    unit: 'messages' | 'tokens',
+    used: number,
+    cap: number,
+    resetsAtIso: string,
+  ): string {
+    const noun     = unit === 'tokens' ? 'token' : 'message';
+    const usedFmt  = used.toLocaleString('en-US');
+    const capFmt   = cap.toLocaleString('en-US');
+    const target   = Date.parse(resetsAtIso);
+    let resetIn    = 'a moment';
+    if (Number.isFinite(target) && target > Date.now()) {
+      const totalSec = Math.max(1, Math.round((target - Date.now()) / 1000));
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      resetIn = h > 0
+        ? (m > 0 ? `${h}h ${m}m` : `${h}h`)
+        : `${m}m`;
+    }
+    return `Daily ${noun} limit reached (${usedFmt} of ${capFmt}). Resets in ${resetIn}.`;
   }
 
   exportChat(): void {
@@ -419,10 +460,27 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     if (!trimmed || this.streaming()) return;
 
     const sessionId = this.sessionStorage.activeSessionId();
-    if (!sessionId || sessionId.startsWith('local:')) {
-      // Editing only makes sense in a persisted session — the original turn
-      // wouldn't even have an id from the DB. Silently no-op rather than
-      // pretend to edit and hit a 400.
+    if (!sessionId) return;
+
+    // If the target message ID is a temp/placeholder (failed first turn never
+    // got a DB row, so userMessageId never came back over SSE) OR the session
+    // is still local-only, the backend's `/messages/edit` will 400 on
+    // `uuid.UUID(temp-…)`. Fall back to a regular send so the user actually
+    // gets a fresh turn instead of a silent no-op.
+    const _UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isTempId = !_UUID_RE.test(payload.messageId);
+    if (sessionId.startsWith('local:') || isTempId) {
+      // Drop the existing turn from local state (same UX as a real edit) so
+      // the retry doesn't pile on top, then run the normal send path which
+      // creates a new persisted turn.
+      const all = this.messages();
+      const editIdx = all.findIndex(m => m.id === payload.messageId);
+      if (editIdx !== -1) {
+        const droppedIds = all.slice(editIdx).map(m => m.id);
+        this.messages.set(all.slice(0, editIdx));
+        this._evictMessageMiniApps(droppedIds);
+      }
+      this.onSendMessage(trimmed);
       return;
     }
 
@@ -581,16 +639,43 @@ export class ChatShellComponent implements OnInit, OnDestroy {
               this.flushRevealBuffer();
               this.currentThinking.set(null);
 
-              // Chat limit: disable composer, don't show retry
-              if (parsed.errorType === 'chat_limit') {
+              // Chat limit (conversation-level OR per-wallet daily cap):
+              // disable composer, don't show retry. The daily-cap variant
+              // ships extra fields (unit/used/cap/resetsAt) so the composer
+              // banner can render an accurate "resets in X hours" message.
+              if (parsed.errorType === 'chat_limit' || parsed.errorType === 'llm_daily_cap') {
                 this.chatLimitReached.set(true);
+                let capMessage: string;
+                if (parsed.errorType === 'llm_daily_cap' && parsed.unit && parsed.cap && parsed.resetsAt) {
+                  this.capInfo.set({
+                    unit:     parsed.unit,
+                    used:     parsed.used ?? 0,
+                    cap:      parsed.cap,
+                    resetsAt: parsed.resetsAt,
+                  });
+                  capMessage = this._formatCapMessage(
+                    parsed.unit,
+                    parsed.used ?? 0,
+                    parsed.cap,
+                    parsed.resetsAt,
+                  );
+                } else {
+                  this.capInfo.set(null);
+                  capMessage = 'This conversation has reached its limit. Start a new chat to continue.';
+                }
                 this.streaming.set(false);
-                // Remove the empty placeholder assistant message
+                // Replace the empty placeholder assistant message with the
+                // cap notice so the user sees what happened directly in the
+                // chat thread — not only in the composer's bottom banner.
                 this.messages.update((msgs) => {
                   const updated = [...msgs];
                   const last = updated[updated.length - 1];
-                  if (last.role === 'assistant' && !last.content) {
-                    updated.pop();
+                  if (last?.role === 'assistant') {
+                    updated[updated.length - 1] = {
+                      ...last,
+                      content: capMessage,
+                      isError: true,
+                    };
                   }
                   return updated;
                 });
@@ -611,6 +696,14 @@ export class ChatShellComponent implements OnInit, OnDestroy {
                 }
                 return updated;
               });
+              // Re-enable composer so the user can retry / type a new message.
+              // The backend already terminated the stream with [DONE]; without
+              // this the composer stays locked in "streaming" state until the
+              // user hits retry (which sends a fresh request).
+              this.streaming.set(false);
+              this._pendingActions = [];
+              this._pendingQueries = [];
+              this._pendingClarifications = [];
               return;
             }
 
@@ -639,6 +732,14 @@ export class ChatShellComponent implements OnInit, OnDestroy {
             if (parsed.delta || parsed.content) {
               this.currentThinking.set(null);
               const delta = parsed.delta ?? parsed.content ?? '';
+              // `replace: true` means this delta supersedes everything
+              // streamed so far (server-side override of a hedge / junk
+              // reply). Drop the un-revealed buffer AND wipe the already-
+              // revealed bubble text before appending the corrected answer.
+              if (parsed.replace) {
+                this._revealBuffer = '';
+                this.resetLastAssistant();
+              }
               this._revealBuffer += delta;
             }
           } catch {
@@ -707,12 +808,20 @@ export class ChatShellComponent implements OnInit, OnDestroy {
   onCancelAction(action: ParsedAction): void {
     const sessionId = this.sessionStorage.activeSessionId() ?? `local:${Date.now()}`;
     const msgId = `cancel-${Date.now()}`;
-    const cancelLabel = action.type === 'cancel_limit_order' ? 'limit order' : 'DCA order';
+    // The lead-in text must match the action, not default everything to "DCA".
+    let leadIn: string;
+    switch (action.type) {
+      case 'cancel_limit_order':      leadIn = 'Cancel limit order:'; break;
+      case 'cancel_all_limit_orders': leadIn = 'Cancel all limit orders:'; break;
+      case 'cancel_dca':              leadIn = 'Cancel DCA order:'; break;
+      case 'perp_close':              leadIn = 'Close position:'; break;
+      default:                        leadIn = 'Confirm:'; break;
+    }
     const msg: ChatMessage = {
       id: msgId,
       sessionId,
       role: 'assistant',
-      content: `Cancel ${cancelLabel}:`,
+      content: leadIn,
       createdAt: new Date().toISOString(),
     };
     this.messages.update(msgs => [...msgs, msg]);
@@ -873,6 +982,19 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       const last = updated[updated.length - 1];
       if (last?.role === 'assistant') {
         updated[updated.length - 1] = { ...last, content: last.content + text };
+      }
+      return updated;
+    });
+  }
+
+  /** Wipe the already-revealed text of the in-flight assistant bubble.
+   *  Used when a `replace: true` delta supersedes a hedge / junk reply. */
+  private resetLastAssistant(): void {
+    this.messages.update((msgs) => {
+      const updated = [...msgs];
+      const last = updated[updated.length - 1];
+      if (last?.role === 'assistant') {
+        updated[updated.length - 1] = { ...last, content: '' };
       }
       return updated;
     });
@@ -1074,12 +1196,12 @@ export class ChatShellComponent implements OnInit, OnDestroy {
         this.authService.authenticate().subscribe({
           next: () => this.loadMessages(sessionId),
           error: () => {
-            this.authError.set('Session expired. Click "Sign Again" to re-authenticate.');
+            this.authError.set('Your session has ended. Sign in again to continue.');
             this.loadingMessages.set(false);
           },
         });
       } else if (!this.walletService.publicKey()) {
-        this.authError.set('Connect your wallet to load this conversation.');
+        this.authError.set('Connect your wallet to open this conversation.');
         this.loadingMessages.set(false);
       }
       // else: authenticating() is true — skeleton stays, effect retries when done
@@ -1098,16 +1220,28 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     const timeout = setTimeout(() => {
       console.warn('[ChatShell] Message load timeout');
       this.loadingMessages.set(false);
-      this.authError.set('Loading timed out. Click to retry.');
+      this.authError.set('Taking longer than usual. Tap to retry.');
     }, 10000);
 
     // Store subscription so in-flight requests can be cancelled on navigation.
     this.msgSub = this.chatApi.getMessages(resolved).subscribe({
-      next: (msgs) => {
+      next: (resp) => {
         clearTimeout(timeout);
-        console.log('[ChatShell] Messages loaded:', msgs.length);
+        const msgs = resp.messages;
+        console.log('[ChatShell] Messages loaded:', msgs.length, 'isLocked=', resp.session.isLocked);
         this.messages.set(msgs ?? []);
         this.loadingMessages.set(false);
+
+        // Per-chat lock survives reloads — re-apply it now so the composer
+        // stays disabled on this conversation no matter how many times the
+        // user refreshes.
+        if (resp.session.isLocked) {
+          this.chatLimitReached.set(true);
+          this.capInfo.set(null);
+        } else {
+          this.chatLimitReached.set(false);
+          this.capInfo.set(null);
+        }
 
         const actionsMap = new Map<string, ParsedAction[]>();
         const queriesMap = new Map<string, ParsedQuery[]>();
@@ -1159,21 +1293,45 @@ export class ChatShellComponent implements OnInit, OnDestroy {
         console.error('[ChatShell] Failed to load messages:', { status: err.status, message: err.message, url: err.url, err });
         this.loadingMessages.set(false);
         if (err.message === 'Authentication required' || err.status === 401) {
-          this.authError.set('Session expired. Click "Sign Again" to re-authenticate.');
-          // Cookie is gone — clear local user state so the sidebar matches reality.
-          this.authService.logout();
+          // Cookie expired but wallet still connected → silently re-authenticate
+          // (one wallet-sign popup) instead of forcing a full logout/disconnect.
+          // The user sees the same conversation reload after they sign.
+          if (this.walletService.publicKey() && !this.authService.authenticating()) {
+            this.authService.clearLocalAuth();
+            this.loadingMessages.set(true);
+            this.authService.authenticate().subscribe({
+              next: () => this.loadMessages(sessionId),
+              error: () => {
+                this.authError.set('Your session has ended. Sign in again to continue.');
+                this.loadingMessages.set(false);
+                this.messages.set([]);
+              },
+            });
+          } else {
+            this.authError.set('Your session has ended. Sign in again to continue.');
+            this.authService.logout();
+            this.messages.set([]);
+          }
         } else if (err.status === 403) {
-          this.authError.set('Access denied. Please disconnect and reconnect your wallet.');
+          this.authError.set('You don\'t have access to this conversation. Reconnect your wallet to continue.');
           this.authService.logout();
+          this.messages.set([]); // drop any cached messages from the prior wallet
         } else if (err.status === 404) {
-          // Session not found on server — show error, don't silently navigate away.
-          // The user should see what happened and can manually start a new chat.
-          this.authError.set('Chat session not found on the server. It may have been deleted.');
+          // Session not found on this wallet — most common cause is a wallet
+          // switch where the old session belongs to the previous wallet. Clear
+          // any messages still in the view so we don't keep showing them while
+          // the error banner says "not available".
+          this.authError.set('This conversation is no longer available.');
           this.sessionStorage.removeSession(sessionId);
+          this.messages.set([]);
         } else if (err.status === 0) {
-          this.authError.set('Could not reach the server. Make sure all services are running.');
+          // Status 0 = network unreachable / CORS / offline. Don't expose
+          // internal "services are running" wording — that's a dev concern.
+          this.authError.set('Connection lost. Check your internet and try again.');
+        } else if (err.status >= 500) {
+          this.authError.set('We\'re having trouble right now. Please try again in a moment.');
         } else {
-          this.authError.set(`Failed to load messages (${err.status || 'network error'}). Click to retry.`);
+          this.authError.set('Couldn\'t load this conversation. Tap to retry.');
         }
       },
     });

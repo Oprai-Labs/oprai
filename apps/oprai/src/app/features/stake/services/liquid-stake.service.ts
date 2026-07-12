@@ -4,7 +4,7 @@ import { ApiService } from '@core/services/api.service';
 import { WalletService } from '@core/services/wallet.service';
 import { SolanaRpcService } from '../../portfolio/services/solana-rpc.service';
 import { ProtocolDetectionService } from '../../portfolio/services/protocol-detection.service';
-import { environment } from '../../../../environments/environment';
+import { createSolanaConnection } from '@core/utils/solana-connection';
 
 export interface LstHolding {
   mint: string;
@@ -95,7 +95,7 @@ export class LiquidStakeService {
 
   async signAndSubmit(transaction: string): Promise<string> {
     const web3 = await import('@solana/web3.js');
-    const connection = new web3.Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const connection = createSolanaConnection('confirmed');
 
     const txBuffer = Uint8Array.from(atob(transaction), (c) => c.charCodeAt(0));
     const tx = web3.Transaction.from(txBuffer);

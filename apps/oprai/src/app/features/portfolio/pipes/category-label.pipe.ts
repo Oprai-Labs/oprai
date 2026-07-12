@@ -9,6 +9,8 @@ const LABELS: Record<ProtocolCategory, string> = {
   'borrowing': 'Borrowing',
   'perpetuals': 'Perpetuals',
   'streaming': 'Streams & Vesting',
+  'orders': 'Open Orders',
+  'rewards': 'Rewards',
 };
 
 @Pipe({ name: 'categoryLabel', standalone: true })

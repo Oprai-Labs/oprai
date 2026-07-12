@@ -1,27 +1,93 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { TruncateAddressPipe } from '@shared/pipes/truncate-address.pipe';
 import { AllocationChartComponent, ChartSegment } from '../allocation-chart/allocation-chart.component';
+import { BalanceSparklineComponent } from '../balance-sparkline/balance-sparkline.component';
+import { PriceService } from '../../services/price.service';
 import type { PortfolioSummary, DefiPositions, ProtocolPosition, PortfolioValueChange, ProtocolCard } from '../../models/portfolio.models';
 
 @Component({
   selector: 'app-portfolio-overview',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe, AllocationChartComponent],
+  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe, AllocationChartComponent, BalanceSparklineComponent],
   templateUrl: './portfolio-overview.component.html',
   styleUrl: './portfolio-overview.component.scss',
 })
-export class PortfolioOverviewComponent {
+export class PortfolioOverviewComponent implements OnInit {
+  private readonly priceService = inject(PriceService);
+
   @Input({ required: true }) summary!: PortfolioSummary;
   @Input() defiPositions: DefiPositions | null = null;
   @Input() protocolPositions: ProtocolPosition[] = [];
   @Input() portfolioChange: PortfolioValueChange | null = null;
 
+  /**
+   * 7-day historical portfolio value series for the inline sparkline.
+   *
+   * Computed by fanning out per-token Birdeye OHLCV (`/defi/ohlcv?address=`)
+   * via the gateway proxy, then summing `balance × close_at_t` across
+   * every priced holding for each canonical timestamp. Tokens without
+   * historical coverage (Pump.fun launches outside the indexer) contribute
+   * their current USD as a flat baseline.
+   *
+   * Falls back to the SOL-only proxy if Birdeye returns no data (e.g.
+   * gateway proxy unavailable). Loaded once on init.
+   */
+  readonly history7d = signal<number[]>([]);
+  // Track whether the history fetch has run at least once. The sparkline
+  // shows a shimmer placeholder while points is empty; once we've tried and
+  // come back empty, we flip `historyReady` to true so the template can hide
+  // the shimmer rather than leave it spinning forever.
+  readonly historyReady = signal(false);
+
+  async ngOnInit(): Promise<void> {
+    // Build holdings list from the wallet (SOL + non-spam tokens). Spam
+    // tokens are excluded so the chart doesn't get inflated by fake
+    // airdropped value the user can't actually realize.
+    const holdings: Array<{ mint: string; balance: number; currentUsdValue: number }> = [];
+    holdings.push({
+      mint: 'So11111111111111111111111111111111111111112',
+      balance: this.summary.solBalance.sol,
+      currentUsdValue: this.summary.solBalance.usdValue ?? 0,
+    });
+    for (const t of this.summary.tokens) {
+      if (t.isSuspectedSpam) continue;
+      if (t.balance <= 0) continue;
+      holdings.push({
+        mint: t.mint,
+        balance: t.balance,
+        currentUsdValue: t.usdValue ?? 0,
+      });
+    }
+
+    // Single path: per-token Birdeye OHLCV via the gateway proxy. The
+    // previous CoinGecko direct-fetch fallback was unreliable in browsers
+    // (CORS blocked on most networks) and silently produced a frozen
+    // shimmer, so the chart now either renders real Birdeye data or stays
+    // empty — `BalanceSparklineComponent` already hides itself when the
+    // input has fewer than 2 points.
+    try {
+      const real = await this.priceService.getPortfolioHistory7d(holdings);
+      if (real.length > 1) {
+        this.history7d.set(real.map((p) => p.value));
+      }
+    } finally {
+      this.historyReady.set(true);
+    }
+  }
+
+  /**
+   * Wallet+protocols total. Two double-count traps:
+   *  - native-staking is also reported via `defiPositions.totalStakedUsdValue`
+   *  - liquid-staking tokens (jitoSOL, jupSOL, mSOL) sit in `summary.tokens`
+   *    AND in protocolPositions (via DefiPositionsService.getLiquidStakingPositions)
+   * Both excluded from the protocol sum so each dollar is counted exactly once.
+   */
   get totalValue(): number {
     const stakingValue = this.defiPositions?.totalStakedUsdValue ?? 0;
     const protocolValue = this.protocolPositions
-      .filter((p) => p.category !== 'native-staking') // avoid double counting staking
+      .filter((p) => p.category !== 'native-staking' && p.category !== 'liquid-staking')
       .reduce((sum, p) => sum + p.totalUsdValue, 0);
     return this.summary.totalUsdValue + stakingValue + protocolValue;
   }
@@ -75,14 +141,30 @@ export class PortfolioOverviewComponent {
       segments.push({
         label: 'Wallet',
         value: walletValue,
-        color: '#845EF7',
+        // Saturated electric violet — pops against the dark surface much
+        // harder than the previous muted #845EF7. Matches our brand
+        // gradient endpoint so it ties visually into the app shell.
+        color: '#7C3AED',
         logoUri: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
       });
     }
 
     // One segment per protocol position. Skip native-staking — already
-    // surfaced via the explicit staking section.
-    const colors = ['#22B8CF', '#FF922B', '#51CF66', '#FF6B6B', '#339AF0', '#F06595', '#20C997', '#FAB005'];
+    // surfaced via the explicit staking section. Palette uses the
+    // Tailwind 500-tier saturations: vivid enough that adjacent slices stay
+    // distinguishable on a 28px ring without relying on the legend.
+    const colors = [
+      '#06B6D4', // cyan-500
+      '#F97316', // orange-500
+      '#22C55E', // green-500
+      '#F43F5E', // rose-500
+      '#3B82F6', // blue-500
+      '#EC4899', // pink-500
+      '#14B8A6', // teal-500
+      '#EAB308', // yellow-500
+      '#A855F7', // purple-500
+      '#84CC16', // lime-500
+    ];
     let colorIdx = 0;
     // Aggregate by protocolId so that "Jupiter Lend" lending + borrowing
     // (or any protocol with multiple categories) collapses to one slice.

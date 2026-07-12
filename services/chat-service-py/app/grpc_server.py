@@ -226,7 +226,17 @@ async def start_grpc_server() -> grpc_aio.Server:
             "Run `make proto` then restart the service."
         )
 
-    listen_addr = f"[::]:{settings.GRPC_PORT}"
+    # Bind to loopback only. The gateway (the only gRPC client) is on the
+    # same host and connects via `localhost:50052`. Using `[::]` (IPv6
+    # wildcard) means any outbound connection from this machine that
+    # happens to grab port 50052 as its ephemeral source steals our slot
+    # — mDNSResponder picking 50052 for an outbound DoH connection to
+    # 8.8.8.8:443 has been observed reliably on macOS, where the default
+    # ephemeral range (49152+) overlaps our service ports. `127.0.0.1`
+    # only accepts loopback traffic, so external outbound connections
+    # (which use the LAN IP as source) can't collide with it.
+    grpc_host = os.environ.get("GRPC_HOST", "127.0.0.1")
+    listen_addr = f"{grpc_host}:{settings.GRPC_PORT}"
     server.add_insecure_port(listen_addr)
     await server.start()
     logger.info("gRPC server listening on %s", listen_addr)

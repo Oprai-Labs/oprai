@@ -62,19 +62,27 @@ export class PriceFeedService {
       try {
         const ids = batch.join(',');
         const resp = await firstValueFrom(
-          this.http.get<{ data: PriceMap }>(`${this.apiBase}/market/prices?ids=${ids}`)
+          this.http.get<Record<string, any>>(`${this.apiBase}/market/prices?ids=${ids}`)
         );
-        if (resp?.data) {
-          for (const [mint, priceData] of Object.entries(resp.data)) {
-            if (priceData?.price) {
-              const pd: PriceData = {
-                id: mint,
-                price: Number(priceData.price),
-                extraInfo: priceData.extraInfo,
-              };
-              this.cache.set(mint, pd);
-              result.set(mint, pd);
-            }
+        // Jupiter Price API v3 returns mint keys at the TOP LEVEL with a
+        // `usdPrice` field; v2 nested them under `data` with a `price` field.
+        // Accept BOTH so a gateway upstream version bump never silently zeroes
+        // every price (which hides USD values + the DCA/limit min-size guards).
+        const priceMap: Record<string, any> =
+          resp && typeof resp === 'object' && resp['data'] && typeof resp['data'] === 'object'
+            ? resp['data']
+            : (resp ?? {});
+        for (const [mint, priceData] of Object.entries(priceMap)) {
+          if (!priceData || typeof priceData !== 'object') continue;
+          const price = Number((priceData as any).usdPrice ?? (priceData as any).price);
+          if (Number.isFinite(price) && price > 0) {
+            const pd: PriceData = {
+              id: mint,
+              price,
+              extraInfo: (priceData as any).extraInfo,
+            };
+            this.cache.set(mint, pd);
+            result.set(mint, pd);
           }
         }
       } catch (err) {

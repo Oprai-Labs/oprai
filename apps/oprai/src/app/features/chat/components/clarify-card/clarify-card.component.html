@@ -1,16 +1,23 @@
 <div class="clarify-card">
   <!-- Header -->
   <div class="clarify-card__header">
-    <div class="clarify-card__icon">
-      <lucide-angular [name]="icon()" [size]="16" />
-    </div>
-    <span class="clarify-card__title">{{ title() }}</span>
+    @if (cardProtocol(); as proto) {
+      <div class="clarify-card__icon clarify-card__icon--protocol">
+        <img class="clarify-card__proto-logo" [src]="proto.icon" [alt]="proto.name" />
+      </div>
+    } @else {
+      <div class="clarify-card__icon">
+        <lucide-angular [name]="icon()" [size]="16" />
+      </div>
+    }
+    <span class="clarify-card__title">{{ cardProtocol()?.name ?? title() }}</span>
   </div>
 
   <!-- Question -->
   <p class="clarify-card__question">{{ clarify.question }}</p>
 
   <!-- Options -->
+  @let mode = distinguishBy();
   <div class="clarify-card__options">
     @for (option of clarify.options; track option.action; let i = $index) {
       <button
@@ -22,14 +29,41 @@
         [disabled]="selectedIndex !== null"
         (click)="select(option, i)"
       >
-        @if (hasProtocolInfo(option)) {
+        @if (mode === 'token' && optionSingleToken(option); as tok) {
+          <div class="clarify-option__token-icon">
+            @if (tok.logoURI) {
+              <img [src]="tok.logoURI" [alt]="tok.symbol" />
+            } @else {
+              <span class="clarify-option__token-letter">{{ tok.symbol.charAt(0) }}</span>
+            }
+          </div>
+        } @else if (hasProtocolInfo(option)) {
           <div class="clarify-option__protocol-icon">
             <img [src]="getProtocolInfo(option)?.icon" [alt]="option.label" />
           </div>
         } @else {
-          <div class="clarify-option__icon">
-            <lucide-angular [name]="icon()" [size]="16" />
-          </div>
+          @if (optionTokens(option); as pair) {
+            <div class="clarify-option__pair">
+              @if (pair.from; as t) {
+                @if (t.logoURI) {
+                  <img class="clarify-option__pair-coin" [src]="t.logoURI" [alt]="t.symbol" />
+                } @else {
+                  <span class="clarify-option__pair-coin clarify-option__pair-coin--letter">{{ t.symbol.charAt(0) }}</span>
+                }
+              }
+              @if (pair.to; as t) {
+                @if (t.logoURI) {
+                  <img class="clarify-option__pair-coin clarify-option__pair-coin--to" [src]="t.logoURI" [alt]="t.symbol" />
+                } @else {
+                  <span class="clarify-option__pair-coin clarify-option__pair-coin--to clarify-option__pair-coin--letter">{{ t.symbol.charAt(0) }}</span>
+                }
+              }
+            </div>
+          } @else {
+            <div class="clarify-option__icon">
+              <lucide-angular [name]="icon()" [size]="16" />
+            </div>
+          }
         }
 
         <div class="clarify-option__content">

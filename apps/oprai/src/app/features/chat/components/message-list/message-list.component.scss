@@ -623,6 +623,14 @@
   animation: cards-slide-up 0.3s ease-out;
 }
 
+// When the cards live inside the assistant bubble (alongside the prose
+// intro text) they read as one continuous reply: tight top margin so the
+// card hugs the sentence above it. The bubble itself has no background or
+// border, so this only adjusts spacing.
+.inline-cards--in-bubble {
+  margin-top: var(--op-space-2);
+}
+
 @keyframes cards-slide-up {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }

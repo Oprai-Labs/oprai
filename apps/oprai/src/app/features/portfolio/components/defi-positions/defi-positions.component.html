@@ -1,42 +1,78 @@
-@if (groupedPositions().length > 0) {
-  @for (group of groupedPositions(); track group.category) {
-    <div class="category-group">
-      <div class="category-header">
-        <span class="category-badge">{{ group.category | categoryLabel }}</span>
-        <span class="category-total">{{ group.totalValue | currency:'USD':'symbol':'1.2-2' }}</span>
+@if (loadingSignal() && groupedPositions().length === 0) {
+  <!-- Loading skeleton — shows while the multi-protocol fan-out is in
+       flight. Two protocol cards × N rows each. Animation matches the
+       portfolio overview shimmer so the page feels of one piece. -->
+  <div class="defi-skeleton">
+    @for (g of skeletonGroups; track g) {
+      <div class="defi-sk-group" [style.animation-delay]="(g * 100) + 'ms'">
+        <div class="defi-sk-header">
+          <div class="defi-sk-circle"></div>
+          <div class="defi-sk-bar wide"></div>
+          <div class="defi-sk-bar narrow right"></div>
+        </div>
+        <div class="defi-sk-card">
+          @for (r of skeletonRows; track r) {
+            <div class="defi-sk-row" [style.animation-delay]="(r * 60) + 'ms'">
+              <div class="defi-sk-bar"></div>
+              <div class="defi-sk-bar short"></div>
+              <div class="defi-sk-bar narrow"></div>
+            </div>
+          }
+        </div>
       </div>
-
-      @for (protocol of group.protocols; track protocol.protocolId) {
-        <!-- Protocol Header -->
-        <div class="protocol-header">
-          <div class="protocol-left">
-            <div class="protocol-logo">
-              @if (protocol.protocolLogoUri) {
-                <img [src]="protocol.protocolLogoUri" [alt]="protocol.protocolName" width="22" height="22" />
-              } @else {
-                <svg width="22" height="22" viewBox="0 0 128 128" fill="none">
-                  <defs>
-                    <linearGradient [attr.id]="'grad-' + protocol.protocolId" x1="0" y1="0" x2="128" y2="128">
-                      <stop offset="0%" stop-color="#9945FF"/>
-                      <stop offset="100%" stop-color="#14F195"/>
-                    </linearGradient>
-                  </defs>
-                  <circle cx="64" cy="64" r="64" [attr.fill]="'url(#grad-' + protocol.protocolId + ')'"/>
-                  <text x="64" y="80" text-anchor="middle" fill="white" font-size="50" font-weight="bold">
-                    {{ protocol.protocolName.charAt(0) }}
-                  </text>
-                </svg>
+    }
+  </div>
+} @else if (groupedPositions().length > 0) {
+  @for (group of groupedPositions(); track group.protocolId) {
+    <!-- Protocol header — name + logo prominent (DeBank-style), category
+         pills sit beneath as small chips. USD total stays right-aligned. -->
+    <div class="protocol-block">
+      <div class="protocol-header">
+        <div class="protocol-left">
+          <div class="protocol-logo">
+            @if (group.protocolLogoUri) {
+              <img [src]="group.protocolLogoUri" [alt]="group.protocolName" width="22" height="22" />
+            } @else {
+              <svg width="22" height="22" viewBox="0 0 128 128" fill="none">
+                <defs>
+                  <linearGradient [attr.id]="'grad-' + group.protocolId" x1="0" y1="0" x2="128" y2="128">
+                    <stop offset="0%" stop-color="#9945FF"/>
+                    <stop offset="100%" stop-color="#14F195"/>
+                  </linearGradient>
+                </defs>
+                <circle cx="64" cy="64" r="64" [attr.fill]="'url(#grad-' + group.protocolId + ')'"/>
+                <text x="64" y="80" text-anchor="middle" fill="white" font-size="50" font-weight="bold">
+                  {{ group.protocolName.charAt(0) }}
+                </text>
+              </svg>
+            }
+          </div>
+          <div class="protocol-meta">
+            <span class="protocol-name-text">{{ group.protocolName }}</span>
+            <div class="category-pills">
+              @for (section of group.sections; track section.category) {
+                <span class="category-pill">{{ section.category | categoryLabel }}</span>
               }
             </div>
-            <span class="protocol-name-text">{{ protocol.protocolName }}</span>
           </div>
-          <span class="protocol-value">{{ protocol.totalUsdValue | currency:'USD':'symbol':'1.2-2' }}</span>
         </div>
+        <div class="protocol-right">
+          @if (group.totalClaimableUsd && group.totalClaimableUsd > 0) {
+            <!-- Aggregate "X Reclaim" pill mirroring jup.ag/portfolio. The
+                 count is the number of position rows with claimable rewards,
+                 not the total number of positions in the protocol. -->
+            <span class="reclaim-badge" [title]="'Total claimable: ' + (group.totalClaimableUsd | currency:'USD':'symbol':'1.2-2')">
+              <span class="reclaim-count">{{ group.claimableCount }}</span>
+              Reclaim
+            </span>
+          }
+          <span class="protocol-value">{{ group.totalUsdValue | currency:'USD':'symbol':'1.2-2' }}</span>
+        </div>
+      </div>
 
-        <!-- Protocol Card Body -->
+      @for (section of group.sections; track section.category) {
         <div class="protocol-card">
-          @if (protocol.category === 'native-staking') {
-            <!-- Native staking uses the original table layout -->
+          @if (section.category === 'native-staking') {
             <table class="position-table">
               <thead>
                 <tr>
@@ -77,21 +113,33 @@
               </tbody>
             </table>
           } @else {
-            <!-- Generic position table for LST, LP, Lending -->
             <table class="position-table">
               <thead>
                 <tr>
                   <th class="col-label">Position</th>
                   <th class="col-tokens">Tokens</th>
+                  <!-- Show Claimable / APY columns only when any row in this
+                       section actually has them, so simple positions don't
+                       get a sparse layout. `sectionHasClaimable / hasApy /
+                       hasPnl` are computed once per section in the .ts. -->
+                  @if (sectionHasClaimable(section)) {
+                    <th class="col-fees">Claimable Fees</th>
+                  }
+                  @if (sectionHasApy(section)) {
+                    <th class="col-apy">APY</th>
+                  }
+                  @if (sectionHasPnl(section)) {
+                    <th class="col-pnl">PnL</th>
+                  }
                   <th class="col-value">USD Value</th>
                 </tr>
               </thead>
               <tbody>
-                @for (pos of protocol.positions; track pos.label) {
+                @for (pos of section.positions; track pos.label) {
                   <tr class="position-row">
                     <td class="col-label">
                       <span class="position-label">{{ pos.label }}</span>
-                      @if (protocol.category === 'borrowing' && pos.metadata['healthFactor'] != null) {
+                      @if (section.category === 'borrowing' && pos.metadata['healthFactor'] != null) {
                         <span class="risk-badge" [attr.data-tier]="riskTier(+pos.metadata['healthFactor']!)">
                           HF {{ +pos.metadata['healthFactor']! | number:'1.2-2' }}
                           @if (pos.metadata['ltv'] != null) {
@@ -112,6 +160,38 @@
                         }
                       </div>
                     </td>
+                    @if (sectionHasClaimable(section)) {
+                      <td class="col-fees">
+                        @if (pos.claimableUsd != null && pos.claimableUsd > 0) {
+                          <span class="claimable-amount">{{ pos.claimableUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+                        } @else {
+                          <span class="no-data">&lt;$0.01</span>
+                        }
+                      </td>
+                    }
+                    @if (sectionHasApy(section)) {
+                      <td class="col-apy">
+                        @if (pos.apy != null) {
+                          <span class="apy-amount">{{ pos.apy | number:'1.2-2' }}% APY</span>
+                        } @else {
+                          <span class="no-data">--</span>
+                        }
+                      </td>
+                    }
+                    @if (sectionHasPnl(section)) {
+                      <td class="col-pnl">
+                        @if (pos.pnlUsd != null) {
+                          <span class="pnl-amount" [class.pnl-positive]="pos.pnlUsd > 0" [class.pnl-negative]="pos.pnlUsd < 0">
+                            {{ pos.pnlUsd > 0 ? '+' : '' }}{{ pos.pnlUsd | currency:'USD':'symbol':'1.2-2' }}
+                            @if (pos.pnlPct != null) {
+                              <span class="pnl-pct">{{ pos.pnlPct > 0 ? '+' : '' }}{{ pos.pnlPct | number:'1.1-2' }}%</span>
+                            }
+                          </span>
+                        } @else {
+                          <span class="no-data">--</span>
+                        }
+                      </td>
+                    }
                     <td class="col-value">
                       @if (pos.totalUsdValue !== null) {
                         {{ pos.totalUsdValue | currency:'USD':'symbol':'1.2-2' }}
@@ -128,9 +208,8 @@
       }
     </div>
   }
-} @else {
-  <div class="empty-state">
-    <lucide-icon name="layers" [size]="40" />
-    <p>No DeFi positions found</p>
-  </div>
 }
+<!-- Inline below the token list on the Portfolio tab — render nothing
+     when the user has no protocol positions instead of an empty-state
+     card; the wallet is the whole portfolio in that case. -->
+

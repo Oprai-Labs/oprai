@@ -20,6 +20,7 @@ import * as magicEden from "./magic_eden";
 import * as dca from "./dca";
 import * as limitOrder from "./limit_order";
 import * as streamflow from "./streamflow";
+import * as drift from "./drift";
 type Params = Record<string, unknown>;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,6 +98,10 @@ export async function buildAction(
       return marginfi.getBanks(params, userWallet);
     case "marginfi_user_accounts":
       return marginfi.getUserAccounts_(params, userWallet);
+    case "marginfi_user_balances":
+      // Detailed per-bank balance view (deposit/borrow side, USD, APY).
+      // Used by the portfolio dashboard; transactions live in their own cases.
+      return marginfi.getUserBalances(params, userWallet);
     case "marginfi_health":
       return marginfi.getHealth(p(params), userWallet);
 
@@ -351,6 +356,10 @@ export async function buildAction(
       return streamflow.getStreamflowStreams(p(params), userWallet);
     case "streamflow_get_one":
       return streamflow.getStreamflowOne(p(params), userWallet);
+
+    // ── Drift (perpetuals + spot) ────────────────────────────────────────────
+    case "drift_list_positions":
+      return drift.listDriftPositions(params, userWallet);
 
     default:
       throw appError(`Unknown action type: ${type}`, 400, "UNKNOWN_ACTION");

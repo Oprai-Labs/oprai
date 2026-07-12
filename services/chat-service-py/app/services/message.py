@@ -280,6 +280,41 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     "meteora_dlmm_get_pairs",
     "meteora_dammv2_get_pools",
     "meteora_dammv1_get_pools",
+    # Raydium pool list — also a paginated table with a per-row Deposit
+    # button that spawns raydium_open_position (CLMM) or
+    # raydium_add_liquidity (Standard AMM). Renders the raw raydium.io
+    # response shape `{ data: { data: [<pool>, …], count } }`.
+    "raydium_get_pools",
+    # Same response shape as raydium_get_pools — Raydium V3 returns the
+    # `/pools/info/mint` (search-by-pair) endpoint in identical JSON.
+    # Without this entry the search result is fed back to the model as
+    # plain text and the model frequently misreads it ("no pools found")
+    # even when 1–2 pools exist for the pair.
+    "raydium_search_pools",
+    # Self-fetching cards rendered by the Angular query-card component.
+    # The frontend fetches data via its own services (portfolio, helius,
+    # birdeye, etc.) so the backend only needs to pass the type through.
+    "portfolio",
+    "positions",
+    "balance",
+    "price",
+    "risk",
+    "lend_positions",
+    "perp_positions",
+    "limit_orders",
+    "dca",
+    "nft_collection",
+    "token_info",
+    "wallet_info",
+    "transactions",
+    "tax_report",
+    "trending",
+    "yield",
+    "gas",
+    "network",
+    "airdrops",
+    "alerts",
+    "analytics",
 })
 
 # Cap each persisted summary so chat history doesn't balloon: only the first
@@ -330,12 +365,158 @@ def _summarize_query_card_payload(name: str, params: dict, result: object) -> di
             "top_rows": rows,
         }
 
+    # Raydium pool list envelope is double-wrapped:
+    # { data: { data: [<pool>, …], count, hasNextPage } } — that's the raw
+    # raydium.io v3 shape, surfaced verbatim by the Rust handler.
+    if name == "raydium_get_pools":
+        outer = result.get("data") if isinstance(result.get("data"), dict) else None
+        ray_pools = outer.get("data") if isinstance(outer, dict) and isinstance(outer.get("data"), list) else None
+        if ray_pools is not None:
+            rows = []
+            for p in ray_pools[:_QUERY_CARD_SUMMARY_ROWS]:
+                if not isinstance(p, dict):
+                    continue
+                mint_a = p.get("mintA") or {}
+                mint_b = p.get("mintB") or {}
+                day = p.get("day") or {}
+                rows.append({
+                    "id": p.get("id"),
+                    "type": p.get("type"),  # "Concentrated" | "Standard"
+                    "pair": f"{mint_a.get('symbol','?')}/{mint_b.get('symbol','?')}",
+                    "tvl": p.get("tvl"),
+                    "volume_24h": day.get("volume") if isinstance(day, dict) else None,
+                    "apr_24h": day.get("apr") if isinstance(day, dict) else None,
+                })
+            return {
+                "type": name,
+                "params": params,
+                "total": outer.get("count") if isinstance(outer, dict) else None,
+                "rows_shown_in_summary": len(rows),
+                "top_rows": rows,
+            }
+
     # Fallback for other future card types: keep the first N items if the
     # payload is a list; otherwise drop a tiny "key set" hint.
     return None
 
+def _has_language_signal(text: str) -> bool:
+    """True if the text carries a natural-language signal to anchor the reply
+    language. A bare mint address / signature / number has NONE — anchoring the
+    language lock to it makes the model default to English even mid-Turkish
+    conversation (the user pastes just a mint to analyse)."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if " " in t:
+        return True  # multiple tokens → real prose
+    # Single token: language-neutral if it's an address/hash blob or a number.
+    if re.fullmatch(r"[A-Za-z0-9]{20,}", t):   # base58 mint / signature blob
+        return False
+    if re.fullmatch(r"[\d.,%$+\-]+", t):        # pure number / symbol
+        return False
+    if not re.search(r"[^\W\d_]{2,}", t):       # no real word at all
+        return False
+    # A single token that is a coin symbol / ticker / product name — "QUACKSSANT",
+    # "BONK", "Fartcoin" — carries NO language. It is only a language signal when
+    # it's lowercase alphabetic prose ("merhaba", "hola", "привет"), which is
+    # plausibly a real word in some language. Anything with an uppercase letter is
+    # treated as a symbol, not language.
+    return t == t.lower()
+
+
+def _is_injected_data_message(text: str) -> bool:
+    """True for the synthetic `role:"user"` messages that build_llm_context
+    splices between real turns to carry tool results / previous-turn card data /
+    transaction outcomes. These are English-framed on-chain data blobs, NOT the
+    user's own prose — anchoring the language lock to one makes a Turkish chat
+    reply in English. They all wrap payload in <untrusted> and/or lead with a
+    bracketed ALL-CAPS marker; either signal is enough to exclude them."""
+    t = (text or "").lstrip()
+    if "<untrusted>" in t:
+        return True
+    # Leading bracketed data marker, e.g. "[TOOL RESULTS …]", "[Previous-turn …]".
+    return bool(re.match(r"\[(TOOL RESULTS|TRANSACTION OUTCOMES|Previous-turn)", t))
+
+
+def _language_anchor(user_content: str, model_messages: list[dict]) -> str | None:
+    """Pick the most recent user text that carries a language signal — the last
+    message if it has one, else walk back through history (so a bare-mint turn
+    inherits the conversation's language). Skips synthetic tool-result/data
+    messages (see _is_injected_data_message) so the anchor is always a genuine
+    user utterance. None if nothing linguistic exists."""
+    if _has_language_signal(user_content):
+        return user_content.strip()
+    for _m in reversed(model_messages):
+        if _m.get("role") == "user":
+            _txt = _m.get("content")
+            if not isinstance(_txt, str):
+                continue
+            if _is_injected_data_message(_txt):
+                continue
+            if _has_language_signal(_txt):
+                return _txt.strip()
+    return None
+
+
+# The durable user-memory block injects a line like "- language: Turkish" (see
+# the [User Memory …] system message). We scan for it as the FINAL fallback so a
+# turn whose only content is a bare mint / coin symbol — with no natural-language
+# message anywhere in the visible history — still locks to the user's known
+# language instead of letting the model free-pick (which has produced English,
+# then Spanish, on QUACKSSANT-style symbol-only turns).
+_PREF_LANG_RE = re.compile(r"language:\s*([A-Za-zÇĞİÖŞÜçğıöşüÀ-ɏ]{3,})", re.IGNORECASE)
+
+
+def _preferred_language_from_context(model_messages: list[dict]) -> str | None:
+    """Return the user's durable preferred-language name (e.g. 'Turkish') from
+    the injected memory system messages, or None."""
+    for _m in reversed(model_messages):
+        if _m.get("role") != "system":
+            continue
+        _txt = _m.get("content")
+        if not isinstance(_txt, str) or "language:" not in _txt.lower():
+            continue
+        _match = _PREF_LANG_RE.search(_txt)
+        if _match:
+            _lang = _match.group(1).strip()
+            # Guard against matching e.g. "language: the same" style prose.
+            if _lang.lower() not in ("the", "same", "user", "users", "their"):
+                return _lang
+    return None
+
+
 # Keys that only appear inside tool-call JSON blobs — never in normal prose.
 _TOOL_BLOB_KEYS = ('"query_type"', '"action_type"', '"query_onchain"', '"execute_action"')
+
+# Known tool-name prefixes — any bare line starting with one of these (no spaces,
+# short identifier) is the LLM accidentally emitting a tool dispatch as visible
+# text instead of a function call. Some reasoning models (gpt-5.4-nano under the
+# Responses API) periodically leak the function name or `name + param` (e.g.
+# `birdeye_wallet_pnl30d` = name `birdeye_wallet_pnl` + duration `30d`). These
+# bare lines must never reach the user.
+_TOOL_NAME_PREFIXES = (
+    "birdeye_", "helius_", "jup_", "dex_",
+    "raydium_", "orca_", "meteora_",
+    "kamino_", "marginfi_", "marinade_", "solend_", "save_",
+    "jito_", "tensor_", "pumpfun_", "drift_", "_me_",
+    "query_onchain", "execute_action", "request_clarification",
+)
+
+# Matches a bare identifier+duration line like `toly.sol1d`, `birdeye_wallet_pnl30d`,
+# `helius_wallet_txs10`. Requires ≥5 chars of identifier before the trailing digit
+# block so version tokens like `v3` are not flagged.
+_DISPATCH_PARAM_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.\-]{4,58}\d+[dhwm]?$")
+
+# Bare duration token alone on a line — `30d`, `7d`, `1h`, `12w`, `48m`.
+# These appear when the model dumps a tool-arg value as prose. A genuine
+# answer would never have a single duration token on its own line.
+_BARE_DURATION_RE = re.compile(r"^\d{1,4}[dhwm]$")
+
+# Identifier with embedded dot + trailing param — `birdeye_wallet_first_fundedtoly.sol1d`,
+# `wallet_portfolioHwMd…XtK61d`. The `.` and longer alphanumeric tail are
+# Solana-domain/address fragments concatenated onto a tool name. Anything
+# matching this on its own line is leakage.
+_DOTTED_DISPATCH_RE = re.compile(r"^[a-z][a-z0-9_]{4,40}\.[A-Za-z0-9_.\-]{2,50}\d+[dhwm]?$")
 
 
 def _clean_delta(text: str) -> str:
@@ -346,13 +527,39 @@ def _clean_delta(text: str) -> str:
 
 
 def _strip_tool_blob_lines(text: str) -> str:
-    """Remove lines that look like raw tool-call JSON the LLM accidentally emitted as text."""
+    """Remove lines that look like raw tool-call leakage — either JSON blobs or
+    bare function-name identifiers that the model emitted as prose by mistake."""
     lines = text.split("\n")
     out = []
     for line in lines:
         s = line.strip()
+        # 1. JSON tool-call blob: { ... "query_type": ... }
         if s.startswith("{") and s.endswith("}") and any(k in s for k in _TOOL_BLOB_KEYS):
             _log.debug("stripped LLM tool-call JSON blob from text stream: %.120s", s)
+            continue
+        # 2. Bare tool-name identifier (no spaces, ≤ 60 chars, starts with a
+        #    known dispatch prefix). Catches both `birdeye_wallet_portfolio`
+        #    and `birdeye_wallet_pnl30d` (name + concatenated param). The space
+        #    check ensures normal prose lines like
+        #    `Wallet 86xCn… resolves to HwMd…` are never matched.
+        if s and " " not in s and len(s) <= 60 and any(s.startswith(p) for p in _TOOL_NAME_PREFIXES):
+            _log.debug("stripped bare tool-name from text stream: %s", s)
+            continue
+        # 3. Harmony "to=<tool>" markers that occasionally leak verbatim.
+        if s.startswith("to=") and " " not in s:
+            _log.debug("stripped Harmony to= marker from text stream: %s", s)
+            continue
+        # 4. Identifier-with-trailing-param leak (e.g. `toly.sol1d`, `helius_wallet_txs10`).
+        if s and " " not in s and _DISPATCH_PARAM_RE.match(s):
+            _log.debug("stripped tool-name+param leak from text stream: %s", s)
+            continue
+        # 5. Bare duration token on its own line (e.g. `30d`, `7d`, `1h`).
+        if s and " " not in s and _BARE_DURATION_RE.match(s):
+            _log.debug("stripped bare duration token from text stream: %s", s)
+            continue
+        # 6. Dotted identifier + trailing param (e.g. `birdeye_wallet_first_fundedtoly.sol1d`).
+        if s and " " not in s and _DOTTED_DISPATCH_RE.match(s):
+            _log.debug("stripped dotted-dispatch leak from text stream: %s", s)
             continue
         out.append(line)
     return "\n".join(out)
@@ -369,6 +576,398 @@ def _strip_kb_citations(text: str) -> str:
     text = _KB_CITATION_RE.sub("", text)
     text = _MULTI_SPACE_RE.sub(" ", text)
     return text
+
+
+# Last-ditch hallucination guard: strip markdown tables and pool-list-shaped
+# enumerations from followup text when a QueryCard is rendering. The card
+# already shows every row; any tabular / numbered / bulleted enumeration in
+# prose is by definition a duplicate, and from observation those duplicates
+# are populated from the model's training-data memory rather than the live
+# tool result (so e.g. you get a fake `COPE/USDC` shadow row next to a real
+# `OSRUB/USDT` card row). Prompt rules forbid this but enforcement at the
+# text level is the only thing that survives a misbehaving model.
+_MD_TABLE_LINE_RE = re.compile(r"^\s*\|.*\|\s*$")
+# Matches enumerated pool / pair rows like `1. **OSRUB/USDT** — $37.0M TVL`
+# or `- USDS/USDC: $36.4M`. Two letter-clusters separated by `/` is the
+# strong signal — that's the universal Solana pool-pair shape.
+_PAIR_ROW_RE = re.compile(
+    r"^\s*(?:\d+\.\s+|[-*]\s+)(?:\*\*)?[A-Za-z][A-Za-z0-9]{0,12}\s*/\s*[A-Za-z][A-Za-z0-9]{0,12}",
+)
+# Matches enumerated pool ADDRESS rows like `1. **HW5f6Pzo4sj…QHRbQKc** — fee 0.25%`
+# or `- 5dE4…s9aV: TVL $1.2M`. A 32–44-char base58 string is a near-unique
+# Solana address fingerprint; an enumeration line starting with one is almost
+# always the model listing pool rows from the JSON it just got back.
+_ADDR_ROW_RE = re.compile(
+    r"^\s*(?:\d+\.\s+|[-*]\s+)(?:\*\*)?[1-9A-HJ-NP-Za-km-z]{32,44}",
+)
+
+
+# ── Balance-fabrication guard ───────────────────────────────────────────
+# The model regularly invents wallet balances from conversational context
+# ("you just bought 5 USDS" → it writes "USDC: 5.34" without ever calling
+# a balance tool). The prompt rule helps but doesn't fully stop it; this
+# runtime guard strips balance-shaped lines from assistant text whenever
+# NO balance tool fired in the same turn.
+#
+# What counts as a balance tool: the query types in `_BALANCE_DATA_TYPES`
+# below. They are the only sources of authoritative wallet holdings the
+# model has access to. If none of them was called this turn, any line
+# that asserts a number-for-a-token in the text is fabricated.
+_BALANCE_DATA_TYPES: frozenset[str] = frozenset({
+    "birdeye_wallet_portfolio",
+    "helius_wallet_tokens",
+    "jup_portfolio_positions",
+    "jup_lend_positions",
+    "jup_lend_earnings",
+    "jup_staked_jup",
+})
+
+# Matches "USDC: 5.34", "- USDC: 5.34", "**USDC:** 5.34", "1. USDC — 5.34",
+# "USDC 5.34" at start of line. Requires the number to be a plain decimal
+# WITHOUT $ or % — those are price/percentage lines, not balance assertions.
+_BALANCE_ROW_RE = re.compile(
+    r"^\s*(?:[-*]\s+|\d+\.\s+)?(?:\*\*)?"
+    r"(?:w|\$)?[A-Z][A-Z0-9]{1,11}(?:\*\*)?"
+    r"\s*[:—–-]\s*"
+    r"\d[\d,]*(?:\.\d+)?(?!\s*[%$])"
+    r"(?:\s|$)",
+)
+
+# Matches header lines that announce a balance block. The model loves
+# opening with "Mevcut bakiyeleriniz:" / "Your current balances:" / "Here
+# is your wallet:" before listing fake numbers — stripping the header AND
+# the list keeps the visible text clean.
+_BALANCE_HEADER_RE = re.compile(
+    # Turkish: bakiye / bakiyem / bakiyen / bakiyeniz / bakiyelerim /
+    # bakiyeleriniz / bakiyeler — covers every realistic possessive form.
+    r"^\s*(?:\*\*)?\s*(?:mevcut\s+)?bakiye(?:ler(?:im|in|iniz)?|lerim|leriniz|niz|m|n)?"
+    # Turkish: "Cüzdan bakiyelerim:" / "Cüzdanım:" — wallet with possessive
+    r"|^\s*(?:\*\*)?\s*c[üu]zdan(?:[ıi]m|[ıi]n[ıi]z|[ıi]n)?\s*(?:bakiye\w*\s*)?[:：]"
+    r"|^\s*(?:\*\*)?\s*current\s+(?:wallet\s+)?balance"
+    r"|^\s*(?:\*\*)?\s*(?:here\s+is\s+|here\s+are\s+|this\s+is\s+)?your\s+wallet\s*[:：]"
+    r"|^\s*(?:\*\*)?\s*(?:your\s+)?wallet\s+(?:holds|holdings|balances?)"
+    r"|^\s*(?:\*\*)?\s*holdings?\s*[:：]",
+    re.IGNORECASE,
+)
+
+# Matches comparison narratives: "USDC was 0.34, now 5.34" / "USDC bakiyeniz
+# 0.34 idi, şimdi 5.34" / "previously USDC: 0.34, currently …". These are
+# the worst fabrication mode — the model invents BOTH the old AND the new
+# number, then frames the comparison as if it had legitimately observed
+# the difference.
+#
+# Signals we look for in a paragraph to classify it as a balance
+# comparison fabrication. We require ALL of:
+#   - a possessive / balance keyword (`your`, `senin`, `bakiye`, `wallet`)
+#   - a token symbol (`USDC`, `SOL`, etc.)
+#   - at least one digit (the fabricated value)
+#   - EITHER a past+present pair (was X, now Y) OR an explicit
+#     "previously queried" / "daha önce sorgulanan" claim
+#
+# The possessive / balance keyword requirement is what separates this
+# from generic market commentary like "Total supply was 100 million SOL
+# last year and remains stable now": that has token + digit + past +
+# present, but no `your`/`bakiye` — it's not about the user's holdings.
+_BAL_PAST_RE = re.compile(
+    r"\b(?:daha\s+önce|önceden|previously|before|was|were|idi)\b",
+    re.IGNORECASE,
+)
+_BAL_PRESENT_RE = re.compile(
+    r"\b(?:şimdi|now|currently|güncel)\b",
+    re.IGNORECASE,
+)
+_BAL_TERM_RE = re.compile(
+    r"\b(?:usdc|usds|usdt|sol|wsol|jitosol|msol|bonk|jup|ray|jto|tokens?)\b",
+    re.IGNORECASE,
+)
+_OWNERSHIP_RE = re.compile(
+    r"\b(?:your|my|senin|sizin|benim|wallet|cüzdan(?:ım|ınız)?|"
+    r"bakiye(?:niz|leriniz|m)?|balance|holding|portfolio)\b",
+    re.IGNORECASE,
+)
+_DIGIT_RE = re.compile(r"\d")
+
+# Catches the "previously queried" / "daha önce sorgulanan" anti-pattern.
+# A single phrase claim — "according to the previously queried data, your
+# USDC was 0.34" — is fabrication regardless of whether the paragraph
+# also has a present-tense pivot.
+_PRIOR_QUERY_PHRASE_RE = re.compile(
+    r"(?:daha\s+önce\s+sorgulanan|önceki\s+sorgu|previously\s+queried|"
+    r"based\s+on\s+(?:the\s+)?(?:earlier|prior|previous)\s+query|"
+    r"sorgulanm[ıi]ş\s+veri(?:ye|ler))",
+    re.IGNORECASE,
+)
+
+
+def _is_balance_fabrication_paragraph(paragraph: str) -> bool:
+    """True if `paragraph` looks like fabricated balance commentary.
+
+    Requires all of: a digit, an ownership/balance keyword, a token
+    symbol, and either (past + present) or a "previously queried" phrase.
+    The compound requirement keeps generic market prose ("SOL was big in
+    2024, is now bigger") from triggering — that has no ownership word.
+    """
+    if not _DIGIT_RE.search(paragraph):
+        return False
+    if not _OWNERSHIP_RE.search(paragraph):
+        return False
+    if not _BAL_TERM_RE.search(paragraph):
+        return False
+    if _PRIOR_QUERY_PHRASE_RE.search(paragraph):
+        return True
+    return bool(
+        _BAL_PAST_RE.search(paragraph) and _BAL_PRESENT_RE.search(paragraph)
+    )
+
+
+def _strip_unverified_balance_lines(text: str) -> str:
+    """Strip balance-shaped lines and comparison narratives from assistant text.
+
+    Apply ONLY when no balance tool was called this turn. The goal is to
+    delete fabricated numbers without rewriting the whole reply — even an
+    empty response is better than a confident lie about a user's money.
+
+    The regex set is intentionally narrow:
+      - `_BALANCE_ROW_RE` only fires on `SYM: number` shapes without
+        `$` or `%`, so price/share/APY lines pass through.
+      - `_BALANCE_HEADER_RE` catches the lead-in line so we don't leave
+        "Mevcut bakiyeleriniz:" dangling above an empty space.
+      - `_is_balance_fabrication_paragraph` removes whole paragraphs
+        narrating a before/after delta the model has no way of having
+        observed. Paragraph-level (not sentence) because embedded
+        decimals like `0.34` break naive sentence splitters.
+    """
+    if not text:
+        return text
+
+    lines = text.split("\n")
+    out: list[str] = []
+    in_balance_block = False
+    for line in lines:
+        # Header line: enter a balance block (drop subsequent bullet/row lines
+        # too, until we see something that's clearly not a balance row).
+        if _BALANCE_HEADER_RE.search(line):
+            in_balance_block = True
+            continue
+
+        if in_balance_block:
+            # Blank line or non-balance content ends the block.
+            if line.strip() == "" or not _BALANCE_ROW_RE.match(line):
+                in_balance_block = False
+                # Fall through to evaluate this line normally (but skip
+                # blank to avoid leaving an extra gap).
+                if line.strip() == "":
+                    continue
+            else:
+                continue
+
+        if _BALANCE_ROW_RE.match(line):
+            continue
+
+        out.append(line)
+
+    cleaned = "\n".join(out)
+    # Paragraph-level scrub for comparison narratives. Sentence-level
+    # splitting trips on embedded decimals (`0.34` looks like two
+    # sentences); paragraphs (separated by blank lines) are a stable
+    # unit and the fabrication mode reliably lives in a single paragraph.
+    paragraphs = re.split(r"\n\s*\n", cleaned)
+    kept_paragraphs = [
+        p for p in paragraphs
+        if not _is_balance_fabrication_paragraph(p)
+    ]
+    cleaned = "\n\n".join(kept_paragraphs)
+    # Collapse the runs of blank lines we leave behind.
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
+def _balance_tool_called(tool_calls: list, market_data_results: list) -> bool:
+    """True if any balance-providing query fired this turn.
+
+    Checks two places: the raw `query_onchain` tool calls (matches the
+    `query_type` argument against `_BALANCE_DATA_TYPES`) and the resolved
+    `market_data_results` list (matches the type name we recorded). Either
+    is sufficient — the model can call the tool and we may not have stored
+    the result yet, or the resolver may have called it on the model's
+    behalf without a corresponding raw tool call we can see here.
+    """
+    for name, args in tool_calls:
+        if name != "query_onchain":
+            continue
+        try:
+            parsed = json.loads(args)
+        except Exception:
+            continue
+        qt = parsed.get("query_type") or parsed.get("type")
+        if isinstance(qt, str) and qt in _BALANCE_DATA_TYPES:
+            return True
+    for entry in market_data_results:
+        if not entry:
+            continue
+        # `market_data_results` entries are (name, params, raw) tuples.
+        try:
+            name = entry[0]
+        except (IndexError, TypeError):
+            continue
+        if isinstance(name, str) and name in _BALANCE_DATA_TYPES:
+            return True
+    return False
+
+
+# ── Price-fabrication guard ─────────────────────────────────────────────
+# Counterpart to the balance guard above, but for prices/APYs. When the
+# model writes "$143.50" or "yields 8.2% APY" WITHOUT calling a price /
+# yield tool AND without that number appearing in precomputed_facts, it
+# is fabricated. Strip those lines.
+#
+# Why narrow lines, not whole paragraphs: prices show up incidentally in
+# advice prose ("buy when SOL dips below $100") that we don't want to
+# delete. We only target lines whose primary content is a numeric claim
+# — explicit "Price: $X" / "X is at $Y" / "trading at $Z" framings.
+_PRICE_DATA_TYPES: frozenset[str] = frozenset({
+    "jup_price",
+    "birdeye_price",
+    "birdeye_price_multi",
+    "birdeye_token_overview",
+    "dexscreener_pair",
+    "dexscreener_search",
+    "pumpfun_token_info",
+    "helius_token_metadata",
+    # Yield / APY sources
+    "defillama_yields",
+    "defillama_pool",
+    "jup_lend_markets",
+    "jup_lend_earnings",
+    "kamino_reserves",
+    "marginfi_banks",
+})
+
+# Common price-claim line shapes:
+#   "SOL: $143.50"   "Price: $0.04"   "SOL is trading at $143"
+#   "JUP is currently $0.50"   "≈ $143"   "1 SOL ≈ $145"
+# We require the $ sign + digits to keep peg statements ("pegged to 1
+# USD") and historical prose out of the scrub.
+_PRICE_CLAIM_LINE_RE = re.compile(
+    r"\$\s*\d[\d,]*(?:\.\d+)?",
+)
+_PRICE_FRAMING_RE = re.compile(
+    r"\b(?:price|trading\s+at|currently\s+(?:at|trading)|now\s+at|"
+    r"\bat\s+\$|worth(?:\s+about)?|fiyat[ıi]|şu\s+an\s+|şuan)\b",
+    re.IGNORECASE,
+)
+
+
+def _price_tool_called(tool_calls: list, market_data_results: list) -> bool:
+    """True if any price/yield tool fired this turn."""
+    for name, args in tool_calls:
+        if name != "query_onchain":
+            continue
+        try:
+            parsed = json.loads(args)
+        except Exception:
+            continue
+        qt = parsed.get("query_type") or parsed.get("type")
+        if isinstance(qt, str) and qt in _PRICE_DATA_TYPES:
+            return True
+    for entry in market_data_results:
+        if not entry:
+            continue
+        try:
+            name = entry[0]
+        except (IndexError, TypeError):
+            continue
+        if isinstance(name, str) and name in _PRICE_DATA_TYPES:
+            return True
+    return False
+
+
+def _strip_unverified_price_lines(text: str, allow_substrings: set[str] | None = None) -> str:
+    """Strip lines containing fabricated price claims.
+
+    Apply ONLY when no price tool fired this turn. `allow_substrings` is
+    the set of $-prefixed numeric strings that DO appear in
+    precomputed_facts (e.g. {"$143.50"}); lines containing any of those
+    are preserved. The narrow framing requirement (price/trading/currently)
+    keeps peg statements and incidental prose intact.
+    """
+    if not text:
+        return text
+    allow_substrings = allow_substrings or set()
+
+    lines = text.split("\n")
+    out: list[str] = []
+    for line in lines:
+        # No $-number → keep as-is.
+        if not _PRICE_CLAIM_LINE_RE.search(line):
+            out.append(line)
+            continue
+        # If precomputed_facts contained this exact $-number, keep.
+        if any(_a in line for _a in allow_substrings):
+            out.append(line)
+            continue
+        # $1 / $1.00 / pegged to $1 — peg statements should survive. We
+        # only strip when the line also has a price-framing keyword.
+        if not _PRICE_FRAMING_RE.search(line):
+            out.append(line)
+            continue
+        # All conditions met: this is a fabricated price claim. Drop.
+        continue
+
+    cleaned = "\n".join(out)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
+def _allowed_price_substrings(precomputed_facts: str | None) -> set[str]:
+    """Extract $-prefixed numeric tokens from precomputed_facts so we
+    don't strip lines that quote real, fetched prices."""
+    if not precomputed_facts:
+        return set()
+    return set(re.findall(r"\$\s*\d[\d,]*(?:\.\d+)?", precomputed_facts))
+
+
+def _strip_querycard_duplicate_enumeration(text: str) -> str:
+    """Remove markdown tables + pool-row enumerations from followup text.
+
+    Apply this ONLY when a QueryCard is mounting in the same turn — the
+    frontend table is the canonical view; duplicating its rows in prose is
+    where hallucinations sneak in. A short intro / takeaway sentence above
+    or below is preserved.
+    """
+    if not text:
+        return text
+
+    lines = text.split("\n")
+    out: list[str] = []
+    in_table = False
+    for line in lines:
+        # Markdown table: block of consecutive `| … |` lines. Drop the whole
+        # block including the alignment row (`|---|---|`).
+        if _MD_TABLE_LINE_RE.match(line):
+            in_table = True
+            continue
+        if in_table:
+            # The blank line after a table is part of the table block visually;
+            # keep stripping until we hit non-table content.
+            if line.strip() == "":
+                continue
+            in_table = False  # fall through to handle this non-table line
+
+        # Pool-pair row enumeration (numbered or bulleted).
+        if _PAIR_ROW_RE.match(line):
+            continue
+        # Pool-address row enumeration — same hallucination vector, only with
+        # the base58 mint/pool address instead of a SYM/SYM pair.
+        if _ADDR_ROW_RE.match(line):
+            continue
+
+        out.append(line)
+
+    cleaned = "\n".join(out)
+    # Collapse the runs of blank lines we leave behind.
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
 
 
 class PromptInjectionError(ValueError):
@@ -555,33 +1154,63 @@ async def stream_chat_response(
     )
     from app.services.tool_selector import ToolSelector
 
-    # ── 0. Check session message limit ──────────────────────────────────────
-    count_row = await db.execute(
-        select(ChatSession.message_count)
+    # ── 0. Check per-chat limits ────────────────────────────────────────────
+    # Three gates here, in order of cheapness:
+    #   1. Durable `is_locked` flag — set once a chat hit its cap; the lock
+    #      survives reloads so the composer can't be re-enabled by clearing
+    #      frontend state.
+    #   2. Per-chat message count (current_count vs OPRAI_LLM_CHAT_MESSAGE_CAP).
+    #   3. Per-chat token total (running sum of input+output tokens).
+    sess_row = await db.execute(
+        select(ChatSession.message_count, ChatSession.total_tokens, ChatSession.is_locked, ChatSession.locked_reason)
         .where(ChatSession.id == uuid.UUID(session_id))
     )
-    current_count = count_row.scalar() or 0
-    if current_count >= _MAX_SESSION_MESSAGES:
-        yield f"data: {json.dumps({'error': 'This conversation has reached its limit. Please start a new chat to continue.', 'errorType': 'chat_limit'})}\n\n"
-        yield "data: [DONE]\n\n"
-        return
+    sess_state = sess_row.one_or_none()
+    current_count: int = (sess_state[0] if sess_state else 0) or 0
+    current_tokens: int = (sess_state[1] if sess_state else 0) or 0
+    already_locked: bool = bool(sess_state[2]) if sess_state else False
+    locked_reason: str | None = sess_state[3] if sess_state else None
 
-    # ── 0b. Per-wallet LLM daily caps ───────────────────────────────────────
-    # Backstop against runaway agent loops, malicious clients, or buggy
-    # integrations exhausting our OpenAI budget. Two caps cooperate:
-    #   • OPRAI_LLM_DAILY_TOKEN_CAP — authoritative, recorded post-call (~).
-    #   • OPRAI_LLM_DAILY_MESSAGE_CAP — pre-call gate, recorded immediately.
-    # See `cost_cap.py`.
     from app.services.cost_cap import (
         assert_under_cap,
         record_message,
         record_tokens,
+        chat_cap_check,
+        chat_token_cap,
+        chat_message_cap,
         LLMCapExceeded,
     )
+
+    if already_locked:
+        yield f"data: {json.dumps({'errorType': 'chat_limit', 'scope': 'chat', 'reason': locked_reason or 'cap_reached', 'message': 'This conversation is locked. Start a new chat to continue.'})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    chat_err = chat_cap_check(current_count, current_tokens)
+    if chat_err is not None:
+        # Persist the lock so reloads / new tabs see the same state.
+        await db.execute(
+            update(ChatSession)
+            .where(ChatSession.id == uuid.UUID(session_id))
+            .values(is_locked=True, locked_reason=f"{chat_err.unit}_cap")
+        )
+        await db.commit()
+        payload = chat_err.to_payload()
+        payload["reason"] = f"{chat_err.unit}_cap"
+        payload["message"] = (
+            "This conversation has reached its per-chat "
+            f"{chat_err.unit} cap ({chat_err.used:,} / {chat_err.cap:,}). "
+            "Start a new chat to continue."
+        )
+        yield f"data: {json.dumps(payload)}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    # ── 0b. Per-wallet daily / weekly / monthly LLM caps ────────────────────
     try:
         await assert_under_cap(wallet)
     except LLMCapExceeded as cap_err:
-        yield f"data: {json.dumps({'error': str(cap_err), 'errorType': 'llm_daily_cap'})}\n\n"
+        yield f"data: {json.dumps(cap_err.to_payload())}\n\n"
         yield "data: [DONE]\n\n"
         return
     # Record the message-count immediately so a runaway client can't bypass
@@ -609,10 +1238,33 @@ async def stream_chat_response(
                 continue
             msg_metadata[k] = v
 
+    # ── 0. Turn ID + structured logging ────────────────────────────────────
+    # Every event from this turn carries the same `turn_id`, so a single
+    # grep gives you the full timeline. JSON-line format makes it easy to
+    # post-process (e.g. count refusal_rate per day).
+    _turn_id = uuid.uuid4().hex[:8]
+
+    def _log_turn(stage: str, **fields: object) -> None:
+        try:
+            payload = {
+                "turn": _turn_id,
+                "stage": stage,
+                "wallet": wallet[:10],
+                "session": session_id[:8],
+                **fields,
+            }
+            with open("/tmp/oprai-turns.log", "a") as _f:
+                _f.write(json.dumps(payload, default=str, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    _log_turn("start", user_content_excerpt=(user_content or "")[:120])
+
     # ── 1. Sanitise user input (prompt injection defence) ────────────────
     try:
         safe_content = _sanitize_user_input(user_content, wallet=wallet)
     except PromptInjectionError:
+        _log_turn("rejected", reason="prompt_injection")
         yield f"data: {json.dumps({'error': 'Your message contains disallowed content.', 'errorType': 'prompt_injection'})}\n\n"
         yield "data: [DONE]\n\n"
         return
@@ -658,6 +1310,13 @@ async def stream_chat_response(
     async def _rag_prefetch() -> str | None:
         if not settings.KNOWLEDGE_RAG_ENABLED or not safe_content:
             return None
+        # Cheap chitchat short-circuit — avoids a Qdrant round-trip + the
+        # 20K-token KB block when the user is just saying hi/thanks. Same
+        # heuristic as `_is_chitchat` in summary.py (intent isn't ready
+        # yet here, so we use the length + keyword fast-path only).
+        from app.services.summary import _is_chitchat as _chitchat_chk
+        if _chitchat_chk(safe_content, None):
+            return None
         try:
             from app.rag import get_rag_service
             return await get_rag_service().get_context_for_query(
@@ -675,6 +1334,7 @@ async def stream_chat_response(
             logger.warning("maybe_create_summary failed — continuing without summary", exc_info=True)
 
     recent_context = await _build_recent_context_from_db(db, session_id)
+    _log_turn("classify_start")
     _, intent_result, prefetched_knowledge = await asyncio.gather(
         _safe_summarize(),
         IntentRouter().classify(user_content, recent_context),
@@ -693,11 +1353,226 @@ async def stream_chat_response(
         _all_protocols = sorted(_explicit)
     else:
         _all_protocols = sorted(set(intent_result.protocols))
+    _log_turn("classified",
+              intent=intent_result.intent,
+              confidence=intent_result.confidence,
+              is_category_request=intent_result.is_category_request,
+              protocols=_all_protocols,
+              has_explicit_tags=bool(_explicit))
+
+    # ── 5b. Direct action emit (skip LLM for unambiguous actions) ──────────
+    # When the user's wording is fully parseable ("swap 0.1 SOL to USDC",
+    # "send 5 USDC to <addr>", "stake 1 SOL with marinade") AND intent is
+    # action, we skip the LLM entirely. This eliminates the entire failure
+    # mode where the model emits execute_action({}) with empty params, cuts
+    # latency from ~6s to <200ms, and removes a per-row LLM token cost.
+    #
+    # Safety: only fires when validate_tool_call accepts the inferred
+    # payload (so the action card the user sees is identical to what the
+    # LLM would have produced through the validator path). On ANY failure
+    # we fall through to the normal LLM flow.
+    if intent_result.intent == "action" and not intent_result.is_category_request:
+        try:
+            from app.services.action_schemas import (
+                ValidatedAction,
+                validate_tool_call,
+            )
+            from app.services.pre_compute import (
+                infer_action_params,
+                resolve_sns_in_message,
+            )
+
+            _direct_inferred = infer_action_params(user_content or "")
+            if _direct_inferred:
+                # Resolve any .sol domains in the message and substitute them
+                # into the inferred params (e.g. recipient field).
+                _direct_sns = await resolve_sns_in_message(user_content or "")
+                if _direct_sns and _direct_inferred.get("params"):
+                    _dp = _direct_inferred["params"]
+                    for _sol_name, _owner in _direct_sns.items():
+                        for _k, _v in list(_dp.items()):
+                            if isinstance(_v, str) and _sol_name in _v:
+                                _dp[_k] = _v.replace(_sol_name, _owner)
+
+                # Explicit-tag override: if the user @-tagged a protocol, force
+                # the inferred action_type to match the tag family for stake
+                # operations (generic "stake" → "<tag>_stake").
+                _act_type = _direct_inferred.get("action_type", "")
+                if _explicit and _act_type in (
+                    "stake", "jito_stake", "marinade_stake", "jupsol_stake",
+                ):
+                    _stake_tag_map = {
+                        "jito": "jito_stake",
+                        "marinade": "marinade_stake",
+                        "jupiter": "jupsol_stake",
+                        "jupsol": "jupsol_stake",
+                    }
+                    for _tag in _explicit:
+                        if _tag in _stake_tag_map:
+                            _act_type = _stake_tag_map[_tag]
+                            _direct_inferred["action_type"] = _act_type
+                            break
+
+                _direct_args = json.dumps({
+                    "action_type": _direct_inferred.get("action_type", ""),
+                    "params": _direct_inferred.get("params") or {},
+                    "chain_from_previous": False,
+                    "_chain_depth": 0,
+                })
+                _direct_validated = validate_tool_call(
+                    "execute_action", _direct_args, authenticated_wallet=wallet,
+                )
+                if isinstance(_direct_validated, ValidatedAction):
+                    _direct_action_dict = _direct_validated.to_frontend_dict()
+                    _log_turn(
+                        "direct_action_emit",
+                        action_type=_direct_action_dict.get("type"),
+                        param_count=len(_direct_action_dict.get("params") or {}),
+                    )
+                    _log.info(
+                        "direct_action_emit: bypassed LLM for action=%s wallet=%s",
+                        _direct_action_dict.get("type"), wallet[:16] + "…",
+                    )
+
+                    # Emit the action card on the SSE stream.
+                    yield f"data: {json.dumps({'action': _direct_action_dict})}\n\n"
+
+                    # Persist the assistant message. Content is intentionally
+                    # empty — the frontend renders the action chip from
+                    # metadata.actions, no prose is needed (and any prose we
+                    # invent risks misleading the user about amounts/tokens).
+                    _direct_assistant_msg = ChatMessage(
+                        id=uuid.uuid4(),
+                        session_id=uuid.UUID(session_id),
+                        wallet_address=wallet,
+                        role="assistant",
+                        content="",
+                        metadata_={"actions": [_direct_action_dict]},
+                    )
+                    db.add(_direct_assistant_msg)
+                    try:
+                        await _increment_message_count(db, session_id)
+                        await db.execute(
+                            update(ChatSession)
+                            .where(ChatSession.id == uuid.UUID(session_id))
+                            .values(updated_at=func.now())
+                        )
+                    except Exception:
+                        _log.debug("direct_action: counter/updated_at bump failed", exc_info=True)
+                    await db.commit()
+
+                    yield f"data: {json.dumps({'messageId': str(_direct_assistant_msg.id)})}\n\n"
+
+                    if is_first_message:
+                        try:
+                            _title = await generate_title(user_content)
+                            await session_svc.update_title(db, wallet, session_id, _title)
+                            yield f"data: {json.dumps({'title': _title})}\n\n"
+                        except Exception:
+                            _log.warning("direct_action: title gen failed", exc_info=True)
+
+                    yield "data: [DONE]\n\n"
+                    return
+        except Exception:
+            _log.debug("direct_action_emit: falling through to LLM", exc_info=True)
 
     # ── 6. Build LLM context with the union of protocols ──────────────────
     # The prompt loader scopes which protocol prompt files to load; passing
     # the classifier-detected ids keeps prompt docs aligned with the tool
     # subset (model sees the tool name AND its usage docs).
+    #
+    # Category context: when the classifier flagged the user's message as a
+    # category-listing question ("which stables / LSTs exist on X"), compute
+    # the authoritative token set server-side and inject it as a system
+    # message. The LLM then has zero ambiguity about which symbols to list
+    # and which mints to swap into, removing the "lazy 2-of-10" failure mode.
+    # Detection: classifier flag (`is_category_request`) is one signal,
+    # `detect_category()` Python keyword matcher is the other. EITHER one
+    # being positive triggers context injection — the LLM classifier sometimes
+    # returns false on short Turkish / Spanish phrasings the keyword matcher
+    # catches reliably. Both are cheap; belt-and-braces is the right default.
+    category_context: str | None = None
+    try:
+        from app.services.token_categories import (
+            detect_category,
+            get_category_tokens,
+            format_category_context_block,
+        )
+        cat = detect_category(user_content or "")
+        # Only build a category block when we KNOW the category. Defaulting
+        # to "stable" when the keyword matcher missed produced misleading
+        # blocks ("you asked about stablecoins" injected for a memecoin
+        # question), so the model either answered the wrong question or
+        # got confused and refused. Better to leave category_context=None
+        # and let the model handle the turn with the regular tool path.
+        if cat:
+            tokens = await get_category_tokens(cat)
+            if tokens:
+                # Yield-bearing sub-intent: reorder so USDY surfaces first.
+                # USDY (Ondo tokenised T-bills) is the canonical yield stable
+                # on Solana; without this hint the model lists generic stables
+                # and never names it.
+                _ulc = (user_content or "").lower()
+                if cat == "stable" and any(
+                    kw in _ulc for kw in ("yield", "yielding", "yield-bearing", "interest-bearing", "getiri")
+                ):
+                    tokens = (
+                        [t for t in tokens if t.symbol.upper() == "USDY"]
+                        + [t for t in tokens if t.symbol.upper() != "USDY"]
+                    )
+                category_context = format_category_context_block(cat, tokens)
+                _log.info(
+                    "category_context built cat=%s tokens=%d "
+                    "(classifier_flag=%s)",
+                    cat, len(tokens), intent_result.is_category_request,
+                )
+    except Exception:
+        _log.warning("category_context build failed", exc_info=True)
+
+    # Pre-computed facts — runs in parallel before LLM context build. Pre-
+    # resolves *.sol domains, fetches prices for symbols when the message
+    # has price intent, surfaces wallet balances for "how much X" questions,
+    # and fetches comparison facts for "A vs B". Each detector is cheap
+    # (one network call or pure compute); the model then gets the answer
+    # as ground truth instead of having to chain tool calls (and getting
+    # it wrong half the time).
+    precomputed_facts: str | None = None
+    try:
+        from app.services.pre_compute import precompute_facts
+        # Build a {symbol: amount} dict from the cached wallet balances for
+        # the balance detector. Cache hit avoids re-fetching from RPC.
+        _bal_dict: dict[str, float] = {}
+        try:
+            from app.services.cache import get_cache_service
+            _cache = await get_cache_service()
+            _cached = await _cache.get("wallet_balances", wallet)
+            for label, amount in (_cached or {}).get("tokens") or []:
+                _bal_dict[str(label)] = float(amount)
+        except Exception:
+            pass
+        precomputed_facts = await precompute_facts(user_content or "", _bal_dict)
+        if precomputed_facts:
+            _log.info("precomputed_facts built chars=%d", len(precomputed_facts))
+        _log_turn("precompute_done",
+                  has_facts=bool(precomputed_facts),
+                  facts_chars=len(precomputed_facts) if precomputed_facts else 0)
+        # TEMP DEBUG — until empty-params bug confirmed fixed
+        try:
+            with open("/tmp/oprai-debug.log", "a") as _df:
+                _df.write(
+                    f"[PRECOMPUTE] user_content={(user_content or '')[:120]!r} "
+                    f"result={'YES len=' + str(len(precomputed_facts)) if precomputed_facts else 'NONE'}\n"
+                )
+        except Exception:
+            pass
+    except Exception as _pc_err:
+        _log.warning("precompute_facts failed", exc_info=True)
+        try:
+            with open("/tmp/oprai-debug.log", "a") as _df:
+                _df.write(f"[PRECOMPUTE] FAILED err={_pc_err!r}\n")
+        except Exception:
+            pass
+
     model_messages = await build_llm_context(
         db, session_id, wallet,
         current_attachments=attachments,
@@ -705,6 +1580,7 @@ async def stream_chat_response(
         protocols=_all_protocols,
         intent=intent_result.intent,
         prefetched_knowledge=prefetched_knowledge,
+        category_context=category_context,
     )
 
     # ── Language enforcement (per-turn, high-priority, language-agnostic)
@@ -716,22 +1592,40 @@ async def stream_chat_response(
     # to the user's actual last message verbatim. This works for ANY
     # language — Turkish, French, Russian, Japanese, Spanish, etc. — with
     # zero hardcoded language detection.
-    if user_content and user_content.strip():
-        # Excerpt is bounded so a long message can't blow the prompt.
-        _user_excerpt = user_content.strip()[:400]
+    # Anchor to the most recent user message that actually carries a language
+    # signal. A bare mint address / number has none, so without this the model
+    # sees "match the language of <<<ECVb…pump>>>" and defaults to English even
+    # in a Turkish conversation.
+    _lang_anchor = _language_anchor(user_content, model_messages)
+    if _lang_anchor:
+        _user_excerpt = _lang_anchor[:400]
         model_messages.append({
             "role": "system",
             "content": (
                 "LANGUAGE LOCK — match the user's language exactly.\n"
-                "The user's last message:\n"
+                "The user's most recent natural-language message:\n"
                 f"<<<{_user_excerpt}>>>\n"
                 "Your entire response (every word — including warnings, "
                 "intros, comparisons, error messages, takeaways) must be "
-                "in the SAME language as that message. Do not switch "
-                "languages mid-response. Tool results and earlier system "
-                "messages may contain English text — translate any labels "
-                "or descriptions you reference; never quote them verbatim "
-                "in another language."
+                "in the SAME language as that message. If the user's newest "
+                "message is only an address, mint, number, or symbol (no "
+                "words), keep replying in the language of the ongoing "
+                "conversation above. Do not switch languages mid-response. "
+                "Tool results and earlier system messages may contain English "
+                "text — translate any labels or descriptions you reference; "
+                "never quote them verbatim in another language."
+            ),
+        })
+    elif (_pref_lang := _preferred_language_from_context(model_messages)):
+        # No natural-language message anywhere (symbol/mint-only turn) — fall
+        # back to the user's durable preferred language so we never free-pick.
+        model_messages.append({
+            "role": "system",
+            "content": (
+                f"LANGUAGE LOCK — write your ENTIRE response in {_pref_lang}. "
+                "Every word (headings, bullets, warnings, takeaways) must be in "
+                f"{_pref_lang}. Tool results may contain English labels — "
+                "translate them; never switch languages mid-response."
             ),
         })
 
@@ -760,28 +1654,68 @@ async def stream_chat_response(
             ),
         })
 
+    # Re-append category_context as the FINAL system message — recency
+    # dominates when the LLM has 12+ summaries / memory blocks competing
+    # for attention. Without this the model anchors on its previous turn
+    # (which often refused the same question before we shipped category
+    # context) instead of the authoritative list we just built.
+    if category_context:
+        model_messages.append({"role": "system", "content": category_context})
+
+    # Pre-computed facts also get the recency slot. These are deterministic
+    # answers (resolved domains, live prices, balances) that the model
+    # must NOT re-derive via tool calls — appending late ensures the
+    # block sits inside the model's last-N attention window.
+    if precomputed_facts:
+        model_messages.append({"role": "system", "content": precomputed_facts})
+        try:
+            with open("/tmp/oprai-debug.log", "a") as _df:
+                _df.write(f"[PRECOMPUTE] APPENDED to messages (idx={len(model_messages)-1})\n")
+        except Exception:
+            pass
+
     # ── 7. Build the tool catalogue ───────────────────────────────────────
     # Tool selector takes the same classifier protocol set. Queries are
     # always full catalogue; actions are protocol-scoped for TX safety.
     # `filter_tools_by_intent` may further drop everything when the
     # classifier is highly confident the message is pure conversation
     # ("advice").
+    #
+    # If we built a category_context above (via classifier flag OR keyword
+    # detector), promote `is_category_request` to true on the IntentResult
+    # so the structural pool-tool filter inside `filter_tools_by_intent`
+    # fires. Otherwise a "stable coins?" question the keyword matcher caught
+    # would still see the full tool set, and the LLM would pick a pool tool
+    # from habit.
+    intent_for_filter = intent_result
+    if category_context and not intent_result.is_category_request:
+        import dataclasses
+        intent_for_filter = dataclasses.replace(intent_result, is_category_request=True)
+
     tools = ToolSelector().build(_all_protocols)
-    tools = filter_tools_by_intent(tools, intent_result)
+    tools = filter_tools_by_intent(tools, intent_for_filter)
 
     # Tool-choice gate: action / query intents MUST trigger a tool call. This
     # defeats Haiku 4.5's documented avoidance behaviour and the cheaper-model
     # tendency to answer "yes/no" to existence questions from training data
     # rather than calling the list query. "advice" / "casual" stay on auto so
     # small talk doesn't get force-fed a tool.
-    if tools and intent_result.intent in ("action", "query"):
+    # Category requests are forced to `required` regardless of the intent
+    # bucket — without it the model keeps emitting a hedge prose ("I can't
+    # access this data, pick one of: …") instead of the prose-list +
+    # execute_action("swap") shape the category block prescribes.
+    if tools and (
+        intent_result.intent in ("action", "query")
+        or intent_for_filter.is_category_request
+    ):
         tool_choice_mode = "required"
     else:
         tool_choice_mode = "auto"
 
     _log.info(
-        "intent=%s confidence=%.2f protocols=%s source=%s tools_count=%d tool_choice=%s",
+        "intent=%s confidence=%.2f category=%s protocols=%s source=%s tools_count=%d tool_choice=%s",
         intent_result.intent, intent_result.confidence,
+        intent_result.is_category_request,
         list(intent_result.protocols), intent_result.reason, len(tools),
         tool_choice_mode,
     )
@@ -791,9 +1725,12 @@ async def stream_chat_response(
             _df.write(f"\n========== NEW REQ wallet={wallet[:10]} ==========\n")
             _df.write(f"user_content={(user_content or '')[:200]}\n")
             _df.write(f"intent={intent_result.intent} conf={intent_result.confidence} "
-                      f"protocols={list(intent_result.protocols)}\n")
+                      f"protocols={list(intent_result.protocols)} "
+                      f"is_category_request={intent_for_filter.is_category_request} "
+                      f"category_context={'YES' if category_context else 'NO'}\n")
             _df.write(f"all_protocols={_all_protocols}\n")
-            _df.write(f"tools_count={len(tools)}\n")
+            _df.write(f"tools_count={len(tools)} tool_names={[_t.get('function',{}).get('name','?') for _t in tools]}\n")
+            _df.write(f"tool_choice={tool_choice_mode}\n")
             # Dump the message-by-message context the LLM is about to see.
             # Trimmed to first 220 chars per message so we can scan the trace
             # without flooding /tmp. The [Previous-turn data] injection should
@@ -808,7 +1745,33 @@ async def stream_chat_response(
     except Exception:
         pass
 
-    llm = LLMService()
+    # Intent-routed model selection — when configured, complex / analysis
+    # turns route to a stronger model. Detection heuristic:
+    #   - long message (≥ threshold chars), OR
+    #   - contains analysis-keyword (compare / vs / analyze / deep-dive /
+    #     karşılaştır / detaylı / pnl)
+    # Disabled by default — env var must be set or this is a no-op.
+    _analysis_keywords = (
+        " vs ", " versus ", "compare ", "analyze", "analyse", "deep-dive",
+        "deep dive", "karşılaştır", "karsilastir", "detaylı analiz",
+        "detayli analiz", " pnl ",
+    )
+    _user_lc = f" {(user_content or '').lower()} "
+    _is_analysis = (
+        len(user_content or "") >= settings.OPRAI_RESPONDER_ANALYSIS_LENGTH_THRESHOLD
+        or any(kw in _user_lc for kw in _analysis_keywords)
+    )
+    if _is_analysis:
+        if settings.OPRAI_LLM_PROVIDER.lower() == "anthropic":
+            _analysis_model = settings.OPRAI_RESPONDER_MODEL_ANTHROPIC_ANALYSIS
+        else:
+            _analysis_model = settings.OPRAI_RESPONDER_MODEL_OPENAI_ANALYSIS
+    else:
+        _analysis_model = ""
+
+    llm = LLMService(model_override=_analysis_model or None)
+    if _is_analysis and _analysis_model:
+        _log.info("model_route: analysis turn → %s", _analysis_model)
     collected_text_chunks: list[str] = []
     collected_tool_calls: list[tuple[str, str]] = []   # (name, args_json)
     # Tool calls the model emitted but `validate_tool_call` rejected (bad
@@ -817,6 +1780,21 @@ async def stream_chat_response(
     # assistant message is empty and the user sees a blank bubble. We
     # surface that as a friendly error event at end-of-stream.
     dropped_tool_calls: list[tuple[str, str]] = []
+    # Market-data results from tool calls THIS TURN. Defined here (before the
+    # retry loop) because the pre-tool-buffer flush path at the end of the
+    # stream loop references it via `_balance_tool_called(...)` — and that
+    # path is reached BEFORE the original assignment site (after the loop)
+    # for tool-free turns (pure advice replies). Tool-call turns re-assign
+    # / append to this same list inside the loop body.
+    market_data_results: list[tuple[str, dict, object]] = []
+
+    # Exact OpenAI usage from `response.completed`. When the model returns it,
+    # we use these instead of the 4-char approximation for the daily cap +
+    # per-chat counter. None = approximation will be used.
+    exact_usage_input: int = 0
+    exact_usage_output: int = 0
+    exact_usage_reasoning: int = 0
+    has_exact_usage: bool = False
 
     _MAX_RETRIES = 2
     _RETRYABLE = ("rate_limit", "rate limit", "429", "quota", "too many requests",
@@ -872,6 +1850,17 @@ async def stream_chat_response(
                         pre_tool_thinking_buffer.clear()
                         continue
 
+                    if kind == "usage":
+                        # ("usage", input_tokens, output_tokens, reasoning_tokens)
+                        # reasoning_tokens is included in output_tokens per
+                        # OpenAI's docs — sum is input + output only.
+                        _, _ui, _uo, _ur = event
+                        exact_usage_input    += int(_ui or 0)
+                        exact_usage_output   += int(_uo or 0)
+                        exact_usage_reasoning += int(_ur or 0)
+                        has_exact_usage = True
+                        continue
+
                     # kind == "text"
                     _, chunk = event
 
@@ -922,6 +1911,28 @@ async def stream_chat_response(
                     for _t in pre_tool_thinking_buffer:
                         yield f"data: {json.dumps({'thinking': _t})}\n\n"
                     _full_text = _strip_kb_citations("".join(pre_tool_buffer))
+                    # Balance-fabrication guard: the model wrote prose with no
+                    # tool calls. If that prose asserts a wallet balance, it's
+                    # fabricated by definition — there's no source. Strip.
+                    if _full_text and not _balance_tool_called(collected_tool_calls, market_data_results):
+                        _scrubbed = _strip_unverified_balance_lines(_full_text)
+                        if _scrubbed != _full_text:
+                            _log.info(
+                                "balance_fabrication_stripped before=%d after=%d wallet=%s",
+                                len(_full_text), len(_scrubbed), wallet[:16] + "…",
+                            )
+                            _full_text = _scrubbed
+                    # Price-fabrication guard: same idea, but for $-prices.
+                    # Allowed substrings = $-numbers found in precomputed_facts.
+                    if _full_text and not _price_tool_called(collected_tool_calls, market_data_results):
+                        _allowed = _allowed_price_substrings(precomputed_facts)
+                        _scrubbed_p = _strip_unverified_price_lines(_full_text, _allowed)
+                        if _scrubbed_p != _full_text:
+                            _log.info(
+                                "price_fabrication_stripped before=%d after=%d wallet=%s",
+                                len(_full_text), len(_scrubbed_p), wallet[:16] + "…",
+                            )
+                            _full_text = _scrubbed_p
                     if _full_text:
                         collected_text_chunks.append(_full_text)
                         yield f"data: {json.dumps({'delta': _full_text})}\n\n"
@@ -954,9 +1965,10 @@ async def stream_chat_response(
         validated_actions: list[dict] = []
         validated_queries: list[dict] = []
         validated_clarifications: list[dict] = []
-        # Collected market data tool results for follow-up LLM interpretation.
-        # Each entry: (query_type, params, raw_result_or_error_dict)
-        market_data_results: list[tuple[str, dict, object]] = []
+        # `market_data_results` is initialised at function scope (before the
+        # retry loop) so the pre-tool-flush balance-fabrication guard sees
+        # an empty list on tool-free turns. We do NOT re-initialise here —
+        # appends below extend that same list.
 
         if len(collected_tool_calls) > _MAX_TOOL_CALLS_PER_RESPONSE:
             _log.warning(
@@ -997,7 +2009,52 @@ async def stream_chat_response(
                     _original_count - len(collected_tool_calls), wallet,
                 )
 
+        # Pre-extract deterministic params from the user message (regex
+        # patterns in pre_compute). When the model emits an action with
+        # empty / partial params (mini's documented failure under
+        # tool_choice="required"), we merge these in before validation so
+        # the action survives instead of getting dropped + recovered.
+        # Also resolve any `.sol` domains in the same pass so the merged
+        # recipient is a real Solana address, not the .sol literal.
+        try:
+            from app.services.pre_compute import infer_action_params, resolve_sns_in_message
+            _inferred_params = infer_action_params(user_content or "")
+            _sns_map = await resolve_sns_in_message(user_content or "")
+            if _sns_map and _inferred_params.get("params"):
+                _p = _inferred_params["params"]
+                for sol_name, owner in _sns_map.items():
+                    for k, v in list(_p.items()):
+                        if isinstance(v, str) and sol_name in v:
+                            _p[k] = v.replace(sol_name, owner)
+        except Exception:
+            _inferred_params = {}
+            _sns_map = {}
+
         chain_depth = 0
+        # Deterministic lending-protocol correction. gpt-5.4-mini intermittently
+        # emits a Kamino-specific action (kamino_deposit / kamino_withdraw /
+        # kamino_borrow / kamino_repay) even when the user named Jupiter or
+        # MarginFi ("deposit to Jupiter Lend") — the shared lending prompt keeps
+        # Kamino's examples in view. The generic lend / withdraw_lend / borrow /
+        # repay actions carry an explicit `protocol` param, so remap when the
+        # user *literally* named a different lending protocol and never named
+        # Kamino. Detection reuses intent_router's centralized product-name net
+        # (named_protocols) — no bespoke keyword list here. Requests that name
+        # no lending protocol are left alone; Kamino stays a fine default.
+        _KAMINO_LEND_REMAP = {
+            "kamino_deposit": "lend",
+            "kamino_withdraw": "withdraw_lend",
+            "kamino_borrow": "borrow",
+            "kamino_repay": "repay",
+        }
+        from app.services.intent_router import named_protocols as _named_protocols
+        _named = _named_protocols(user_content or "")
+        _named_lender = None
+        if "kamino" not in _named:
+            if "jupiter" in _named:
+                _named_lender = "jupiter"
+            elif "marginfi" in _named:
+                _named_lender = "marginfi"
         for tc_name, tc_args in collected_tool_calls:
             # Inject chain depth into args so _validate_execute_action can enforce the cap.
             # Never reset chain_depth to 0 — prevents bypass by interspersing non-chained actions.
@@ -1007,6 +2064,40 @@ async def stream_chat_response(
                     chain_depth += 1
                 # Non-chained actions do NOT reset depth — cumulative cap enforced.
                 _tc_args_parsed["_chain_depth"] = chain_depth
+                if (
+                    tc_name == "execute_action"
+                    and _named_lender
+                    and (_generic := _KAMINO_LEND_REMAP.get(_tc_args_parsed.get("action_type")))
+                ):
+                    _p = _tc_args_parsed.get("params")
+                    if not isinstance(_p, dict):
+                        _p = {}
+                    _p["protocol"] = _named_lender
+                    _tc_args_parsed["params"] = _p
+                    _log.info(
+                        "lend_protocol_remap: %s -> %s protocol=%s (wallet=%s)",
+                        _tc_args_parsed.get("action_type"), _generic, _named_lender, wallet[:16] + "…",
+                    )
+                    _tc_args_parsed["action_type"] = _generic
+                # Gap-fill: if execute_action's params are empty/partial AND
+                # pre_compute extracted params for the SAME action_type, merge.
+                # Model's emitted params win on conflict; we only fill gaps.
+                if (
+                    tc_name == "execute_action"
+                    and _inferred_params
+                    and _inferred_params.get("action_type") == _tc_args_parsed.get("action_type")
+                ):
+                    existing = _tc_args_parsed.get("params") or {}
+                    if not isinstance(existing, dict):
+                        existing = {}
+                    inferred_p = _inferred_params.get("params") or {}
+                    merged = {**inferred_p, **{k: v for k, v in existing.items() if v}}
+                    _tc_args_parsed["params"] = merged
+                    if merged != existing:
+                        _log.info(
+                            "gap_fill: merged %d inferred params into %s (model emitted %d)",
+                            len(inferred_p), _tc_args_parsed.get("action_type"), len(existing),
+                        )
                 tc_args_with_depth = json.dumps(_tc_args_parsed)
             except Exception:
                 tc_args_with_depth = tc_args
@@ -1016,6 +2107,11 @@ async def stream_chat_response(
                     "tool_call_dropped tool=%s wallet=%s args=%.300s",
                     tc_name, wallet[:16] + "…", tc_args,
                 )
+                try:
+                    with open("/tmp/oprai-debug.log", "a") as _df:
+                        _df.write(f"[ACTION_DROP] schema-validate-fail tool={tc_name} args={tc_args[:300]}\n")
+                except Exception:
+                    pass
                 dropped_tool_calls.append((tc_name, tc_args))
                 continue
 
@@ -1026,24 +2122,49 @@ async def stream_chat_response(
                 # validator can't ("show price" → execute_action transfer).
                 # Best-effort: any failure of the validator itself fails open,
                 # because a model hiccup here must not block a legitimate user.
-                try:
-                    from app.services.output_validator import validate_tool_call as _sanity_check
+                # Skip the second-pass validator when we KNOW the model was
+                # forced to emit this action by upstream code (category
+                # request → only execute_action available + tool_choice=
+                # required). Without the skip the validator sees "user
+                # asked a category question, model emits swap" and blocks
+                # the swap as semantic drift — but the swap IS the
+                # intentional response shape we mandated.
+                if intent_for_filter.is_category_request:
+                    pass
+                else:
+                    try:
+                        from app.services.output_validator import validate_tool_call as _sanity_check
 
-                    _verdict = await _sanity_check(user_content, tc_name, tc_args)
-                    if _verdict.should_block:
-                        _log.warning(
-                            "tool_call_blocked_by_validator tool=%s reason=%s wallet=%s",
-                            tc_name, _verdict.reason, wallet[:16] + "…",
-                        )
-                        dropped_tool_calls.append((tc_name, tc_args))
-                        continue
-                    if not _verdict.ok and _verdict.severity == "warn":
-                        _log.info(
-                            "tool_call_validator_warn tool=%s reason=%s wallet=%s",
-                            tc_name, _verdict.reason, wallet[:16] + "…",
-                        )
+                        _verdict = await _sanity_check(user_content, tc_name, tc_args)
+                        if _verdict.should_block:
+                            _log.warning(
+                                "tool_call_blocked_by_validator tool=%s reason=%s wallet=%s",
+                                tc_name, _verdict.reason, wallet[:16] + "…",
+                            )
+                            try:
+                                with open("/tmp/oprai-debug.log", "a") as _df:
+                                    _df.write(f"[ACTION_DROP] sanity-check-block tool={tc_name} reason={_verdict.reason} args={tc_args[:300]}\n")
+                            except Exception:
+                                pass
+                            dropped_tool_calls.append((tc_name, tc_args))
+                            continue
+                        if not _verdict.ok and _verdict.severity == "warn":
+                            _log.info(
+                                "tool_call_validator_warn tool=%s reason=%s wallet=%s",
+                                tc_name, _verdict.reason, wallet[:16] + "…",
+                            )
+                    except Exception as _sc_exc:
+                        _log.debug("sanity-check skipped on error", exc_info=True)
+                        try:
+                            with open("/tmp/oprai-debug.log", "a") as _df:
+                                _df.write(f"[ACTION_DEBUG] sanity-check-exception tool={tc_name} err={_sc_exc!r}\n")
+                        except Exception:
+                            pass
+                try:
+                    with open("/tmp/oprai-debug.log", "a") as _df:
+                        _df.write(f"[ACTION_EMIT] tool={tc_name} type={validated.type.value} keys={sorted(d.get('params',{}).keys())}\n")
                 except Exception:
-                    _log.debug("sanity-check skipped on error", exc_info=True)
+                    pass
                 validated_actions.append(d)
                 # Structured security audit log — every proposed on-chain action is recorded.
                 # Params are included but amount redacted to avoid leaking trading strategy.
@@ -1108,6 +2229,32 @@ async def stream_chat_response(
                             pass
                     continue
 
+                # Strict allow-list: query types that are neither backend-fetched
+                # (MARKET_DATA_TYPES) nor frontend-rendered as a self-fetching
+                # card (QUERY_CARD_RENDER_TYPES) have nowhere to get data.
+                # Generic types like `price`, `portfolio`, `positions` etc. are
+                # in the QueryType enum but not wired to any handler — emitting
+                # them produces an empty card with no data and no text answer.
+                # Drop them so the recovery pass kicks in and the model writes
+                # a real text answer instead.
+                if validated.type.value not in QUERY_CARD_RENDER_TYPES:
+                    _log.warning(
+                        "query_dropped_unfetchable query_type=%s wallet=%s — model "
+                        "should call a protocol-specific query (e.g. birdeye_price, "
+                        "jup_price, price_robust) instead of the generic alias.",
+                        validated.type.value, wallet[:16] + "…",
+                    )
+                    dropped_tool_calls.append((tc_name, tc_args))
+                    try:
+                        with open("/tmp/oprai-debug.log", "a") as _df:
+                            _df.write(
+                                f"  QUERY_DROPPED_UNFETCHABLE type={validated.type.value} "
+                                f"params={validated.params}\n"
+                            )
+                    except Exception:
+                        pass
+                    continue
+
                 d = validated.to_frontend_dict()
                 validated_queries.append(d)
                 _log.info(
@@ -1120,6 +2267,61 @@ async def stream_chat_response(
                 d = validated.to_frontend_dict()
                 validated_clarifications.append(d)
                 yield f"data: {json.dumps({'clarify': d})}\n\n"
+
+        # ── 7a. SNS wallet auto-chain ─────────────────────────────────────
+        # When the user says "analyze X.sol's wallet / holdings / pnl" and the
+        # model resolves the domain via `sns_resolve`, the followup path
+        # below cannot chain into wallet analysis tools because it only
+        # exposes `execute_action` + `request_clarification`. Result: the
+        # model narrates the tool names as plain text ("birdeye_wallet_portfolio,
+        # 30d, helius_wallet_txs…") and gives up. Fix: detect the pattern
+        # here and fan out the wallet-scope queries automatically, feeding
+        # their results into the same text-only followup the model already
+        # knows how to summarise.
+        _sns_results = [
+            (p, r) for n, p, r in market_data_results
+            if n == "sns_resolve" and isinstance(r, dict) and r.get("owner")
+        ]
+        if _sns_results:
+            _ANALYSIS_HINTS = (
+                "analyz", "analiz", "deep-dive", "deep dive", "deepdive",
+                "holding", "portfolio", "portföy", "pnl", "p&l",
+                "net worth", "net-worth", "trade behaviour", "trade behavior",
+                "winners", "losers", "kazanan", "kaybeden",
+                "wallet", "cüzdan", "cuzdan",
+            )
+            _msg_lc = (user_content or "").lower()
+            if any(h in _msg_lc for h in _ANALYSIS_HINTS):
+                # Use the first resolved owner — multiple SNS resolves on the
+                # same turn are uncommon, and the first is by definition the
+                # one the model decided to look up first.
+                _owner = str(_sns_results[0][1]["owner"])
+                _auto_chain = [
+                    ("birdeye_wallet_portfolio", {"wallet": _owner}),
+                    ("birdeye_wallet_pnl",       {"wallet": _owner, "duration": "30d"}),
+                    ("birdeye_wallet_pnl_details", {"wallet": _owner, "duration": "30d", "limit": "50"}),
+                    ("helius_wallet_txs",        {"wallet": _owner, "limit": "25"}),
+                ]
+                _log.info(
+                    "sns_wallet_auto_chain owner=%s wallet=%s queries=%d",
+                    _owner[:10] + "…", wallet[:16] + "…", len(_auto_chain),
+                )
+                for _q_type, _q_params in _auto_chain:
+                    # Skip if the model already called the same tool this turn
+                    # (avoids double-fetch when the model partially chained).
+                    if any(n == _q_type for n, _, _ in market_data_results):
+                        continue
+                    try:
+                        _raw = await market_data.call(_q_type, _q_params, wallet=wallet)
+                        market_data_results.append((_q_type, _q_params, _raw))
+                    except Exception as _exc:
+                        _log.warning(
+                            "sns_wallet_auto_chain_error type=%s err=%s",
+                            _q_type, _exc,
+                        )
+                        market_data_results.append(
+                            (_q_type, _q_params, {"error": str(_exc)})
+                        )
 
         # ── 7b. Follow-up LLM interpretation of market data tool results ──
         # Split results into two categories:
@@ -1188,12 +2390,40 @@ async def stream_chat_response(
                             _, tc_name, tc_args = event
                             _followup_tool_calls.append((tc_name, tc_args))
                             _fu_buffer.clear()
+                        elif kind == "usage":
+                            # LLMService also yields ("usage", input, output,
+                            # reasoning) 4-tuples for the Responses API. We
+                            # don't bill the followup separately, just skip.
+                            continue
                         else:
                             _, chunk = event
                             filtered = _strip_tool_blob_lines(chunk)
                             if filtered:
                                 _fu_buffer.append(filtered)
                     if not _followup_tool_calls and _fu_buffer:
+                        # Balance-fabrication guard: same risk as the other
+                        # followup branches — the model can write fake balance
+                        # numbers after a token search just as easily as after
+                        # a pool query.
+                        if not _balance_tool_called(collected_tool_calls, market_data_results):
+                            joined = "".join(_fu_buffer)
+                            scrubbed = _strip_unverified_balance_lines(joined)
+                            if scrubbed != joined:
+                                _log.info(
+                                    "balance_fabrication_stripped_tokenres before=%d after=%d wallet=%s",
+                                    len(joined), len(scrubbed), wallet[:16] + "…",
+                                )
+                                _fu_buffer = [scrubbed] if scrubbed else []
+                        if not _price_tool_called(collected_tool_calls, market_data_results):
+                            joined_p = "".join(_fu_buffer)
+                            allowed_p = _allowed_price_substrings(precomputed_facts)
+                            scrubbed_p = _strip_unverified_price_lines(joined_p, allowed_p)
+                            if scrubbed_p != joined_p:
+                                _log.info(
+                                    "price_fabrication_stripped_tokenres before=%d after=%d wallet=%s",
+                                    len(joined_p), len(scrubbed_p), wallet[:16] + "…",
+                                )
+                                _fu_buffer = [scrubbed_p] if scrubbed_p else []
                         for _txt in _fu_buffer:
                             collected_text_chunks.append(_txt)
                             yield f"data: {json.dumps({'delta': _txt})}\n\n"
@@ -1284,7 +2514,7 @@ async def stream_chat_response(
                 text_only_text = "\n\n".join(
                     f"### Tool: {name}\n"
                     f"Parameters: {json.dumps(params, ensure_ascii=False)}\n"
-                    f"Result:\n```json\n{json.dumps(result, ensure_ascii=False, indent=2, default=str)[:4000]}\n```"
+                    f"Result:\n```json\n{json.dumps(result, ensure_ascii=False, indent=2, default=str)[:16000]}\n```"
                     for name, params, result in text_only
                 )
                 # If ANY result is a QueryCard-rendered type, the frontend is
@@ -1314,6 +2544,13 @@ async def stream_chat_response(
                     "A second sentence is allowed only if it adds a WHOLE-LIST "
                     "observation (e.g. 'TVL is concentrated in the top two pairs'). "
                     "Never enumerate or name specific rows — the table shows them.\n"
+                    "- HARD BAN on duplicating the card in your text: NO markdown "
+                    "table (`| Token | TVL |` style), NO numbered list (`1. POOL …`), "
+                    "NO bulleted enumeration of pools, NO 'top 10:' followed by row "
+                    "names. Even if the JSON below contains row data, you must NOT "
+                    "echo it back as a table — the user already sees it on screen. "
+                    "Doing so produces a duplicated, mis-ordered, often-hallucinated "
+                    "shadow table that destroys trust. Intro sentence ONLY.\n"
                     "- Tools that render as QueryCards in this turn: "
                     f"{sorted(n for n, _, _ in text_only if n in QUERY_CARD_RENDER_TYPES)}.\n"
                 ) if _query_card_in_results else ""
@@ -1343,19 +2580,39 @@ async def stream_chat_response(
                     t for t in tools
                     if t.get("function", {}).get("name") in _followup_tool_names
                 ]
-                # Per-turn language anchor carried into the text-only
-                # followup. Echoes the user's message verbatim so the model
-                # has a direct anchor for the response language — works for
-                # any language, no detection needed.
-                _user_excerpt_fu = (user_content or "").strip()[:400]
-                _lang_followup_prefix = (
-                    "LANGUAGE LOCK — match the user's language exactly. "
-                    f"The user's message: <<<{_user_excerpt_fu}>>>. "
-                    "Your ENTIRE response (every word, headings, bullets, "
-                    "intros, takeaways) must be in the SAME language. "
-                    "Tool result data may contain English labels — translate "
-                    "them; never quote verbatim in another language.\n\n"
-                ) if _user_excerpt_fu else ""
+                # Per-turn language anchor carried into the text-only followup.
+                # Uses the most recent NATURAL-LANGUAGE user message (falls back
+                # through history) so a bare-mint turn still replies in the
+                # conversation's language instead of defaulting to English.
+                _user_excerpt_fu = (_language_anchor(user_content, model_messages) or "")[:400]
+                _pref_lang_fu = (
+                    _preferred_language_from_context(model_messages)
+                    if not _user_excerpt_fu else None
+                )
+                if _user_excerpt_fu:
+                    _lang_followup_prefix = (
+                        "LANGUAGE LOCK — match the user's language exactly. "
+                        f"The user's most recent natural-language message: <<<{_user_excerpt_fu}>>>. "
+                        "Your ENTIRE response (every word, headings, bullets, "
+                        "intros, takeaways) must be in the SAME language. If the "
+                        "newest user message is only an address/mint/number, keep "
+                        "the ongoing conversation's language. "
+                        "Tool result data may contain English labels — translate "
+                        "them; never quote verbatim in another language.\n\n"
+                    )
+                elif _pref_lang_fu:
+                    # Symbol/mint-only turn with no natural-language history in
+                    # this (history-stripped) followup context — lock to the
+                    # user's durable preferred language so we never free-pick
+                    # (this is the QUACKSSANT→Spanish bug).
+                    _lang_followup_prefix = (
+                        f"LANGUAGE LOCK — write your ENTIRE response in {_pref_lang_fu}. "
+                        "Every word (headings, bullets, warnings, takeaways) must "
+                        f"be in {_pref_lang_fu}. Tool result data may contain "
+                        "English labels — translate them; never switch languages.\n\n"
+                    )
+                else:
+                    _lang_followup_prefix = ""
                 followup_messages = [
                     {
                         "role": "system",
@@ -1390,7 +2647,27 @@ async def stream_chat_response(
                             "- NO raw JSON, function calls, `{...}` blocks, or tool-call syntax "
                             "in the visible text. If you call a tool, do NOT also describe it.\n"
                             "- If the data is insufficient, say so plainly in one sentence in "
-                            "the user's language and stop. Never invent numbers or pool names.\n\n"
+                            "the user's language and stop. Never invent numbers or pool names.\n"
+                            "- NO decorative emoji. The ONLY glyphs allowed are 🔴 (a risk / "
+                            "negative point) and 🟢 (a positive point), used sparingly as bullet "
+                            "markers — at most once per line. NEVER use 🚩 ⚠️ ✅ ❌ 🔥 🚀 📈 💎 "
+                            "or any other emoji, anywhere.\n"
+                            "- Field names in the data (`quality`, `red_flags`, `green_flags`, "
+                            "`risk_flags`, `holder_labels`, `mint_authority_active`, etc.) are "
+                            "DATA KEYS, not headings. NEVER emit a heading that is a literal "
+                            "translation of a code key. Use a natural, human section label in "
+                            "the user's language for risks and for strengths.\n"
+                            "- Write like a native speaker of the user's language — natural, "
+                            "idiomatic phrasing. Never a word-for-word translation of an English "
+                            "template. Any English label in the data conveys MEANING; express "
+                            "that meaning naturally, never as a literal string.\n"
+                            "- Contract safety (token analysis): report mint & freeze authority "
+                            "from the data exactly. If `mint_authority_active` is false, the mint "
+                            "authority is RENOUNCED — say so; do NOT claim it is active. For a "
+                            "pump.fun token, renounced mint + freeze is the normal expected state. "
+                            "Always surface unique holder count, top-10 concentration %, 24h "
+                            "volume, liquidity, and whether a bundle / coordinated ring was "
+                            "detected.\n\n"
                             "## Format (text path)\n"
                             "Use Markdown. Aim for a polished, scannable layout:\n"
                             "- Lead with the headline answer (one sentence or a bold total).\n"
@@ -1426,12 +2703,64 @@ async def stream_chat_response(
                             _, tc_name, tc_args = event
                             _followup_tool_calls.append((tc_name, tc_args))
                             _fu_buffer.clear()
+                        elif kind == "usage":
+                            # 4-tuple usage event from Responses API — followup
+                            # isn't billed separately, just skip.
+                            continue
                         else:
                             _, chunk = event
                             filtered = _clean_delta(chunk)
                             if filtered:
                                 _fu_buffer.append(filtered)
                     if not _followup_tool_calls and _fu_buffer:
+                        # When a QueryCard mounted this turn the frontend
+                        # already shows every row interactively. The model
+                        # has been told (system prompt + _query_card_directive)
+                        # not to write a markdown table or pool-row
+                        # enumeration alongside, but in practice it still
+                        # occasionally does — and those duplicate rows are
+                        # populated from training memory rather than the
+                        # JSON we just fed back, so they read as plausible
+                        # but wrong (e.g. `COPE/USDC` next to a real
+                        # `OSRUB/USDT` card row). Final-pass strip protects
+                        # the user even when the model misbehaves.
+                        if _query_card_in_results:
+                            joined = "".join(_fu_buffer)
+                            stripped = _strip_querycard_duplicate_enumeration(joined)
+                            if stripped != joined:
+                                _log.info(
+                                    "querycard_duplicate_stripped before=%d after=%d wallet=%s",
+                                    len(joined), len(stripped), wallet[:16] + "…",
+                                )
+                            _fu_buffer = [stripped] if stripped else []
+                        # Balance-fabrication guard for the text-only followup.
+                        # The model has the fetched JSON for whatever the user
+                        # asked about (DLMM pools, prices, etc.) but loves to
+                        # overlay a "your USDC: 5.34" line on top. If no
+                        # balance tool fired this turn, that overlay is fake.
+                        if _fu_buffer and not _balance_tool_called(
+                            collected_tool_calls, market_data_results,
+                        ):
+                            joined = "".join(_fu_buffer)
+                            scrubbed = _strip_unverified_balance_lines(joined)
+                            if scrubbed != joined:
+                                _log.info(
+                                    "balance_fabrication_stripped_followup before=%d after=%d wallet=%s",
+                                    len(joined), len(scrubbed), wallet[:16] + "…",
+                                )
+                                _fu_buffer = [scrubbed] if scrubbed else []
+                        if _fu_buffer and not _price_tool_called(
+                            collected_tool_calls, market_data_results,
+                        ):
+                            joined_p = "".join(_fu_buffer)
+                            allowed_p = _allowed_price_substrings(precomputed_facts)
+                            scrubbed_p = _strip_unverified_price_lines(joined_p, allowed_p)
+                            if scrubbed_p != joined_p:
+                                _log.info(
+                                    "price_fabrication_stripped_followup before=%d after=%d wallet=%s",
+                                    len(joined_p), len(scrubbed_p), wallet[:16] + "…",
+                                )
+                                _fu_buffer = [scrubbed_p] if scrubbed_p else []
                         for _txt in _fu_buffer:
                             collected_text_chunks.append(_txt)
                             yield f"data: {json.dumps({'delta': _txt})}\n\n"
@@ -1455,18 +2784,22 @@ async def stream_chat_response(
                         if isinstance(_v, ValidatedAction):
                             _d = _v.to_frontend_dict()
                             # Second-pass semantic check — same gate as primary path.
-                            try:
-                                from app.services.output_validator import validate_tool_call as _sanity_check
-                                _verdict = await _sanity_check(user_content, tc_name, tc_args)
-                                if _verdict.should_block:
-                                    _log.warning(
-                                        "market_data_followup_blocked tool=%s reason=%s",
-                                        tc_name, _verdict.reason,
-                                    )
-                                    dropped_tool_calls.append((tc_name, tc_args))
-                                    continue
-                            except Exception:
-                                pass
+                            # Skipped for category requests: the swap action
+                            # is the mandated response shape and the validator
+                            # would block it on semantic-drift grounds.
+                            if not intent_for_filter.is_category_request:
+                                try:
+                                    from app.services.output_validator import validate_tool_call as _sanity_check
+                                    _verdict = await _sanity_check(user_content, tc_name, tc_args)
+                                    if _verdict.should_block:
+                                        _log.warning(
+                                            "market_data_followup_blocked tool=%s reason=%s",
+                                            tc_name, _verdict.reason,
+                                        )
+                                        dropped_tool_calls.append((tc_name, tc_args))
+                                        continue
+                                except Exception:
+                                    pass
                             validated_actions.append(_d)
                             _log.info(
                                 "market_data_followup_action action_type=%s wallet=%s",
@@ -1496,33 +2829,402 @@ async def stream_chat_response(
         if clean_response:
             full_response = clean_response
 
+        # Repair broken `.sol` domain renderings. The model / tokenizer
+        # occasionally streams a domain like "toly.sol" across two chunks
+        # so the joined text reads "tol y.sol" or "toly . sol". The eval
+        # (and a careful reader) needs the literal name intact, so we
+        # match every `.sol` in the user message and rebuild any broken
+        # variant in the response.
+        try:
+            _user_domains = re.findall(
+                r"\b([a-z0-9][a-z0-9_-]{0,63})\.sol\b",
+                user_content or "",
+                re.IGNORECASE,
+            )
+            for _ud in dict.fromkeys(_user_domains):
+                _target = f"{_ud}.sol"
+                # "tol y.sol" / "to ly . sol" / "to ly.sol" etc.
+                _broken_re = re.compile(
+                    r"\*{0,2}" + r"\s*".join(re.escape(c) for c in _ud)
+                    + r"\s*\.\s*sol\*{0,2}",
+                    re.IGNORECASE,
+                )
+                full_response = _broken_re.sub(_target, full_response)
+        except Exception:
+            _log.debug("sol_domain_repair failed", exc_info=True)
+
+        # SNS-resolution prepend: when the user named a `.sol` domain and a
+        # query/action card carried the resolved data, the model sometimes
+        # (a) forgets to echo the domain name in prose, or (b) leaks raw
+        # reasoning ("I'll now call tool…") instead of an answer. Either way
+        # the user loses the human-readable "<name>.sol → <owner>" line.
+        # We resolve the domains (cached) and guarantee that line is present.
+        try:
+            _resp_domains = re.findall(
+                r"\b([a-z0-9][a-z0-9_-]{0,63})\.sol\b",
+                user_content or "",
+                re.IGNORECASE,
+            )
+            _resp_domains = [
+                _d for _d in dict.fromkeys(_resp_domains)
+                if _d.lower() not in ("config", "test")
+            ]
+            if _resp_domains and (validated_queries or validated_actions or not full_response.strip()):
+                from app.clients import market_data as _md
+                _res_lines: list[str] = []
+                for _d in _resp_domains[:3]:
+                    _dotsol = f"{_d}.sol"
+                    if _dotsol.lower() in full_response.lower():
+                        continue  # already mentioned — leave as-is
+                    try:
+                        _r = await _md.sns_resolve(_d)
+                        _owner = _r.get("owner")
+                        if _owner:
+                            _res_lines.append(f"**{_dotsol}** resolves to `{_owner}`.")
+                        else:
+                            _res_lines.append(f"**{_dotsol}** is not registered.")
+                    except Exception:
+                        continue
+                if _res_lines:
+                    # Strip reasoning-leak junk so the clean resolution line
+                    # is the visible answer. Junk = sentences about making a
+                    # tool call ("I'll now call tool", "Let's attempt", etc.).
+                    _JUNK_RE = re.compile(
+                        r"(?:i'?ll?\s+(?:now\s+)?call|let'?s\s+(?:attempt|call)|"
+                        r"need\s+one\s+tool|proceed\s+to\s+tool|must\s+write\s+tool|"
+                        r"i\s+will\s+now\s+call|tool\s+call\s+(?:in|now|metadata)|"
+                        r"i\s+think\s+system\s+expects)",
+                        re.IGNORECASE,
+                    )
+                    _junk_probe = full_response.replace("’", "'").replace("‘", "'")
+                    _kept = (
+                        "" if _JUNK_RE.search(_junk_probe) else full_response.strip()
+                    )
+                    _prefix = "\n".join(_res_lines)
+                    full_response = (_prefix + ("\n\n" + _kept if _kept else "")).strip()
+                    collected_text_chunks.clear()
+                    collected_text_chunks.append(full_response)
+                    _log.info("sns_resolution_prepend applied domains=%s", _resp_domains[:3])
+                    yield f"data: {json.dumps({'delta': '\\n\\n' + _prefix, 'replace': True})}\n\n"
+        except Exception:
+            _log.debug("sns_resolution_prepend failed", exc_info=True)
+
+        # Hedge-override: model emitted a refusal/hedge phrase even though
+        # we have deterministic data (precomputed facts, category list,
+        # SNS map, wallet balances). Replace the hedge with the real
+        # answer so the user never sees "I can't access this".
+        _HEDGE_RE = re.compile(
+            r"\b(?:"
+            r"i\s*(?:can'?t|cannot|am\s+unable)|"
+            r"unable\s+to|"
+            r"data\s+(?:feed|source)\s+(?:isn'?t|is\s+not)\s+(?:available|configured)|"
+            r"api\s+key\s+(?:not|isn'?t)\s+(?:set|configured)|"
+            r"don'?t\s+have\s+(?:access|reliable|current)|"
+            r"required\s+data\s+source\s+isn'?t\s+configured|"
+            r"trending\s+data\s+feed\s+isn'?t\s+available"
+            r")\b",
+            re.IGNORECASE,
+        )
+        # Normalise curly apostrophes/quotes to ASCII so the hedge regex
+        # (written with straight ') matches the model's "can’t" / "isn’t".
+        _hedge_probe = (full_response or "").replace("’", "'").replace("‘", "'")
+        if (full_response
+                and _HEDGE_RE.search(_hedge_probe)
+                and not validated_actions
+                and not validated_clarifications):
+            try:
+                from app.services.pre_compute import render_fallback_prose
+                _override = await render_fallback_prose(user_content or "", _bal_dict)
+                if _override:
+                    _log.info(
+                        "hedge_override applied user=%.80s wallet=%s",
+                        (user_content or "")[:80], wallet[:16] + "…",
+                    )
+                    # Replace persisted text AND emit a fresh delta so the
+                    # client UI rewrites the bubble (frontend treats later
+                    # deltas as appends; we send a clear newline-separated
+                    # block so the override stands out).
+                    full_response = _override
+                    collected_text_chunks.clear()
+                    collected_text_chunks.append(_override)
+                    yield f"data: {json.dumps({'delta': '\\n\\n' + _override, 'replace': True})}\n\n"
+            except Exception:
+                _log.debug("hedge_override failed", exc_info=True)
+
+        # ── Anti-fabrication pass: strip price / rate claims that the model
+        # could not have gotten from a tool result this turn. Numbers like
+        # "(mevcut fiyat ~180 USD/SOL)" appear in clarification prose AND in
+        # action-card prose — user trusts them either way. Runs whenever the
+        # turn produced no market_data_results (no live price fetched).
+        # The pattern matcher is conservative: only sentences/parentheticals
+        # that explicitly claim CURRENT live value (cue word: "mevcut/current/
+        # şu an/now" + price/rate noun) are dropped, so worked-example
+        # math (e.g. "if SOL = $180...") survives untouched.
+        if not market_data_results and full_response:
+            # Patterns: "$180", "$1,234.56", "~180 USD", "180 USD/SOL", "1.5%".
+            # We are deliberately conservative: only strip a sentence that
+            # contains a $ / USD-priced figure or a percentage *and* a "fiyat
+            # / price / rate / apr / apy" cue word, so plain numeric facts
+            # the user typed in their own message survive.
+            _NUMERIC_CUES = re.compile(
+                r"(?ix)"
+                r"(?:fiyat|price|rate|apy|apr|usd[/\s\-]?sol|sol[/\s\-]?usd|kurs|\$\s*\d)"
+            )
+            _SENTENCE_RE = re.compile(r"[^\.\!\?\n]+[\.\!\?\n]?")
+            _stripped_lines: list[str] = []
+            for _line in full_response.split("\n"):
+                _kept_parts: list[str] = []
+                for _m in _SENTENCE_RE.finditer(_line):
+                    _sent = _m.group(0)
+                    # Sentence has a numeric-cue marker AND a parenthetical
+                    # like "(mevcut fiyat ~180 USD/SOL)" or "(current price …)".
+                    if _NUMERIC_CUES.search(_sent) and re.search(r"\d", _sent):
+                        # Inline parenthetical disclaimer: drop the paren block.
+                        _sent_clean = re.sub(
+                            r"\s*\([^)]*(?:fiyat|price|rate|apy|apr|kurs|\$\s*\d)[^)]*\)",
+                            "",
+                            _sent,
+                            flags=re.IGNORECASE,
+                        )
+                        # Full standalone sentence that's mostly a price claim: drop entirely.
+                        if re.fullmatch(r"\s*[\*\-]?\s*[^,\.]{0,80}\(?[^)]*\$?\d[\d,\.]*[^)]*\)?\.?\s*", _sent_clean):
+                            # Only drop if the line carried a "current price ≈ X" style claim.
+                            if re.search(r"(?i)(mevcut|current|now|şu\s*an)\s+(?:fiyat|price|rate)", _sent):
+                                continue
+                        _kept_parts.append(_sent_clean)
+                    else:
+                        _kept_parts.append(_sent)
+                _stripped_lines.append("".join(_kept_parts))
+            _new_response = "\n".join(_stripped_lines).strip()
+            if _new_response != full_response:
+                _log.info(
+                    "anti_fabrication_strip wallet=%s "
+                    "before_len=%d after_len=%d",
+                    wallet[:16] + "…", len(full_response), len(_new_response),
+                )
+                full_response = _new_response
+
         # Fallback for "everything got dropped" turns: the model produced
         # tool calls that all failed validation (bad addresses, wrong
-        # action_type, missing required params, etc.) AND wrote no text.
-        # Without this branch the assistant message is empty, the SSE
-        # stream finishes silently, and the user just sees a blank reply.
-        # Emit a plain delta so the bubble has content + an actionable hint.
+        # action_type, missing required params, etc.) AND wrote no
+        # actionable text. We also fire this recovery when the model
+        # wrote ONLY the templated "Card ready — review and sign." prose
+        # without a real action behind it (mini's "execute_action({})"
+        # failure mode + the trailing prose the prompt teaches the model
+        # to write after an action). The check is: was the entire visible
+        # response just one of those templated post-action sentences?
+        _stub_post_action = (
+            full_response.strip().lower()
+            in {
+                "card ready — review and sign.",
+                "card ready - review and sign.",
+                "card ready.",
+                "review and sign.",
+            }
+            if full_response else False
+        )
         if (
-            not full_response
+            (not full_response or _stub_post_action)
             and not validated_actions
             and not validated_queries
             and not validated_clarifications
             and dropped_tool_calls
         ):
             _bad_names = ", ".join(sorted({n for n, _ in dropped_tool_calls}))
-            fallback = (
-                "I tried to act on that but couldn't validate the parameters "
-                f"(rejected tool call(s): {_bad_names}). Please try rephrasing "
-                "with the specific token amount and protocol, or pick an option "
-                "from the previous list."
-            )
-            collected_text_chunks.append(fallback)
-            full_response = fallback
-            yield f"data: {json.dumps({'delta': fallback})}\n\n"
             _log.warning(
-                "assistant_response_empty_after_validation wallet=%s dropped=%s",
+                "assistant_response_empty_after_validation wallet=%s dropped=%s — running recovery pass",
                 wallet[:16] + "…", _bad_names,
             )
+            # If we're recovering from a "Card ready" stub, the user has
+            # already seen that misleading prose. Push a clarifying delta
+            # so the next streamed text replaces, not appends to it.
+            if _stub_post_action:
+                yield f"data: {json.dumps({'delta': '\\n\\n'})}\n\n"
+                full_response = ""  # treat as empty so the recovery prose stands alone
+            try:
+                # When an `execute_action` was dropped specifically for
+                # missing required params, point the model at the exact
+                # gap so it retries with the right shape. For other drop
+                # reasons keep the "answer in text" fallback.
+                _exec_drops = [
+                    (n, a) for (n, a) in dropped_tool_calls
+                    if n == "execute_action"
+                ]
+                if _exec_drops:
+                    _recovery_directive = (
+                        "Your previous execute_action call was rejected because "
+                        "REQUIRED PARAMS WERE MISSING. The user wants you to "
+                        "execute the action they described — extract the action "
+                        "type, amount, and any token symbols / recipient address "
+                        "from their message, fill ALL required params (for swap: "
+                        "inputMint, outputMint, amount; for transfer: recipient, "
+                        "amount; for stake/unstake: amount), and emit "
+                        "execute_action AGAIN with the complete params. Do NOT "
+                        "respond in plain text — emit the tool call."
+                    )
+                else:
+                    _recovery_directive = (
+                        "Your previous tool call was rejected. The user's "
+                        "message is a question — answer it directly in plain "
+                        "text. Do not call any tools."
+                    )
+                _recovery_msgs = list(model_messages) + [
+                    {
+                        "role": "system",
+                        "content": _recovery_directive,
+                    }
+                ]
+                _recovery_buffer: list[str] = []
+                # When the original drop was an execute_action with bad
+                # params, the recovery NEEDS tool access — the model has
+                # to retry the action call, not write prose. We restrict
+                # the tool set to execute_action only so the model can't
+                # pivot to a query.
+                _recovery_tools: list[dict] = []
+                if _exec_drops:
+                    _recovery_tools = [
+                        t for t in tools
+                        if (t.get("function") or {}).get("name") == "execute_action"
+                    ]
+                async for _ev in llm.astream_with_tools(
+                    _recovery_msgs, _recovery_tools,
+                    tool_choice="required" if _recovery_tools else "auto",
+                ):
+                    if _ev[0] == "text":
+                        _chunk = _clean_delta(_ev[1])
+                        if _chunk:
+                            _recovery_buffer.append(_chunk)
+                            collected_text_chunks.append(_chunk)
+                            yield f"data: {json.dumps({'delta': _chunk})}\n\n"
+                    elif _ev[0] == "tool_call":
+                        # Retry the validation path on the recovery tool call.
+                        _, _rname, _rargs = _ev
+                        if _rname == "execute_action":
+                            _rv = validate_tool_call(_rname, _rargs, authenticated_wallet=wallet)
+                            if isinstance(_rv, ValidatedAction):
+                                _rd = _rv.to_frontend_dict()
+                                validated_actions.append(_rd)
+                                yield f"data: {json.dumps({'action': _rd})}\n\n"
+                                _log.info("recovery_pass action recovered=%s", _rd.get("type"))
+                if _recovery_buffer:
+                    full_response = "".join(_recovery_buffer)
+                elif not validated_actions:
+                    raise ValueError("recovery pass returned no text or action")
+                # else: an action card was recovered with no prose — the card
+                # speaks for itself; no canned filler text.
+            except Exception as _rec_err:
+                # Don't substitute a canned apology — fall through and let the
+                # unified empty-stream LLM recovery below produce a real reply
+                # (in the user's language). No hardcoded strings.
+                _log.warning("recovery_pass_failed err=%s", _rec_err)
+
+        # Fallback for "card-only" turns: the model emitted a query card that
+        # the backend doesn't fetch data for (e.g. `price`), and produced no
+        # text alongside it. The user sees an empty card and no answer. This
+        # happens when the model misroutes an analytical / hypothetical
+        # question to a price tool. Run the same recovery pass to get a text
+        # answer alongside the (empty) card.
+        if (
+            not full_response
+            and not validated_actions
+            and not validated_clarifications
+            and validated_queries
+            and not market_data_results
+        ):
+            _query_types = ", ".join(sorted({(q.get("query_type") or "?") for q in validated_queries}))
+            _log.warning(
+                "assistant_response_empty_after_query_card wallet=%s queries=%s — running recovery pass",
+                wallet[:16] + "…", _query_types,
+            )
+            try:
+                _recovery_msgs = list(model_messages) + [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You called a data tool but the user's message is an analytical "
+                            "or hypothetical question — they supplied the numbers themselves "
+                            "as a premise. Answer the question directly in plain text using "
+                            "those numbers and the relevant formulas. Do not call any tools. "
+                            "Do not mention the tool call. Just give the answer."
+                        ),
+                    }
+                ]
+                _recovery_buffer: list[str] = []
+                async for _ev in llm.astream_with_tools(_recovery_msgs, []):
+                    if _ev[0] == "text":
+                        _chunk = _clean_delta(_ev[1])
+                        if _chunk:
+                            _recovery_buffer.append(_chunk)
+                            collected_text_chunks.append(_chunk)
+                            yield f"data: {json.dumps({'delta': _chunk})}\n\n"
+                if _recovery_buffer:
+                    full_response = "".join(_recovery_buffer)
+            except Exception as _rec_err:
+                _log.warning("card_recovery_pass_failed err=%s", _rec_err)
+
+        # Fallback for "fetched-but-silent" turns: the model successfully called
+        # one or more read tools, the data came back, and then the model
+        # produced neither text nor a follow-up tool call. The user sees a blank
+        # response despite the data being right there. Happens on long /
+        # context-corrupted conversations where reasoning_effort burns the
+        # output budget. Recovery: ISOLATE the request — strip the polluted
+        # history and feed only the latest user ask + fetched data. Including
+        # the full history caused the model to merge unrelated prior topics
+        # (e.g. an interleaved Raydium-stables Q/A) into the new answer.
+        if (
+            not full_response
+            and not validated_actions
+            and not validated_queries
+            and not validated_clarifications
+            and market_data_results
+        ):
+            _types = ", ".join(sorted({n for n, _, _ in market_data_results}))
+            _log.warning(
+                "assistant_response_empty_after_tool_success wallet=%s types=%s — running recovery pass",
+                wallet[:16] + "…", _types,
+            )
+            try:
+                _data_blob = json.dumps(
+                    [{"type": n, "params": p, "result": r} for n, p, r in market_data_results],
+                    default=str,
+                )[:8000]
+                # Minimal, isolated context — no prior conversation, no
+                # summaries, no memory. Just the latest ask + the data.
+                _recovery_msgs = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are answering the user's question using the "
+                            "data that was just fetched on their behalf "
+                            "(included below). Rules:\n"
+                            "1. Trust the FETCHED DATA — every field shown is "
+                            "real and current. Treat returned values (owner "
+                            "addresses, balances, prices, etc.) as facts.\n"
+                            "2. Never claim data could not be retrieved when "
+                            "it is right there in the blob below.\n"
+                            "3. Do not speculate about identities (whose "
+                            "wallet this is, who registered a domain, etc.) "
+                            "unless explicitly stated in the data.\n"
+                            "4. Answer ONLY the user's latest question. Do "
+                            "not bring in unrelated topics from prior turns.\n"
+                            "5. Reply in the user's language. No tool calls.\n\n"
+                            f"## USER'S LATEST QUESTION\n{(user_content or '').strip()[:1500]}\n\n"
+                            f"## FETCHED DATA\n{_data_blob}"
+                        ),
+                    }
+                ]
+                _recovery_buffer: list[str] = []
+                async for _ev in llm.astream_with_tools(_recovery_msgs, []):
+                    if _ev[0] == "text":
+                        _chunk = _clean_delta(_ev[1])
+                        if _chunk:
+                            _recovery_buffer.append(_chunk)
+                            collected_text_chunks.append(_chunk)
+                            yield f"data: {json.dumps({'delta': _chunk})}\n\n"
+                if _recovery_buffer:
+                    full_response = "".join(_recovery_buffer)
+            except Exception as _rec_err:
+                _log.warning("silent_followup_recovery_failed err=%s", _rec_err)
 
         # ── 8b. Fallback: extract actions the model emitted as JSON text ──
         # Some model versions (gpt-5.4-nano) fail to call function tools and
@@ -1576,74 +3278,56 @@ async def stream_chat_response(
                 _log.debug("Memory store skipped", exc_info=True)
 
         # ── 10. Persist assistant message with validated intent metadata ──
+        # CRITICAL: the assistant's visible reply MUST always be persisted, even
+        # if metadata-enrichment side-steps (QueryCard summaries, Redis cache,
+        # _summarize_query_card_payload) throw. Previously a failure here
+        # bubbled to the outer except handler and the assistant row was never
+        # inserted — the user saw the response on screen but it vanished on
+        # refresh. Build metadata in a guarded block; fall back to empty
+        # metadata on failure rather than dropping the whole reply.
         assistant_metadata: dict = {}
-        if validated_actions:
-            assistant_metadata["actions"] = validated_actions
-        if validated_queries:
-            assistant_metadata["queries"] = validated_queries
-        if validated_clarifications:
-            assistant_metadata["clarifications"] = validated_clarifications
-
-        # Persist a slim summary of any QueryCard-rendered data the user just
-        # saw, so the NEXT turn's `build_llm_context` can surface it to the
-        # model. Without this, follow-ups like "the highest TVL one" have no
-        # anchor — the model only sees its own prose intro in chat history.
-        # Kept tiny (≤5 rows, key fields only) to avoid bloating context.
-        _card_results = [
-            (name, params, result)
-            for name, params, result in market_data_results
-            if name in QUERY_CARD_RENDER_TYPES
-            and isinstance(result, (dict, list))
-        ]
-        # TEMP DEBUG: trace every step of the card-state persistence so we
-        # can tell which one drops it on the floor.
         try:
-            with open("/tmp/oprai-debug.log", "a") as _df:
-                _df.write(
-                    f"[CARD_WRITE] session={session_id[:8]} "
-                    f"market_data_results_count={len(market_data_results)} "
-                    f"market_data_types={[n for n,_,_ in market_data_results]} "
-                    f"_card_results_count={len(_card_results)}\n"
-                )
+            if validated_actions:
+                assistant_metadata["actions"] = validated_actions
+            if validated_queries:
+                assistant_metadata["queries"] = validated_queries
+            if validated_clarifications:
+                assistant_metadata["clarifications"] = validated_clarifications
+
+            # Persist a slim summary of any QueryCard-rendered data the user
+            # just saw, so the NEXT turn's `build_llm_context` can surface it
+            # to the model. Without this, follow-ups like "the highest TVL
+            # one" have no anchor — the model only sees its own prose intro.
+            # Kept tiny (≤5 rows, key fields only) to avoid context bloat.
+            _card_results = [
+                (name, params, result)
+                for name, params, result in market_data_results
+                if name in QUERY_CARD_RENDER_TYPES
+                and isinstance(result, (dict, list))
+            ]
+            if _card_results:
+                summaries = []
+                for name, params, result in _card_results:
+                    try:
+                        summary = _summarize_query_card_payload(name, params, result)
+                    except Exception:
+                        _log.debug("query_card summary failed for %s", name, exc_info=True)
+                        summary = None
+                    if summary:
+                        summaries.append(summary)
+                if summaries:
+                    assistant_metadata["query_card_results"] = summaries
+                    # Mirror to Redis so the data survives the 10-message
+                    # block summarizer that strips per-message metadata.
+                    try:
+                        from app.services.cache import get_cache_service
+                        _cache = await get_cache_service()
+                        await _cache.set("session:card_state", summaries, session_id, ttl=1800)
+                    except Exception:
+                        _log.debug("card_state cache write failed", exc_info=True)
         except Exception:
-            pass
-        if _card_results:
-            summaries = []
-            for name, params, result in _card_results:
-                summary = _summarize_query_card_payload(name, params, result)
-                if summary:
-                    summaries.append(summary)
-            try:
-                with open("/tmp/oprai-debug.log", "a") as _df:
-                    _df.write(
-                        f"[CARD_WRITE] summaries_count={len(summaries)} "
-                        f"types={[s.get('type') for s in summaries]}\n"
-                    )
-            except Exception:
-                pass
-            if summaries:
-                assistant_metadata["query_card_results"] = summaries
-                # Also mirror to Redis so the data survives the 10-message
-                # block summarizer that strips per-message metadata.
-                try:
-                    from app.services.cache import get_cache_service
-                    _cache = await get_cache_service()
-                    _ok = await _cache.set("session:card_state", summaries, session_id, ttl=1800)
-                    try:
-                        with open("/tmp/oprai-debug.log", "a") as _df:
-                            _df.write(
-                                f"[CARD_WRITE] redis_set ok={_ok} "
-                                f"key=oprai:chat:card:{session_id[:8]}…\n"
-                            )
-                    except Exception:
-                        pass
-                except Exception as _exc:
-                    try:
-                        with open("/tmp/oprai-debug.log", "a") as _df:
-                            _df.write(f"[CARD_WRITE] redis_set EXCEPTION: {_exc!r}\n")
-                    except Exception:
-                        pass
-                    _log.debug("card_state cache write failed: %s", _exc)
+            _log.warning("assistant_metadata build failed — saving reply with empty metadata", exc_info=True)
+            assistant_metadata = {}
 
         assistant_msg = ChatMessage(
             id=uuid.uuid4(),
@@ -1655,12 +3339,15 @@ async def stream_chat_response(
         )
         db.add(assistant_msg)
 
-        await _increment_message_count(db, session_id)
-        await db.execute(
-            update(ChatSession)
-            .where(ChatSession.id == uuid.UUID(session_id))
-            .values(updated_at=func.now())
-        )
+        try:
+            await _increment_message_count(db, session_id)
+            await db.execute(
+                update(ChatSession)
+                .where(ChatSession.id == uuid.UUID(session_id))
+                .values(updated_at=func.now())
+            )
+        except Exception:
+            _log.debug("session counter/updated_at bump failed", exc_info=True)
         # Commit assistant message immediately — client may disconnect before
         # get_session's post-yield commit runs (title generation, [DONE] yield, etc.)
         await db.commit()
@@ -1688,6 +3375,16 @@ async def stream_chat_response(
             _log.debug("session_state update skipped", exc_info=True)
             await db.rollback()
 
+        # Decay stale facts once per session (first message only) so preferences
+        # that haven't been confirmed in 90 days gradually lose weight.
+        if new_count == 1:
+            try:
+                from app.services.user_facts import decay_stale_facts as _decay_facts
+
+                await _decay_facts(db, wallet)
+            except Exception:
+                _log.debug("user_facts decay skipped", exc_info=True)
+
         # Extract durable preferences (preferred wallet, default slippage,
         # risk tolerance, etc.) so they persist across sessions. Mirrors the
         # ChatGPT "Memory" feature; see user_facts.py. Failures here are
@@ -1706,7 +3403,127 @@ async def stream_chat_response(
             _log.debug("user_facts extraction skipped", exc_info=True)
             await db.rollback()
 
+        # ── 10b. Record token usage + per-chat counter, possibly lock chat ──
+        # When the OpenAI Responses API surfaced exact usage via the
+        # `response.completed` event, use those numbers. Reasoning tokens
+        # are already folded into output_tokens by OpenAI, so total is
+        # simply input + output — no extra multiplier needed. Fall back
+        # to a 4-char approximation if the usage event is missing.
+        try:
+            if has_exact_usage:
+                turn_total = exact_usage_input + exact_usage_output
+            else:
+                input_chars  = sum(len(m.get("content") or "") for m in model_messages if isinstance(m, dict))
+                output_chars = len(full_response)
+                approx_input_tokens  = input_chars  // 4
+                approx_output_tokens = (output_chars // 4) * 3 // 2  # ×1.5 for reasoning
+                turn_total = approx_input_tokens + approx_output_tokens
+
+            if turn_total > 0:
+                await record_tokens(wallet, turn_total)
+                # Per-chat counter: bump total_tokens, then evaluate the
+                # per-chat cap and lock the session in-place if exceeded.
+                try:
+                    await db.execute(
+                        update(ChatSession)
+                        .where(ChatSession.id == uuid.UUID(session_id))
+                        .values(total_tokens=ChatSession.total_tokens + turn_total)
+                    )
+                    new_token_total = current_tokens + turn_total
+                    if chat_token_cap() > 0 and new_token_total >= chat_token_cap():
+                        await db.execute(
+                            update(ChatSession)
+                            .where(ChatSession.id == uuid.UUID(session_id))
+                            .values(is_locked=True, locked_reason="tokens_cap")
+                        )
+                    elif chat_message_cap() > 0 and (current_count + 1) >= chat_message_cap():
+                        # Bumped by +1 above (assistant turn just completed,
+                        # adding one assistant message). The next user turn
+                        # would bring it to current_count+2 — flag now.
+                        await db.execute(
+                            update(ChatSession)
+                            .where(ChatSession.id == uuid.UUID(session_id))
+                            .values(is_locked=True, locked_reason="messages_cap")
+                        )
+                    await db.commit()
+                except Exception:
+                    _log.debug("per-chat token bump / lock failed", exc_info=True)
+                    await db.rollback()
+        except Exception:
+            _log.debug("record_tokens / per-chat update failed", exc_info=True)
+
         # ── 11. Emit message ID and optional title ────────────────────────
+        _log_turn("stream_complete",
+                  text_chars=len(full_response or ""),
+                  validated_actions=len(validated_actions),
+                  validated_queries=len(validated_queries),
+                  validated_clarifications=len(validated_clarifications),
+                  dropped_tool_calls=len(dropped_tool_calls))
+
+        # Empty-stream guarantee: if the entire turn produced no visible
+        # output (no text, no validated action / query / clarification),
+        # emit a deterministic apology so the frontend never falls back
+        # to "Sorry, I couldn't generate a response". Empty streams
+        # happen when every tool call validates to None AND the recovery
+        # loop produces nothing — rare, but the user-facing experience
+        # of an empty bubble is the worst possible failure mode.
+        if (
+            not full_response
+            and not validated_actions
+            and not validated_queries
+            and not validated_clarifications
+        ):
+            # The model stalled mid-turn (e.g. it fetched a price for a limit
+            # order under tool_choice="required" but never emitted the follow-up
+            # action/clarification). The earlier recovery passes are gated on
+            # market_data/query state and miss the combo where BOTH are set.
+            # Recover by letting the LLM answer: retry with NO tools, forcing a
+            # plain-text reply in the USER'S LANGUAGE and a concise clarifying
+            # question when the action is under-specified. No canned strings —
+            # the model does the understanding and the wording.
+            try:
+                _nl_msgs = list(model_messages) + [{
+                    "role": "system",
+                    "content": (
+                        "You produced no answer for the user's latest message. "
+                        "Reply NOW in plain text, in the SAME language as that "
+                        "message. If they asked for an action but a required "
+                        "detail is missing (a limit order needs an output token "
+                        "AND a target price; a swap needs both tokens and an "
+                        "amount), ask ONE short clarifying question naming exactly "
+                        "what you need. Otherwise answer directly. Do NOT call any "
+                        "tools."
+                    ),
+                }]
+                _nl_buf: list[str] = []
+                async for _ev in llm.astream_with_tools(_nl_msgs, []):
+                    if _ev[0] == "text":
+                        _c = _clean_delta(_ev[1])
+                        if _c:
+                            _nl_buf.append(_c)
+                            collected_text_chunks.append(_c)
+                            yield f"data: {json.dumps({'delta': _c})}\n\n"
+                if _nl_buf:
+                    full_response = "".join(_nl_buf)
+            except Exception:
+                _log.debug("empty-stream LLM recovery failed", exc_info=True)
+
+            try:
+                with open("/tmp/oprai-debug.log", "a") as _df:
+                    _df.write(
+                        f"[EMPTY_STREAM_GUARD] wallet={wallet[:10]} "
+                        f"user={(user_content or '')[:120]!r} "
+                        f"dropped={len(dropped_tool_calls)} "
+                        f"tools_count={len(tools)} tool_choice={tool_choice_mode} "
+                        f"recovered={'llm' if full_response else 'none'}\n"
+                    )
+            except Exception:
+                pass
+            _log.warning(
+                "empty_stream_guard fired wallet=%s dropped=%d recovered=%s",
+                wallet[:16] + "…", len(dropped_tool_calls), bool(full_response),
+            )
+
         yield f"data: {json.dumps({'messageId': str(assistant_msg.id)})}\n\n"
 
         if is_first_message:
@@ -1741,6 +3558,20 @@ async def stream_chat_response(
             error_type = "unknown"
 
         _log.error("LLM stream error [%s]: %s", error_type, exc, exc_info=True)
+        # Mirror full traceback to the debug log so we can diagnose unknown
+        # exceptions when uvicorn stderr is captured by honcho and not
+        # directly tail-able.
+        try:
+            import traceback
+            with open("/tmp/oprai-debug.log", "a") as _df:
+                _df.write(
+                    f"\n[STREAM_EXCEPTION] wallet={wallet[:10]} session={session_id[:8]} "
+                    f"error_type={error_type} user_content={user_content[:120]!r}\n"
+                    f"{type(exc).__name__}: {exc}\n"
+                    f"{traceback.format_exc()}\n"
+                )
+        except Exception:
+            pass
 
         error_record = ChatMessage(
             id=uuid.uuid4(),

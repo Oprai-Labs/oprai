@@ -117,6 +117,8 @@ agent-platform/
 SECURITY_AUDIT_REPORT.md
 FIXES.md
 PRODUCTION.md
+SERVER.md
+*.local.md
 
 # Wrangler
 .wrangler/
@@ -126,3 +128,12 @@ PRODUCTION.md
 
 # Pytest
 .pytest_cache/
+
+# Marketing/landing site (deployed separately, not part of OPRAI repo)
+newlanding/
+
+# Runtime user uploads (not source)
+services/gateway-go/uploads/
+
+# Local promo/demo scripts
+demo_script.txt

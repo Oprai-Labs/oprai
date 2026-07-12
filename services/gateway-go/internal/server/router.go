@@ -149,11 +149,25 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Get("/years", chatProxy.TaxYears)
 	})
 
+	// Portfolio analytics — per-token cost basis & all-time PnL.
+	// Proxied to chat-service which persists into chat_schema and parses
+	// Helius enhanced transactions. Wallet auth required; chat-service
+	// additionally enforces caller-equals-subject so a logged-in wallet
+	// cannot read another wallet's PnL.
+	r.Route("/portfolio", func(r chi.Router) {
+		r.Use(defaultTimeout)
+		r.Use(middleware.RequireWallet)
+		r.Get("/pnl/{wallet}", chatProxy.PortfolioPnl)
+		r.Post("/refresh/{wallet}", chatProxy.PortfolioRefresh)
+	})
+
 	// Keep legacy /sessions routes for backward compatibility
 	r.Route("/sessions", func(r chi.Router) {
 		r.Use(defaultTimeout)
 		r.Get("/", chatProxy.ListSessions)
 		r.Post("/", chatProxy.CreateSession)
+		// "/all" must come before "/{id}" so chi treats it as a literal.
+		r.Delete("/all", chatProxy.DeleteAllSessions)
 		r.Get("/{id}", chatProxy.GetSession)
 		r.Delete("/{id}", chatProxy.DeleteSession)
 		r.Get("/{id}/messages", chatProxy.GetMessages)
@@ -162,6 +176,13 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Patch("/{id}/messages/{msgId}/metadata", chatProxy.PatchMessageMeta)
 	})
 
+	// Settings → Usage card: daily message/token counters + reset time.
+	r.With(defaultTimeout).Get("/usage", chatProxy.Usage)
+
+	// Settings → Privacy: delete long-term memories. Proxied to chat-service,
+	// which forwards onto memory-service after wallet-scope authorisation.
+	r.With(defaultTimeout).Delete("/user/memories", chatProxy.DeleteUserMemories)
+
 	// Solana proxy — wallet auth required for all transaction-building routes
 	solanaProxy := handlers.NewSolanaProxy(cfg.SolanaServiceHTTP, cfg.InternalAPIKey)
 	r.Route("/actions", func(r chi.Router) {
@@ -169,6 +190,8 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Use(middleware.RequireWallet)
 		r.Post("/quote", solanaProxy.PostQuote)
 		r.Post("/build", solanaProxy.PostBuild)
+		r.Post("/perp-execute", solanaProxy.PostPerpExecute)
+		r.Post("/vanity-mint", solanaProxy.PostVanityMint)
 		r.Post("/submit", solanaProxy.PostSubmit)
 		r.Post("/simulate", solanaProxy.PostSimulate)
 		r.Get("/limit-orders", solanaProxy.GetLimitOrders)
@@ -228,6 +251,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Use(defaultTimeout)
 		r.Use(middleware.RequireWallet)
 		r.Get("/prices", marketProxy.GetPrices)
+		r.Get("/liquidity/multi", marketProxy.GetLiquidityMulti)
 		r.Get("/tokens/search", marketProxy.SearchTokens)
 		r.Get("/tokens/{mint}", marketProxy.GetTokenInfo)
 		r.Get("/account/{wallet}/transactions", marketProxy.GetAccountTransactions)
@@ -237,7 +261,10 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Get("/pairs/{mint}", marketProxy.GetPairs)
 		r.Get("/trades/{mint}", marketProxy.GetTrades)
 		r.Get("/holders/{mint}", marketProxy.GetHolders)
+		r.Get("/wallet/pnl-summary", marketProxy.GetWalletPnlSummary)
+		r.Get("/wallet/pnl-details", marketProxy.GetWalletPnlDetails)
 		r.Get("/jito/tip-floor", marketProxy.GetJitoTipFloor)
+		r.Get("/jito/tip-accounts", marketProxy.GetJitoTipAccounts)
 		r.Get("/jito/bundle/{bundleId}", marketProxy.GetJitoBundleStatus)
 		// Kobe analytics API (kobe.mainnet.jito.network) — proxied to avoid CORS
 		r.Post("/jito/stake-pool-stats", marketProxy.GetJitoStakePoolStats)
@@ -268,11 +295,25 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Get("/latest-pairs", marketProxy.GetLatestPairs)
 		r.Get("/txns/{mint}", marketProxy.GetMintTransactions)
 		r.Post("/helius/transactions", marketProxy.PostHeliusTransactions)
+		// Jupiter Portfolio API — Jupiter products only (DCA, limit, perp, lend,
+		// JUP/JupSOL stake, LP). x-api-key is injected server-side via
+		// applyJupiterAuth so the key never reaches the browser.
+		r.Get("/jupiter/portfolio/positions/{wallet}", marketProxy.GetJupiterPortfolioPositions)
+		r.Get("/jupiter/portfolio/staked-jup/{wallet}", marketProxy.GetJupiterStakedJup)
+		r.Get("/jupiter/portfolio/platforms", marketProxy.GetJupiterPortfolioPlatforms)
+		// Pumpfun creator rewards — stub in PR 1; real on-chain decode lands in PR 3.
+		r.Get("/pumpfun/rewards/{wallet}", marketProxy.GetPumpfunCreatorRewards)
 	})
 
-	// Solana JSON-RPC proxy — keeps Helius API key server-side.
-	// RequireWallet prevents unauthenticated quota abuse.
-	r.With(defaultTimeout, middleware.RequireWallet).Post("/rpc", marketProxy.PostRpc)
+	// Solana JSON-RPC proxy — keeps the Helius API key server-side. NOT
+	// wallet-gated: browser web3.js Connections can't reliably attach the auth
+	// cookie/JWT to their fetches, and gating this behind RequireWallet
+	// intermittently 401'd legitimate reads (blockhash, account info) and tx
+	// submits, freezing wallet flows. Broadcasting a signed tx and reading
+	// public chain state need no auth anyway. Abuse is bounded by the CSRF
+	// (X-Requested-With) check + global rate limiting; the Helius key stays
+	// server-side.
+	r.With(defaultTimeout).Post("/rpc", marketProxy.PostRpc)
 
 	// Upload handler — stores files locally, serves via /uploads/*
 	uploadHandler := handlers.NewUploadHandler(cfg.UploadDir, cfg.PublicBaseURL)
@@ -313,6 +354,8 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// can query health ratios (prevents scraping via our server-side proxy).
 	liquidationProxy := handlers.NewLiquidationProxy()
 	r.With(defaultTimeout, middleware.RequireWallet).Get("/defi/liquidations", liquidationProxy.GetPositions)
+	// Live DeFi yields (LST + lending) — real data for the frontend yield card.
+	r.With(defaultTimeout, middleware.RequireWallet).Get("/yields", chatProxy.GetYields)
 
 	return r
 }

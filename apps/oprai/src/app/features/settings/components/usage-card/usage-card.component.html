@@ -1,0 +1,32 @@
+@if (snapshot()) {
+  @for (row of rows; track row.key) {
+    <div class="card">
+      <header class="card-head">
+        <div>
+          <h3 class="card-title">{{ row.title }}</h3>
+          <span class="card-meta">{{ resetIn(getTimeframe(row.key)?.resetsAt) }}</span>
+        </div>
+        <span class="card-pct"
+              [class.card-pct--warning]="unifiedPct(getTimeframe(row.key)) >= 80"
+              [class.card-pct--over]="unifiedPct(getTimeframe(row.key)) >= 100">
+          {{ unifiedPct(getTimeframe(row.key)) }}%
+        </span>
+      </header>
+
+      <div class="bar">
+        <div class="bar-fill"
+             [style.width.%]="unifiedPct(getTimeframe(row.key))"
+             [attr.data-state]="pctState(unifiedPct(getTimeframe(row.key)))"></div>
+      </div>
+    </div>
+  }
+} @else if (loading()) {
+  <div class="card"><div class="skeleton">Loading usage…</div></div>
+} @else if (error()) {
+  <div class="card"><div class="error">
+    <lucide-icon name="alert-circle" [size]="14" />
+    <span>{{ error() }}</span>
+  </div></div>
+} @else {
+  <div class="card"><div class="skeleton">No usage data.</div></div>
+}

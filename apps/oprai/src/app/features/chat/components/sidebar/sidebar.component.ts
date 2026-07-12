@@ -41,6 +41,14 @@ export class SidebarComponent implements OnInit {
     effect(() => {
       const authenticated = this.authService.isAuthenticated();
       const authenticating = this.authService.authenticating();
+      // Reset the loaded flag whenever auth drops so a subsequent reconnect
+      // (possibly to a different wallet) refetches the sidebar from the
+      // server. Without this, switching wallets leaves the sidebar empty
+      // until a full page reload — even after a successful re-auth.
+      if (!authenticated && !authenticating) {
+        this.sessionsLoaded = false;
+        return;
+      }
       // Only load sessions when authenticated AND not currently authenticating
       if (authenticated && !authenticating && !this.sessionsLoaded) {
         this.sessionsLoaded = true;

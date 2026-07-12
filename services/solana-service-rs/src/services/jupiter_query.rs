@@ -31,6 +31,7 @@ const JUP_PRICE_API: &str = "https://api.jup.ag/price/v3";
 const JUP_TOKENS_API: &str = "https://api.jup.ag/tokens/v2";
 const JUP_PORTFOLIO_API: &str = "https://api.jup.ag/portfolio/v1";
 const JUP_LEND_EARN_API: &str = "https://api.jup.ag/lend/v1/earn";
+const JUP_LEND_BORROW_API: &str = "https://api.jup.ag/lend/v1/borrow";
 const JUP_SEND_API: &str = "https://api.jup.ag/send/v1";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -613,19 +614,94 @@ pub async fn build_jup_lend_positions(
 ) -> Result<BuildResponse, AppError> {
     validate_jup_lend_positions_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
-    // Jupiter Lend Earn uses `users=` (plural, comma-separated) not `userPubkey=`
-    let url = format!("{JUP_LEND_EARN_API}/positions?users={target}");
-    let data = jup_get(http, &url, api_key).await?;
+    // Jupiter Lend uses `users=` (plural, comma-separated), not `userPubkey=`.
+    // "Lend positions" spans BOTH sides of the protocol: Earn (deposits) AND
+    // Borrow (collateral + debt). Fetch both — querying only Earn made an
+    // active borrow look like "no positions" to the LLM.
+    let earn_url = format!("{JUP_LEND_EARN_API}/positions?users={target}");
+    let borrow_url = format!("{JUP_LEND_BORROW_API}/positions?users={target}");
+    let (earn, borrow) = tokio::join!(
+        jup_get(http, &earn_url, api_key),
+        jup_get(http, &borrow_url, api_key),
+    );
+    // A failure on one side must not blank the other — degrade to an empty array.
+    let earn = earn.unwrap_or_else(|_| serde_json::json!([]));
+    let borrow = borrow.unwrap_or_else(|_| serde_json::json!([]));
 
-    let count = data
-        .as_array()
-        .map(|a| a.len())
-        .or_else(|| {
-            data.get("positions")
-                .and_then(|v| v.as_array())
-                .map(|a| a.len())
-        })
-        .unwrap_or(0);
+    // Reduce both sides to a LEAN, LLM-readable summary. Two reasons:
+    //   1. Jupiter returns a row for EVERY jlToken/vault the wallet ever touched
+    //      — mostly zero-balance dust. Skip those (keep only live balances).
+    //   2. Each raw borrow row carries a ~40-field `vault` blob (oracle arrays,
+    //      liquidity data, metadata). Serialized + truncated at the chat layer
+    //      it buried/clipped the actual debt, so the model reported "no borrows"
+    //      even though the data was present. Emit only the fields that matter.
+    // Values arrive as strings OR numbers → parse tolerantly.
+    let num = |v: Option<&serde_json::Value>| -> f64 {
+        match v {
+            Some(serde_json::Value::String(s)) => s.parse::<f64>().unwrap_or(0.0),
+            Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0),
+            _ => 0.0,
+        }
+    };
+    let as_arr = |v: &serde_json::Value| -> Vec<serde_json::Value> {
+        v.as_array().cloned()
+            .or_else(|| v.get("positions").and_then(|p| p.as_array()).cloned())
+            .unwrap_or_default()
+    };
+    let round2 = |x: f64| -> f64 { (x * 100.0).round() / 100.0 };
+
+    let earn_summary: Vec<serde_json::Value> = as_arr(&earn).iter().filter_map(|e| {
+        let underlying = num(e.get("underlyingAssets"));
+        if underlying <= 0.0 && num(e.get("shares")) <= 0.0 { return None; }
+        let token = e.get("token");
+        let asset = token.and_then(|t| t.get("asset"));
+        let symbol = asset.and_then(|a| a.get("symbol")).and_then(|s| s.as_str())
+            .or_else(|| token.and_then(|t| t.get("symbol")).and_then(|s| s.as_str()))
+            .unwrap_or("?");
+        let decimals = asset.and_then(|a| a.get("decimals")).and_then(|d| d.as_u64())
+            .or_else(|| token.and_then(|t| t.get("decimals")).and_then(|d| d.as_u64()))
+            .unwrap_or(6) as i32;
+        Some(serde_json::json!({
+            "asset": symbol,
+            "depositedAmount": underlying / 10f64.powi(decimals),
+        }))
+    }).collect();
+
+    let borrow_summary: Vec<serde_json::Value> = as_arr(&borrow).iter().filter_map(|b| {
+        let vault = b.get("vault");
+        let st = vault.and_then(|v| v.get("supplyToken"));
+        let bt = vault.and_then(|v| v.get("borrowToken"));
+        let col_dec = st.and_then(|t| t.get("decimals")).and_then(|d| d.as_u64()).unwrap_or(9) as i32;
+        let debt_dec = bt.and_then(|t| t.get("decimals")).and_then(|d| d.as_u64()).unwrap_or(6) as i32;
+        let col_amt = num(b.get("supply")) / 10f64.powi(col_dec);
+        let debt_amt = num(b.get("borrow")) / 10f64.powi(debt_dec);
+        if debt_amt <= 0.0 && col_amt <= 0.0 { return None; }
+        let col_sym = st.and_then(|t| t.get("uiSymbol").or_else(|| t.get("symbol"))).and_then(|s| s.as_str()).unwrap_or("?");
+        let debt_sym = bt.and_then(|t| t.get("uiSymbol").or_else(|| t.get("symbol"))).and_then(|s| s.as_str()).unwrap_or("?");
+        let col_usd = col_amt * num(st.and_then(|t| t.get("price")));
+        let debt_usd = debt_amt * num(bt.and_then(|t| t.get("price")));
+        let ltv = if col_usd > 0.0 { debt_usd / col_usd } else { 0.0 };
+        let liq_thresh = num(vault.and_then(|v| v.get("liquidationThreshold"))) / 1000.0; // 850 → 0.85
+        let health = if ltv > 0.0 { liq_thresh / ltv } else { 999.0 };
+        let liq_price = if col_amt > 0.0 && liq_thresh > 0.0 { debt_usd / (col_amt * liq_thresh) } else { 0.0 };
+        Some(serde_json::json!({
+            "collateral": col_sym,
+            "collateralAmount": col_amt,
+            "debt": debt_sym,
+            "debtAmount": debt_amt,
+            "ltvPct": round2(ltv * 100.0),
+            "liquidationThresholdPct": round2(liq_thresh * 100.0),
+            "healthFactor": round2(health),
+            "liquidationPriceUsd": round2(liq_price),
+            "isLiquidated": b.get("isLiquidated").and_then(|x| x.as_bool()).unwrap_or(false),
+        }))
+    }).collect();
+
+    let earn_count = earn_summary.len();
+    let borrow_count = borrow_summary.len();
+    let count = earn_count + borrow_count;
+    let earn = serde_json::Value::Array(earn_summary);
+    let borrow = serde_json::Value::Array(borrow_summary);
 
     let wallet_short = if target.len() > 8 {
         format!("{}...{}", &target[..4], &target[target.len() - 4..])
@@ -638,11 +714,12 @@ pub async fn build_jup_lend_positions(
             id: Uuid::new_v4().to_string(),
             action_type: "jup_lend_positions".into(),
             description: format!(
-                "{count} active Jupiter Lend position(s) for {wallet_short}"
+                "{count} active Jupiter Lend position(s) for {wallet_short} \
+                 ({earn_count} earn, {borrow_count} borrow)"
             ),
             estimated_fee: "0".into(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({ "earn": earn, "borrow": borrow }),
             warnings: vec![],
             requires_approval: false,
         },

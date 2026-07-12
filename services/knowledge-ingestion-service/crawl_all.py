@@ -105,6 +105,12 @@ class Source:
     max_pages: int = 500
     tags: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
+    # How often this source should be re-checked. The crawler scans every
+    # source on each run, but for sources whose freshest point in Qdrant is
+    # younger than this interval we short-circuit BEFORE any HTTP fetch or
+    # discovery work. That makes hourly cron + per-source cadence cheap
+    # (slow-moving docs do zero work most hours, news feeds always work).
+    crawl_freq: Literal["hourly", "daily", "weekly", "monthly"] = "weekly"
 
 SOURCES: list[Source] = [
     # ── Solana Core ─────────────────────────────────────────────────────────
@@ -2276,6 +2282,32 @@ SOURCES: list[Source] = [
         tags=["economics","monetary-policy","inflation","crypto-economics",
               "stablecoin","macro","bitcoin-thesis","defi-macro","network-effects",
               "monetary-network","store-of-value","fiat"]),
+
+    # ── News (hourly poll, full-content only) ───────────────────────────────
+    # CRITERIA for inclusion here: RSS feed must deliver FULL article body,
+    # not paywall'd excerpt. The Block / CoinDesk / Blockworks / Cointelegraph
+    # are excluded on purpose — their RSS returns only a teaser, which leaves
+    # the RAG half-blind. If you want one of those, switch them off again the
+    # day you have a partnership / API key that returns full body.
+    Source("helius_blog", "news", "rss",
+        "https://www.helius.dev/blog/rss.xml", "helius", "news", "permissive",
+        max_pages=30, crawl_delay=2.0, crawl_freq="hourly",
+        tags=["solana","news","developer","rpc","helius","ecosystem"]),
+
+    Source("anza_blog", "news", "rss",
+        "https://www.anza.xyz/blog/rss.xml", "anza", "news", "permissive",
+        max_pages=30, crawl_delay=2.0, crawl_freq="hourly",
+        tags=["solana","news","core","validator","anza","ecosystem"]),
+
+    Source("solana_foundation_news", "news", "rss",
+        "https://solana.com/news/rss.xml", "solana", "news", "permissive",
+        max_pages=30, crawl_delay=2.0, crawl_freq="hourly",
+        tags=["solana","news","foundation","ecosystem","announcements"]),
+
+    Source("jito_blog", "news", "rss",
+        "https://www.jito.network/blog/rss.xml", "jito", "news", "permissive",
+        max_pages=30, crawl_delay=2.0, crawl_freq="hourly",
+        tags=["solana","news","jito","mev","staking","bundles"]),
 ]
 
 # ── Stats ──────────────────────────────────────────────────────────────────────
@@ -2285,17 +2317,18 @@ class RunStats:
     sources_failed: int = 0
     pages_crawled: int = 0
     pages_skipped: int = 0
+    pages_unchanged: int = 0  # short-circuited by page_hash dedup → no Haiku/embed call
+    start_time: float = field(default_factory=time.time)
     chunks_total: int = 0
     chunks_upserted: int = 0
     embed_tokens: int = 0
-    start_time: float = field(default_factory=time.time)
 
     def summary(self) -> str:
         elapsed = int(time.time() - self.start_time)
         cost = self.embed_tokens / 1_000_000 * 0.13
         return (
             f"Sources: {self.sources_done} done / {self.sources_failed} failed | "
-            f"Pages: {self.pages_crawled} crawled / {self.pages_skipped} skipped | "
+            f"Pages: {self.pages_crawled} crawled / {self.pages_skipped} skipped / {self.pages_unchanged} unchanged | "
             f"Chunks: {self.chunks_upserted}/{self.chunks_total} upserted | "
             f"Tokens: {self.embed_tokens:,} (${cost:.2f}) | Elapsed: {elapsed}s"
         )
@@ -2606,7 +2639,7 @@ async def ensure_collection(qdrant: AsyncQdrantClient) -> None:
     )
 
     keyword_fields = ["doc_id", "source_id", "source_type", "protocol",
-                      "category", "language", "content_hash", "tags"]
+                      "category", "language", "content_hash", "page_hash", "tags"]
     int_fields = ["published_at", "fetched_at"]
     for f in keyword_fields:
         try:
@@ -2637,11 +2670,88 @@ async def embed_batch(oai: AsyncOpenAI, texts: list[str]) -> list[list[float]]:
 # ── Upsert ────────────────────────────────────────────────────────────────────
 _qdrant_write_sem = asyncio.Semaphore(8)
 
+
+_FREQ_SECONDS: dict[str, int] = {
+    "hourly":  60 * 60,
+    "daily":   24 * 60 * 60,
+    "weekly":   7 * 24 * 60 * 60,
+    "monthly": 30 * 24 * 60 * 60,
+}
+
+
+async def should_skip_source(
+    qdrant: AsyncQdrantClient, source_id: str, freq: str,
+) -> bool:
+    """Return True if this source has been crawled within its `freq` window
+    and should be skipped this run. Looks up the freshest `fetched_at` of
+    any point with `source_id == source_id` (one indexed scroll, ordered
+    desc). When the source is brand-new (no points yet), returns False so
+    the first-ever crawl always runs.
+
+    Returns False on Qdrant error so an outage doesn't silently freeze the
+    crawler — better to do unnecessary work than miss updates.
+    """
+    interval = _FREQ_SECONDS.get(freq, _FREQ_SECONDS["weekly"])
+    try:
+        scroll, _ = await qdrant.scroll(
+            collection_name=COLLECTION,
+            scroll_filter=models.Filter(must=[
+                models.FieldCondition(key="source_id", match=models.MatchValue(value=source_id)),
+            ]),
+            limit=1,
+            with_payload=["fetched_at"],
+            with_vectors=False,
+            order_by=models.OrderBy(key="fetched_at", direction=models.Direction.DESC),
+        )
+        if not scroll:
+            return False  # never crawled — run it
+        freshest_ms = (scroll[0].payload or {}).get("fetched_at")
+        if not isinstance(freshest_ms, (int, float)):
+            return False
+        age_s = (time.time() * 1000 - freshest_ms) / 1000
+        return age_s < interval
+    except Exception:
+        return False
+
+
+async def is_page_unchanged(
+    qdrant: AsyncQdrantClient, doc_id: str, page_hash: str,
+) -> bool:
+    """Return True if Qdrant already has at least one point for `doc_id` with
+    a matching `page_hash`. Used to short-circuit the crawler before the
+    expensive Haiku classify + OpenAI embed steps. The cost of this lookup
+    is one indexed scroll (page_hash + doc_id are both KEYWORD-indexed),
+    versus ~$0.0035 + ~$0.0002 for classify + embed per page that hasn't
+    changed.
+
+    Returns False on any Qdrant error so a transient outage doesn't cause
+    silent data staleness — we'd rather pay for an unnecessary classify
+    than miss a real update.
+    """
+    if not page_hash:
+        return False
+    try:
+        scroll, _ = await qdrant.scroll(
+            collection_name=COLLECTION,
+            scroll_filter=models.Filter(must=[
+                models.FieldCondition(key="doc_id", match=models.MatchValue(value=doc_id)),
+                models.FieldCondition(key="page_hash", match=models.MatchValue(value=page_hash)),
+            ]),
+            limit=1,
+            with_payload=False,
+            with_vectors=False,
+        )
+        return len(scroll) > 0
+    except Exception:
+        return False
+
+
 async def upsert_chunks(
     qdrant: AsyncQdrantClient, oai: AsyncOpenAI,
     raw_chunks: list[dict], source: Source,
     title: str = "", published_at: Optional[datetime] = None,
     extra_tags: Optional[list[str]] = None,
+    page_hash: Optional[str] = None,  # SHA-256 of full page text (for dedup)
 ) -> int:
     if not raw_chunks:
         return 0
@@ -2681,6 +2791,7 @@ async def upsert_chunks(
                 "published_at": pub_ms,
                 "fetched_at": now_ms,
                 "content_hash": content_hash(chunk["content"]),
+                "page_hash": page_hash or "",
                 "tags": tags,
                 "license": source.license,
                 "token_count": len(chunk["content"].split()),
@@ -2849,6 +2960,15 @@ async def process_sitemap(
             if len(text) < 50:
                 return
 
+            # Short-circuit: if this URL's text is byte-identical to what's
+            # already in Qdrant, skip the Haiku classify + OpenAI embed.
+            doc_id = slug(url, source.id)
+            page_hash = content_hash(text)
+            if await is_page_unchanged(qdrant, doc_id, page_hash):
+                STATS.pages_unchanged += 1
+                log.debug("[%s] UNCHANGED: %s", source.id, url)
+                return
+
             title = _extract_title(resp.text)
             clf = await classify_page(anthropic, title, text, url)
 
@@ -2859,14 +2979,15 @@ async def process_sitemap(
                 return
 
             merged_tags = list(dict.fromkeys(source.tags + clf.tags))
-            doc_id = slug(url, source.id)
             chunks = chunk_text(text, doc_id, clf.section_anchors)
             for c in chunks:
                 c["url"] = url
-            await upsert_chunks(qdrant, oai, chunks, source, title=title, extra_tags=merged_tags)
+            await upsert_chunks(qdrant, oai, chunks, source, title=title,
+                                extra_tags=merged_tags, page_hash=page_hash)
 
     await asyncio.gather(*[process_one(u) for u in urls])
-    log.info("[%s] done | pages=%d skipped=%d", source.id, STATS.pages_crawled, skipped[0])
+    log.info("[%s] done | crawled=%d unchanged=%d skipped=%d",
+             source.id, STATS.pages_crawled, STATS.pages_unchanged, skipped[0])
 
 
 async def process_rss(
@@ -2898,10 +3019,15 @@ async def process_rss(
         except Exception:
             pass
         doc_id = slug(link or title, source.id)
+        page_hash = content_hash(body)
+        if await is_page_unchanged(qdrant, doc_id, page_hash):
+            STATS.pages_unchanged += 1
+            continue
         chunks = [{"doc_id": doc_id, "chunk_id": 0, "content": body,
                    "section_path": "", "url": link}]
         STATS.pages_crawled += 1
-        await upsert_chunks(qdrant, oai, chunks, source, title=title, published_at=published)
+        await upsert_chunks(qdrant, oai, chunks, source, title=title,
+                            published_at=published, page_hash=page_hash)
 
 
 async def process_github_raw(
@@ -2915,11 +3041,16 @@ async def process_github_raw(
         if not resp:
             return
         doc_id = source.id
+        page_hash = content_hash(resp.text)
+        if await is_page_unchanged(qdrant, doc_id, page_hash):
+            STATS.pages_unchanged += 1
+            log.info("[%s] UNCHANGED — skipping ingest", source.id)
+            return
         chunks = chunk_text(resp.text, doc_id, [{"label": "Overview", "anchor": ""}])
         for c in chunks:
             c["url"] = source.url
         STATS.pages_crawled += 1
-        await upsert_chunks(qdrant, oai, chunks, source, title=source.id)
+        await upsert_chunks(qdrant, oai, chunks, source, title=source.id, page_hash=page_hash)
         log.info("[%s] Ingested %d chunks", source.id, len(chunks))
         return
 
@@ -2953,11 +3084,15 @@ async def process_github_raw(
         if not resp:
             continue
         doc_id = slug(f["path"], source.id)
+        page_hash = content_hash(resp.text)
+        if await is_page_unchanged(qdrant, doc_id, page_hash):
+            STATS.pages_unchanged += 1
+            continue
         chunks = chunk_text(resp.text, doc_id, [{"label": "Overview", "anchor": ""}])
         for c in chunks:
             c["url"] = raw_url
         STATS.pages_crawled += 1
-        await upsert_chunks(qdrant, oai, chunks, source, title=f["path"])
+        await upsert_chunks(qdrant, oai, chunks, source, title=f["path"], page_hash=page_hash)
 
 
 async def process_defillama(
@@ -2986,18 +3121,35 @@ async def process_defillama(
         url_proto = proto.get("url", "")
         if not name or not description:
             continue
+        # NOTE: TVL is excluded from the dedup hash because it changes on every
+        # crawl and would defeat the cache. The body still includes it so the
+        # stored chunk reflects current TVL when we DO upsert.
         body = f"# {name}\n\n{description}\n\n**Category**: {category}\n**Chains**: {chain}\n**TVL**: ${tvl:,.0f}\n"
+        dedup_body = f"{name}|{description}|{category}|{chain}"
         doc_id = f"defillama.{slug_id}"
+        page_hash = content_hash(dedup_body)
+        if await is_page_unchanged(qdrant, doc_id, page_hash):
+            STATS.pages_unchanged += 1
+            continue
+        # Tag the chunk with its page_hash so the dedup check works on the
+        # next run. DefiLlama uses one chunk per protocol so it's safe to
+        # carry the hash on the chunk dict directly.
         chunks.append({"doc_id": doc_id, "chunk_id": 0, "content": body,
-                        "section_path": category, "url": url_proto})
+                        "section_path": category, "url": url_proto,
+                        "page_hash": page_hash})
         doc_count += 1
+        # Don't batch upsert when chunks have heterogeneous page_hash values —
+        # the upsert_chunks signature only accepts one. Flush per-chunk so
+        # each protocol gets its own hash recorded.
         if len(chunks) >= 50:
-            await upsert_chunks(qdrant, oai, chunks, source)
+            for c in chunks:
+                await upsert_chunks(qdrant, oai, [c], source, page_hash=c.get("page_hash"))
             chunks = []
             STATS.pages_crawled += 50
 
     if chunks:
-        await upsert_chunks(qdrant, oai, chunks, source)
+        for c in chunks:
+            await upsert_chunks(qdrant, oai, [c], source, page_hash=c.get("page_hash"))
         STATS.pages_crawled += len(chunks)
     log.info("[%s] Ingested %d protocol entries", source.id, doc_count)
 
@@ -3016,8 +3168,16 @@ async def process_direct_urls(
         text = html_to_text(resp.text, base_url=url, excerpt_only=source.excerpt_only)
         if len(text) < 50:
             return
-        title = _extract_title(resp.text)
 
+        # Short-circuit on identical content — saves Haiku + embed.
+        doc_id = slug(url, source.id)
+        page_hash = content_hash(text)
+        if await is_page_unchanged(qdrant, doc_id, page_hash):
+            STATS.pages_unchanged += 1
+            log.debug("[%s] UNCHANGED: %s", source.id, url)
+            return
+
+        title = _extract_title(resp.text)
         clf = await classify_page(anthropic, title, text, url)
         if not clf.keep:
             STATS.pages_skipped += 1
@@ -3025,12 +3185,12 @@ async def process_direct_urls(
             return
 
         merged_tags = list(dict.fromkeys(source.tags + clf.tags))
-        doc_id = slug(url, source.id)
         chunks = chunk_text(text, doc_id, clf.section_anchors)
         for c in chunks:
             c["url"] = url
         STATS.pages_crawled += 1
-        await upsert_chunks(qdrant, oai, chunks, source, title=title, extra_tags=merged_tags)
+        await upsert_chunks(qdrant, oai, chunks, source, title=title,
+                            extra_tags=merged_tags, page_hash=page_hash)
 
     await asyncio.gather(*[process_one(u) for u in urls])
 
@@ -3040,8 +3200,17 @@ async def process_source(
     qdrant: AsyncQdrantClient, oai: AsyncOpenAI, anthropic: AsyncAnthropic,
 ) -> None:
     try:
+        # Skip entirely if the source has been crawled within its configured
+        # `crawl_freq` window. This is the cheap front-door check — protects
+        # against running an hourly cron over slow-moving docs sites whose
+        # actual update cadence is weekly or monthly.
+        if await should_skip_source(qdrant, source.id, source.crawl_freq):
+            log.info("SKIP  [%s] within %s freq window", source.id, source.crawl_freq)
+            return
+
         log.info("=" * 60)
-        log.info("START [%s] (%s) — %s", source.id, source.adapter, source.url)
+        log.info("START [%s] (%s, freq=%s) — %s",
+                 source.id, source.adapter, source.crawl_freq, source.url)
         t0 = time.time()
 
         if source.adapter == "sitemap":

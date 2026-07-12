@@ -2,17 +2,17 @@
   <div class="query-accent"></div>
 
   <div class="query-header">
-    <div class="query-icon-wrap">
+    <div class="query-logo">
       @if (protocolIcon) {
         <img [src]="protocolIcon" [alt]="queryLabel" class="query-protocol-icon" />
       } @else {
-        <lucide-icon [name]="queryIcon" [size]="14" />
+        <lucide-icon [name]="queryIcon" [size]="18" />
       }
     </div>
-    <div class="query-header-text">
-      <span class="query-badge">QUERY</span>
+    <div class="query-header-info">
       <span class="query-label">{{ queryLabel }}</span>
     </div>
+    <span class="query-badge">QUERY</span>
   </div>
 
   @if (loading()) {
@@ -201,10 +201,12 @@
           }
           @if (!dlmmFetching() && dlmmResults.length === 0) {
             <div class="dlmm-empty">
+              <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
               @if (dlmmSearchRaw() || query.params['query']) {
-                No DLMM pools match "{{ dlmmSearchRaw() || query.params['query'] }}".
+                <div>No DLMM pool found for <strong>"{{ dlmmSearchRaw() || query.params['query'] }}"</strong>.</div>
+                <div class="dlmm-empty__hint">Try different tokens, or check on <a href="https://app.meteora.ag/dlmm" target="_blank" rel="noopener">app.meteora.ag</a>.</div>
               } @else {
-                No DLMM pools available right now.
+                <div>No DLMM pools available right now.</div>
               }
             </div>
           }
@@ -351,10 +353,12 @@
             }
             @if (!dammV2Fetching() && dammV2Results.length === 0) {
               <div class="dlmm-empty">
+                <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
                 @if (dammV2SearchRaw() || query.params['query']) {
-                  No DAMM v2 pools match "{{ dammV2SearchRaw() || query.params['query'] }}".
+                  <div>No DAMM v2 pool found for <strong>"{{ dammV2SearchRaw() || query.params['query'] }}"</strong>.</div>
+                  <div class="dlmm-empty__hint">Try different tokens, or check on <a href="https://app.meteora.ag/damm-v2" target="_blank" rel="noopener">app.meteora.ag</a>.</div>
                 } @else {
-                  No DAMM v2 pools available right now.
+                  <div>No DAMM v2 pools available right now.</div>
                 }
               </div>
             }
@@ -485,10 +489,12 @@
             }
             @if (!dammV1Fetching() && dammV1FilteredTotal === 0) {
               <div class="dlmm-empty">
+                <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
                 @if (dammV1SearchRaw() || query.params['query']) {
-                  No DAMM v1 pools match "{{ dammV1SearchRaw() || query.params['query'] }}".
+                  <div>No DAMM v1 pool found for <strong>"{{ dammV1SearchRaw() || query.params['query'] }}"</strong>.</div>
+                  <div class="dlmm-empty__hint">Try different tokens, or check on <a href="https://app.meteora.ag/pools" target="_blank" rel="noopener">app.meteora.ag</a>.</div>
                 } @else {
-                  No DAMM v1 pools available right now.
+                  <div>No DAMM v1 pools available right now.</div>
                 }
               </div>
             }
@@ -535,6 +541,144 @@
             DAMM v1 is Meteora's legacy constant-product AMM. Deposits require
             both tokens at the current pool ratio — picking a pool here pre-fills
             the action card; you only enter one amount.
+          </p>
+        }
+      }
+
+      <!-- ─────────────────── Raydium pool list ─────────────────── -->
+      <!-- Raydium V3 has no `query` param, so we expose pool-type chips +
+           sort buttons only (no search input). Otherwise mirrors DLMM. -->
+      @if (query.type === 'raydium_get_pools' || query.type === 'raydium_search_pools') {
+        <div class="dlmm-sort-bar">
+          @for (opt of RAYDIUM_POOL_TYPES; track opt.value) {
+            <button
+              class="sort-btn"
+              [class.sort-active]="raydiumPoolType() === opt.value"
+              (click)="onRaydiumPoolTypeChange(opt.value)">
+              {{ opt.label }}
+            </button>
+          }
+          <button
+            type="button"
+            class="dlmm-refresh-btn"
+            (click)="refreshLiveData()"
+            [disabled]="raydiumFetching()"
+            title="Refresh pool data"
+            style="margin-left:auto;">
+            <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="raydiumFetching()" />
+          </button>
+        </div>
+        <div class="dlmm-sort-bar">
+          @for (opt of RAYDIUM_SORT_OPTIONS; track opt.field) {
+            <button
+              class="sort-btn"
+              [class.sort-active]="raydiumSortField() === opt.field"
+              (click)="onRaydiumSortChange(opt.field)">
+              {{ opt.label }}
+              <lucide-icon
+                [name]="raydiumSortField() === opt.field ? (raydiumSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                [size]="10" />
+            </button>
+          }
+        </div>
+        <div class="result-table dlmm-table">
+          <div class="result-table__header dlmm-row">
+            <span>Pool</span>
+            <span class="text-right">TVL</span>
+            <span class="text-right">24h Vol</span>
+            <span class="text-right">24h APR</span>
+            <span class="text-right">Type</span>
+            <span class="text-right">Action</span>
+          </div>
+          @if (raydiumFetching() && raydiumResults.length === 0) {
+            <div class="dlmm-empty">Loading pools…</div>
+          }
+          @for (p of raydiumResults; track p.id) {
+            <div class="result-table__row dlmm-row">
+              <span class="dlmm-pair">
+                <span class="dlmm-pair__name">{{ p.mintA.symbol }} / {{ p.mintB.symbol }}</span>
+                <button
+                  type="button"
+                  class="dlmm-pair__addr mono dlmm-copy-btn"
+                  [class.dlmm-copy-btn--copied]="copiedAddress() === p.id"
+                  (click)="copyPoolAddress(p.id); $event.stopPropagation()"
+                  [attr.title]="copiedAddress() === p.id ? 'Copied' : 'Copy pool address: ' + p.id">
+                  <span class="dlmm-pair__addr-text">{{ p.id.slice(0, 4) }}…{{ p.id.slice(-4) }}</span>
+                  @if (copiedAddress() === p.id) {
+                    <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
+                  } @else {
+                    <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
+                  }
+                </button>
+              </span>
+              <span class="text-right mono">{{ formatUsd(p.tvl) }}</span>
+              <span class="text-right mono">{{ formatUsd(raydiumVolume24h(p)) }}</span>
+              <span class="text-right mono change-up">{{ raydiumApr24h(p).toFixed(2) }}%</span>
+              <span class="text-right">
+                <span class="type-badge">{{ p.type === 'Concentrated' ? 'CLMM' : 'AMM' }}</span>
+              </span>
+              <span class="text-right">
+                <button
+                  type="button"
+                  class="dlmm-use-btn"
+                  (click)="useRaydiumPool(p); $event.stopPropagation()"
+                  title="Deposit liquidity to this pool">
+                  Deposit
+                  <lucide-icon name="arrow-right" [size]="12" />
+                </button>
+              </span>
+            </div>
+          }
+          @if (!raydiumFetching() && raydiumResults.length === 0) {
+            <div class="dlmm-empty">
+              <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
+              <div>No Raydium pools available right now.</div>
+              <div class="dlmm-empty__hint">Try a different sort/filter, or check on <a href="https://raydium.io/liquidity-pools" target="_blank" rel="noopener">raydium.io</a>.</div>
+            </div>
+          }
+          <!-- Infinite-scroll sentinel: when this enters the viewport (with
+               200px of pre-fetch margin) the IntersectionObserver in the TS
+               class auto-triggers raydiumNextPage(). Only rendered while
+               there's more data to fetch, so it disconnects naturally at
+               the end of the list. -->
+          @if (raydiumHasNextPage() && raydiumResults.length > 0) {
+            <div #raydiumSentinel class="dlmm-sentinel" aria-hidden="true">
+              @if (raydiumFetching()) {
+                <span class="dlmm-sentinel__spinner"></span>
+                <span>Loading more…</span>
+              }
+            </div>
+          }
+        </div>
+        @if (raydiumResults.length > 0) {
+          <!-- Infinite-scroll footer: the table appends new rows as the user
+               scrolls, so per-page Prev/Next is replaced by a single counter
+               + a manual "Load more" fallback for users who prefer a button
+               (or if the IntersectionObserver hasn't tripped for any reason). -->
+          <div class="dlmm-footer">
+            <span class="dlmm-footer__count">
+              Showing <strong>{{ raydiumShowingRange.to }}</strong> pools
+              @if (raydiumHasNextPage()) { <span class="dlmm-footer__more">· more available</span> }
+            </span>
+            @if (raydiumHasNextPage()) {
+              <button
+                class="dlmm-page-btn dlmm-page-btn--nav"
+                (click)="raydiumNextPage()"
+                [disabled]="raydiumFetching()"
+                title="Load more">
+                @if (raydiumFetching()) {
+                  <span class="dlmm-sentinel__spinner"></span>
+                } @else {
+                  <lucide-icon name="chevron-down" [size]="13" />
+                }
+                <span>Load more</span>
+              </button>
+            }
+          </div>
+          <p class="dlmm-help">
+            <strong>CLMM</strong> = Concentrated Liquidity (single-sided range deposit, like Uniswap v3).
+            <strong>AMM</strong> = constant-product pool (deposit both tokens at the current ratio).
+            Picking Deposit pre-fills the action card with the pool ID and token mints.
           </p>
         }
       }
@@ -662,25 +806,36 @@
         </div>
       }
 
-      <!-- Yield results -->
+      <!-- Yield results — swap-panel-style rows -->
       @if (query.type === 'yield') {
-        <div class="result-table">
-          <div class="result-table__header result-table__header--5col">
-            <span>Protocol</span>
-            <span>Token</span>
-            <span class="text-right">APY</span>
-            <span class="text-right">TVL</span>
-            <span class="text-right">Risk</span>
-          </div>
+        <div class="yield-list">
           @for (y of yieldResults; track y.protocol + y.token) {
-            <div class="result-table__row result-table__row--5col">
-              <span>{{ y.protocol }}</span>
-              <span class="mono">{{ y.token }}</span>
-              <span class="text-right change-up mono">{{ y.apy.toFixed(1) }}%</span>
-              <span class="text-right mono">${{ formatNumber(y.tvl) }}</span>
-              <span class="text-right">
-                <span class="risk-badge" [class]="riskBadgeClass(y.risk)">{{ y.risk }}</span>
-              </span>
+            <div class="yield-row">
+              @if (yieldLogo(y); as logo) {
+                <img class="yield-row__logo" [src]="logo" [alt]="y.protocol" loading="lazy" />
+              } @else {
+                <span class="yield-row__logo yield-row__logo--fallback">{{ yieldInitial(y) }}</span>
+              }
+              <div class="yield-row__main">
+                <span class="yield-row__protocol">{{ y.protocol }}</span>
+                <span class="yield-row__meta">
+                  <span class="yield-row__token mono">{{ y.token }}</span>
+                  @if (y.tvl) {
+                    <span class="yield-row__dot">·</span>
+                    <span class="yield-row__tvl mono">${{ formatNumber(y.tvl) }} TVL</span>
+                  }
+                </span>
+              </div>
+              <div class="yield-row__side">
+                <span class="yield-row__apy">
+                  <span class="yield-row__apy-num mono">{{ y.apy.toFixed(2) }}%</span>
+                  <span class="yield-row__apy-label">APY</span>
+                </span>
+                <span class="yield-row__risk">
+                  <span class="risk-badge" [class]="riskBadgeClass(y.risk)">{{ y.risk }}</span>
+                  <span class="yield-row__risk-label">RISK</span>
+                </span>
+              </div>
             </div>
           }
         </div>
@@ -688,54 +843,65 @@
 
       <!-- Analytics / PnL results -->
       @if (query.type === 'analytics' && analyticsResult) {
-        <div class="analytics-grid">
-          <div class="analytics-stat analytics-stat--highlight">
-            <span class="analytics-stat__label">Total PnL</span>
-            <span class="analytics-stat__value mono" [class.change-up]="analyticsResult.totalPnl >= 0" [class.change-down]="analyticsResult.totalPnl < 0">
+        <div class="pnl-card">
+          <div class="pnl-card__hero" [class.pnl-card__hero--up]="analyticsResult.totalPnl >= 0" [class.pnl-card__hero--down]="analyticsResult.totalPnl < 0">
+            <span class="pnl-card__hero-label">Total PnL</span>
+            <span class="pnl-card__hero-value mono">
               {{ analyticsResult.totalPnl >= 0 ? '+' : '' }}{{ formatUsd(analyticsResult.totalPnl) }}
             </span>
-            <span class="analytics-stat__sub" [class.change-up]="analyticsResult.pnlPercent >= 0" [class.change-down]="analyticsResult.pnlPercent < 0">
-              {{ analyticsResult.pnlPercent >= 0 ? '+' : '' }}{{ analyticsResult.pnlPercent.toFixed(1) }}%
-            </span>
-          </div>
-          <div class="analytics-stat">
-            <span class="analytics-stat__label">Win Rate</span>
-            <span class="analytics-stat__value mono">{{ analyticsResult.winRate.toFixed(1) }}%</span>
-          </div>
-          <div class="analytics-stat">
-            <span class="analytics-stat__label">Total Trades</span>
-            <span class="analytics-stat__value mono">{{ analyticsResult.totalTrades }}</span>
-          </div>
-          <div class="analytics-stat">
-            <span class="analytics-stat__label">Avg Hold Time</span>
-            <span class="analytics-stat__value mono">{{ analyticsResult.avgHoldTime }}</span>
-          </div>
-        </div>
-        <div class="analytics-trades">
-          <div class="analytics-trade">
-            <span class="analytics-trade__label">Best Trade</span>
-            <span class="analytics-trade__value change-up mono">{{ analyticsResult.bestTrade }}</span>
-          </div>
-          <div class="analytics-trade">
-            <span class="analytics-trade__label">Worst Trade</span>
-            <span class="analytics-trade__value change-down mono">{{ analyticsResult.worstTrade }}</span>
-          </div>
-        </div>
-        <div class="result-table" style="margin-top: 8px">
-          <div class="result-table__header result-table__header--4col">
-            <span>Token</span>
-            <span class="text-right">PnL</span>
-            <span class="text-right">Trades</span>
-            <span></span>
-          </div>
-          @for (t of analyticsResult.topTokens; track t.symbol) {
-            <div class="result-table__row result-table__row--4col">
-              <span class="token-symbol">{{ t.symbol }}</span>
-              <span class="text-right mono" [class.change-up]="t.pnl >= 0" [class.change-down]="t.pnl < 0">
-                {{ t.pnl >= 0 ? '+' : '' }}{{ formatUsd(t.pnl) }}
+            @if (analyticsResult.pnlPercent !== 0) {
+              <span class="pnl-card__hero-pct mono">
+                {{ analyticsResult.pnlPercent >= 0 ? '▲' : '▼' }}
+                {{ analyticsResult.pnlPercent >= 0 ? '+' : '' }}{{ analyticsResult.pnlPercent.toFixed(2) }}%
               </span>
-              <span class="text-right mono">{{ t.trades }}</span>
-              <span></span>
+            }
+          </div>
+
+          <div class="pnl-card__metrics">
+            @if (analyticsResult.winRate > 0) {
+              <div class="pnl-card__metric">
+                <span class="pnl-card__metric-label">Win rate</span>
+                <span class="pnl-card__metric-value mono">{{ analyticsResult.winRate.toFixed(1) }}%</span>
+              </div>
+            }
+            @if (analyticsResult.totalTrades > 0) {
+              <div class="pnl-card__metric">
+                <span class="pnl-card__metric-label">Trades</span>
+                <span class="pnl-card__metric-value mono">{{ analyticsResult.totalTrades }}</span>
+              </div>
+            }
+            @if (analyticsResult.bestTrade !== '—') {
+              <div class="pnl-card__metric">
+                <span class="pnl-card__metric-label">Best</span>
+                <span class="pnl-card__metric-value change-up mono">{{ analyticsResult.bestTrade }}</span>
+              </div>
+            }
+            @if (analyticsResult.worstTrade !== '—') {
+              <div class="pnl-card__metric">
+                <span class="pnl-card__metric-label">Worst</span>
+                <span class="pnl-card__metric-value change-down mono">{{ analyticsResult.worstTrade }}</span>
+              </div>
+            }
+          </div>
+
+          @if (analyticsResult.topTokens.length > 0) {
+            <div class="pnl-card__tokens">
+              <div class="pnl-card__tokens-header">
+                <span>Token</span>
+                <span class="text-right">PnL</span>
+                @if (hasTradeCounts(analyticsResult.topTokens)) { <span class="text-right">Trades</span> }
+              </div>
+              @for (t of analyticsResult.topTokens; track t.symbol) {
+                <div class="pnl-card__tokens-row" [class.pnl-card__tokens-row--with-trades]="hasTradeCounts(analyticsResult.topTokens)">
+                  <span class="pnl-card__tokens-symbol">{{ t.symbol }}</span>
+                  <span class="text-right mono" [class.change-up]="t.pnl >= 0" [class.change-down]="t.pnl < 0">
+                    {{ t.pnl >= 0 ? '+' : '' }}{{ formatUsd(t.pnl) }}
+                  </span>
+                  @if (hasTradeCounts(analyticsResult.topTokens)) {
+                    <span class="text-right mono pnl-card__tokens-trades">{{ t.trades }}</span>
+                  }
+                </div>
+              }
             </div>
           }
         </div>
@@ -1008,38 +1174,60 @@
             <span>No open perpetual positions on Jupiter</span>
           </div>
         } @else {
-          <div class="result-table">
-            <div class="result-table__header result-table__header--7col">
-              <span>Market</span>
-              <span>Side</span>
-              <span class="text-right">Size</span>
-              <span class="text-right">Entry</span>
-              <span class="text-right">Current</span>
-              <span class="text-right">PnL</span>
-              <span class="text-right"></span>
-            </div>
+          <div class="perp-pos-list">
             @for (pos of perpPositions; track pos.market + pos.side) {
-              <div class="result-table__row result-table__row--7col">
-                <span class="token-cell">
-                  <span class="token-symbol">{{ pos.market }}-PERP</span>
-                  <span class="token-name">{{ pos.leverage.toFixed(1) }}x lev · Liq: {{ formatPrice(pos.liquidationPrice) }}</span>
-                </span>
-                <span>
-                  <span class="type-badge" [class.change-up]="pos.side === 'long'" [class.change-down]="pos.side === 'short'">{{ pos.side }}</span>
-                </span>
-                <span class="text-right mono">{{ formatUsd(pos.sizeUsd) }}</span>
-                <span class="text-right mono">{{ formatPrice(pos.entryPrice) }}</span>
-                <span class="text-right mono">{{ formatPrice(pos.currentPrice) }}</span>
-                <span class="text-right mono"
-                      [class.change-up]="pos.unrealizedPnl >= 0"
-                      [class.change-down]="pos.unrealizedPnl < 0">
-                  {{ pos.unrealizedPnl >= 0 ? '+' : '' }}{{ formatUsd(pos.unrealizedPnl) }}
-                </span>
-                <span class="text-right">
-                  <button class="cancel-btn" (click)="onClosePerpPosition(pos.market, pos.side)" title="Close position">
-                    <lucide-icon name="x" [size]="11" />
-                  </button>
-                </span>
+              @let pnlUp = pos.unrealizedPnl >= 0;
+              <div class="perp-pos-row" [class.perp-pos-row--closed]="pos.closed">
+                <div class="perp-pos-row__head">
+                  @if (perpMarketLogo(pos.market); as logo) {
+                    <img class="perp-pos-row__logo" [src]="logo" [alt]="pos.market" loading="lazy" />
+                  } @else {
+                    <span class="perp-pos-row__logo perp-pos-row__logo--fallback">{{ pos.market.charAt(0) }}</span>
+                  }
+                  <div class="perp-pos-row__title">
+                    <span class="perp-pos-row__market">{{ pos.market }}-PERP</span>
+                    <span class="perp-pos-row__badges">
+                      <span class="perp-side-badge"
+                            [class.perp-side-badge--long]="pos.side === 'long'"
+                            [class.perp-side-badge--short]="pos.side === 'short'">{{ pos.side }}</span>
+                      <span class="perp-pos-row__lev mono">{{ pos.leverage.toFixed(1) }}x</span>
+                    </span>
+                  </div>
+                  <div class="perp-pos-row__pnl">
+                    <span class="perp-pos-row__pnl-num mono" [class.change-up]="pnlUp" [class.change-down]="!pnlUp">
+                      {{ pnlUp ? '+' : '' }}{{ formatUsd(pos.unrealizedPnl) }}
+                    </span>
+                    <span class="perp-pos-row__pnl-label">PnL</span>
+                  </div>
+                  @if (pos.closed) {
+                    <span class="perp-pos-row__closed-chip">
+                      <lucide-icon name="check" [size]="12" />
+                      Closed
+                    </span>
+                  } @else {
+                    <button class="perp-pos-row__close" (click)="onClosePerpPosition(pos.market, pos.side)" title="Close position">
+                      <lucide-icon name="x" [size]="14" />
+                    </button>
+                  }
+                </div>
+                <div class="perp-pos-row__stats">
+                  <div class="perp-stat">
+                    <span class="perp-stat__label">Size</span>
+                    <span class="perp-stat__val mono">{{ formatUsd(pos.sizeUsd) }}</span>
+                  </div>
+                  <div class="perp-stat">
+                    <span class="perp-stat__label">Entry</span>
+                    <span class="perp-stat__val mono">{{ formatPrice(pos.entryPrice) }}</span>
+                  </div>
+                  <div class="perp-stat">
+                    <span class="perp-stat__label">Current</span>
+                    <span class="perp-stat__val mono">{{ formatPrice(pos.currentPrice) }}</span>
+                  </div>
+                  <div class="perp-stat">
+                    <span class="perp-stat__label">Liq. Price</span>
+                    <span class="perp-stat__val perp-stat__val--liq mono">{{ formatPrice(pos.liquidationPrice) }}</span>
+                  </div>
+                </div>
               </div>
             }
           </div>

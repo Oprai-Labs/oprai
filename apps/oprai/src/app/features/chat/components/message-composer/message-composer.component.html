@@ -29,10 +29,10 @@
   />
 
   @if (chatLimitReached) {
-    <!-- Chat limit banner — replaces the input area -->
+    <!-- Limit banner — replaces the input area -->
     <div class="composer-limit-banner">
       <lucide-icon name="message-circle-off" [size]="16" class="limit-icon" />
-      <span>Conversation limit reached. Start a new chat to continue.</span>
+      <span>{{ limitBannerMessage }}</span>
     </div>
   } @else {
     <!-- Protocol picker dropdown -->
@@ -117,19 +117,15 @@
             </div>
           </div>
           <div class="plus-menu-divider"></div>
-          <button class="plus-menu-item" (click)="toggleWebResearch()">
+          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" title="Coming soon">
             <lucide-icon name="globe" [size]="16" />
             <span>Web Research</span>
-            @if (activeMode() === 'search') {
-              <lucide-icon class="plus-menu-check" name="check" [size]="14" />
-            }
+            <span class="plus-menu-soon">Soon</span>
           </button>
-          <button class="plus-menu-item" (click)="toggleThinking()">
+          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" title="Coming soon">
             <lucide-icon name="lightbulb" [size]="16" />
             <span>Thinking</span>
-            @if (activeMode() === 'thinking') {
-              <lucide-icon class="plus-menu-check" name="check" [size]="14" />
-            }
+            <span class="plus-menu-soon">Soon</span>
           </button>
         </div>
       }

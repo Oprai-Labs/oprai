@@ -7,11 +7,35 @@
     <h2 class="section-title">Wallet</h2>
   </div>
   <div class="section-actions">
+    @if (hiddenTokenCount > 0) {
+      <!-- Combined hidden chip — auto-flagged spam + user-hidden mints
+           (per-wallet, persisted to localStorage). Default ON; click to
+           reveal the union with per-row "Show" affordances. -->
+      <button
+        class="filter-btn"
+        (click)="toggleHideHidden()"
+        [title]="hideHidden() ? 'Show ' + hiddenTokenCount + ' hidden token(s)' : 'Hide them again'"
+      >
+        {{ hideHidden() ? hiddenTokenCount + ' hidden' : 'Hide hidden' }}
+      </button>
+    }
     @if (smallTokenCount > 0) {
       <button class="filter-btn" (click)="toggleHideSmall()">
         {{ hideSmall() ? 'Show all tokens' : 'Hide small balances' }}
       </button>
     }
+    <!-- Manage Accounts entrypoint — opens a modal listing every open SPL
+         token account (empty + non-empty) so the user can close empties or
+         burn dust to reclaim rent. The modal lives at the shell level so
+         the rest of the token list stays purely informational. -->
+    <button
+      class="filter-btn filter-btn--manage"
+      (click)="openAccountsManager.emit()"
+      title="Manage token accounts and reclaim rent"
+    >
+      <lucide-icon name="settings-2" [size]="12" />
+      Manage accounts
+    </button>
     <span class="section-value">{{ walletTotal | currency:'USD':'symbol':'1.2-2' }}</span>
   </div>
 </div>
@@ -32,9 +56,11 @@
         <th class="col-alloc sortable" (click)="toggleSort('allocation')">
           %{{ getSortIcon('allocation') }}
         </th>
+        <th class="col-pnl">PnL (all time)</th>
         <th class="col-value sortable" (click)="toggleSort('value')">
           USD Value{{ getSortIcon('value') }}
         </th>
+        <th class="col-actions" aria-label="Row actions"></th>
       </tr>
     </thead>
     <tbody>
@@ -82,6 +108,19 @@
             <span class="no-data">--</span>
           }
         </td>
+        <!-- SOL all-time PnL — populated once the chat-service has walked
+             this wallet's Helius history. Renders "—" before backfill
+             completes; never shows a misleading "+$0.00" without cost. -->
+        <td class="col-pnl">
+          @if (solBalance.pnlAllTimeUsd != null && solBalance.pnlAllTimePct != null) {
+            <div class="pnl-cell" [class.pnl-positive]="solBalance.pnlAllTimeUsd > 0" [class.pnl-negative]="solBalance.pnlAllTimeUsd < 0">
+              <span class="pnl-amount">{{ solBalance.pnlAllTimeUsd > 0 ? '+' : '' }}{{ solBalance.pnlAllTimeUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+              <span class="pnl-pct">{{ solBalance.pnlAllTimePct > 0 ? '+' : '' }}{{ solBalance.pnlAllTimePct | number:'1.1-2' }}%</span>
+            </div>
+          } @else {
+            <span class="no-data">--</span>
+          }
+        </td>
         <td class="col-value">
           @if (solBalance.usdValue !== null) {
             {{ solBalance.usdValue | currency:'USD':'symbol':'1.2-2' }}
@@ -89,11 +128,13 @@
             <span class="no-data">--</span>
           }
         </td>
+        <!-- SOL is never hideable — wallet's native asset. -->
+        <td class="col-actions"></td>
       </tr>
 
       <!-- SPL Token rows -->
       @for (token of visibleTokens; track token.mint) {
-        <tr class="token-row">
+        <tr class="token-row" [class.token-row--hidden]="isHidden(token)">
           <td class="col-token">
             <div class="token-cell">
               <div class="token-logo">
@@ -111,8 +152,31 @@
                 </div>
               </div>
               <div class="token-info">
-                <span class="token-name">{{ token.name || token.symbol }}</span>
-                <span class="token-symbol">{{ token.symbol }}</span>
+                <div class="token-name-row">
+                  <span class="token-name">{{ token.name || token.symbol }}</span>
+                  @if (token.apy != null) {
+                    <!-- Own-yield badge for LSTs ("5.66%"). Pulled live from
+                         DefiLlama via LiveYieldsService; falls back to the
+                         static defaultApy in LST_REGISTRY when the project
+                         isn't in the API response. -->
+                    <span class="apy-badge" [title]="token.symbol + ' yields ' + token.apy + '% APY'">
+                      {{ token.apy | number:'1.2-2' }}%
+                    </span>
+                  }
+                </div>
+                <button
+                  class="token-symbol token-symbol--copyable"
+                  type="button"
+                  (click)="copyMint(token.mint, $event)"
+                  [title]="'Copy contract: ' + token.mint"
+                >
+                  {{ token.symbol }}
+                  @if (copiedMint() === token.mint) {
+                    <span class="copy-badge">Copied!</span>
+                  } @else {
+                    <lucide-icon class="copy-icon" name="copy" [size]="11" />
+                  }
+                </button>
               </div>
             </div>
           </td>
@@ -140,12 +204,40 @@
               <span class="no-data">--</span>
             }
           </td>
+          <td class="col-pnl">
+            @if (token.pnlAllTimeUsd != null && token.pnlAllTimePct != null) {
+              <div class="pnl-cell" [class.pnl-positive]="token.pnlAllTimeUsd > 0" [class.pnl-negative]="token.pnlAllTimeUsd < 0">
+                <span class="pnl-amount">{{ token.pnlAllTimeUsd > 0 ? '+' : '' }}{{ token.pnlAllTimeUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+                <span class="pnl-pct">{{ token.pnlAllTimePct > 0 ? '+' : '' }}{{ token.pnlAllTimePct | number:'1.1-2' }}%</span>
+              </div>
+            } @else {
+              <span class="no-data">--</span>
+            }
+          </td>
           <td class="col-value">
             @if (token.usdValue !== null) {
               {{ token.usdValue | currency:'USD':'symbol':'1.2-2' }}
             } @else {
               <span class="no-data">--</span>
             }
+          </td>
+          <td class="col-actions">
+            <!-- Per-row hide / show toggle. The icon swaps based on
+                 current state: eye-off for visible (hide), eye for
+                 hidden (reveal). Hover-only opacity in CSS keeps the
+                 row clean on large lists. -->
+            <button
+              class="row-action-btn"
+              type="button"
+              (click)="toggleRowHide(token, $event)"
+              [title]="rowActionLabel(token)"
+              [attr.aria-label]="rowActionLabel(token)"
+            >
+              <lucide-icon
+                [name]="isHidden(token) ? 'eye' : 'eye-off'"
+                [size]="14"
+              />
+            </button>
           </td>
         </tr>
       }

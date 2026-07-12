@@ -11,6 +11,10 @@ import { LucideAngularModule } from 'lucide-angular';
 import { ParsedClarify, ClarifyOption } from '../../services/intent-parser.service';
 import { ParsedAction } from '../../services/intent-parser.service';
 import { ProtocolRegistryService, ProtocolInfo } from '@core/services/protocol-registry.service';
+import { TokenRegistryService } from '@core/services/market/token-registry.service';
+
+/** A token's display bits for an option icon (null logo → lettered fallback). */
+interface OptionToken { symbol: string; logoURI: string | null; }
 
 @Component({
   selector: 'app-clarify-card',
@@ -32,6 +36,7 @@ export class ClarifyCardComponent {
   @Input() selectedIndex: number | null = null;
 
   private readonly protocolRegistry = inject(ProtocolRegistryService);
+  private readonly tokenRegistry = inject(TokenRegistryService);
 
   /** Emit which option the user clicked, plus the parsed action to execute. */
   @Output() optionSelected = new EventEmitter<{ index: number; action: ParsedAction }>();
@@ -41,7 +46,7 @@ export class ClarifyCardComponent {
     lend: 'banknote',
     borrow: 'credit-card',
     liquidity: 'droplets',
-    swap: 'arrow-left-right',
+    swap: 'arrow-right-left',
     perp: 'trending-up',
     nft: 'image',
     bridge: 'globe',
@@ -99,6 +104,81 @@ export class ClarifyCardComponent {
    */
   hasProtocolInfo(option: ClarifyOption): boolean {
     return !!this.getProtocolInfo(option);
+  }
+
+  /**
+   * Token-pair icons for options that describe a route (e.g. "JupSOL → USDC").
+   * Resolves the from/to tokens from the option params first (inputMint /
+   * outputMint / token, by address or symbol), then falls back to parsing the
+   * "FROM → TO" arrow out of the label. Returns null when neither side
+   * resolves, so the template falls back to the generic category glyph.
+   */
+  optionTokens(option: ClarifyOption): { from: OptionToken | null; to: OptionToken | null } | null {
+    const p = option.params ?? {};
+    let from = this.resolveToken(p['inputMint'] ?? p['inputToken'] ?? p['fromToken'] ?? p['from']);
+    let to = this.resolveToken(p['outputMint'] ?? p['outputToken'] ?? p['toToken'] ?? p['to'] ?? p['token']);
+    if (!from || !to) {
+      const m = option.label.match(/([A-Za-z0-9$]{2,12})\s*(?:→|->|➜|=>|➔|➙|➛)\s*([A-Za-z0-9$]{2,12})/);
+      if (m) {
+        from ??= this.resolveToken(m[1]);
+        to ??= this.resolveToken(m[2]);
+      }
+    }
+    if (!from && !to) return null;
+    return { from, to };
+  }
+
+  hasTokenPair(option: ClarifyOption): boolean {
+    return !!this.optionTokens(option);
+  }
+
+  /**
+   * Card-level: are the options distinguished by PROTOCOL or by TOKEN? When
+   * every option is the same protocol but a different token (e.g. "USDC vs SOL
+   * deposit on Kamino"), repeating the protocol logo on every row is noise —
+   * the TOKEN is what the user is choosing, so show token icons instead.
+   */
+  distinguishBy(): 'protocol' | 'token' {
+    const opts = this.clarify.options ?? [];
+    const protocols = new Set(
+      opts.map(o => (o.action.includes('_') ? o.action.split('_')[0] : o.action)),
+    );
+    if (protocols.size > 1) return 'protocol';
+    const tokens = new Set(
+      opts.map(o => this.optionSingleToken(o)?.symbol).filter(Boolean),
+    );
+    return tokens.size > 1 ? 'token' : 'protocol';
+  }
+
+  /** The single distinguishing token for an option (the `to`/deposited token). */
+  optionSingleToken(option: ClarifyOption): OptionToken | null {
+    const t = this.optionTokens(option);
+    return t ? (t.to ?? t.from) : null;
+  }
+
+  /**
+   * The one protocol shared by EVERY option — used to brand the card header
+   * with the real protocol logo (e.g. Kamino) instead of a generic glyph.
+   * Null when options span multiple protocols (then the per-row logos carry it).
+   */
+  cardProtocol(): ProtocolInfo | null {
+    const opts = this.clarify.options ?? [];
+    if (!opts.length) return null;
+    const infos = opts.map(o => this.getProtocolInfo(o));
+    const first = infos[0];
+    if (!first) return null;
+    return infos.every(i => i?.id === first.id) ? first : null;
+  }
+
+  /** Resolve an address or symbol to display bits; null if unknown/empty. */
+  private resolveToken(idOrSymbol?: string): OptionToken | null {
+    const raw = (idOrSymbol ?? '').trim().replace(/^\$/, '');
+    if (!raw) return null;
+    const meta = raw.length >= 32
+      ? this.tokenRegistry.getToken(raw)
+      : this.tokenRegistry.getBySymbol(raw);
+    if (!meta) return null;
+    return { symbol: meta.symbol, logoURI: meta.logoURI ?? null };
   }
 
   select(option: ClarifyOption, index: number): void {

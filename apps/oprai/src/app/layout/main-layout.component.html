@@ -64,34 +64,25 @@
               <lucide-icon name="square-pen" [size]="16" />
               <span class="sidebar-label">New chat</span>
             </button>
-            <a class="sidebar-item" routerLink="/agents" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Projects">
+            <span class="sidebar-item sidebar-item--soon" data-tooltip="Projects — Coming Soon">
               <lucide-icon name="folder" [size]="16" />
               <span class="sidebar-label">Projects</span>
-            </a>
-            <a class="sidebar-item" routerLink="/voice" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Voice">
+              <span class="soon-badge">Soon</span>
+            </span>
+            <span class="sidebar-item sidebar-item--soon" data-tooltip="Voice — Coming Soon">
               <lucide-icon name="audio-lines" [size]="16" />
               <span class="sidebar-label">Voice</span>
-            </a>
+              <span class="soon-badge">Soon</span>
+            </span>
             <a class="sidebar-item" routerLink="/portfolio" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Portfolio">
               <lucide-icon name="portfolio" [size]="16" />
               <span class="sidebar-label">Portfolio</span>
             </a>
-            <a class="sidebar-item" routerLink="/agents" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Agents">
+            <span class="sidebar-item sidebar-item--soon" data-tooltip="Agents — Coming Soon">
               <lucide-icon name="tesseract" [size]="16" />
               <span class="sidebar-label">Agents</span>
-            </a>
-            <a class="sidebar-item" routerLink="/burn" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Token Manager">
-              <lucide-icon name="flame" [size]="16" />
-              <span class="sidebar-label">Token Manager</span>
-            </a>
-            <a class="sidebar-item" routerLink="/stake" [routerLinkActiveOptions]="{exact:true}" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Native Staking">
-              <lucide-icon name="layers" [size]="16" />
-              <span class="sidebar-label">Staking</span>
-            </a>
-            <a class="sidebar-item" routerLink="/stake/liquid" routerLinkActive="sidebar-item--active" (click)="onNavClick()" data-tooltip="Liquid Staking">
-              <lucide-icon name="droplets" [size]="16" />
-              <span class="sidebar-label">Liquid Stake</span>
-            </a>
+              <span class="soon-badge">Soon</span>
+            </span>
           </div>
         }
       </div>
@@ -545,12 +536,12 @@
     </div>
     <div class="profile-menu-divider"></div>
     <!-- Settings -->
-    <button class="profile-menu-item" (click)="openSettings('account')">
+    <button class="profile-menu-item" (click)="navigateFromMenu('/settings')">
       <lucide-icon name="settings" [size]="18" />
       <span>Settings</span>
     </button>
     <!-- Language -->
-    <button class="profile-menu-item" (click)="openSettings('account')">
+    <button class="profile-menu-item" (click)="navigateFromMenu('/settings')">
       <lucide-icon name="globe" [size]="18" />
       <span>Language</span>
     </button>
@@ -619,6 +610,10 @@
           <button class="settings-nav-item" [class.active]="activeSettingsTab() === 'data'" (click)="setSettingsTab('data')">
             <lucide-icon name="database" [size]="16" />
             <span>Data Controls</span>
+          </button>
+          <button class="settings-nav-item" [class.active]="activeSettingsTab() === 'memory'" (click)="setSettingsTab('memory')">
+            <lucide-icon name="brain" [size]="16" />
+            <span>Memory</span>
           </button>
         </nav>
 
@@ -829,6 +824,34 @@
                   <span class="toggle-slider"></span>
                 </label>
               </div>
+            </div>
+          }
+
+          <!-- Memory Tab -->
+          @if (activeSettingsTab() === 'memory') {
+            <div class="settings-section animate-fade-in">
+              <h3 class="settings-section-title">Saved Memories</h3>
+              <p class="settings-section-hint">OPRAI remembers your preferences across conversations. You can delete any memory here.</p>
+
+              @if (memoriesLoading()) {
+                <div class="memory-loading">Loading…</div>
+              } @else if (memories().length === 0) {
+                <div class="memory-empty">No memories saved yet.</div>
+              } @else {
+                <div class="memory-list">
+                  @for (mem of memories(); track mem.fact_type) {
+                    <div class="memory-row">
+                      <div class="memory-info">
+                        <span class="memory-type">{{ mem.fact_type.replace('_', ' ') }}</span>
+                        <span class="memory-value">{{ formatFactValue(mem.fact_value) }}</span>
+                      </div>
+                      <button class="btn-sm btn-ghost memory-delete" (click)="deleteMemory(mem.fact_type)" aria-label="Delete memory">
+                        <lucide-icon name="trash-2" [size]="14" />
+                      </button>
+                    </div>
+                  }
+                </div>
+              }
             </div>
           }
 

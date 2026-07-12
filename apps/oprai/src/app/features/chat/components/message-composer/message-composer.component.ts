@@ -28,6 +28,13 @@ export interface SendEvent {
   protocols: string[];
 }
 
+export interface CapInfo {
+  unit: 'messages' | 'tokens';
+  used: number;
+  cap: number;
+  resetsAt: string;
+}
+
 @Component({
   selector: 'app-message-composer',
   standalone: true,
@@ -38,8 +45,41 @@ export interface SendEvent {
 export class MessageComposerComponent implements AfterViewInit {
   @Input() disabled = false;
   @Input() chatLimitReached = false;
+  @Input() capInfo: CapInfo | null = null;
   @Output() send = new EventEmitter<SendEvent>();
   @Output() filesAttached = new EventEmitter<UploadResult[]>();
+
+  /**
+   * Human-friendly banner copy for the limit-reached state.
+   * - When a per-wallet daily cap is hit, render the unit, the used/cap
+   *   fraction, and a relative reset time ("resets in 4h 12m").
+   * - When the conversation-level chat_limit is hit (no capInfo payload),
+   *   fall back to the generic "start a new chat" wording.
+   */
+  get limitBannerMessage(): string {
+    if (!this.capInfo) {
+      return 'Conversation limit reached. Start a new chat to continue.';
+    }
+    const { unit, used, cap, resetsAt } = this.capInfo;
+    const noun = unit === 'tokens' ? 'token' : 'message';
+    const usedFmt = used.toLocaleString('en-US');
+    const capFmt  = cap.toLocaleString('en-US');
+    return `Daily ${noun} limit reached (${usedFmt} of ${capFmt}). Resets in ${this.formatResetIn(resetsAt)}.`;
+  }
+
+  /** Short relative duration like "4h 12m", "47m", "12s". */
+  private formatResetIn(resetsAtIso: string): string {
+    const now    = Date.now();
+    const target = Date.parse(resetsAtIso);
+    if (!Number.isFinite(target) || target <= now) return 'a moment';
+    const totalSec = Math.max(1, Math.round((target - now) / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    if (m > 0) return s > 30 ? `${m + 1}m` : `${m}m`;
+    return `${s}s`;
+  }
 
   @ViewChild('textareaRef') textareaRef!: ElementRef<HTMLTextAreaElement>;
   @ViewChild('fileInput') fileInputRef!: ElementRef<HTMLInputElement>;

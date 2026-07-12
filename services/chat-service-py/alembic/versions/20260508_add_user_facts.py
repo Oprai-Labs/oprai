@@ -35,9 +35,13 @@ def upgrade() -> None:
             updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT user_facts_wallet_type_uniq UNIQUE (wallet, fact_type),
             CONSTRAINT user_facts_confidence_range CHECK (confidence BETWEEN 0.0 AND 1.0)
-        );
+        )
+        """
+    )
+    op.execute(
+        """
         CREATE INDEX IF NOT EXISTS user_facts_wallet_idx
-            ON chat_schema.user_facts (wallet, updated_at DESC);
+            ON chat_schema.user_facts (wallet, updated_at DESC)
         """
     )
 

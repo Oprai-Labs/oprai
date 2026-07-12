@@ -9,6 +9,9 @@ export interface StoredActionResult {
   errorMessage: string | null;
   /** Params that were actually used when the action was executed (may differ from original LLM params if user edited them). */
   executedParams?: Record<string, string>;
+  /** Frozen "You pay / You receive" amounts for a swap, captured at submit so a
+   *  re-hydrated card shows exactly what was swapped (not a live/blank quote). */
+  swapView?: { pay: string; receive: string };
 }
 
 export interface QuerySnapshot {
@@ -90,6 +93,13 @@ export interface ChatSessionResponse {
   pinned?: boolean;
   createdAt: string;
   updatedAt?: string;
+  // Per-chat usage + lock state. Populated by /sessions/{id} and
+  // /sessions list responses so the composer can render the locked
+  // state across reloads.
+  messageCount?: number;
+  totalTokens?: number;
+  isLocked?: boolean;
+  lockedReason?: string | null;
 }
 
 export interface PaginatedSessionsResponse {
@@ -140,15 +150,31 @@ export class ChatApiService {
 
   /**
    * Get messages for a session.
-   * Backend returns { messages: [...] } with speaker/timestamp fields —
-   * unwrap and map to role/createdAt.
+   * Backend returns { messages: [...], session: {isLocked, …} }. We surface
+   * both so chat-shell can render the locked composer on reload.
    */
-  getMessages(sessionId: string): Observable<ChatMessage[]> {
+  getMessages(sessionId: string): Observable<{
+    messages: ChatMessage[];
+    session: {
+      isLocked: boolean;
+      lockedReason: string | null;
+      messageCount: number;
+      totalTokens: number;
+    };
+  }> {
     return this.api
-      .get<{ messages: RawChatMessage[] }>(`/chat/sessions/${sessionId}/messages`)
+      .get<{
+        messages: RawChatMessage[];
+        session?: {
+          isLocked?: boolean;
+          lockedReason?: string | null;
+          messageCount?: number;
+          totalTokens?: number;
+        };
+      }>(`/chat/sessions/${sessionId}/messages`)
       .pipe(
-        map((resp) =>
-          resp.messages.map((m): ChatMessage => ({
+        map((resp) => ({
+          messages: resp.messages.map((m): ChatMessage => ({
             id: m.id,
             sessionId,
             role: m.speaker ?? m.role ?? 'user',
@@ -158,8 +184,14 @@ export class ChatApiService {
             thinkingDurationMs: m.thinkingDurationMs,
             metadata: m.metadata ?? undefined,
             isError: m.isError,
-          }))
-        )
+          })),
+          session: {
+            isLocked:     !!resp.session?.isLocked,
+            lockedReason: resp.session?.lockedReason ?? null,
+            messageCount: resp.session?.messageCount ?? 0,
+            totalTokens:  resp.session?.totalTokens ?? 0,
+          },
+        })),
       );
   }
 

@@ -17,8 +17,10 @@ logger = logging.getLogger(__name__)
 # Protocol → prompt files that must be included (in addition to _always files).
 # Files are merged in PROMPT_FILES order so context stays coherent.
 PROTOCOL_FILE_MAP: dict[str, list[str]] = {
-    # DEX / Swap
-    "jupiter":      ["solana_action_core.txt", "solana_action_dex.txt", "solana_action_market_data.txt"],
+    # DEX / Swap / Lend — Jupiter is also a lending protocol (Jupiter Lend:
+    # Earn + Borrow), so the lending fragment must load or "jupiter lend" has no
+    # action grammar and the model falls back to a balance query.
+    "jupiter":      ["solana_action_core.txt", "solana_action_dex.txt", "solana_action_lending.txt", "solana_action_market_data.txt"],
     "raydium":      ["solana_action_core.txt", "solana_action_dex.txt"],
     "orca":         ["solana_action_core.txt", "solana_action_dex.txt"],
     "meteora":      ["solana_action_core.txt", "solana_action_dex.txt"],
@@ -31,23 +33,49 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     "kamino":       ["solana_action_queries.txt", "solana_action_lending.txt"],
     "marginfi":     ["solana_action_queries.txt", "solana_action_lending.txt"],
     "solend":       ["solana_action_queries.txt", "solana_action_lending.txt"],
-    # NFT / Token launches
-    "tensor":       ["solana_action_nft.txt"],
-    "magic_eden":   ["solana_action_nft.txt"],
-    "pumpfun":      ["solana_action_nft.txt"],
+    # NFT marketplaces — Magic Eden read + trading; Tensor trading-routing.
+    # market_data.txt carries the NFT composite (deep-dive) analysis.
+    "tensor":       ["solana_action_nft.txt", "solana_action_market_data.txt"],
+    "magic_eden":   ["solana_action_nft.txt", "solana_action_market_data.txt"],
+    # pump.fun is its OWN fragment (not NFT). market_data.txt is included so
+    # token_deep_analysis + all the analytics playbook load for pump tokens —
+    # the most analysis/rug-heavy use case.
+    "pumpfun":      ["solana_action_pumpfun.txt", "solana_action_market_data.txt"],
     # Cross-chain bridges
     "relay":        ["solana_action_crosschain.txt"],
     "debridge":     ["solana_action_crosschain.txt"],
     "squid":        ["solana_action_crosschain.txt"],
     # Token streaming / vesting
     "streamflow":   ["solana_action_streamflow.txt"],
+    # Market data / analytics — open-ended wallet/token/NFT analysis intents
+    "market_data":     ["solana_action_market_data.txt"],
+    "birdeye":         ["solana_action_market_data.txt"],
+    "helius":          ["solana_action_market_data.txt"],
+    "dexscreener":     ["solana_action_market_data.txt"],
+    "wallet":          ["solana_action_market_data.txt"],
+    "wallet_analysis": ["solana_action_market_data.txt"],
+    "portfolio":       ["solana_action_market_data.txt"],
+    "token_analysis":  ["solana_action_market_data.txt"],
+    "nft_analysis":    ["solana_action_nft.txt", "solana_action_market_data.txt"],
+    "analytics":       ["solana_action_market_data.txt"],
+    "analysis":        ["solana_action_market_data.txt"],
 }
 
-# Always loaded — personality, formatting, base action grammar
+# Always loaded — personality, formatting, base action grammar.
+# `solana_action_market_data.txt` is intentionally NOT here: it ships the
+# heavy Nansen-style composite templates which would inflate the prompt
+# for every trivial query. It is wired into PROTOCOL_FILE_MAP under all
+# analytical-intent keys (wallet, wallet_analysis, portfolio, token_analysis,
+# market_data, birdeye, helius, dexscreener, analytics, analysis,
+# nft_analysis) so it loads only when an analytical request is detected,
+# AND it sits in _FALLBACK_FILES so unrecognised intents that still ask
+# for analysis are covered.
 _ALWAYS_FILES = ["solana_action_base.txt"]
 
-# Fallback when an unknown protocol is selected
-_FALLBACK_FILES = ["solana_action_core.txt", "solana_action_queries.txt"]
+# Fallback when an unknown protocol is selected. Includes market_data so
+# unmapped analytical questions ("just analyze this wallet for me") still
+# reach the composite templates.
+_FALLBACK_FILES = ["solana_action_core.txt", "solana_action_queries.txt", "solana_action_market_data.txt"]
 
 
 class PromptLoader:
@@ -71,6 +99,7 @@ class PromptLoader:
         "solana_action_lending.txt",
         "solana_action_staking.txt",
         "solana_action_nft.txt",
+        "solana_action_pumpfun.txt",
         "solana_action_crosschain.txt",
         "solana_action_streamflow.txt",
         "solana_action_market_data.txt",
@@ -151,28 +180,63 @@ class PromptLoader:
         self._check_reload()
         return self._full_prompt
 
-    def get_prompt_for_protocols(self, protocols: list[str]) -> str:
-        """
-        Return a minimal prompt containing only the sections needed for the
-        given protocol list.  Always includes the base personality file.
+    def get_prompt_for_protocols(
+        self,
+        protocols: list[str],
+        intent: str | None = None,
+        is_chitchat: bool = False,
+    ) -> str:
+        """Return the smallest viable system prompt for this turn.
 
-        If protocols is empty, returns the full prompt.
+        The previous behaviour ("protocols=[] → return the FULL 252KB
+        prompt") was the single largest source of wasted tokens: a "selam"
+        with no protocols loaded all 12 prompt files (~63K tokens) even
+        though the model needed maybe 500 tokens of identity + tone.
+
+        New rules (cheapest to richest):
+          • is_chitchat=True            → base file only (~7K tokens)
+          • protocols=[] and advice/    → base file only (~7K tokens)
+            ambiguous intent
+          • protocols=[] and query      → base + queries + market_data
+                                          (analytical fallback)
+          • protocols=[<list>]          → base + protocol-specific files
         """
         self._check_reload()
+
+        # 1. Chitchat — only the base personality. We deliberately drop
+        # the action grammar files because the model is just saying hi.
+        if is_chitchat:
+            base = self._file_cache.get("solana_action_base.txt", "")
+            return base
+
+        # 2. No explicit protocol — branch by intent.
         if not protocols:
-            return self._full_prompt
-
-        files_needed: set[str] = set(_ALWAYS_FILES)
-
-        for proto in protocols:
-            key = proto.lower().replace("-", "_").replace(" ", "_")
-            mapped = PROTOCOL_FILE_MAP.get(key)
-            if mapped:
-                files_needed.update(mapped)
+            files_needed: set[str] = set(_ALWAYS_FILES)
+            if intent in (None, "advice", "ambiguous", "action"):
+                # Light path: base only. The model still has function
+                # calling (execute_action / query_onchain / clarify) at
+                # the API level — it doesn't need 50KB of usage docs to
+                # answer "what is staking" or to issue a tool call.
+                pass
+            elif intent == "query":
+                # Live-data question without a named protocol: load the
+                # query + market_data files so the model knows which
+                # tools to dispatch.
+                files_needed.update({"solana_action_queries.txt", "solana_action_market_data.txt"})
             else:
-                # Unknown protocol — include core + queries as safe fallback
                 files_needed.update(_FALLBACK_FILES)
-                logger.debug("Unknown protocol '%s', using fallback files", proto)
+        else:
+            # 3. Explicit protocol list — load only those files.
+            files_needed = set(_ALWAYS_FILES)
+            for proto in protocols:
+                key = proto.lower().replace("-", "_").replace(" ", "_")
+                mapped = PROTOCOL_FILE_MAP.get(key)
+                if mapped:
+                    files_needed.update(mapped)
+                else:
+                    # Unknown protocol — include core + queries as safe fallback
+                    files_needed.update(_FALLBACK_FILES)
+                    logger.debug("Unknown protocol '%s', using fallback files", proto)
 
         # Build in canonical order
         parts = [
@@ -182,8 +246,8 @@ class PromptLoader:
         ]
         prompt = "\n\n".join(parts)
         logger.debug(
-            "Protocol prompt built: protocols=%s files=%s size=%.1f KB",
-            protocols,
+            "Protocol prompt built: protocols=%s intent=%s chitchat=%s files=%s size=%.1f KB",
+            protocols, intent, is_chitchat,
             [f for f in self.PROMPT_FILES if f in files_needed],
             len(prompt) / 1024,
         )

@@ -17,6 +17,12 @@ def _serialize(s: ChatSession) -> dict:
         "pinned": s.pinned,
         "createdAt": s.created_at.isoformat(),
         "updatedAt": s.updated_at.isoformat(),
+        # Per-chat usage — surfaced so the frontend can render the locked
+        # composer state and a "X / Y tokens used" badge in the sidebar.
+        "messageCount": s.message_count,
+        "totalTokens":  int(s.total_tokens or 0),
+        "isLocked":     bool(s.is_locked),
+        "lockedReason": s.locked_reason,
     }
 
 
@@ -157,3 +163,22 @@ async def delete_session(
     )
     result = await db.execute(stmt)
     return (result.rowcount or 0) > 0
+
+
+async def delete_all_sessions(db: AsyncSession, wallet: str) -> int:
+    """Soft-delete every session belonging to a wallet. Returns the row count.
+
+    Used by the Settings → Privacy "delete chat history" action. Soft-delete
+    keeps the rows for audit / recovery; a follow-up cron can purge.
+    """
+    now = datetime.now(timezone.utc)
+    stmt = (
+        update(ChatSession)
+        .where(
+            ChatSession.wallet_address == wallet,
+            ChatSession.is_deleted == False,  # noqa: E712
+        )
+        .values(is_deleted=True, deleted_at=now)
+    )
+    result = await db.execute(stmt)
+    return result.rowcount or 0

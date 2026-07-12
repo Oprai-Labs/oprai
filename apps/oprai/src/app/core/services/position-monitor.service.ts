@@ -148,18 +148,25 @@ export class PositionMonitorService implements OnDestroy {
     this._summary$.next({ ...this._summary$.value, polling: true });
 
     try {
-      // Query all protocols in parallel
-      const [kaminoPositions, marginfiPositions, solendPositions] =
-        await Promise.allSettled([
-          this.fetchKamino(walletAddress),
-          this.fetchMarginfi(walletAddress),
-          this.fetchSolend(walletAddress),
-        ]);
+      // Query all protocols in parallel.
+      //
+      // Marginfi + Solend are gated off until their backend reads land:
+      //   - `/api/solana/marginfi/accounts` has no handler in the Rust
+      //     solana-service, so every poll returned 404.
+      //   - SolendService hits `api.solend.fi/v1/...` directly from the
+      //     browser — Solend Labs took the public API offline; same 404.
+      // Both errors were silenced at the service layer (try/catch → []) so
+      // the monitor "worked" but the 60s poll spammed the browser console
+      // with two 404s every minute. Re-enable each line when its read path
+      // is implemented (on-chain account scan in solana-service-rs).
+      const [kaminoPositions] = await Promise.allSettled([
+        this.fetchKamino(walletAddress),
+        // this.fetchMarginfi(walletAddress),
+        // this.fetchSolend(walletAddress),
+      ]);
 
       const positions: MonitoredPosition[] = [
         ...(kaminoPositions.status === 'fulfilled' ? kaminoPositions.value : []),
-        ...(marginfiPositions.status === 'fulfilled' ? marginfiPositions.value : []),
-        ...(solendPositions.status === 'fulfilled' ? solendPositions.value : []),
       ];
 
       // Detect risk level changes and send alerts

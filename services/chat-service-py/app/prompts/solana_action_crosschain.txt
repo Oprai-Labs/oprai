@@ -117,7 +117,7 @@ Use when user asks "which chains does Relay support?", "can I bridge to X chain?
 - "Can I bridge to zkSync with Relay?"
   → query_onchain("relay_get_chains", {})
 
-- "Show me Relay chain info for Solana, Ethereum, and Base"
+- "Show me Relay support info for Solana, Ethereum, and Base"
   → query_onchain("relay_get_chains", {"includeChains": "900,1,8453"})
 
 - "What are the fees and status for Arbitrum on Relay?"
@@ -614,3 +614,13 @@ Examples:
 8. **relay_single_transaction vs relay_index_transaction**: Use `relay_single_transaction` when user provides BOTH a requestId AND a tx hash for a known Relay request. Use `relay_index_transaction` for general deposit indexing where requestId is optional or not provided.
 
 9. **Squid post-hook**: Use `squid_bridge` when user mentions "postHook", "post-hook", "auto-stake after bridge", "destination call", or explicitly says "Squid" with a follow-on action. Set the `postHook` parameter.
+
+10. **Receiving [TOKEN] on a non-Solana [CHAIN] is a SINGLE relay_bridge call**: When the user asks to end up holding a token on a destination chain (paying from their Solana wallet), this is ONE `relay_bridge` action, not a multi-step route. Map: `originChainId=900`, `destinationChainId` = the named chain, `originCurrency` = the user's input token, `destinationCurrency` = the named token on the destination chain, `tradeType=EXACT_INPUT`. Worked example for "buy 0.1 ETH on Base with SOL":
+    → `execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "8453", "originCurrency": "So11111111111111111111111111111111111111112", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.1", "tradeType": "EXACT_INPUT"})`
+    Do NOT propose any two-step path. Do NOT call `request_clarification` when origin chain, destination chain, both tokens, and amount are all derivable from the message.
+
+11. **NEVER tell the user "your wallet isn't on chain X"**: Relay supports cross-chain swaps initiated from a Solana wallet to any supported EVM destination. The user does NOT need to "first bridge to chain Y" before they can receive a token there. A single `relay_bridge` call handles the entire path atomically.
+
+12. **Chain + token co-occurrence disambiguates**: When a chain name and a token name appear together in the destination phrase, set `destinationChainId` to the chain and `destinationCurrency` to the token on that chain. A token name that is also a chain name (e.g. "ethereum") refers to the token, not a second destination chain, when another chain is already named in the same phrase.
+
+13. **Naming**: In user-facing prose, refer to the protocol as "Relay" (or "Relay.link"). Never call it a "Relay chain" — Relay is a bridge protocol, not a chain. The destination chains (Solana, Base, Ethereum, Arbitrum, …) are chains; Relay is the bridge that connects them.

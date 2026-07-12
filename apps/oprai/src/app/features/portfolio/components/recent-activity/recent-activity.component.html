@@ -124,7 +124,7 @@
           <thead>
             <tr>
               <th class="col-sig">Signature</th>
-              <th class="col-time">Time</th>
+              <th class="col-time">Date</th>
               <th class="col-action">Action</th>
               <th class="col-from">From</th>
               <th class="col-to">To</th>
@@ -149,10 +149,13 @@
                   </a>
                 </td>
 
-                <!-- Time -->
+                <!-- Date (absolute + relative) -->
                 <td class="col-time">
                   @if (tx.blockTime !== null) {
-                    {{ toIsoString(tx.blockTime) | timeAgo }}
+                    <div class="time-cell">
+                      <span class="time-abs">{{ getDateAbsolute(tx.blockTime) }}</span>
+                      <span class="time-ago">{{ toIsoString(tx.blockTime) | timeAgo }}</span>
+                    </div>
                   } @else {
                     <span class="no-data">--</span>
                   }
@@ -205,46 +208,69 @@
                   }
                 </td>
 
-                <!-- Amount -->
-                <td class="col-amount">
-                  <span
-                    class="amount-value"
-                    [class.amount-positive]="isAmountPositive(tx)"
-                    [class.amount-negative]="!isAmountPositive(tx) && getAmountDisplay(tx) !== '--'"
-                  >
-                    {{ getAmountDisplay(tx) }}
-                  </span>
-                </td>
-
-                <!-- Value (USD) -->
-                <td class="col-value">
-                  @if (getUsdValue(tx)) {
-                    <span class="usd-value">{{ getUsdValue(tx) }}</span>
-                  } @else {
-                    <span class="no-data">--</span>
-                  }
-                </td>
-
-                <!-- Token -->
-                <td class="col-token">
-                  <div class="token-cell">
-                    @if (getTokenIcon(tx)) {
-                      <img
-                        class="token-icon"
-                        [src]="getTokenIcon(tx)"
-                        [alt]="getTokenSymbol(tx)"
-                        loading="lazy"
-                      />
-                    } @else if (getTokenSymbol(tx)) {
-                      <div class="token-icon-placeholder">
-                        {{ getTokenSymbol(tx).charAt(0) }}
+                <!-- Amount + Token + USD -->
+                @if (getSwapLegs(tx); as legs) {
+                  <td class="col-amount" colspan="3">
+                    <div class="swap-legs">
+                      <div class="swap-leg swap-leg--out">
+                        @if (legs.out.logo) {
+                          <img class="swap-leg-icon" [src]="legs.out.logo" [alt]="legs.out.symbol" loading="lazy" />
+                        }
+                        <span class="amount-value amount-negative">{{ legs.out.amount }} {{ legs.out.symbol }}</span>
+                        @if (legs.out.usd) { <span class="swap-leg-usd">({{ legs.out.usd }})</span> }
                       </div>
+                      <lucide-icon class="swap-arrow" name="arrow-right" [size]="14" />
+                      <div class="swap-leg swap-leg--in">
+                        @if (legs.in.logo) {
+                          <img class="swap-leg-icon" [src]="legs.in.logo" [alt]="legs.in.symbol" loading="lazy" />
+                        }
+                        <span class="amount-value amount-positive">{{ legs.in.amount }} {{ legs.in.symbol }}</span>
+                        @if (legs.in.usd) { <span class="swap-leg-usd">({{ legs.in.usd }})</span> }
+                      </div>
+                    </div>
+                  </td>
+                } @else {
+                  <!-- Amount -->
+                  <td class="col-amount">
+                    <span
+                      class="amount-value"
+                      [class.amount-positive]="isAmountPositive(tx)"
+                      [class.amount-negative]="!isAmountPositive(tx) && getAmountDisplay(tx) !== '--'"
+                    >
+                      {{ getAmountDisplay(tx) }}
+                    </span>
+                  </td>
+
+                  <!-- Value (USD) -->
+                  <td class="col-value">
+                    @if (getUsdValue(tx)) {
+                      <span class="usd-value">{{ getUsdValue(tx) }}</span>
+                    } @else {
+                      <span class="no-data">--</span>
                     }
-                    @if (getTokenSymbol(tx)) {
-                      <span class="token-symbol">{{ getTokenSymbol(tx) }}</span>
-                    }
-                  </div>
-                </td>
+                  </td>
+
+                  <!-- Token -->
+                  <td class="col-token">
+                    <div class="token-cell">
+                      @if (getTokenIcon(tx)) {
+                        <img
+                          class="token-icon"
+                          [src]="getTokenIcon(tx)"
+                          [alt]="getTokenSymbol(tx)"
+                          loading="lazy"
+                        />
+                      } @else if (getTokenSymbol(tx)) {
+                        <div class="token-icon-placeholder">
+                          {{ getTokenSymbol(tx).charAt(0) }}
+                        </div>
+                      }
+                      @if (getTokenSymbol(tx)) {
+                        <span class="token-symbol">{{ getTokenSymbol(tx) }}</span>
+                      }
+                    </div>
+                  </td>
+                }
               </tr>
             }
 

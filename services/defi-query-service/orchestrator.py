@@ -8,10 +8,25 @@ import asyncio
 import json
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from openai import OpenAI
 from tools import TOOL_SCHEMAS, dispatch
+
+
+def _runtime_context() -> str:
+    today = datetime.now(timezone.utc).date().isoformat()
+    return (
+        "## Runtime Context\n"
+        f"Today's date is **{today}** (UTC). Any event date earlier than today is in the **past** — "
+        "when reporting unlock/release/vesting/launch dates, explicitly note whether they have already "
+        "occurred or are still upcoming. Do not assume your training cutoff is the current date.\n\n"
+        "## Output Language\n"
+        "Detect the language of the user's latest message and reply **strictly in that same language**. "
+        "If the user writes English → reply in English. Turkish → Turkish. Spanish → Spanish, etc. "
+        "Tool names, ticker symbols, and mint addresses stay in their original form. Do not mix languages."
+    )
 
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-nano")
 
@@ -93,7 +108,7 @@ _BUNDLES: dict[str, set[str]] = {
     "birdeye_misc": {"birdeye_networks", "birdeye_latest_block", "birdeye_credits"},
     "token_creation": {"birdeye_token_creation_info"},
     "meme": {"birdeye_meme_token_detail", "birdeye_meme_token_list"},
-    "smart_money": {"birdeye_smart_money_tokens"},
+    "smart_money": {"birdeye_smart_money_tokens", "birdeye_token_top_traders", "birdeye_trader_gainers_losers"},
     "all_time_trades": {"birdeye_all_time_trades_single", "birdeye_all_time_trades_multi"},
 }
 
@@ -191,9 +206,6 @@ def _tool_stats(question: str) -> str:
 
 SYSTEM_PROMPT = """You are OPRAI DeFi Intelligence — the AI analysis layer for OPRAI, a Solana DeFi assistant.
 
-## Language Rule
-Always respond in English regardless of the language the user writes in.
-
 You have live access to data from these protocols via tools:
 
 | Protocol   | Tools available                                                      |
@@ -252,6 +264,8 @@ You have live access to data from these protocols via tools:
    - "Raydium CLMM/concentrated pools" → raydium_pools(poolType=Concentrated)
    - "Raydium price / token price on Raydium" → raydium_prices (fast, no swap needed)
    - **"How much X for Y" / generic swap quote (no DEX specified)** → **jup_quote** (Jupiter aggregates all DEXes, always best price)
+   - **jup_quote amounts MUST be in BASE UNITS, not UI floats**: SOL ×1e9 (1 SOL = 1_000_000_000), USDC/USDT ×1e6, BONK ×1e5, most SPL ×1e6. If unsure about decimals, call **jup_search(query=<symbol>)** first to read the `decimals` field, then compute `amount = int(ui_amount × 10**decimals)`. Sending raw UI numbers (e.g. amount=2 for "2 SOL") yields a near-zero quote and looks like an "error".
+   - **"Depth at X% slippage" / "How much can I swap before X% slippage" / "Liquidity depth comparison across DEXes"** → call **jup_quote** and **raydium_swap_quote** in PARALLEL with the SAME base-unit `amount`. Read `priceImpactPct` from each response — that IS the slippage that amount produces on that venue. To find depth at a target slippage, iterate amounts (e.g. start with $10k worth in base units, double until priceImpactPct exceeds target). Never claim depth data is unavailable — derive it from priceImpactPct.
    - "Swap quote on Raydium / how much X for Y on Raydium" → raydium_swap_quote (ExactIn default)
    - "Raydium ExactOut / how much input to get exactly Y on Raydium" → raydium_swap_quote(swapMode=ExactOut)
    - "Raydium swap price impact / slippage on Raydium" → raydium_swap_quote
@@ -450,9 +464,9 @@ You have live access to data from these protocols via tools:
    - "Portfolio value over time / net worth history" → birdeye_wallet_net_worth_history
    - "Compare portfolio sizes of multiple wallets" → birdeye_wallet_net_worth_multi
    - "Wallet holdings at a specific time" → birdeye_wallet_net_worth_details
-   - "Is this wallet profitable / wallet PnL" → birdeye_wallet_pnl_summary
-   - "PnL per token for a wallet / which tokens made money" → birdeye_wallet_pnl_details
-   - "PnL on specific tokens for a wallet" → birdeye_wallet_pnl_token
+   - "Is this wallet profitable / wallet PnL / total PnL / overall PnL / realized + unrealized" → birdeye_wallet_pnl_summary
+   - **"PnL per token / PnL broken down by token / PnL by token / token-by-token PnL / which tokens made money / which tokens lost money / per-token breakdown / show PnL for each token"** → **birdeye_wallet_pnl_details(wallet, duration, sort_by='realized_pnl', limit=20)**. This endpoint returns an `items[]` array with per-token fields: `symbol`, `address` (mint), `realized_pnl`, `unrealized_pnl`, `buy_volume`, `sell_volume`, `avg_buy_price`, `current_price`, `trade_count`. **NEVER claim per-token breakdown is unavailable — this tool IS the per-token endpoint. If the user wants both total and per-token, call BOTH pnl_summary AND pnl_details.**
+   - "PnL on specific tokens for a wallet" → birdeye_wallet_pnl_details(wallet, token_addresses=[...])
    - "Compare multiple wallets' PnL on same token" → birdeye_wallet_pnl_multi
    - "When was this wallet created / wallet age / first funded" → birdeye_wallet_first_funded
    - "Who are the top traders / biggest buyers of a token" → birdeye_token_top_traders
@@ -464,6 +478,8 @@ You have live access to data from these protocols via tools:
    - **Prefer birdeye_wallet_current_net_worth over birdeye_wallet_token_list — it's the non-deprecated v2 endpoint**
    - **For full wallet analysis: birdeye_wallet_current_net_worth + birdeye_wallet_pnl_summary together**
    - **birdeye_token_top_traders is the best tool for finding smart money / whale buyers of a specific token**
+   - **"List smart-money wallets that bought TOKEN" / "top smart-money buyers of TOKEN" / "which whales bought TOKEN" / "most profitable buyers of TOKEN"** → **birdeye_token_top_traders(address=<mint>, time_frame=24h|7d|30d, sort_type='desc', sort_by='volume')**. This returns wallet-level data (address, volume, trades). Use this BEFORE trying `birdeye_smart_money_tokens`.
+   - **birdeye_smart_money_tokens is a PREMIUM Birdeye endpoint and returns TOKENS that smart money is accumulating — NOT a list of wallets.** Only call it when the user asks "which TOKENS smart money is buying". If the response has `error_type: "config_error"` (401/403), tell the user: "Smart-money token flow requires a Birdeye premium API tier; falling back to top traders." Then call `birdeye_token_top_traders` with the relevant token mint.
    - "Top holders / who holds the most of token X" → birdeye_token_holders (v3, most up-to-date)
    - "Check if a list of wallets hold a token" → birdeye_holder_batch
    - "Holder concentration / how decentralized is token X" → birdeye_holder_distribution (mode=top, top_n=10)
@@ -1214,6 +1230,7 @@ async def _query_openrouter(
 
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": _runtime_context()},
         {"role": "user",   "content": user_question},
     ]
 
@@ -1303,6 +1320,7 @@ async def _query_openai(
 
     input_items: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": _runtime_context()},
         {"role": "user",   "content": user_question},
     ]
 

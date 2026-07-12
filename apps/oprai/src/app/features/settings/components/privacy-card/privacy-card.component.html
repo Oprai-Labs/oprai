@@ -1,0 +1,67 @@
+<div class="card">
+  <div class="row">
+    <div class="row-label">
+      <span class="row-title">Chat history</span>
+      <span class="row-meta">Permanently remove every conversation on your account.</span>
+    </div>
+    <button class="danger-btn" type="button" (click)="ask('history')" [disabled]="busy() !== null">
+      <lucide-icon name="trash-2" [size]="14" />
+      <span>Delete all chats</span>
+    </button>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="row">
+    <div class="row-label">
+      <span class="row-title">Memories</span>
+      <span class="row-meta">Wipe long-term context OPRAI has learned about you.</span>
+    </div>
+    <button class="danger-btn" type="button" (click)="ask('memories')" [disabled]="busy() !== null">
+      <lucide-icon name="eraser" [size]="14" />
+      <span>Delete memories</span>
+    </button>
+  </div>
+
+  @if (message(); as m) {
+    <div class="notice" [class.notice--error]="m.kind === 'error'">
+      <lucide-icon [name]="m.kind === 'ok' ? 'check-circle' : 'alert-circle'" [size]="14" />
+      <span>{{ m.text }}</span>
+    </div>
+  }
+</div>
+
+@if (confirming() !== null) {
+  <div class="modal-backdrop" (click)="cancel()"></div>
+  <div class="modal" role="dialog" aria-modal="true">
+    @if (confirming() === 'history') {
+      <h3 class="modal-title">Delete all chat history?</h3>
+      <p class="modal-body">
+        Every conversation will be permanently removed. This cannot be undone.
+      </p>
+      <div class="modal-actions">
+        <button class="ghost-btn" type="button" (click)="cancel()" [disabled]="busy() !== null">Cancel</button>
+        <button class="danger-btn" type="button" (click)="confirmDeleteHistory()" [disabled]="busy() !== null">
+          @if (busy() === 'history') {
+            <lucide-icon name="loader-2" [size]="14" class="spin" />
+          }
+          <span>Delete all chats</span>
+        </button>
+      </div>
+    } @else {
+      <h3 class="modal-title">Delete all memories?</h3>
+      <p class="modal-body">
+        OPRAI will forget every long-term fact it has stored about you. This cannot be undone.
+      </p>
+      <div class="modal-actions">
+        <button class="ghost-btn" type="button" (click)="cancel()" [disabled]="busy() !== null">Cancel</button>
+        <button class="danger-btn" type="button" (click)="confirmDeleteMemories()" [disabled]="busy() !== null">
+          @if (busy() === 'memories') {
+            <lucide-icon name="loader-2" [size]="14" class="spin" />
+          }
+          <span>Delete memories</span>
+        </button>
+      </div>
+    }
+  </div>
+}

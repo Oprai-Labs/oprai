@@ -137,6 +137,11 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Pre-grind a small pool of "…pump" vanity mint keypairs in the background so
+    // pump.fun launches get an authentic pump.fun-style address without any
+    // per-launch wait (the /actions/vanity-mint endpoint pops from this pool).
+    crate::services::vanity::start_vanity_grinder();
+
     // ── Actix-Web HTTP server ────────────────────────────────────────────
     let http_port = cfg.port;
 
@@ -176,6 +181,8 @@ async fn main() -> anyhow::Result<()> {
                     .service(routes::actions::post_quote)
                     .service(routes::actions::post_cross_chain_quote)
                     .service(routes::actions::post_build)
+                    .service(routes::actions::post_perp_execute)
+                    .service(routes::actions::post_vanity_mint)
                     .service(routes::actions::post_simulate)
                     .service(routes::actions::post_advanced_simulate)
                     .service(routes::actions::get_limit_orders)

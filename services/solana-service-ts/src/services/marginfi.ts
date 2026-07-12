@@ -487,6 +487,83 @@ export async function getUserAccounts_(
   };
 }
 
+/**
+ * Detailed per-balance breakdown across all user accounts: each active
+ * lending/borrow position with USD value, APY, and the underlying mint.
+ *
+ * The SDK's `computeBalanceUsdValue` returns a `BigNumber` (mrgn-common's
+ * fixed-point wrapper) for the position's USD notional. APYs come from the
+ * bank's `computeInterestRates()` — both returned as decimals (0.045 not 4.5).
+ * We normalise to percentages here so the frontend doesn't have to.
+ */
+export async function getUserBalances(
+  _params: Record<string, unknown>,
+  userWallet: string
+): Promise<BuildResponse> {
+  const client = await getClient(userWallet);
+  const accounts = await getUserAccounts(client);
+
+  type BalanceRow = {
+    accountAddress: string;
+    healthFactor: number;
+    bankAddress: string;
+    tokenMint: string;
+    tokenSymbol: string;
+    side: "deposit" | "borrow";
+    amount: number;
+    usdValue: number;
+    apy: number;
+    weight: number;
+    decimals: number;
+  };
+  const balances: BalanceRow[] = [];
+
+  for (const acct of accounts) {
+    const hc = acct.computeHealthComponents(MarginRequirementType.Maintenance);
+    const hf = hc.assets.isZero() ? 0 : hc.assets.dividedBy(hc.liabilities).toNumber();
+    const acctAddr = acct.address.toBase58();
+
+    for (const bal of acct.activeBalances) {
+      const bank = client.getBankByPk(bal.bankPk);
+      if (!bank) continue;
+      const rates = bank.computeInterestRates();
+      const assetAmount = bal.computeQuantityUi(bank).assets.toNumber();
+      const liabAmount = bal.computeQuantityUi(bank).liabilities.toNumber();
+      const isBorrow = liabAmount > assetAmount;
+      const amount = isBorrow ? liabAmount : assetAmount;
+      if (amount <= 0) continue;
+      // SDK exposes the per-balance USD via the bank's oracle. Compute on
+      // both sides; the dominant one becomes the row's USD.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const oraclePx = ((bank as any).getPrice?.() ?? bank.computeAssetUsdValue?.(
+        bank.getAssetQuantity(bal.assetShares), undefined, undefined,
+      ))?.toNumber?.() ?? 0;
+      const usd = amount * Number(oraclePx ?? 0);
+      balances.push({
+        accountAddress: acctAddr,
+        healthFactor: hf,
+        bankAddress: bal.bankPk.toBase58(),
+        tokenMint: bank.mint.toBase58(),
+        tokenSymbol: bank.tokenSymbol,
+        side: isBorrow ? "borrow" : "deposit",
+        amount,
+        usdValue: usd,
+        apy: 100 * (isBorrow ? rates.borrowingRate.toNumber() : rates.lendingRate.toNumber()),
+        weight: isBorrow
+          ? bank.config.liabilityWeightInit.toNumber()
+          : bank.config.assetWeightInit.toNumber(),
+        decimals: bank.mintDecimals,
+      });
+    }
+  }
+
+  return {
+    preview: preview("marginfi_user_balances", "MarginFi user balances", {}),
+    additionalSignersRequired: 0, isCrossChain: false,
+    data: { balances, count: balances.length },
+  };
+}
+
 export async function getHealth(
   params: { accountAddress?: string },
   userWallet: string

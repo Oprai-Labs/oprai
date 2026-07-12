@@ -16,10 +16,14 @@ export const JITO_STAKE_POOL = 'Jito4APyf642JPZPx3hGc6WWJ8zPKtRbRs4P815Awbb';
 export const JITO_KOBE_API = 'https://kobe.mainnet.jito.network';
 
 /**
- * Jito tip accounts — rotate randomly to reduce contention.
- * Source: Jito block engine documentation.
+ * Jito tip accounts — used only as a last-resort fallback if the live
+ * `getTipAccounts` RPC call fails. The runtime list is fetched from the
+ * Block Engine via `/market/jito/tip-accounts` (gateway-cached for 1h)
+ * so account rotation is picked up automatically. Keeping a tiny seed
+ * list here means a bundle send still has SOMETHING to target on a cold
+ * start before the gateway has answered.
  */
-export const JITO_TIP_ACCOUNTS = [
+export const JITO_TIP_ACCOUNTS_FALLBACK = [
   '96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5',
   'HFqU5x63VTqvQss8hp11i4bVmKafdMkF7nQ6kY91v3oS',
   'Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY',
@@ -584,9 +588,42 @@ export class JitoService {
     }
   }
 
-  /** Random tip account from the rotation list. */
+  /**
+   * Cached live tip account list fetched from the gateway proxy. Lazily
+   * populated on first call; refreshed when the cache is older than 1h.
+   */
+  private _tipAccountsCache: { accounts: string[]; ts: number } | null = null;
+  private readonly TIP_ACCOUNTS_TTL_MS = 60 * 60 * 1000;
+
+  /** Returns the live tip account list, falling back to the seed constant. */
+  async getTipAccounts(): Promise<string[]> {
+    const c = this._tipAccountsCache;
+    if (c && Date.now() - c.ts < this.TIP_ACCOUNTS_TTL_MS) return c.accounts;
+    try {
+      const resp = await firstValueFrom(
+        this.api.get<{ accounts?: string[] }>('/market/jito/tip-accounts')
+      );
+      const accs = resp?.accounts ?? [];
+      if (accs.length > 0) {
+        this._tipAccountsCache = { accounts: accs, ts: Date.now() };
+        return accs;
+      }
+    } catch { /* fall through to seed list */ }
+    return JITO_TIP_ACCOUNTS_FALLBACK;
+  }
+
+  /**
+   * Synchronous accessor for legacy callers. Prefer the async `getTipAccounts`
+   * — this version uses whatever was last cached, and the fallback list only
+   * if no live fetch has succeeded yet. Fires a background refresh.
+   */
   getRandomTipAccount(): string {
-    return JITO_TIP_ACCOUNTS[Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length)];
+    const list = this._tipAccountsCache?.accounts ?? JITO_TIP_ACCOUNTS_FALLBACK;
+    // Kick off a refresh in the background if cache is stale or empty.
+    if (!this._tipAccountsCache || Date.now() - this._tipAccountsCache.ts >= this.TIP_ACCOUNTS_TTL_MS) {
+      void this.getTipAccounts();
+    }
+    return list[Math.floor(Math.random() * list.length)];
   }
 
   // ── Bundle Status (Block Engine, via gateway) ──────────────────────────────

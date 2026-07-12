@@ -246,6 +246,30 @@
   color: var(--op-brand);
 }
 
+.plus-menu-item--soon {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+
+  &:hover {
+    background: transparent;
+  }
+}
+
+.plus-menu-soon {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-text-tertiary);
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-default);
+  border-radius: 999px;
+  padding: 2px 8px;
+  line-height: 1.2;
+}
+
 .plus-menu-divider {
   height: 1px;
   background: var(--op-border-default);

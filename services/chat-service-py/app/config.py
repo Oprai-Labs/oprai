@@ -21,8 +21,8 @@ class Settings(BaseSettings):
 
     # LLM provider — "openai" or "anthropic". Switches the entire LLMService
     # backend. Anthropic models (claude-haiku-4-5, claude-sonnet-4-6, …) don't
-    # use the Harmony channel format, so the tool-call leakage that plagues
-    # gpt-5.4-nano under tool_choice="auto" is impossible there.
+    # use the Harmony channel format, so the tool-call leakage that plagued
+    # the smaller gpt-5.4-nano under tool_choice="auto" is impossible there.
     OPRAI_LLM_PROVIDER: str = "openai"
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -36,7 +36,13 @@ class Settings(BaseSettings):
     OPRAI_ANTHROPIC_API_KEY: str = ""
 
     # Responder — main chat model. Active one is chosen by OPRAI_LLM_PROVIDER.
-    OPRAI_RESPONDER_MODEL_OPENAI: str = "gpt-5.4-nano"
+    # Bumped nano → mini (2026-05-17): nano hedged hard on ambiguous turns
+    # (preferring `request_clarification` + "I cannot access" prose over
+    # committing) and lost tool-chain context (calling sns_resolve then
+    # failing to pass `owner` to the next call). mini commits more confidently
+    # and chains tools correctly. Cost delta is ~3x per token but turn count
+    # drops because we stop re-asking — net cost similar.
+    OPRAI_RESPONDER_MODEL_OPENAI: str = "gpt-5.4-mini"
     OPRAI_RESPONDER_MODEL_ANTHROPIC: str = "claude-haiku-4-5"
 
     # Responder fallback (used when the primary OpenAI model fails with
@@ -44,9 +50,24 @@ class Settings(BaseSettings):
     # Responses API model. Anthropic has no fallback yet — single provider.
     OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI: str = "gpt-4o-mini"
 
+    # Optional analysis upgrade — when a turn looks like deep analysis
+    # (long message, "compare X vs Y", "analyze wallet", multi-step), the
+    # router can route to a more capable model. Empty = no override (use
+    # the primary model for everything). Examples: "gpt-5.4" (full size),
+    # "claude-sonnet-4-6" with provider=anthropic. Off by default to keep
+    # cost predictable; enable per environment.
+    OPRAI_RESPONDER_MODEL_OPENAI_ANALYSIS: str = ""
+    OPRAI_RESPONDER_MODEL_ANTHROPIC_ANALYSIS: str = ""
+
+    # Character-length threshold above which a turn is considered analysis-
+    # grade and the analysis model (if configured) is used. Most chat turns
+    # are <200 chars; deep-dive prompts ("analyze this wallet — holdings,
+    # PnL, sectors, …") routinely exceed 300.
+    OPRAI_RESPONDER_ANALYSIS_LENGTH_THRESHOLD: int = 250
+
     # OpenAI Chat Completions tuning (does not apply to Responses API models).
-    OPRAI_GPT_REASONING_EFFORT: str = "medium"
-    OPRAI_GPT_MAX_TOKENS: int = 4096
+    OPRAI_GPT_REASONING_EFFORT: str = "medium"  # "high" caused empty replies — on reasoning models max_output_tokens covers reasoning + visible, and "high" consumed the entire budget. Keep at "medium" and rely on prompt enforcement for compliance.
+    OPRAI_GPT_MAX_TOKENS: int = 24000  # raised from 16000 — on reasoning models max_output_tokens covers chain-of-thought + visible response. Composite wallet/token deep-dives saw the visible section truncated mid-sentence when reasoning consumed ~10K and only ~6K was left for the 9-section report. 24000 leaves ~10-12K for reasoning + ~12-14K for visible, which covers a full Nansen-style report (~3000-4000 visible tokens) with ample margin.
 
     # Intent classifier — runs a tiny OpenAI call before the main responder so
     # the tool list can be narrowed by intent (action vs query vs advice). The
@@ -77,8 +98,18 @@ class Settings(BaseSettings):
     # Solana RPC endpoint for on-chain lookups (balance injection etc.)
     SOLANA_RPC_URL: str = "https://api.mainnet-beta.solana.com"
 
+    # Redis cache (optional; service runs without if unreachable)
+    REDIS_URL: str = "redis://localhost:6379"
+
     # Qdrant vector database
     QDRANT_URL: str = "http://localhost:6333"
+    # Per-request timeout for Qdrant HTTP calls. The default httpx timeout
+    # (5s) is too short for on-disk collections after a cold start: Qdrant
+    # has to page the HNSW index + INT8 quantization codebook into RAM on
+    # the first query, which can take 10-15s on the 26k-vector knowledge
+    # base. After warmup, queries complete in ~50ms — the longer timeout
+    # only matters on cold paths.
+    QDRANT_TIMEOUT_SEC: float = 30.0
 
     # Knowledge RAG (blockchain/DeFi/Solana Q&A)
     KNOWLEDGE_RAG_ENABLED: bool = True

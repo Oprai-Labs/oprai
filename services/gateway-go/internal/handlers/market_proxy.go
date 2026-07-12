@@ -108,6 +108,27 @@ func NewMarketProxy(ctx context.Context, birdeyeAPIKey, jupiterAPIKey, heliusAPI
 	}
 }
 
+// jupiterHost picks the right Jupiter base host for the keyed-vs-public split:
+//   * `api.jup.ag`      — paid, requires `x-api-key` header
+//   * `lite-api.jup.ag` — public/free, rate-limited, no key
+// Both serve the same paths under `/price`, `/tokens/v2`, `/swap/v1` etc.
+// Per Jupiter docs (https://dev.jup.ag/docs/), keyed traffic must hit the
+// paid host or the request is anonymous and rate-limited even with a key.
+func (m *MarketProxy) jupiterHost() string {
+	if m.jupiterAPIKey != "" {
+		return "https://api.jup.ag"
+	}
+	return "https://lite-api.jup.ag"
+}
+
+// applyJupiterAuth attaches `x-api-key` when present. Always called on outbound
+// Jupiter requests so we don't have to remember per-handler.
+func (m *MarketProxy) applyJupiterAuth(req *http.Request) {
+	if m.jupiterAPIKey != "" {
+		req.Header.Set("x-api-key", m.jupiterAPIKey)
+	}
+}
+
 // Cache TTLs
 const (
 	priceCacheTTL       = 10 * time.Second
@@ -143,15 +164,13 @@ func (m *MarketProxy) GetPrices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiURL := fmt.Sprintf("https://api.jup.ag/price/v3?ids=%s", ids)
+	apiURL := fmt.Sprintf("%s/price/v3?ids=%s", m.jupiterHost(), ids)
 	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create request")
 		return
 	}
-	if m.jupiterAPIKey != "" {
-		req.Header.Set("x-api-key", m.jupiterAPIKey)
-	}
+	m.applyJupiterAuth(req)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -198,12 +217,13 @@ func (m *MarketProxy) SearchTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiURL := fmt.Sprintf("https://api.jup.ag/tokens/v2/search?query=%s&limit=%s", query, limit)
+	apiURL := fmt.Sprintf("%s/tokens/v2/search?query=%s&limit=%s", m.jupiterHost(), query, limit)
 	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create request")
 		return
 	}
+	m.applyJupiterAuth(req)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -229,7 +249,13 @@ func (m *MarketProxy) SearchTokens(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
-// GetTokenList proxies GET /market/tokens/strict to Jupiter strict token list.
+// GetTokenList proxies GET /market/tokens/strict to Jupiter's verified token
+// list. The legacy `token.jup.ag/strict` host was retired by Jupiter, manifesting
+// client-side as a 502 toast spam loop. The current official V2 endpoint is
+// `/tokens/v2/tag?query=verified` on either the keyed (`api.jup.ag`) or public
+// (`lite-api.jup.ag`) host. V2 response shape uses `id` for address and `icon`
+// for logo — `token-registry.service.ts:79-91` already handles both via
+// `?? id` and `?? icon` fallbacks, so this is a drop-in replacement.
 func (m *MarketProxy) GetTokenList(w http.ResponseWriter, r *http.Request) {
 	cacheKey := "token-list:strict"
 	if data, ok := m.cache.Get(cacheKey); ok {
@@ -239,12 +265,13 @@ func (m *MarketProxy) GetTokenList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiURL := "https://token.jup.ag/strict"
+	apiURL := m.jupiterHost() + "/tokens/v2/tag?query=verified"
 	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create request")
 		return
 	}
+	m.applyJupiterAuth(req)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -290,12 +317,13 @@ func (m *MarketProxy) GetTokenInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiURL := fmt.Sprintf("https://api.jup.ag/tokens/v2/search?query=%s&limit=1", mint)
+	apiURL := fmt.Sprintf("%s/tokens/v2/search?query=%s&limit=1", m.jupiterHost(), mint)
 	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create request")
 		return
 	}
+	m.applyJupiterAuth(req)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -313,6 +341,82 @@ func (m *MarketProxy) GetTokenInfo(w http.ResponseWriter, r *http.Request) {
 
 	if resp.StatusCode == http.StatusOK {
 		m.cache.Set(cacheKey, body, tokenCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetLiquidityMulti proxies GET /market/liquidity/multi?ids=mint1,mint2,...
+// to Birdeye `/defi/v3/token/market-data/multiple`. Used by the token-picker
+// modal to render a liquidity badge per token row so the user can see which
+// targets are tradable BEFORE they pick. Returning the raw Birdeye payload
+// (which includes price, liquidity, market_cap, fdv per token) keeps the
+// proxy generic; frontend pulls just the liquidity field for the badge.
+// Cap of 50 mints per call mirrors Birdeye's documented batch limit.
+func (m *MarketProxy) GetLiquidityMulti(w http.ResponseWriter, r *http.Request) {
+	ids := r.URL.Query().Get("ids")
+	if ids == "" {
+		writeError(w, http.StatusBadRequest, "ids parameter required")
+		return
+	}
+	if m.birdeyeAPIKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "birdeye API key not configured")
+		return
+	}
+	// Validate every mint individually so a single bad ID can't poison the
+	// upstream call. Also caps the request size (50 is Birdeye's batch limit).
+	mints := strings.Split(ids, ",")
+	if len(mints) == 0 || len(mints) > 50 {
+		writeError(w, http.StatusBadRequest, "ids must contain 1–50 comma-separated mints")
+		return
+	}
+	for _, mint := range mints {
+		if !isValidSolanaAddress(strings.TrimSpace(mint)) {
+			writeError(w, http.StatusBadRequest, "invalid mint in ids list")
+			return
+		}
+	}
+
+	cacheKey := "liquidity-multi:" + ids
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://public-api.birdeye.so/defi/v3/token/market-data/multiple?list_address=%s",
+		url.QueryEscape(ids))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	req.Header.Set("X-API-KEY", m.birdeyeAPIKey)
+	req.Header.Set("x-chain", "solana")
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("birdeye liquidity-multi error", "error", err)
+		writeError(w, http.StatusBadGateway, "liquidity data unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read liquidity response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		// 5-minute TTL — liquidity moves slowly enough that the picker can
+		// reuse the badge across rapid open/close cycles without hammering
+		// Birdeye. Token-list won't change often during a chat session.
+		m.cache.Set(cacheKey, body, 5*time.Minute)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -572,6 +676,159 @@ func (m *MarketProxy) GetPairs(w http.ResponseWriter, r *http.Request) {
 
 	if resp.StatusCode == http.StatusOK {
 		m.cache.Set(cacheKey, body, pairsCacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetWalletPnlSummary proxies GET /market/wallet/pnl-summary?wallet=<>&duration=<>
+// to Birdeye `/wallet/v2/pnl/summary`. duration ∈ {all, 90d, 30d, 7d, 24h}.
+// Validates the wallet address shape so we never fan out malformed traffic.
+func (m *MarketProxy) GetWalletPnlSummary(w http.ResponseWriter, r *http.Request) {
+	wallet := r.URL.Query().Get("wallet")
+	duration := r.URL.Query().Get("duration")
+	if wallet == "" {
+		writeError(w, http.StatusBadRequest, "wallet parameter required")
+		return
+	}
+	if !isValidSolanaAddress(wallet) {
+		writeError(w, http.StatusBadRequest, "invalid wallet address")
+		return
+	}
+	if duration == "" {
+		duration = "30d"
+	}
+	switch duration {
+	case "all", "90d", "30d", "7d", "24h":
+	default:
+		writeError(w, http.StatusBadRequest, "duration must be one of: all, 90d, 30d, 7d, 24h")
+		return
+	}
+	if m.birdeyeAPIKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "birdeye API key not configured")
+		return
+	}
+
+	cacheKey := fmt.Sprintf("pnl-summary:%s:%s", wallet, duration)
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	apiURL := fmt.Sprintf("https://public-api.birdeye.so/wallet/v2/pnl/summary?wallet=%s&duration=%s",
+		url.QueryEscape(wallet), url.QueryEscape(duration))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	req.Header.Set("X-API-KEY", m.birdeyeAPIKey)
+	req.Header.Set("x-chain", "solana")
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("birdeye pnl-summary error", "error", err)
+		writeError(w, http.StatusBadGateway, "pnl summary unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read pnl summary response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, 2*time.Minute)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetWalletPnlDetails proxies GET /market/wallet/pnl-details?wallet=<>&duration=<>&limit=<>
+// to Birdeye `/wallet/v2/pnl/details` (POST upstream). limit defaults to 10, capped at 50.
+func (m *MarketProxy) GetWalletPnlDetails(w http.ResponseWriter, r *http.Request) {
+	wallet := r.URL.Query().Get("wallet")
+	duration := r.URL.Query().Get("duration")
+	limitStr := r.URL.Query().Get("limit")
+	if wallet == "" {
+		writeError(w, http.StatusBadRequest, "wallet parameter required")
+		return
+	}
+	if !isValidSolanaAddress(wallet) {
+		writeError(w, http.StatusBadRequest, "invalid wallet address")
+		return
+	}
+	if duration == "" {
+		duration = "30d"
+	}
+	switch duration {
+	case "all", "90d", "30d", "7d", "24h":
+	default:
+		writeError(w, http.StatusBadRequest, "duration must be one of: all, 90d, 30d, 7d, 24h")
+		return
+	}
+	limit := 10
+	if limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 && v <= 50 {
+			limit = v
+		}
+	}
+	if m.birdeyeAPIKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "birdeye API key not configured")
+		return
+	}
+
+	cacheKey := fmt.Sprintf("pnl-details:%s:%s:%d", wallet, duration, limit)
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"wallet":    wallet,
+		"duration":  duration,
+		"sort_type": "desc",
+		"sort_by":   "total_pnl",
+		"limit":     limit,
+	})
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		"https://public-api.birdeye.so/wallet/v2/pnl/details", bytes.NewReader(payload))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	req.Header.Set("X-API-KEY", m.birdeyeAPIKey)
+	req.Header.Set("x-chain", "solana")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("birdeye pnl-details error", "error", err)
+		writeError(w, http.StatusBadGateway, "pnl details unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read pnl details response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, 2*time.Minute)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1251,6 +1508,63 @@ func (m *MarketProxy) GetJitoTipFloor(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
+// GetJitoTipAccounts proxies GET /market/jito/tip-accounts to the Jito Block
+// Engine's `getTipAccounts` JSON-RPC method. The Block Engine rotates this list
+// occasionally; previously the frontend kept a hardcoded copy that would
+// silently go stale. Cached for 1 hour — these addresses don't change often.
+func (m *MarketProxy) GetJitoTipAccounts(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "jito:tip-accounts"
+	if data, ok := m.cache.Get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	rpcBody := []byte(`{"jsonrpc":"2.0","id":1,"method":"getTipAccounts","params":[]}`)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		"https://mainnet.block-engine.jito.wtf/api/v1/bundles", bytes.NewReader(rpcBody))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create request")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("jito tip accounts error", "error", err)
+		writeError(w, http.StatusBadGateway, "jito tip accounts unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read jito tip accounts response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		// Reshape `{result: [...]}` to `{accounts: [...]}` so callers don't have to
+		// know about JSON-RPC wrapping. Cache the reshaped form.
+		var rpc struct {
+			Result []string `json:"result"`
+		}
+		if err := json.Unmarshal(body, &rpc); err == nil && len(rpc.Result) > 0 {
+			reshaped, _ := json.Marshal(map[string][]string{"accounts": rpc.Result})
+			m.cache.Set(cacheKey, reshaped, 60*time.Minute)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write(reshaped)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
 // GetJitoBundleStatus proxies GET /market/jito/bundle/{bundleId} to Jito Block Engine.
 func (m *MarketProxy) GetJitoBundleStatus(w http.ResponseWriter, r *http.Request) {
 	bundleId := chi.URLParam(r, "bundleId")
@@ -1595,13 +1909,10 @@ func (m *MarketProxy) GetJupSolExchangeRate(w http.ResponseWriter, r *http.Reque
 	w.Write(out)
 }
 
-// fetchJupSolRate probes the public Jupiter swap quote endpoint for 1 SOL →
-// jupSOL and returns the inverse outAmount as SOL-per-jupSOL.
-//
-// Endpoint note: Jupiter retired `quote-api.jup.ag/v6/*` (DNS now NXDOMAINs)
-// and consolidated everything onto `lite-api.jup.ag/swap/v1/*` (public, no
-// key) and `api.jup.ag/swap/v1/*` (keyed). We hit lite-api so this works
-// without provisioning a Jupiter key in the gateway.
+// fetchJupSolRate probes the Jupiter swap quote endpoint for 1 SOL → jupSOL
+// and returns the inverse outAmount as SOL-per-jupSOL. Goes through the keyed
+// `api.jup.ag` host when a Jupiter API key is configured (higher rate limits,
+// fresher quotes); falls back to public `lite-api.jup.ag` otherwise.
 func (m *MarketProxy) fetchJupSolRate(ctx context.Context) (float64, error) {
 	const (
 		solMint    = "So11111111111111111111111111111111111111112"
@@ -1613,9 +1924,10 @@ func (m *MarketProxy) fetchJupSolRate(ctx context.Context) (float64, error) {
 	q.Set("amount", "1000000000") // 1 SOL in lamports
 	q.Set("slippageBps", "10")
 	q.Set("onlyDirectRoutes", "false")
-	endpoint := "https://lite-api.jup.ag/swap/v1/quote?" + q.Encode()
+	endpoint := m.jupiterHost() + "/swap/v1/quote?" + q.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	m.applyJupiterAuth(req)
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return 0, err
@@ -1813,4 +2125,135 @@ func (m *MarketProxy) PostHeliusTransactions(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	w.Write(respBody)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Jupiter Portfolio API — api.jup.ag/portfolio/v1
+// Returns the wallet's positions across Jupiter's own products only (DCA,
+// limit orders, perpetuals, lend, JUP/JupSOL stake, Jupiter LP). Cross-protocol
+// aggregation (Kamino, Meteora, Orca, Pumpfun) is NOT covered here — those go
+// through their own dedicated proxies / on-chain reads.
+//
+// All endpoints require the x-api-key header (paid tier on api.jup.ag); the
+// lite host (lite-api.jup.ag) returns 404 for /portfolio/* as of 2026-01-31.
+// We always hit api.jup.ag and inject the key server-side so the browser
+// never sees it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// forwardJupiterPortfolio runs a GET against api.jup.ag/portfolio/v1{path},
+// forwards rate-limit headers to the caller so the frontend can back off, and
+// caches the response under cacheKey for cacheTTL when the upstream is healthy.
+// Passes through optional `platforms` query param if present on the inbound
+// request.
+func (m *MarketProxy) forwardJupiterPortfolio(w http.ResponseWriter, r *http.Request, path, cacheKey string, cacheTTL time.Duration) {
+	if cacheKey != "" {
+		if data, ok := m.cache.Get(cacheKey); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write(data)
+			return
+		}
+	}
+
+	apiURL := "https://api.jup.ag/portfolio/v1" + path
+	if q := r.URL.Query().Get("platforms"); q != "" {
+		apiURL += "?platforms=" + url.QueryEscape(q)
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create jupiter portfolio request")
+		return
+	}
+	m.applyJupiterAuth(req)
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Error("jupiter portfolio error", "path", path, "error", err)
+		writeError(w, http.StatusBadGateway, "jupiter portfolio unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read jupiter portfolio response")
+		return
+	}
+
+	// Forward rate-limit signal so the frontend can throttle. x-ratelimit-* is
+	// what the Jupiter docs emit on the paid plan; we surface it verbatim.
+	for _, h := range []string{"x-ratelimit-remaining", "x-ratelimit-reset", "x-ratelimit-current"} {
+		if v := resp.Header.Get(h); v != "" {
+			w.Header().Set(h, v)
+		}
+	}
+
+	if cacheKey != "" && resp.StatusCode == http.StatusOK {
+		m.cache.Set(cacheKey, body, cacheTTL)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+// GetJupiterPortfolioPositions proxies
+// GET /market/jupiter/portfolio/positions/{wallet}[?platforms=…]
+// → GET https://api.jup.ag/portfolio/v1/positions/{wallet}
+// Returns Jupiter products positions only (DCA, limit, perp, lend, JUP/JupSOL
+// stake, LP). 30s cache — short because positions move with on-chain activity.
+func (m *MarketProxy) GetJupiterPortfolioPositions(w http.ResponseWriter, r *http.Request) {
+	wallet := chi.URLParam(r, "wallet")
+	if !isValidSolanaAddress(wallet) {
+		writeError(w, http.StatusBadRequest, "invalid wallet address")
+		return
+	}
+	cacheKey := "jup:portfolio:positions:" + wallet + ":" + r.URL.Query().Get("platforms")
+	m.forwardJupiterPortfolio(w, r, "/positions/"+wallet, cacheKey, 30*time.Second)
+}
+
+// GetJupiterStakedJup proxies
+// GET /market/jupiter/portfolio/staked-jup/{wallet}
+// → GET https://api.jup.ag/portfolio/v1/staked-jup/{wallet}
+// Returns active JUP vote-escrow / staking info: {stakedAmount, unstaking[]}.
+func (m *MarketProxy) GetJupiterStakedJup(w http.ResponseWriter, r *http.Request) {
+	wallet := chi.URLParam(r, "wallet")
+	if !isValidSolanaAddress(wallet) {
+		writeError(w, http.StatusBadRequest, "invalid wallet address")
+		return
+	}
+	cacheKey := "jup:portfolio:staked-jup:" + wallet
+	m.forwardJupiterPortfolio(w, r, "/staked-jup/"+wallet, cacheKey, 60*time.Second)
+}
+
+// GetJupiterPortfolioPlatforms proxies
+// GET /market/jupiter/portfolio/platforms → /portfolio/v1/platforms
+// Returns the full platforms catalog (for label / logo lookup). 1h cache —
+// this list rarely changes.
+func (m *MarketProxy) GetJupiterPortfolioPlatforms(w http.ResponseWriter, r *http.Request) {
+	m.forwardJupiterPortfolio(w, r, "/platforms", "jup:portfolio:platforms", 60*time.Minute)
+}
+
+// GetPumpfunCreatorRewards proxies
+// GET /market/pumpfun/rewards/{wallet}
+//
+// STUB (PR 1): pump.fun does not expose a public creator-rewards HTTP endpoint.
+// frontend-api.pump.fun is offline (CF 1016); frontend-api-v3.pump.fun has no
+// /creator-rewards path (all variants probed → 404). Real implementation
+// requires on-chain decode of the pump.fun `creator-vault` PDA:
+//   seeds   = ["creator-vault", creator_pubkey]
+//   program = 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P
+//   read    = getMultipleAccounts → lamport balance → SOL/USD
+// That lands in PR 3 alongside the rest of the portfolio analytics work.
+// For now we return an empty contract so the frontend can wire the section
+// without conditional rendering churn.
+func (m *MarketProxy) GetPumpfunCreatorRewards(w http.ResponseWriter, r *http.Request) {
+	wallet := chi.URLParam(r, "wallet")
+	if !isValidSolanaAddress(wallet) {
+		writeError(w, http.StatusBadRequest, "invalid wallet address")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"wallet":"` + wallet + `","claimableLamports":0,"claimableSol":0,"claimableUsd":0,"rewards":[]}`))
 }

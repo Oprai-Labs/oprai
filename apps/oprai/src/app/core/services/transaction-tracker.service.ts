@@ -17,7 +17,7 @@ import { Injectable, inject } from '@angular/core';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 import { SolanaErrorDecoderService } from './solana-error-decoder.service';
-import { environment } from '../../../environments/environment';
+import { createSolanaConnection } from '@core/utils/solana-connection';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const MAX_RETRIES = 3;
@@ -145,8 +145,7 @@ export class TransactionTrackerService {
   // ── Confirmation Loop ─────────────────────────────────────────────────────
 
   private async waitForConfirmation(txId: string, signature: string): Promise<void> {
-    const { Connection } = await import('@solana/web3.js');
-    const connection = new Connection(environment.solanaRpc, { commitment: CONFIRMATION_COMMITMENT, httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const connection = createSolanaConnection(CONFIRMATION_COMMITMENT);
 
     let attempt = 0;
 

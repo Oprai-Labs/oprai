@@ -81,6 +81,14 @@ func (p *ChatProxy) ListSessions(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// GetYields proxies GET /yields — live DeFi yield aggregator (LST + lending)
+// so the frontend yield card renders real numbers instead of mock data.
+// Query params (category, limit) ride along in r.URL.RawQuery untouched.
+func (p *ChatProxy) GetYields(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/yields"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // CreateSession proxies POST /chat/sessions
 func (p *ChatProxy) CreateSession(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/sessions"
@@ -164,6 +172,24 @@ func (p *ChatProxy) EditMessage(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// Usage proxies GET /usage — per-wallet daily message/token counters + reset time.
+func (p *ChatProxy) Usage(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/usage"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// DeleteAllSessions proxies DELETE /sessions/all — Settings → Privacy "delete chat history".
+func (p *ChatProxy) DeleteAllSessions(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/sessions/all"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// DeleteUserMemories proxies DELETE /user/memories — Settings → Privacy "delete memories".
+func (p *ChatProxy) DeleteUserMemories(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/user/memories"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // SendChat proxies POST /chat
 func (p *ChatProxy) SendChat(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/chat"
@@ -198,5 +224,21 @@ func (p *ChatProxy) TaxEvents(w http.ResponseWriter, r *http.Request) {
 // TaxYears proxies GET /tax/years
 func (p *ChatProxy) TaxYears(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/tax/years"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PortfolioPnl proxies GET /portfolio/pnl/{wallet} — per-token cost basis
+// for the all-time PnL column on the portfolio page.
+func (p *ChatProxy) PortfolioPnl(w http.ResponseWriter, r *http.Request) {
+	wallet := chi.URLParam(r, "wallet")
+	r.URL.Path = "/portfolio/pnl/" + wallet
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PortfolioRefresh proxies POST /portfolio/refresh/{wallet} — triggers an
+// incremental Helius sync (debounced 5min per wallet in chat-service).
+func (p *ChatProxy) PortfolioRefresh(w http.ResponseWriter, r *http.Request) {
+	wallet := chi.URLParam(r, "wallet")
+	r.URL.Path = "/portfolio/refresh/" + wallet
 	p.proxy.ServeHTTP(w, r)
 }

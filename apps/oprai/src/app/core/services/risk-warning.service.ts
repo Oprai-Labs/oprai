@@ -18,19 +18,37 @@ export interface RiskWarningItem {
   text: string;
 }
 
+/** A compact numeric fact rendered in the key-figures strip (label + value). */
+export interface RiskWarningFigure {
+  label: string;
+  value: string;
+  /** When true, the figure is emphasised in the severity colour (e.g. max loss). */
+  emphasis?: boolean;
+}
+
 export interface RiskWarningPayload {
   title: string;
   message: string;
   severity: 'info' | 'warning' | 'danger';
   items: RiskWarningItem[];
+  figures?: RiskWarningFigure[];
   confirmLabel: string;
   resolve: (confirmed: boolean) => void;
 }
 
-// Action types that are inherently risky regardless of amount
+// Action types that OPEN leveraged exposure. Closes are excluded — closing a
+// position de-risks (realizes PnL + pays a close fee), it doesn't open leverage,
+// so it shouldn't trigger the "opens a leveraged position" gate.
 const LEVERAGED_TYPES = new Set([
-  'perp_open', 'perp_close', 'jlp_add', 'jlp_remove',
+  'perp_open',
   'kamino_multiply_open', 'kamino_multiply_add', 'kamino_long_open', 'kamino_short_open',
+]);
+
+// JLP liquidity (add/remove) — NOT leveraged. You can't be liquidated and can't
+// lose more than you deposit, but JLP is not a stablecoin: it tracks a basket
+// (SOL/ETH/BTC + stables) and you're the counterparty to perp traders.
+const JLP_TYPES = new Set([
+  'jlp_add', 'jlp_remove',
 ]);
 
 const BORROW_TYPES = new Set([
@@ -98,6 +116,7 @@ export class RiskWarningService {
     amountUsd: number,
   ): Omit<RiskWarningPayload, 'resolve'> | null {
     const items: RiskWarningItem[] = [];
+    const figures: RiskWarningFigure[] = [];
     let title = '';
     let message = '';
     let severity: 'info' | 'warning' | 'danger' = 'info';
@@ -108,26 +127,50 @@ export class RiskWarningService {
     if (LEVERAGED_TYPES.has(action.type)) {
       needsWarning = true;
       title = 'Leveraged Position';
-      message = 'This action opens a leveraged position. Losses can exceed your initial investment.';
+      message = 'This action opens a leveraged position. You can lose your entire collateral if the price moves against you.';
       severity = 'danger';
       confirmLabel = 'I understand the risks';
+      // Qualitative risks — plain sentences, no per-row iconography.
+      // Jupiter Perps uses ISOLATED margin: liquidation caps your loss at the
+      // collateral you deposit, and it charges an hourly BORROW fee (paid to the
+      // JLP pool), not a funding-rate payment.
       items.push(
-        { icon: 'triangle-alert', text: 'Liquidation risk if price moves against your position' },
-        { icon: 'trending-down',  text: 'Losses can exceed deposited collateral' },
-        { icon: 'clock',          text: 'Funding rates may apply over time' },
+        { icon: '', text: 'Your position can be liquidated if the price moves against you.' },
+        { icon: '', text: 'You can lose your entire deposited collateral.' },
+        { icon: '', text: 'A borrow fee accrues hourly for as long as the position stays open.' },
       );
+      // Quantitative facts — surfaced as a compact key-figures strip.
       const leverage = Number(action.params['leverage']);
       if (leverage > 0) {
-        items.push({ icon: 'zap', text: `${leverage}x leverage selected` });
-        // Price move % needed to trigger liquidation (approximate, ignores fees)
+        figures.push({ label: 'Leverage', value: `${leverage}x` });
+        // Approx price move against you that wipes the collateral. Real
+        // liquidation triggers slightly earlier (fees + maintenance margin).
         const liqBuffer = (1 / leverage * 100).toFixed(1);
-        items.push({ icon: 'target', text: `Position liquidated if price moves ~${liqBuffer}% against you` });
+        figures.push({ label: 'Liquidation move', value: `~${liqBuffer}%` });
       }
       const collateral = Number(action.params['collateralAmount'] ?? action.params['collateral'] ?? action.params['amount']);
-      if (collateral > 0 && leverage > 0) {
+      if (collateral > 0) {
         const maxLoss = collateral.toFixed(collateral < 1 ? 4 : 2);
-        items.push({ icon: 'shield-alert', text: `Up to ${maxLoss} ${action.params['token'] ?? 'SOL'} at risk if liquidated` });
+        const collToken = action.params['collateralToken'] ?? action.params['token'] ?? '';
+        figures.push({ label: 'Max at risk', value: `${maxLoss}${collToken ? ' ' + collToken : ''}`, emphasis: true });
       }
+    }
+
+    // ── JLP liquidity (add / remove) ─────────────────────────────────────────
+    else if (JLP_TYPES.has(action.type)) {
+      needsWarning = true;
+      title = action.type === 'jlp_remove' ? 'Redeem JLP' : 'Provide JLP Liquidity';
+      message = action.type === 'jlp_remove'
+        ? 'Redeeming JLP sells your pool share back at the current pool price.'
+        : 'JLP is a liquidity position, not a stablecoin. Its value moves with the pool and is not guaranteed.';
+      severity = 'warning';
+      confirmLabel = action.type === 'jlp_remove' ? 'Redeem JLP' : 'Provide liquidity';
+      // Accurate, non-leverage risks. No liquidation, no losses beyond deposit.
+      items.push(
+        { icon: '', text: 'JLP tracks a basket (SOL, ETH, BTC + stablecoins) — its price can fall if those drop.' },
+        { icon: '', text: 'As a liquidity provider you are the counterparty to perp traders; when traders profit, the pool can lose.' },
+        { icon: '', text: 'A pool fee and price impact apply when you enter or exit.' },
+      );
     }
 
     // ── Borrowing ───────────────────────────────────────────────────────────
@@ -161,9 +204,13 @@ export class RiskWarningService {
     }
 
     // ── Swap all SOL (no fee reserve) ──────────────────────────────────────
+    // `inputMint` can arrive as the "SOL" symbol OR the wrapped-SOL mint, so
+    // match both — otherwise the warning silently never fires on the mint form.
     else if (
       action.type === 'swap' &&
-      String(action.params['inputMint']).toUpperCase() === 'SOL' &&
+      ['SOL', 'SO11111111111111111111111111111111111111112'].includes(
+        String(action.params['inputMint']).toUpperCase(),
+      ) &&
       String(action.params['amount']).toLowerCase() === 'all'
     ) {
       needsWarning = true;
@@ -186,16 +233,21 @@ export class RiskWarningService {
       title = isDanger ? 'Large Transaction' : 'High-Value Transaction';
       message = `This transaction is worth ${this.formatUsd(amountUsd)}. Please verify all details before proceeding.`;
       confirmLabel = isDanger ? 'Confirm large transaction' : 'Confirm';
+      // Only a transfer has a "recipient"; swaps/stakes/lends/DCA etc. don't —
+      // point those at the token + amount instead of a non-existent recipient.
+      const verifyText = action.type === 'transfer'
+        ? 'Double-check the recipient address'
+        : 'Double-check the token and amount';
       items.push(
         { icon: 'dollar-sign',   text: `Amount: ${this.formatUsd(amountUsd)}` },
-        { icon: 'shield-check',  text: 'Double-check recipient / token addresses' },
-        { icon: 'rotate-ccw',    text: 'Blockchain transactions are irreversible' },
+        { icon: 'shield-check',  text: verifyText },
+        { icon: 'rotate-ccw',    text: 'Once signed, the transaction cannot be reversed' },
       );
     }
 
     if (!needsWarning) return null;
 
-    return { title, message, severity, items, confirmLabel };
+    return { title, message, severity, items, figures, confirmLabel };
   }
 
   private formatUsd(amount: number): string {

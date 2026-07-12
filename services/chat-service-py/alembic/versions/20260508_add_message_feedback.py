@@ -33,9 +33,13 @@ def upgrade() -> None:
             updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT message_feedback_msg_wallet_uniq UNIQUE (message_id, wallet),
             CONSTRAINT message_feedback_rating_range   CHECK (rating IN (-1, 1))
-        );
+        )
+        """
+    )
+    op.execute(
+        """
         CREATE INDEX IF NOT EXISTS message_feedback_msg_idx
-            ON chat_schema.message_feedback (message_id);
+            ON chat_schema.message_feedback (message_id)
         """
     )
 

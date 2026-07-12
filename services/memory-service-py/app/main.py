@@ -446,6 +446,48 @@ async def delete_memory(
     return {"ok": True, "id": point_id}
 
 
+@app.delete("/memories")
+async def delete_all_memories(
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+    target_wallet: str | None = Query(None, alias="wallet"),
+):
+    """Delete every memory point owned by the authenticated wallet.
+
+    Used by chat-service's `/user/memories` proxy (Settings → Privacy →
+    "Delete saved memories"). The `wallet` query param is accepted for
+    parity with the proxy but is constrained to the authenticated wallet
+    — clients cannot wipe someone else's memories.
+    """
+    if _vector_service is None:
+        raise HTTPException(status_code=503, detail="Vector service not available")
+
+    # Scope check: only the authenticated wallet can wipe its own memories.
+    # The proxy passes the wallet as a query param for compatibility, but
+    # the auth dependency is the source of truth.
+    if target_wallet and target_wallet != wallet:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    t_start = time.perf_counter()
+    count = await _vector_service.delete_by_wallet(wallet)
+    duration_ms = int((time.perf_counter() - t_start) * 1000)
+
+    await log_memory_op(
+        db,
+        operation="delete_all",
+        collection=settings.COLLECTION_NAME,
+        user_id=wallet,
+        wallet_address=wallet,
+        vector_count=count,
+        metadata={},
+        duration_ms=duration_ms,
+        success=True,
+        error_message=None,
+    )
+
+    return {"ok": True, "deleted": count}
+
+
 # ---------------------------------------------------------------------------
 # Consent Routes
 # ---------------------------------------------------------------------------

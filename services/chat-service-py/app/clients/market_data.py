@@ -8,9 +8,11 @@ Results are formatted as text and streamed inline in chat — no action card.
 API keys: BIRDEYE_API_KEY, HELIUS_API_KEY (from environment).
 """
 
+import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 from urllib.parse import urlparse
@@ -19,6 +21,11 @@ import httpx
 from prometheus_client import Counter, Histogram
 
 _log = logging.getLogger(__name__)
+
+# Base58 alphabet (Bitcoin/Solana): no 0, O, I, l. Used to sanity-check that
+# an SNS resolve result is a real pubkey and not a sentinel string like
+# "Domain not found".
+_BASE58_RE = re.compile(r"[1-9A-HJ-NP-Za-km-z]+")
 
 # ── Per-provider Prometheus metrics ───────────────────────────────────────────
 # Provider is the URL host bucketed to a stable label so Grafana dashboards
@@ -99,7 +106,7 @@ GATEWAY_URL   = os.environ.get("GATEWAY_URL", "http://localhost:3001")
 SOLANA_SERVICE_URL = os.environ.get("SOLANA_SERVICE_URL", "http://localhost:3030")
 INTERNAL_KEY  = os.environ.get("OPRAI_INTERNAL_API_KEY", "")
 TIMEOUT       = 12.0
-_MAX_CHARS    = 6_000
+_MAX_CHARS    = 16_000  # raised from 6_000 so server-ranked wallet PnL payload (~7.5 KB) and token deep-dive composite (multiple ranked arrays) fit; LLM-side cap in message.py was also bumped to 16_000 to match
 _VALIDATOR_MAX_COMMISSION = 10  # % — exclude validators above this threshold
 _VALIDATOR_BASE_APY       = 7.0  # % — approximate Solana network inflation yield
 
@@ -294,6 +301,208 @@ async def birdeye_wallet_pnl(wallet: str, duration: str = "7d", chain: str = "so
     )
 
 
+async def birdeye_wallet_pnl_details(
+    wallet: str,
+    duration: str = "all",
+    sort_by: str = "last_trade",
+    sort_type: str = "desc",
+    limit: int = 50,
+    chain: str = "solana",
+) -> dict:
+    """Per-token PnL breakdown for a wallet — returns the aggregate `summary`
+    plus a pre-ranked `tokens` array containing the top 10 winners and top 10
+    losers (sorted by total_usd PnL), trimmed so the LLM payload stays small
+    enough to fit through the runtime tool-result cap.
+
+    Why we rank server-side: Birdeye returns tokens by last_trade_unix_time,
+    not PnL. The runtime truncates tool results to ~4 KB, so without ranking
+    the LLM only ever sees the most-recently-traded tokens (often near-zero
+    PnL) and never the actual top performers. By ranking here we guarantee
+    the winners/losers reach the model regardless of cap.
+
+    duration: 24h | 7d | 30d | 90d | all (default "all" — widest window)
+    """
+    # Birdeye API only accepts sort_by="last_trade"; ignore caller's sort_by/sort_type.
+    body = {
+        "wallet": wallet,
+        "duration": duration,
+        "sort_by": "last_trade",
+        "sort_type": "desc",
+        "limit": max(1, min(int(limit), 50)),
+    }
+    raw = await _post(
+        f"{BIRDEYE_BASE}/wallet/v2/pnl/details",
+        body=body,
+        headers=_birdeye_headers(chain),
+    )
+
+    # Re-rank + compact server-side so the LLM payload stays well under the
+    # ~4 KB tool-result cap. Without this, the full 30-token Birdeye response
+    # is ~34 KB and gets truncated, leaving the model with only the first few
+    # (most recently traded, not most profitable) tokens.
+    if isinstance(raw, dict) and isinstance(raw.get("data"), dict):
+        data = raw["data"]
+        tokens = data.get("tokens") or []
+        if isinstance(tokens, list) and tokens:
+            def _total(t: dict) -> float:
+                p = (t.get("pnl") or {})
+                v = p.get("total_usd")
+                return float(v) if v is not None else 0.0
+
+            def _compact(t: dict) -> dict:
+                """Keep only fields the LLM needs to write the report row."""
+                p   = t.get("pnl") or {}
+                c   = t.get("counts") or {}
+                q   = t.get("quantity") or {}
+                cf  = t.get("cashflow_usd") or {}
+                pr  = t.get("pricing") or {}
+                return {
+                    "symbol":         t.get("symbol"),
+                    "address":        t.get("address"),
+                    "total_pnl":      p.get("total_usd"),
+                    "realized":       p.get("realized_profit_usd"),
+                    "unrealized":     p.get("unrealized_usd"),
+                    "return_pct":     p.get("total_percent"),
+                    "trades":         c.get("total_trade"),
+                    "holding":        q.get("holding"),
+                    "invested":       cf.get("total_invested"),
+                    "current_value":  cf.get("current_value"),
+                    "avg_buy_price":  pr.get("avg_buy_cost"),
+                    "current_price":  pr.get("current_price"),
+                }
+
+            sorted_desc = sorted(tokens, key=_total, reverse=True)
+            sorted_asc  = sorted(tokens, key=_total)
+
+            winners = [_compact(t) for t in sorted_desc if _total(t) > 0][:10]
+            losers  = [_compact(t) for t in sorted_asc  if _total(t) < 0][:10]
+
+            data["tokens_total_count"]       = len(tokens)
+            data["top_winners_by_total_pnl"] = winners
+            data["top_losers_by_total_pnl"]  = losers
+            # Drop the raw `tokens` array entirely — winners + losers cover
+            # everything the model needs and removes ~25 KB of duplication.
+            data.pop("tokens", None)
+            data.pop("meta", None)  # rarely useful for analysis, saves space
+
+    return raw
+
+
+async def birdeye_wallet_first_funded(wallets: str, token_address: str | None = None, chain: str = "solana") -> dict:
+    """First on-chain funding event for one or more wallets — reveals wallet age
+    and where the SOL/USDC came from (CEX hot wallet, another personal wallet,
+    bridge, airdrop). Critical for Nansen-style wallet provenance.
+
+    wallets: comma-separated list (the underlying API expects a JSON array, we split here)
+    token_address: optional — first time the wallet received THIS token, not first funded overall
+    """
+    wallet_list = [w.strip() for w in wallets.split(",") if w.strip()]
+    body: dict = {"wallets": wallet_list}
+    if token_address:
+        body["token_address"] = token_address
+    return await _post(
+        f"{BIRDEYE_BASE}/wallet/v2/tx/first-funded",
+        body=body,
+        headers=_birdeye_headers(chain),
+    )
+
+
+async def birdeye_wallet_net_worth_history(
+    wallet: str,
+    count: int = 30,
+    direction: str = "back",
+    type: str = "1d",
+    chain: str = "solana",
+) -> dict:
+    """Wallet net worth trajectory over time — USD snapshots, reveals growth
+    pattern and drawdowns.
+    type: 1d (daily) | 1h (hourly)
+    count: how many points (default 30)
+    direction: back (going back from now) | forward
+    """
+    return await _get(
+        f"{BIRDEYE_BASE}/wallet/v2/net-worth",
+        params={
+            "wallet": wallet, "count": count,
+            "direction": direction, "type": type, "sort_type": "desc",
+        },
+        headers=_birdeye_headers(chain),
+    )
+
+
+async def birdeye_holder_distribution(
+    token_address: str,
+    mode: str = "top",
+    top_n: int = 10,
+    min_percent: float | None = None,
+    max_percent: float | None = None,
+    chain: str = "solana",
+) -> dict:
+    """Token holder concentration analytics.
+    mode='top'     → top N holders + their cumulative %
+    mode='percent' → wallets holding between min_percent and max_percent of supply
+    Use this to answer "how concentrated is X" / "is the top 10 over 30%".
+    """
+    params: dict = {
+        "token_address": token_address, "address_type": "wallet",
+        "mode": mode, "include_list": True, "limit": 50,
+    }
+    if mode == "top":
+        params["top_n"] = top_n
+    else:
+        if min_percent is not None: params["min_percent"] = min_percent
+        if max_percent is not None: params["max_percent"] = max_percent
+    return await _get(
+        f"{BIRDEYE_BASE}/holder/v1/distribution",
+        params=params,
+        headers=_birdeye_headers(chain),
+    )
+
+
+async def birdeye_holder_profile(token_address: str, interval: str = "1h", chain: str = "solana") -> dict:
+    """Token holder growth profile — total holders, new (joined), churned (left),
+    volume by holder cohort. Use this to see if a token is gaining or losing
+    holders over the chosen interval.
+    interval: 1h | 4h | 24h
+    """
+    return await _get(
+        f"{BIRDEYE_BASE}/token/v1/holder-profile",
+        params={
+            "token_address": token_address, "interval": interval,
+            "ui_amount_mode": "scaled", "include_zero_balance": True,
+        },
+        headers=_birdeye_headers(chain),
+    )
+
+
+async def birdeye_token_trade_data(address: str, chain: str = "solana") -> dict:
+    """Real-time trade flow for a token — buy/sell counts, B/S ratio, unique
+    traders, volume by side. Critical for accumulation-vs-distribution reads."""
+    return await _get(
+        f"{BIRDEYE_BASE}/defi/v3/token/trade-data/single",
+        params={"address": address},
+        headers=_birdeye_headers(chain),
+    )
+
+
+async def birdeye_holder_positions(token_address: str, labels: str | None = "bundler,sniper,insider", chain: str = "solana") -> dict:
+    """Holders matching specific behavioural labels — sniper (bought at launch),
+    bundler (multi-wallet coordinated buy), insider (deployer-linked), dev.
+    Critical signal for memecoin/new-launch risk assessment.
+
+    labels: comma-separated subset of: bundler | sniper | insider | dev (None = all holders)
+    """
+    return await _get(
+        f"{BIRDEYE_BASE}/token/v1/holder-positions",
+        params={
+            "token_address": token_address, "labels": labels,
+            "sort_by": "amount", "order_type": "desc",
+            "include_zero_balance": True, "limit": 50,
+        },
+        headers=_birdeye_headers(chain),
+    )
+
+
 async def birdeye_smart_money(interval: str = "1d", limit: int = 20) -> dict:
     """Tokens being accumulated by smart money wallets. interval: 1d|7d|30d."""
     return await _get(
@@ -339,6 +548,613 @@ async def birdeye_price_history(
 
 
 # ── DexScreener ───────────────────────────────────────────────────────────────
+
+async def _dexscreener_socials(mint: str) -> dict:
+    """Pull social links (twitter/telegram/website) + image from DexScreener."""
+    raw = await _get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}")
+    pairs = raw.get("pairs") or [] if isinstance(raw, dict) else []
+    for p in pairs:
+        info = (p or {}).get("info") or {}
+        socials = info.get("socials") or []
+        websites = info.get("websites") or []
+        if socials or websites:
+            return {
+                "socials": {
+                    (s.get("type") or s.get("platform") or "link"): s.get("url")
+                    for s in socials if isinstance(s, dict) and s.get("url")
+                },
+                "websites": [w.get("url") for w in websites if isinstance(w, dict) and w.get("url")],
+                "imageUrl": info.get("imageUrl"),
+            }
+    return {}
+
+
+# ── Curated KOL / influencer wallet registry ─────────────────────────────────
+# Loaded once from app/data/kol_wallets.json: {"<wallet>": "<handle/name>"}.
+# Empty by default — populate it to enable exact KOL attribution. Birdeye's own
+# "whale"/"bundler"/"smart" trader tags already provide smart-money signal
+# without this list; the registry adds named-KOL matching on top.
+_KOL_WALLETS: dict[str, str] | None = None
+
+
+def _load_kol_wallets() -> dict[str, str]:
+    global _KOL_WALLETS
+    if _KOL_WALLETS is None:
+        try:
+            _p = os.path.join(os.path.dirname(__file__), "..", "data", "kol_wallets.json")
+            with open(_p, "r", encoding="utf-8") as f:
+                _KOL_WALLETS = {str(k): str(v) for k, v in (json.load(f) or {}).items()}
+        except Exception:
+            _KOL_WALLETS = {}
+    return _KOL_WALLETS
+
+
+def _unwrap(x: Any) -> Any:
+    """Safely unwrap a {'data': ...} envelope; return None on error/exception."""
+    if isinstance(x, Exception) or x is None:
+        return None
+    if isinstance(x, dict) and "data" in x:
+        return x["data"]
+    return x
+
+
+def _num(v: Any, default: float = 0.0) -> float:
+    """Best-effort float parse (shared across analysis aggregates)."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _enrich_pumpfun_ath(resp: Any) -> Any:
+    """Pre-compute ATH drawdown for pump.fun token info so the LLM never has to
+    divide by hand (a frequent source of ~1000x % errors). market_cap and
+    ath_market_cap are both in the same quote unit, so the ratio is unit-free.
+    Adds pct_of_ath, drawdown_from_ath_pct, and ath_market_cap_usd in place."""
+    try:
+        d = resp.get("data") if isinstance(resp, dict) and isinstance(resp.get("data"), dict) else resp
+        if not isinstance(d, dict):
+            return resp
+        mc = _num(d.get("market_cap") or d.get("market_cap_quote"))
+        ath = _num(d.get("ath_market_cap"))
+        usd = _num(d.get("usd_market_cap"))
+        if mc > 0 and ath > 0:
+            pct = mc / ath * 100.0
+            d["pct_of_ath"] = round(pct, 4 if pct < 1 else 2)
+            d["drawdown_from_ath_pct"] = round(100.0 - pct, 2)
+            if usd > 0:
+                d["ath_market_cap_usd"] = round(ath / mc * usd, 2)
+    except Exception:
+        pass
+    return resp
+
+
+async def _dev_launch_history(creator: str) -> dict:
+    """How many tokens this creator has launched — serial-launcher / rug signal.
+    Uses Helius getAssetsByCreator (real on-chain data, no paid provider)."""
+    if not creator or not HELIUS_KEY:
+        return {}
+    try:
+        res = await _post(HELIUS_RPC, {
+            "jsonrpc": "2.0", "id": 1, "method": "getAssetsByCreator",
+            "params": {"creatorAddress": creator, "onlyVerified": False, "page": 1, "limit": 100},
+        })
+        d = (res or {}).get("result", {}) if isinstance(res, dict) else {}
+        items = d.get("items") or []
+        samples = []
+        for it in items[:8]:
+            md = ((it or {}).get("content") or {}).get("metadata") or {}
+            samples.append(md.get("symbol") or md.get("name") or (it.get("id", "")[:8]))
+        return {"tokens_created": int(d.get("total") or len(items)), "samples": samples}
+    except Exception:
+        return {}
+
+
+async def _wallet_pnl_score(wallet: str) -> dict:
+    """DIY smart-money score for a wallet from Birdeye PnL summary (win rate +
+    realized profit). This is how we approximate GMGN 'smart money' with our
+    own keys — no Nansen/GMGN needed."""
+    try:
+        r = await birdeye_wallet_pnl(wallet, duration="7d")
+        s = (_unwrap(r) or {}).get("summary") or {}
+        wr = (s.get("counts") or {}).get("win_rate")
+        realized = (s.get("pnl") or {}).get("realized_profit_usd")
+        return {
+            "wallet": wallet,
+            "win_rate_pct": round(float(wr) * 100, 1) if wr is not None else None,
+            "realized_pnl_usd": round(float(realized), 0) if realized is not None else None,
+            "unique_tokens": int((s.get("unique_tokens") or 0)),
+        }
+    except Exception:
+        return {"wallet": wallet}
+
+
+# ── Single-source query-tool registry ────────────────────────────────────────
+# The 4-place rule (dispatch + QueryType enum + tool_selector tags + prompt doc)
+# is the #1 source of "tool silently doesn't work" bugs. The @query_tool
+# decorator collapses THREE of those four into one declaration at the function:
+# params (for _DISPATCH), tags (for tool_selector), and — validated at import —
+# the QueryType enum. Only the prose prompt doc stays separate (it can't be
+# generated). New query tools SHOULD use this decorator instead of hand-editing
+# _DISPATCH + tool_selector. `validate_tool_registry()` (in tool_selector) fails
+# loudly at import if any dispatch tool is missing its enum value or tags.
+_QUERY_TOOL_REGISTRY: dict[str, tuple] = {}  # name -> (fn, required, optional, tags)
+
+
+def query_tool(required: list[str] | None = None,
+               optional: list[str] | None = None,
+               tags: set[str] | None = None):
+    """Register a query_onchain tool in one place: params + tags live here, next
+    to the implementation. Derives the _DISPATCH entry and the tool_selector tag
+    set; the QueryType enum membership is cross-checked at import."""
+    def _deco(fn):
+        _QUERY_TOOL_REGISTRY[fn.__name__] = (
+            fn, list(required or []), list(optional or []), frozenset(tags or set()),
+        )
+        return fn
+    return _deco
+
+
+@query_tool(required=["address"], optional=["chain"], tags={"analysis"})
+async def token_deep_analysis(address: str, chain: str = "solana") -> dict:
+    """GMGN-style deep token analysis. Fans out concurrently to overview,
+    security, holder concentration, behavioural holder labels
+    (sniper/bundler/insider/dev), top traders (whale/smart tags), KOL registry
+    and socials — then returns a COMPACT, pre-computed summary with risk flags.
+    Present this instead of a plain price/mcap readout when the user asks for a
+    detailed / deep / GMGN-style analysis, or 'is there smart money / snipers /
+    bundlers / KOLs'."""
+    _labels = ["sniper", "bundler", "insider", "dev"]
+    _res = await asyncio.gather(
+        birdeye_token_overview(address, chain),
+        birdeye_token_security(address, chain),
+        birdeye_holder_distribution(address, mode="top", top_n=10, chain=chain),
+        birdeye_token_top_traders(address),
+        *[birdeye_holder_positions(address, labels=lb, chain=chain) for lb in _labels],
+        _dexscreener_socials(address),
+        birdeye_holder_profile(address, chain=chain),
+        return_exceptions=True,
+    )
+    ov = _unwrap(_res[0]) or {}
+    sec = _unwrap(_res[1]) or {}
+    dist = _unwrap(_res[2]) or {}
+    traders_d = _unwrap(_res[3]) or {}
+    pos_by_label = {lb: (_unwrap(_res[4 + i]) or []) for i, lb in enumerate(_labels)}
+    socials = _res[8] if not isinstance(_res[8], Exception) else {}
+    hp = _unwrap(_res[9]) or {}
+
+    kol = _load_kol_wallets()
+
+    def _f(v: Any, default: float = 0.0) -> float:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    # ── Overview ──
+    overview = {
+        "price_usd": _f(ov.get("price")),
+        "market_cap": _f(ov.get("marketCap") or ov.get("mc") or ov.get("realMc")),
+        "liquidity_usd": _f(ov.get("liquidity")),
+        "volume_24h_usd": _f(ov.get("v24hUSD") or ov.get("v24h")),
+        "price_change_24h_pct": _f(ov.get("priceChange24hPercent")),
+        "holder_count": int(_f(ov.get("holder") or ov.get("holders"))),
+        "unique_wallets_24h": int(_f(ov.get("uniqueWallet24h"))),
+        "trades_24h": int(_f(ov.get("trade24h"))),
+    }
+
+    # ── Momentum + trade pressure (all from overview — no extra API calls) ──
+    momentum = {
+        "price_change_1h_pct": round(_f(ov.get("priceChange1hPercent")), 2),
+        "price_change_6h_pct": round(_f(ov.get("priceChange4hPercent") or ov.get("priceChange8hPercent")), 2),
+        "price_change_24h_pct": round(_f(ov.get("priceChange24hPercent")), 2),
+        "unique_wallets_24h_change_pct": round(_f(ov.get("uniqueWallet24hChangePercent")), 2),
+        "trades_24h_change_pct": round(_f(ov.get("trade24hChangePercent")), 2),
+    }
+    _vbuy = _f(ov.get("vBuy24hUSD"))
+    _vsell = _f(ov.get("vSell24hUSD"))
+    trade_pressure = {
+        "buy_volume_24h_usd": round(_vbuy, 2),
+        "sell_volume_24h_usd": round(_vsell, 2),
+        "buy_sell_vol_ratio": round(_vbuy / _vsell, 2) if _vsell > 0 else None,
+        "buy_count_24h": int(_f(ov.get("buy24h"))),
+        "sell_count_24h": int(_f(ov.get("sell24h"))),
+    }
+    # Age from holder-profile creation_time (falls back to overview if absent).
+    _created = _f((hp.get("token") or {}).get("creation_time")) if isinstance(hp, dict) else 0.0
+    _age_days = round((time.time() - _created) / 86400, 1) if _created > 0 else None
+    _mc = overview["market_cap"]
+    liquidity_health = {
+        "age_days": _age_days,
+        "liquidity_to_mcap_pct": round(overview["liquidity_usd"] / _mc * 100, 2) if _mc > 0 else None,
+        "volume_to_mcap_pct": round(overview["volume_24h_usd"] / _mc * 100, 2) if _mc > 0 else None,
+    }
+
+    # ── Security / rug signals ──
+    def _authority_active(*keys: str) -> bool:
+        for k in keys:
+            v = sec.get(k)
+            if isinstance(v, str) and v and v.lower() not in ("null", "none", "11111111111111111111111111111111"):
+                return True
+        return False
+    # NOTE: authority-active is judged ONLY by the authority pubkey field.
+    # `mintTx`/`creationTx` are the mint/creation transaction SIGNATURES — always
+    # present for any token — so including them here falsely reported "mint
+    # authority active" on every pump.fun token (whose mintAuthority is null /
+    # renounced). Check the authority field alone.
+    security = {
+        "creator": sec.get("creatorAddress"),
+        "mint_authority_active": _authority_active("mintAuthority"),
+        "freeze_authority_active": _authority_active("freezeAuthority"),
+        "is_mutable": bool(sec.get("mutableMetadata")) if sec.get("mutableMetadata") is not None else None,
+        "is_token_2022": bool(sec.get("isToken2022")) if sec.get("isToken2022") is not None else None,
+        "transfer_fee_active": bool(sec.get("transferFeeEnable")) if sec.get("transferFeeEnable") is not None else None,
+        "non_transferable": bool(sec.get("nonTransferable")) if sec.get("nonTransferable") is not None else None,
+        "top10_holder_pct": _f(sec.get("top10HolderPercent")) * (100 if _f(sec.get("top10HolderPercent")) <= 1 else 1),
+        "creator_pct": _f(sec.get("creatorPercentage")) * (100 if _f(sec.get("creatorPercentage")) <= 1 else 1),
+    }
+
+    # ── Concentration (top 10 wallets) ──
+    dist_summary = dist.get("summary") if isinstance(dist, dict) else None
+    top10_pct = _f((dist_summary or {}).get("percent_of_supply")) if dist_summary else security["top10_holder_pct"]
+    concentration = {
+        "top10_pct": round(top10_pct, 2),
+        "top10_wallet_count": int((dist_summary or {}).get("wallet_count") or 0),
+    }
+
+    # ── Behavioural holder labels ──
+    holder_labels: dict[str, dict] = {}
+    for lb, rows in pos_by_label.items():
+        rows = rows if isinstance(rows, list) else []
+        holder_labels[lb] = {
+            "count": len(rows),
+            "pct_of_supply": round(sum(_f(r.get("percent_of_supply")) for r in rows if isinstance(r, dict)), 2),
+        }
+
+    # ── Top traders + smart/whale/KOL attribution ──
+    trader_items = traders_d.get("items") if isinstance(traders_d, dict) else (traders_d if isinstance(traders_d, list) else [])
+    trader_items = trader_items or []
+    smart_count = 0
+    kol_hits: list[dict] = []
+    top_traders_out: list[dict] = []
+    for t in trader_items[:15]:
+        if not isinstance(t, dict):
+            continue
+        owner = t.get("owner") or t.get("address") or ""
+        tags = t.get("tags") or []
+        if any(str(tg).lower() in ("whale", "smart_money", "smartmoney", "bundler") for tg in tags):
+            smart_count += 1
+        if owner in kol:
+            kol_hits.append({"wallet": owner, "handle": kol[owner]})
+        top_traders_out.append({
+            "wallet": owner,
+            "tags": tags,
+            "volume_usd": _f(t.get("volume")),
+            "trades": int(_f(t.get("trade"))),
+        })
+
+    # Also match KOL registry against the top-10 holder list.
+    for h in (dist.get("holders") or []) if isinstance(dist, dict) else []:
+        w = h.get("wallet") if isinstance(h, dict) else None
+        if w and w in kol and not any(k["wallet"] == w for k in kol_hits):
+            kol_hits.append({"wallet": w, "handle": kol[w]})
+
+    # ── Phase 2: dev launch history + DIY PnL-scored smart money ──
+    # These need creator + trader owners known from phase 1, so they run in a
+    # second concurrent batch. Both use our own keys (Helius + Birdeye PnL).
+    _owners = [t["wallet"] for t in top_traders_out[:6] if t.get("wallet")]
+    _p2 = await asyncio.gather(
+        _dev_launch_history(security.get("creator") or ""),
+        bundle_ring_analysis(address, chain),
+        *[_wallet_pnl_score(w) for w in _owners],
+        return_exceptions=True,
+    )
+    dev_profile = _p2[0] if _p2 and not isinstance(_p2[0], Exception) else {}
+    _bundle = _p2[1] if len(_p2) > 1 and isinstance(_p2[1], dict) else {}
+    bundle = {
+        "verdict": _bundle.get("verdict"),
+        "ring_count": _bundle.get("ring_count"),
+        "largest_ring_wallets": _bundle.get("largest_ring_wallets"),
+        "ringed_supply_pct": _bundle.get("ringed_supply_pct"),
+    } if _bundle else {}
+    _scores = [s for s in _p2[2:] if isinstance(s, dict)]
+    # DIY "smart money" = net-profitable wallets with a real win rate.
+    smart_money_wallets = [
+        s for s in _scores
+        if (s.get("realized_pnl_usd") or 0) > 0 and (s.get("win_rate_pct") or 0) >= 40
+    ]
+    # Fold DIY-profitable wallets that are also in the KOL registry into kol_hits.
+    for s in smart_money_wallets:
+        w = s.get("wallet")
+        if w in kol and not any(k["wallet"] == w for k in kol_hits):
+            kol_hits.append({"wallet": w, "handle": kol[w]})
+
+    # ── Risk flags (computed, deterministic) ──
+    risk_flags = {
+        "high_concentration": concentration["top10_pct"] >= 30,
+        "mint_authority_active": security["mint_authority_active"],
+        "freeze_authority_active": security["freeze_authority_active"],
+        "heavy_sniper_presence": holder_labels.get("sniper", {}).get("pct_of_supply", 0) >= 5,
+        "insider_presence": holder_labels.get("insider", {}).get("count", 0) > 0,
+        "bundle_detected": holder_labels.get("bundler", {}).get("count", 0) > 0,
+        "low_liquidity": overview["liquidity_usd"] < 10_000,
+        "serial_launcher_dev": (dev_profile.get("tokens_created") or 0) >= 5,
+        "coordinated_bundle": bundle.get("verdict") == "high_risk_bundle",
+        "heavy_sell_pressure": (trade_pressure["buy_sell_vol_ratio"] is not None
+                                and trade_pressure["buy_sell_vol_ratio"] < 0.7),
+        "transfer_fee_active": security["transfer_fee_active"] is True,
+        "non_transferable": security["non_transferable"] is True,
+    }
+
+    # ── Computed quality score (0-100, deterministic) + flag lists ──
+    _penalties = {
+        "high_concentration": 18, "mint_authority_active": 15, "freeze_authority_active": 15,
+        "heavy_sniper_presence": 10, "insider_presence": 10, "bundle_detected": 8,
+        "low_liquidity": 15, "serial_launcher_dev": 12, "coordinated_bundle": 15,
+        "heavy_sell_pressure": 8, "transfer_fee_active": 12, "non_transferable": 25,
+    }
+    _score = 100
+    red_flags = []
+    for flag, pen in _penalties.items():
+        if risk_flags.get(flag):
+            _score -= pen
+            red_flags.append(flag)
+    green_flags = []
+    if smart_money_wallets:
+        _score += 5; green_flags.append("profitable_smart_money_holders")
+    if kol_hits:
+        _score += 5; green_flags.append("kol_holders_present")
+    if not security["mint_authority_active"] and not security["freeze_authority_active"]:
+        green_flags.append("authorities_renounced")
+    if concentration["top10_pct"] and concentration["top10_pct"] < 20:
+        green_flags.append("healthy_distribution")
+    _score = max(0, min(100, _score))
+    _rating = ("high_risk" if _score < 40 else "caution" if _score < 65 else "moderate" if _score < 82 else "solid")
+    quality = {"score": _score, "rating": _rating, "red_flags": red_flags, "green_flags": green_flags}
+
+    return {
+        "mint": address,
+        "quality": quality,
+        "overview": overview,
+        "momentum": momentum,
+        "trade_pressure": trade_pressure,
+        "liquidity_health": liquidity_health,
+        "security": security,
+        "dev_profile": dev_profile,
+        "concentration": concentration,
+        "holder_labels": holder_labels,
+        "bundle": bundle,
+        "smart_money_trader_count": smart_count,
+        "smart_money_wallets": smart_money_wallets,
+        "top_traders": top_traders_out[:8],
+        "kol_holders": kol_hits,
+        "kol_registry_size": len(kol),
+        "socials": socials or {},
+        "risk_flags": risk_flags,
+        "_note": (
+            "quality.score = deterministic 0-100 (penalties for risk_flags, bonus for "
+            "smart-money/KOL/renounced authorities); momentum+trade_pressure+liquidity_health "
+            "from Birdeye overview; bundle = same-block coordinated-ring check; "
+            "smart_money_wallets = DIY PnL-scored; dev_profile = Helius launch history."
+        ),
+    }
+
+
+# ── Bundle-ring / coordinated-wallet detection ────────────────────────────────
+
+@query_tool(required=["token_address"], optional=["chain"], tags={"analysis"})
+async def bundle_ring_analysis(token_address: str, chain: str = "solana") -> dict:
+    """Detect coordinated wallet rings (bundles / insider clusters) for a token.
+    Pulls the sniper/bundler/insider holder set, then uses each wallet's FIRST
+    acquisition block for THIS token (Birdeye first-funded) to find wallets that
+    bought in the SAME block — the on-chain signature of a coordinated bundle.
+    Real GMGN-style bundle/rug intel from our own keys (Birdeye + Helius)."""
+    labels = ["bundler", "sniper", "insider"]
+    _res = await asyncio.gather(
+        *[birdeye_holder_positions(token_address, labels=lb, chain=chain) for lb in labels],
+        return_exceptions=True,
+    )
+    # Distinct suspect wallets → strongest supply % + union of labels.
+    suspects: dict[str, dict] = {}
+    for lb, r in zip(labels, _res):
+        rows = _unwrap(r) or []
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            w = row.get("wallet_address")
+            if not w:
+                continue
+            pct = _num(row.get("percent_of_supply"))
+            cur = suspects.get(w)
+            if cur is None:
+                suspects[w] = {"labels": {lb}, "pct_of_supply": pct}
+            else:
+                cur["labels"].add(lb)
+                cur["pct_of_supply"] = max(cur["pct_of_supply"], pct)
+
+    wallets = list(suspects.keys())
+    if not wallets:
+        return {
+            "mint": token_address, "suspect_wallets": 0, "ring_count": 0,
+            "rings": [], "verdict": "clean",
+            "note": "No bundler/sniper/insider-labelled wallets found for this token.",
+        }
+
+    # First acquisition block for THIS token, per wallet (Birdeye first-funded).
+    acquire: dict[str, int] = {}
+    for i in range(0, len(wallets), 40):
+        chunk = wallets[i:i + 40]
+        try:
+            ff = await birdeye_wallet_first_funded(",".join(chunk), token_address=token_address, chain=chain)
+            data = (ff or {}).get("data") or {}
+            for w, info in data.items():
+                if isinstance(info, dict) and info.get("block_number"):
+                    acquire[w] = int(info["block_number"])
+        except Exception:
+            continue
+
+    # Cluster suspect wallets by identical acquisition block = coordinated buy.
+    by_block: dict[int, list[str]] = {}
+    for w, blk in acquire.items():
+        by_block.setdefault(blk, []).append(w)
+
+    rings = []
+    for block, members in by_block.items():
+        if len(members) >= 2:
+            supply = round(sum(suspects[w]["pct_of_supply"] for w in members if w in suspects), 3)
+            rings.append({
+                "acquire_block": block,
+                "wallet_count": len(members),
+                "pct_of_supply": supply,
+                "wallets": members[:10],
+            })
+    rings.sort(key=lambda x: (x["wallet_count"], x["pct_of_supply"]), reverse=True)
+
+    ringed_wallets = sum(x["wallet_count"] for x in rings)
+    ringed_supply = round(sum(x["pct_of_supply"] for x in rings), 3)
+    largest = rings[0]["wallet_count"] if rings else 0
+
+    if largest >= 5 or ringed_supply >= 10:
+        verdict = "high_risk_bundle"
+    elif rings:
+        verdict = "coordinated_activity_detected"
+    else:
+        verdict = "no_same_block_clusters"
+
+    return {
+        "mint": token_address,
+        "suspect_wallets": len(wallets),
+        "wallets_with_acquire_block": len(acquire),
+        "ring_count": len(rings),
+        "largest_ring_wallets": largest,
+        "ringed_wallets_total": ringed_wallets,
+        "ringed_supply_pct": ringed_supply,
+        "rings": rings[:8],
+        "verdict": verdict,
+        "note": (
+            "rings = groups of sniper/bundler/insider wallets that FIRST acquired "
+            "this token in the same block (coordinated bundle). ringed_supply_pct = "
+            "combined supply held by those wallets. Source: Birdeye holder-positions "
+            "+ first-funded (our own keys, no paid provider)."
+        ),
+    }
+
+
+# ── KOL / smart-money discovery feed ──────────────────────────────────────────
+
+_KOL_FEED_STABLES = {
+    "So11111111111111111111111111111111111111112",   # wSOL
+    "So11111111111111111111111111111111111111111",   # native SOL (Birdeye alias)
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",   # USDC
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",   # USDT
+}
+_KOL_FEED_CACHE: dict = {"ts": 0.0, "hours": None, "buys": None}
+_KOL_FEED_TTL = 120  # seconds — scanning the whole registry is expensive
+
+
+async def _kol_recent_buys(wallet: str, handle: str, since_ts: int, sem: "asyncio.Semaphore") -> list[dict]:
+    """Recent BUY-side swaps for one KOL wallet (token received, non-stable)."""
+    async with sem:
+        try:
+            txs = await helius_wallet_txs(wallet, limit=25)
+        except Exception:
+            return []
+    out: list[dict] = []
+    if not isinstance(txs, list):
+        return out
+    for t in txs:
+        if not isinstance(t, dict) or t.get("type") != "SWAP":
+            continue
+        ts = int(t.get("timestamp") or 0)
+        if ts < since_ts:
+            continue
+        for tt in (t.get("tokenTransfers") or []):
+            if not isinstance(tt, dict):
+                continue
+            if tt.get("toUserAccount") == wallet and tt.get("mint") not in _KOL_FEED_STABLES:
+                out.append({"mint": tt["mint"], "handle": handle, "ts": ts})
+                break  # one buy per swap tx
+    return out
+
+
+@query_tool(optional=["hours", "limit", "chain"], tags={"analysis"})
+async def kol_discovery_feed(hours: int = 24, limit: int = 15, chain: str = "solana") -> dict:
+    """What the tracked KOL / smart-money wallets are BUYING right now. Scans the
+    curated KOL registry's recent on-chain swaps (Helius) and ranks tokens by how
+    many DISTINCT KOLs bought them in the last `hours`. This is the 'smart money is
+    buying X' discovery feed — real-time, from our own keys. Use it for questions
+    like 'what are KOLs / smart money buying', 'what's smart money accumulating'."""
+    kol = _load_kol_wallets()
+    if not kol:
+        return {"tokens": [], "wallets_scanned": 0,
+                "note": "KOL registry (app/data/kol_wallets.json) is empty — populate it to enable this feed."}
+
+    hours = max(1, min(int(hours), 168))
+    limit = max(1, min(int(limit), 30))
+    since = int(time.time()) - hours * 3600
+
+    c = _KOL_FEED_CACHE
+    if c["buys"] is not None and c["hours"] == hours and (time.time() - c["ts"]) < _KOL_FEED_TTL:
+        buys = c["buys"]
+    else:
+        sem = asyncio.Semaphore(10)
+        results = await asyncio.gather(
+            *[_kol_recent_buys(w, h, since, sem) for w, h in kol.items()],
+            return_exceptions=True,
+        )
+        buys = [b for r in results if isinstance(r, list) for b in r]
+        c.update({"ts": time.time(), "hours": hours, "buys": buys})
+
+    agg: dict[str, dict] = {}
+    for b in buys:
+        row = agg.setdefault(b["mint"], {"mint": b["mint"], "kols": set(), "buys": 0, "latest_ts": 0})
+        row["kols"].add(b["handle"])
+        row["buys"] += 1
+        row["latest_ts"] = max(row["latest_ts"], b["ts"])
+
+    ranked = sorted(agg.values(), key=lambda x: (len(x["kols"]), x["latest_ts"]), reverse=True)[:limit]
+
+    async def _meta(mint: str) -> tuple[str, dict]:
+        try:
+            d = _unwrap(await birdeye_token_overview(mint, chain)) or {}
+            return mint, {
+                "symbol": d.get("symbol"), "name": d.get("name"),
+                "market_cap": d.get("marketCap") or d.get("mc") or d.get("realMc"),
+                "liquidity_usd": d.get("liquidity"),
+            }
+        except Exception:
+            return mint, {}
+
+    metas = dict(await asyncio.gather(*[_meta(x["mint"]) for x in ranked])) if ranked else {}
+
+    tokens = []
+    for x in ranked:
+        md = metas.get(x["mint"], {})
+        tokens.append({
+            "mint": x["mint"],
+            "symbol": md.get("symbol"),
+            "name": md.get("name"),
+            "kol_buyers": len(x["kols"]),
+            "kols": sorted(x["kols"])[:12],
+            "total_buys": x["buys"],
+            "market_cap": md.get("market_cap"),
+            "liquidity_usd": md.get("liquidity_usd"),
+        })
+
+    return {
+        "window_hours": hours,
+        "wallets_scanned": len(kol),
+        "distinct_tokens_bought": len(agg),
+        "tokens": tokens,
+        "note": (
+            "Ranked by number of DISTINCT KOLs buying in the window. "
+            "Source: Helius parsed swaps across the curated KOL registry (our keys). "
+            "kol_buyers >= 2-3 on a fresh low-cap = strong smart-money signal."
+        ),
+    }
+
 
 async def dex_token(mint: str) -> dict:
     """All DEX pairs for a token — price, 24h volume, liquidity, market cap.
@@ -487,6 +1303,42 @@ async def jup_token_search(query: str) -> list:
 async def jup_trending(limit: int = 20) -> list:
     """Trending tokens on Jupiter by volume."""
     return await _get("https://api.jup.ag/tokens/v2/trending", params={"limit": limit}, headers=_jup_headers())
+
+
+# ── Jupiter Portfolio API ─────────────────────────────────────────────────────
+# Scope: Jupiter products ONLY (DCA, limit orders, perpetuals, lend,
+# JUP / JupSOL stake, Jupiter LP). Cross-protocol coverage (Kamino, Meteora,
+# etc.) lives in other tools. All endpoints require x-api-key; the lite host
+# returns 404 on /portfolio/* paths.
+
+async def jup_portfolio_positions(wallet: str, platforms: str = "") -> dict:
+    """Wallet positions across Jupiter products (DCA / limit / perp / lend /
+    stake / LP). Optional comma-separated `platforms` filter."""
+    params: dict = {}
+    if platforms:
+        params["platforms"] = platforms
+    return await _get(
+        f"https://api.jup.ag/portfolio/v1/positions/{wallet}",
+        params=params,
+        headers=_jup_headers(),
+    )
+
+
+async def jup_staked_jup(wallet: str) -> dict:
+    """JUP staking state: total staked + pending unstakes."""
+    return await _get(
+        f"https://api.jup.ag/portfolio/v1/staked-jup/{wallet}",
+        headers=_jup_headers(),
+    )
+
+
+async def jup_portfolio_platforms() -> list:
+    """Full catalog of platforms the Portfolio API knows about (id, name,
+    logo, deprecation flag). Useful when the LLM needs to filter or label."""
+    return await _get(
+        "https://api.jup.ag/portfolio/v1/platforms",
+        headers=_jup_headers(),
+    )
 
 
 # ── Protocol Guidance (claim / vote — no TX, just info) ──────────────────────
@@ -924,8 +1776,27 @@ async def _sns_get(path: str) -> Any:
 async def sns_resolve(domain: str) -> dict:
     d = domain.lower().removesuffix(".sol")
     try:
-        owner = await _sns_get(f"resolve/{d}")
-        return {"domain": f"{d}.sol", "owner": owner, "registered": True}
+        raw = await _sns_get(f"resolve/{d}")
+        # Bonfida proxy wraps the answer in `{"s":"ok","result":"<owner>"}`;
+        # older deployments returned the bare string. Handle both shapes so
+        # `owner` is always the plain base58 address (or None if the format
+        # changes upstream — caller will treat None as "not registered").
+        if isinstance(raw, dict):
+            owner = raw.get("result") or raw.get("owner") or None
+        else:
+            owner = raw if isinstance(raw, str) else None
+        # The proxy sometimes returns a 200 with a human sentinel string
+        # ("Domain not found", "not registered") in the result field instead
+        # of throwing. A real owner is a base58 Solana pubkey (32-44 chars,
+        # no spaces). Anything else is a not-registered signal — coerce to
+        # None so callers don't pass "Domain not found" as a wallet address.
+        if isinstance(owner, str):
+            owner_clean = owner.strip()
+            if (" " in owner_clean
+                    or not (32 <= len(owner_clean) <= 44)
+                    or not _BASE58_RE.fullmatch(owner_clean)):
+                owner = None
+        return {"domain": f"{d}.sol", "owner": owner, "registered": bool(owner)}
     except Exception:
         return {"domain": f"{d}.sol", "owner": None, "registered": False,
                 "note": "Domain not found or not registered"}
@@ -1002,7 +1873,19 @@ async def sns_subdomains(domain: str) -> dict:
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
 # Maps action_type → (function, required_params, optional_params)
+# Derived from the @query_tool registry — single source for these tools' params
+# + tags. REGISTRY_TAGS is consumed by tool_selector; _REGISTRY_DISPATCH is
+# spread into _DISPATCH below.
+_REGISTRY_DISPATCH: dict[str, tuple] = {
+    name: (fn, req, opt) for name, (fn, req, opt, _tags) in _QUERY_TOOL_REGISTRY.items()
+}
+REGISTRY_TAGS: dict[str, frozenset] = {
+    name: tags for name, (_fn, _req, _opt, tags) in _QUERY_TOOL_REGISTRY.items()
+}
+
+
 _DISPATCH: dict[str, tuple] = {
+    **_REGISTRY_DISPATCH,
     "birdeye_price":          (birdeye_price,          ["address"],     ["check_liquidity"]),
     "birdeye_multi_price":    (birdeye_multi_price,    ["list_address"], ["chain"]),
     "birdeye_token_overview": (birdeye_token_overview, ["address"],     ["chain"]),
@@ -1014,8 +1897,17 @@ _DISPATCH: dict[str, tuple] = {
     "birdeye_token_holders":  (birdeye_token_holders,  ["address"],     ["limit"]),
     "birdeye_wallet_portfolio":(birdeye_wallet_portfolio,["wallet"],    ["chain"]),
     "birdeye_wallet_pnl":     (birdeye_wallet_pnl,     ["wallet"],      ["duration", "chain"]),
+    "birdeye_wallet_pnl_details": (birdeye_wallet_pnl_details, ["wallet"], ["duration", "sort_by", "sort_type", "limit", "chain"]),
+    "birdeye_wallet_first_funded":     (birdeye_wallet_first_funded,     ["wallets"],       ["token_address", "chain"]),
+    "birdeye_wallet_net_worth_history":(birdeye_wallet_net_worth_history,["wallet"],        ["count", "direction", "type", "chain"]),
+    "birdeye_holder_distribution":     (birdeye_holder_distribution,     ["token_address"], ["mode", "top_n", "min_percent", "max_percent", "chain"]),
+    "birdeye_holder_positions":        (birdeye_holder_positions,        ["token_address"], ["labels", "chain"]),
+    "birdeye_holder_profile":          (birdeye_holder_profile,          ["token_address"], ["interval", "chain"]),
+    "birdeye_token_trade_data":        (birdeye_token_trade_data,        ["address"],       ["chain"]),
     "birdeye_smart_money":    (birdeye_smart_money,    [],              ["interval", "limit"]),
     "birdeye_token_top_traders":(birdeye_token_top_traders,["address"], ["time_frame", "limit"]),
+    # token_deep_analysis / bundle_ring_analysis / kol_discovery_feed are
+    # declared via @query_tool and merged in below (see _REGISTRY_DISPATCH).
     "birdeye_search":         (birdeye_search,         ["keyword"],     ["limit", "chain"]),
     "birdeye_price_history":  (birdeye_price_history,  ["address"],     ["type", "chain"]),
     "dex_token":              (dex_token,              ["mint"],        []),
@@ -1029,6 +1921,9 @@ _DISPATCH: dict[str, tuple] = {
     "jup_price":              (jup_price,              ["mints"],       []),
     "jup_token_search":       (jup_token_search,       ["query"],       []),
     "jup_trending":           (jup_trending,           [],              ["limit"]),
+    "jup_portfolio_positions":(jup_portfolio_positions,["wallet"],      ["platforms"]),
+    "jup_staked_jup":         (jup_staked_jup,         ["wallet"],      []),
+    "jup_portfolio_platforms":(jup_portfolio_platforms,[],              []),
     # Robust fallback chains — wrap multiple providers so a single outage
     # doesn't return empty/stale data. Defined in clients/multi_source.py.
     **__import__("app.clients.multi_source", fromlist=["DISPATCH_ENTRIES"]).DISPATCH_ENTRIES,
@@ -1159,11 +2054,25 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     # MarginFi read-only
     "marginfi_account_info", "marginfi_bank_detail", "marginfi_banks",
     "marginfi_health", "marginfi_points", "marginfi_user_accounts",
-    # Jupiter data (currently in ActionType, never in QueryType/_DISPATCH)
+    # Jupiter data — most live in ActionType (action_schemas.py); only the
+    # three portfolio reads (positions / staked-jup / platforms) are wired
+    # through _DISPATCH so the LLM can call them directly without going
+    # through the action-build path.
     "jup_dca_orders", "jup_limit_orders", "jup_tokens_tag",
-    "jup_tokens_recent", "jup_tokens_trending", "jup_portfolio_positions",
-    "jup_staked_jup", "jup_lend_positions", "jup_lend_earnings",
+    "jup_tokens_recent", "jup_tokens_trending",
+    "jup_lend_positions", "jup_lend_earnings",
     "jup_pending_invites", "jup_lend_markets", "jup_platforms",
+    # Pump.fun read-only — global curve constants for analytical math
+    "pumpfun_curve_global",
+    # Pump.fun / PumpSwap read-only queries (token info, discovery feeds,
+    # bonding-curve state, search, comments, user history, AMM pool info).
+    # Routed through /actions/build like curve_global; Rust returns the data
+    # in preview.params with tx=None. Kept in sync with the pump.fun QueryType
+    # members in services/action_schemas.py.
+    "pumpfun_token_info", "pumpfun_trending", "pumpfun_new",
+    "pumpfun_graduating", "pumpfun_koth", "pumpfun_search",
+    "pumpfun_comments", "pumpfun_user", "pumpfun_bonding_curve",
+    "pumpswap_pool_info",
 })
 
 
@@ -1300,11 +2209,26 @@ async def call(action_type: str, params: dict, wallet: str | None = None) -> Any
     *wallet* is the authenticated user wallet — forwarded as `x-user-wallet`
     on direct Solana-service calls (the Rust auth middleware requires it).
     """
+    # Token-identifier aliasing: the LLM uses mint / address / token_address
+    # interchangeably (esp. `mint` for pump.fun tokens). Fill any missing synonym
+    # from a present one so a tool that wants `address` still fires when the model
+    # passed `mint` — without this, token_deep_analysis silently ValueError'd and
+    # the assistant fell back to a shallow readout.
+    _ids = ("address", "token_address", "mint")
+    _present = next((params[k] for k in _ids if params.get(k)), None)
+    if _present is not None:
+        params = dict(params)
+        for _k in _ids:
+            params.setdefault(_k, _present)
+
     # Direct Solana-service passthrough for read-only Rust handlers. Bypasses
     # the gateway (CSRF + browser-JWT layer is for browsers, not internal
     # services). Auth uses the shared `x-internal-api-key` instead.
     if action_type in SOLANA_ACTION_DATA_TYPES:
-        return _cap(await _solana_action_data(action_type, params, wallet=wallet))
+        raw = await _solana_action_data(action_type, params, wallet=wallet)
+        if action_type == "pumpfun_token_info":
+            raw = _enrich_pumpfun_ath(raw)
+        return _cap(raw)
 
     if action_type not in _DISPATCH:
         raise KeyError(f"Unknown market data action: {action_type}")

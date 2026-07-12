@@ -1,0 +1,69 @@
+<div class="tp-backdrop" (click)="dismiss()"></div>
+
+<div class="tp-modal" role="dialog" aria-modal="true" [attr.aria-label]="title">
+
+  <div class="tp-header">
+    <h3 class="tp-title">{{ title }}</h3>
+    <button class="tp-close" type="button" (click)="dismiss()" aria-label="Close">
+      <lucide-icon name="x" [size]="16" />
+    </button>
+  </div>
+
+  <div class="tp-categories">
+    <button class="tp-cat" type="button"
+            [class.tp-cat--active]="category() === 'all'"
+            (click)="setCategory('all')">All</button>
+    <button class="tp-cat" type="button"
+            [class.tp-cat--active]="category() === 'stable'"
+            (click)="setCategory('stable')">Stables</button>
+    <button class="tp-cat" type="button"
+            [class.tp-cat--active]="category() === 'lst'"
+            (click)="setCategory('lst')">LSTs</button>
+  </div>
+
+  <div class="tp-search">
+    <lucide-icon name="search" [size]="14" class="tp-search__icon" />
+    <input
+      type="text"
+      class="tp-search__input"
+      placeholder="Search by symbol, name, or paste a mint…"
+      autocomplete="off"
+      autocapitalize="off"
+      spellcheck="false"
+      [value]="searchQuery()"
+      (input)="onSearch($any($event.target).value)"
+      autofocus />
+  </div>
+
+  <div class="tp-list">
+    @if (results().length === 0) {
+      <div class="tp-empty">No tokens match.</div>
+    }
+    @for (t of results(); track t.address) {
+      <button class="tp-row" type="button"
+              [class.tp-row--selected]="t.address === currentMint"
+              (click)="pick(t)">
+        <div class="tp-row__icon-wrap">
+          <span class="tp-row__letter">{{ letterFor(t) }}</span>
+          @if (t.logoURI) {
+            <img [src]="t.logoURI" [alt]="t.symbol"
+                 class="tp-row__icon"
+                 (error)="onLogoError($event)" />
+          }
+        </div>
+        <div class="tp-row__info">
+          <span class="tp-row__symbol">{{ t.symbol }}</span>
+          <span class="tp-row__name">{{ t.name }}</span>
+        </div>
+        @let badge = liquidityBadge(t.address);
+        @if (badge.label) {
+          <span class="tp-row__badge" [attr.data-tier]="badge.tier">{{ badge.label }}</span>
+        }
+        @if (t.address === currentMint) {
+          <lucide-icon name="check" [size]="14" class="tp-row__check" />
+        }
+      </button>
+    }
+  </div>
+
+</div>

@@ -3591,13 +3591,20 @@ pub async fn build_meteora_dlmm_get_pairs(
     http: &reqwest::Client,
     params: &MeteoraDlmmGetPairsParams,
 ) -> Result<BuildResponse, AppError> {
-    let mut url = format!("{DLMM_API}/pools?");
-    if let Some(n) = params.page           { url.push_str(&format!("page={n}&")); }
-    if let Some(n) = params.page_size      { url.push_str(&format!("page_size={}&", n.min(1000))); }
-    if let Some(ref q) = params.query      { url.push_str(&format!("query={q}&")); }
-    if let Some(ref s) = params.sort_by    { url.push_str(&format!("sort_by={s}&")); }
-    if let Some(ref f) = params.filter_by  { url.push_str(&format!("filter_by={f}&")); }
-    let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
+    // reqwest query builder → spaces / special chars get percent-encoded.
+    let mut qs: Vec<(&str, String)> = Vec::new();
+    if let Some(n) = params.page           { qs.push(("page", n.to_string())); }
+    if let Some(n) = params.page_size      { qs.push(("page_size", n.min(1000).to_string())); }
+    if let Some(ref q) = params.query      { qs.push(("query", q.clone())); }
+    if let Some(ref s) = params.sort_by    { qs.push(("sort_by", s.clone())); }
+    if let Some(ref f) = params.filter_by  { qs.push(("filter_by", f.clone())); }
+    let resp = http.get(format!("{DLMM_API}/pools"))
+        .query(&qs)
+        .header("Accept", "application/json")
+        .send().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DLMM GET: {e}")))?;
+    let data: serde_json::Value = resp.json().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DLMM parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -3711,15 +3718,21 @@ pub async fn build_meteora_dlmm_get_pool_groups(
     http: &reqwest::Client,
     params: &MeteoraDlmmGetPoolGroupsParams,
 ) -> Result<BuildResponse, AppError> {
-    let mut url = format!("{DLMM_API}/pools/groups?");
-    if let Some(n) = params.page               { url.push_str(&format!("page={n}&")); }
-    if let Some(n) = params.page_size          { url.push_str(&format!("page_size={}&", n.min(100))); }
-    if let Some(ref q) = params.query          { url.push_str(&format!("query={q}&")); }
-    if let Some(ref s) = params.sort_by        { url.push_str(&format!("sort_by={s}&")); }
-    if let Some(ref f) = params.filter_by      { url.push_str(&format!("filter_by={f}&")); }
-    if let Some(ref v) = params.volume_tw      { url.push_str(&format!("volume_tw={v}&")); }
-    if let Some(ref r) = params.fee_tvl_ratio_tw { url.push_str(&format!("fee_tvl_ratio_tw={r}&")); }
-    let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
+    let mut qs: Vec<(&str, String)> = Vec::new();
+    if let Some(n) = params.page               { qs.push(("page", n.to_string())); }
+    if let Some(n) = params.page_size          { qs.push(("page_size", n.min(100).to_string())); }
+    if let Some(ref q) = params.query          { qs.push(("query", q.clone())); }
+    if let Some(ref s) = params.sort_by        { qs.push(("sort_by", s.clone())); }
+    if let Some(ref f) = params.filter_by      { qs.push(("filter_by", f.clone())); }
+    if let Some(ref v) = params.volume_tw      { qs.push(("volume_tw", v.clone())); }
+    if let Some(ref r) = params.fee_tvl_ratio_tw { qs.push(("fee_tvl_ratio_tw", r.clone())); }
+    let resp = http.get(format!("{DLMM_API}/pools/groups"))
+        .query(&qs)
+        .header("Accept", "application/json")
+        .send().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DLMM groups GET: {e}")))?;
+    let data: serde_json::Value = resp.json().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DLMM groups parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -3860,13 +3873,23 @@ pub async fn build_meteora_dammv2_get_pools(
     http: &reqwest::Client,
     params: &MeteoraDammV2GetPoolsParams,
 ) -> Result<BuildResponse, AppError> {
-    let mut url = format!("{DAMM_V2_API}/pools?");
-    if let Some(n) = params.page           { url.push_str(&format!("page={n}&")); }
-    if let Some(n) = params.page_size      { url.push_str(&format!("page_size={}&", n.min(1000))); }
-    if let Some(ref q) = params.query      { url.push_str(&format!("query={q}&")); }
-    if let Some(ref s) = params.sort_by    { url.push_str(&format!("sort_by={s}&")); }
-    if let Some(ref f) = params.filter_by  { url.push_str(&format!("filter_by={f}&")); }
-    let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
+    // Use reqwest's query builder so spaces / special chars are percent-encoded.
+    // Manual `format!("query={q}")` leaves literal spaces in the URL, which the
+    // `url` crate rejects → request fails → empty mini-app card with no error
+    // surfaced to the user.
+    let mut qs: Vec<(&str, String)> = Vec::new();
+    if let Some(n) = params.page           { qs.push(("page", n.to_string())); }
+    if let Some(n) = params.page_size      { qs.push(("page_size", n.min(1000).to_string())); }
+    if let Some(ref q) = params.query      { qs.push(("query", q.clone())); }
+    if let Some(ref s) = params.sort_by    { qs.push(("sort_by", s.clone())); }
+    if let Some(ref f) = params.filter_by  { qs.push(("filter_by", f.clone())); }
+    let resp = http.get(format!("{DAMM_V2_API}/pools"))
+        .query(&qs)
+        .header("Accept", "application/json")
+        .send().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 GET: {e}")))?;
+    let data: serde_json::Value = resp.json().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -3891,15 +3914,21 @@ pub async fn build_meteora_dammv2_get_pool_groups(
     http: &reqwest::Client,
     params: &MeteoraDammV2GetPoolGroupsParams,
 ) -> Result<BuildResponse, AppError> {
-    let mut url = format!("{DAMM_V2_API}/pools/groups?");
-    if let Some(n) = params.page                { url.push_str(&format!("page={n}&")); }
-    if let Some(n) = params.page_size           { url.push_str(&format!("page_size={n}&")); }
-    if let Some(ref q) = params.query           { url.push_str(&format!("query={q}&")); }
-    if let Some(ref s) = params.sort_by         { url.push_str(&format!("sort_by={s}&")); }
-    if let Some(ref f) = params.filter_by       { url.push_str(&format!("filter_by={f}&")); }
-    if let Some(ref v) = params.volume_tw       { url.push_str(&format!("volume_tw={v}&")); }
-    if let Some(ref r) = params.fee_tvl_ratio_tw { url.push_str(&format!("fee_tvl_ratio_tw={r}&")); }
-    let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
+    let mut qs: Vec<(&str, String)> = Vec::new();
+    if let Some(n) = params.page                { qs.push(("page", n.to_string())); }
+    if let Some(n) = params.page_size           { qs.push(("page_size", n.to_string())); }
+    if let Some(ref q) = params.query           { qs.push(("query", q.clone())); }
+    if let Some(ref s) = params.sort_by         { qs.push(("sort_by", s.clone())); }
+    if let Some(ref f) = params.filter_by       { qs.push(("filter_by", f.clone())); }
+    if let Some(ref v) = params.volume_tw       { qs.push(("volume_tw", v.clone())); }
+    if let Some(ref r) = params.fee_tvl_ratio_tw { qs.push(("fee_tvl_ratio_tw", r.clone())); }
+    let resp = http.get(format!("{DAMM_V2_API}/pools/groups"))
+        .query(&qs)
+        .header("Accept", "application/json")
+        .send().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 groups GET: {e}")))?;
+    let data: serde_json::Value = resp.json().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 groups parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -3924,13 +3953,19 @@ pub async fn build_meteora_dammv2_get_pool_group(
     http: &reqwest::Client,
     params: &MeteoraDammV2GetPoolGroupParams,
 ) -> Result<BuildResponse, AppError> {
-    let mut url = format!("{DAMM_V2_API}/pools/groups/{}?", params.lexical_order_mints);
-    if let Some(n) = params.page           { url.push_str(&format!("page={n}&")); }
-    if let Some(n) = params.page_size      { url.push_str(&format!("page_size={n}&")); }
-    if let Some(ref q) = params.query      { url.push_str(&format!("query={q}&")); }
-    if let Some(ref s) = params.sort_by    { url.push_str(&format!("sort_by={s}&")); }
-    if let Some(ref f) = params.filter_by  { url.push_str(&format!("filter_by={f}&")); }
-    let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
+    let mut qs: Vec<(&str, String)> = Vec::new();
+    if let Some(n) = params.page           { qs.push(("page", n.to_string())); }
+    if let Some(n) = params.page_size      { qs.push(("page_size", n.to_string())); }
+    if let Some(ref q) = params.query      { qs.push(("query", q.clone())); }
+    if let Some(ref s) = params.sort_by    { qs.push(("sort_by", s.clone())); }
+    if let Some(ref f) = params.filter_by  { qs.push(("filter_by", f.clone())); }
+    let resp = http.get(format!("{DAMM_V2_API}/pools/groups/{}", params.lexical_order_mints))
+        .query(&qs)
+        .header("Accept", "application/json")
+        .send().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pool group GET: {e}")))?;
+    let data: serde_json::Value = resp.json().await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pool group parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),

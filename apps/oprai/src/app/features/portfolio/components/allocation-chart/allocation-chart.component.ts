@@ -23,6 +23,13 @@ const RADIUS = 70;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 /** Minimum visual arc: segments below this get boosted so they render cleanly */
 const MIN_VISUAL_PERCENT = 2.5;
+/**
+ * Gap (in circumference px) carved out of the *end* of every segment so the
+ * background track shows through between adjacent colours. Without it, two
+ * 28px-wide strokes butt directly against each other and the anti-aliased
+ * seam reads as a smeared/misaligned join — the "kaymalar" the donut had.
+ */
+const SEGMENT_GAP = 4;
 
 @Component({
   selector: 'app-allocation-chart',
@@ -96,13 +103,18 @@ export class AllocationChartComponent {
     let offset = 0;
     return segs.map((seg, i) => {
       const normalizedPercent = (visualPercents[i] / rawTotal) * 100;
-      const dashLength = (normalizedPercent / 100) * CIRCUMFERENCE;
+      const arcLength = (normalizedPercent / 100) * CIRCUMFERENCE;
+      // Draw the stroke `SEGMENT_GAP` shorter than the slot it occupies, but
+      // still advance the offset by the *full* slot. That leaves a clean
+      // background gap between this segment and the next instead of a
+      // butted seam. Clamp so a tiny boosted segment never goes negative.
+      const dashLength = Math.max(arcLength - SEGMENT_GAP, 1);
       const arc = {
         color: seg.color,
         dashArray: `${dashLength} ${CIRCUMFERENCE - dashLength}`,
         dashOffset: -offset,
       };
-      offset += dashLength;
+      offset += arcLength;
       return arc;
     });
   });

@@ -233,6 +233,10 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'streamflow_update', 'streamflow_get_one', 'streamflow_list',
   // Cross-chain bridges — Squid v2 full action set
   'debridge', 'squid', 'squid_bridge', 'squid_status',
+  // Cross-chain bridges — Relay.link full action set (default cross-chain provider)
+  'relay_bridge', 'relay_index_transaction', 'relay_single_transaction',
+  'relay_deposit_address_reindex', 'relay_claim_app_fees',
+  'relay_fast_fill', 'relay_execute',
   // Solana Name Service (SNS) — .sol domain transactions
   'sns_register', 'sns_transfer', 'sns_set_record', 'sns_delete',
   'sns_create_subdomain', 'sns_list', 'sns_buy',
@@ -258,6 +262,10 @@ const KNOWN_QUERY_TYPES = new Set<string>([
   'sns_twitter_handle',
   // Cross-chain queries
   'cross_chain_quote', 'cross_chain_chains', 'cross_chain_tokens',
+  // Relay.link queries — quotes, chains, tokens, history, status
+  'relay_get_quote', 'relay_get_chains', 'relay_get_chains_liquidity',
+  'relay_get_currencies', 'relay_get_token_price', 'relay_get_requests',
+  'relay_intent_status', 'relay_get_app_fee_balances', 'relay_get_swap_sources',
 ]);
 
 @Injectable({ providedIn: 'root' })
@@ -473,8 +481,11 @@ export class IntentParserService {
         return `Remove Liquidity`;
       case 'dca':
         return `DCA ${action.params['totalAmount'] ?? action.params['amount'] ?? ''} ${action.params['inputMint'] ?? ''} → ${action.params['outputMint'] ?? ''} ×${action.params['numberOfOrders'] ?? ''} (${action.params['frequency'] ?? action.params['intervalSeconds'] ?? ''})`;
-      case 'cancel_dca':
-        return `Cancel DCA order ${(action.params['order'] ?? '').slice(0, 8)}...`;
+      case 'cancel_dca': {
+        const dcaOrder = String(action.params['order'] ?? '');
+        const isAuto = !dcaOrder || ['self', 'all', 'auto', 'mine', 'active'].includes(dcaOrder.toLowerCase());
+        return isAuto ? 'Cancel DCA order' : `Cancel DCA order ${dcaOrder.slice(0, 8)}...`;
+      }
       case 'limit_order':
         return `Limit Order: ${action.params['amount'] ?? ''} ${action.params['inputMint'] ?? ''} at $${action.params['targetPrice'] ?? ''}`;
       case 'cancel_limit_order':
@@ -1132,7 +1143,7 @@ export class IntentParserService {
       case 'trending': return 'flame';
       case 'network': return 'activity';
       case 'risk': return 'shield';
-      case 'yield': return 'percent';
+      case 'yield': return 'droplets';
       case 'analytics': return 'bar-chart-3';
       case 'nft_collection': return 'image';
       case 'airdrops': return 'gift';
@@ -1191,6 +1202,9 @@ export class IntentParserService {
       case 'meteora_dlmm_get_pairs':
       case 'meteora_dammv2_get_pools':
       case 'meteora_dammv1_get_pools':
+        return 'layers';
+      // Raydium pool list
+      case 'raydium_get_pools':
         return 'layers';
       default: return 'search';
     }
@@ -1256,6 +1270,14 @@ export class IntentParserService {
         return query.params['query']
           ? `Meteora DAMM v1 Pools (${query.params['query']})`
           : 'Meteora DAMM v1 Pools';
+      // ── Raydium Pool List ─────────────────────────────────────────────────
+      case 'raydium_get_pools': {
+        const t = query.params['poolType'];
+        const label = t === 'concentrated' ? 'Raydium CLMM Pools'
+          : t === 'standard' ? 'Raydium AMM Pools'
+          : 'Raydium Pools';
+        return label;
+      }
       // ── Solend Protocol Queries ─────────────────────────────────────────────
       case 'solend_reserves':
         return 'Solend Reserves';

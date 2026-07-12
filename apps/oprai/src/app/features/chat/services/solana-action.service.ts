@@ -10,7 +10,7 @@ import { JupiterLendService } from '@core/services/market/jupiter-lend.service';
 import { PumpFunService } from '@core/services/market/pumpfun.service';
 import { JitoService } from '@core/services/market/jito.service';
 import { PriceFeedService } from '@core/services/market/price-feed.service';
-import { environment } from '../../../../environments/environment';
+import { createSolanaConnection } from '@core/utils/solana-connection';
 import { Keypair } from '@solana/web3.js';
 import type { Transaction, VersionedTransaction } from '@solana/web3.js';
 
@@ -30,6 +30,19 @@ export interface ActionCallbacks {
   onConfirm?: (result?: string) => void;
   /** Called during chain execution to report progress. */
   onStatus?: (status: string) => void;
+  /**
+   * Keep-alive ping for long multi-step flows (e.g. a borrow that needs a
+   * separate collateral-setup approval + on-chain confirmation before the main
+   * tx). Lets the card reset its stall timeout so the flow isn't killed while
+   * legitimately waiting on a second wallet approval or a confirmation poll.
+   */
+  onProgress?: () => void;
+  /**
+   * Called for token launches with the browser-generated mint (base58) as soon as
+   * it's created — before signing. Lets the card persist the new token's contract
+   * address into chat history so later "sell this / sell HOOD4" turns can resolve it.
+   */
+  onMintGenerated?: (mint: string) => void;
 }
 
 interface QuoteResponse {
@@ -79,6 +92,15 @@ interface BuildResponse {
   }>;
   // For Wormhole/Debridge: quote data contains txData directly
   quote?: unknown;
+  // Read-only / batch / multi-tx payload. For token launches with an initial buy,
+  // `data.initialBuy` tells the frontend to perform the dev-buy as a follow-up
+  // (via `pumpfun_initial_buy`) after the create tx confirms. For streamflow batch,
+  // `data.transactions` is the full array.
+  data?: {
+    initialBuy?: { mint: string; amountSol: number; mayhem?: boolean };
+    transactions?: string[];
+    [k: string]: unknown;
+  };
 }
 
 // Action types that return data instead of a transaction (transaction: null from backend)
@@ -293,7 +315,10 @@ const VERSIONED_TX_TYPES: string[] = [
 // Actions where the Rust backend embeds partial signatures (e.g. mint keypair).
 // Pre-flight simulation would fail because the blockhash and partial sigs cannot be
 // reproduced locally — skip it entirely and let the RPC node validate on submit.
-const SKIP_SIMULATION_TYPES = new Set(['launch_token', 'token_launch', 'pumpfun_launch']);
+// launch_* sign post-build with a mint keypair; perp_* are multi-signer and are
+// only complete after Jupiter's execute endpoint adds the keeper signatures, so
+// a local pre-sign simulation of the wallet-only tx would be misleading.
+const SKIP_SIMULATION_TYPES = new Set(['launch_token', 'token_launch', 'pumpfun_launch', 'perp_open', 'perp_close']);
 
 // Actions handled locally by Angular services (not through the Rust backend)
 // These build transactions on the frontend and sign+submit directly,
@@ -435,6 +460,138 @@ export class SolanaActionService {
     throw new Error('All Jito endpoints failed');
   }
 
+  /**
+   * Poll a signature until it reaches `confirmed`/`finalized` (or errors / times out).
+   * Returns true on success, false on on-chain error or timeout. Never throws —
+   * transient RPC hiccups are swallowed and retried.
+   */
+  private async waitForSignatureConfirmation(
+    connection: { getSignatureStatus(sig: string, opts?: unknown): Promise<{ value: { confirmationStatus?: string; err: unknown } | null }> },
+    sig: string,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const st = await connection.getSignatureStatus(sig, { searchTransactionHistory: false });
+        const s = st?.value;
+        if (s?.err) return false;
+        if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return true;
+      } catch { /* transient RPC error — keep polling */ }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    return false;
+  }
+
+  /**
+   * Perform a token launch's initial dev-buy as a follow-up, AFTER the create tx
+   * confirms (the token/curve must exist on-chain first).
+   *
+   * The buy is built by the backend via `pumpfun_initial_buy` (PumpPortal), which
+   * returns the correct transaction for ANY pool — standard bonding curve OR Mayhem.
+   * We hand-built bonding-curve buy can't do Mayhem-mode tokens (they route through
+   * the Mayhem program) and 404s on freshly-created tokens, so this path is used for
+   * all launch buys. It's a second wallet approval. Any failure leaves the token
+   * created (just without the dev buy) and is logged, not thrown.
+   */
+  /**
+   * Acquire the mint keypair for a pump.fun launch. Prefers a pre-ground
+   * "…pump" vanity address from the backend pool so the new token gets an
+   * authentic pump.fun-style contract address with no per-launch wait. Falls
+   * back to a locally-generated random keypair if the endpoint is unavailable
+   * or the pool is momentarily empty — a launch must never block on this.
+   *
+   * The mint keypair is a throwaway (it controls nothing after create), so
+   * receiving its secret from our own backend is the same trust as generating
+   * it here.
+   */
+  private async acquireLaunchMintKeypair(): Promise<Keypair> {
+    try {
+      const res = await firstValueFrom(
+        this.api
+          .post<{ publicKey: string; secretKey: number[]; vanity?: boolean }>('/actions/vanity-mint', {})
+          .pipe(timeout(8_000)),
+      );
+      if (res?.secretKey?.length === 64) {
+        return Keypair.fromSecretKey(Uint8Array.from(res.secretKey));
+      }
+    } catch {
+      /* pool cold or endpoint down — fall back to a random mint below */
+    }
+    return Keypair.generate();
+  }
+
+  private async submitLaunchInitialBuy(
+    connection: any,
+    initialBuy: { mint: string; amountSol: number; mayhem?: boolean },
+    createSig: string,
+    opts?: { slippage?: string; priorityFee?: string },
+  ): Promise<void> {
+    try {
+      const web3 = await import('@solana/web3.js');
+      // 1) Wait for the create tx to confirm so the token exists on-chain.
+      const confirmed = await this.waitForSignatureConfirmation(connection, createSig, 45_000);
+      if (!confirmed) {
+        console.warn('[launch_token] create tx not confirmed in time — skipping initial buy');
+        return;
+      }
+
+      // 2) Build the buy via backend (PumpPortal). Retry to absorb indexing lag —
+      //    a token created seconds ago may not be visible to PumpPortal immediately.
+      // slippage/priorityFee MUST be numbers — the backend PumpFunTradeParams
+      // deserializes them as f64 and rejects strings ("invalid type: string ...").
+      const slip = opts?.slippage != null ? Number(opts.slippage) : NaN;
+      const prio = opts?.priorityFee != null ? Number(opts.priorityFee) : NaN;
+      const buildBody = {
+        type: 'pumpfun_initial_buy',
+        params: {
+          mint: initialBuy.mint,
+          amount: String(initialBuy.amountSol),
+          denominatedInSol: true,
+          ...(Number.isFinite(slip) ? { slippage: slip } : {}),
+          ...(Number.isFinite(prio) ? { priorityFee: prio } : {}),
+        },
+      };
+      let build: BuildResponse | null = null;
+      for (let i = 0; i < 3; i++) {
+        try {
+          build = await firstValueFrom(
+            this.api.post<BuildResponse>('/actions/build', buildBody).pipe(timeout(20_000)),
+          );
+          if (build?.transaction) break;
+        } catch (e) {
+          if (i === 2) { console.warn('[launch_token] initial buy build failed:', e); return; }
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+      if (!build?.transaction) { console.warn('[launch_token] initial buy: no tx from backend'); return; }
+
+      // 3) Deserialize (PumpPortal returns a versioned tx) and sign + submit.
+      const buf = this.base64ToUint8Array(build.transaction);
+      const tx = this.isVersionedTxBytes(buf)
+        ? web3.VersionedTransaction.deserialize(buf)
+        : web3.Transaction.from(buf);
+      try {
+        const directSig = await this.walletService.signAndSendTransaction(tx as any, { skipPreflight: true });
+        if (directSig) { this.tracker.track(directSig, 'pumpfun_buy', {}).catch(() => {}); return; }
+      } catch (e: any) {
+        if (/reject|denied|cancel|declined|user refused/i.test(e?.message ?? '')) {
+          console.warn('[launch_token] user declined initial buy — token created without dev buy');
+          return;
+        }
+        // Wallet lacks signAndSendTransaction — fall through to manual sign+send.
+      }
+      const signed = await this.walletService.signTransaction(tx as any) as { serialize(): Uint8Array };
+      const raw = signed.serialize();
+      let sig: string;
+      try { sig = await this.submitViaJito(raw); }
+      catch { sig = await connection.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: 'confirmed' }); }
+      this.tracker.track(sig, 'pumpfun_buy', {}).catch(() => {});
+    } catch (e) {
+      console.warn('[launch_token] initial buy failed — token created without dev buy:', e);
+    }
+  }
+
   private static readonly SOL_MINT = 'So11111111111111111111111111111111111111112';
   private static readonly TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
@@ -442,6 +599,19 @@ export class SolanaActionService {
   static parseSimulationError(err: unknown, logs: string[]): string {
     const logsStr = logs.join('\n').toLowerCase();
     const errStr = JSON.stringify(err);
+
+    // Diagnostic: dump full sim error to browser console so root cause is
+    // visible during debugging. Front-end users won't see it; devs can read
+    // exact program-id + error code + program logs in DevTools.
+    try {
+      // eslint-disable-next-line no-console
+      console.warn('[oprai] simulation_failed', {
+        err,
+        last_logs: logs.slice(-15),
+      });
+    } catch {
+      /* console may be sandboxed */
+    }
 
     // Custom program error code (hex)
     const hexMatch = errStr.match(/"InstructionError":\s*\[\d+,\s*\{"Custom":\s*(\d+)\}\]/);
@@ -465,6 +635,17 @@ export class SolanaActionService {
     // Generic "not enough tokens" from wallet simulation
     if (logsStr.includes('not enough') || logsStr.includes('insufficient')) {
       return 'sim:insufficient_tokens';
+    }
+
+    // Anchor 3012 (AccountNotInitialized) — surface the exact offending account
+    // name from the program logs so a missing token-account/position is obvious
+    // rather than a misleading "amount below minimum" fallback. Anchor logs:
+    //   "AnchorError caused by account: signer_borrow_token_account. Error
+    //    Code: AccountNotInitialized. Error Number: 3012. …"
+    if (errorCode === 3012 || logsStr.includes('accountnotinitialized')) {
+      const acctMatch = logs.join('\n').match(/AnchorError caused by account:\s*([A-Za-z0-9_]+)/i);
+      const acct = acctMatch ? acctMatch[1] : 'unknown';
+      return `sim:account_not_init:${acct}`;
     }
 
     return `sim:generic:${errorCode ?? errStr.substring(0, 80)}`;
@@ -754,8 +935,8 @@ export class SolanaActionService {
   async getTokenBalance(mint: string): Promise<number> {
     const wallet = this.walletService.publicKey();
     if (!wallet) return 0;
-    const { Connection, PublicKey } = await import('@solana/web3.js');
-    const connection = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const { PublicKey } = await import('@solana/web3.js');
+    const connection = createSolanaConnection('confirmed');
     const isSol = !mint || mint === 'SOL' || mint === SolanaActionService.SOL_MINT;
     if (isSol) {
       return (await connection.getBalance(new PublicKey(wallet))) / 1e9;
@@ -1020,10 +1201,35 @@ export class SolanaActionService {
       return this.executeFrontendAction(action, callbacks);
     }
 
-    // ── Resolve amount=all / amount=max before building ──────────────────
+    // ── Resolve amount=all / amount=max / amount="X%" before building ────
     const rawAmount = action.params['amount'];
-    if (rawAmount === 'all' || rawAmount === 'max') {
-      const mint = action.params['inputMint'] ?? action.params['mint'] ?? action.params['token'] ?? '';
+    const pctMatch = typeof rawAmount === 'string' ? rawAmount.trim().match(/^(\d+(?:\.\d+)?)\s*%$/) : null;
+    // Jupiter Lend Earn withdrawal drains the DEPOSITED position, not the wallet
+    // balance — "withdraw all WSOL" means the full Earn deposit (which is often
+    // larger than any wSOL sitting loose in the wallet). Resolve against the
+    // live earn position for this asset so "all"/"max"/"X%" targets the deposit.
+    if ((rawAmount === 'all' || rawAmount === 'max' || pctMatch) && action.type === 'withdraw_lend') {
+      const wallet = this.walletService.publicKey();
+      const positions = wallet ? await this.lendService.getAllEarnPositions(wallet) : [];
+      const ref = (action.params['token'] ?? '').toUpperCase();
+      const solAlias = ref === 'SOL' || ref === 'WSOL';
+      const pos = positions.find(p => {
+        const sym = p.asset.symbol.toUpperCase();
+        return sym === ref || (solAlias && (sym === 'SOL' || sym === 'WSOL'));
+      });
+      const deposited = pos?.depositedAmount ?? 0;
+      const adjusted = pctMatch ? deposited * (parseFloat(pctMatch[1]) / 100) : deposited;
+      if (deposited <= 0) {
+        throw new Error(`No ${action.params['token'] ?? 'that asset'} deposit found in Jupiter Lend to withdraw.`);
+      }
+      action = { ...action, params: { ...action.params, amount: adjusted.toString() } };
+    } else if (rawAmount === 'all' || rawAmount === 'max' || pctMatch) {
+      // jlp_remove spends JLP (the `token` param is the RECEIVE token), so the
+      // sentinel must resolve against the JLP balance — not the receive token.
+      const JLP_MINT = '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4';
+      const mint = action.type === 'jlp_remove'
+        ? JLP_MINT
+        : action.params['inputMint'] ?? action.params['mint'] ?? action.params['token'] ?? '';
       const resolved = await this.getTokenBalance(mint);
       // SOL needs to keep a small reserve for the tx fee + any token-account
       // rent we'll create in this transaction. Without this, "swap all SOL"
@@ -1033,8 +1239,12 @@ export class SolanaActionService {
       const SOL_MINT = 'So11111111111111111111111111111111111111112';
       const isSol = !mint || mint === 'SOL' || mint === SOL_MINT;
       const SOL_RESERVE = 0.01; // ~$1.5 today; safer than minimums.
-      const adjusted = isSol ? Math.max(resolved - SOL_RESERVE, 0) : resolved;
-      if (isSol && resolved <= SOL_RESERVE) {
+      // A percentage keeps the remainder, so no fee reserve is needed — only a
+      // full drain ("all"/"max") must hold SOL back for fees.
+      const adjusted = pctMatch
+        ? resolved * (parseFloat(pctMatch[1]) / 100)
+        : (isSol ? Math.max(resolved - SOL_RESERVE, 0) : resolved);
+      if (!pctMatch && isSol && resolved <= SOL_RESERVE) {
         throw new Error(
           `Not enough SOL to cover transaction fee + rent (you have ${resolved.toFixed(4)} SOL, ` +
           `need at least ${SOL_RESERVE} SOL reserved). Top up your wallet first.`,
@@ -1103,14 +1313,18 @@ export class SolanaActionService {
     }
 
     // Step 2: Build transaction via Rust backend
-    // For launch_token: generate mint keypair here in the browser.
-    // The mint pubkey is sent to the backend; the backend builds the transaction
-    // WITHOUT signing it with the mint keypair. After the user signs via Phantom,
-    // we add the mint signature client-side. This way Phantom simulates the
-    // transaction with NO pre-existing partial signatures — avoiding the stale-
-    // blockhash invalidation that caused the simulation warning.
+    // For launch_token: obtain the mint keypair (from the backend's pre-ground
+    // "…pump" vanity pool, falling back to a random one). The mint pubkey is sent
+    // to the backend; the backend builds the transaction WITHOUT signing it with
+    // the mint keypair. After the user signs via Phantom, we add the mint
+    // signature client-side. This way Phantom simulates the transaction with NO
+    // pre-existing partial signatures — avoiding the stale-blockhash
+    // invalidation that caused the simulation warning.
     const isLaunchAction = action.type === 'launch_token' || action.type === 'pumpfun_launch';
-    const mintKeypair = isLaunchAction ? Keypair.generate() : null;
+    const mintKeypair = isLaunchAction ? await this.acquireLaunchMintKeypair() : null;
+    // Surface the new token's mint (contract) so the card can persist it into chat
+    // history — enables later "sell this / sell HOOD4" to resolve the address.
+    if (mintKeypair) callbacks.onMintGenerated?.(mintKeypair.publicKey.toBase58());
 
     const buildBody: Record<string, unknown> = {
       type: action.type,
@@ -1223,10 +1437,16 @@ export class SolanaActionService {
 
     // Step 3b: Deserialize tx + precise fee check — must happen before wallet dialog
     const web3 = await import('@solana/web3.js');
-    const connection = new web3.Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const connection = createSolanaConnection('confirmed');
 
     const txBuffer = this.base64ToUint8Array(buildResult.transaction!);
-    const isVersioned = isSwap || VERSIONED_TX_TYPES.includes(action.type);
+    // Detect versioned-vs-legacy from the bytes themselves, not just the static
+    // type list. Some actions (e.g. pumpfun_buy/sell) return a LEGACY bonding-curve
+    // tx OR a VERSIONED Jupiter tx (graduated tokens routed through the aggregator)
+    // depending on runtime state — the type alone can't tell them apart.
+    const isVersioned = isSwap
+      || VERSIONED_TX_TYPES.includes(action.type)
+      || this.isVersionedTxBytes(txBuffer);
 
     // Deserialize here so we can inspect the fee before asking the wallet to sign
     let deserializedTx: VersionedTransaction | Transaction;
@@ -1335,6 +1555,18 @@ export class SolanaActionService {
         callbacks.onSubmit?.(directSig);
         if (amountUsd > 0) this.spendingLimit.record(amountUsd);
         callbacks.onConfirm?.(directSig);
+        // Launch: the initial dev-buy is a follow-up. Fire it in the BACKGROUND
+        // (don't await) so the card confirms the create immediately and the outer
+        // submit() timeout can't trip on the confirmation wait + 2nd approval. The
+        // buy waits for the create to confirm, then builds via PumpPortal and prompts
+        // for its own signature.
+        const ib = buildResult.data?.initialBuy;
+        if (ib) {
+          void this.submitLaunchInitialBuy(connection, ib, directSig, {
+            slippage: action.params?.['slippage'],
+            priorityFee: action.params?.['priorityFee'],
+          });
+        }
         return directSig;
       }
       // Wallet doesn't support signAndSendTransaction — fall through to standard flow.
@@ -1384,7 +1616,30 @@ export class SolanaActionService {
       }
     };
 
-    if (useJito) {
+    if (action.type === 'perp_open' || action.type === 'perp_close') {
+      // Jupiter Perps txs are multi-signer: the user signs one slot, but the
+      // keeper (`perpSnt…`) + per-request signatures can only be added by
+      // Jupiter's backend. A direct RPC submit would be rejected as missing
+      // signatures and never land — so hand the user-signed tx to Jupiter's
+      // execute endpoint (via our gateway), which fills the rest and submits.
+      const signedB64 = this.uint8ArrayToBase64(signedTx.serialize());
+      const jupAction = action.type === 'perp_open' ? 'increase-position' : 'decrease-position';
+      try {
+        const execRes = await firstValueFrom(
+          this.api
+            .post<{ txid?: string; signature?: string }>('/actions/perp-execute', {
+              action: jupAction,
+              serializedTxBase64: signedB64,
+            })
+            .pipe(timeout(30_000)),
+        );
+        signature = execRes.txid ?? execRes.signature ?? '';
+        if (!signature) throw new Error('Jupiter Perps execute returned no transaction id.');
+      } catch (err: any) {
+        const m = err?.error?.error ?? err?.error?.message ?? err?.message ?? 'unknown';
+        throw new Error(`Perp submit failed: ${String(m).slice(0, 160)}`);
+      }
+    } else if (useJito) {
       try {
         signature = await this.submitViaJito(signedTx.serialize());
       } catch (jitoErr: any) {
@@ -1403,6 +1658,19 @@ export class SolanaActionService {
     // Record spend on successful submission
     if (amountUsd > 0) {
       this.spendingLimit.record(amountUsd);
+    }
+
+    // Launch (fallback sign path): perform the initial dev-buy in the background
+    // after the create tx confirms. `mintKeypair` is only set for
+    // launch_token/pumpfun_launch. Not awaited — see the atomic path above.
+    if (mintKeypair) {
+      const ib = buildResult.data?.initialBuy;
+      if (ib) {
+        void this.submitLaunchInitialBuy(connection, ib, signature, {
+          slippage: action.params?.['slippage'],
+          priorityFee: action.params?.['priorityFee'],
+        });
+      }
     }
 
     // For cancel_all_limit_orders: sign and submit remaining transactions sequentially
@@ -1533,8 +1801,14 @@ export class SolanaActionService {
       } catch { /* fall through to fallback */ }
     }
 
-    // Fallback: 1:1 for unknown tokens (conservative)
-    return n;
+    // Couldn't price the token (e.g. a brand-new pump.fun token not yet on the
+    // price feed, or an unknown symbol). Do NOT treat the raw token COUNT as a
+    // USD value — a 3.5M-token meme sell is worth ~$20, not $3.5M, and the old
+    // 1:1 guess fired a bogus "Large Transaction — worth $3,564,784" warning on
+    // an ordinary sell. Unknown value → 0 (skip the value-based warning) is far
+    // safer than fabricating one. Stablecoins already returned above via the
+    // isUsdc path, and SOL/USDC always resolve a real price.
+    return 0;
   }
 
   private remapLendingAction(action: ParsedAction): ParsedAction {
@@ -1584,12 +1858,12 @@ export class SolanaActionService {
     action: ParsedAction,
     callbacks: ActionCallbacks
   ): Promise<string> {
-    let transaction: Transaction;
+    let transaction: Transaction | VersionedTransaction;
 
     switch (action.type) {
       // ── Jupiter Lend: Earn ──────────────────────────────────────────────
       case 'lend': {
-        const asset = this.lendService.findAsset(action.params['token'] ?? 'USDC');
+        const asset = await this.lendService.resolveAsset(action.params['token'] ?? 'USDC');
         if (!asset) throw new Error(`Unsupported lend asset: ${action.params['token']}`);
         const result = await this.lendService.buildDepositTransaction(
           asset,
@@ -1599,7 +1873,7 @@ export class SolanaActionService {
         break;
       }
       case 'withdraw_lend': {
-        const asset = this.lendService.findAsset(action.params['token'] ?? 'USDC');
+        const asset = await this.lendService.resolveAsset(action.params['token'] ?? 'USDC');
         if (!asset) throw new Error(`Unsupported lend asset: ${action.params['token']}`);
         const result = await this.lendService.buildWithdrawTransaction(
           asset,
@@ -1612,9 +1886,9 @@ export class SolanaActionService {
       // ── Jupiter Lend: Borrow / Repay ────────────────────────────────────
       case 'borrow':
       case 'repay': {
-        const colAsset = this.lendService.findAsset(action.params['collateral'] ?? 'SOL') ??
+        const colAsset = (await this.lendService.resolveAsset(action.params['collateral'] ?? 'SOL')) ??
           { symbol: 'SOL', mint: 'So11111111111111111111111111111111111111112', decimals: 9 };
-        const debtAsset = this.lendService.findAsset(action.params['token'] ?? 'USDC') ??
+        const debtAsset = (await this.lendService.resolveAsset(action.params['token'] ?? 'USDC')) ??
           { symbol: 'USDC', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 };
         const rawAmount = parseFloat(action.params['amount'] ?? '0');
         const debtDelta = action.type === 'borrow' ? rawAmount : -rawAmount;
@@ -1624,7 +1898,7 @@ export class SolanaActionService {
           parseFloat(action.params['collateralAmount'] ?? '0'),
           debtDelta,
           colAsset,
-          debtAsset
+          debtAsset,
         );
         transaction = result.transaction;
         break;
@@ -1655,79 +1929,42 @@ export class SolanaActionService {
         const slippage = action.params['slippage'] ? parseFloat(action.params['slippage']) : 10;
         const priorityFee = action.params['priorityFee'] ? parseFloat(action.params['priorityFee']) : 0.0005;
 
-        // Check if token has graduated
-        const tokenInfo = await this.pumpFunService.getToken(mint).catch(() => null);
-        if (tokenInfo?.complete) {
-          const isBuy = action.type === 'pumpfun_buy';
-          if (tokenInfo.raydium_pool) {
-            // Old graduation path — token is on Raydium, route via Jupiter
-            callbacks.onStatus?.(`Token $${tokenInfo.symbol} is on Raydium. Routing through Jupiter...`);
-            const solMint = 'So11111111111111111111111111111111111111112';
-            const inputMint = isBuy ? solMint : mint;
-            const outputMint = isBuy ? mint : solMint;
-            const swapAmount = isBuy
-              ? Math.round(amount * 1e9) // SOL → lamports
-              : Math.round(amount);      // token base units
-            // Step 1: get quote
-            const quoteResp = await firstValueFrom(
-              this.api.post<{ quoteId: string }>('/actions/quote', {
-                input_mint: inputMint,
-                output_mint: outputMint,
-                amount: String(swapAmount),
-                slippage_bps: Math.round(slippage * 100),
-              }).pipe(timeout(30_000))
-            );
-            // Step 2: build swap transaction via backend
-            const buildResp = await firstValueFrom(
-              this.api.post<BuildResponse>('/actions/build', {
-                type: 'swap',
-                params: { inputMint, outputMint, amount: String(swapAmount), slippageBps: Math.round(slippage * 100) },
-                ...(quoteResp?.quoteId ? { quote_id: quoteResp.quoteId } : {}),
-              }).pipe(timeout(30_000))
-            );
-            if (!buildResp?.transaction) throw new Error(`Failed to build Jupiter swap for graduated token ${tokenInfo.symbol}`);
-            const { VersionedTransaction, Connection } = await import('@solana/web3.js');
-            const txBytes = this.base64ToUint8Array(buildResp.transaction);
-            const vtx = VersionedTransaction.deserialize(txBytes);
-            callbacks.onSign?.();
-            const signedVtx = await this.walletService.signTransaction(vtx) as InstanceType<typeof VersionedTransaction>;
-            const rpcConn = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
-            const sig = await rpcConn.sendRawTransaction(signedVtx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
-            callbacks.onSubmit?.(sig);
-            this.tracker
-              .track(sig, action.type, { protocol: action.params['protocol'] })
-              .then(txId => {
-                const sub = this.tracker.transactions$.subscribe(map => {
-                  const tx = map.get(txId);
-                  if (tx?.status === 'confirmed') { callbacks.onConfirm?.(); sub.unsubscribe(); }
-                  else if (tx?.status === 'failed') { sub.unsubscribe(); }
-                });
-              })
-              .catch(() => callbacks.onConfirm?.());
-            return sig;
-          } else {
-            // New graduation path — token is on PumpSwap AMM, route via PumpPortal pool: "pump-amm"
-            callbacks.onStatus?.(`Token $${tokenInfo.symbol} has graduated to PumpSwap AMM. Routing through PumpSwap...`);
-            const pumpswapResp = await this.pumpFunService.buildPumpSwap(
-              wallet, mint, amount, denominatedInSol, slippage, priorityFee, isBuy ? 'buy' : 'sell'
-            );
-            if (!pumpswapResp?.transaction) throw new Error(`Failed to build PumpSwap transaction for ${tokenInfo.symbol}`);
-            const { Transaction } = await import('@solana/web3.js');
-            const txBytes = Buffer.from(pumpswapResp.transaction, 'base64');
-            transaction = Transaction.from(txBytes);
-          }
-          break;
-        }
-
-        // Token still on bonding curve — use backend build endpoint
+        // The backend `/actions/build` handles ALL routing internally: bonding-curve
+        // tokens → a legacy pump.fun tx; graduated tokens (Raydium OR PumpSwap) →
+        // a Jupiter versioned tx. We don't branch on graduation here — we just
+        // build and deserialize based on the actual tx format returned.
         const resp = action.type === 'pumpfun_buy'
           ? await this.pumpFunService.buildBuy(wallet, mint, amount, denominatedInSol, slippage, priorityFee)
           : await this.pumpFunService.buildSell(wallet, mint, amount, denominatedInSol, slippage, priorityFee);
-
         if (!resp?.transaction) throw new Error(`Failed to build pump.fun transaction for ${mint.slice(0, 8)}`);
+
+        const pumpTxBytes = this.base64ToUint8Array(resp.transaction);
+        if (this.isVersionedTxBytes(pumpTxBytes)) {
+          // Graduated token routed through Jupiter → versioned tx. Sign + submit
+          // inline (the shared legacy tail below can't handle a VersionedTransaction).
+          const { VersionedTransaction } = await import('@solana/web3.js');
+          const vtx = VersionedTransaction.deserialize(pumpTxBytes);
+          callbacks.onSign?.();
+          const signedVtx = await this.walletService.signTransaction(vtx) as InstanceType<typeof VersionedTransaction>;
+          const rpcConn = createSolanaConnection('confirmed');
+          const sig = await rpcConn.sendRawTransaction(signedVtx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
+          callbacks.onSubmit?.(sig);
+          this.tracker
+            .track(sig, action.type, { protocol: action.params['protocol'] })
+            .then(txId => {
+              const sub = this.tracker.transactions$.subscribe(map => {
+                const tx = map.get(txId);
+                if (tx?.status === 'confirmed') { callbacks.onConfirm?.(); sub.unsubscribe(); }
+                else if (tx?.status === 'failed') { sub.unsubscribe(); }
+              });
+            })
+            .catch(() => callbacks.onConfirm?.());
+          return sig;
+        }
+
+        // Bonding-curve legacy tx → fall through to the shared sim + sign tail.
         const { Transaction } = await import('@solana/web3.js');
-        const txBytes = Buffer.from(resp.transaction, 'base64');
-        transaction = Transaction.from(txBytes);
+        transaction = Transaction.from(pumpTxBytes);
         break;
       }
 
@@ -1735,13 +1972,20 @@ export class SolanaActionService {
         throw new Error(`Unknown frontend action type: ${action.type}`);
     }
 
-    // Pre-flight simulation (frontend actions — legacy TX)
+    // Pre-flight simulation (frontend actions — legacy or v0 TX)
     try {
-      const { Connection } = await import('@solana/web3.js');
-      const feCon = new Connection(environment.solanaRpc, { commitment: 'confirmed', httpHeaders: { 'X-Requested-With': 'XMLHttpRequest' } });
-      const { blockhash } = await feCon.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      const sim = await feCon.simulateTransaction(transaction.compileMessage());
+      const web3 = await import('@solana/web3.js');
+      const feCon = createSolanaConnection('confirmed');
+      let sim;
+      if (transaction instanceof web3.VersionedTransaction) {
+        // v0 tx already carries a blockhash from build; simulate it directly and
+        // let the RPC swap in a fresh blockhash so a stale one doesn't fail sim.
+        sim = await feCon.simulateTransaction(transaction, { replaceRecentBlockhash: true, sigVerify: false });
+      } else {
+        const { blockhash } = await feCon.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        sim = await feCon.simulateTransaction(transaction.compileMessage());
+      }
       if (sim.value.err) {
         console.error('[Sim] err:', JSON.stringify(sim.value.err), '\nlogs:', sim.value.logs);
         throw new Error(SolanaActionService.parseSimulationError(sim.value.err, sim.value.logs ?? []));
@@ -1829,8 +2073,8 @@ export class SolanaActionService {
           numberOfOrders: parseInt(p['numberOfOrders'] ?? p['duration'] ?? '10'),
           intervalSeconds: this.parseInterval(p['intervalSeconds'] ?? p['frequency'] ?? p['interval'] ?? '86400'),
           startAt: p['startAt'] ? parseInt(p['startAt']) : (p['startTime'] ? parseInt(p['startTime']) : undefined),
-          minOutPerCycle: p['minOutPerCycle'] ? String(p['minOutPerCycle']) : undefined,
-          maxOutPerCycle: p['maxOutPerCycle'] ? String(p['maxOutPerCycle']) : undefined,
+          minPrice: p['minPrice'] ? String(p['minPrice']) : undefined,
+          maxPrice: p['maxPrice'] ? String(p['maxPrice']) : undefined,
         };
       case 'cancel_dca':
         return { order: p['order'] ?? p['orderId'] };
@@ -1947,15 +2191,36 @@ export class SolanaActionService {
           amountB: p['amountB'],
           startTime: p['startTime'] ? parseInt(p['startTime']) : 0,
         };
-      case 'raydium_open_position':
+      case 'raydium_open_position': {
+        // The backend builder takes a single-sided `inputMint`/`inputAmount`
+        // and computes liquidity from that side alone. Pick whichever
+        // amount the user actually filled in — fall back to the
+        // range-orientation heuristic only if BOTH are empty (defensive).
+        //   range fully BELOW current → position is 100% Token B
+        //   otherwise → A side is the input
+        const amtA = parseFloat(p['amountA'] ?? '');
+        const amtB = parseFloat(p['amountB'] ?? '');
+        const cur  = parseFloat(p['currentPrice'] ?? '');
+        const hi   = parseFloat(p['maxPrice'] ?? '');
+        const heuristicB = Number.isFinite(cur) && Number.isFinite(hi) && cur > hi;
+        // Whichever side has a real non-zero amount wins; if both are filled,
+        // prefer A; if neither, fall back to the heuristic.
+        const useB =
+          Number.isFinite(amtB) && amtB > 0 && !(Number.isFinite(amtA) && amtA > 0)
+            ? true
+            : Number.isFinite(amtA) && amtA > 0
+              ? false
+              : heuristicB;
+        const inputMint   = p['inputMint']   ?? (useB ? p['tokenB']  : p['tokenA']);
+        const inputAmount = p['inputAmount'] ?? (useB ? p['amountB'] : p['amountA']);
         return {
           // Pool discovery — either poolId or tokenA+tokenB
           ...(p['poolId']  ? { poolId:  p['poolId']  } : {}),
           ...(p['tokenA']  ? { tokenA:  p['tokenA']  } : {}),
           ...(p['tokenB']  ? { tokenB:  p['tokenB']  } : {}),
-          // Deposit token — inputMint (alias: tokenA) and amount
-          inputMint:   p['inputMint'] ?? p['tokenA'],
-          inputAmount: p['inputAmount'] ?? p['amountA'],
+          // Deposit token — chosen above based on range orientation
+          inputMint,
+          inputAmount,
           // Price range (preferred) — backend converts to ticks
           ...(p['minPrice'] ? { minPrice: parseFloat(p['minPrice']) } : {}),
           ...(p['maxPrice'] ? { maxPrice: parseFloat(p['maxPrice']) } : {}),
@@ -1963,8 +2228,8 @@ export class SolanaActionService {
           ...(p['tickLower'] ? { tickLower: parseInt(p['tickLower']) } : {}),
           ...(p['tickUpper'] ? { tickUpper: parseInt(p['tickUpper']) } : {}),
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
-          // Never pass amountB — CLMM positions are single-sided
         };
+      }
       case 'raydium_close_position':
         return {
           positionId: p['positionId'],
@@ -3246,5 +3511,33 @@ export class SolanaActionService {
       bytes[i] = binaryString.charCodeAt(i);
     }
     return bytes;
+  }
+
+  /** Base64-encode raw bytes (chunked to stay under the arg-count limit of
+   *  String.fromCharCode for large transactions). */
+  private uint8ArrayToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  /**
+   * Detect whether serialized tx bytes are a VersionedTransaction (v0+) vs a
+   * legacy Transaction, without deserializing. Layout: [compact-u16 sigCount]
+   * [sigCount × 64-byte sigs][message…]. In a versioned tx the first message
+   * byte has its high bit set (0x80 | version); a legacy message starts with
+   * `numRequiredSignatures` (always < 0x80). sigCount is always small, so its
+   * compact-u16 fits in one byte.
+   */
+  private isVersionedTxBytes(bytes: Uint8Array): boolean {
+    if (bytes.length < 1) return false;
+    const sigCount = bytes[0];
+    if (sigCount >= 0x80) return false; // multi-byte compact-u16 → not a normal tx
+    const msgOffset = 1 + sigCount * 64;
+    if (msgOffset >= bytes.length) return false;
+    return (bytes[msgOffset] & 0x80) !== 0;
   }
 }

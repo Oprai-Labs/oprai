@@ -1,0 +1,67 @@
+// MainLayout pins `.main-content` at `overflow: hidden` so the chat scrolls
+// inside its own container. The settings page is taller than the viewport,
+// so we make ITS OWN scroller — height fills the layout slot, overflow-y
+// auto reveals the rest below the fold.
+:host {
+  display: block;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.settings-page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.settings-header {
+  margin-bottom: 28px;
+
+  h1 {
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+}
+
+.settings-subtitle {
+  font-size: 14px;
+  color: var(--op-text-secondary);
+  margin: 0;
+}
+
+.settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  h2 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--op-text-tertiary);
+    margin: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-page {
+    padding: 20px 16px 80px;
+  }
+
+  .settings-header h1 {
+    font-size: 22px;
+  }
+}

@@ -1,0 +1,316 @@
+// Active Positions & Rewards dashboard. Lives between the portfolio
+// overview and the tabs — high-density signal surface for "what am I
+// earning across every protocol I'm in".
+
+.rewards-card {
+  margin: 16px 0 12px;
+  background: linear-gradient(135deg, rgba(91, 95, 199, 0.05), rgba(16, 185, 129, 0.04));
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg, 10px);
+  overflow: hidden;
+  box-shadow: var(--op-shadow-sm);
+}
+
+// ──── Header ────
+.rewards-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--op-border-subtle);
+  flex-wrap: wrap;
+}
+
+.rewards-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.rewards-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--op-radius-full);
+  background: rgba(91, 95, 199, 0.12);
+  color: var(--op-brand);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rewards-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rewards-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-family: var(--op-font-body);
+}
+
+.rewards-sub {
+  font-size: 12px;
+  color: var(--op-text-secondary);
+}
+
+.rewards-header-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.stat {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 12px;
+  border-radius: var(--op-radius-md, 8px);
+  background: var(--op-bg-surface-2);
+  min-width: 90px;
+  text-align: right;
+
+  &--claimable {
+    background: rgba(16, 185, 129, 0.12);
+    .stat__value { color: var(--op-gain); }
+  }
+  &--apy {
+    background: rgba(91, 95, 199, 0.12);
+    .stat__value { color: var(--op-brand); }
+  }
+
+  &__label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--op-text-secondary);
+  }
+  &__value {
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--op-font-mono);
+    color: var(--op-text-primary);
+  }
+}
+
+// ──── Action bar ────
+.rewards-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-surface-0, transparent);
+}
+
+.link-btn {
+  background: transparent;
+  border: none;
+  color: var(--op-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 0;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    color: var(--op-brand);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+// ──── Per-protocol rows ────
+.rewards-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rewards-row {
+  border-bottom: 1px solid var(--op-border-subtle);
+
+  &:last-child { border-bottom: none; }
+
+  &--expanded {
+    background: var(--op-bg-surface-0, transparent);
+  }
+}
+
+.rewards-row__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--op-fast);
+
+  &:hover {
+    background: var(--op-hover);
+  }
+}
+
+.rewards-row__head-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.rewards-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--op-bg-surface-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  img { width: 100%; height: 100%; object-fit: cover; }
+}
+.rewards-logo-fallback {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--op-brand);
+}
+
+.rewards-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rewards-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+}
+
+.rewards-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rewards-tag {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: var(--op-radius-full);
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-secondary);
+}
+
+.rewards-row__head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.kpi {
+  font-family: var(--op-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--op-radius-full);
+
+  &--apy {
+    background: rgba(91, 95, 199, 0.14);
+    color: var(--op-brand);
+  }
+  &--claim {
+    background: rgba(16, 185, 129, 0.14);
+    color: var(--op-gain);
+  }
+  &--value {
+    color: var(--op-text-primary);
+    font-weight: 700;
+  }
+}
+
+.rewards-chevron {
+  color: var(--op-text-secondary);
+  margin-left: 4px;
+}
+
+// ──── Expanded detail table ────
+.rewards-detail {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--op-bg-surface-1);
+
+  th, td {
+    padding: 9px 16px;
+    text-align: left;
+    font-size: 12px;
+    vertical-align: top;
+  }
+
+  thead tr {
+    border-top: 1px solid var(--op-border-subtle);
+    border-bottom: 1px solid var(--op-border-subtle);
+
+    th {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--op-text-secondary);
+    }
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--op-border-subtle);
+    &:last-child { border-bottom: none; }
+
+    &:hover {
+      background: var(--op-hover);
+    }
+  }
+
+  .col-pos { width: 38%; }
+  .col-cat { width: 14%; color: var(--op-text-secondary); }
+  .col-apy,
+  .col-claim,
+  .col-val {
+    text-align: right;
+    font-family: var(--op-font-mono);
+    width: 16%;
+  }
+}
+
+.pos-label {
+  color: var(--op-text-primary);
+  font-weight: 600;
+  font-size: 13px;
+}
+.pos-tokens {
+  margin-top: 2px;
+  color: var(--op-text-secondary);
+  font-family: var(--op-font-mono);
+  font-size: 11px;
+}
+
+.apy-text { color: var(--op-brand); font-weight: 600; }
+.claim-text { color: var(--op-gain); font-weight: 600; }
+.muted { color: var(--op-text-secondary); opacity: 0.6; }

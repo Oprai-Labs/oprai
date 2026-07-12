@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Literal
@@ -50,16 +51,28 @@ VALID_PROTOCOLS: frozenset[str] = frozenset({
 })
 
 
-# Keyword augmentation: protocol-specific terms that, when present in the
-# user message, force the protocol into the result regardless of what the
-# LLM classifier picked. Belt-and-braces against a known failure mode where
-# substring matches (e.g. "JupSOL" → "jupiter") cause the classifier to miss
-# the actually-named protocol ("meteora", "DLMM"). All keywords are
-# product-name tokens, language-agnostic. Word-boundary matched, lowercase.
+# Keyword augmentation: a deterministic safety net that force-adds a protocol
+# ONLY when its unambiguous product name appears literally in the message —
+# guarding a known failure mode where a substring match (e.g. "JupSOL" →
+# "jupiter") makes the classifier miss the actually-named protocol.
+#
+# STRICT RULE (do not violate): every entry here is a single-meaning PRODUCT /
+# PROTOCOL / FEATURE NAME (e.g. "meteora", "dlmm", "pumpswap", "wormhole").
+# NEVER put generic verbs ("bridge", "swap"), chain names ("ethereum",
+# "base"), or language-specific words ("köprü") here. Those carry MEANING, not
+# a name — interpreting meaning (in any language) is the classifier's job
+# (Katman 1 / gpt-5.4-nano), not a regex table. A word like "base" is also a
+# common English noun and would misfire. Word-boundary matched, case-insensitive.
+#
+# Cross-chain (`relay`) therefore keeps only provider NAMES here (relay.link,
+# wormhole, mayan). Generic cross-chain intent ("bridge my USDC to Arbitrum",
+# in any language) is detected semantically by the classifier prompt, which
+# maps any non-Solana chain / bridge intent to `relay`.
 _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "meteora":   ("meteora", "dlmm", "damm", "m3m3", "stake2earn"),
     "raydium":   ("raydium", "clmm"),
     "orca":      ("orca", "whirlpool"),
+    "jupiter":   ("jupiter", "juplend", "jup lend", "jup earn"),
     "kamino":    ("kamino", "klend", "k-lend", "kswap"),
     "marginfi":  ("marginfi", "mrgn", "mfi"),
     "jito":      ("jito", "jitosol"),
@@ -68,10 +81,24 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "magic_eden":("magiceden", "magic eden", "mmm pool"),
     "tensor":    ("tensor", "tensorians"),
     "streamflow":("streamflow",),
-    "relay":     ("relay.link", "relay bridge"),
+    # Provider NAMES only. Generic cross-chain intent + chain names are handled
+    # semantically by the classifier (see the cross-chain rule in the prompt).
+    "relay":     ("relay.link", "relay bridge", "wormhole", "mayan"),
     "debridge":  ("debridge",),
     "squid":     ("squid router", "squidrouter"),
 }
+
+
+# Compiled regex cache for word-boundary matching. Built lazily on first use.
+_KEYWORD_REGEX_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _kw_regex(kw: str) -> re.Pattern[str]:
+    cached = _KEYWORD_REGEX_CACHE.get(kw)
+    if cached is None:
+        cached = re.compile(r"\b" + re.escape(kw) + r"\b", re.IGNORECASE)
+        _KEYWORD_REGEX_CACHE[kw] = cached
+    return cached
 
 
 def _augment_protocols_from_keywords(
@@ -80,19 +107,40 @@ def _augment_protocols_from_keywords(
     """Add protocols whose strong keywords appear in the message.
 
     Returns a sorted tuple containing both the classifier's picks and any
-    protocols whose product-name keyword appears verbatim. Idempotent — if
-    the classifier already picked the protocol, this is a no-op.
+    protocols whose product-name keyword appears as a whole word. Idempotent —
+    if the classifier already picked the protocol, this is a no-op.
+
+    Word-boundary matched so "base" (Base chain) does not collide with
+    "database"/"based"/"baseline".
     """
     if not msg:
         return protocols
-    lowered = msg.lower()
     augmented = set(protocols)
     for proto, keywords in _PROTOCOL_KEYWORDS.items():
         if proto in augmented:
             continue
-        if any(kw in lowered for kw in keywords):
+        if any(_kw_regex(kw).search(msg) for kw in keywords):
             augmented.add(proto)
     return tuple(sorted(augmented))
+
+
+def named_protocols(msg: str) -> frozenset[str]:
+    """Protocols whose product name appears *literally* in the message.
+
+    This is the deterministic half of detection — it reflects only what the
+    user actually typed, with none of the classifier's semantic inference. Use
+    it when downstream code must distinguish "the user named protocol X" from
+    "the classifier guessed X" (e.g. correcting a wrong-protocol action). Same
+    centralized `_PROTOCOL_KEYWORDS` table and word-boundary matching as the
+    augmentation net — never grow a parallel keyword list elsewhere.
+    """
+    if not msg:
+        return frozenset()
+    return frozenset(
+        proto
+        for proto, keywords in _PROTOCOL_KEYWORDS.items()
+        if any(_kw_regex(kw).search(msg) for kw in keywords)
+    )
 
 
 @dataclass(frozen=True)
@@ -101,6 +149,12 @@ class IntentResult:
     confidence: float           # 0.0 – 1.0
     protocols: tuple[str, ...]  # canonical ids the user mentioned/implied; empty if none
     reason: str                 # short tag for logs ("model" / "fallback:err" / "cache")
+    # True when the user is asking about a CATEGORY of tokens (stables, LSTs,
+    # blue-chips, memecoins, wrapped) rather than a specific token or pair.
+    # Drives a structural tool-filter that strips pool-list / token-list
+    # queries — those return rows that contradict the category (a "what
+    # stables exist on Raydium" answer that includes MEW/WSOL pools).
+    is_category_request: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -176,15 +230,52 @@ Detection rules:
   it back: "DLMM" / "DAMM" / "m3m3" / "stake2earn" → meteora; "Whirlpool" →
   orca; "CLMM" → raydium; "K-Lend" / "kvault" / "kswap" → kamino; "MMM" →
   magic_eden; "jupSOL" → jupiter; "mSOL" → marinade; "jitoSOL" → jito.
+- Cross-chain detection: this is a Solana-native app, so any mention of a
+  non-Solana chain (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC,
+  Avalanche, Linea, Scroll, zkSync, Celo, Fantom, Polygon zkEVM, Arbitrum
+  Nova) OR a bridge/cross-chain verb in any language ("bridge",
+  "cross-chain", "köprüle", "köprü", "puente") implies cross-chain →
+  emit "relay" in protocols. Relay.link is the default cross-chain
+  provider; only emit "squid" or "debridge" when the user names them
+  explicitly. Wormhole and Mayan have no canonical id — when the user
+  names them, still emit "relay" so the cross-chain prompt section loads
+  (they route through `cross_chain_swap` inside that section).
 - Multiple protocols in one message: include all of them. "swap on Raydium
-  then deposit to Kamino" → ["raydium","kamino"].
+  then deposit to Kamino" → ["raydium","kamino"]. "swap 1 SOL to ETH on
+  Base" → ["relay"] (cross-chain dominates; same-chain DEX is not Jupiter
+  here because the destination chain differs).
 - Ambiguous protocol words (e.g. "lend") with no other signal: leave the
   protocol list empty rather than guessing.
 - A token symbol alone (BONK, USDC, WIF, RAY, SOL …) is NOT a protocol;
   emit empty protocols unless the message also names a venue.
 
+Category-request detection (boolean field `is_category_request`):
+- TRUE only for a STATIC taxonomic class — a fixed set you could answer
+  from a stored list without a live lookup: "which stables", "what LSTs",
+  "list blue chips", "what wrapped assets". Recognise the intent in any
+  language (Turkish, Spanish, German, etc.) — match by semantics, not by a
+  literal keyword.
+- FALSE for a RANKED or TIME-ORDERED live feed even when no specific token
+  is named — trending, newest / just-launched, top gainers or losers, most
+  active, highest volume, or items crossing a lifecycle threshold ("about
+  to graduate", "king of the hill"). These are live data served by a
+  dedicated tool, not a static class, so they must keep their tools.
+- FALSE when the user names a specific token or pair: "buy 5 USDC",
+  "USDS/USDC pool", "swap SOL to JLP", "show jitoSOL stats".
+- FALSE when the user asks about NON-category data: balance, transaction
+  history, current price of a named token, validator list, pool list for a
+  named pair.
+- FALSE for a protocol's own configuration, global state, or on-chain
+  parameters (fee settings, program limits, a global/config account). That is
+  a single live record fetched by a dedicated tool, not a static class of
+  tokens — it must keep its tool. "Category" means a CLASS OF TOKENS, never a
+  protocol's settings.
+The downstream router uses this flag to drop pool-list / token-list
+tools so a "what stables exist on Raydium" question never mounts a pool
+mini-app with non-stable rows in it.
+
 Respond with ONLY a single-line JSON object, no other text:
-{"intent":"<one of the four>", "confidence": <0.0-1.0>, "protocols": ["..."]}\
+{"intent":"<one of the four>", "confidence": <0.0-1.0>, "protocols": ["..."], "is_category_request": <true|false>}\
 """
 
 
@@ -354,7 +445,9 @@ class IntentRouter:
             # failure mode this protects against.
             protocols = _augment_protocols_from_keywords(msg, protocols)
 
-            result = IntentResult(intent, confidence, protocols, "model")
+            is_category = bool(data.get("is_category_request", False))
+
+            result = IntentResult(intent, confidence, protocols, "model", is_category)
             _cache_set(key, result)
             logger.info(
                 "intent_router: msg=%r → intent=%s conf=%.2f protocols=%s",
@@ -399,23 +492,81 @@ def filter_tools_by_intent(
     - Advice still drops all tools — pure conversation should not pull
       protocol data the user didn't ask for.
     """
+    # Category-request structural filter MUST run BEFORE BOTH the
+    # confidence gate and the advice short-circuit. The category context
+    # block is built deterministically server-side (keyword matcher OR
+    # classifier flag), so the prose-only answer doesn't depend on the
+    # classifier being confident. Gating this behind _HIGH_CONFIDENCE let
+    # low-confidence category phrasings ("yield bearing stablecoins",
+    # conf 0.66) keep the full tool set — the model then fired a
+    # query_onchain, got partial data, and hedged instead of listing the
+    # authoritative set. Drop tools whenever is_category_request is set.
+    if intent.is_category_request:
+        # Drop ALL tools. We tried "keep only execute_action + tool_choice
+        # required" but mini emitted execute_action(swap) with empty params
+        # AND no prose — the worst of both worlds. The right shape for
+        # "what stables exist?" is just a prose list; the user can click
+        # or ask for a swap as the next turn. Removing tools entirely
+        # forces the model into prose-only mode, which is exactly what
+        # the category context block prescribes.
+        logger.info(
+            "intent_router: category-request → dropped ALL %d tools (prose-only)",
+            len(tools),
+        )
+        return []
+
+    # Below the high-confidence bar (and not a category request) we don't
+    # trust the classifier enough to narrow the tool set — keep everything.
     if intent.confidence < _HIGH_CONFIDENCE:
         return tools
 
     if intent.intent == "advice":
-        # Earlier this branch dropped tools entirely — first all of them,
-        # then just `query_onchain`. Both broke real flows: short picker
-        # follow-ups ("let's stake that", "let's go with the biggest")
-        # often end with a particle that makes the classifier read them
-        # as advice. With tools stripped, the model can only narrate
-        # with no action card, or beg the user
-        # for data it could trivially fetch ("how much jitoSOL do you
-        # have?" when balance is one query_onchain call away).
-        # The downside the filter was supposed to prevent — model picking
-        # a tool on conversational turns — is already covered by the
-        # prompt rules. Let the model decide; trust the system prompt.
+        # Advice = pure conversation / explanation. Earlier we experimented
+        # with dropping tools here; that broke short picker follow-ups
+        # ("let's stake that") where the model legitimately needs the
+        # query/action tools. Leave the full set; the prompt rules handle
+        # "don't fire a tool on chit-chat".
         logger.debug("intent=advice high-conf → keeping full tool set (no filter)")
         return tools
 
     # action / query / ambiguous: leave the full set.
     return tools
+
+
+# Tool-name patterns that match pool listings / token directories — exactly
+# the surface that biases the LLM toward "deposit" mini-apps when the user
+# actually wanted to swap into a category of tokens.
+_POOL_LIST_TOOL_PATTERNS: tuple[str, ...] = (
+    "_search_pools", "_get_pools", "_get_pool_info", "_get_pool_keys",
+    "_get_pools_by_lp", "_get_pools_v2", "_get_pool_position_history",
+    "_get_pool_liquidity_history",
+    "_get_token_list", "_get_token_prices", "_get_tokens",
+    "raydium_get_farm_info", "raydium_get_farm_by_lp", "raydium_get_farm_keys",
+    "meteora_dlmm_get_pairs", "meteora_dammv2_get_pools", "meteora_dammv1_get_pools",
+    "orca_get_pools", "orca_search_pools", "orca_search_tokens",
+    "jup_token_search",
+)
+
+
+def _tool_name(tool: dict) -> str:
+    """Extract the function name from a tool dict, defensive across schemas."""
+    fn = tool.get("function") if isinstance(tool, dict) else None
+    if isinstance(fn, dict):
+        n = str(fn.get("name") or "")
+        if n:
+            return n
+    return str(tool.get("name") or "")
+
+
+def _is_pool_or_token_list_tool(tool: dict) -> bool:
+    """True when the tool is a pool-list / token-directory read.
+
+    Tools are OpenAI function-call dicts: `{"type": "function", "function":
+    {"name": ..., ...}}`. The name lives at `function.name` for both new
+    (`type=function`) and legacy (`type=tool`) shapes — we read defensively
+    so a schema change doesn't silently let pool tools leak back in.
+    """
+    name = _tool_name(tool)
+    if not name:
+        return False
+    return any(p in name for p in _POOL_LIST_TOOL_PATTERNS)

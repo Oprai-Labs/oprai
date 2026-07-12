@@ -9,6 +9,7 @@ is configured.
 """
 
 import logging
+import os
 from concurrent import futures
 
 import grpc
@@ -146,7 +147,12 @@ async def start_grpc_server() -> grpc_aio.Server:
     #   memory_pb2_grpc.add_ConsentServiceServicer_to_server(ConsentServicer(), server)
     #   memory_pb2_grpc.add_SummaryServiceServicer_to_server(SummaryServicer(), server)
 
-    listen_addr = f"[::]:{settings.GRPC_PORT}"
+    # Bind to loopback only — same reasoning as chat-service: macOS's
+    # ephemeral port range (49152+) overlaps these service ports, so any
+    # outbound system connection (mDNSResponder DoH, etc.) can race the
+    # wildcard `[::]` listener. Loopback-only sidesteps that entirely.
+    grpc_host = os.environ.get("GRPC_HOST", "127.0.0.1")
+    listen_addr = f"{grpc_host}:{settings.GRPC_PORT}"
     server.add_insecure_port(listen_addr)
     await server.start()
     logger.info("gRPC server started on %s", listen_addr)

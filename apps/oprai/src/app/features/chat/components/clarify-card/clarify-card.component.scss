@@ -40,6 +40,18 @@
     border-radius: 8px;
     background: color-mix(in srgb, var(--op-brand) 12%, transparent);
     color: var(--op-brand);
+    flex-shrink: 0;
+    overflow: hidden;
+
+    // When the card is scoped to one protocol, its real logo brands the header.
+    &--protocol {
+      background: var(--op-bg-surface-1);
+    }
+  }
+  &__proto-logo {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
   }
 
   &__title {
@@ -150,6 +162,67 @@
       width: 26px;
       height: 26px;
       object-fit: contain;
+    }
+  }
+
+  // Single token coin — shown when options differ by token, not protocol
+  // (e.g. "USDC vs SOL deposit on Kamino"). Same 36px slot, round like a coin.
+  &__token-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--op-bg-surface-1);
+    flex-shrink: 0;
+    overflow: hidden;
+
+    img {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+  }
+  &__token-letter {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--op-brand);
+  }
+
+  // Token-route pair: two overlapping coins (from → to) sized to fill the same
+  // 36px slot as the protocol/generic icons.
+  &__pair {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+  &__pair-coin {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--op-bg-surface-1);
+    border: 2px solid var(--op-bg-surface-2);
+    box-sizing: border-box;
+
+    // Lettered fallback when a token has no logo.
+    &--letter {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.625rem;
+      font-weight: 700;
+      color: var(--op-brand);
+      background: color-mix(in srgb, var(--op-brand) 16%, var(--op-bg-surface-1));
+    }
+    // Second coin overlaps the first.
+    &--to {
+      margin-left: -9px;
     }
   }
 

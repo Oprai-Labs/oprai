@@ -3,7 +3,7 @@
   background: var(--op-bg-surface-1);
   border: 1px solid var(--op-border-default);
   border-radius: var(--op-radius-lg);
-  padding: 20px;
+  padding: 22px 24px;
   overflow: hidden;
 }
 
@@ -16,54 +16,74 @@
   background: var(--op-gradient);
 }
 
+// Full-width tinted header bar, matching the action card's proto-header so
+// query and action cards read as one design language (logo + name + badge).
 .query-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 16px;
+  margin: -22px -24px 18px;
+  padding: 12px 16px 11px;
+  background: color-mix(in srgb, var(--op-brand) 7%, var(--op-bg-surface-1));
+  border-bottom: 1px solid var(--op-border-subtle);
 }
 
-.query-icon-wrap {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--op-radius-sm);
+.query-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  overflow: hidden;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  background: var(--op-brand-subtle);
   color: var(--op-brand);
+  background: var(--op-bg-surface-2);
 
-  .query-protocol-icon {
+  lucide-icon {
     width: 18px;
     height: 18px;
-    border-radius: 4px;
+  }
+
+  .query-protocol-icon {
+    width: 100%;
+    height: 100%;
     object-fit: contain;
+    display: block;
   }
 }
 
-.query-header-text {
+.query-header-info {
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.query-badge {
-  display: inline-flex;
-  padding: 2px 8px;
-  border-radius: var(--op-radius-full);
-  font-size: 0.625rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background: var(--op-brand-subtle);
-  color: var(--op-brand);
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
 }
 
 .query-label {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
   color: var(--op-text-primary);
+}
+
+// Right-aligned pill, styled like the action card's status badge.
+.query-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: #22b8cf;
+  background: color-mix(in srgb, #22b8cf 15%, transparent);
+  border: 1px solid color-mix(in srgb, #22b8cf 32%, transparent);
 }
 
 .query-loading {
@@ -94,7 +114,8 @@
 
 /* Result table */
 .result-table {
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .result-table__header,
@@ -102,23 +123,54 @@
   display: grid;
   gap: 8px;
   align-items: center;
+  // Bleed slightly into the card padding so the hover highlight has room and
+  // the whole row reads as one unit (columns stay aligned — both shift equally).
+  margin-inline: -8px;
+  padding-inline: 8px;
 }
 
 .result-table__header {
-  padding: 6px 0;
+  padding-block: 7px;
   border-bottom: 1px solid var(--op-border-default);
   font-size: 0.6875rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--op-text-tertiary);
 }
 
 .result-table__row {
-  padding: 10px 0;
+  padding-block: 15px;
   border-bottom: 1px solid var(--op-border-subtle);
+  border-radius: 8px;
+  transition: background var(--op-fast);
+
+  &:hover {
+    background: color-mix(in srgb, var(--op-brand) 6%, transparent);
+  }
 
   &:last-child {
     border-bottom: none;
+  }
+
+  // Leading column (protocol / name) is the row's title — larger + bolder.
+  > span:first-child {
+    color: var(--op-text-primary);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  // The numeric change value (APY, 24h %) is the row's hero figure — bump it
+  // up so the eye lands on the number, echoing the swap card's big amounts.
+  .change-up,
+  .change-down {
+    font-size: 0.9375rem;
+    font-weight: 700;
+  }
+  // Plain mono cells (token symbols/addresses — NOT the coloured change value)
+  // recede so the protocol + figure carry the hierarchy.
+  .mono:not(.change-up):not(.change-down) {
+    color: var(--op-text-secondary);
   }
 }
 
@@ -598,10 +650,27 @@
 }
 
 .dlmm-empty {
-  padding: 14px 4px;
+  padding: 22px 12px;
   text-align: center;
   color: var(--op-text-secondary);
   font-size: 0.8125rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: var(--op-bg-surface-2);
+  border: 1px dashed var(--op-border-subtle);
+  border-radius: var(--op-radius-md);
+  margin: 8px 0;
+
+  &__icon {
+    color: var(--op-text-tertiary);
+    margin-bottom: 2px;
+  }
+  &__hint {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+  }
 }
 
 .dlmm-footer {
@@ -620,6 +689,35 @@
       color: var(--op-text-primary);
       font-weight: 600;
     }
+  }
+
+  &__more {
+    color: var(--op-text-tertiary);
+    margin-left: 4px;
+  }
+}
+
+// Infinite-scroll trigger row that sits below the last loaded result. Empty
+// box for the IntersectionObserver to catch; a small inline spinner appears
+// while the next page is in flight so the user doesn't think it stalled.
+.dlmm-sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 10px 0;
+  font-size: 0.75rem;
+  color: var(--op-text-tertiary);
+
+  &__spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid color-mix(in srgb, var(--op-text-tertiary) 35%, transparent);
+    border-top-color: var(--op-text-secondary);
+    border-radius: 50%;
+    animation: dlmm-spin 0.9s linear infinite;
   }
 }
 
@@ -890,10 +988,11 @@
 /* Risk badges */
 .risk-badge {
   display: inline-flex;
-  padding: 2px 6px;
+  padding: 3px 8px;
   border-radius: var(--op-radius-full);
   font-size: 0.625rem;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 
   &--low {
@@ -912,71 +1011,466 @@
   }
 }
 
-/* Analytics grid */
-.analytics-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.analytics-stat {
+/* Yield list — swap-panel-style rows (matches the swap card's surface blocks,
+   radii and big hero figures instead of a dense table). */
+.yield-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px;
+  gap: 8px;
+}
+
+.yield-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
   background: var(--op-bg-surface-2);
-  border-radius: var(--op-radius-sm);
+  border: 1px solid var(--op-border-subtle);
+  transition: border-color var(--op-fast), background var(--op-fast);
 
-  &--highlight {
-    grid-column: 1 / -1;
-    text-align: center;
-    padding: 12px;
+  &:hover {
+    border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle));
+    background: color-mix(in srgb, var(--op-brand) 4%, var(--op-bg-surface-2));
   }
 
-  &__label {
-    font-size: 0.6875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--op-text-tertiary);
+  // Colourful protocol logo — the row's brand mark, like the swap card icon.
+  &__logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.04));
   }
-
-  &__value {
-    font-size: 1rem;
+  &__logo--fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
     font-weight: 700;
+    color: var(--op-brand);
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--op-brand) 26%, transparent),
+      color-mix(in srgb, var(--op-brand) 12%, transparent));
+  }
+
+  &__main {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  // Protocol name — the row's title, echoing the swap panel's "You pay" weight.
+  &__protocol {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
     color: var(--op-text-primary);
   }
 
-  &__sub {
-    font-size: 0.8125rem;
-    font-weight: 600;
+  &__meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--op-text-tertiary);
+    font-variant-numeric: tabular-nums;
   }
-}
+  &__token { color: var(--op-text-secondary); }
+  &__dot { color: var(--op-text-tertiary); }
+  &__tvl { color: var(--op-text-tertiary); }
 
-.analytics-trades {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-}
+  &__side {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+  }
 
-.analytics-trade {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px;
-  border: 1px solid var(--op-border-default);
-  border-radius: var(--op-radius-sm);
-
-  &__label {
-    font-size: 0.6875rem;
+  // APY is the hero figure — big, bold, gain-coloured, like the swap amounts.
+  &__apy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    line-height: 1;
+  }
+  &__apy-num {
+    font-size: 1.375rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--op-gain);
+    font-variant-numeric: tabular-nums;
+  }
+  &__apy-label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     color: var(--op-text-tertiary);
   }
 
-  &__value {
-    font-size: 0.8125rem;
+  // Risk column mirrors the APY block: badge on top, tiny "RISK" caption below,
+  // so "LOW" no longer floats without a label.
+  &__risk {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  &__risk-label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--op-text-tertiary);
+  }
+}
+
+/* Jupiter Perp positions — swap-panel-style cards (not a plain table) */
+.perp-pos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perp-pos-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  transition: border-color var(--op-fast), background var(--op-fast);
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle));
+    background: color-mix(in srgb, var(--op-brand) 4%, var(--op-bg-surface-2));
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  &__logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.04));
+  }
+  &__logo--fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--op-brand);
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--op-brand) 26%, transparent),
+      color-mix(in srgb, var(--op-brand) 12%, transparent));
+  }
+
+  &__title {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+  &__market {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--op-text-primary);
+  }
+  &__badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  &__lev {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--op-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  // PnL hero — big, coloured, like the swap amounts.
+  &__pnl {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  &__pnl-num {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  &__pnl-label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--op-text-tertiary);
+  }
+
+  &__close {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid var(--op-border-subtle);
+    background: transparent;
+    color: var(--op-text-tertiary);
+    cursor: pointer;
+    transition: color var(--op-fast), background var(--op-fast), border-color var(--op-fast);
+    &:hover {
+      color: var(--op-loss);
+      border-color: color-mix(in srgb, var(--op-loss) 45%, transparent);
+      background: color-mix(in srgb, var(--op-loss) 10%, transparent);
+    }
+  }
+
+  // "Closed" chip shown in place of the × once the user closes the position.
+  &__closed-chip {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--op-text-tertiary);
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--op-border-subtle);
+  }
+
+  // Closed positions stay in the card but read as inactive.
+  &--closed {
+    opacity: 0.6;
+    &:hover {
+      border-color: var(--op-border-subtle);
+      background: var(--op-bg-surface-2);
+    }
+  }
+
+  // Stat strip — Size / Entry / Current / Liq, label above value.
+  &__stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--op-border-subtle);
+  }
+}
+
+.perp-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+
+  &__label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--op-text-tertiary);
+  }
+  &__val {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  &__val--liq { color: var(--op-loss); }
+}
+
+// Side badge (long green / short red), pill like the swap card tags.
+.perp-side-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  &--long {
+    color: var(--op-gain);
+    background: color-mix(in srgb, var(--op-gain) 14%, transparent);
+  }
+  &--short {
+    color: var(--op-loss);
+    background: color-mix(in srgb, var(--op-loss) 14%, transparent);
+  }
+}
+
+/* Portfolio Analytics (PnL) — redesigned card */
+.pnl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pnl-card__hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 18px 20px;
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-md);
+  background: linear-gradient(135deg, var(--op-bg-surface-2) 0%, var(--op-bg-surface-1) 100%);
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(120% 80% at 100% 0%, rgba(34, 197, 94, 0.10), transparent 55%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 200ms ease;
+  }
+
+  &--up::before { opacity: 1; }
+  &--down::before {
+    background: radial-gradient(120% 80% at 100% 0%, rgba(239, 68, 68, 0.10), transparent 55%);
+    opacity: 1;
+  }
+}
+
+.pnl-card__hero-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--op-text-tertiary);
+  font-weight: 600;
+}
+
+.pnl-card__hero-value {
+  font-size: 1.875rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--op-text-primary);
+  line-height: 1.1;
+
+  .pnl-card__hero--up & { color: var(--op-gain, #22c55e); }
+  .pnl-card__hero--down & { color: var(--op-loss, #ef4444); }
+}
+
+.pnl-card__hero-pct {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+
+  .pnl-card__hero--up & { color: var(--op-gain, #22c55e); background: rgba(34, 197, 94, 0.10); }
+  .pnl-card__hero--down & { color: var(--op-loss, #ef4444); background: rgba(239, 68, 68, 0.10); }
+}
+
+.pnl-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.pnl-card__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-sm);
+
+  &-label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--op-text-tertiary);
     font-weight: 600;
   }
+
+  &-value {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+  }
+}
+
+.pnl-card__tokens {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-sm);
+  overflow: hidden;
+}
+
+.pnl-card__tokens-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--op-bg-surface-2);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--op-text-tertiary);
+  border-bottom: 1px solid var(--op-border-default);
+
+  &:has(span:nth-child(3)) { grid-template-columns: 1fr auto auto; }
+}
+
+.pnl-card__tokens-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  font-size: 0.875rem;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.04));
+  }
+
+  &--with-trades { grid-template-columns: 1fr auto auto; }
+}
+
+.pnl-card__tokens-symbol {
+  font-weight: 600;
+  color: var(--op-text-primary);
+}
+
+.pnl-card__tokens-trades {
+  min-width: 40px;
+  color: var(--op-text-secondary);
 }
 
 /* NFT grid */

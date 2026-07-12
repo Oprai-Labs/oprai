@@ -1,0 +1,39 @@
+<div class="card">
+  @if (user(); as u) {
+    <div class="row">
+      <div class="row-label">
+        <span class="row-title">Connected wallet</span>
+        @if (walletName()) {
+          <span class="row-meta">{{ walletName() }}</span>
+        }
+      </div>
+      <div class="row-value">
+        <code class="address" [title]="u.wallet">{{ u.wallet | truncateAddress: 6 : 6 }}</code>
+        <button class="icon-btn" type="button" (click)="copyAddress()" [attr.aria-label]="copied() ? 'Copied' : 'Copy address'">
+          @if (copied()) {
+            <lucide-icon name="check" [size]="16" />
+          } @else {
+            <lucide-icon name="copy" [size]="16" />
+          }
+        </button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="row">
+      <div class="row-label">
+        <span class="row-title">Session</span>
+        <span class="row-meta">Disconnect to sign out of OPRAI on this device.</span>
+      </div>
+      <div class="row-value">
+        <button class="danger-btn" type="button" (click)="disconnect()">
+          <lucide-icon name="log-out" [size]="14" />
+          <span>Disconnect</span>
+        </button>
+      </div>
+    </div>
+  } @else {
+    <p class="empty">No wallet connected.</p>
+  }
+</div>

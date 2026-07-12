@@ -38,6 +38,20 @@ VERIFIED_TOKENS: list[VerifiedToken] = [
         "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.svg",
     },
     {
+        "address": "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
+        "symbol": "USDS",
+        "name": "USDS",
+        "decimals": 6,
+        "logoURI": "https://img-v1.raydium.io/icon/USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA.png",
+    },
+    {
+        "address": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
+        "symbol": "JLP",
+        "name": "Jupiter Perps LP",
+        "decimals": 6,
+        "logoURI": "https://static.jup.ag/jlp/icon.png",
+    },
+    {
         "address": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
         "symbol": "BONK",
         "name": "Bonk",

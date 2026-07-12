@@ -65,7 +65,7 @@ docker compose up -d              # Legacy Node.js stack only
 
 ## Architecture
 
-**Dual-stack monorepo**: polyglot services (primary) coexist with legacy Node.js services during migration. Inter-service communication is **gRPC + Protobuf** (14 proto files under `proto/`). Monitoring via **Prometheus** (:9090) + **Grafana** (:3333).
+**Dual-stack monorepo**: polyglot services (primary) coexist with legacy Node.js services during migration. Inter-service communication is **gRPC + Protobuf** (15 proto files under `proto/`). Monitoring via **Prometheus** (:9090) + **Grafana** (:3333).
 
 ```
 Frontend (Angular :3000) → Bearer JWT → Gateway (Go :3001)
@@ -89,8 +89,16 @@ Admin Panel (Angular :3000) → Bearer JWT → admin-service (Go :3050/50055) �
 | Frontend | `apps/oprai/` | TypeScript | Angular 19, standalone components | 3000 |
 | OpraiOS | `opraios/` | Python | Pydantic, OpenAI, solana-py | standalone |
 
+### Additional Services (newer, not yet in the table above)
+- **`services/solana-service-ts/`** — TypeScript rewrite of the Rust solana-service using official protocol SDKs (Jupiter, Kamino, Drift, Marinade, Meteora, MarginFi). Runs alongside the Rust service: `make dev-solana-ts` (PORT 3030) or via Procfile as `solana-ts` (PORT 3031). The two are interchangeable backends for the same `/actions/*` surface — the Rust service is still the documented default; the TS one is the migration target.
+- **`services/knowledge-ingestion-service/`** (Python, FastAPI, :3070) — admin REST API + scheduler (APScheduler) that crawls/chunks docs into the knowledge base. Sources configured via `source_configs/*.yaml` or at runtime. Has its own venv + Alembic migrations; created by `make build-python`, run in Procfile as `knowledge`.
+- **`services/defi-query-service/`** (Python, FastAPI + CLI, :3150 — see memory) — standalone LLM orchestrator: `POST /query {question, jwt_token?} → {html, plain, tools_called}`. Wraps the gateway's DeFi GET endpoints as tools. Runnable as a CLI: `python3 main.py "What's the Jito tip floor?"`.
+
 ### Legacy Services (Node.js, being replaced)
-`services/gateway/`, `services/auth-service/`, `services/chat-service/`, `services/solana-service/`, `services/memory-service/` — Express + Sequelize + Turborepo. `apps/chat-web/` and `apps/admin-panel/` — Next.js 14.
+`services/gateway/`, `services/auth-service/`, `services/chat-service/`, `services/solana-service/`, `services/memory-service/` — Express + Sequelize + Turborepo. (The Next.js `apps/chat-web/` and `apps/admin-panel/` frontends have been removed — `apps/oprai/` is now the only frontend; admin is a route within it.)
+
+### Agent Platform (`agent-platform/`)
+A separate, largely self-contained sub-project (own `README.md`, `Makefile`, `docker-compose.yml`, `services/`, `frontend/`, `programs/`, `proto/`, `migrations/`) — a blockchain-native platform to create, deploy, and monetize AI agents on Solana (NFT identity, marketplace, visual builder, multi-platform connectors). Distinct from both the polyglot services and `opraios/`. Its migrations are applied by the root `make migrate` (`agent-platform/migrations/00*.sql`). Treat it as its own project: read `agent-platform/README.md` and `agent-platform/Makefile` before working there.
 
 ### Shared Packages (legacy, used by legacy services)
 - **`@oprai/types`** — TypeScript interfaces (auth, chat, solana, memory)
@@ -105,17 +113,40 @@ Single entry point. JWT validation, `X-User-Wallet` + `X-Internal-Api-Key` heade
 ```
 1. POST /auth/nonce → { nonce, nonceId } (stored in Redis, 10-min TTL)
 2. Client signs nonce with wallet (tweetnacl ed25519)
-3. POST /auth/verify → { token, expiresAt } (JWT in body, HS256, 3-day expiry)
-4. Client stores JWT in localStorage (key: oprai-auth-token)
-5. Every request: Authorization: Bearer <jwt>
-6. Gateway validates JWT → injects X-User-Wallet + X-Internal-Api-Key → proxies to service
+3. POST /auth/verify → { token, expiresAt } + sets HttpOnly cookie
+4. Frontend keeps the JWT in MEMORY ONLY (not localStorage); the HttpOnly
+   cookie is the durable copy and is sent automatically with every request
+   via `credentials: 'include'`. On page reload, GET /auth/session restores
+   the user from the cookie.
+5. Gateway validates JWT → injects X-User-Wallet + X-Internal-Api-Key → proxies to service
 ```
+
+**Wallet switching is security-sensitive**: `WalletService.accountChanged$` fires on every connect / disconnect / native account-change. `AppComponent` handler MUST call `authService.logout()` → `router.navigateByUrl('/')` → `authenticate()` in that order. Skipping the navigate leaves the previous wallet's chat-session URL active and the chat-shell keeps rendering its messages until the user opens a different conversation. `SessionStorageService` is namespaced per-wallet (`oprai-sessions:${wallet}`) — the in-memory state is cleared on logout, but the previous wallet's data stays safely on disk under its own key for next sign-in.
 
 ### Solana Action Flow
 1. User sends natural language → chat-service → LLM with SOLANA_ACTION_PROMPT
 2. LLM returns action blocks: `[ACTION:transfer] to=HwM... amount=1 token=SOL`
 3. Frontend parses action blocks (intent-parser)
 4. Frontend calls `/actions/quote` → `/actions/build` → user signs with wallet → submit TX
+
+### Chat-service LLM configuration
+- Provider toggle: `OPRAI_LLM_PROVIDER=openai` (default) | `anthropic`
+- OpenAI responder: `gpt-5.4-mini` (Responses API), fallback `gpt-4o-mini` (Chat Completions). Tool-call leakage from Harmony channels is filtered in `_strip_tool_call_leakage`. Bumped from nano on 2026-05-17 — nano hedged on ambiguous turns and lost tool-chain context.
+- Anthropic responder: `claude-haiku-4-5`. Prompt caching is wired (`cache_control: ephemeral` on the system block in `services/llm.py`); repeat turns inside the 5-min TTL drop input cost ~90%.
+- Intent classifier (`gpt-5.4-nano`) runs before the main responder to narrow the tool list — see `services/intent_router.py`.
+
+### Chat-service tool registry — 4-place rule
+Adding a `query_onchain` tool requires updates in ALL of these or the LLM will silently fail to find/use it:
+1. `app/clients/market_data.py` — implementation (`async def`) + register in `_DISPATCH` (params: required, optional)
+2. `app/services/action_schemas.py` — add to `QueryType` enum
+3. `app/services/tool_selector.py` — add intent group(s) (`{portfolio, analysis, dex, …}`)
+4. `app/prompts/solana_action_market_data.txt` (or matching domain prompt) — table row + parameter reference + at least one example
+
+### Frontend token registry — single source of truth
+`apps/oprai/src/app/core/services/market/tokens.generated.ts` is the only place mint addresses for well-known tokens should live. It's CI-validated by `scripts/verify-tokens.mjs` (catches typos and vanity-prefix collisions before they ship). `TokenRegistryService` exposes:
+- `getToken(mint)` / `getBySymbol(symbol)` — lookups
+- `ensureLoaded()` — fetches Jupiter strict list and merges
+- `isStable(addressOrSymbol)` — combined Jupiter-tag + symbol/name heuristic; never reintroduce hardcoded `Set<string>` of stables.
 
 ### Database
 - Single PostgreSQL instance (:5433), per-service schema isolation
@@ -138,7 +169,10 @@ Separate auth (username/password + bcrypt, `admin_schema.admin_users`). Cross-sc
 | Solana | 3030 | 50053 | | Prometheus | 9090 |
 | Memory | 3040 | 50054 | | Grafana | 3333 |
 | Admin | 3050 | 50055 | | | |
+| Solana (TS) | 3030/3031 | — | | | |
+| Knowledge | 3070 | — | | | |
 | Marketing | 3100 | — | | | |
+| DeFi Query | 3150 | — | (standalone) | | |
 | OpraiOS MCP | 8000 | — | (standalone, optional) | | |
 
 ## Frontend Routes (Angular)
@@ -154,7 +188,7 @@ Legacy redirects: `/market`, `/explore`, `/trade`, `/settings`, `/tokens`, `/nft
 
 ## Protobuf & gRPC
 
-14 proto files under `proto/` organized by domain: `common/`, `auth/`, `chat/`, `solana/`, `memory/`, `admin/`. Run `make proto` (or `./scripts/build-protos.sh [go|python|rust]`) to generate stubs:
+15 proto files under `proto/` organized by domain: `common/`, `auth/`, `chat/`, `solana/`, `memory/`, `admin/`. Run `make proto` (or `./scripts/build-protos.sh [go|python|rust]`) to generate stubs:
 - Go: `protoc-gen-go` + `protoc-gen-go-grpc` → `services/<svc>/proto/gen/go/`
 - Python: `grpcio-tools` → `services/<svc>/proto_gen/`
 - Rust: `tonic-build` via `build.rs` (generated at `cargo build` time)
@@ -200,13 +234,13 @@ Single `.env.example` at repo root (pre-filled with generated secrets). Key vari
 
 ### Polyglot
 - **Go**: Entry points at `cmd/<service>/main.go`. Run `go mod tidy` if build fails.
-- **Rust**: First build downloads crates (3-5 min). Proto stubs generated at build time via `build.rs` + tonic-build.
+- **Rust**: Single-binary crate, entry at `services/solana-service-rs/src/main.rs` (no `cmd/` subdir). First build downloads crates (3-5 min). Proto stubs generated at build time via `build.rs` + tonic-build.
 - **Python**: Services use venvs (`.venv/`). Install with `make build-python`. Run with `.venv/bin/uvicorn`.
-- **Angular**: Angular 19 with standalone components, lazy-loaded modules. Build with `npx ng build`.
+- **Angular**: Angular 19 with standalone components, lazy-loaded modules. Build with `npx ng build` from `apps/oprai/`.
 - **Proto generation**: Requires `protoc` (`brew install protobuf`), `protoc-gen-go`/`protoc-gen-go-grpc` (Go), `grpcio-tools` (Python).
 
 ### Process Manager
-`Procfile.dev` defines all 7 services for `honcho`. `make dev-all` starts infrastructure + all services in one terminal with color-coded logs.
+`Procfile.dev` defines the dev services for `honcho`: gateway, auth, admin, chat, memory, solana (Rust), solana-ts (:3031), knowledge (:3070), frontend. `make dev-all` starts infrastructure + all of them in one terminal with color-coded logs. The `knowledge` entry self-skips if its `.venv` is missing (run `make build-python` to enable).
 
 ### Frontend Design System
 - **CSS Variables**: All styling uses `--op-*` prefixed tokens (e.g., `--op-bg-surface-1`, `--op-text-primary`, `--op-brand`)

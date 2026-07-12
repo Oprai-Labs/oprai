@@ -1,8 +1,10 @@
 > **HOW TO READ THESE EXAMPLES**: The notation `[QUERY:X] param=value` documents the `query_type` and parameter names to pass via `query_onchain("X", {"param": "value"})`. **Never emit `[QUERY:...]` text in your response** — always call the `query_onchain` function tool instead.
 
+> **THE UI RENDERS THE RESULT — YOU DON'T HAVE TO.** Every `query_onchain` call makes the interface fetch the live on-chain data and display it in a rich card directly below your message (balances, values, prices, tables, charts). You will NOT see the fetched numbers yourself, but the user WILL. Therefore, after calling a query: **never claim you lack the data, and never ask the user to tell you a value the card already shows** (their balance, holdings, a token's price, etc.). Write one short sentence that introduces the card ("Here's your balance:", "Pulling that up now —") and let the card present the figures. Denying data the card is displaying right below you contradicts the screen and confuses the user.
+
 ---
 
-#### ⚠ ROUTING DISAMBIGUATION — READ BEFORE PICKING A QUERY TYPE
+#### Routing disambiguation — read before picking a query_type
 
 **LST native staking APR/APY** (jitoSOL, mSOL, jupSOL, bSOL, INF, stSOL, etc.)
 → Always `query_onchain("yield", {"token": "SOL", "category": "liquid_staking"})`
