@@ -711,9 +711,9 @@ export class JupiterLendService {
 
   async signAndSubmit(transaction: Transaction | VersionedTransaction): Promise<string> {
     // A hung wallet dialog must not leave the card in "waiting for wallet
-    // signature" forever — race every wallet call against a 2-minute timeout so
-    // it surfaces a retryable error instead (matches the backend-action path).
-    const SIGN_TIMEOUT_MS = 120_000;
+    // signature" forever — race every wallet call against a timeout so it
+    // surfaces a retryable error instead.
+    const SIGN_TIMEOUT_MS = 60_000;
     const withTimeout = <T>(p: Promise<T>): Promise<T> =>
       Promise.race([
         p,
@@ -723,8 +723,9 @@ export class JupiterLendService {
       ]);
 
     // Try the wallet's native signAndSendTransaction first (it resolves the
-    // ALTs and refreshes the blockhash internally). Fall back to sign + our own
-    // send when the wallet lacks it.
+    // ALTs and broadcasts via the wallet's own RPC — no dependency on our
+    // authenticated /api/rpc proxy). Fall back to sign + broadcast when the
+    // wallet lacks it.
     try {
       const directSig = await withTimeout(
         this.walletService.signAndSendTransaction(transaction, { skipPreflight: true }),
@@ -732,8 +733,6 @@ export class JupiterLendService {
       if (directSig) return directSig;
     } catch (e: any) {
       const msg = e?.message ?? '';
-      // User rejection or our own timeout must propagate — never silently
-      // re-prompt (a second popup on top of a stuck one is worse UX).
       if (/reject|denied|cancel|declined|user refused|user rejected|timed out/i.test(msg)) {
         throw e;
       }
@@ -743,12 +742,15 @@ export class JupiterLendService {
     const signed = await withTimeout(
       this.walletService.signTransaction(transaction as Transaction),
     );
+    const raw = (signed as Transaction | VersionedTransaction).serialize();
+
+    // Broadcasting a fully-signed tx needs no auth (any RPC accepts it), so send
+    // through a PUBLIC endpoint rather than the auth-gated /api/rpc proxy — the
+    // cookie handshake there was intermittently 401'ing the submit. Fall back to
+    // the proxy connection only if the public endpoint is unreachable.
     let signature: string;
     try {
-      signature = await this.connection.sendRawTransaction(
-        (signed as Transaction | VersionedTransaction).serialize(),
-        { skipPreflight: true, preflightCommitment: 'confirmed' },
-      );
+      signature = await this.broadcastRaw(raw);
     } catch (err: any) {
       const m = err?.message ?? String(err ?? '');
       if (/blockhash not found|block height exceeded/i.test(m)) {
@@ -768,5 +770,22 @@ export class JupiterLendService {
       .catch(() => {});
 
     return signature;
+  }
+
+  /**
+   * Broadcast a signed transaction through a public RPC (no auth) so the submit
+   * never depends on the /api/rpc proxy's cookie handshake. Tries the public
+   * mainnet endpoint first, then the proxy connection as a last resort.
+   */
+  private async broadcastRaw(raw: Uint8Array): Promise<string> {
+    const publicConn = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+    try {
+      return await publicConn.sendRawTransaction(raw, { skipPreflight: true, preflightCommitment: 'confirmed' });
+    } catch (e: any) {
+      const m = e?.message ?? String(e ?? '');
+      // A real on-chain/blockhash error should surface, not trigger a proxy retry.
+      if (/blockhash not found|block height exceeded|custom program error|insufficient/i.test(m)) throw e;
+      return await this.connection.sendRawTransaction(raw, { skipPreflight: true, preflightCommitment: 'confirmed' });
+    }
   }
 }
