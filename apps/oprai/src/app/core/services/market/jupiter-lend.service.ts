@@ -521,15 +521,26 @@ export class JupiterLendService {
 
     const user = new PublicKey(walletPubkey);
 
-    // Auto-select best vault if not provided
+    // Auto-select best vault if not provided. CRITICAL: a Jupiter Lend borrow
+    // vault pairs a SPECIFIC collateral with the debt token, and the operate ix
+    // references that collateral's token account. Selecting purely by rate can
+    // land on a different collateral's vault than the user picked, leaving
+    // signer_supply_token_account uninitialized (3012). So filter to vaults
+    // whose collateral matches colAsset first, then pick the cheapest of those.
     if (vaultId <= 0) {
       const vaults = await this.getBorrowInfo(debtAsset.symbol);
       if (vaults.length === 0) {
         throw new Error(`No borrow vault found for ${debtAsset.symbol}`);
       }
-      // Select vault with best borrow rate (lowest)
-      vaults.sort((a, b) => a.borrowApy - b.borrowApy);
-      vaultId = vaults[0].vaultId;
+      const colUpper = colAsset.symbol.toUpperCase();
+      const matching = vaults.filter(v =>
+        v.collateralMint === colAsset.mint ||
+        v.collateralSymbol.toUpperCase() === colUpper ||
+        (colAsset.mint === NATIVE_MINT.toBase58() && v.collateralSymbol.toUpperCase() === 'SOL')
+      );
+      const pool = matching.length > 0 ? matching : vaults;
+      pool.sort((a, b) => a.borrowApy - b.borrowApy);
+      vaultId = pool[0].vaultId;
     }
 
     // Convert amounts to lamports
@@ -579,18 +590,25 @@ export class JupiterLendService {
     // (AccountNotInitialized) naming signer_supply_token_account /
     // signer_borrow_token_account. Bracket the operate ix with that setup.
     //
-    // The ATA program must match what the vault derives (getAccountOwner of the
-    // mint) or the address won't line up and 3012 persists — so resolve each
-    // mint's owning token program (Token vs Token-2022) rather than assuming.
-    const colMint = new PublicKey(colAsset.mint);
-    const debtMint = new PublicKey(debtAsset.mint);
-    const colIsNativeSol = colAsset.mint === NATIVE_MINT.toBase58();
+    // Derive the accounts to create from the SDK's OWN operate context, not from
+    // colAsset/debtAsset — the selected vault is the source of truth for which
+    // supply/borrow mints (and thus token accounts) the operate ix references.
+    // Any disagreement (auto-selected vault, symbol→mint lookup) leaves the
+    // vault's expected account uninitialized and 3012 persists. The ATA program
+    // must also match what the vault derives (getAccountOwner), so resolve each
+    // mint's owning token program (Token vs Token-2022).
+    const opAccounts = Array.isArray(operateResult) ? null : operateResult.accounts;
+    const supplyMint = opAccounts?.supplyToken ?? new PublicKey(colAsset.mint);
+    const debtMint = opAccounts?.borrowToken ?? new PublicKey(debtAsset.mint);
+    const colIsNativeSol = supplyMint.equals(NATIVE_MINT);
     const [colProgram, debtProgram] = await Promise.all([
-      this.getTokenProgram(colMint),
+      this.getTokenProgram(supplyMint),
       this.getTokenProgram(debtMint),
     ]);
-    const supplyAta = getAssociatedTokenAddressSync(colMint, user, true, colProgram);
-    const debtAta = getAssociatedTokenAddressSync(debtMint, user, true, debtProgram);
+    const supplyAta = opAccounts?.signerSupplyTokenAccount
+      ?? getAssociatedTokenAddressSync(supplyMint, user, true, colProgram);
+    const debtAta = opAccounts?.signerBorrowTokenAccount
+      ?? getAssociatedTokenAddressSync(debtMint, user, true, debtProgram);
 
     const preIxs: TransactionInstruction[] = [];
     const postIxs: TransactionInstruction[] = [];
@@ -599,7 +617,7 @@ export class JupiterLendService {
     // idempotently for every collateral; for native SOL also wrap the deposit
     // amount into it and close afterward (operate drains it into the vault) to
     // reclaim the rent as native SOL.
-    preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, colMint, colProgram));
+    preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, supplyMint, colProgram));
     if (colIsNativeSol && colAmount > 0) {
       preIxs.push(
         SystemProgram.transfer({

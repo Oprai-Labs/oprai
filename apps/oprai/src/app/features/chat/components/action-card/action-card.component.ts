@@ -2517,6 +2517,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (sel) {
         this.selectedCollateral.set(sel);
         this.setEditParam('collateral', sel.symbol);
+        const vault = vaults.find(v => v.collateralMint === sel.mint);
+        if (vault) this.setEditParam('vaultId', String(vault.vaultId));
       }
       this.borrowCapacity.set({ loading: false, maxBorrow: 0 });
     } catch {
@@ -4154,8 +4156,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   selectCollateral(opt: CollateralOption): void {
     this.selectedCollateral.set(opt);
-    // Keep editParams in sync so the built tx uses the chosen collateral.
+    // Keep editParams in sync so the built tx uses the chosen collateral AND the
+    // exact vault whose rate/LTV the card is showing — each collateral maps to a
+    // specific vault, and the borrow tx must operate on that one (not the
+    // cheapest-rate vault for the debt token, which may pair a different asset).
     this.setEditParam('collateral', opt.symbol);
+    const vault = this.borrowVaults().find(v => v.collateralMint === opt.mint);
+    if (vault) this.setEditParam('vaultId', String(vault.vaultId));
   }
 
   /** Set the collateral amount to the user's full balance of the picked asset. */
