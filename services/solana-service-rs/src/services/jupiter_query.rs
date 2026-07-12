@@ -31,6 +31,7 @@ const JUP_PRICE_API: &str = "https://api.jup.ag/price/v3";
 const JUP_TOKENS_API: &str = "https://api.jup.ag/tokens/v2";
 const JUP_PORTFOLIO_API: &str = "https://api.jup.ag/portfolio/v1";
 const JUP_LEND_EARN_API: &str = "https://api.jup.ag/lend/v1/earn";
+const JUP_LEND_BORROW_API: &str = "https://api.jup.ag/lend/v1/borrow";
 const JUP_SEND_API: &str = "https://api.jup.ag/send/v1";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -613,19 +614,29 @@ pub async fn build_jup_lend_positions(
 ) -> Result<BuildResponse, AppError> {
     validate_jup_lend_positions_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
-    // Jupiter Lend Earn uses `users=` (plural, comma-separated) not `userPubkey=`
-    let url = format!("{JUP_LEND_EARN_API}/positions?users={target}");
-    let data = jup_get(http, &url, api_key).await?;
+    // Jupiter Lend uses `users=` (plural, comma-separated), not `userPubkey=`.
+    // "Lend positions" spans BOTH sides of the protocol: Earn (deposits) AND
+    // Borrow (collateral + debt). Fetch both — querying only Earn made an
+    // active borrow look like "no positions" to the LLM.
+    let earn_url = format!("{JUP_LEND_EARN_API}/positions?users={target}");
+    let borrow_url = format!("{JUP_LEND_BORROW_API}/positions?users={target}");
+    let (earn, borrow) = tokio::join!(
+        jup_get(http, &earn_url, api_key),
+        jup_get(http, &borrow_url, api_key),
+    );
+    // A failure on one side must not blank the other — degrade to an empty array.
+    let earn = earn.unwrap_or_else(|_| serde_json::json!([]));
+    let borrow = borrow.unwrap_or_else(|_| serde_json::json!([]));
 
-    let count = data
-        .as_array()
-        .map(|a| a.len())
-        .or_else(|| {
-            data.get("positions")
-                .and_then(|v| v.as_array())
-                .map(|a| a.len())
-        })
-        .unwrap_or(0);
+    let arr_len = |v: &serde_json::Value| -> usize {
+        v.as_array()
+            .map(|a| a.len())
+            .or_else(|| v.get("positions").and_then(|p| p.as_array()).map(|a| a.len()))
+            .unwrap_or(0)
+    };
+    let earn_count = arr_len(&earn);
+    let borrow_count = arr_len(&borrow);
+    let count = earn_count + borrow_count;
 
     let wallet_short = if target.len() > 8 {
         format!("{}...{}", &target[..4], &target[target.len() - 4..])
@@ -638,11 +649,12 @@ pub async fn build_jup_lend_positions(
             id: Uuid::new_v4().to_string(),
             action_type: "jup_lend_positions".into(),
             description: format!(
-                "{count} active Jupiter Lend position(s) for {wallet_short}"
+                "{count} active Jupiter Lend position(s) for {wallet_short} \
+                 ({earn_count} earn, {borrow_count} borrow)"
             ),
             estimated_fee: "0".into(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({ "earn": earn, "borrow": borrow }),
             warnings: vec![],
             requires_approval: false,
         },
