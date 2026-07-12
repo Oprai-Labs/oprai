@@ -1,10 +1,16 @@
 <div class="clarify-card">
   <!-- Header -->
   <div class="clarify-card__header">
-    <div class="clarify-card__icon">
-      <lucide-angular [name]="icon()" [size]="16" />
-    </div>
-    <span class="clarify-card__title">{{ title() }}</span>
+    @if (cardProtocol(); as proto) {
+      <div class="clarify-card__icon clarify-card__icon--protocol">
+        <img class="clarify-card__proto-logo" [src]="proto.icon" [alt]="proto.name" />
+      </div>
+    } @else {
+      <div class="clarify-card__icon">
+        <lucide-angular [name]="icon()" [size]="16" />
+      </div>
+    }
+    <span class="clarify-card__title">{{ cardProtocol()?.name ?? title() }}</span>
   </div>
 
   <!-- Question -->

@@ -156,6 +156,20 @@ export class ClarifyCardComponent {
     return t ? (t.to ?? t.from) : null;
   }
 
+  /**
+   * The one protocol shared by EVERY option — used to brand the card header
+   * with the real protocol logo (e.g. Kamino) instead of a generic glyph.
+   * Null when options span multiple protocols (then the per-row logos carry it).
+   */
+  cardProtocol(): ProtocolInfo | null {
+    const opts = this.clarify.options ?? [];
+    if (!opts.length) return null;
+    const infos = opts.map(o => this.getProtocolInfo(o));
+    const first = infos[0];
+    if (!first) return null;
+    return infos.every(i => i?.id === first.id) ? first : null;
+  }
+
   /** Resolve an address or symbol to display bits; null if unknown/empty. */
   private resolveToken(idOrSymbol?: string): OptionToken | null {
     const raw = (idOrSymbol ?? '').trim().replace(/^\$/, '');

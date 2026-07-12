@@ -40,6 +40,18 @@
     border-radius: 8px;
     background: color-mix(in srgb, var(--op-brand) 12%, transparent);
     color: var(--op-brand);
+    flex-shrink: 0;
+    overflow: hidden;
+
+    // When the card is scoped to one protocol, its real logo brands the header.
+    &--protocol {
+      background: var(--op-bg-surface-1);
+    }
+  }
+  &__proto-logo {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
   }
 
   &__title {
