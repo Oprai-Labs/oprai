@@ -1299,7 +1299,7 @@
                   <span class="pump-panel__bal">
                     Deposited: {{ wlDeposited | number:'1.0-4' }} {{ wlTd.symbol }}
                     @if (isEditable()) {
-                      <button class="pump-panel__max" type="button" (click)="setEditParam('amount', 'all')">Max</button>
+                      <button class="pump-panel__max" type="button" (click)="setMaxLendWithdraw()">Max</button>
                     }
                   </span>
                 }

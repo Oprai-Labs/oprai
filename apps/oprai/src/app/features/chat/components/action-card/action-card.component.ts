@@ -3799,7 +3799,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   jlpReceiveTd() { return this.resolveTokenDisplay(this.editParams()['token'] ?? 'USDC'); }
 
   // Jupiter Lend (earn) deposit-token pill display.
-  lendTokenTd() { return this.resolveTokenDisplay(this.editParams()['token'] ?? 'USDC'); }
+  /** Withdraw-all: set the amount to the real deposit (floored 6dp, never above chain). */
+  setMaxLendWithdraw(): void {
+    const info = this.lendInfo();
+    const dep = info?.kind === 'earn' ? (info.data.userDepositedAssets ?? 0) : 0;
+    if (dep > 0) this.setEditParam('amount', String(Math.floor(dep * 1e6) / 1e6));
+  }
+
+  lendTokenTd() {
+    // Jupiter Lend lists native SOL as WSOL; the token param arrives as "wSOL"
+    // (any case), which the registry can't resolve → a wrong/placeholder icon.
+    // Normalise WSOL→SOL so the native SOL logo + symbol render correctly.
+    const raw = this.editParams()['token'] ?? 'USDC';
+    return this.resolveTokenDisplay(raw.toUpperCase() === 'WSOL' ? 'SOL' : raw);
+  }
 
   setPerpMarket(m: string): void { if (this.isEditable()) this.setEditParam('market', m); }
   setPerpSide(s: 'long' | 'short'): void { if (this.isEditable()) this.setEditParam('side', s); }
@@ -4165,7 +4178,27 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   private async loadLendInfo(): Promise<void> {
     this.lendInfoLoading.set(true);
-    try { const info = await this.jupiterLend.getEarnInfo(this.editParams()['token'] ?? 'USDC'); if (info) this.lendInfo.set({ kind: 'earn', data: info } as LendActionInfo); }
+    try {
+      // Pass the wallet so the earn info carries the user's deposited amount —
+      // the withdraw card needs it for the "Deposited" balance AND to turn an
+      // "all"/"max" sentinel into the real number.
+      const wallet = this.walletService.publicKey() ?? undefined;
+      const info = await this.jupiterLend.getEarnInfo(this.editParams()['token'] ?? 'USDC', wallet);
+      if (info) {
+        this.lendInfo.set({ kind: 'earn', data: info } as LendActionInfo);
+        if (this.action.type === 'withdraw_lend') {
+          const amt = this.editParams()['amount'];
+          const dep = info.userDepositedAssets ?? 0;
+          if ((amt === 'all' || amt === 'max') && dep > 0) {
+            // Show the real amount. Floor to 6 dp so the value never rounds ABOVE
+            // the on-chain deposit (which would fail with insufficient funds);
+            // interest accrual only grows the deposit, so a snapshot is safe.
+            const safe = Math.floor(dep * 1e6) / 1e6;
+            this.setEditParam('amount', String(safe));
+          }
+        }
+      }
+    }
     catch { this.lendInfo.set(null); } finally { this.lendInfoLoading.set(false); }
   }
 
