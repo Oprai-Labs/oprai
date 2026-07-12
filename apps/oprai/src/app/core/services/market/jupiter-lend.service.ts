@@ -42,6 +42,22 @@ import { createSolanaConnection } from '@core/utils/solana-connection';
 
 const LEND_API = 'https://lite-api.jup.ag/lend';
 
+/**
+ * fetch() with a hard timeout. Jupiter's lite-api occasionally hangs a request;
+ * a bare fetch has no timeout, so a single stalled call would freeze the borrow
+ * card on "Loading collateral options…" forever. Aborting after a few seconds
+ * lets the caller fall back to its empty/error state gracefully.
+ */
+async function jupFetch(url: string, timeoutMs = 7000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── Program IDs ────────────────────────────────────────────────────────────
 
 // Supported assets (mainnet)
@@ -155,7 +171,7 @@ export class JupiterLendService {
     const FRESH_MS = 5 * 60 * 1000;
     if (this.liveAssets && Date.now() - this.liveAssetsAt < FRESH_MS) return this.liveAssets;
     try {
-      const res = await fetch(`${LEND_API}/v1/earn/tokens`);
+      const res = await jupFetch(`${LEND_API}/v1/earn/tokens`);
       if (res.ok) {
         const tokens: any[] = await res.json();
         const assets: LendAsset[] = tokens
@@ -197,7 +213,7 @@ export class JupiterLendService {
   /** Fetch earn token market data for a given underlying asset symbol or mint. */
   async getEarnInfo(symbolOrMint: string, walletAddress?: string): Promise<LendEarnInfo | null> {
     try {
-      const res = await fetch(`${LEND_API}/v1/earn/tokens`);
+      const res = await jupFetch(`${LEND_API}/v1/earn/tokens`);
       if (!res.ok) return null;
       const tokens: any[] = await res.json();
       const upper = symbolOrMint.toUpperCase();
@@ -230,7 +246,7 @@ export class JupiterLendService {
 
       if (walletAddress) {
         try {
-          const posRes = await fetch(`${LEND_API}/v1/earn/positions?users[]=${walletAddress}`);
+          const posRes = await jupFetch(`${LEND_API}/v1/earn/positions?users[]=${walletAddress}`);
           if (posRes.ok) {
             const positions: any[] = await posRes.json();
             const pos = positions.find(p => p.token?.asset?.address === t.asset?.address);
@@ -239,7 +255,7 @@ export class JupiterLendService {
               info.userDepositedAssets = parseFloat(pos.underlyingAssets ?? '0') / Math.pow(10, decimals);
             }
           }
-          const earnRes = await fetch(`${LEND_API}/v1/earn/earnings?user=${walletAddress}&positions[]=${t.address}`);
+          const earnRes = await jupFetch(`${LEND_API}/v1/earn/earnings?user=${walletAddress}&positions[]=${t.address}`);
           if (earnRes.ok) {
             const earnings: any[] = await earnRes.json();
             const e = earnings[0];
@@ -255,10 +271,20 @@ export class JupiterLendService {
 
   /** Fetch borrow vault data for a given debt token (symbol or mint). */
   async getBorrowInfo(debtSymbolOrMint: string): Promise<LendBorrowInfo[]> {
+    // Jupiter's lite-api is occasionally flaky (a request hangs, then recovers).
+    // Retry once on timeout/failure before giving up so a single stall doesn't
+    // leave the borrow card empty.
+    let vaults: any[] | null = null;
+    for (let attempt = 0; attempt < 2 && vaults === null; attempt++) {
+      try {
+        const res = await jupFetch(`${LEND_API}/v1/borrow/vaults`);
+        if (res.ok) vaults = await res.json();
+      } catch {
+        /* timeout/network — retry once, then fall through */
+      }
+    }
+    if (!vaults) return [];
     try {
-      const res = await fetch(`${LEND_API}/v1/borrow/vaults`);
-      if (!res.ok) return [];
-      const vaults: any[] = await res.json();
       const upper = debtSymbolOrMint.toUpperCase();
       return vaults
         .filter(v =>
@@ -293,8 +319,8 @@ export class JupiterLendService {
   async getAllEarnPositions(walletAddress: string): Promise<LendPosition[]> {
     try {
       const [posRes, tokensRes] = await Promise.all([
-        fetch(`${LEND_API}/v1/earn/positions?users[]=${walletAddress}`),
-        fetch(`${LEND_API}/v1/earn/tokens`),
+        jupFetch(`${LEND_API}/v1/earn/positions?users[]=${walletAddress}`),
+        jupFetch(`${LEND_API}/v1/earn/tokens`),
       ]);
       if (!posRes.ok) return [];
       const positions: any[] = await posRes.json();
@@ -323,7 +349,7 @@ export class JupiterLendService {
   /** Fetch all borrow positions for a wallet. */
   async getBorrowPositions(walletAddress: string): Promise<BorrowPosition[]> {
     try {
-      const res = await fetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`);
+      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`);
       if (!res.ok) return [];
       const positions: any[] = await res.json();
 
