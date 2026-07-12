@@ -16,6 +16,7 @@
  */
 import { Injectable, inject } from '@angular/core';
 import {
+  ComputeBudgetProgram,
   Connection,
   PublicKey,
   SystemProgram,
@@ -636,7 +637,15 @@ export class JupiterLendService {
     // destination (and repay has a source).
     preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
 
-    const allIxs = [...preIxs, ...ixs, ...postIxs];
+    // The operate (position-NFT init + tick/oracle CPIs) is compute-heavy
+    // (~265k CU in sim). Set an explicit unit limit + a small priority fee so
+    // the tx has predictable CU and the wallet's preview simulation succeeds
+    // instead of stalling. These must lead the instruction list.
+    const computeIxs = [
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
+    ];
+    const allIxs = [...computeIxs, ...preIxs, ...ixs, ...postIxs];
 
     // The operate instruction touches many accounts (tick arrays, oracles,
     // vault PDAs), so a legacy tx overflows the 1232-byte limit (~1407B).
@@ -681,8 +690,11 @@ export class JupiterLendService {
     // The borrow operate tx is v0 + ALT, and plain signTransaction() can hang
     // there (popup never resolves) in some wallets — signAndSend does not.
     try {
+      // skipPreflight: we already pre-flight simulated in the app, so skip the
+      // wallet's redundant preflight — matches the proven pump.fun/graduated
+      // path and avoids a second simulation stalling the approval.
       const directSig = await this.walletService.signAndSendTransaction(transaction, {
-        skipPreflight: false,
+        skipPreflight: true,
       });
       if (directSig) return directSig;
       // null → wallet doesn't support it; fall through to manual sign + send.
