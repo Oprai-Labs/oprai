@@ -36,7 +36,7 @@ import {
 } from '@solana/spl-token';
 import BN from 'bn.js';
 import { getDepositIxs, getWithdrawIxs } from '@jup-ag/lend/earn';
-import { getOperateIx, getVaultsProgram, MAX_REPAY_AMOUNT, MAX_WITHDRAW_AMOUNT } from '@jup-ag/lend/borrow';
+import { getInitPositionIx, getOperateIx, getVaultsProgram, MAX_REPAY_AMOUNT, MAX_WITHDRAW_AMOUNT } from '@jup-ag/lend/borrow';
 import { WalletService } from '@core/services/wallet.service';
 import { createSolanaConnection } from '@core/utils/solana-connection';
 
@@ -517,6 +517,58 @@ export class JupiterLendService {
     return TOKEN_PROGRAM_ID;
   }
 
+  // Position NFTs created this session, keyed by `${wallet}:${vaultId}`, so a
+  // retry after a failed operate reuses the position instead of minting a new one.
+  private readonly _positionCache = new Map<string, number>();
+
+  /**
+   * Ensure the user has a borrow-position NFT for this vault, creating one in a
+   * dedicated (wallet-previewable) transaction if needed, and return its id.
+   * The position must be confirmed on-chain before the operate tx references it.
+   */
+  private async ensureBorrowPosition(vaultId: number, user: PublicKey): Promise<number> {
+    const cacheKey = `${user.toBase58()}:${vaultId}`;
+    const cached = this._positionCache.get(cacheKey);
+    if (cached != null) return cached;
+
+    const { ix, nftId } = await getInitPositionIx({ vaultId, connection: this.connection, signer: user });
+    const { blockhash } = await this.connection.getLatestBlockhash();
+    const messageV0 = new TransactionMessage({
+      payerKey: user,
+      recentBlockhash: blockhash,
+      instructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
+        ix,
+      ],
+    }).compileToV0Message();
+    const tx = new VersionedTransaction(messageV0);
+
+    const sig = await this.signAndSubmit(tx);        // wallet approval #1 (plain NFT mint)
+    await this.waitForOnChain(sig);                  // must land before the operate references it
+    this._positionCache.set(cacheKey, nftId);
+    return nftId;
+  }
+
+  /** Poll a public RPC until a signature confirms (or throw on failure/timeout). */
+  private async waitForOnChain(signature: string, timeoutMs = 45_000): Promise<void> {
+    const pub = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const st = await pub.getSignatureStatus(signature, { searchTransactionHistory: true });
+        if (st?.value?.err) throw new Error('Position creation failed on-chain.');
+        const s = st?.value?.confirmationStatus;
+        if (s === 'confirmed' || s === 'finalized') return;
+      } catch (e: any) {
+        if (/failed on-chain/i.test(e?.message ?? '')) throw e;
+        /* transient RPC error — keep polling */
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    throw new Error('Position creation did not confirm in time. Please try again.');
+  }
+
   /**
    * Build a borrow-vault operation transaction using @jup-ag/lend/borrow SDK.
    *
@@ -568,6 +620,17 @@ export class JupiterLendService {
       const pool = matching.length > 0 ? matching : vaults;
       pool.sort((a, b) => a.borrowApy - b.borrowApy);
       vaultId = pool[0].vaultId;
+    }
+
+    // Split the position-NFT creation into its OWN transaction when this is a
+    // new position (positionId 0). The combined init+operate tx (Metaplex NFT
+    // mint + tick/oracle CPIs + ALT) is too heavy for wallets like Phantom to
+    // simulate, so the approval preview never renders. Creating the position
+    // first (a simple NFT mint the wallet handles fine) means the operate tx
+    // below carries a real positionId → the SDK omits initPositionIx → a much
+    // lighter tx the wallet can preview and approve.
+    if (positionId <= 0 && debtAmount > 0) {
+      positionId = await this.ensureBorrowPosition(vaultId, user);
     }
 
     // Convert amounts to lamports
