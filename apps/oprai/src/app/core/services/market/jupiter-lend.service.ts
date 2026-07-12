@@ -48,11 +48,11 @@ const LEND_API = 'https://lite-api.jup.ag/lend';
  * card on "Loading collateral options…" forever. Aborting after a few seconds
  * lets the caller fall back to its empty/error state gracefully.
  */
-async function jupFetch(url: string, timeoutMs = 7000): Promise<Response> {
+async function jupFetch(url: string, timeoutMs = 7000, init?: RequestInit): Promise<Response> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: ctrl.signal });
+    return await fetch(url, { ...(init ?? {}), signal: ctrl.signal });
   } finally {
     clearTimeout(timer);
   }
@@ -622,132 +622,33 @@ export class JupiterLendService {
       vaultId = pool[0].vaultId;
     }
 
-    // Split the position-NFT creation into its OWN transaction when this is a
-    // new position (positionId 0). The combined init+operate tx (Metaplex NFT
-    // mint + tick/oracle CPIs + ALT) is too heavy for wallets like Phantom to
-    // simulate, so the approval preview never renders. Creating the position
-    // first (a simple NFT mint the wallet handles fine) means the operate tx
-    // below carries a real positionId → the SDK omits initPositionIx → a much
-    // lighter tx the wallet can preview and approve.
-    if (positionId <= 0 && debtAmount > 0) {
-      positionId = await this.ensureBorrowPosition(vaultId, user);
-    }
+    // Build the transaction via Jupiter's OFFICIAL borrow API. Its backend
+    // returns a lean, wallet-previewable v0 tx — ComputeBudget + init position +
+    // operate, ~3 instructions, ~866 bytes — that Phantom can simulate and
+    // approve. A hand-assembled getOperateIx tx (expanded Metaplex position-NFT
+    // mint + separate ATA/wrap/close ixs, ~9 instructions) is too heavy for the
+    // wallet's preview simulation, so the balance-change preview never resolves
+    // and the Approve button stays disabled. This is the same endpoint
+    // jup.ag/lend/borrow itself uses (Client.borrow.operate).
+    const amtStr = (amt: number, decimals: number, maxNegSentinel: BN): string => {
+      // -1 = MAX_REPAY, -2 = MAX_WITHDRAW app-level sentinels → program's max value.
+      if (amt === -1 || amt === -2) return maxNegSentinel.toString();
+      return Math.round(amt * 10 ** decimals).toString(); // sign-preserving (borrow/add +, repay/withdraw -)
+    };
+    const colStr = amtStr(colAmount, colAsset.decimals, MAX_WITHDRAW_AMOUNT);
+    const debtStr = amtStr(debtAmount, debtAsset.decimals, MAX_REPAY_AMOUNT);
 
-    // Convert amounts to lamports
-    const colLamports = new BN(Math.floor(Math.abs(colAmount) * 10 ** colAsset.decimals).toString());
-    const debtLamports = new BN(Math.floor(Math.abs(debtAmount) * 10 ** debtAsset.decimals).toString());
-
-    // Handle special values
-    let colBN: BN;
-    let debtBN: BN;
-
-    if (colAmount < 0 && colAmount === -2) {
-      // MAX_WITHDRAW_AMOUNT
-      colBN = MAX_WITHDRAW_AMOUNT;
-      debtBN = debtLamports;
-    } else if (debtAmount < 0 && debtAmount === -1) {
-      // MAX_REPAY_AMOUNT (repay all debt)
-      colBN = colLamports;
-      debtBN = MAX_REPAY_AMOUNT;
-    } else {
-      colBN = colLamports;
-      debtBN = debtLamports;
-    }
-
-    // Initialize program (needed for side effects)
-    await getVaultsProgram({
-      connection: this.connection,
-      signer: user,
+    const opRes = await jupFetch(`${LEND_API}/v1/borrow/operate`, 12_000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signer: user.toBase58(), vaultId, positionId, colAmount: colStr, debtAmount: debtStr }),
     });
-
-    // Build the operate instruction
-    const operateResult = await getOperateIx({
-      vaultId,
-      positionId,
-      colAmount: colBN,
-      debtAmount: debtBN,
-      connection: this.connection,
-      signer: user,
-    });
-    const ixs = Array.isArray(operateResult) ? operateResult : operateResult.ixs;
-    const luts = Array.isArray(operateResult)
-      ? []
-      : (operateResult.addressLookupTableAccounts ?? []);
-
-    // getOperateIx assumes the user's supply (collateral) and borrow (debt)
-    // token accounts already exist and, for native SOL, that the WSOL account is
-    // funded. It creates none of them, so simulation fails with Anchor 3012
-    // (AccountNotInitialized) naming signer_supply_token_account /
-    // signer_borrow_token_account. Bracket the operate ix with that setup.
-    //
-    // Derive the accounts to create from the SDK's OWN operate context, not from
-    // colAsset/debtAsset — the selected vault is the source of truth for which
-    // supply/borrow mints (and thus token accounts) the operate ix references.
-    // Any disagreement (auto-selected vault, symbol→mint lookup) leaves the
-    // vault's expected account uninitialized and 3012 persists. The ATA program
-    // must also match what the vault derives (getAccountOwner), so resolve each
-    // mint's owning token program (Token vs Token-2022).
-    const opAccounts = Array.isArray(operateResult) ? null : operateResult.accounts;
-    const supplyMint = opAccounts?.supplyToken ?? new PublicKey(colAsset.mint);
-    const debtMint = opAccounts?.borrowToken ?? new PublicKey(debtAsset.mint);
-    const colIsNativeSol = supplyMint.equals(NATIVE_MINT);
-    const [colProgram, debtProgram] = await Promise.all([
-      this.getTokenProgram(supplyMint),
-      this.getTokenProgram(debtMint),
-    ]);
-    const supplyAta = opAccounts?.signerSupplyTokenAccount
-      ?? getAssociatedTokenAddressSync(supplyMint, user, true, colProgram);
-    const debtAta = opAccounts?.signerBorrowTokenAccount
-      ?? getAssociatedTokenAddressSync(debtMint, user, true, debtProgram);
-
-    const preIxs: TransactionInstruction[] = [];
-    const postIxs: TransactionInstruction[] = [];
-
-    // Collateral (supply) account: operate always references it. Create it
-    // idempotently for every collateral; for native SOL also wrap the deposit
-    // amount into it and close afterward (operate drains it into the vault) to
-    // reclaim the rent as native SOL.
-    preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, supplyMint, colProgram));
-    if (colIsNativeSol && colAmount > 0) {
-      preIxs.push(
-        SystemProgram.transfer({
-          fromPubkey: user,
-          toPubkey: supplyAta,
-          lamports: BigInt(colLamports.toString()),
-        }),
-        createSyncNativeInstruction(supplyAta),
-      );
-    }
-    if (colIsNativeSol && colAmount !== 0) {
-      postIxs.push(createCloseAccountInstruction(supplyAta, user, user));
-    }
-
-    // Debt (borrow) account: create it idempotently so borrowed funds have a
-    // destination (and repay has a source).
-    preIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
-
-    // The operate (position-NFT init + tick/oracle CPIs) is compute-heavy
-    // (~265k CU in sim). Set an explicit unit limit + a small priority fee so
-    // the tx has predictable CU and the wallet's preview simulation succeeds
-    // instead of stalling. These must lead the instruction list.
-    const computeIxs = [
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
-    ];
-    const allIxs = [...computeIxs, ...preIxs, ...ixs, ...postIxs];
-
-    // The operate instruction touches many accounts (tick arrays, oracles,
-    // vault PDAs), so a legacy tx overflows the 1232-byte limit (~1407B).
-    // Compile a v0 tx over the vault program's Address Lookup Table(s) — account
-    // refs pack into 1 byte each — so it fits. Wallets sign VersionedTransaction
-    // the same way, and signAndSubmit serializes both transparently.
-    const { blockhash } = await this.connection.getLatestBlockhash();
-    const messageV0 = new TransactionMessage({
-      payerKey: user,
-      recentBlockhash: blockhash,
-      instructions: allIxs,
-    }).compileToV0Message(luts);
-    const tx = new VersionedTransaction(messageV0);
+    if (!opRes.ok) throw new Error('Jupiter borrow service is unavailable right now. Please try again.');
+    const opData = await opRes.json() as { nftId?: number; transaction?: string };
+    if (!opData.transaction) throw new Error('Jupiter borrow service returned no transaction.');
+    const tx = VersionedTransaction.deserialize(
+      Uint8Array.from(atob(opData.transaction), c => c.charCodeAt(0)),
+    );
 
     // Build description
     let description: string;
