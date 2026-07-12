@@ -1286,6 +1286,73 @@
               </div>
             }
           </div>
+        } @else if (action.type === 'withdraw_lend') {
+          <!-- ─────── Jupiter Lend (Earn): withdraw your deposit (swap-card look) ─────── -->
+          @let wlTd = lendTokenTd();
+          @let wlEarn = lendInfo()?.kind === 'earn' ? lendInfo()!.data : null;
+          @let wlDeposited = wlEarn ? $any(wlEarn).userDepositedAssets : null;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Withdraw</span>
+                @if (wlDeposited != null && wlDeposited > 0) {
+                  <span class="pump-panel__bal">
+                    Deposited: {{ wlDeposited | number:'1.0-4' }} {{ wlTd.symbol }}
+                    @if (isEditable()) {
+                      <button class="pump-panel__max" type="button" (click)="setEditParam('amount', 'all')">Max</button>
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (wlTd.logoURI) {
+                    <img [src]="wlTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (wlTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ wlTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="arrow-down" [size]="16" />
+            </div>
+
+            <!-- Receive: the underlying token back in your wallet -->
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">You receive</span>
+                @if (wlEarn) {
+                  <span class="lend-apy-pill">{{ $any(wlEarn).totalApy | number:'1.2-2' }}% APY</span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <span class="pump-panel__amount pump-panel__amount--muted">
+                  {{ wlTd.symbol }} back to your wallet
+                </span>
+              </div>
+            </div>
+
+            @if (wlDeposited != null && wlDeposited > 0) {
+              <div class="lend-summary">
+                <div class="lend-summary__row lend-summary__row--strong">
+                  <span>Your current deposit</span>
+                  <span>{{ wlDeposited | number:'1.2-6' }} {{ $any(wlEarn).assetSymbol }}</span>
+                </div>
+                <div class="lend-summary__row">
+                  <span>Stops earning</span>
+                  <span>{{ $any(wlEarn).totalApy | number:'1.2-2' }}% APY</span>
+                </div>
+              </div>
+            }
+          </div>
         } @else if (action.type === 'jlp_add') {
           <!-- ─────── Jupiter JLP: deposit a token to mint JLP (swap-card look) ─────── -->
           @let jlpTd = jlpTokenTd();
