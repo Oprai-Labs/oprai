@@ -14,6 +14,7 @@ import { UploadService } from '@core/services/upload.service';
 import { JupiterLendService, LEND_SUPPORTED_ASSETS, LendActionInfo, LendBorrowInfo } from '@core/services/market/jupiter-lend.service';
 import { WalletService } from '@core/services/wallet.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
+import { KaminoService, KaminoReserve, KaminoObligation, KAMINO_MAIN_MARKET } from '@core/services/market/kamino.service';
 import { TransactionPreviewService, TransactionPreview, BalanceChange } from '../../services/transaction-preview.service';
 import { JargonTooltipComponent } from '@shared/components/jargon-tooltip/jargon-tooltip.component';
 import { TokenPickerComponent } from '../token-picker/token-picker.component';
@@ -1339,6 +1340,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly chatApi = inject(ChatApiService);
   private readonly uploadService = inject(UploadService);
   private readonly jupiterLend = inject(JupiterLendService);
+  private readonly kamino = inject(KaminoService);
   private readonly walletService = inject(WalletService);
   private readonly tokenRegistry = inject(TokenRegistryService);
   private readonly previewService = inject(TransactionPreviewService);
@@ -2322,6 +2324,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly lendInfo = signal<LendActionInfo | null>(null);
   readonly lendInfoLoading = signal(false);
   readonly borrowLiquidityMode = signal(false);
+
+  // Kamino K-Lend borrow: live reserve rates + the user's obligation, used to
+  // project LTV / health factor and cap the borrow at what the collateral allows.
+  readonly kaminoReserve = signal<KaminoReserve | null>(null);
+  readonly kaminoObligation = signal<KaminoObligation | null>(null);
+  readonly kaminoBorrowLoading = signal(false);
 
   // Collateral
   readonly collateralOptions = signal<CollateralOption[]>([]);
@@ -3354,6 +3362,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.inputBalanceMint()) this.loadInputBalance();
     if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
     if (['lend','withdraw_lend'].includes(this.action.type)) this.loadLendInfo();
+    if (this.action.type === 'kamino_borrow') this.loadKaminoBorrowInfo();
     if (this.action.type === 'native_stake') this.loadValidators();
     // Eagerly resolve "all" → actual balance for pumpfun/pumpswap sells so the
     // number input shows a real value instead of appearing blank.
@@ -4223,6 +4232,104 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       }
     }
     catch { this.lendInfo.set(null); } finally { this.lendInfoLoading.set(false); }
+  }
+
+  /** Load the borrow token's Kamino reserve rates + the wallet's obligation. */
+  private async loadKaminoBorrowInfo(): Promise<void> {
+    this.kaminoBorrowLoading.set(true);
+    try {
+      const wallet = this.walletService.publicKey() ?? undefined;
+      const token = (this.editParams()['token'] ?? this.editParams()['reserve'] ?? 'USDC');
+      const [reserves, obligations] = await Promise.all([
+        this.kamino.getMainMarketReserves(),
+        wallet ? this.kamino.getObligations(wallet, KAMINO_MAIN_MARKET) : Promise.resolve([] as KaminoObligation[]),
+      ]);
+      const want = token.trim().replace(/^\$/, '');
+      const byMint = want.length >= 32;
+      const norm = (s: string) => (s.toUpperCase() === 'WSOL' ? 'SOL' : s.toUpperCase());
+      // Same "deepest reserve wins" rule the backend uses when a token has several.
+      const matches = reserves.filter(r =>
+        byMint ? r.liquidityTokenMint === want : norm(r.symbol) === norm(want));
+      const reserve = matches.sort((a, b) => b.totalSupplyUsd - a.totalSupplyUsd)[0] ?? null;
+      this.kaminoReserve.set(reserve);
+      this.kaminoObligation.set(obligations[0] ?? null);
+    }
+    catch { this.kaminoReserve.set(null); this.kaminoObligation.set(null); }
+    finally { this.kaminoBorrowLoading.set(false); }
+  }
+
+  /** USD price of one unit of the reserve token (supplyUsd ÷ supply). */
+  private kaminoReservePrice(r: KaminoReserve): number {
+    const supply = parseFloat(r.totalSupply) || 0;
+    return supply > 0 ? r.totalSupplyUsd / supply : 0;
+  }
+
+  /**
+   * Live Kamino borrow projection. Reserve rates always render; the LTV / health
+   * / max-borrowable block appears once the wallet has an obligation. Borrowing
+   * `amount` of the token adds `amount × price` to the obligation's debt.
+   *   ltvAfter   = (borrowedUsd + amount×price) ÷ collateralUsd
+   *   maxBorrow  = (borrowLimit − borrowedUsd) ÷ price           (token units)
+   *   HF (after) = borrowLiquidationLimit ÷ (borrowedUsd + amount×price)
+   */
+  get kaminoBorrowStats(): {
+    symbol: string; borrowApyPct: number; liquidationLtvPct: number;
+    availableToken: number; availableUsd: number; price: number;
+    hasPosition: boolean; collateralUsd: number; borrowedUsd: number;
+    maxBorrowable: number; ltvCurrentPct: number; ltvAfterPct: number;
+    hf: number; hfLabel: string; hfClass: string; errorMsg?: string;
+  } | null {
+    const r = this.kaminoReserve();
+    if (!r) return null;
+    const price = this.kaminoReservePrice(r);
+    const borrowApyPct = r.borrowApyNum * 100;
+    const availableUsd = Math.max(0, r.totalSupplyUsd - (parseFloat(r.totalBorrowUsd) || 0));
+    const availableToken = price > 0 ? availableUsd / price : 0;
+
+    const ob = this.kaminoObligation();
+    const collateralUsd = ob ? parseFloat(ob.depositedValue) || 0 : 0;
+    const borrowedUsd = ob ? parseFloat(ob.borrowedValue) || 0 : 0;
+    const borrowLimit = ob ? parseFloat(ob.borrowLimit) || 0 : 0;
+    const liqLimitUsd = ob ? parseFloat(ob.borrowLiquidationLimit) || 0 : 0;
+    const liquidationLtvPct = (ob ? parseFloat(ob.liquidationLtv) || 0 : 0) * 100;
+    const hasPosition = collateralUsd > 0;
+
+    const amount = parseFloat(this.getEditParam('amount') || '0') || 0;
+    const addUsd = amount * price;
+    const newBorrowUsd = borrowedUsd + addUsd;
+    const maxBorrowable = price > 0 ? Math.max(0, (borrowLimit - borrowedUsd) / price) : 0;
+    const ltvCurrentPct = collateralUsd > 0 ? (borrowedUsd / collateralUsd) * 100 : 0;
+    const ltvAfterPct = collateralUsd > 0 ? (newBorrowUsd / collateralUsd) * 100 : 0;
+    const hf = newBorrowUsd > 0 ? liqLimitUsd / newBorrowUsd : Infinity;
+
+    const hfApplies = newBorrowUsd > 0 && collateralUsd > 0;
+    const hfClass = !hfApplies || !isFinite(hf) || hf >= 1.6
+      ? 'safe' : hf >= 1.2 ? 'caution' : 'danger';
+    const hfLabel = !hfApplies ? '—' : !isFinite(hf) ? '∞' : hf.toFixed(2);
+
+    let errorMsg: string | undefined;
+    if (amount > 0 && !hasPosition) {
+      errorMsg = 'No collateral deposited on Kamino yet — deposit a token first, then borrow against it.';
+    } else if (amount > 0 && amount > availableToken) {
+      errorMsg = `Only ${availableToken.toFixed(2)} ${r.symbol} available to borrow right now.`;
+    } else if (amount > 0 && maxBorrowable > 0 && amount > maxBorrowable) {
+      errorMsg = `Exceeds max borrowable — deposit more collateral or borrow ≤ ${maxBorrowable.toFixed(maxBorrowable < 1 ? 6 : 2)} ${r.symbol}.`;
+    }
+
+    return {
+      symbol: r.symbol, borrowApyPct, liquidationLtvPct, availableToken, availableUsd, price,
+      hasPosition, collateralUsd, borrowedUsd, maxBorrowable,
+      ltvCurrentPct, ltvAfterPct, hf: isFinite(hf) ? hf : 0, hfLabel, hfClass, errorMsg,
+    };
+  }
+
+  /** Fill the borrow amount to the collateral-allowed maximum (× fraction). */
+  setKaminoBorrowMax(fraction = 1): void {
+    const s = this.kaminoBorrowStats;
+    if (!s || s.maxBorrowable <= 0) return;
+    const capped = Math.min(s.maxBorrowable, s.availableToken) * fraction;
+    // Floor to 6 dp so the projected amount never rounds above the on-chain limit.
+    this.setEditParam('amount', String(Math.floor(capped * 1e6) / 1e6));
   }
 
   selectCollateral(opt: CollateralOption): void {

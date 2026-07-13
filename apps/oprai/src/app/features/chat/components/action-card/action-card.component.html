@@ -1730,10 +1730,18 @@
         } @else if (action.type === 'kamino_borrow') {
           <!-- ─────── Kamino Lend borrow: draw debt against your collateral ─────── -->
           @let kmBorTd = resolveTokenDisplay(getEditParam('token') || getEditParam('reserve') || 'USDC');
+          @let kmbStats = kaminoBorrowStats;
           <div class="pump-swap" [class.proto-fields--shake]="shake()">
             <div class="pump-panel">
               <div class="pump-panel__top">
                 <span class="pump-panel__label">Borrow</span>
+                @if (kmbStats && kmbStats.hasPosition && kmbStats.maxBorrowable > 0 && isEditable()) {
+                  <span class="pump-panel__bal">
+                    Max: {{ kmbStats.maxBorrowable | number:'1.0-4' }}
+                    <button class="pump-panel__max" type="button" (click)="setKaminoBorrowMax(0.5)">Half</button>
+                    <button class="pump-panel__max" type="button" (click)="setKaminoBorrowMax(1)">Max</button>
+                  </span>
+                }
               </div>
               <div class="pump-panel__row">
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
@@ -1752,10 +1760,77 @@
               </div>
             </div>
 
-            <div class="lend-hf-explain">
-              <lucide-icon name="info" [size]="11" />
-              Borrows {{ kmBorTd.symbol }} against your Kamino collateral — keep an eye on your health factor to avoid liquidation.
-            </div>
+            @if (kmbStats) {
+              <!-- Position projection (only when the wallet has collateral on Kamino) -->
+              @if (kmbStats.hasPosition) {
+                <div class="bc-stats"
+                     [class.bc-stats--safe]="kmbStats.hfClass === 'safe'"
+                     [class.bc-stats--caution]="kmbStats.hfClass === 'caution'"
+                     [class.bc-stats--danger]="kmbStats.hfClass === 'danger'">
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Collateral value</span>
+                    <span class="bc-stat-value">${{ kmbStats.collateralUsd | number:'1.0-2' }}</span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label"><app-jargon term="LTV">Loan-to-Value</app-jargon></span>
+                    <span class="bc-stat-value">
+                      {{ kmbStats.ltvCurrentPct | number:'1.0-2' }}%
+                      <span style="opacity:.6">→</span>
+                      <strong [class.bc-hf--caution]="kmbStats.hfClass === 'caution'"
+                              [class.bc-hf--danger]="kmbStats.hfClass === 'danger'">{{ kmbStats.ltvAfterPct | number:'1.0-2' }}%</strong>
+                    </span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Max borrowable</span>
+                    <span class="bc-stat-value bc-stat-value--brand">{{ kmbStats.maxBorrowable | number:'1.0-4' }} {{ kmbStats.symbol }}</span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label"><app-jargon term="Health Factor">Health Factor</app-jargon></span>
+                    <span class="bc-stat-value"
+                          [class.bc-hf--safe]="kmbStats.hfClass === 'safe'"
+                          [class.bc-hf--caution]="kmbStats.hfClass === 'caution'"
+                          [class.bc-hf--danger]="kmbStats.hfClass === 'danger'">
+                      {{ kmbStats.hfLabel }}
+                      @if (kmbStats.hfLabel !== '—') {
+                        <span class="bc-hf-label">
+                          {{ kmbStats.hfClass === 'safe' ? '✓ Safe' : kmbStats.hfClass === 'caution' ? '⚠ Caution' : '✗ Risky' }}
+                        </span>
+                      }
+                    </span>
+                  </div>
+
+                  @if (kmbStats.errorMsg) {
+                    <div class="bc-error">
+                      <lucide-icon name="alert-circle" [size]="12" />
+                      {{ kmbStats.errorMsg }}
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="lend-hf-explain">
+                  <lucide-icon name="info" [size]="11" />
+                  You have no collateral on Kamino yet — deposit a token first, then borrow against it.
+                </div>
+              }
+
+              <!-- Reserve market rates (always shown) -->
+              <div class="bc-footer-rates">
+                <span>Borrow rate: <strong>{{ kmbStats.borrowApyPct | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
+                <span><app-jargon term="Liquidation LTV">Liquidation</app-jargon>: <strong class="lend-info-value--warn">{{ kmbStats.liquidationLtvPct | number:'1.0-0' }}%</strong></span>
+                <span>Available: <strong>{{ kmbStats.availableToken | number:'1.0-0' }} {{ kmbStats.symbol }}</strong></span>
+                <span>Price: <strong>${{ kmbStats.price | number:'1.2-4' }}</strong></span>
+              </div>
+            } @else if (kaminoBorrowLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading Kamino rates…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Borrows {{ kmBorTd.symbol }} against your Kamino collateral — keep an eye on your health factor to avoid liquidation.
+              </div>
+            }
           </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
