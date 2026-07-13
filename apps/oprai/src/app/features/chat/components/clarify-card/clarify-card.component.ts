@@ -116,7 +116,8 @@ export class ClarifyCardComponent {
   optionTokens(option: ClarifyOption): { from: OptionToken | null; to: OptionToken | null } | null {
     const p = option.params ?? {};
     let from = this.resolveToken(p['inputMint'] ?? p['inputToken'] ?? p['fromToken'] ?? p['from']);
-    let to = this.resolveToken(p['outputMint'] ?? p['outputToken'] ?? p['toToken'] ?? p['to'] ?? p['token']);
+    // `reserve` is how Kamino lend/borrow options name the subject token.
+    let to = this.resolveToken(p['outputMint'] ?? p['outputToken'] ?? p['toToken'] ?? p['to'] ?? p['token'] ?? p['reserve']);
     if (!from || !to) {
       const m = option.label.match(/([A-Za-z0-9$]{2,12})\s*(?:→|->|➜|=>|➔|➙|➛)\s*([A-Za-z0-9$]{2,12})/);
       if (m) {
@@ -147,7 +148,14 @@ export class ClarifyCardComponent {
     const tokens = new Set(
       opts.map(o => this.optionSingleToken(o)?.symbol).filter(Boolean),
     );
-    return tokens.size > 1 ? 'token' : 'protocol';
+    // Different tokens → clearly token-distinguished. Same single token across
+    // every option (e.g. "10 / 50 / 100 USDT borrow on Kamino") → the amount is
+    // what differs, but the meaningful icon is still that token, not the
+    // protocol logo already shown in the header. Only fall back to the protocol
+    // glyph when no option resolves a token at all (e.g. validator lists).
+    if (tokens.size > 1) return 'token';
+    if (tokens.size === 1 && opts.every(o => this.optionSingleToken(o))) return 'token';
+    return 'protocol';
   }
 
   /** The single distinguishing token for an option (the `to`/deposited token). */
