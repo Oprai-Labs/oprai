@@ -1975,6 +1975,121 @@
               </div>
             }
           </div>
+        } @else if (action.type === 'kamino_withdraw' || action.type === 'kamino_withdraw_collateral') {
+          <!-- ─────── Kamino Lend withdraw: pull your supplied collateral back out ─────── -->
+          @let kmWTd = resolveTokenDisplay(getEditParam('token') || getEditParam('reserve') || 'USDC');
+          @let kmwStats = kaminoWithdrawStats;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Withdraw</span>
+                @if (kmwStats && kmwStats.hasSupply && isEditable()) {
+                  <span class="pump-panel__bal">
+                    Supplied: {{ kmwStats.suppliedToken | number:'1.0-4' }}
+                    <button class="pump-panel__max" type="button" (click)="setKaminoWithdrawMax()">Max</button>
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       (focus)="reloadKaminoBorrowInfo()"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmWTd.logoURI) {
+                    <img [src]="kmWTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmWTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmWTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            @if (kmwStats) {
+              @if (kmwStats.hasSupply) {
+                <div class="bc-stats"
+                     [class.bc-stats--safe]="!kmwStats.hasDebt || kmwStats.hfClass === 'safe'"
+                     [class.bc-stats--caution]="kmwStats.hasDebt && kmwStats.hfClass === 'caution'"
+                     [class.bc-stats--danger]="kmwStats.hasDebt && kmwStats.hfClass === 'danger'">
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Supplied balance</span>
+                    <span class="bc-stat-value">
+                      {{ kmwStats.suppliedToken | number:'1.0-6' }} {{ kmwStats.symbol }}
+                      <span style="opacity:.6">(${{ kmwStats.suppliedUsd | number:'1.0-2' }})</span>
+                    </span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">After withdraw</span>
+                    <span class="bc-stat-value bc-stat-value--brand">
+                      @if (kmwStats.fullWithdraw) {
+                        Empty ✓
+                      } @else {
+                        {{ kmwStats.remainingToken | number:'1.0-6' }} {{ kmwStats.symbol }}
+                      }
+                    </span>
+                  </div>
+
+                  @if (kmwStats.hasDebt) {
+                    <!-- Withdrawing collateral while you owe debt makes the position riskier -->
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="LTV">Loan-to-Value</app-jargon></span>
+                      <span class="bc-stat-value">
+                        {{ kmwStats.ltvCurrentPct | number:'1.0-2' }}%
+                        <span style="opacity:.6">→</span>
+                        <strong [class.bc-hf--caution]="kmwStats.hfClass === 'caution'"
+                                [class.bc-hf--danger]="kmwStats.hfClass === 'danger'">{{ kmwStats.ltvAfterPct | number:'1.0-2' }}%</strong>
+                      </span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="Liquidation LTV">Liquidation LTV</app-jargon></span>
+                      <span class="bc-stat-value bc-stat-value--warn">{{ kmwStats.liquidationLtvPct | number:'1.0-2' }}%</span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="Health Factor">Health Factor</app-jargon></span>
+                      <span class="bc-stat-value">
+                        {{ kmwStats.hfCurrent | number:'1.2-2' }}
+                        <span style="opacity:.6">→</span>
+                        <strong [class.bc-hf--safe]="kmwStats.hfClass === 'safe'"
+                                [class.bc-hf--caution]="kmwStats.hfClass === 'caution'"
+                                [class.bc-hf--danger]="kmwStats.hfClass === 'danger'">{{ kmwStats.hfLabel }}</strong>
+                      </span>
+                    </div>
+                  }
+
+                  @if (kmwStats.errorMsg) {
+                    <div class="bc-error">
+                      <lucide-icon name="alert-circle" [size]="12" />
+                      {{ kmwStats.errorMsg }}
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="lend-hf-explain">
+                  <lucide-icon name="info" [size]="11" />
+                  You have no {{ kmWTd.symbol }} supplied on Kamino to withdraw.
+                </div>
+              }
+
+              <div class="bc-footer-rates">
+                <span>Supply rate: <strong>{{ kmwStats.supplyApyPct | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
+                <span>Supplied: <strong>${{ kmwStats.suppliedUsd | number:'1.2-2' }}</strong></span>
+                <span>Price: <strong>${{ kmwStats.price | number:'1.2-4' }}</strong></span>
+              </div>
+            } @else if (kaminoBorrowLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading your Kamino supply…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Withdraws {{ kmWTd.symbol }} you supplied to Kamino Lend back to your wallet.
+              </div>
+            }
+          </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
                [class.proto-fields--swaplike]="false">

@@ -425,6 +425,113 @@ async fn resolve_reserve_address(
     Ok(best.to_string())
 }
 
+/// Which side of an obligation a position-closing action targets.
+#[derive(Clone, Copy)]
+enum PositionSide {
+    Deposit,
+    Borrow,
+}
+
+/// For CLOSING actions (withdraw / repay), resolve the reserve to the one the
+/// user ACTUALLY holds in their obligation for `token` — NOT the deepest-TVL
+/// reserve `resolve_reserve_address` would pick. A token can have several
+/// reserves on one market (Kamino main has 4 USDC reserves); the deposit/borrow
+/// lives in a specific one, and closing against the wrong reserve errors (the
+/// user has nothing there). Returns None when there's no matching live position
+/// (or `token` is already a reserve address), so the caller falls back to the
+/// TVL heuristic — correct for OPENING a fresh position.
+async fn resolve_position_reserve(
+    http: &reqwest::Client,
+    market: &str,
+    wallet: &str,
+    token: &str,
+    side: PositionSide,
+) -> Option<String> {
+    let token = token.trim();
+    if token.is_empty() {
+        return None;
+    }
+
+    // Reserves whose token matches the request (by mint or symbol; WSOL≡SOL).
+    let metrics = kamino_get(http, &format!("/kamino-market/{market}/reserves/metrics"))
+        .await
+        .ok()?;
+    let reserves = metrics.as_array()?;
+    let want_sym = if token.eq_ignore_ascii_case("wsol") {
+        "SOL".to_string()
+    } else {
+        token.to_ascii_uppercase()
+    };
+    let candidates: std::collections::HashSet<String> = reserves
+        .iter()
+        .filter_map(|r| {
+            let addr = r.get("reserve").and_then(|v| v.as_str())?;
+            let mint = r
+                .get("liquidityTokenMint")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let sym = r
+                .get("liquidityToken")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            (mint == token || sym.eq_ignore_ascii_case(&want_sym)).then(|| addr.to_string())
+        })
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let (field, reserve_key, amount_key) = match side {
+        PositionSide::Deposit => ("deposits", "depositReserve", "depositedAmount"),
+        PositionSide::Borrow => ("borrows", "borrowReserve", "borrowedAmountSf"),
+    };
+    let obligs = kamino_get(
+        http,
+        &format!("/kamino-market/{market}/users/{wallet}/obligations"),
+    )
+    .await
+    .ok()?;
+    for o in obligs.as_array()? {
+        let lines = o
+            .get("state")
+            .and_then(|s| s.get(field))
+            .and_then(|v| v.as_array());
+        let Some(lines) = lines else { continue };
+        for line in lines {
+            // Skip empty (already-closed) lines.
+            let amt = line
+                .get(amount_key)
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<u128>().ok())
+                .unwrap_or(0);
+            if amt == 0 {
+                continue;
+            }
+            if let Some(res) = line.get(reserve_key).and_then(|v| v.as_str()) {
+                if candidates.contains(res) {
+                    return Some(res.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Resolve the reserve for a close action: the user's held reserve first, then
+/// the TVL heuristic (which also passes through an explicit reserve address).
+async fn resolve_close_reserve(
+    http: &reqwest::Client,
+    market: &str,
+    wallet: &str,
+    token: &str,
+    side: PositionSide,
+) -> Result<String, AppError> {
+    if let Some(r) = resolve_position_reserve(http, market, wallet, token, side).await {
+        return Ok(r);
+    }
+    resolve_reserve_address(http, market, token).await
+}
+
 pub fn validate_kamino_deposit_params(p: &KaminoDepositParams) -> Result<(), AppError> {
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
@@ -873,7 +980,8 @@ pub async fn build_kamino_withdraw(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_withdraw_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
-    let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
+    let reserve =
+        resolve_close_reserve(http, market, wallet, &params.reserve, PositionSide::Deposit).await?;
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
@@ -953,7 +1061,8 @@ pub async fn build_kamino_repay(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_repay_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
-    let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
+    let reserve =
+        resolve_close_reserve(http, market, wallet, &params.reserve, PositionSide::Borrow).await?;
     let mut repay_all = repay_all_requested(&params.amount, &params.repay_all);
     // Auto-upgrade to a full close when the requested amount already covers ~the
     // whole debt (stale frontend sending the exact debt, or an LLM "repay <debt>"

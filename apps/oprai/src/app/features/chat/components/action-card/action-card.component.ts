@@ -1521,7 +1521,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly _kaminoBorrowEffect = effect(() => {
     const wallet = this.walletService.publicKey();
     const token = this.editParams()['token'] ?? this.editParams()['reserve'] ?? '';
-    if (this.action?.type !== 'kamino_borrow' && this.action?.type !== 'kamino_repay') return;
+    if (this.action?.type !== 'kamino_borrow' && this.action?.type !== 'kamino_repay'
+        && this.action?.type !== 'kamino_withdraw' && this.action?.type !== 'kamino_withdraw_collateral') return;
     const key = `${wallet}:${token}`;
     if (key === this._lastKaminoBorrowKey) return;
     this._lastKaminoBorrowKey = key;
@@ -3417,7 +3418,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.inputBalanceMint()) this.loadInputBalance();
     if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
     if (['lend','withdraw_lend'].includes(this.action.type)) this.loadLendInfo();
-    if (this.action.type === 'kamino_borrow' || this.action.type === 'kamino_repay') this.loadKaminoBorrowInfo();
+    if (this.action.type === 'kamino_borrow' || this.action.type === 'kamino_repay'
+        || this.action.type === 'kamino_withdraw' || this.action.type === 'kamino_withdraw_collateral') this.loadKaminoBorrowInfo();
     if (this.action.type === 'native_stake') this.loadValidators();
     // Eagerly resolve "all" → actual balance for pumpfun/pumpswap sells so the
     // number input shows a real value instead of appearing blank.
@@ -4491,14 +4493,112 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     };
   }
 
-  /** Fill the repay amount to the full debt (capped at the wallet balance). */
+  /** Fill the repay amount to the full debt. Rounds UP (ceil), never down — a
+   *  floored amount lands *below* the accruing debt and repays a partial, which
+   *  leaves dust → 6092. Over-shooting is safe: Kamino caps the transfer at
+   *  ceil(debt) and this also trips `fullRepay` so the build sends repay-all. */
   setKaminoRepayMax(): void {
     const s = this.kaminoRepayStats;
     if (!s || s.debtToken <= 0) return;
-    const bal = this.inputBalance();
-    const target = bal !== null ? Math.min(s.debtToken, bal) : s.debtToken;
+    // Ceil to 6 dp so the displayed amount is ≥ the true debt (never a partial).
+    this.setEditParam('amount', String(Math.ceil(s.debtToken * 1e6) / 1e6));
+  }
+
+  /**
+   * Live Kamino withdraw projection. Reuses the reserve + obligation fetched by
+   * loadKaminoBorrowInfo. Withdrawing `amount` removes that much SUPPLIED
+   * collateral, so — when the wallet also has debt — the collateral shrinks and
+   * the position gets RISKIER (LTV up, health down):
+   *   ltvAfter   = borrowedUsd ÷ (suppliedUsd − withdrawUsd)
+   *   HF (after) = (liqLimit × remaining⁄supplied) ÷ borrowedUsd
+   * Max withdraw keeps the remaining collateral able to back the debt
+   *   maxWithdrawUsd = suppliedUsd × (1 − borrowedUsd⁄borrowLimit)
+   * With no debt the whole supply is withdrawable. Supplied balance/price come
+   * from the obligation's refreshed stats — never fabricated.
+   */
+  get kaminoWithdrawStats(): {
+    symbol: string; supplyApyPct: number; price: number;
+    hasSupply: boolean; hasDebt: boolean;
+    suppliedToken: number; suppliedUsd: number; borrowedUsd: number;
+    withdrawToken: number; withdrawUsd: number; remainingToken: number; remainingUsd: number;
+    maxWithdrawable: number; fullWithdraw: boolean;
+    ltvCurrentPct: number; ltvAfterPct: number; liquidationLtvPct: number;
+    hfCurrent: number; hfAfter: number; hfLabel: string; hfClass: string; errorMsg?: string;
+  } | null {
+    const r = this.kaminoReserve();
+    if (!r) return null;
+    const price = this.kaminoReservePrice(r);
+    const supplyApyPct = r.supplyApyNum * 100;
+
+    const ob = this.kaminoObligation();
+    const suppliedUsd = ob ? parseFloat(ob.depositedValue) || 0 : 0;
+    const borrowedUsd = ob ? parseFloat(ob.borrowedValue) || 0 : 0;
+    const borrowLimit = ob ? parseFloat(ob.borrowLimit) || 0 : 0;
+    const liqLimitUsd = ob ? parseFloat(ob.borrowLiquidationLimit) || 0 : 0;
+    const liquidationLtvPct = suppliedUsd > 0 ? (liqLimitUsd / suppliedUsd) * 100 : 0;
+
+    // Supplied amount of THIS token: prefer the matching deposit line item; fall
+    // back to the obligation total (accurate for the common single-supply case).
+    const norm = (s: string) => (s.toUpperCase() === 'WSOL' ? 'SOL' : s.toUpperCase());
+    const depLine = (ob?.deposits ?? []).find(
+      d => d.reserveAddress === r.reserve || norm(d.symbol) === norm(r.symbol));
+    const suppliedToken = depLine ? (parseFloat(depLine.amount) || 0) : (price > 0 ? suppliedUsd / price : 0);
+    const hasSupply = suppliedUsd > 0;
+    const hasDebt = borrowedUsd > 0;
+
+    const amount = parseFloat(this.getEditParam('amount') || '0') || 0;
+    const withdrawToken = Math.min(amount, suppliedToken);
+    const withdrawUsd = Math.min(amount * price, suppliedUsd);
+    const remainingUsd = Math.max(0, suppliedUsd - withdrawUsd);
+    const remainingToken = Math.max(0, suppliedToken - withdrawToken);
+
+    // Max withdrawable: with no debt the whole supply; with debt, leave enough
+    // collateral to still back it (keep borrowed ≤ remaining borrow-limit).
+    const maxWithdrawUsd = !hasDebt
+      ? suppliedUsd
+      : borrowLimit > 0 ? Math.max(0, suppliedUsd * (1 - borrowedUsd / borrowLimit)) : 0;
+    const maxWithdrawable = price > 0 ? maxWithdrawUsd / price : 0;
+    const fullWithdraw = hasSupply && amount >= suppliedToken - 1e-9;
+
+    const ltvCurrentPct = suppliedUsd > 0 ? (borrowedUsd / suppliedUsd) * 100 : 0;
+    const ltvAfterPct = remainingUsd > 0 ? (borrowedUsd / remainingUsd) * 100 : (borrowedUsd > 0 ? Infinity : 0);
+    // Liq-limit scales with the collateral left behind (single-collateral case).
+    const frac = suppliedUsd > 0 ? remainingUsd / suppliedUsd : 0;
+    const liqLimitAfter = liqLimitUsd * frac;
+    const hfCurrent = borrowedUsd > 0 ? liqLimitUsd / borrowedUsd : Infinity;
+    const hfAfter = borrowedUsd > 0 ? liqLimitAfter / borrowedUsd : Infinity;
+    const hfApplies = borrowedUsd > 0;
+    const hfClass = !hfApplies || (isFinite(hfAfter) && hfAfter >= 1.6) || !isFinite(hfAfter)
+      ? 'safe' : hfAfter >= 1.2 ? 'caution' : 'danger';
+    const hfLabel = !hfApplies ? '—' : !isFinite(hfAfter) ? '∞' : hfAfter.toFixed(2);
+
+    let errorMsg: string | undefined;
+    if (amount > 0 && !hasSupply) {
+      errorMsg = 'You have no supplied balance on Kamino for this token.';
+    } else if (amount > 0 && amount > suppliedToken + 1e-9) {
+      errorMsg = `You only have ${suppliedToken.toFixed(suppliedToken < 1 ? 6 : 2)} ${r.symbol} supplied — withdraw that or less.`;
+    } else if (amount > 0 && hasDebt && maxWithdrawable > 0 && amount > maxWithdrawable + 1e-9) {
+      errorMsg = `Withdrawing this much would leave too little collateral for your debt. Withdraw ≤ ${maxWithdrawable.toFixed(maxWithdrawable < 1 ? 6 : 2)} ${r.symbol}, or repay first.`;
+    }
+
+    return {
+      symbol: r.symbol, supplyApyPct, price,
+      hasSupply, hasDebt, suppliedToken, suppliedUsd, borrowedUsd,
+      withdrawToken, withdrawUsd, remainingToken, remainingUsd,
+      maxWithdrawable, fullWithdraw,
+      ltvCurrentPct, ltvAfterPct: isFinite(ltvAfterPct) ? ltvAfterPct : 0, liquidationLtvPct,
+      hfCurrent: isFinite(hfCurrent) ? hfCurrent : 0, hfAfter: isFinite(hfAfter) ? hfAfter : 0,
+      hfLabel, hfClass, errorMsg,
+    };
+  }
+
+  /** Fill the withdraw amount to the max safely-withdrawable supplied balance. */
+  setKaminoWithdrawMax(): void {
+    const s = this.kaminoWithdrawStats;
+    if (!s) return;
+    // No debt → whole supply; with debt → the collateral-safe max.
+    const target = s.hasDebt ? Math.min(s.suppliedToken, s.maxWithdrawable) : s.suppliedToken;
     if (target <= 0) return;
-    // Floor to 6 dp so the amount never rounds above the wallet balance.
     this.setEditParam('amount', String(Math.floor(target * 1e6) / 1e6));
   }
 
