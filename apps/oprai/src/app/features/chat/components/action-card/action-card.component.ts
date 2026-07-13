@@ -14,7 +14,7 @@ import { UploadService } from '@core/services/upload.service';
 import { JupiterLendService, LEND_SUPPORTED_ASSETS, LendActionInfo, LendBorrowInfo } from '@core/services/market/jupiter-lend.service';
 import { WalletService } from '@core/services/wallet.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
-import { KaminoService, KaminoReserve, KaminoObligation, KaminoVaultMetrics, KAMINO_MAIN_MARKET } from '@core/services/market/kamino.service';
+import { KaminoService, KaminoReserve, KaminoObligation, KaminoVaultMetrics, KaminoVaultPosition, KAMINO_MAIN_MARKET } from '@core/services/market/kamino.service';
 import { TransactionPreviewService, TransactionPreview, BalanceChange } from '../../services/transaction-preview.service';
 import { JargonTooltipComponent } from '@shared/components/jargon-tooltip/jargon-tooltip.component';
 import { TokenPickerComponent } from '../token-picker/token-picker.component';
@@ -1529,6 +1529,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     untracked(() => void this.loadKaminoBorrowInfo());
   });
 
+  // K-Vault withdraw: the position lookup needs the wallet, which often isn't
+  // connected yet on first render. Reload once it (or the target vault) lands.
+  private _lastKaminoVaultWithdrawKey: string | null = null;
+  private readonly _kaminoVaultWithdrawEffect = effect(() => {
+    if (this.action?.type !== 'kamino_vault_withdraw') return;
+    const wallet = this.walletService.publicKey();
+    const vault = this.editParams()['vault'] ?? '';
+    if (!wallet) return;
+    const key = `${wallet}:${vault}`;
+    if (key === this._lastKaminoVaultWithdrawKey) return;
+    this._lastKaminoVaultWithdrawKey = key;
+    untracked(() => void this.loadKaminoVaultWithdrawInfo());
+  });
+
   // Input-token USD price, used to flag Jupiter's minimum order sizes UP FRONT
   // (limit order ≥ $5 total; DCA ≥ $50 per suborder) instead of surfacing the
   // backend rejection after submit. Refetches when the input token changes.
@@ -2389,6 +2403,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // K-Vault (automated Earn vault) live metrics for the deposit card.
   readonly kaminoVaultMetrics = signal<KaminoVaultMetrics | null>(null);
   readonly kaminoVaultLoading = signal(false);
+  // The user's live position in the vault they're withdrawing from (shares +
+  // USD value + underlying tokenMint for the real icon).
+  readonly kaminoVaultPosition = signal<KaminoVaultPosition | null>(null);
 
   // Collateral
   readonly collateralOptions = signal<CollateralOption[]>([]);
@@ -3424,6 +3441,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action.type === 'kamino_borrow' || this.action.type === 'kamino_repay'
         || this.action.type === 'kamino_withdraw' || this.action.type === 'kamino_withdraw_collateral') this.loadKaminoBorrowInfo();
     if (this.action.type === 'kamino_vault_deposit') this.loadKaminoVaultInfo();
+    if (this.action.type === 'kamino_vault_withdraw') this.loadKaminoVaultWithdrawInfo();
     if (this.action.type === 'native_stake') this.loadValidators();
     // Eagerly resolve "all" → actual balance for pumpfun/pumpswap sells so the
     // number input shows a real value instead of appearing blank.
@@ -4643,6 +4661,81 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       depositUsd: amount * tokenPrice,
       sharesReceived: tokensPerShare > 0 ? amount / tokensPerShare : 0,
     };
+  }
+
+  /**
+   * Load everything the K-Vault WITHDRAW card needs: the user's live position
+   * in the vault (shares held + USD value + underlying tokenMint for the real
+   * icon) plus the vault's live metrics (APY, TVL, share price).
+   *
+   * The LLM may pass the vault by NAME ("SOL") or leave it implicit. Positions
+   * come back keyed by vault ADDRESS, so we match by address when we have one,
+   * otherwise fall back to the user's sole vault position (the common "withdraw
+   * my vault position" case). Once matched, we pin the real vault address into
+   * the params so the built withdraw tx targets the exact vault we're pricing.
+   */
+  private async loadKaminoVaultWithdrawInfo(): Promise<void> {
+    const wallet = this.walletService.publicKey();
+    if (!wallet) { this.kaminoVaultPosition.set(null); return; }
+    this.kaminoVaultLoading.set(true);
+    try {
+      const positions = await this.kamino.getVaultPositions(wallet);
+      const want = (this.editParams()['vault'] ?? '').trim();
+      let pos = want.length >= 32 ? positions.find(p => p.vaultAddress === want) : undefined;
+      // Named/implicit vault with a single position → that's unambiguously it.
+      if (!pos && positions.length === 1) pos = positions[0];
+      this.kaminoVaultPosition.set(pos ?? null);
+      const vaultAddr = pos?.vaultAddress || (want.length >= 32 ? want : '');
+      if (pos?.vaultAddress) this.setEditParam('vault', pos.vaultAddress);
+      this.kaminoVaultMetrics.set(vaultAddr ? await this.kamino.getVaultMetrics(vaultAddr) : null);
+    } catch {
+      this.kaminoVaultPosition.set(null);
+      this.kaminoVaultMetrics.set(null);
+    } finally {
+      this.kaminoVaultLoading.set(false);
+    }
+  }
+
+  /**
+   * Live K-Vault withdraw projection. Redeeming `ktokenAmount` shares (or "all"
+   * = the full position) returns ≈ shares × tokensPerShare underlying tokens.
+   * USD is prorated from the position's real `sharesUsd` — more accurate than
+   * price × tokens — never fabricated. Null until the position/metrics land.
+   */
+  get kaminoVaultWithdrawStats(): {
+    apyPct: number; apy30dPct: number; tvlUsd: number; holders: number;
+    sharesHeld: number; positionUsd: number; withdrawShares: number;
+    receiveTokens: number; receiveUsd: number; fullWithdraw: boolean;
+    tokenSymbol: string; tokenLogo: string | null;
+  } | null {
+    const m = this.kaminoVaultMetrics();
+    const pos = this.kaminoVaultPosition();
+    if (!m && !pos) return null;
+    const apyPct = (parseFloat(m?.apy ?? '0') || 0) * 100;
+    const apy30dPct = (parseFloat(m?.apy30d ?? '0') || 0) * 100;
+    const tvlUsd = m ? (parseFloat(m.tokensInvestedUsd) || 0) + (parseFloat(m.tokensAvailableUsd) || 0) : 0;
+    const tokenPrice = parseFloat(m?.tokenPrice ?? '0') || 0;
+    const tokensPerShare = parseFloat(m?.tokensPerShare ?? '0') || 0;
+    const sharesHeld = parseFloat(pos?.shares ?? '0') || 0;
+    const positionUsd = parseFloat(pos?.sharesUsd ?? '0') || 0;
+    const raw = (this.getEditParam('ktokenAmount') || '').trim().toLowerCase();
+    const fullWithdraw = raw === '' || raw === 'all' || raw === 'max' || raw === 'full';
+    const withdrawShares = fullWithdraw ? sharesHeld : (parseFloat(raw) || 0);
+    const receiveTokens = withdrawShares * tokensPerShare;
+    const receiveUsd = sharesHeld > 0 ? positionUsd * (withdrawShares / sharesHeld) : receiveTokens * tokenPrice;
+    const td = this.resolveTokenDisplay(pos?.tokenMint || this.getEditParam('token') || this.getEditParam('vault') || '');
+    return {
+      apyPct, apy30dPct, tvlUsd, holders: m?.numberOfHolders ?? 0,
+      sharesHeld, positionUsd, withdrawShares, receiveTokens, receiveUsd, fullWithdraw,
+      tokenSymbol: td.symbol, tokenLogo: td.logoURI ?? null,
+    };
+  }
+
+  /** Set the withdraw amount to the user's full vault-share position. */
+  setKaminoVaultWithdrawMax(): void {
+    const pos = this.kaminoVaultPosition();
+    const shares = parseFloat(pos?.shares ?? '0') || 0;
+    if (shares > 0) this.setEditParam('ktokenAmount', String(shares));
   }
 
   selectCollateral(opt: CollateralOption): void {

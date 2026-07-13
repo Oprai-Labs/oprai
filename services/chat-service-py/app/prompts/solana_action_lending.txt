@@ -223,11 +223,15 @@ Examples:
 - "Close 50% of my Kamino short position XYZ789"
   -> execute_action("kamino_position_close", {"position": "XYZ789", "percent": "50"})
 
-#### KAMINO_STAKE — Stake KMNO tokens
+#### KAMINO_STAKE / KAMINO_UNSTAKE — Stake or unstake the KMNO governance token
 Format: [ACTION:kamino_stake] amount=<amount>
-
-#### KAMINO_UNSTAKE — Unstake KMNO tokens
 Format: [ACTION:kamino_unstake] amount=<amount>
+
+These apply ONLY to the KMNO governance token itself. When a user talks about
+"staking"/"unstaking" or entering/exiting a "position" in a lend market or an
+automated Earn vault, they mean supplying or redeeming that deposit — route it
+to the matching deposit/withdraw action (e.g. an Earn-vault position exit is
+kamino_vault_withdraw), NOT to kamino_stake/kamino_unstake.
 
 ---
 

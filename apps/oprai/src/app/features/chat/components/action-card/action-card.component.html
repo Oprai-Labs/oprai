@@ -2174,6 +2174,93 @@
               </div>
             }
           </div>
+        } @else if (action.type === 'kamino_vault_withdraw') {
+          <!-- ─────── Kamino Earn vault withdraw: redeem shares → underlying ─────── -->
+          @let kmvwStats = kaminoVaultWithdrawStats;
+          @let kmvwSym = kmvwStats?.tokenSymbol || 'shares';
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Withdraw</span>
+                @if (kmvwStats && kmvwStats.sharesHeld > 0) {
+                  <span class="pump-panel__bal">
+                    Position: {{ kmvwStats.sharesHeld | number:'1.0-4' }}
+                    @if (isEditable()) {
+                      <button class="pump-panel__max" type="button" (click)="setKaminoVaultWithdrawMax()">Max</button>
+                    }
+                  </span>
+                } @else if (kaminoVaultLoading()) {
+                  <span class="pump-panel__bal"><span class="proto-balance-dots">···</span></span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="all"
+                       [value]="getEditParam('ktokenAmount')"
+                       (input)="setEditParam('ktokenAmount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmvwStats?.tokenLogo) {
+                    <img [src]="kmvwStats!.tokenLogo" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmvwSym || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmvwSym }}</span>
+                </span>
+              </div>
+            </div>
+
+            @if (kmvwStats) {
+              <div class="bc-stats bc-stats--safe">
+                <div class="bc-stat">
+                  <span class="bc-stat-label"><app-jargon term="APY">Supply APY</app-jargon></span>
+                  <span class="bc-stat-value bc-stat-value--brand">{{ kmvwStats.apyPct | number:'1.2-2' }}%
+                    @if (kmvwStats.apy30dPct > 0) {
+                      <span style="opacity:.6">· 30d {{ kmvwStats.apy30dPct | number:'1.2-2' }}%</span>
+                    }
+                  </span>
+                </div>
+                @if (kmvwStats.positionUsd > 0) {
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Your position</span>
+                    <span class="bc-stat-value">≈ ${{ kmvwStats.positionUsd | number:'1.2-2' }}</span>
+                  </div>
+                }
+                <div class="bc-stat">
+                  <span class="bc-stat-label">You receive</span>
+                  <span class="bc-stat-value bc-stat-value--brand">
+                    ≈ {{ kmvwStats.receiveTokens | number:'1.0-4' }} {{ kmvwSym }}
+                    @if (kmvwStats.receiveUsd > 0) {
+                      <span style="opacity:.6">· ${{ kmvwStats.receiveUsd | number:'1.2-2' }}</span>
+                    }
+                  </span>
+                </div>
+                <div class="bc-stat">
+                  <span class="bc-stat-label">Vault TVL</span>
+                  <span class="bc-stat-value">${{ kmvwStats.tvlUsd | number:'1.0-0' }}</span>
+                </div>
+              </div>
+
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                @if (kmvwStats.fullWithdraw) {
+                  Redeems your full vault position back to {{ kmvwSym }}. Use the amount field for a partial withdraw.
+                } @else {
+                  Redeems {{ kmvwStats.withdrawShares | number:'1.0-4' }} shares back to {{ kmvwSym }}.
+                }
+              </div>
+            } @else if (kaminoVaultLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading your vault position…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Redeems your Kamino Earn vault shares back to the underlying token. Enter a share amount or "all".
+              </div>
+            }
+          </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
                [class.proto-fields--swaplike]="false">
