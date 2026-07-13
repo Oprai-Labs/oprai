@@ -40,8 +40,12 @@ jobs:
           sudo apt-get install -y protobuf-compiler libprotobuf-dev
           protoc --version
 
-      - name: Setup Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust (pinned to the Dockerfile's 1.89)
+        # Pin to the same toolchain the Docker image builds with. Unpinned
+        # `stable` pulls the newest release, which turned an unsound transmute in
+        # the old transitive dep `ethnum 1.5.2` into a hard error (E0512) and
+        # broke the build for reasons unrelated to our code.
+        uses: dtolnay/rust-toolchain@1.89.0
         with:
           components: clippy, rustfmt
 

@@ -57,7 +57,10 @@ jobs:
           pip install ".[dev]"
 
       - name: Install proto tools
-        run: pip install grpcio-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          pip install grpcio-tools
 
       - name: Generate proto stubs
         run: |
@@ -178,6 +181,7 @@ jobs:
       - name: Generate proto stubs
         if: env.OPRAI_OPENAI_API_KEY != ''
         run: |
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
           pip install grpcio-tools
           chmod +x scripts/build-protos.sh
           ./scripts/build-protos.sh python
