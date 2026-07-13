@@ -68,6 +68,25 @@ fn resolve_kamino_market<'a>(market: Option<&'a str>) -> &'a str {
     }
 }
 
+/// Resolve a user-scoped `wallet` param to a real base58 address. The LLM often
+/// passes `wallet: "self"` (or omits it) to mean "the connected user" — sending
+/// that literal to Kamino's API 400s ("Must be a base58-encoded valid address").
+/// None/blank or any self-reference alias → the authenticated caller's wallet.
+fn resolve_target_wallet<'a>(param: Option<&'a str>, caller: &'a str) -> &'a str {
+    let w = match param.map(str::trim) {
+        None | Some("") => return caller,
+        Some(w) => w,
+    };
+    if matches!(
+        w.to_ascii_lowercase().as_str(),
+        "self" | "me" | "mine" | "myself" | "my" | "my wallet" | "connected" | "current" | "user"
+    ) {
+        caller
+    } else {
+        w
+    }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // K-LEND Parameter Types
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1231,7 +1250,7 @@ pub async fn build_kamino_user_vault_positions(
     params: &KaminoUserVaultPositionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_positions_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let data = kamino_get(http, &format!("/kvaults/users/{target}/positions")).await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
@@ -1336,7 +1355,7 @@ pub async fn build_kamino_user_obligations(
     params: &KaminoUserObligationsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_obligations_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env {
@@ -1348,11 +1367,76 @@ pub async fn build_kamino_user_obligations(
         &query,
     )
     .await?;
-    let count = data.as_array().map(|a| a.len()).unwrap_or(0);
-    let warnings = if count == 0 {
-        vec![]
-    } else {
+    let raw = data.as_array().cloned().unwrap_or_default();
+    let count = raw.len();
+
+    // Map reserve pubkey -> token symbol so the summary names the collateral /
+    // debt tokens instead of dumping raw reserve addresses.
+    let mut reserve_symbol: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Ok(metrics) =
+        kamino_get(http, &format!("/kamino-market/{market}/reserves/metrics")).await
+    {
+        for r in metrics.as_array().into_iter().flatten() {
+            if let (Some(res), Some(sym)) = (
+                r.get("reserve").and_then(|v| v.as_str()),
+                r.get("liquidityToken").and_then(|v| v.as_str()),
+            ) {
+                reserve_symbol.insert(res.to_string(), sym.to_string());
+            }
+        }
+    }
+    let sym_of = |reserve: &str| -> String {
+        reserve_symbol.get(reserve).cloned().unwrap_or_else(|| short_id(reserve))
+    };
+    // The raw obligation is huge (full on-chain state + market config) and gets
+    // truncated downstream — return a lean, USD-valued summary instead.
+    let lean: Vec<serde_json::Value> = raw
+        .iter()
+        .map(|o| {
+            let rs = o.get("refreshedStats").cloned().unwrap_or_default();
+            let g = |k: &str| rs.get(k).and_then(|v| v.as_str()).unwrap_or("0").to_string();
+            let state = o.get("state");
+            let active_tokens = |arr_key: &str, res_key: &str, amt_key: &str| -> Vec<String> {
+                state
+                    .and_then(|s| s.get(arr_key))
+                    .and_then(|v| v.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter(|it| {
+                                it.get(amt_key).and_then(|v| v.as_str()).map(|a| a != "0").unwrap_or(false)
+                            })
+                            .filter_map(|it| it.get(res_key).and_then(|v| v.as_str()))
+                            .filter(|r| *r != "11111111111111111111111111111111")
+                            .map(|r| sym_of(r))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let debt_usd: f64 = g("userTotalBorrow").parse().unwrap_or(0.0);
+            serde_json::json!({
+                "obligation": o.get("obligationAddress").and_then(|v| v.as_str()).unwrap_or(""),
+                "collateralUsd": g("userTotalDeposit"),
+                "debtUsd": g("userTotalBorrow"),
+                "netValueUsd": g("netAccountValue"),
+                "ltvPct": (g("loanToValue").parse::<f64>().unwrap_or(0.0) * 100.0),
+                "liquidationLtvPct": (g("liquidationLtv").parse::<f64>().unwrap_or(0.0) * 100.0),
+                "borrowLimitUsd": g("borrowLimit"),
+                "collateralTokens": active_tokens("deposits", "depositReserve", "depositedAmount"),
+                "debtTokens": active_tokens("borrows", "borrowReserve", "borrowedAmountSf"),
+                "hasDebt": debt_usd > 0.0,
+            })
+        })
+        .collect();
+    let total_debt: f64 = lean
+        .iter()
+        .filter_map(|o| o.get("debtUsd").and_then(|v| v.as_str()))
+        .filter_map(|s| s.parse::<f64>().ok())
+        .sum();
+    let warnings = if total_debt > 0.0 {
         vec!["Review your health factor to avoid liquidation.".into()]
+    } else {
+        vec![]
     };
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1365,7 +1449,7 @@ pub async fn build_kamino_user_obligations(
             ),
             estimated_fee: "0".into(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::Value::Array(lean),
             warnings,
             requires_approval: false,
         },
@@ -2219,7 +2303,7 @@ pub async fn build_kamino_user_metrics_history(
     params: &KaminoUserMetricsHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_metrics_history_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(s) = params.start {
         query.push(("start", s.to_string()));
@@ -2264,7 +2348,7 @@ pub async fn build_kamino_user_transactions(
     params: &KaminoUserTransactionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_transactions_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(l) = params.limit {
         query.push(("limit", l.to_string()));
@@ -2309,7 +2393,7 @@ pub async fn build_kamino_user_vault_position(
     params: &KaminoUserVaultPositionParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_position_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let data = kamino_get(
         http,
         &format!("/kvaults/users/{target}/positions/{}", params.vault), // correct: /positions/{vault}
@@ -2346,7 +2430,7 @@ pub async fn build_kamino_user_vault_metrics_history(
     params: &KaminoUserVaultMetricsHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_metrics_history_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(s) = params.start {
         query.push(("start", s.to_string()));
@@ -2395,7 +2479,7 @@ pub async fn build_kamino_user_vault_pnl(
     params: &KaminoUserVaultPnlParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_pnl_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let data = kamino_get(
         http,
         &format!("/kvaults/users/{target}/vaults/{}/pnl", params.vault),
@@ -2432,7 +2516,7 @@ pub async fn build_kamino_user_vault_pnl_history(
     params: &KaminoUserVaultPnlHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_pnl_history_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(s) = params.start {
         query.push(("start", s.to_string()));
@@ -3087,7 +3171,7 @@ pub async fn build_kamino_user_rewards(
     params: &KaminoUserRewardsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_rewards_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -4185,7 +4269,7 @@ pub async fn build_kamino_user_klend_transactions_all(
     params: &KaminoUserKlendTransactionsAllParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_klend_transactions_all_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env {
         query.push(("env", e.clone()));
@@ -4253,7 +4337,7 @@ pub async fn build_kamino_user_klend_transactions(
     params: &KaminoUserKlendTransactionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_klend_transactions_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env {
         query.push(("env", e.clone()));
@@ -4551,7 +4635,7 @@ pub async fn build_kamino_airdrop_allocations(
     params: &KaminoAirdropAllocationsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_airdrop_allocations_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -4769,7 +4853,7 @@ pub async fn build_kamino_user_kvault_rewards(
     params: &KaminoUserKvaultRewardsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_kvault_rewards_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -4926,7 +5010,7 @@ pub async fn build_kamino_user_staking_boosts(
     params: &KaminoUserStakingBoostsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_staking_boosts_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -4977,7 +5061,7 @@ pub async fn build_kamino_season_rewards_user(
     params: &KaminoSeasonRewardsUserParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_season_rewards_user_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -5171,7 +5255,7 @@ pub async fn build_kamino_user_farm_transactions(
     params: &KaminoUserFarmTransactionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_farm_transactions_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(l) = params.limit {
         query.push(("limit", l.to_string()));
