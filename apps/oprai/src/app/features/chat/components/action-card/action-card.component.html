@@ -1855,6 +1855,126 @@
               </div>
             }
           </div>
+        } @else if (action.type === 'kamino_repay') {
+          <!-- ─────── Kamino Lend repay: pay down debt, improve your health ─────── -->
+          @let kmRepTd = resolveTokenDisplay(getEditParam('token') || getEditParam('reserve') || 'USDC');
+          @let kmrStats = kaminoRepayStats;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Repay</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable() && kmrStats && kmrStats.hasDebt) {
+                        <button class="pump-panel__max" type="button" (click)="setKaminoRepayMax()">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       (focus)="reloadKaminoBorrowInfo()"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmRepTd.logoURI) {
+                    <img [src]="kmRepTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmRepTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmRepTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            @if (kmrStats) {
+              @if (kmrStats.hasDebt) {
+                <div class="bc-stats"
+                     [class.bc-stats--safe]="kmrStats.hfClass === 'safe'"
+                     [class.bc-stats--caution]="kmrStats.hfClass === 'caution'"
+                     [class.bc-stats--danger]="kmrStats.hfClass === 'danger'">
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Current debt</span>
+                    <span class="bc-stat-value">
+                      {{ kmrStats.debtToken | number:'1.0-6' }} {{ kmrStats.symbol }}
+                      <span style="opacity:.6">(${{ kmrStats.debtUsd | number:'1.0-2' }})</span>
+                    </span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Debt after repay</span>
+                    <span class="bc-stat-value bc-stat-value--brand">
+                      @if (kmrStats.fullRepay) {
+                        Cleared ✓
+                      } @else {
+                        {{ kmrStats.remainingToken | number:'1.0-6' }} {{ kmrStats.symbol }}
+                      }
+                    </span>
+                  </div>
+                  @if (kmrStats.collateralUsd > 0) {
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="LTV">Loan-to-Value</app-jargon></span>
+                      <span class="bc-stat-value">
+                        {{ kmrStats.ltvCurrentPct | number:'1.0-2' }}%
+                        <span style="opacity:.6">→</span>
+                        <strong class="bc-hf--safe">{{ kmrStats.ltvAfterPct | number:'1.0-2' }}%</strong>
+                      </span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="Liquidation LTV">Liquidation LTV</app-jargon></span>
+                      <span class="bc-stat-value bc-stat-value--warn">{{ kmrStats.liquidationLtvPct | number:'1.0-2' }}%</span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="Health Factor">Health Factor</app-jargon></span>
+                      <span class="bc-stat-value">
+                        @if (kmrStats.hfCurrent > 0) {
+                          {{ kmrStats.hfCurrent | number:'1.2-2' }}
+                          <span style="opacity:.6">→</span>
+                        }
+                        <strong [class.bc-hf--safe]="kmrStats.hfClass === 'safe'"
+                                [class.bc-hf--caution]="kmrStats.hfClass === 'caution'"
+                                [class.bc-hf--danger]="kmrStats.hfClass === 'danger'">{{ kmrStats.hfLabel }}</strong>
+                      </span>
+                    </div>
+                  }
+
+                  @if (kmrStats.errorMsg) {
+                    <div class="bc-error">
+                      <lucide-icon name="alert-circle" [size]="12" />
+                      {{ kmrStats.errorMsg }}
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="lend-hf-explain">
+                  <lucide-icon name="info" [size]="11" />
+                  No open {{ kmRepTd.symbol }} debt on Kamino for this wallet.
+                </div>
+              }
+
+              <div class="bc-footer-rates">
+                <span>Borrow rate: <strong>{{ kmrStats.borrowApyPct | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
+                <span>Debt: <strong>${{ kmrStats.debtUsd | number:'1.2-2' }}</strong></span>
+                <span>Price: <strong>${{ kmrStats.price | number:'1.2-4' }}</strong></span>
+              </div>
+            } @else if (kaminoBorrowLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading your Kamino loan…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Repays {{ kmRepTd.symbol }} debt on Kamino Lend — lowers your LTV and raises your health factor.
+              </div>
+            }
+          </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
                [class.proto-fields--swaplike]="false">

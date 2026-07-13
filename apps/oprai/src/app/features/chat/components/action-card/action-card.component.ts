@@ -1483,7 +1483,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly _kaminoBorrowEffect = effect(() => {
     const wallet = this.walletService.publicKey();
     const token = this.editParams()['token'] ?? this.editParams()['reserve'] ?? '';
-    if (this.action?.type !== 'kamino_borrow') return;
+    if (this.action?.type !== 'kamino_borrow' && this.action?.type !== 'kamino_repay') return;
     const key = `${wallet}:${token}`;
     if (key === this._lastKaminoBorrowKey) return;
     this._lastKaminoBorrowKey = key;
@@ -3379,7 +3379,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.inputBalanceMint()) this.loadInputBalance();
     if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
     if (['lend','withdraw_lend'].includes(this.action.type)) this.loadLendInfo();
-    if (this.action.type === 'kamino_borrow') this.loadKaminoBorrowInfo();
+    if (this.action.type === 'kamino_borrow' || this.action.type === 'kamino_repay') this.loadKaminoBorrowInfo();
     if (this.action.type === 'native_stake') this.loadValidators();
     // Eagerly resolve "all" → actual balance for pumpfun/pumpswap sells so the
     // number input shows a real value instead of appearing blank.
@@ -4369,6 +4369,90 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const capped = Math.min(s.maxBorrowable, s.availableToken) * fraction;
     // Floor to 6 dp so the projected amount never rounds above the on-chain limit.
     this.setEditParam('amount', String(Math.floor(capped * 1e6) / 1e6));
+  }
+
+  /**
+   * Live Kamino repay projection. Reuses the same reserve + obligation fetched
+   * by loadKaminoBorrowInfo. Repaying `amount` of the token subtracts
+   * `amount × price` from the obligation's debt (capped at the actual debt):
+   *   ltvAfter    = (borrowedUsd − repayUsd) ÷ collateralUsd            (drops)
+   *   HF (after)  = borrowLiquidationLimit ÷ (borrowedUsd − repayUsd)   (rises)
+   * The debt for THIS token comes from the matching borrow line item, or (when
+   * the API returns no line items) from the obligation's total debt — never
+   * fabricated; borrowedValue is the on-chain refreshed figure.
+   */
+  get kaminoRepayStats(): {
+    symbol: string; borrowApyPct: number; price: number;
+    hasDebt: boolean; collateralUsd: number; borrowedUsd: number;
+    debtToken: number; debtUsd: number;
+    repayToken: number; repayUsd: number; remainingUsd: number; remainingToken: number;
+    ltvCurrentPct: number; ltvAfterPct: number; liquidationLtvPct: number;
+    hfCurrent: number; hfAfter: number; hfLabel: string; hfClass: string;
+    fullRepay: boolean; errorMsg?: string;
+  } | null {
+    const r = this.kaminoReserve();
+    if (!r) return null;
+    const price = this.kaminoReservePrice(r);
+    const borrowApyPct = r.borrowApyNum * 100;
+
+    const ob = this.kaminoObligation();
+    const collateralUsd = ob ? parseFloat(ob.depositedValue) || 0 : 0;
+    const borrowedUsd = ob ? parseFloat(ob.borrowedValue) || 0 : 0;
+    const liqLimitUsd = ob ? parseFloat(ob.borrowLiquidationLimit) || 0 : 0;
+    const liquidationLtvPct = collateralUsd > 0 ? (liqLimitUsd / collateralUsd) * 100 : 0;
+
+    // Debt in THIS token: prefer the matching borrow line item; fall back to the
+    // obligation total (accurate for the common single-debt obligation).
+    const norm = (s: string) => (s.toUpperCase() === 'WSOL' ? 'SOL' : s.toUpperCase());
+    const debtLine = (ob?.borrows ?? []).find(
+      b => b.reserveAddress === r.reserve || norm(b.symbol) === norm(r.symbol));
+    const debtUsd = debtLine ? (parseFloat(debtLine.valueUsd) || 0) : borrowedUsd;
+    const debtToken = debtLine ? (parseFloat(debtLine.amount) || 0) : (price > 0 ? borrowedUsd / price : 0);
+    const hasDebt = debtUsd > 0;
+
+    const amount = parseFloat(this.getEditParam('amount') || '0') || 0;
+    const repayToken = Math.min(amount, debtToken);
+    const repayUsd = Math.min(amount * price, debtUsd);
+    const remainingUsd = Math.max(0, borrowedUsd - repayUsd);
+    const remainingToken = Math.max(0, debtToken - repayToken);
+
+    const ltvCurrentPct = collateralUsd > 0 ? (borrowedUsd / collateralUsd) * 100 : 0;
+    const ltvAfterPct = collateralUsd > 0 ? (remainingUsd / collateralUsd) * 100 : 0;
+    const hfCurrent = borrowedUsd > 0 ? liqLimitUsd / borrowedUsd : Infinity;
+    const hfAfter = remainingUsd > 0 ? liqLimitUsd / remainingUsd : Infinity;
+    // Health after repay only improves — class off the AFTER value.
+    const hfApplies = remainingUsd > 0 && collateralUsd > 0;
+    const hfClass = !hfApplies || !isFinite(hfAfter) || hfAfter >= 1.6
+      ? 'safe' : hfAfter >= 1.2 ? 'caution' : 'danger';
+    const hfLabel = !isFinite(hfAfter) ? '∞' : hfAfter.toFixed(2);
+    const fullRepay = hasDebt && amount >= debtToken - 1e-9;
+
+    let errorMsg: string | undefined;
+    if (amount > 0 && !hasDebt) {
+      errorMsg = 'No Kamino debt in this token to repay.';
+    } else if (amount > 0 && amount > debtToken + 1e-9) {
+      errorMsg = `You only owe ${debtToken.toFixed(debtToken < 1 ? 6 : 2)} ${r.symbol} — repaying the full debt clears it.`;
+    }
+
+    return {
+      symbol: r.symbol, borrowApyPct, price,
+      hasDebt, collateralUsd, borrowedUsd, debtToken, debtUsd,
+      repayToken, repayUsd, remainingUsd, remainingToken,
+      ltvCurrentPct, ltvAfterPct, liquidationLtvPct,
+      hfCurrent: isFinite(hfCurrent) ? hfCurrent : 0, hfAfter: isFinite(hfAfter) ? hfAfter : 0,
+      hfLabel, hfClass, fullRepay, errorMsg,
+    };
+  }
+
+  /** Fill the repay amount to the full debt (capped at the wallet balance). */
+  setKaminoRepayMax(): void {
+    const s = this.kaminoRepayStats;
+    if (!s || s.debtToken <= 0) return;
+    const bal = this.inputBalance();
+    const target = bal !== null ? Math.min(s.debtToken, bal) : s.debtToken;
+    if (target <= 0) return;
+    // Floor to 6 dp so the amount never rounds above the wallet balance.
+    this.setEditParam('amount', String(Math.floor(target * 1e6) / 1e6));
   }
 
   selectCollateral(opt: CollateralOption): void {
