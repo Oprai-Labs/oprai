@@ -1323,9 +1323,13 @@ pub async fn build_kamino_unstake(
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct KaminoVaultsParams {
-    /// Max number of vaults to return.
+    /// Max number of vaults to return (default 8, top by TVL).
     #[serde(default)]
     pub limit: Option<u32>,
+    /// Optional token filter (symbol or mint) — only vaults for that token.
+    /// Use it when the user wants to deposit a specific asset (e.g. "SOL vaults").
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 /// Get the user's Kamino Earn vault positions.
@@ -1462,19 +1466,119 @@ pub async fn build_kamino_vaults(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_vaults_params(params)?;
     let data = kamino_get(http, "/kvaults/vaults").await?;
-    let mut vaults = data.as_array().cloned().unwrap_or_default();
-    if let Some(limit) = params.limit {
-        vaults.truncate(limit as usize);
+    let raw = data.as_array().cloned().unwrap_or_default();
+
+    // Lean per-vault fields pulled from the on-chain `state` blob.
+    struct V {
+        address: String,
+        name: String,
+        mint: String,
+        decimals: i32,
+        aum: f64,
+        perf_bps: f64,
+        mgmt_bps: f64,
+        min_deposit: f64,
     }
-    let count = vaults.len();
+    let mut vaults: Vec<V> = raw
+        .iter()
+        .filter_map(|v| {
+            let address = v.get("address")?.as_str()?.to_string();
+            let st = v.get("state")?;
+            let num = |k: &str| -> f64 {
+                st.get(k)
+                    .and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0.0)
+            };
+            Some(V {
+                address,
+                name: st.get("name").and_then(|x| x.as_str()).unwrap_or("").trim().to_string(),
+                mint: st.get("tokenMint").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                decimals: st.get("tokenMintDecimals").and_then(|x| x.as_u64()).unwrap_or(0) as i32,
+                aum: num("prevAum"),
+                perf_bps: num("performanceFeeBps"),
+                mgmt_bps: num("managementFeeBps"),
+                min_deposit: num("minDepositAmount"),
+            })
+        })
+        .collect();
+
+    // Batch USD prices for the distinct token mints so we can rank by real TVL.
+    // Jupiter price v3 is public (no key needed); on failure TVL falls back to 0
+    // (that vault sinks to the bottom rather than erroring the whole list).
+    let mints: std::collections::HashSet<&str> =
+        vaults.iter().map(|v| v.mint.as_str()).filter(|m| !m.is_empty()).collect();
+    let ids = mints.into_iter().collect::<Vec<_>>().join(",");
+    let prices: std::collections::HashMap<String, f64> = if ids.is_empty() {
+        Default::default()
+    } else {
+        // Jupiter Price v3 is a FLAT object keyed by mint; the price field is
+        // `usdPrice` (not v2's `data[mint].price`).
+        match http.get(format!("https://api.jup.ag/price/v3?ids={ids}")).send().await {
+            Ok(r) => {
+                let j: serde_json::Value = r.json().await.unwrap_or(serde_json::Value::Null);
+                j.as_object()
+                    .map(|obj| {
+                        obj.iter()
+                            .filter_map(|(k, val)| {
+                                let p = val
+                                    .get("usdPrice")
+                                    .and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))?;
+                                Some((k.clone(), p))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+            Err(_) => Default::default(),
+        }
+    };
+
+    // Optional token filter: only vaults for the requested asset (symbol or mint).
+    if let Some(tok) = params.token.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let want_mint = crate::solana::tokens::resolve_token_address(tok);
+        vaults.retain(|v| v.mint == want_mint);
+    }
+
+    let tvl_usd = |v: &V| -> f64 {
+        (v.aum / 10f64.powi(v.decimals)) * prices.get(&v.mint).copied().unwrap_or(0.0)
+    };
+    vaults.sort_by(|a, b| {
+        tvl_usd(b).partial_cmp(&tvl_usd(a)).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Default to a compact top-N; the LLM raises `limit` when the user asks for more.
+    let limit = params.limit.unwrap_or(8).clamp(1, 50) as usize;
+    let total = vaults.len();
+    let out: Vec<serde_json::Value> = vaults
+        .iter()
+        .take(limit)
+        .map(|v| {
+            let tvl = tvl_usd(v);
+            let scale = 10f64.powi(v.decimals);
+            serde_json::json!({
+                "vault": v.address,
+                "name": if v.name.is_empty() { serde_json::Value::Null } else { serde_json::json!(v.name) },
+                // Token MINT — the frontend resolves it to the symbol + icon so each
+                // vault option shows its own token glyph, not the generic Kamino mark.
+                "token": v.mint,
+                "tvlUsd": (tvl * 100.0).round() / 100.0,
+                "tvlToken": (v.aum / scale * 1e6).round() / 1e6,
+                "performanceFeePct": v.perf_bps / 100.0,
+                "managementFeePct": v.mgmt_bps / 100.0,
+                "minDeposit": v.min_deposit / scale,
+            })
+        })
+        .collect();
+    let shown = out.len();
+
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_vaults".into(),
-            description: format!("{count} Kamino Earn vaults available"),
+            description: format!("Top {shown} of {total} Kamino Earn vaults by TVL"),
             estimated_fee: "0".into(),
             estimated_refund: None,
-            params: serde_json::Value::Array(vaults),
+            params: serde_json::Value::Array(out),
             warnings: vec![],
             requires_approval: false,
         },

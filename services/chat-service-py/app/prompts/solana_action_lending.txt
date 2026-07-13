@@ -128,6 +128,17 @@ Examples:
 - "Deposit 10 SOL to Kamino SOL vault"
   -> execute_action("kamino_vault_deposit", {"vault": "SOL", "amount": "10", "token": "SOL"})
 
+Choosing a vault when the user did NOT name a specific one: call query_onchain
+`kamino_vaults` first — it returns vaults already sorted by TVL (highest first),
+each with `vault` (address), `name`, `token` (the token MINT), `tvlUsd`, and fees.
+When the user is depositing a specific asset, pass `token`=<that symbol> (e.g.
+"SOL") to `kamino_vaults` so only that asset's vaults come back.
+Then request_clarification with the top few as options; each option's params MUST
+carry `vault`=<address>, `token`=<the result's token mint> (so the card shows that
+vault's own token icon), and the parsed `amount`. Present them in the returned
+(TVL-descending) order. If the user asks to see more vaults, re-query `kamino_vaults`
+with a higher `limit` and offer the larger set.
+
 #### KAMINO_VAULT_WITHDRAW — Withdraw from a Kamino liquidity vault by burning kTokens
 Format: [ACTION:kamino_vault_withdraw] vault=<vault_name_or_address> ktokenAmount=<shares_amount>
 
