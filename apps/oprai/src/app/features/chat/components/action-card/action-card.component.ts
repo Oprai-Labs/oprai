@@ -158,6 +158,17 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
   },
   kamino_repay: {
     '6014': "Repay amount is too small to transfer. Enter a larger amount.",
+    // NetValueRemainingTooSmall. Kamino tracks debt as a continuously-growing
+    // scaled fraction, so a fixed decimal repay always leaves sub-unit dust and
+    // this fires. Use "Max" / "repay all" (it closes the whole line at once). If
+    // that still fails, your token balance is a hair below the accrued debt —
+    // top up a tiny amount of the token, then repay all.
+    '6092': "Kamino won't leave a sub-cent dust balance behind. Use \"Max\" to repay the full debt in one go. If that still fails, your token balance is just under the accrued interest — add a tiny amount of the token and repay all.",
+    // SPL Token InsufficientFunds during a repay-all: the wallet holds slightly
+    // less of the token than the debt + its accrued interest (Kamino rounds the
+    // debt up to fully close). Action-scoped: in a repay, Custom 1 = not enough
+    // of the repaid token, never a SOL-fee issue.
+    '1': "Your wallet is just short of the full debt — Kamino rounds up to close it completely, and you don't quite have enough of the token. Add a tiny amount of it and repay all.",
   },
 };
 
@@ -3474,6 +3485,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           }
         }
       }
+    }
+    // Kamino repay: when the user is clearing the whole debt, flag it so the
+    // backend sends a repay-all sentinel. A fixed decimal can never match the
+    // continuously-accruing debt exactly, so a "full" repay of a static amount
+    // leaves sub-unit dust and trips NetValueRemainingTooSmall (6092). The flag
+    // lets Kamino cap at ceil(debt) and close the line cleanly.
+    if (this.action.type === 'kamino_repay') {
+      const s = this.kaminoRepayStats;
+      if (s && s.fullRepay) mergedParams['repayAll'] = 'true';
     }
     // Merge user-edited slippage and priorityFee for ALL action types that use them
     // (launch, pumpfun_buy/sell, pumpswap_buy/sell, etc.)

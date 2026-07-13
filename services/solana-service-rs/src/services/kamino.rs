@@ -138,11 +138,21 @@ pub struct KaminoBorrowParams {
 pub struct KaminoRepayParams {
     /// KLend reserve account address for the token to repay. Required.
     pub reserve: String,
-    /// Amount to repay (decimal). Required.
+    /// Amount to repay (decimal). Required — or the sentinel "all"/"max"/"full"
+    /// to close the whole debt (see `repay_all`).
     pub amount: String,
     /// K-Lend market address. Defaults to Kamino main market.
     #[serde(default)]
     pub market: Option<String>,
+    /// Repay the ENTIRE debt (principal + accrued interest), fully closing the
+    /// borrow. A fixed decimal amount can never match the debt exactly — it
+    /// grows continuously and Kamino tracks it as a scaled fraction — so a
+    /// partial repay always leaves sub-unit dust that trips NetValueRemaining-
+    /// TooSmall (6092). When set, we send a large sentinel amount; Kamino caps
+    /// the actual transfer at ceil(debt) and closes the line cleanly.
+    /// Accepts a stringly-typed flag ("true"/"1") from the frontend.
+    #[serde(default)]
+    pub repay_all: Option<String>,
 }
 
 /// Add collateral to a K-Lend obligation (alias for deposit — all deposits are collateral).
@@ -454,9 +464,33 @@ pub fn validate_kamino_borrow_params(p: &KaminoBorrowParams) -> Result<(), AppEr
     Ok(())
 }
 
+/// True when the caller wants to close the whole debt — either the explicit
+/// `repayAll` flag, or an `amount` sentinel ("all"/"max"/"full"/"-1") that the
+/// LLM emits for "repay all my X". Case/whitespace-insensitive.
+fn repay_all_requested(amount: &str, flag: &Option<String>) -> bool {
+    let a = amount.trim().to_ascii_lowercase();
+    if matches!(a.as_str(), "all" | "max" | "full" | "-1") {
+        return true;
+    }
+    matches!(
+        flag.as_deref().map(|s| s.trim().to_ascii_lowercase()).as_deref(),
+        Some("true" | "1" | "yes" | "all")
+    )
+}
+
+/// A large decimal amount used to signal "repay everything". Kamino caps the
+/// actual transfer at ceil(outstanding debt), so this never over-pays; it just
+/// guarantees the borrow line closes with zero dust. Kept well under u64 base-
+/// unit overflow even for 9-decimal tokens (1e9 × 1e9 = 1e18 < u64::MAX).
+const KAMINO_REPAY_ALL_SENTINEL: &str = "1000000000";
+
 pub fn validate_kamino_repay_params(p: &KaminoRepayParams) -> Result<(), AppError> {
     validate_reserve_address(&p.reserve, "reserve")?;
-    validate_positive_amount(&p.amount, "amount")?;
+    // Skip the positive-amount check for repay-all: the amount may be a sentinel
+    // ("all") rather than a number.
+    if !repay_all_requested(&p.amount, &p.repay_all) {
+        validate_positive_amount(&p.amount, "amount")?;
+    }
     if let Some(ref m) = p.market {
         if m.len() < 32 {
             return Err(AppError::InvalidParams(format!(
@@ -833,22 +867,25 @@ pub async fn build_kamino_repay(
     validate_kamino_repay_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
     let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
+    let repay_all = repay_all_requested(&params.amount, &params.repay_all);
+    // Repay-all: send a large sentinel so Kamino closes the borrow with no dust.
+    let send_amount = if repay_all { KAMINO_REPAY_ALL_SENTINEL } else { params.amount.as_str() };
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
         "reserve": reserve,
-        "amount": params.amount,
+        "amount": send_amount,
     });
     let tx_b64 = kamino_post_tx(http, "/ktx/klend/repay", &body).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_repay".into(),
-            description: format!(
-                "Repay {} to Kamino K-Lend reserve {}",
-                params.amount,
-                short_id(&reserve),
-            ),
+            description: if repay_all {
+                format!("Repay full debt to Kamino K-Lend reserve {}", short_id(&reserve))
+            } else {
+                format!("Repay {} to Kamino K-Lend reserve {}", params.amount, short_id(&reserve))
+            },
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
