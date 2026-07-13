@@ -1653,7 +1653,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     // Borrow: the `amount` is the DEBT you receive, not something you spend, so
     // no wallet-balance line belongs on it (the collateral is a separate field).
-    if (this.action?.type === 'borrow') {
+    if (this.action?.type === 'borrow' || this.action?.type === 'kamino_borrow') {
       return '';
     }
     const tokenA = p['tokenA'] ?? p['tokenXMint'];

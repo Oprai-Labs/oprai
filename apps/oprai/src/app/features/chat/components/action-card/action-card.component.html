@@ -1727,6 +1727,36 @@
               Supplies {{ kmDepTd.symbol }} to Kamino Lend — earns yield and can back borrows.
             </div>
           </div>
+        } @else if (action.type === 'kamino_borrow') {
+          <!-- ─────── Kamino Lend borrow: draw debt against your collateral ─────── -->
+          @let kmBorTd = resolveTokenDisplay(getEditParam('token') || getEditParam('reserve') || 'USDC');
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Borrow</span>
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmBorTd.logoURI) {
+                    <img [src]="kmBorTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmBorTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmBorTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="lend-hf-explain">
+              <lucide-icon name="info" [size]="11" />
+              Borrows {{ kmBorTd.symbol }} against your Kamino collateral — keep an eye on your health factor to avoid liquidation.
+            </div>
+          </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
                [class.proto-fields--swaplike]="false">
