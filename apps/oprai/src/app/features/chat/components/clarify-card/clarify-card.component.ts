@@ -4,6 +4,7 @@ import {
   Output,
   EventEmitter,
   ChangeDetectionStrategy,
+  OnInit,
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -24,7 +25,7 @@ interface OptionToken { symbol: string; logoURI: string | null; }
   styleUrls: ['./clarify-card.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ClarifyCardComponent {
+export class ClarifyCardComponent implements OnInit {
   @Input({ required: true }) clarify!: ParsedClarify;
 
   /**
@@ -40,6 +41,16 @@ export class ClarifyCardComponent {
 
   /** Emit which option the user clicked, plus the parsed action to execute. */
   @Output() optionSelected = new EventEmitter<{ index: number; action: ParsedAction }>();
+
+  /**
+   * On a fresh page load the card can re-hydrate from stored chat history BEFORE
+   * the token list is fetched — `resolveToken` then returns null and every option
+   * falls back to the generic protocol mark. Kick the load here; the reactive
+   * `version` signal (read in `resolveToken`) re-renders the icons once it lands.
+   */
+  ngOnInit(): void {
+    void this.tokenRegistry.ensureLoaded();
+  }
 
   readonly categoryIcons: Record<string, string> = {
     stake: 'layers',
@@ -180,6 +191,10 @@ export class ClarifyCardComponent {
 
   /** Resolve an address or symbol to display bits; null if unknown/empty. */
   private resolveToken(idOrSymbol?: string): OptionToken | null {
+    // Touch the registry's version signal so this (template-invoked) lookup is
+    // reactive: when the token list finishes loading after a reload, the bump
+    // re-runs OnPush change detection and the real icons replace the fallback.
+    this.tokenRegistry.version();
     const raw = (idOrSymbol ?? '').trim().replace(/^\$/, '');
     if (!raw) return null;
     const meta = raw.length >= 32
