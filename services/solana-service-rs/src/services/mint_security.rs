@@ -144,12 +144,15 @@ pub async fn classify_mint(
 /// We treat any failure (timeout, 404, bad payload) as "unknown" rather than
 /// surfacing the network error — the caller decides whether to reject.
 async fn jupiter_lookup(http: &reqwest::Client, mint: &str) -> Result<MintProvenance, AppError> {
-    // `tokens.jup.ag/token/<mint>` is the canonical token-metadata endpoint.
-    // Use a tight timeout so a slow Jupiter doesn't stall a quote.
-    let url = format!("https://tokens.jup.ag/token/{mint}");
+    // Jupiter RETIRED `tokens.jup.ag/token/<mint>` (it now NXDOMAINs), which made
+    // this classify every non-registry mint as Unknown and reject legitimate,
+    // liquid tokens (e.g. PYUSD — a Token-2022 mint). The current metadata lookup
+    // is the v2 search endpoint, which returns an ARRAY of matches. Tight timeout
+    // so a slow Jupiter doesn't stall a quote.
+    let url = format!("https://api.jup.ag/tokens/v2/search?query={mint}");
     let resp = http
         .get(&url)
-        .timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(3))
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("Jupiter token lookup failed: {e}")))?;
@@ -161,25 +164,28 @@ async fn jupiter_lookup(http: &reqwest::Client, mint: &str) -> Result<MintProven
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct TokenMeta {
+        id: Option<String>,
         symbol: Option<String>,
         name: Option<String>,
         decimals: Option<u8>,
     }
-    let body: TokenMeta = resp
+    let body: Vec<TokenMeta> = resp
         .json()
         .await
         .map_err(|e| AppError::Internal(format!("Jupiter token decode failed: {e}")))?;
 
-    let symbol = body.symbol.unwrap_or_default();
-    let name = body.name.unwrap_or_default();
-    let decimals = body.decimals.unwrap_or(0);
+    // Exact-mint match only — a search query can return near matches by symbol.
+    let Some(hit) = body.into_iter().find(|t| t.id.as_deref() == Some(mint)) else {
+        return Ok(MintProvenance::Unknown);
+    };
+    let symbol = hit.symbol.unwrap_or_default();
     if symbol.is_empty() {
         return Ok(MintProvenance::Unknown);
     }
     Ok(MintProvenance::JupiterKnown {
         symbol,
-        name,
-        decimals,
+        name: hit.name.unwrap_or_default(),
+        decimals: hit.decimals.unwrap_or(0),
     })
 }
 
