@@ -109,14 +109,14 @@ mod tests {
         // long matching prefixes (or suffixes) cheaply, so we pin the entire
         // 44-char address — the only string that defends against a swap.
         const PINS: &[(&str, &str, u8)] = &[
-            ("SOL",     "So11111111111111111111111111111111111111112", 9),
-            ("USDC",    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", 6),
-            ("USDT",    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", 6),
+            ("SOL", "So11111111111111111111111111111111111111112", 9),
+            ("USDC", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", 6),
+            ("USDT", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", 6),
             ("JITOSOL", "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn", 9),
-            ("MSOL",    "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",  9),
-            ("JUPSOL",  "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",  9),
-            ("BSOL",    "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1",  9),
-            ("JUP",     "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",  6),
+            ("MSOL", "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So", 9),
+            ("JUPSOL", "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v", 9),
+            ("BSOL", "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1", 9),
+            ("JUP", "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", 6),
         ];
         for (sym, expected_addr, expected_decimals) in PINS {
             let info = COMMON_TOKENS

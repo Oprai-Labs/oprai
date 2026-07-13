@@ -22,13 +22,11 @@ use solana_sdk::{
 // ── Program & sysvar constants ────────────────────────────────────────────
 
 /// Raydium CLMM program ID on mainnet & devnet (same address).
-pub const RAYDIUM_CLMM_PROGRAM_ID: Pubkey =
-    pubkey!("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK");
+pub const RAYDIUM_CLMM_PROGRAM_ID: Pubkey = pubkey!("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK");
 
 /// Token-2022 program (some pools use it; we always pass the classic SPL
 /// program for now since USDS/USDC are classic SPL).
-pub const TOKEN_PROGRAM_ID: Pubkey =
-    pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+pub const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
 pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
     pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -50,8 +48,7 @@ pub const METAPLEX_METADATA_PROGRAM_ID: Pubkey =
 ///
 /// Source: raydium-clmm program, instruction order.
 /// `sha256("global:open_position_v2")[..8]` = `[77, 184, 74, 214, 112, 86, 241, 199]`
-pub const OPEN_POSITION_V2_DISCRIMINATOR: [u8; 8] =
-    [77, 184, 74, 214, 112, 86, 241, 199];
+pub const OPEN_POSITION_V2_DISCRIMINATOR: [u8; 8] = [77, 184, 74, 214, 112, 86, 241, 199];
 
 /// `create_tick_array(tick_array_start_index: i32)` — initializes a
 /// `TickArrayState` PDA. Required before `open_position_v2` if the
@@ -59,8 +56,7 @@ pub const OPEN_POSITION_V2_DISCRIMINATOR: [u8; 8] =
 /// prior LP has touched those ticks on this pool).
 /// `sha256("global:create_tick_array")[..8]`
 ///   = `[253, 248, 163, 171, 253, 8, 8, 81]`
-pub const CREATE_TICK_ARRAY_DISCRIMINATOR: [u8; 8] =
-    [253, 248, 163, 171, 253, 8, 8, 81];
+pub const CREATE_TICK_ARRAY_DISCRIMINATOR: [u8; 8] = [253, 248, 163, 171, 253, 8, 8, 81];
 
 // ── PDA derivation helpers ────────────────────────────────────────────────
 
@@ -74,11 +70,7 @@ pub fn personal_position_pda(position_nft_mint: &Pubkey) -> Pubkey {
 }
 
 /// Protocol position PDA — seeds = `["position", pool_id, tick_lower(BE i32), tick_upper(BE i32)]`.
-pub fn protocol_position_pda(
-    pool_id: &Pubkey,
-    tick_lower: i32,
-    tick_upper: i32,
-) -> Pubkey {
+pub fn protocol_position_pda(pool_id: &Pubkey, tick_lower: i32, tick_upper: i32) -> Pubkey {
     Pubkey::find_program_address(
         &[
             b"position",
@@ -146,10 +138,8 @@ pub fn open_position_v2(inputs: &OpenPositionV2Inputs) -> Instruction {
         inputs.tick_upper_index,
     );
     let personal_position = personal_position_pda(&inputs.position_nft_mint);
-    let tick_array_lower =
-        tick_array_pda(&inputs.pool_id, inputs.tick_array_lower_start_index);
-    let tick_array_upper =
-        tick_array_pda(&inputs.pool_id, inputs.tick_array_upper_start_index);
+    let tick_array_lower = tick_array_pda(&inputs.pool_id, inputs.tick_array_lower_start_index);
+    let tick_array_upper = tick_array_pda(&inputs.pool_id, inputs.tick_array_upper_start_index);
 
     // Account order — pinned to Raydium's IDL. Changing positions = on-chain failure.
     //  0  payer                              (signer, mut)
@@ -208,7 +198,10 @@ pub fn open_position_v2(inputs: &OpenPositionV2Inputs) -> Instruction {
     ]);
 
     if inputs.with_metadata {
-        accounts.push(AccountMeta::new_readonly(METAPLEX_METADATA_PROGRAM_ID, false));
+        accounts.push(AccountMeta::new_readonly(
+            METAPLEX_METADATA_PROGRAM_ID,
+            false,
+        ));
     }
 
     // Encode data: 8-byte discriminator + borsh-packed args.

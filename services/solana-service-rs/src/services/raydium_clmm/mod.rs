@@ -15,6 +15,6 @@
 //!   - `ix`    — Anchor discriminators + instruction data encoders.
 //!   - `builder` — top-level `build_open_position` / future close/inc/dec.
 
-pub mod state;
-pub mod ix;
 pub mod builder;
+pub mod ix;
+pub mod state;

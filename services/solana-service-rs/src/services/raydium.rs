@@ -187,34 +187,51 @@ pub fn validate_raydium_swap_params(p: &RaydiumSwapParams) -> Result<(), AppErro
     Ok(())
 }
 
-pub fn validate_raydium_add_liquidity_params(p: &RaydiumAddLiquidityParams) -> Result<(), AppError> {
+pub fn validate_raydium_add_liquidity_params(
+    p: &RaydiumAddLiquidityParams,
+) -> Result<(), AppError> {
     let has_pool_id = p.pool_id.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
-    let has_amount  = p.amount.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+    let has_amount = p.amount.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
     let has_pool_mode = has_pool_id && has_amount;
 
     let has_token_mode = p.token_a.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
         && p.token_b.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
-        && p.amount_a.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
-        && p.amount_b.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+        && p.amount_a
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        && p.amount_b
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
 
     if !has_pool_mode && !has_token_mode {
         return Err(AppError::InvalidParams(
-            "Provide either (poolId + inputMint + amount) or (tokenA + tokenB + amountA + amountB)".into(),
+            "Provide either (poolId + inputMint + amount) or (tokenA + tokenB + amountA + amountB)"
+                .into(),
         ));
     }
 
     // In pool-mode, inputMint is required to correctly convert the human-readable amount to
     // base units. Without it we'd default to 9 decimals which is wrong for USDC (6), BONK (5), etc.
-    if has_pool_mode && p.input_mint.as_deref().map(|s| s.is_empty()).unwrap_or(true) {
+    if has_pool_mode
+        && p.input_mint
+            .as_deref()
+            .map(|s| s.is_empty())
+            .unwrap_or(true)
+    {
         return Err(AppError::InvalidParams(
-            "inputMint is required when using poolId mode (needed to determine token decimals)".into(),
+            "inputMint is required when using poolId mode (needed to determine token decimals)"
+                .into(),
         ));
     }
 
     Ok(())
 }
 
-pub fn validate_raydium_remove_liquidity_params(p: &RaydiumRemoveLiquidityParams) -> Result<(), AppError> {
+pub fn validate_raydium_remove_liquidity_params(
+    p: &RaydiumRemoveLiquidityParams,
+) -> Result<(), AppError> {
     if p.pool_id.is_empty() {
         return Err(AppError::InvalidParams("poolId is required".into()));
     }
@@ -251,7 +268,9 @@ pub fn validate_raydium_create_pool_params(p: &RaydiumCreatePoolParams) -> Resul
     Ok(())
 }
 
-pub fn validate_raydium_open_position_params(p: &RaydiumOpenPositionParams) -> Result<(), AppError> {
+pub fn validate_raydium_open_position_params(
+    p: &RaydiumOpenPositionParams,
+) -> Result<(), AppError> {
     let has_direct = p.pool_id.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
     let has_token_mode = p.token_a.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
         && p.token_b.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
@@ -267,20 +286,26 @@ pub fn validate_raydium_open_position_params(p: &RaydiumOpenPositionParams) -> R
     }
     if let (Some(min), Some(max)) = (p.min_price, p.max_price) {
         if min <= 0.0 || max <= min {
-            return Err(AppError::InvalidParams("maxPrice must be greater than minPrice > 0".into()));
+            return Err(AppError::InvalidParams(
+                "maxPrice must be greater than minPrice > 0".into(),
+            ));
         }
     }
     Ok(())
 }
 
-pub fn validate_raydium_close_position_params(p: &RaydiumClosePositionParams) -> Result<(), AppError> {
+pub fn validate_raydium_close_position_params(
+    p: &RaydiumClosePositionParams,
+) -> Result<(), AppError> {
     if p.position_id.is_empty() {
         return Err(AppError::InvalidParams("positionId is required".into()));
     }
     Ok(())
 }
 
-pub fn validate_raydium_increase_position_params(p: &RaydiumIncreasePositionParams) -> Result<(), AppError> {
+pub fn validate_raydium_increase_position_params(
+    p: &RaydiumIncreasePositionParams,
+) -> Result<(), AppError> {
     if p.position_id.is_empty() {
         return Err(AppError::InvalidParams("positionId is required".into()));
     }
@@ -292,12 +317,16 @@ pub fn validate_raydium_increase_position_params(p: &RaydiumIncreasePositionPara
         .parse()
         .map_err(|_| AppError::InvalidParams("inputAmount must be a positive number".into()))?;
     if amt <= 0.0 {
-        return Err(AppError::InvalidParams("inputAmount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "inputAmount must be positive".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_raydium_decrease_position_params(p: &RaydiumDecreasePositionParams) -> Result<(), AppError> {
+pub fn validate_raydium_decrease_position_params(
+    p: &RaydiumDecreasePositionParams,
+) -> Result<(), AppError> {
     if p.position_id.is_empty() {
         return Err(AppError::InvalidParams("positionId is required".into()));
     }
@@ -358,15 +387,23 @@ fn short_addr(addr: &str) -> String {
 /// Round a tick DOWN to the nearest valid multiple of `tick_spacing` (for tickLower).
 /// Uses `rem_euclid` so negative ticks are handled correctly.
 fn align_tick_lower(tick: i32, spacing: i32) -> i32 {
-    if spacing <= 0 { return tick; }
+    if spacing <= 0 {
+        return tick;
+    }
     tick - tick.rem_euclid(spacing)
 }
 
 /// Round a tick UP to the nearest valid multiple of `tick_spacing` (for tickUpper).
 fn align_tick_upper(tick: i32, spacing: i32) -> i32 {
-    if spacing <= 0 { return tick; }
+    if spacing <= 0 {
+        return tick;
+    }
     let rem = tick.rem_euclid(spacing);
-    if rem == 0 { tick } else { tick + (spacing - rem) }
+    if rem == 0 {
+        tick
+    } else {
+        tick + (spacing - rem)
+    }
 }
 
 /// Look up the highest-liquidity Raydium pool for a token pair.
@@ -425,9 +462,12 @@ async fn lookup_raydium_pool_with_config(
         .pointer("/data/data/0/id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| AppError::ProtocolError(format!(
-            "No {} pool found for {}/{}", pool_type, mint1, mint2
-        )))?;
+        .ok_or_else(|| {
+            AppError::ProtocolError(format!(
+                "No {} pool found for {}/{}",
+                pool_type, mint1, mint2
+            ))
+        })?;
 
     // CLMM pools include config.tickSpacing in the response.
     let tick_spacing = data
@@ -440,10 +480,7 @@ async fn lookup_raydium_pool_with_config(
 
 /// Fetch tick spacing for a known CLMM pool ID via the pools/info/ids endpoint.
 /// Used when the caller already has a pool_id but needs tick spacing for price→tick conversion.
-async fn get_pool_tick_spacing(
-    http: &reqwest::Client,
-    pool_id: &str,
-) -> Result<i32, AppError> {
+async fn get_pool_tick_spacing(http: &reqwest::Client, pool_id: &str) -> Result<i32, AppError> {
     let resp = http
         .get("https://api-v3.raydium.io/pools/info/ids")
         .query(&[("ids", pool_id)])
@@ -525,7 +562,12 @@ pub async fn build_raydium_swap(
     let slippage_bps = params.slippage_bps.unwrap_or(50);
     // Normalize swapMode: accept both 'in'/'out' and 'ExactIn'/'ExactOut'.
     let is_base_in = !matches!(
-        params.swap_mode.as_deref().unwrap_or("in").to_lowercase().as_str(),
+        params
+            .swap_mode
+            .as_deref()
+            .unwrap_or("in")
+            .to_lowercase()
+            .as_str(),
         "out" | "exactout"
     );
 
@@ -595,7 +637,11 @@ pub async fn build_raydium_swap(
     }
 
     // Step 1: GET quote from Raydium compute API (query-string params, NOT JSON body)
-    let compute_path = if is_base_in { "swap-base-in" } else { "swap-base-out" };
+    let compute_path = if is_base_in {
+        "swap-base-in"
+    } else {
+        "swap-base-out"
+    };
     let compute_resp = http
         .get(format!("{RAYDIUM_HOST}/compute/{compute_path}"))
         .query(&[
@@ -628,9 +674,14 @@ pub async fn build_raydium_swap(
     );
 
     // Validate compute response
-    if !compute_data.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if !compute_data
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         let msg = compute_data
-            .get("msg").or_else(|| compute_data.get("message"))
+            .get("msg")
+            .or_else(|| compute_data.get("message"))
             .and_then(|v| v.as_str())
             .unwrap_or("Raydium compute failed");
         return Err(AppError::ProtocolError(format!("Raydium compute: {msg}")));
@@ -642,9 +693,11 @@ pub async fn build_raydium_swap(
     // Extract inputAmount returned by Raydium (may differ from amount_base if routing adds fees).
     // For SOL swaps this is the EXACT lamports the router will try to transfer — if it exceeds
     // the user's balance the transaction will fail at simulation.
-    let compute_input_amount: u64 = data.get("inputAmount")
+    let compute_input_amount: u64 = data
+        .get("inputAmount")
         .and_then(|v| {
-            v.as_str().and_then(|s| s.parse::<u64>().ok())
+            v.as_str()
+                .and_then(|s| s.parse::<u64>().ok())
                 .or_else(|| v.as_u64())
         })
         .unwrap_or(amount_base);
@@ -672,12 +725,17 @@ pub async fn build_raydium_swap(
         }
     }
 
-    let out_amount_raw = data.get("outputAmount")
-        .and_then(|v| v.as_str().map(String::from)
-            .or_else(|| v.as_u64().map(|n| n.to_string())))
+    let out_amount_raw = data
+        .get("outputAmount")
+        .and_then(|v| {
+            v.as_str()
+                .map(String::from)
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
         .unwrap_or_else(|| "0".to_string());
 
-    let price_impact: f64 = data.get("priceImpactPct")
+    let price_impact: f64 = data
+        .get("priceImpactPct")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
 
@@ -692,7 +750,11 @@ pub async fn build_raydium_swap(
     // (Raydium's typo'd code for "required input account error"). Both are simply
     // the user's associated token accounts for the respective mints — Raydium
     // creates the output ATA in-tx if it doesn't exist yet.
-    let tx_path = if is_base_in { "swap-base-in" } else { "swap-base-out" };
+    let tx_path = if is_base_in {
+        "swap-base-in"
+    } else {
+        "swap-base-out"
+    };
     let user_pk = Pubkey::from_str(user_pubkey)
         .map_err(|_| AppError::InvalidParams("Invalid wallet pubkey".into()))?;
     let mut tx_body = serde_json::json!({
@@ -778,9 +840,18 @@ pub async fn build_raydium_add_liquidity(
             let amt = params.amount.as_deref().unwrap_or("0");
             let mint = params.input_mint.as_deref().unwrap_or("");
             let bi = params.base_in.unwrap_or(true);
-            let sym = if mint.is_empty() { "tokens".to_string() } else { token_symbol(mint) };
-            (pid.to_string(), amt.to_string(), mint.to_string(), bi,
-             format!("Add {} {} to Raydium pool {}", amt, sym, short_id(pid)))
+            let sym = if mint.is_empty() {
+                "tokens".to_string()
+            } else {
+                token_symbol(mint)
+            };
+            (
+                pid.to_string(),
+                amt.to_string(),
+                mint.to_string(),
+                bi,
+                format!("Add {} {} to Raydium pool {}", amt, sym, short_id(pid)),
+            )
         } else {
             // Token-pair mode: look up pool
             let ta = resolve_token_address(params.token_a.as_deref().unwrap_or(""));
@@ -789,11 +860,26 @@ pub async fn build_raydium_add_liquidity(
             let sym_a = token_symbol(params.token_a.as_deref().unwrap_or(""));
             let sym_b = token_symbol(params.token_b.as_deref().unwrap_or(""));
             let pid = lookup_raydium_pool_id(http, &ta, &tb, "StandardAmm").await?;
-            (pid.clone(), aa.to_string(), ta.clone(), true,
-             format!("Add {} {}/{} liquidity to Raydium pool {}", aa, sym_a, sym_b, short_id(&pid)))
+            (
+                pid.clone(),
+                aa.to_string(),
+                ta.clone(),
+                true,
+                format!(
+                    "Add {} {}/{} liquidity to Raydium pool {}",
+                    aa,
+                    sym_a,
+                    sym_b,
+                    short_id(&pid)
+                ),
+            )
         };
 
-    let decimals = if input_mint_str.is_empty() { 9 } else { token_decimals(&input_mint_str) };
+    let decimals = if input_mint_str.is_empty() {
+        9
+    } else {
+        token_decimals(&input_mint_str)
+    };
     let amount_base = to_base_units(&amount_str, decimals)?;
 
     let tx_resp = http
@@ -1000,7 +1086,8 @@ pub async fn build_raydium_open_position(
         };
 
     // Resolve input_mint and input_amount
-    let input_mint_sym = params.input_mint
+    let input_mint_sym = params
+        .input_mint
         .as_deref()
         .filter(|s| !s.is_empty())
         .or(params.token_a.as_deref())
@@ -1008,7 +1095,8 @@ pub async fn build_raydium_open_position(
     let input_mint = resolve_token_address(input_mint_sym);
     let decimals = token_decimals(input_mint_sym);
 
-    let input_amount_str = params.input_amount
+    let input_amount_str = params
+        .input_amount
         .as_deref()
         .filter(|s| !s.is_empty())
         .or(params.amount_a.as_deref())
@@ -1025,14 +1113,18 @@ pub async fn build_raydium_open_position(
     } else if let Some(min_p) = params.min_price {
         align_tick_lower(price_to_tick(min_p), tick_spacing)
     } else {
-        return Err(AppError::InvalidParams("tickLower or minPrice is required".into()));
+        return Err(AppError::InvalidParams(
+            "tickLower or minPrice is required".into(),
+        ));
     };
     let tick_upper = if let Some(t) = params.tick_upper {
         t // User-supplied tick — assume already aligned
     } else if let Some(max_p) = params.max_price {
         align_tick_upper(price_to_tick(max_p), tick_spacing)
     } else {
-        return Err(AppError::InvalidParams("tickUpper or maxPrice is required".into()));
+        return Err(AppError::InvalidParams(
+            "tickUpper or maxPrice is required".into(),
+        ));
     };
 
     if tick_lower >= tick_upper {
@@ -1316,22 +1408,50 @@ pub struct RaydiumGetPoolsParams {
 
 pub fn validate_raydium_get_pools_params(p: &RaydiumGetPoolsParams) -> Result<(), AppError> {
     if let Some(ref t) = p.pool_type {
-        let valid = ["all", "concentrated", "standard", "allFarm", "concentratedFarm", "standardFarm"];
+        let valid = [
+            "all",
+            "concentrated",
+            "standard",
+            "allFarm",
+            "concentratedFarm",
+            "standardFarm",
+        ];
         if !valid.contains(&t.as_str()) {
-            return Err(AppError::InvalidParams(format!("poolType must be one of: {}", valid.join(", "))));
+            return Err(AppError::InvalidParams(format!(
+                "poolType must be one of: {}",
+                valid.join(", ")
+            )));
         }
     }
     if let Some(ref s) = p.sort_field {
         // "tvl" is a common synonym for "liquidity" the LLM might emit;
         // accept it here so the upstream alias map gets a chance to run.
-        let valid = ["default", "liquidity", "tvl", "volume24h", "fee24h", "apr24h", "volume7d", "fee7d", "apr7d", "volume30d", "fee30d", "apr30d"];
+        let valid = [
+            "default",
+            "liquidity",
+            "tvl",
+            "volume24h",
+            "fee24h",
+            "apr24h",
+            "volume7d",
+            "fee7d",
+            "apr7d",
+            "volume30d",
+            "fee30d",
+            "apr30d",
+        ];
         if !valid.contains(&s.as_str()) {
-            return Err(AppError::InvalidParams(format!("sortField must be one of: {}", valid.join(", "))));
+            return Err(AppError::InvalidParams(format!(
+                "sortField must be one of: {}",
+                valid.join(", ")
+            )));
         }
     }
     if let Some(ref o) = p.sort_type {
         if o != "asc" && o != "desc" {
-            return Err(AppError::InvalidParams("sortType must be 'asc' or 'desc'".into()));
+            return Err(AppError::InvalidParams(
+                "sortType must be 'asc' or 'desc'".into(),
+            ));
         }
     }
     Ok(())
@@ -1381,9 +1501,14 @@ pub async fn build_raydium_get_pools(
     // The vol-to-TVL ratio is the more reliable signal: real pools turn
     // over their TVL at least 0.1%/day, parking pools sit at 0.03%.
     if filter_enabled {
-        if let Some(arr) = data.get_mut("data").and_then(|d| d.get_mut("data")).and_then(|v| v.as_array_mut()) {
+        if let Some(arr) = data
+            .get_mut("data")
+            .and_then(|d| d.get_mut("data"))
+            .and_then(|v| v.as_array_mut())
+        {
             arr.retain(|p| {
-                let vol = p.get("day")
+                let vol = p
+                    .get("day")
                     .and_then(|d| d.get("volume"))
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0);
@@ -1560,7 +1685,9 @@ pub struct RaydiumGetPoolInfoParams {
 
 pub fn validate_raydium_get_pool_info_params(p: &RaydiumGetPoolInfoParams) -> Result<(), AppError> {
     if p.ids.is_empty() {
-        return Err(AppError::InvalidParams("ids is required (comma-separated pool IDs)".into()));
+        return Err(AppError::InvalidParams(
+            "ids is required (comma-separated pool IDs)".into(),
+        ));
     }
     Ok(())
 }
@@ -1603,7 +1730,9 @@ pub struct RaydiumGetUserPositionsParams {
     pub wallet: Option<String>,
 }
 
-pub fn validate_raydium_get_user_positions_params(_p: &RaydiumGetUserPositionsParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_user_positions_params(
+    _p: &RaydiumGetUserPositionsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -1647,7 +1776,9 @@ pub struct RaydiumGetClmmPositionsParams {
     pub wallet: Option<String>,
 }
 
-pub fn validate_raydium_get_clmm_positions_params(_p: &RaydiumGetClmmPositionsParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_clmm_positions_params(
+    _p: &RaydiumGetClmmPositionsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -1690,9 +1821,13 @@ pub struct RaydiumGetTokenInfoParams {
     pub mints: String,
 }
 
-pub fn validate_raydium_get_token_info_params(p: &RaydiumGetTokenInfoParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_token_info_params(
+    p: &RaydiumGetTokenInfoParams,
+) -> Result<(), AppError> {
     if p.mints.is_empty() {
-        return Err(AppError::InvalidParams("mints is required (comma-separated symbols or addresses)".into()));
+        return Err(AppError::InvalidParams(
+            "mints is required (comma-separated symbols or addresses)".into(),
+        ));
     }
     Ok(())
 }
@@ -1701,7 +1836,8 @@ pub async fn build_raydium_get_token_info(
     http: &reqwest::Client,
     params: &RaydiumGetTokenInfoParams,
 ) -> Result<BuildResponse, AppError> {
-    let resolved: Vec<String> = params.mints
+    let resolved: Vec<String> = params
+        .mints
         .split(',')
         .map(|s| resolve_token_address(s.trim()))
         .collect();
@@ -1736,7 +1872,9 @@ pub async fn build_raydium_get_token_info(
 #[serde(rename_all = "camelCase")]
 pub struct RaydiumGetPlatformStatsParams {}
 
-pub fn validate_raydium_get_platform_stats_params(_p: &RaydiumGetPlatformStatsParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_platform_stats_params(
+    _p: &RaydiumGetPlatformStatsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -1773,7 +1911,9 @@ pub async fn build_raydium_get_platform_stats(
 #[serde(rename_all = "camelCase")]
 pub struct RaydiumGetClmmConfigsParams {}
 
-pub fn validate_raydium_get_clmm_configs_params(_p: &RaydiumGetClmmConfigsParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_clmm_configs_params(
+    _p: &RaydiumGetClmmConfigsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -1829,13 +1969,18 @@ pub fn validate_raydium_swap_quote_params(p: &RaydiumSwapQuoteParams) -> Result<
     if p.amount.is_empty() {
         return Err(AppError::InvalidParams("amount is required".into()));
     }
-    let amt: f64 = p.amount.parse().map_err(|_| AppError::InvalidParams("amount must be a number".into()))?;
+    let amt: f64 = p
+        .amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("amount must be a number".into()))?;
     if amt <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
     }
     if let Some(ref m) = p.swap_mode {
         if m != "in" && m != "out" {
-            return Err(AppError::InvalidParams("swapMode must be 'in' or 'out'".into()));
+            return Err(AppError::InvalidParams(
+                "swapMode must be 'in' or 'out'".into(),
+            ));
         }
     }
     Ok(())
@@ -1852,7 +1997,11 @@ pub async fn build_raydium_swap_quote(
     let in_decimals = token_decimals(&params.input_mint);
     let amount_base = to_base_units(&params.amount, in_decimals)?;
 
-    let endpoint = if mode == "out" { "swap-base-out" } else { "swap-base-in" };
+    let endpoint = if mode == "out" {
+        "swap-base-out"
+    } else {
+        "swap-base-in"
+    };
     let url = format!(
         "{RAYDIUM_HOST}/compute/{endpoint}?inputMint={input_mint}&outputMint={output_mint}&amount={amount_base}&slippageBps={slippage_bps}&txVersion=V0"
     );
@@ -1864,7 +2013,10 @@ pub async fn build_raydium_swap_quote(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "raydium_swap_quote".to_string(),
-            description: format!("Raydium swap quote: {} {} → {}", params.amount, sym_in, sym_out),
+            description: format!(
+                "Raydium swap quote: {} {} → {}",
+                params.amount, sym_in, sym_out
+            ),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
             params: data,
@@ -1890,9 +2042,13 @@ pub struct RaydiumGetPoolsByLpParams {
     pub lps: String,
 }
 
-pub fn validate_raydium_get_pools_by_lp_params(p: &RaydiumGetPoolsByLpParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_pools_by_lp_params(
+    p: &RaydiumGetPoolsByLpParams,
+) -> Result<(), AppError> {
     if p.lps.is_empty() {
-        return Err(AppError::InvalidParams("lps is required (comma-separated LP mint addresses)".into()));
+        return Err(AppError::InvalidParams(
+            "lps is required (comma-separated LP mint addresses)".into(),
+        ));
     }
     Ok(())
 }
@@ -1964,18 +2120,36 @@ pub fn validate_raydium_get_pools_v2_params(p: &RaydiumGetPoolsV2Params) -> Resu
     }
     if let Some(ref t) = p.pool_type {
         if t != "Concentrated" && t != "Standard" {
-            return Err(AppError::InvalidParams("poolType must be 'Concentrated' or 'Standard'".into()));
+            return Err(AppError::InvalidParams(
+                "poolType must be 'Concentrated' or 'Standard'".into(),
+            ));
         }
     }
     if let Some(ref s) = p.sort_field {
-        let valid = ["liquidity", "volume24h", "fee24h", "apr24h", "volume7d", "fee7d", "apr7d", "volume30d", "fee30d", "apr30d"];
+        let valid = [
+            "liquidity",
+            "volume24h",
+            "fee24h",
+            "apr24h",
+            "volume7d",
+            "fee7d",
+            "apr7d",
+            "volume30d",
+            "fee30d",
+            "apr30d",
+        ];
         if !valid.contains(&s.as_str()) {
-            return Err(AppError::InvalidParams(format!("sortField must be one of: {}", valid.join(", "))));
+            return Err(AppError::InvalidParams(format!(
+                "sortField must be one of: {}",
+                valid.join(", ")
+            )));
         }
     }
     if let Some(ref o) = p.sort_type {
         if o != "asc" && o != "desc" {
-            return Err(AppError::InvalidParams("sortType must be 'asc' or 'desc'".into()));
+            return Err(AppError::InvalidParams(
+                "sortType must be 'asc' or 'desc'".into(),
+            ));
         }
     }
     Ok(())
@@ -1986,12 +2160,24 @@ pub async fn build_raydium_get_pools_v2(
     params: &RaydiumGetPoolsV2Params,
 ) -> Result<BuildResponse, AppError> {
     let mut url = format!("{RAYDIUM_API}/pools/info/list-v2?size={}", params.size);
-    if let Some(ref t) = params.pool_type { url.push_str(&format!("&poolType={t}")); }
-    if let Some(ref m) = params.mint_filter { url.push_str(&format!("&mintFilter={m}")); }
-    if let Some(r) = params.has_reward { url.push_str(&format!("&hasReward={r}")); }
-    if let Some(ref s) = params.sort_field { url.push_str(&format!("&sortField={s}")); }
-    if let Some(ref o) = params.sort_type { url.push_str(&format!("&sortType={o}")); }
-    if let Some(ref n) = params.next_page_id { url.push_str(&format!("&nextPageId={n}")); }
+    if let Some(ref t) = params.pool_type {
+        url.push_str(&format!("&poolType={t}"));
+    }
+    if let Some(ref m) = params.mint_filter {
+        url.push_str(&format!("&mintFilter={m}"));
+    }
+    if let Some(r) = params.has_reward {
+        url.push_str(&format!("&hasReward={r}"));
+    }
+    if let Some(ref s) = params.sort_field {
+        url.push_str(&format!("&sortField={s}"));
+    }
+    if let Some(ref o) = params.sort_type {
+        url.push_str(&format!("&sortType={o}"));
+    }
+    if let Some(ref n) = params.next_page_id {
+        url.push_str(&format!("&nextPageId={n}"));
+    }
     if let Some(ref m1) = params.mint1 {
         url.push_str(&format!("&mint1={}", resolve_token_address(m1)));
     }
@@ -2034,7 +2220,9 @@ pub struct RaydiumGetPoolKeysParams {
 
 pub fn validate_raydium_get_pool_keys_params(p: &RaydiumGetPoolKeysParams) -> Result<(), AppError> {
     if p.ids.is_empty() {
-        return Err(AppError::InvalidParams("ids is required (comma-separated pool IDs)".into()));
+        return Err(AppError::InvalidParams(
+            "ids is required (comma-separated pool IDs)".into(),
+        ));
     }
     Ok(())
 }
@@ -2076,7 +2264,9 @@ pub struct RaydiumGetPoolLiquidityHistoryParams {
     pub id: String,
 }
 
-pub fn validate_raydium_get_pool_liquidity_history_params(p: &RaydiumGetPoolLiquidityHistoryParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_pool_liquidity_history_params(
+    p: &RaydiumGetPoolLiquidityHistoryParams,
+) -> Result<(), AppError> {
     if p.id.is_empty() {
         return Err(AppError::InvalidParams("id (pool ID) is required".into()));
     }
@@ -2120,7 +2310,9 @@ pub struct RaydiumGetPoolPositionHistoryParams {
     pub id: String,
 }
 
-pub fn validate_raydium_get_pool_position_history_params(p: &RaydiumGetPoolPositionHistoryParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_pool_position_history_params(
+    p: &RaydiumGetPoolPositionHistoryParams,
+) -> Result<(), AppError> {
     if p.id.is_empty() {
         return Err(AppError::InvalidParams("id (pool ID) is required".into()));
     }
@@ -2161,7 +2353,9 @@ pub async fn build_raydium_get_pool_position_history(
 #[serde(rename_all = "camelCase")]
 pub struct RaydiumGetTokenListParams {}
 
-pub fn validate_raydium_get_token_list_params(_p: &RaydiumGetTokenListParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_token_list_params(
+    _p: &RaydiumGetTokenListParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -2202,7 +2396,9 @@ pub struct RaydiumGetTokenPricesParams {
     pub mints: Option<String>,
 }
 
-pub fn validate_raydium_get_token_prices_params(_p: &RaydiumGetTokenPricesParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_token_prices_params(
+    _p: &RaydiumGetTokenPricesParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -2257,7 +2453,9 @@ pub struct RaydiumGetFarmInfoParams {
 
 pub fn validate_raydium_get_farm_info_params(p: &RaydiumGetFarmInfoParams) -> Result<(), AppError> {
     if p.ids.is_empty() {
-        return Err(AppError::InvalidParams("ids is required (comma-separated farm IDs)".into()));
+        return Err(AppError::InvalidParams(
+            "ids is required (comma-separated farm IDs)".into(),
+        ));
     }
     Ok(())
 }
@@ -2303,9 +2501,13 @@ pub struct RaydiumGetFarmByLpParams {
     pub page_size: Option<u32>,
 }
 
-pub fn validate_raydium_get_farm_by_lp_params(p: &RaydiumGetFarmByLpParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_farm_by_lp_params(
+    p: &RaydiumGetFarmByLpParams,
+) -> Result<(), AppError> {
     if p.lp.is_empty() {
-        return Err(AppError::InvalidParams("lp (LP mint address) is required".into()));
+        return Err(AppError::InvalidParams(
+            "lp (LP mint address) is required".into(),
+        ));
     }
     Ok(())
 }
@@ -2316,7 +2518,10 @@ pub async fn build_raydium_get_farm_by_lp(
 ) -> Result<BuildResponse, AppError> {
     let page = params.page.unwrap_or(1);
     let page_size = params.page_size.unwrap_or(20).min(100);
-    let url = format!("{RAYDIUM_API}/farms/info/lp?lp={}&pageSize={page_size}&page={page}", params.lp);
+    let url = format!(
+        "{RAYDIUM_API}/farms/info/lp?lp={}&pageSize={page_size}&page={page}",
+        params.lp
+    );
     let data = raydium_get(http, &url).await?;
 
     Ok(BuildResponse {
@@ -2351,7 +2556,9 @@ pub struct RaydiumGetFarmKeysParams {
 
 pub fn validate_raydium_get_farm_keys_params(p: &RaydiumGetFarmKeysParams) -> Result<(), AppError> {
     if p.ids.is_empty() {
-        return Err(AppError::InvalidParams("ids is required (comma-separated farm IDs)".into()));
+        return Err(AppError::InvalidParams(
+            "ids is required (comma-separated farm IDs)".into(),
+        ));
     }
     Ok(())
 }
@@ -2395,7 +2602,9 @@ pub struct RaydiumGetIdoKeysParams {
 
 pub fn validate_raydium_get_ido_keys_params(p: &RaydiumGetIdoKeysParams) -> Result<(), AppError> {
     if p.ids.is_empty() {
-        return Err(AppError::InvalidParams("ids is required (comma-separated IDO pool IDs)".into()));
+        return Err(AppError::InvalidParams(
+            "ids is required (comma-separated IDO pool IDs)".into(),
+        ));
     }
     Ok(())
 }
@@ -2434,7 +2643,9 @@ pub async fn build_raydium_get_ido_keys(
 #[serde(rename_all = "camelCase")]
 pub struct RaydiumGetMainVersionParams {}
 
-pub fn validate_raydium_get_main_version_params(_p: &RaydiumGetMainVersionParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_main_version_params(
+    _p: &RaydiumGetMainVersionParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -2508,7 +2719,9 @@ pub async fn build_raydium_get_rpcs(
 #[serde(rename_all = "camelCase")]
 pub struct RaydiumGetChainTimeParams {}
 
-pub fn validate_raydium_get_chain_time_params(_p: &RaydiumGetChainTimeParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_chain_time_params(
+    _p: &RaydiumGetChainTimeParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -2545,7 +2758,9 @@ pub async fn build_raydium_get_chain_time(
 #[serde(rename_all = "camelCase")]
 pub struct RaydiumGetStakePoolsParams {}
 
-pub fn validate_raydium_get_stake_pools_params(_p: &RaydiumGetStakePoolsParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_stake_pools_params(
+    _p: &RaydiumGetStakePoolsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -2582,7 +2797,9 @@ pub async fn build_raydium_get_stake_pools(
 #[serde(rename_all = "camelCase")]
 pub struct RaydiumGetMigrateLpParams {}
 
-pub fn validate_raydium_get_migrate_lp_params(_p: &RaydiumGetMigrateLpParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_migrate_lp_params(
+    _p: &RaydiumGetMigrateLpParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -2656,7 +2873,9 @@ pub async fn build_raydium_get_auto_fee(
 #[serde(rename_all = "camelCase")]
 pub struct RaydiumGetCpmmConfigsParams {}
 
-pub fn validate_raydium_get_cpmm_configs_params(_p: &RaydiumGetCpmmConfigsParams) -> Result<(), AppError> {
+pub fn validate_raydium_get_cpmm_configs_params(
+    _p: &RaydiumGetCpmmConfigsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 

@@ -87,8 +87,7 @@ fn grind_loop() {
 }
 
 /// Base58 alphabet (Bitcoin/Solana ordering).
-const B58_ALPHABET: &[u8; 58] =
-    b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const B58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 /// Generate random keypairs until one's pubkey ends in the vanity suffix.
 fn grind_one() -> Keypair {

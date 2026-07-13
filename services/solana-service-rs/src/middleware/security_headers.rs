@@ -17,7 +17,9 @@ where
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ok(SecurityHeadersMiddleware { service: Rc::new(service) })
+        ok(SecurityHeadersMiddleware {
+            service: Rc::new(service),
+        })
     }
 }
 
@@ -55,7 +57,9 @@ where
             );
             headers.insert(
                 actix_web::http::header::HeaderName::from_static("referrer-policy"),
-                actix_web::http::header::HeaderValue::from_static("strict-origin-when-cross-origin"),
+                actix_web::http::header::HeaderValue::from_static(
+                    "strict-origin-when-cross-origin",
+                ),
             );
             Ok(res)
         })

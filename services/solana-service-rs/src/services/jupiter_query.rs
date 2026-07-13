@@ -89,7 +89,9 @@ pub fn validate_jup_price_params(p: &JupPriceParams) -> Result<(), AppError> {
     }
     let count = p.tokens.split(',').filter(|t| !t.trim().is_empty()).count();
     if count > 50 {
-        return Err(AppError::InvalidParams("maximum 50 tokens per request".into()));
+        return Err(AppError::InvalidParams(
+            "maximum 50 tokens per request".into(),
+        ));
     }
     Ok(())
 }
@@ -122,24 +124,21 @@ pub async fn build_jup_price(
 
     // Jupiter Price v3 returns `{ data: { "<mint>": { usdPrice, ... } } }` or
     // directly `{ "<mint>": { usdPrice, ... } }` depending on version.
-    let price_map = raw
-        .get("data")
-        .unwrap_or(&raw);
+    let price_map = raw.get("data").unwrap_or(&raw);
 
     // Build human-readable summary
     let summaries: Vec<String> = token_entries
         .iter()
         .map(|(sym, mint)| {
-            let entry = price_map.get(mint.as_str())
-                .or_else(|| price_map.get(*sym));
+            let entry = price_map.get(mint.as_str()).or_else(|| price_map.get(*sym));
             match entry {
                 Some(obj) => {
-                    let price = obj.get("usdPrice")
+                    let price = obj
+                        .get("usdPrice")
                         .or_else(|| obj.get("price"))
                         .and_then(|v| v.as_f64())
                         .unwrap_or(0.0);
-                    let change = obj.get("priceChange24h")
-                        .and_then(|v| v.as_f64());
+                    let change = obj.get("priceChange24h").and_then(|v| v.as_f64());
                     match change {
                         Some(c) => format!("{sym}=${price:.4} ({c:+.2}% 24h)"),
                         None => format!("{sym}=${price:.4}"),
@@ -191,7 +190,9 @@ pub fn validate_jup_token_search_params(p: &JupTokenSearchParams) -> Result<(), 
     }
     if let Some(l) = p.limit {
         if l == 0 || l > 50 {
-            return Err(AppError::InvalidParams("limit must be between 1 and 50".into()));
+            return Err(AppError::InvalidParams(
+                "limit must be between 1 and 50".into(),
+            ));
         }
     }
     Ok(())
@@ -260,7 +261,9 @@ pub fn validate_jup_tokens_tag_params(p: &JupTokensTagParams) -> Result<(), AppE
     }
     if let Some(l) = p.limit {
         if l == 0 || l > 100 {
-            return Err(AppError::InvalidParams("limit must be between 1 and 100".into()));
+            return Err(AppError::InvalidParams(
+                "limit must be between 1 and 100".into(),
+            ));
         }
     }
     Ok(())
@@ -318,7 +321,9 @@ pub struct JupTokensRecentParams {
 pub fn validate_jup_tokens_recent_params(p: &JupTokensRecentParams) -> Result<(), AppError> {
     if let Some(l) = p.limit {
         if l == 0 || l > 50 {
-            return Err(AppError::InvalidParams("limit must be between 1 and 50".into()));
+            return Err(AppError::InvalidParams(
+                "limit must be between 1 and 50".into(),
+            ));
         }
     }
     Ok(())
@@ -408,7 +413,9 @@ pub fn validate_jup_tokens_trending_params(p: &JupTokensTrendingParams) -> Resul
     }
     if let Some(l) = p.limit {
         if l == 0 || l > 50 {
-            return Err(AppError::InvalidParams("limit must be between 1 and 50".into()));
+            return Err(AppError::InvalidParams(
+                "limit must be between 1 and 50".into(),
+            ));
         }
     }
     Ok(())
@@ -644,58 +651,97 @@ pub async fn build_jup_lend_positions(
         }
     };
     let as_arr = |v: &serde_json::Value| -> Vec<serde_json::Value> {
-        v.as_array().cloned()
+        v.as_array()
+            .cloned()
             .or_else(|| v.get("positions").and_then(|p| p.as_array()).cloned())
             .unwrap_or_default()
     };
     let round2 = |x: f64| -> f64 { (x * 100.0).round() / 100.0 };
 
-    let earn_summary: Vec<serde_json::Value> = as_arr(&earn).iter().filter_map(|e| {
-        let underlying = num(e.get("underlyingAssets"));
-        if underlying <= 0.0 && num(e.get("shares")) <= 0.0 { return None; }
-        let token = e.get("token");
-        let asset = token.and_then(|t| t.get("asset"));
-        let symbol = asset.and_then(|a| a.get("symbol")).and_then(|s| s.as_str())
-            .or_else(|| token.and_then(|t| t.get("symbol")).and_then(|s| s.as_str()))
-            .unwrap_or("?");
-        let decimals = asset.and_then(|a| a.get("decimals")).and_then(|d| d.as_u64())
-            .or_else(|| token.and_then(|t| t.get("decimals")).and_then(|d| d.as_u64()))
-            .unwrap_or(6) as i32;
-        Some(serde_json::json!({
-            "asset": symbol,
-            "depositedAmount": underlying / 10f64.powi(decimals),
-        }))
-    }).collect();
+    let earn_summary: Vec<serde_json::Value> = as_arr(&earn)
+        .iter()
+        .filter_map(|e| {
+            let underlying = num(e.get("underlyingAssets"));
+            if underlying <= 0.0 && num(e.get("shares")) <= 0.0 {
+                return None;
+            }
+            let token = e.get("token");
+            let asset = token.and_then(|t| t.get("asset"));
+            let symbol = asset
+                .and_then(|a| a.get("symbol"))
+                .and_then(|s| s.as_str())
+                .or_else(|| token.and_then(|t| t.get("symbol")).and_then(|s| s.as_str()))
+                .unwrap_or("?");
+            let decimals = asset
+                .and_then(|a| a.get("decimals"))
+                .and_then(|d| d.as_u64())
+                .or_else(|| {
+                    token
+                        .and_then(|t| t.get("decimals"))
+                        .and_then(|d| d.as_u64())
+                })
+                .unwrap_or(6) as i32;
+            Some(serde_json::json!({
+                "asset": symbol,
+                "depositedAmount": underlying / 10f64.powi(decimals),
+            }))
+        })
+        .collect();
 
-    let borrow_summary: Vec<serde_json::Value> = as_arr(&borrow).iter().filter_map(|b| {
-        let vault = b.get("vault");
-        let st = vault.and_then(|v| v.get("supplyToken"));
-        let bt = vault.and_then(|v| v.get("borrowToken"));
-        let col_dec = st.and_then(|t| t.get("decimals")).and_then(|d| d.as_u64()).unwrap_or(9) as i32;
-        let debt_dec = bt.and_then(|t| t.get("decimals")).and_then(|d| d.as_u64()).unwrap_or(6) as i32;
-        let col_amt = num(b.get("supply")) / 10f64.powi(col_dec);
-        let debt_amt = num(b.get("borrow")) / 10f64.powi(debt_dec);
-        if debt_amt <= 0.0 && col_amt <= 0.0 { return None; }
-        let col_sym = st.and_then(|t| t.get("uiSymbol").or_else(|| t.get("symbol"))).and_then(|s| s.as_str()).unwrap_or("?");
-        let debt_sym = bt.and_then(|t| t.get("uiSymbol").or_else(|| t.get("symbol"))).and_then(|s| s.as_str()).unwrap_or("?");
-        let col_usd = col_amt * num(st.and_then(|t| t.get("price")));
-        let debt_usd = debt_amt * num(bt.and_then(|t| t.get("price")));
-        let ltv = if col_usd > 0.0 { debt_usd / col_usd } else { 0.0 };
-        let liq_thresh = num(vault.and_then(|v| v.get("liquidationThreshold"))) / 1000.0; // 850 → 0.85
-        let health = if ltv > 0.0 { liq_thresh / ltv } else { 999.0 };
-        let liq_price = if col_amt > 0.0 && liq_thresh > 0.0 { debt_usd / (col_amt * liq_thresh) } else { 0.0 };
-        Some(serde_json::json!({
-            "collateral": col_sym,
-            "collateralAmount": col_amt,
-            "debt": debt_sym,
-            "debtAmount": debt_amt,
-            "ltvPct": round2(ltv * 100.0),
-            "liquidationThresholdPct": round2(liq_thresh * 100.0),
-            "healthFactor": round2(health),
-            "liquidationPriceUsd": round2(liq_price),
-            "isLiquidated": b.get("isLiquidated").and_then(|x| x.as_bool()).unwrap_or(false),
-        }))
-    }).collect();
+    let borrow_summary: Vec<serde_json::Value> = as_arr(&borrow)
+        .iter()
+        .filter_map(|b| {
+            let vault = b.get("vault");
+            let st = vault.and_then(|v| v.get("supplyToken"));
+            let bt = vault.and_then(|v| v.get("borrowToken"));
+            let col_dec = st
+                .and_then(|t| t.get("decimals"))
+                .and_then(|d| d.as_u64())
+                .unwrap_or(9) as i32;
+            let debt_dec = bt
+                .and_then(|t| t.get("decimals"))
+                .and_then(|d| d.as_u64())
+                .unwrap_or(6) as i32;
+            let col_amt = num(b.get("supply")) / 10f64.powi(col_dec);
+            let debt_amt = num(b.get("borrow")) / 10f64.powi(debt_dec);
+            if debt_amt <= 0.0 && col_amt <= 0.0 {
+                return None;
+            }
+            let col_sym = st
+                .and_then(|t| t.get("uiSymbol").or_else(|| t.get("symbol")))
+                .and_then(|s| s.as_str())
+                .unwrap_or("?");
+            let debt_sym = bt
+                .and_then(|t| t.get("uiSymbol").or_else(|| t.get("symbol")))
+                .and_then(|s| s.as_str())
+                .unwrap_or("?");
+            let col_usd = col_amt * num(st.and_then(|t| t.get("price")));
+            let debt_usd = debt_amt * num(bt.and_then(|t| t.get("price")));
+            let ltv = if col_usd > 0.0 {
+                debt_usd / col_usd
+            } else {
+                0.0
+            };
+            let liq_thresh = num(vault.and_then(|v| v.get("liquidationThreshold"))) / 1000.0; // 850 → 0.85
+            let health = if ltv > 0.0 { liq_thresh / ltv } else { 999.0 };
+            let liq_price = if col_amt > 0.0 && liq_thresh > 0.0 {
+                debt_usd / (col_amt * liq_thresh)
+            } else {
+                0.0
+            };
+            Some(serde_json::json!({
+                "collateral": col_sym,
+                "collateralAmount": col_amt,
+                "debt": debt_sym,
+                "debtAmount": debt_amt,
+                "ltvPct": round2(ltv * 100.0),
+                "liquidationThresholdPct": round2(liq_thresh * 100.0),
+                "healthFactor": round2(health),
+                "liquidationPriceUsd": round2(liq_price),
+                "isLiquidated": b.get("isLiquidated").and_then(|x| x.as_bool()).unwrap_or(false),
+            }))
+        })
+        .collect();
 
     let earn_count = earn_summary.len();
     let borrow_count = borrow_summary.len();
@@ -804,7 +850,7 @@ pub async fn build_jup_lend_earnings(
                 execution_steps: None,
                 quote: None,
                 is_cross_chain: false,
-        data: None,
+                data: None,
             });
         }
         mints.join(",")
@@ -829,9 +875,7 @@ pub async fn build_jup_lend_earnings(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "jup_lend_earnings".into(),
-            description: format!(
-                "Jupiter Lend earnings for {wallet_short}: {count} position(s)"
-            ),
+            description: format!("Jupiter Lend earnings for {wallet_short}: {count} position(s)"),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data,
@@ -892,7 +936,10 @@ pub async fn build_jup_pending_invites(
                 .map(|a| a.len())
         })
         .unwrap_or(0);
-    let has_more = data.get("hasMoreData").and_then(|v| v.as_bool()).unwrap_or(false);
+    let has_more = data
+        .get("hasMoreData")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let wallet_short = if target.len() > 8 {
         format!("{}...{}", &target[..4], &target[target.len() - 4..])
@@ -904,19 +951,22 @@ pub async fn build_jup_pending_invites(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "jup_pending_invites".into(),
-            description: format!(
-                "{count} pending Jupiter Send invite(s) for {wallet_short}"
-            ),
+            description: format!("{count} pending Jupiter Send invite(s) for {wallet_short}"),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data,
             warnings: {
                 let mut w = vec![];
                 if count > 0 {
-                    w.push("Unclaimed tokens can be reclaimed via the Jupiter Send clawback.".into());
+                    w.push(
+                        "Unclaimed tokens can be reclaimed via the Jupiter Send clawback.".into(),
+                    );
                 }
                 if has_more {
-                    w.push(format!("More results available — use page: {} to see the next page.", page + 1));
+                    w.push(format!(
+                        "More results available — use page: {} to see the next page.",
+                        page + 1
+                    ));
                 }
                 w
             },
@@ -987,8 +1037,9 @@ fn urlencoding_simple(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for byte in s.bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
-            | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
             b' ' => out.push('+'),
             _ => {
                 out.push('%');

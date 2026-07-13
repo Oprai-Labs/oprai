@@ -6,9 +6,7 @@ pub mod pb {
 }
 
 use pb::health_service_server::HealthService;
-use pb::{
-    HealthCheckRequest, HealthCheckResponse, ServiceStatus, ServingStatus,
-};
+use pb::{HealthCheckRequest, HealthCheckResponse, ServiceStatus, ServingStatus};
 
 use super::GrpcState;
 
@@ -47,10 +45,7 @@ impl HealthService for HealthServiceImpl {
             status => ServiceStatus {
                 name: "postgres".into(),
                 status: ServingStatus::Serving.into(),
-                message: format!(
-                    "pool size={}, available={}",
-                    status.size, status.available
-                ),
+                message: format!("pool size={}, available={}", status.size, status.available),
                 latency_ms: 0.0,
             },
         };

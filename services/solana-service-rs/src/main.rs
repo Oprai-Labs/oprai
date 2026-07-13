@@ -2,7 +2,13 @@
 // solana-system-interface, but that crate's Address type is not yet ABI-compatible with
 // AccountMeta's Pubkey expectation across all sub-crate version combinations.
 // Suppressed until the solana ecosystem fully stabilises the split-crate types.
-#![allow(deprecated, dead_code, unused_variables, unused_macros, non_upper_case_globals)]
+#![allow(
+    deprecated,
+    dead_code,
+    unused_variables,
+    unused_macros,
+    non_upper_case_globals
+)]
 
 mod config;
 mod db;
@@ -45,9 +51,7 @@ async fn main() -> anyhow::Result<()> {
             .with(tracing_subscriber::fmt::layer().json())
             .init();
     } else {
-        registry
-            .with(tracing_subscriber::fmt::layer())
-            .init();
+        registry.with(tracing_subscriber::fmt::layer()).init();
     }
 
     // ── Config ───────────────────────────────────────────────────────────
@@ -65,12 +69,17 @@ async fn main() -> anyhow::Result<()> {
     let pool = create_pool(&cfg.database_url);
     tracing::info!("Database connection pool created");
 
-    db::run_migrations(&pool).await
+    db::run_migrations(&pool)
+        .await
         .expect("Failed to run solana_schema migrations");
 
     // ── Solana RPC ───────────────────────────────────────────────────────
     let rpc = if !cfg.solana_rpc_fallback.is_empty() && cfg.solana_rpc_fallback != cfg.solana_rpc {
-        let fallbacks: Vec<String> = cfg.solana_rpc_fallback.split(',').map(|s| s.trim().to_string()).collect();
+        let fallbacks: Vec<String> = cfg
+            .solana_rpc_fallback
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
         let rpc = SolanaRpc::new_multi(&cfg.solana_rpc, fallbacks);
         tracing::info!(
             primary = %cfg.solana_rpc,
@@ -158,13 +167,11 @@ async fn main() -> anyhow::Result<()> {
         let auth = InternalAuth::new(internal_key.clone());
 
         // Return JSON errors when the JSON extractor fails (instead of actix's plain-text default).
-        let json_cfg = web::JsonConfig::default()
-            .error_handler(|err, _req| {
-                let msg = err.to_string();
-                let response = HttpResponse::BadRequest()
-                    .json(serde_json::json!({ "error": msg }));
-                actix_web::error::InternalError::from_response(err, response).into()
-            });
+        let json_cfg = web::JsonConfig::default().error_handler(|err, _req| {
+            let msg = err.to_string();
+            let response = HttpResponse::BadRequest().json(serde_json::json!({ "error": msg }));
+            actix_web::error::InternalError::from_response(err, response).into()
+        });
 
         App::new()
             .wrap(Governor::new(&governor_conf))

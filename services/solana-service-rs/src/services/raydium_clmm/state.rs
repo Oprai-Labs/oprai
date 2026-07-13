@@ -93,9 +93,7 @@ impl PoolStateView {
                 MIN_ACCOUNT_LEN
             )));
         }
-        let disc: [u8; 8] = data[..DISCRIMINATOR_LEN]
-            .try_into()
-            .expect("slice len 8");
+        let disc: [u8; 8] = data[..DISCRIMINATOR_LEN].try_into().expect("slice len 8");
         if disc != POOL_STATE_DISCRIMINATOR {
             return Err(AppError::ProtocolError(format!(
                 "Not a Raydium PoolState account (discriminator mismatch: {:?})",

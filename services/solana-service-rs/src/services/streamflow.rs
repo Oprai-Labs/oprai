@@ -9,10 +9,10 @@
 //! Supported actions: create, cancel, withdraw, transfer, topup, update,
 //!                    create_multiple, get_one, list
 
-use serde::{Deserialize, Serialize};
-use reqwest::Client;
-use uuid::Uuid;
 use crate::error::AppError;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input param types (deserialized from gateway request)
@@ -300,9 +300,7 @@ pub fn unavailable_preview(action_type: &str) -> StreamflowBuildResult {
             ),
             estimated_fee: "0".into(),
             params: serde_json::Value::Null,
-            warnings: vec![
-                "Set STREAMFLOW_SDK_URL env var if running on non-default port.".into(),
-            ],
+            warnings: vec!["Set STREAMFLOW_SDK_URL env var if running on non-default port.".into()],
             requires_approval: false,
         },
         additional_signers_required: Some(0),

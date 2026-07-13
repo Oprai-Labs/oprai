@@ -1,3 +1,5 @@
+use crate::error::AppError;
+use reqwest::Client;
 /**
  * deBridge DLN Cross-Chain Service
  *
@@ -8,27 +10,25 @@
  * Solana chain ID in deBridge: 7565164
  */
 use serde::{Deserialize, Serialize};
-use reqwest::Client;
 use uuid::Uuid;
-use crate::error::AppError;
 
 // deBridge DLN API (v1.0)
 const DLN_API: &str = "https://api.dln.trade/v1.0";
 
 pub mod chain_id {
-    pub const SOLANA: u64      = 7565164;
-    pub const ETHEREUM: u64    = 1;
-    pub const BSC: u64         = 56;
-    pub const POLYGON: u64     = 137;
-    pub const AVALANCHE: u64   = 43114;
-    pub const ARBITRUM: u64    = 42161;
-    pub const OPTIMISM: u64    = 10;
-    pub const BASE: u64        = 8453;
+    pub const SOLANA: u64 = 7565164;
+    pub const ETHEREUM: u64 = 1;
+    pub const BSC: u64 = 56;
+    pub const POLYGON: u64 = 137;
+    pub const AVALANCHE: u64 = 43114;
+    pub const ARBITRUM: u64 = 42161;
+    pub const OPTIMISM: u64 = 10;
+    pub const BASE: u64 = 8453;
 }
 
 /// Native / zero-address token representation used by deBridge on each chain.
 const DEBRIDGE_SOLANA_NATIVE: &str = "0x0000000000000000000000000000000000000000";
-const DEBRIDGE_EVM_NATIVE:    &str = "0x0000000000000000000000000000000000000000";
+const DEBRIDGE_EVM_NATIVE: &str = "0x0000000000000000000000000000000000000000";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -152,7 +152,7 @@ pub fn validate_debridge_params(p: &DebridgeParams) -> Result<(), AppError> {
         return Err(AppError::InvalidParams("Amount must be positive".into()));
     }
     let origin = normalize_chain_id(p.origin_chain_id);
-    let dest   = normalize_chain_id(p.destination_chain_id);
+    let dest = normalize_chain_id(p.destination_chain_id);
     if origin == dest {
         return Err(AppError::InvalidParams(
             "Source and destination chains must differ".into(),
@@ -163,15 +163,15 @@ pub fn validate_debridge_params(p: &DebridgeParams) -> Result<(), AppError> {
 
 pub fn chain_name(id: u64) -> &'static str {
     match id {
-        chain_id::SOLANA    => "Solana",
-        chain_id::ETHEREUM  => "Ethereum",
-        chain_id::BSC       => "BNB Chain",
-        chain_id::POLYGON   => "Polygon",
+        chain_id::SOLANA => "Solana",
+        chain_id::ETHEREUM => "Ethereum",
+        chain_id::BSC => "BNB Chain",
+        chain_id::POLYGON => "Polygon",
         chain_id::AVALANCHE => "Avalanche",
-        chain_id::ARBITRUM  => "Arbitrum",
-        chain_id::OPTIMISM  => "Optimism",
-        chain_id::BASE      => "Base",
-        _                   => "Unknown",
+        chain_id::ARBITRUM => "Arbitrum",
+        chain_id::OPTIMISM => "Optimism",
+        chain_id::BASE => "Base",
+        _ => "Unknown",
     }
 }
 
@@ -179,10 +179,10 @@ pub fn chain_name(id: u64) -> &'static str {
 fn resolve_token(symbol_or_addr: &str, chain_id: u64) -> String {
     if chain_id == chain_id::SOLANA {
         match symbol_or_addr.to_uppercase().as_str() {
-            "SOL"  => DEBRIDGE_SOLANA_NATIVE.to_string(),
+            "SOL" => DEBRIDGE_SOLANA_NATIVE.to_string(),
             "USDC" => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
             "USDT" => "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(),
-            other  => other.to_string(),
+            other => other.to_string(),
         }
     } else {
         // EVM chains – pass through; native represented as zero address
@@ -205,9 +205,11 @@ pub async fn build_debridge_swap(
     validate_debridge_params(params)?;
 
     let origin_id = normalize_chain_id(params.origin_chain_id);
-    let dest_id   = normalize_chain_id(params.destination_chain_id);
+    let dest_id = normalize_chain_id(params.destination_chain_id);
 
-    let amount_f: f64 = params.amount.parse()
+    let amount_f: f64 = params
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams(format!("Invalid amount: {}", params.amount)))?;
     let decimals: u32 = if origin_id == chain_id::SOLANA { 9 } else { 18 };
     let amount_raw = ((amount_f * 10_f64.powi(decimals as i32)) as u64).to_string();
@@ -225,10 +227,14 @@ pub async fn build_debridge_swap(
          &senderAddress={}&srcChainOrderAuthorityAddress={}\
          &dstChainOrderAuthorityAddress={}\
          &prependOperatingExpenses=true",
-        origin_id, src_token, amount_raw,
-        dest_id, dst_token,
+        origin_id,
+        src_token,
+        amount_raw,
+        dest_id,
+        dst_token,
         recipient,
-        user_address, user_address,
+        user_address,
+        user_address,
         recipient,
     );
 
@@ -259,8 +265,8 @@ pub async fn build_debridge_swap(
         (tx_data_str, None)
     } else {
         let evm = tx.map(|t| EvmTxData {
-            to:    t.to.clone().unwrap_or_default(),
-            data:  t.data.clone().unwrap_or_default(),
+            to: t.to.clone().unwrap_or_default(),
+            data: t.data.clone().unwrap_or_default(),
             value: t.value.clone().unwrap_or_else(|| "0".to_string()),
         });
         (None, evm)
@@ -300,10 +306,10 @@ pub async fn build_debridge_swap(
             params.amount, &params.origin_currency, src_name, dst_name
         ),
         estimated_fee: quote.bridge_fee.clone(),
-        params: serde_json::to_value(params)
-            .unwrap_or(serde_json::Value::Null),
+        params: serde_json::to_value(params).unwrap_or(serde_json::Value::Null),
         warnings: vec![
-            "DLN uses an intent-based model – a maker fills your order on the destination chain.".to_string(),
+            "DLN uses an intent-based model – a maker fills your order on the destination chain."
+                .to_string(),
         ],
         requires_approval: true,
     };

@@ -1,10 +1,14 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
+use uuid::Uuid;
 
 use crate::error::AppError;
-use crate::services::{burn, dca, debridge, helius, jupiter_lend, jupiter_perp, jupiter_query, jito, jupsol, kamino, limit_order, magic_eden, marginfi, marinade, meteora, native_stake, orca, protocol_reads, pumpfun, raydium, relay, sns, solend, squid, streamflow, swap, tensor, transfer};
+use crate::services::{
+    burn, dca, debridge, helius, jito, jupiter_lend, jupiter_perp, jupiter_query, jupsol, kamino,
+    limit_order, magic_eden, marginfi, marinade, meteora, native_stake, orca, protocol_reads,
+    pumpfun, raydium, relay, sns, solend, squid, streamflow, swap, tensor, transfer,
+};
 use crate::solana::connection::SolanaRpc;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -83,8 +87,8 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             swap::validate_swap_params(&p)
         }
         "launch_token" | "pumpfun_launch" => {
-            let p: pumpfun::LaunchTokenParams = serde_json::from_value(params.clone())
-                .map_err(|e| {
+            let p: pumpfun::LaunchTokenParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
                     AppError::InvalidParams(format!("Invalid launch_token params: {e}"))
                 })?;
             pumpfun::validate_launch_params(&p)
@@ -106,8 +110,8 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         }
         "cross_chain_swap" | "bridge" => {
             // bridge is an alias for cross_chain_swap
-            let p: relay::CrossChainSwapParams = serde_json::from_value(params.clone())
-                .map_err(|e| {
+            let p: relay::CrossChainSwapParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
                     AppError::InvalidParams(format!("Invalid cross_chain_swap params: {e}"))
                 })?;
             relay::validate_cross_chain_params(&p)
@@ -123,8 +127,10 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             squid::validate_squid_params(&p)
         }
         "cross_chain_quote" => {
-            let _p: squid::SquidQuoteParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid cross_chain_quote params: {e}")))?;
+            let _p: squid::SquidQuoteParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid cross_chain_quote params: {e}"))
+                })?;
             Ok(())
         }
         "cross_chain_chains" => Ok(()),
@@ -136,8 +142,10 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             sns::validate_domain_name(params.get("domain").and_then(|v| v.as_str()).unwrap_or(""))
         }
         "sns_reverse_lookup" => {
-            let _p: sns::SnsReverseParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_reverse_lookup params: {e}")))?;
+            let _p: sns::SnsReverseParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_reverse_lookup params: {e}"))
+                })?;
             Ok(())
         }
         "sns_domains" => {
@@ -151,35 +159,51 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             Ok(())
         }
         "sns_domain_info" => {
-            let _p: sns::SnsDomainInfoParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_domain_info params: {e}")))?;
+            let _p: sns::SnsDomainInfoParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_domain_info params: {e}"))
+                })?;
             sns::validate_domain_name(params.get("domain").and_then(|v| v.as_str()).unwrap_or(""))
         }
         "sns_check_available" => {
-            let _p: sns::SnsCheckAvailableParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_check_available params: {e}")))?;
+            let _p: sns::SnsCheckAvailableParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_check_available params: {e}"))
+                })?;
             sns::validate_domain_name(params.get("domain").and_then(|v| v.as_str()).unwrap_or(""))
         }
         "sns_primary_domain" => {
-            let _p: sns::SnsPrimaryDomainParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_primary_domain params: {e}")))?;
+            let _p: sns::SnsPrimaryDomainParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_primary_domain params: {e}"))
+                })?;
             Ok(())
         }
         "sns_register" => {
-            let p: sns::SnsRegisterParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_register params: {e}")))?;
+            let p: sns::SnsRegisterParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_register params: {e}"))
+                })?;
             sns::validate_domain_name(&p.domain)
         }
         "sns_transfer" => {
-            let p: sns::SnsTransferParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_transfer params: {e}")))?;
+            let p: sns::SnsTransferParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_transfer params: {e}"))
+                })?;
             sns::validate_domain_name(&p.domain)
         }
         "sns_set_record" => {
-            let p: sns::SnsSetRecordParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_set_record params: {e}")))?;
-            if p.record.is_empty() { return Err(AppError::InvalidParams("record type is required".into())); }
-            if p.value.is_empty()  { return Err(AppError::InvalidParams("record value is required".into())); }
+            let p: sns::SnsSetRecordParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_set_record params: {e}"))
+                })?;
+            if p.record.is_empty() {
+                return Err(AppError::InvalidParams("record type is required".into()));
+            }
+            if p.value.is_empty() {
+                return Err(AppError::InvalidParams("record value is required".into()));
+            }
             sns::validate_domain_name(&p.domain)
         }
         "sns_delete" => {
@@ -189,13 +213,17 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         }
         "sns_create_subdomain" => {
             let _p: sns::SnsCreateSubdomainParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_create_subdomain params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_create_subdomain params: {e}"))
+                })?;
             Ok(())
         }
         "sns_list" => {
             let p: sns::SnsListParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid sns_list params: {e}")))?;
-            if p.price <= 0.0 { return Err(AppError::InvalidParams("price must be positive".into())); }
+            if p.price <= 0.0 {
+                return Err(AppError::InvalidParams("price must be positive".into()));
+            }
             sns::validate_domain_name(&p.domain)
         }
         "sns_buy" => {
@@ -204,75 +232,123 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             sns::validate_domain_name(&p.domain)
         }
         "sns_make_offer" => {
-            let p: sns::SnsMakeOfferParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_make_offer params: {e}")))?;
-            if p.amount <= 0.0 { return Err(AppError::InvalidParams("amount must be positive".into())); }
+            let p: sns::SnsMakeOfferParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_make_offer params: {e}"))
+                })?;
+            if p.amount <= 0.0 {
+                return Err(AppError::InvalidParams("amount must be positive".into()));
+            }
             sns::validate_domain_name(&p.domain)
         }
         "sns_accept_offer" => {
-            let p: sns::SnsAcceptOfferParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_accept_offer params: {e}")))?;
-            if p.offer_key.is_empty() { return Err(AppError::InvalidParams("offer_key is required".into())); }
+            let p: sns::SnsAcceptOfferParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_accept_offer params: {e}"))
+                })?;
+            if p.offer_key.is_empty() {
+                return Err(AppError::InvalidParams("offer_key is required".into()));
+            }
             sns::validate_domain_name(&p.domain)
         }
         "sns_cancel_offer" => {
-            let p: sns::SnsCancelOfferParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_cancel_offer params: {e}")))?;
-            if p.offer_key.is_empty() { return Err(AppError::InvalidParams("offer_key is required".into())); }
+            let p: sns::SnsCancelOfferParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_cancel_offer params: {e}"))
+                })?;
+            if p.offer_key.is_empty() {
+                return Err(AppError::InvalidParams("offer_key is required".into()));
+            }
             sns::validate_domain_name(&p.domain)
         }
         "sns_p2p_create" => {
-            let p: sns::SnsP2pCreateParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_p2p_create params: {e}")))?;
-            if p.base_domains.is_empty() { return Err(AppError::InvalidParams("base_domains is required".into())); }
-            if p.counter_party.is_empty() { return Err(AppError::InvalidParams("counter_party is required".into())); }
+            let p: sns::SnsP2pCreateParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_p2p_create params: {e}"))
+                })?;
+            if p.base_domains.is_empty() {
+                return Err(AppError::InvalidParams("base_domains is required".into()));
+            }
+            if p.counter_party.is_empty() {
+                return Err(AppError::InvalidParams("counter_party is required".into()));
+            }
             Ok(())
         }
         "sns_p2p_accept" | "sns_p2p_cancel" => Ok(()),
         "sns_set_favorite" => {
-            let p: sns::SnsSetFavoriteParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_set_favorite params: {e}")))?;
+            let p: sns::SnsSetFavoriteParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_set_favorite params: {e}"))
+                })?;
             sns::validate_domain_name(&p.domain)
         }
         "sns_subdomains" => {
-            let p: sns::SnsSubdomainsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_subdomains params: {e}")))?;
+            let p: sns::SnsSubdomainsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_subdomains params: {e}"))
+                })?;
             sns::validate_domain_name(&p.parent_domain)
         }
         "sns_realloc" => {
             let p: sns::SnsReallocParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid sns_realloc params: {e}")))?;
-            if p.new_space > 10_240 { return Err(AppError::InvalidParams("new_space cannot exceed 10240".into())); }
+            if p.new_space > 10_240 {
+                return Err(AppError::InvalidParams(
+                    "new_space cannot exceed 10240".into(),
+                ));
+            }
             sns::validate_domain_name(&p.domain)
         }
         "sns_transfer_subdomain" => {
             let p: sns::SnsTransferSubdomainParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_transfer_subdomain params: {e}")))?;
-            if !p.subdomain.contains('.') { return Err(AppError::InvalidParams("subdomain must contain a dot (e.g. sub.parent)".into())); }
-            if p.new_owner.is_empty() { return Err(AppError::InvalidParams("new_owner is required".into())); }
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_transfer_subdomain params: {e}"))
+                })?;
+            if !p.subdomain.contains('.') {
+                return Err(AppError::InvalidParams(
+                    "subdomain must contain a dot (e.g. sub.parent)".into(),
+                ));
+            }
+            if p.new_owner.is_empty() {
+                return Err(AppError::InvalidParams("new_owner is required".into()));
+            }
             Ok(())
         }
         "sns_create_record" => {
-            let p: sns::SnsCreateRecordParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_create_record params: {e}")))?;
-            if p.record.is_empty() { return Err(AppError::InvalidParams("record type is required".into())); }
+            let p: sns::SnsCreateRecordParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_create_record params: {e}"))
+                })?;
+            if p.record.is_empty() {
+                return Err(AppError::InvalidParams("record type is required".into()));
+            }
             sns::validate_domain_name(&p.domain)
         }
         "sns_domain_key" => {
-            let p: sns::SnsDomainKeyParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_domain_key params: {e}")))?;
+            let p: sns::SnsDomainKeyParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_domain_key params: {e}"))
+                })?;
             sns::validate_domain_name(&p.domain)
         }
         "sns_record_key" => {
-            let p: sns::SnsRecordKeyParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_record_key params: {e}")))?;
-            if p.record.is_empty() { return Err(AppError::InvalidParams("record type is required".into())); }
+            let p: sns::SnsRecordKeyParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_record_key params: {e}"))
+                })?;
+            if p.record.is_empty() {
+                return Err(AppError::InvalidParams("record type is required".into()));
+            }
             sns::validate_domain_name(&p.domain)
         }
         "sns_twitter_handle" => {
-            let p: sns::SnsTwitterHandleParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid sns_twitter_handle params: {e}")))?;
-            if p.input.is_empty() { return Err(AppError::InvalidParams("input is required".into())); }
+            let p: sns::SnsTwitterHandleParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid sns_twitter_handle params: {e}"))
+                })?;
+            if p.input.is_empty() {
+                return Err(AppError::InvalidParams("input is required".into()));
+            }
             Ok(())
         }
         "limit_order" => {
@@ -299,13 +375,17 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             Ok(())
         }
         "jup_dca_orders" => {
-            let p: dca::JupDcaOrdersParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_dca_orders params: {e}")))?;
+            let p: dca::JupDcaOrdersParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_dca_orders params: {e}"))
+                })?;
             dca::validate_jup_dca_orders_params(&p)
         }
         "jup_limit_orders" => {
             let p: limit_order::JupLimitOrdersParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_limit_orders params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_limit_orders params: {e}"))
+                })?;
             limit_order::validate_jup_limit_orders_params(&p)
         }
         "jup_price" => {
@@ -315,281 +395,420 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         }
         "jup_token_search" => {
             let p: jupiter_query::JupTokenSearchParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_token_search params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_token_search params: {e}"))
+                })?;
             jupiter_query::validate_jup_token_search_params(&p)
         }
         "jup_tokens_tag" => {
             let p: jupiter_query::JupTokensTagParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_tokens_tag params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_tokens_tag params: {e}"))
+                })?;
             jupiter_query::validate_jup_tokens_tag_params(&p)
         }
         "jup_tokens_recent" => {
             let p: jupiter_query::JupTokensRecentParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_tokens_recent params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_tokens_recent params: {e}"))
+                })?;
             jupiter_query::validate_jup_tokens_recent_params(&p)
         }
         "jup_tokens_trending" => {
             let p: jupiter_query::JupTokensTrendingParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_tokens_trending params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_tokens_trending params: {e}"))
+                })?;
             jupiter_query::validate_jup_tokens_trending_params(&p)
         }
         "jup_portfolio_positions" => {
-            let p: jupiter_query::JupPortfolioPositionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_portfolio_positions params: {e}")))?;
+            let p: jupiter_query::JupPortfolioPositionsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_portfolio_positions params: {e}"))
+                })?;
             jupiter_query::validate_jup_portfolio_positions_params(&p)
         }
         "jup_staked_jup" => {
             let p: jupiter_query::JupStakedJupParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_staked_jup params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_staked_jup params: {e}"))
+                })?;
             jupiter_query::validate_jup_staked_jup_params(&p)
         }
         "jup_lend_positions" => {
             let p: jupiter_query::JupLendPositionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_lend_positions params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid jup_lend_positions params: {e}"))
+            })?;
             jupiter_query::validate_jup_lend_positions_params(&p)
         }
         "jup_lend_earnings" => {
             let p: jupiter_query::JupLendEarningsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_lend_earnings params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_lend_earnings params: {e}"))
+                })?;
             jupiter_query::validate_jup_lend_earnings_params(&p)
         }
         "jup_pending_invites" => {
             let p: jupiter_query::JupPendingInvitesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_pending_invites params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_pending_invites params: {e}"))
+                })?;
             jupiter_query::validate_jup_pending_invites_params(&p)
         }
         "jup_platforms" => {
             let p: jupiter_query::JupPlatformsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_platforms params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_platforms params: {e}"))
+                })?;
             jupiter_query::validate_jup_platforms_params(&p)
         }
         "helius_tx_history" => {
-            let p: helius::HeliusTxHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_tx_history params: {e}")))?;
+            let p: helius::HeliusTxHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_tx_history params: {e}"))
+                })?;
             helius::validate_helius_tx_history_params(&p)
         }
         "helius_parse_transactions" => {
             let p: helius::HeliusParseTransactionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_parse_transactions params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid helius_parse_transactions params: {e}"))
+            })?;
             helius::validate_helius_parse_transactions_params(&p)
         }
         "helius_get_assets" => {
-            let p: helius::HeliusGetAssetsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_assets params: {e}")))?;
+            let p: helius::HeliusGetAssetsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_get_assets params: {e}"))
+                })?;
             helius::validate_helius_get_assets_params(&p)
         }
         "helius_get_asset" => {
-            let p: helius::HeliusGetAssetParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_asset params: {e}")))?;
+            let p: helius::HeliusGetAssetParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_get_asset params: {e}"))
+                })?;
             helius::validate_helius_get_asset_params(&p)
         }
         "helius_search_assets" => {
             let p: helius::HeliusSearchAssetsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_search_assets params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_search_assets params: {e}"))
+                })?;
             helius::validate_helius_search_assets_params(&p)
         }
         "helius_nft_editions" => {
             let p: helius::HeliusNftEditionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_nft_editions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_nft_editions params: {e}"))
+                })?;
             helius::validate_helius_nft_editions_params(&p)
         }
         "helius_get_token_accounts" => {
             let p: helius::HeliusGetTokenAccountsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_token_accounts params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_get_token_accounts params: {e}"
+                    ))
+                })?;
             helius::validate_helius_get_token_accounts_params(&p)
         }
         "helius_asset_signatures" => {
             let p: helius::HeliusAssetSignaturesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_asset_signatures params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_asset_signatures params: {e}"))
+                })?;
             helius::validate_helius_asset_signatures_params(&p)
         }
         "helius_priority_fee" => {
             let p: helius::HeliusPriorityFeeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_priority_fee params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_priority_fee params: {e}"))
+                })?;
             helius::validate_helius_priority_fee_params(&p)
         }
         "helius_wallet_identity" => {
             let p: helius::HeliusWalletIdentityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_wallet_identity params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_wallet_identity params: {e}"))
+                })?;
             helius::validate_helius_wallet_identity_params(&p)
         }
         "helius_batch_identity" => {
             let p: helius::HeliusBatchIdentityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_batch_identity params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_batch_identity params: {e}"))
+                })?;
             helius::validate_helius_batch_identity_params(&p)
         }
         "helius_wallet_balances" => {
             let p: helius::HeliusWalletBalancesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_wallet_balances params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_wallet_balances params: {e}"))
+                })?;
             helius::validate_helius_wallet_balances_params(&p)
         }
         "helius_wallet_history" => {
             let p: helius::HeliusWalletHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_wallet_history params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_wallet_history params: {e}"))
+                })?;
             helius::validate_helius_wallet_history_params(&p)
         }
         "helius_wallet_transfers" => {
             let p: helius::HeliusWalletTransfersParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_wallet_transfers params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_wallet_transfers params: {e}"))
+                })?;
             helius::validate_helius_wallet_transfers_params(&p)
         }
         "helius_wallet_funded_by" => {
             let p: helius::HeliusWalletFundedByParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_wallet_funded_by params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_wallet_funded_by params: {e}"))
+                })?;
             helius::validate_helius_wallet_funded_by_params(&p)
         }
         "helius_get_asset_batch" => {
             let p: helius::HeliusGetAssetBatchParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_asset_batch params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_get_asset_batch params: {e}"))
+                })?;
             helius::validate_helius_get_asset_batch_params(&p)
         }
         "helius_get_assets_by_creator" => {
             let p: helius::HeliusGetAssetsByCreatorParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_assets_by_creator params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_get_assets_by_creator params: {e}"
+                    ))
+                })?;
             helius::validate_helius_get_assets_by_creator_params(&p)
         }
         "helius_get_assets_by_authority" => {
-            let p: helius::HeliusGetAssetsByAuthorityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_assets_by_authority params: {e}")))?;
+            let p: helius::HeliusGetAssetsByAuthorityParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_get_assets_by_authority params: {e}"
+                    ))
+                })?;
             helius::validate_helius_get_assets_by_authority_params(&p)
         }
         "helius_get_assets_by_group" => {
             let p: helius::HeliusGetAssetsByGroupParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_assets_by_group params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_get_assets_by_group params: {e}"
+                    ))
+                })?;
             helius::validate_helius_get_assets_by_group_params(&p)
         }
         "helius_get_asset_proof" => {
             let p: helius::HeliusGetAssetProofParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_asset_proof params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_get_asset_proof params: {e}"))
+                })?;
             helius::validate_helius_get_asset_proof_params(&p)
         }
         "helius_get_asset_proof_batch" => {
             let p: helius::HeliusGetAssetProofBatchParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_asset_proof_batch params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_get_asset_proof_batch params: {e}"
+                    ))
+                })?;
             helius::validate_helius_get_asset_proof_batch_params(&p)
         }
         "helius_create_webhook" => {
             let p: helius::HeliusCreateWebhookParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_create_webhook params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_create_webhook params: {e}"))
+                })?;
             helius::validate_helius_create_webhook_params(&p)
         }
         "helius_list_webhooks" => {
             let p: helius::HeliusListWebhooksParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_list_webhooks params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_list_webhooks params: {e}"))
+                })?;
             helius::validate_helius_list_webhooks_params(&p)
         }
         "helius_get_webhook" => {
             let p: helius::HeliusGetWebhookParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_get_webhook params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_get_webhook params: {e}"))
+                })?;
             helius::validate_helius_get_webhook_params(&p)
         }
         "helius_update_webhook" => {
             let p: helius::HeliusUpdateWebhookParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_update_webhook params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_update_webhook params: {e}"))
+                })?;
             helius::validate_helius_update_webhook_params(&p)
         }
         "helius_toggle_webhook" => {
             let p: helius::HeliusToggleWebhookParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_toggle_webhook params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_toggle_webhook params: {e}"))
+                })?;
             helius::validate_helius_toggle_webhook_params(&p)
         }
         "helius_delete_webhook" => {
             let p: helius::HeliusDeleteWebhookParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_delete_webhook params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_delete_webhook params: {e}"))
+                })?;
             helius::validate_helius_delete_webhook_params(&p)
         }
         "helius_send_transaction" => {
             let p: helius::HeliusSendTransactionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_send_transaction params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_send_transaction params: {e}"))
+                })?;
             helius::validate_helius_send_transaction_params(&p)
         }
         "helius_zk_compressed_account" => {
-            let p: helius::HeliusZkAccountParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_compressed_account params: {e}")))?;
+            let p: helius::HeliusZkAccountParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_zk_compressed_account params: {e}"
+                    ))
+                })?;
             helius::validate_helius_zk_account_params(&p)
         }
         "helius_zk_multiple_compressed_accounts" => {
             let p: helius::HeliusZkMultipleAccountsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_multiple_compressed_accounts params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_zk_multiple_compressed_accounts params: {e}"
+                    ))
+                })?;
             helius::validate_helius_zk_multiple_accounts_params(&p)
         }
         "helius_zk_compressed_balance_by_owner" => {
-            let p: helius::HeliusZkOwnerParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_compressed_balance_by_owner params: {e}")))?;
+            let p: helius::HeliusZkOwnerParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_zk_compressed_balance_by_owner params: {e}"
+                    ))
+                })?;
             helius::validate_helius_zk_owner_params(&p)
         }
         "helius_zk_token_accounts_by_owner" => {
-            let p: helius::HeliusZkOwnerParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_token_accounts_by_owner params: {e}")))?;
+            let p: helius::HeliusZkOwnerParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_zk_token_accounts_by_owner params: {e}"
+                    ))
+                })?;
             helius::validate_helius_zk_owner_params(&p)
         }
         "helius_zk_token_balances_by_owner" => {
-            let p: helius::HeliusZkOwnerParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_token_balances_by_owner params: {e}")))?;
+            let p: helius::HeliusZkOwnerParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_zk_token_balances_by_owner params: {e}"
+                    ))
+                })?;
             helius::validate_helius_zk_owner_params(&p)
         }
         "helius_zk_mint_token_holders" => {
-            let p: helius::HeliusZkMintParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_mint_token_holders params: {e}")))?;
+            let p: helius::HeliusZkMintParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_zk_mint_token_holders params: {e}"
+                    ))
+                })?;
             helius::validate_helius_zk_mint_params(&p)
         }
         "helius_zk_compression_signatures_for_owner" => {
             let p: helius::HeliusZkSignaturesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_compression_signatures_for_owner params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_zk_compression_signatures_for_owner params: {e}"
+                    ))
+                })?;
             helius::validate_helius_zk_signatures_params(&p)
         }
         "helius_zk_transaction_with_compression" => {
             let p: helius::HeliusZkSignaturesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_transaction_with_compression params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_zk_transaction_with_compression params: {e}"
+                    ))
+                })?;
             helius::validate_helius_zk_signatures_params(&p)
         }
         "helius_zk_indexer_health" => {
-            let p: helius::HeliusZkIndexerParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_indexer_health params: {e}")))?;
+            let p: helius::HeliusZkIndexerParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_zk_indexer_health params: {e}"))
+                })?;
             helius::validate_helius_zk_indexer_params(&p)
         }
         "helius_zk_indexer_slot" => {
-            let p: helius::HeliusZkIndexerParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_indexer_slot params: {e}")))?;
+            let p: helius::HeliusZkIndexerParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_zk_indexer_slot params: {e}"))
+                })?;
             helius::validate_helius_zk_indexer_params(&p)
         }
         "helius_zk_validity_proof" => {
-            let p: helius::HeliusZkAccountParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_validity_proof params: {e}")))?;
+            let p: helius::HeliusZkAccountParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_zk_validity_proof params: {e}"))
+                })?;
             helius::validate_helius_zk_account_params(&p)
         }
         "helius_zk_new_address_proofs" => {
             let p: helius::HeliusZkNewAddressProofsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_zk_new_address_proofs params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid helius_zk_new_address_proofs params: {e}"
+                    ))
+                })?;
             helius::validate_helius_zk_new_address_proofs_params(&p)
         }
         "helius_smart_send" => {
-            let p: helius::HeliusSmartSendParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid helius_smart_send params: {e}")))?;
+            let p: helius::HeliusSmartSendParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid helius_smart_send params: {e}"))
+                })?;
             helius::validate_helius_smart_send_params(&p)
         }
         "jupsol_stake" => {
-            let p: jupsol::JupSolParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jupsol_stake params: {e}")))?;
+            let p: jupsol::JupSolParams = serde_json::from_value(params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid jupsol_stake params: {e}"))
+            })?;
             jupsol::validate_jupsol_params(&p)
         }
         "jupsol_unstake" => {
-            let p: jupsol::JupSolParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jupsol_unstake params: {e}")))?;
+            let p: jupsol::JupSolParams = serde_json::from_value(params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid jupsol_unstake params: {e}"))
+            })?;
             jupsol::validate_jupsol_params(&p)
         }
         // Generic lend — routes by protocol field (default: jupiter)
         "lend" | "withdraw_lend" => {
-            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("jupiter");
+            let protocol = params
+                .get("protocol")
+                .and_then(|v| v.as_str())
+                .unwrap_or("jupiter");
             match protocol {
                 "marginfi" => {
                     let p: marginfi::MarginfiDepositParams = serde_json::from_value(params.clone())
-                        .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi lend params: {e}")))?;
+                        .map_err(|e| {
+                            AppError::InvalidParams(format!("Invalid marginfi lend params: {e}"))
+                        })?;
                     marginfi::validate_marginfi_deposit_params(&p)
                 }
                 "solend" => {
                     let p: solend::SolendDepositParams = serde_json::from_value(params.clone())
-                        .map_err(|e| AppError::InvalidParams(format!("Invalid solend lend params: {e}")))?;
+                        .map_err(|e| {
+                            AppError::InvalidParams(format!("Invalid solend lend params: {e}"))
+                        })?;
                     solend::validate_solend_deposit_params(&p)
                 }
                 "kamino" => Err(AppError::InvalidParams(
@@ -597,44 +816,61 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
                 )),
                 _ => {
                     let p: jupiter_lend::JupiterLendParams = serde_json::from_value(params.clone())
-                        .map_err(|e| AppError::InvalidParams(format!("Invalid lend params: {e}")))?;
+                        .map_err(|e| {
+                            AppError::InvalidParams(format!("Invalid lend params: {e}"))
+                        })?;
                     jupiter_lend::validate_lend_params(&p)
                 }
             }
         }
         "borrow" | "repay" => {
-            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("jupiter");
+            let protocol = params
+                .get("protocol")
+                .and_then(|v| v.as_str())
+                .unwrap_or("jupiter");
             match protocol {
                 "marginfi" => {
                     let p: marginfi::MarginfiBorrowParams = serde_json::from_value(params.clone())
-                        .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi borrow params: {e}")))?;
+                        .map_err(|e| {
+                            AppError::InvalidParams(format!("Invalid marginfi borrow params: {e}"))
+                        })?;
                     marginfi::validate_marginfi_borrow_params(&p)
                 }
                 "solend" => {
                     let p: solend::SolendBorrowParams = serde_json::from_value(params.clone())
-                        .map_err(|e| AppError::InvalidParams(format!("Invalid solend borrow params: {e}")))?;
+                        .map_err(|e| {
+                            AppError::InvalidParams(format!("Invalid solend borrow params: {e}"))
+                        })?;
                     solend::validate_solend_borrow_params(&p)
                 }
                 "kamino" => Err(AppError::InvalidParams(
                     "Kamino requires a reserve address — use kamino_borrow instead".into(),
                 )),
                 _ => {
-                    let p: jupiter_lend::JupiterBorrowParams = serde_json::from_value(params.clone())
-                        .map_err(|e| AppError::InvalidParams(format!("Invalid borrow params: {e}")))?;
+                    let p: jupiter_lend::JupiterBorrowParams =
+                        serde_json::from_value(params.clone()).map_err(|e| {
+                            AppError::InvalidParams(format!("Invalid borrow params: {e}"))
+                        })?;
                     jupiter_lend::validate_borrow_params(&p)
                 }
             }
         }
         "jup_lend_markets" => {
             let p: jupiter_lend::JupLendMarketsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jup_lend_markets params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jup_lend_markets params: {e}"))
+                })?;
             jupiter_lend::validate_jup_lend_markets_params(&p)
         }
         // Jupiter Perp
         "perp_open" | "perp_close" => {
             let mut p_val = params.clone();
             // Inject operation from action_type so frontend doesn't need to send it
-            p_val["operation"] = serde_json::json!(if action_type == "perp_open" { "open" } else { "close" });
+            p_val["operation"] = serde_json::json!(if action_type == "perp_open" {
+                "open"
+            } else {
+                "close"
+            });
             let p: jupiter_perp::JupiterPerpParams = serde_json::from_value(p_val)
                 .map_err(|e| AppError::InvalidParams(format!("Invalid perp params: {e}")))?;
             jupiter_perp::validate_perp_params(&p)
@@ -642,27 +878,40 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         "perp_positions" => Ok(()),
         "jlp_add" | "jlp_remove" => {
             let mut p_val = params.clone();
-            p_val["operation"] = serde_json::json!(if action_type == "jlp_add" { "add" } else { "remove" });
+            p_val["operation"] = serde_json::json!(if action_type == "jlp_add" {
+                "add"
+            } else {
+                "remove"
+            });
             let p: jupiter_perp::JupiterPerpLiquidityParams = serde_json::from_value(p_val)
                 .map_err(|e| AppError::InvalidParams(format!("Invalid jlp params: {e}")))?;
             jupiter_perp::validate_liquidity_params(&p)
         }
         "pumpfun_buy" | "pumpfun_sell" | "pumpfun_initial_buy" => {
-            let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid pumpfun trade params: {e}")))?;
+            let p: pumpfun::PumpFunTradeParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid pumpfun trade params: {e}"))
+                })?;
             pumpfun::validate_pumpfun_trade_params(&p)
         }
-        "pumpfun_token_info" | "pumpfun_comments" | "pumpfun_bonding_curve" | "pumpswap_pool_info" => {
+        "pumpfun_token_info"
+        | "pumpfun_comments"
+        | "pumpfun_bonding_curve"
+        | "pumpswap_pool_info" => {
             let p: pumpfun::PumpFunMintParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid params: {e}")))?;
             pumpfun::validate_pumpfun_mint_params(&p)
         }
-        "pumpfun_new" | "pumpfun_graduating" | "pumpfun_koth" | "pumpfun_trending" | "pumpfun_curve_global" => {
-            Ok(())
-        }
+        "pumpfun_new"
+        | "pumpfun_graduating"
+        | "pumpfun_koth"
+        | "pumpfun_trending"
+        | "pumpfun_curve_global" => Ok(()),
         "pumpfun_search" => {
-            let p: pumpfun::PumpFunSearchParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid pumpfun search params: {e}")))?;
+            let p: pumpfun::PumpFunSearchParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid pumpfun search params: {e}"))
+                })?;
             if p.query.as_deref().unwrap_or("").trim().is_empty() {
                 return Err(AppError::InvalidParams("search query is required".into()));
             }
@@ -673,29 +922,51 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             let p: relay::RelayBridgeParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid relay params: {e}")))?;
             if p.origin_chain_id == p.destination_chain_id {
-                return Err(AppError::InvalidParams("relay_bridge: origin and destination chain must differ".into()));
+                return Err(AppError::InvalidParams(
+                    "relay_bridge: origin and destination chain must differ".into(),
+                ));
             }
             if p.amount.trim().is_empty() {
-                return Err(AppError::InvalidParams("relay_bridge: amount is required".into()));
+                return Err(AppError::InvalidParams(
+                    "relay_bridge: amount is required".into(),
+                ));
             }
             Ok(())
         }
-        "relay_get_chains" | "relay_get_currencies" | "relay_get_token_price" | "relay_get_requests" | "relay_get_chains_liquidity" | "relay_get_app_fee_balances" | "relay_get_swap_sources" => Ok(()),
+        "relay_get_chains"
+        | "relay_get_currencies"
+        | "relay_get_token_price"
+        | "relay_get_requests"
+        | "relay_get_chains_liquidity"
+        | "relay_get_app_fee_balances"
+        | "relay_get_swap_sources" => Ok(()),
         "relay_intent_status" => {
-            let id = params.get("requestId").and_then(|v| v.as_str()).unwrap_or("");
+            let id = params
+                .get("requestId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if id.trim().is_empty() {
-                return Err(AppError::InvalidParams("requestId is required for relay_intent_status".into()));
+                return Err(AppError::InvalidParams(
+                    "requestId is required for relay_intent_status".into(),
+                ));
             }
             Ok(())
         }
         "squid_status" => {
-            let tx_id = params.get("transactionId").and_then(|v| v.as_str()).unwrap_or("");
+            let tx_id = params
+                .get("transactionId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let quote_id = params.get("quoteId").and_then(|v| v.as_str()).unwrap_or("");
             if tx_id.trim().is_empty() {
-                return Err(AppError::InvalidParams("transactionId is required for squid_status".into()));
+                return Err(AppError::InvalidParams(
+                    "transactionId is required for squid_status".into(),
+                ));
             }
             if quote_id.trim().is_empty() {
-                return Err(AppError::InvalidParams("quoteId is required for squid_status".into()));
+                return Err(AppError::InvalidParams(
+                    "quoteId is required for squid_status".into(),
+                ));
             }
             Ok(())
         }
@@ -703,58 +974,95 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             let chain_id = params.get("chainId").and_then(|v| v.as_str()).unwrap_or("");
             let tx_hash = params.get("txHash").and_then(|v| v.as_str()).unwrap_or("");
             if chain_id.trim().is_empty() {
-                return Err(AppError::InvalidParams("chainId is required for relay_index_transaction".into()));
+                return Err(AppError::InvalidParams(
+                    "chainId is required for relay_index_transaction".into(),
+                ));
             }
             if tx_hash.trim().is_empty() {
-                return Err(AppError::InvalidParams("txHash is required for relay_index_transaction".into()));
+                return Err(AppError::InvalidParams(
+                    "txHash is required for relay_index_transaction".into(),
+                ));
             }
             Ok(())
         }
         "relay_single_transaction" => {
-            let request_id = params.get("requestId").and_then(|v| v.as_str()).unwrap_or("");
+            let request_id = params
+                .get("requestId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let chain_id = params.get("chainId").and_then(|v| v.as_str()).unwrap_or("");
             let tx = params.get("tx").and_then(|v| v.as_str()).unwrap_or("");
             if request_id.trim().is_empty() {
-                return Err(AppError::InvalidParams("requestId is required for relay_single_transaction".into()));
+                return Err(AppError::InvalidParams(
+                    "requestId is required for relay_single_transaction".into(),
+                ));
             }
             if chain_id.trim().is_empty() {
-                return Err(AppError::InvalidParams("chainId is required for relay_single_transaction".into()));
+                return Err(AppError::InvalidParams(
+                    "chainId is required for relay_single_transaction".into(),
+                ));
             }
             if tx.trim().is_empty() {
-                return Err(AppError::InvalidParams("tx is required for relay_single_transaction".into()));
+                return Err(AppError::InvalidParams(
+                    "tx is required for relay_single_transaction".into(),
+                ));
             }
             Ok(())
         }
         "relay_deposit_address_reindex" => {
-            let deposit_address = params.get("depositAddress").and_then(|v| v.as_str()).unwrap_or("");
+            let deposit_address = params
+                .get("depositAddress")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let chain_id = params.get("chainId").and_then(|v| v.as_u64());
             if deposit_address.trim().is_empty() {
-                return Err(AppError::InvalidParams("depositAddress is required for relay_deposit_address_reindex".into()));
+                return Err(AppError::InvalidParams(
+                    "depositAddress is required for relay_deposit_address_reindex".into(),
+                ));
             }
             if chain_id.is_none() {
-                return Err(AppError::InvalidParams("chainId is required for relay_deposit_address_reindex".into()));
+                return Err(AppError::InvalidParams(
+                    "chainId is required for relay_deposit_address_reindex".into(),
+                ));
             }
             Ok(())
         }
         "relay_claim_app_fees" => {
-            let currency = params.get("currency").and_then(|v| v.as_str()).unwrap_or("");
-            let recipient = params.get("recipient").and_then(|v| v.as_str()).unwrap_or("");
+            let currency = params
+                .get("currency")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let recipient = params
+                .get("recipient")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let chain_id = params.get("chainId").and_then(|v| v.as_u64());
             if chain_id.is_none() {
-                return Err(AppError::InvalidParams("chainId is required for relay_claim_app_fees".into()));
+                return Err(AppError::InvalidParams(
+                    "chainId is required for relay_claim_app_fees".into(),
+                ));
             }
             if currency.trim().is_empty() {
-                return Err(AppError::InvalidParams("currency is required for relay_claim_app_fees".into()));
+                return Err(AppError::InvalidParams(
+                    "currency is required for relay_claim_app_fees".into(),
+                ));
             }
             if recipient.trim().is_empty() {
-                return Err(AppError::InvalidParams("recipient is required for relay_claim_app_fees".into()));
+                return Err(AppError::InvalidParams(
+                    "recipient is required for relay_claim_app_fees".into(),
+                ));
             }
             Ok(())
         }
         "relay_fast_fill" => {
-            let request_id = params.get("requestId").and_then(|v| v.as_str()).unwrap_or("");
+            let request_id = params
+                .get("requestId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if request_id.trim().is_empty() {
-                return Err(AppError::InvalidParams("requestId is required for relay_fast_fill".into()));
+                return Err(AppError::InvalidParams(
+                    "requestId is required for relay_fast_fill".into(),
+                ));
             }
             Ok(())
         }
@@ -762,191 +1070,281 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             let data = params.get("data");
             let execution_options = params.get("executionOptions");
             if data.is_none() {
-                return Err(AppError::InvalidParams("data is required for relay_execute".into()));
+                return Err(AppError::InvalidParams(
+                    "data is required for relay_execute".into(),
+                ));
             }
             if execution_options.is_none() {
-                return Err(AppError::InvalidParams("executionOptions is required for relay_execute".into()));
+                return Err(AppError::InvalidParams(
+                    "executionOptions is required for relay_execute".into(),
+                ));
             }
             Ok(())
         }
         "pumpswap_buy" | "pumpswap_sell" => {
-            let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid pumpswap trade params: {e}")))?;
+            let p: pumpfun::PumpFunTradeParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid pumpswap trade params: {e}"))
+                })?;
             pumpfun::validate_pumpfun_trade_params(&p)
         }
         "raydium_swap" => {
-            let p: raydium::RaydiumSwapParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_swap params: {e}")))?;
+            let p: raydium::RaydiumSwapParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_swap params: {e}"))
+                })?;
             raydium::validate_raydium_swap_params(&p)
         }
         "raydium_add_liquidity" => {
             let p: raydium::RaydiumAddLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_add_liquidity params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_add_liquidity params: {e}"))
+                })?;
             raydium::validate_raydium_add_liquidity_params(&p)
         }
         "raydium_remove_liquidity" => {
             let p: raydium::RaydiumRemoveLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_remove_liquidity params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid raydium_remove_liquidity params: {e}"))
+            })?;
             raydium::validate_raydium_remove_liquidity_params(&p)
         }
         "raydium_create_pool" => {
             let p: raydium::RaydiumCreatePoolParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_create_pool params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_create_pool params: {e}"))
+                })?;
             raydium::validate_raydium_create_pool_params(&p)
         }
         "raydium_open_position" => {
             let p: raydium::RaydiumOpenPositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_open_position params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_open_position params: {e}"))
+                })?;
             raydium::validate_raydium_open_position_params(&p)
         }
         "raydium_close_position" => {
             let p: raydium::RaydiumClosePositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_close_position params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_close_position params: {e}"))
+                })?;
             raydium::validate_raydium_close_position_params(&p)
         }
         "raydium_increase_position" => {
             let p: raydium::RaydiumIncreasePositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_increase_position params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid raydium_increase_position params: {e}"
+                    ))
+                })?;
             raydium::validate_raydium_increase_position_params(&p)
         }
         "raydium_decrease_position" => {
             let p: raydium::RaydiumDecreasePositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_decrease_position params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid raydium_decrease_position params: {e}"
+                    ))
+                })?;
             raydium::validate_raydium_decrease_position_params(&p)
         }
         "raydium_get_pools" => {
             let p: raydium::RaydiumGetPoolsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_pools params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_pools params: {e}"))
+                })?;
             raydium::validate_raydium_get_pools_params(&p)
         }
         "raydium_search_pools" => {
             let p: raydium::RaydiumSearchPoolsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_search_pools params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_search_pools params: {e}"))
+                })?;
             raydium::validate_raydium_search_pools_params(&p)
         }
         "raydium_get_pool_info" => {
             let p: raydium::RaydiumGetPoolInfoParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_pool_info params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_pool_info params: {e}"))
+                })?;
             raydium::validate_raydium_get_pool_info_params(&p)
         }
         "raydium_get_user_positions" => {
             let p: raydium::RaydiumGetUserPositionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_user_positions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid raydium_get_user_positions params: {e}"
+                    ))
+                })?;
             raydium::validate_raydium_get_user_positions_params(&p)
         }
         "raydium_get_clmm_positions" => {
             let p: raydium::RaydiumGetClmmPositionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_clmm_positions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid raydium_get_clmm_positions params: {e}"
+                    ))
+                })?;
             raydium::validate_raydium_get_clmm_positions_params(&p)
         }
         "raydium_get_token_info" => {
             let p: raydium::RaydiumGetTokenInfoParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_token_info params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_token_info params: {e}"))
+                })?;
             raydium::validate_raydium_get_token_info_params(&p)
         }
         "raydium_get_platform_stats" => {
             let p: raydium::RaydiumGetPlatformStatsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_platform_stats params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid raydium_get_platform_stats params: {e}"
+                    ))
+                })?;
             raydium::validate_raydium_get_platform_stats_params(&p)
         }
         "raydium_get_clmm_configs" => {
             let p: raydium::RaydiumGetClmmConfigsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_clmm_configs params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_clmm_configs params: {e}"))
+                })?;
             raydium::validate_raydium_get_clmm_configs_params(&p)
         }
         "raydium_swap_quote" => {
             let p: raydium::RaydiumSwapQuoteParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_swap_quote params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_swap_quote params: {e}"))
+                })?;
             raydium::validate_raydium_swap_quote_params(&p)
         }
         "raydium_get_pools_by_lp" => {
             let p: raydium::RaydiumGetPoolsByLpParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_pools_by_lp params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_pools_by_lp params: {e}"))
+                })?;
             raydium::validate_raydium_get_pools_by_lp_params(&p)
         }
         "raydium_get_pools_v2" => {
             let p: raydium::RaydiumGetPoolsV2Params = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_pools_v2 params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_pools_v2 params: {e}"))
+                })?;
             raydium::validate_raydium_get_pools_v2_params(&p)
         }
         "raydium_get_pool_keys" => {
             let p: raydium::RaydiumGetPoolKeysParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_pool_keys params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_pool_keys params: {e}"))
+                })?;
             raydium::validate_raydium_get_pool_keys_params(&p)
         }
         "raydium_get_pool_liquidity_history" => {
-            let p: raydium::RaydiumGetPoolLiquidityHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_pool_liquidity_history params: {e}")))?;
+            let p: raydium::RaydiumGetPoolLiquidityHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid raydium_get_pool_liquidity_history params: {e}"
+                    ))
+                })?;
             raydium::validate_raydium_get_pool_liquidity_history_params(&p)
         }
         "raydium_get_pool_position_history" => {
-            let p: raydium::RaydiumGetPoolPositionHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_pool_position_history params: {e}")))?;
+            let p: raydium::RaydiumGetPoolPositionHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid raydium_get_pool_position_history params: {e}"
+                    ))
+                })?;
             raydium::validate_raydium_get_pool_position_history_params(&p)
         }
         "raydium_get_token_list" => {
             let p: raydium::RaydiumGetTokenListParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_token_list params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_token_list params: {e}"))
+                })?;
             raydium::validate_raydium_get_token_list_params(&p)
         }
         "raydium_get_token_prices" => {
             let p: raydium::RaydiumGetTokenPricesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_token_prices params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_token_prices params: {e}"))
+                })?;
             raydium::validate_raydium_get_token_prices_params(&p)
         }
         "raydium_get_farm_info" => {
             let p: raydium::RaydiumGetFarmInfoParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_farm_info params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_farm_info params: {e}"))
+                })?;
             raydium::validate_raydium_get_farm_info_params(&p)
         }
         "raydium_get_farm_by_lp" => {
             let p: raydium::RaydiumGetFarmByLpParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_farm_by_lp params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_farm_by_lp params: {e}"))
+                })?;
             raydium::validate_raydium_get_farm_by_lp_params(&p)
         }
         "raydium_get_farm_keys" => {
             let p: raydium::RaydiumGetFarmKeysParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_farm_keys params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_farm_keys params: {e}"))
+                })?;
             raydium::validate_raydium_get_farm_keys_params(&p)
         }
         "raydium_get_ido_keys" => {
             let p: raydium::RaydiumGetIdoKeysParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_ido_keys params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_ido_keys params: {e}"))
+                })?;
             raydium::validate_raydium_get_ido_keys_params(&p)
         }
         "raydium_get_main_version" => {
             let p: raydium::RaydiumGetMainVersionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_main_version params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_main_version params: {e}"))
+                })?;
             raydium::validate_raydium_get_main_version_params(&p)
         }
         "raydium_get_rpcs" => {
-            let p: raydium::RaydiumGetRpcsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_rpcs params: {e}")))?;
+            let p: raydium::RaydiumGetRpcsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_rpcs params: {e}"))
+                })?;
             raydium::validate_raydium_get_rpcs_params(&p)
         }
         "raydium_get_chain_time" => {
             let p: raydium::RaydiumGetChainTimeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_chain_time params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_chain_time params: {e}"))
+                })?;
             raydium::validate_raydium_get_chain_time_params(&p)
         }
         "raydium_get_stake_pools" => {
             let p: raydium::RaydiumGetStakePoolsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_stake_pools params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_stake_pools params: {e}"))
+                })?;
             raydium::validate_raydium_get_stake_pools_params(&p)
         }
         "raydium_get_migrate_lp" => {
             let p: raydium::RaydiumGetMigrateLpParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_migrate_lp params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_migrate_lp params: {e}"))
+                })?;
             raydium::validate_raydium_get_migrate_lp_params(&p)
         }
         "raydium_get_auto_fee" => {
             let p: raydium::RaydiumGetAutoFeeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_auto_fee params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_auto_fee params: {e}"))
+                })?;
             raydium::validate_raydium_get_auto_fee_params(&p)
         }
         "raydium_get_cpmm_configs" => {
             let p: raydium::RaydiumGetCpmmConfigsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid raydium_get_cpmm_configs params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid raydium_get_cpmm_configs params: {e}"))
+                })?;
             raydium::validate_raydium_get_cpmm_configs_params(&p)
         }
         // ── Orca Whirlpools Actions ─────────────────────────────────────────────────
@@ -956,519 +1354,795 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             orca::validate_orca_swap_params(&p)
         }
         "orca_add_liquidity" => {
-            let p: orca::OrcaAddLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_add_liquidity params: {e}")))?;
+            let p: orca::OrcaAddLiquidityParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_add_liquidity params: {e}"))
+                })?;
             orca::validate_orca_add_liquidity_params(&p)
         }
         "orca_remove_liquidity" => {
             let p: orca::OrcaRemoveLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_remove_liquidity params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_remove_liquidity params: {e}"))
+                })?;
             orca::validate_orca_remove_liquidity_params(&p)
         }
         "orca_open_position" => {
-            let p: orca::OrcaOpenPositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_open_position params: {e}")))?;
+            let p: orca::OrcaOpenPositionParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_open_position params: {e}"))
+                })?;
             orca::validate_orca_open_position_params(&p)
         }
         "orca_close_position" => {
-            let p: orca::OrcaClosePositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_close_position params: {e}")))?;
+            let p: orca::OrcaClosePositionParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_close_position params: {e}"))
+                })?;
             orca::validate_orca_close_position_params(&p)
         }
         "orca_increase_position" => {
             let p: orca::OrcaIncreasePositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_increase_position params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_increase_position params: {e}"))
+                })?;
             orca::validate_orca_increase_position_params(&p)
         }
         "orca_decrease_position" => {
             let p: orca::OrcaDecreasePositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_decrease_position params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_decrease_position params: {e}"))
+                })?;
             orca::validate_orca_decrease_position_params(&p)
         }
         "orca_collect_fees" => {
-            let p: orca::OrcaCollectFeesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_collect_fees params: {e}")))?;
+            let p: orca::OrcaCollectFeesParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_collect_fees params: {e}"))
+                })?;
             orca::validate_orca_collect_fees_params(&p)
         }
         "orca_collect_rewards" => {
             let p: orca::OrcaCollectRewardsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_collect_rewards params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_collect_rewards params: {e}"))
+                })?;
             orca::validate_orca_collect_rewards_params(&p)
         }
         "orca_create_pool" => {
-            let p: orca::OrcaCreatePoolParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_create_pool params: {e}")))?;
+            let p: orca::OrcaCreatePoolParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_create_pool params: {e}"))
+                })?;
             orca::validate_orca_create_pool_params(&p)
         }
         "orca_get_pools" => {
-            let p: orca::OrcaGetPoolsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_pools params: {e}")))?;
+            let p: orca::OrcaGetPoolsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_get_pools params: {e}"))
+                })?;
             orca::validate_orca_get_pools_params(&p)
         }
         "orca_search_pools" => {
-            let p: orca::OrcaSearchPoolsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_search_pools params: {e}")))?;
+            let p: orca::OrcaSearchPoolsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_search_pools params: {e}"))
+                })?;
             orca::validate_orca_search_pools_params(&p)
         }
         "orca_get_pool" => {
-            let p: orca::OrcaGetPoolParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_pool params: {e}")))?;
+            let p: orca::OrcaGetPoolParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_get_pool params: {e}"))
+                })?;
             orca::validate_orca_get_pool_params(&p)
         }
         "orca_get_locked_liquidity" => {
             let p: orca::OrcaGetLockedLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_locked_liquidity params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid orca_get_locked_liquidity params: {e}"
+                    ))
+                })?;
             orca::validate_orca_get_locked_liquidity_params(&p)
         }
         "orca_get_protocol_stats" => {
             let p: orca::OrcaGetProtocolStatsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_protocol_stats params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_get_protocol_stats params: {e}"))
+                })?;
             orca::validate_orca_get_protocol_stats_params(&p)
         }
         "orca_get_orca_token" => {
-            let p: orca::OrcaGetOrcaTokenParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_orca_token params: {e}")))?;
+            let p: orca::OrcaGetOrcaTokenParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_get_orca_token params: {e}"))
+                })?;
             orca::validate_orca_get_orca_token_params(&p)
         }
         "orca_get_circulating_supply" => {
             let p: orca::OrcaGetCirculatingSupplyParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_circulating_supply params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid orca_get_circulating_supply params: {e}"
+                    ))
+                })?;
             orca::validate_orca_get_circulating_supply_params(&p)
         }
         "orca_get_total_supply" => {
             let p: orca::OrcaGetTotalSupplyParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_total_supply params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_get_total_supply params: {e}"))
+                })?;
             orca::validate_orca_get_total_supply_params(&p)
         }
         "orca_get_tokens" => {
-            let p: orca::OrcaGetTokensParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_tokens params: {e}")))?;
+            let p: orca::OrcaGetTokensParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_get_tokens params: {e}"))
+                })?;
             orca::validate_orca_get_tokens_params(&p)
         }
         "orca_search_tokens" => {
-            let p: orca::OrcaSearchTokensParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_search_tokens params: {e}")))?;
+            let p: orca::OrcaSearchTokensParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_search_tokens params: {e}"))
+                })?;
             orca::validate_orca_search_tokens_params(&p)
         }
         "orca_get_token" => {
-            let p: orca::OrcaGetTokenParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_token params: {e}")))?;
+            let p: orca::OrcaGetTokenParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_get_token params: {e}"))
+                })?;
             orca::validate_orca_get_token_params(&p)
         }
         "orca_get_user_positions" => {
             let p: orca::OrcaGetUserPositionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_user_positions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_get_user_positions params: {e}"))
+                })?;
             orca::validate_orca_get_user_positions_params(&p)
         }
         "orca_get_pool_positions" => {
             let p: orca::OrcaGetPoolPositionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid orca_get_pool_positions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid orca_get_pool_positions params: {e}"))
+                })?;
             orca::validate_orca_get_pool_positions_params(&p)
         }
         // ── Kamino Finance Actions ───────────────────────────────────────────────────
         "kamino_deposit" => {
-            let p: kamino::KaminoDepositParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_deposit params: {e}")))?;
+            let p: kamino::KaminoDepositParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_deposit params: {e}"))
+                })?;
             kamino::validate_kamino_deposit_params(&p)
         }
         "kamino_withdraw" => {
-            let p: kamino::KaminoWithdrawParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_withdraw params: {e}")))?;
+            let p: kamino::KaminoWithdrawParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_withdraw params: {e}"))
+                })?;
             kamino::validate_kamino_withdraw_params(&p)
         }
         "kamino_borrow" => {
-            let p: kamino::KaminoBorrowParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_borrow params: {e}")))?;
+            let p: kamino::KaminoBorrowParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_borrow params: {e}"))
+                })?;
             kamino::validate_kamino_borrow_params(&p)
         }
         "kamino_repay" => {
-            let p: kamino::KaminoRepayParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_repay params: {e}")))?;
+            let p: kamino::KaminoRepayParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_repay params: {e}"))
+                })?;
             kamino::validate_kamino_repay_params(&p)
         }
         "kamino_add_collateral" => {
             let p: kamino::KaminoAddCollateralParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_add_collateral params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_add_collateral params: {e}"))
+                })?;
             kamino::validate_kamino_add_collateral_params(&p)
         }
         "kamino_withdraw_collateral" => {
             let p: kamino::KaminoWithdrawCollateralParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_withdraw_collateral params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_withdraw_collateral params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_withdraw_collateral_params(&p)
         }
         "kamino_multiply_open" => {
             let p: kamino::KaminoMultiplyOpenParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_multiply_open params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_multiply_open params: {e}"))
+                })?;
             kamino::validate_kamino_multiply_open_params(&p)
         }
         "kamino_multiply_add" => {
             let p: kamino::KaminoMultiplyAddParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_multiply_add params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_multiply_add params: {e}"))
+                })?;
             kamino::validate_kamino_multiply_add_params(&p)
         }
         "kamino_multiply_withdraw" => {
             let p: kamino::KaminoMultiplyWithdrawParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_multiply_withdraw params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_multiply_withdraw params: {e}"))
+                })?;
             kamino::validate_kamino_multiply_withdraw_params(&p)
         }
         "kamino_multiply_close" => {
             let p: kamino::KaminoMultiplyCloseParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_multiply_close params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_multiply_close params: {e}"))
+                })?;
             kamino::validate_kamino_multiply_close_params(&p)
         }
         "kamino_long_open" => {
-            let p: kamino::KaminoLongOpenParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_long_open params: {e}")))?;
+            let p: kamino::KaminoLongOpenParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_long_open params: {e}"))
+                })?;
             kamino::validate_kamino_long_open_params(&p)
         }
         "kamino_short_open" => {
-            let p: kamino::KaminoShortOpenParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_short_open params: {e}")))?;
+            let p: kamino::KaminoShortOpenParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_short_open params: {e}"))
+                })?;
             kamino::validate_kamino_short_open_params(&p)
         }
         "kamino_position_close" => {
             let p: kamino::KaminoPositionCloseParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_position_close params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_position_close params: {e}"))
+                })?;
             kamino::validate_kamino_position_close_params(&p)
         }
         "kamino_vault_deposit" => {
             let p: kamino::KaminoVaultDepositParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_deposit params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_vault_deposit params: {e}"))
+                })?;
             kamino::validate_kamino_vault_deposit_params(&p)
         }
         "kamino_vault_withdraw" => {
             let p: kamino::KaminoVaultWithdrawParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_withdraw params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_vault_withdraw params: {e}"))
+                })?;
             kamino::validate_kamino_vault_withdraw_params(&p)
         }
         "kamino_stake" => {
-            let p: kamino::KaminoStakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_stake params: {e}")))?;
+            let p: kamino::KaminoStakeParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_stake params: {e}"))
+                })?;
             kamino::validate_kamino_stake_params(&p)
         }
         "kamino_unstake" => {
-            let p: kamino::KaminoUnstakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_unstake params: {e}")))?;
+            let p: kamino::KaminoUnstakeParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_unstake params: {e}"))
+                })?;
             kamino::validate_kamino_unstake_params(&p)
         }
         "kamino_vaults" => {
-            let p: kamino::KaminoVaultsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vaults params: {e}")))?;
+            let p: kamino::KaminoVaultsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_vaults params: {e}"))
+                })?;
             kamino::validate_kamino_vaults_params(&p)
         }
         "kamino_user_vault_positions" => {
             let p: kamino::KaminoUserVaultPositionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_vault_positions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_user_vault_positions params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_user_vault_positions_params(&p)
         }
         "kamino_markets" => {
-            let p: kamino::KaminoMarketsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_markets params: {e}")))?;
+            let p: kamino::KaminoMarketsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_markets params: {e}"))
+                })?;
             kamino::validate_kamino_markets_params(&p)
         }
         "kamino_market_reserves" => {
             let p: kamino::KaminoMarketReservesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_market_reserves params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_market_reserves params: {e}"))
+                })?;
             kamino::validate_kamino_market_reserves_params(&p)
         }
         "kamino_user_obligations" => {
             let p: kamino::KaminoUserObligationsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_obligations params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_user_obligations params: {e}"))
+                })?;
             kamino::validate_kamino_user_obligations_params(&p)
         }
         "kamino_oracle_prices" => {
             let p: kamino::KaminoOraclePricesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_oracle_prices params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_oracle_prices params: {e}"))
+                })?;
             kamino::validate_kamino_oracle_prices_params(&p)
         }
         "kamino_usd_benchmark_rates" => {
             let p: kamino::KaminoUsdBenchmarkRatesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_usd_benchmark_rates params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid kamino_usd_benchmark_rates params: {e}"))
+            })?;
             kamino::validate_kamino_usd_benchmark_rates_params(&p)
         }
         "kamino_vault_detail" => {
             let p: kamino::KaminoVaultDetailParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_detail params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_vault_detail params: {e}"))
+                })?;
             kamino::validate_kamino_vault_detail_params(&p)
         }
         "kamino_vault_metrics" => {
             let p: kamino::KaminoVaultMetricsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_metrics params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_vault_metrics params: {e}"))
+                })?;
             kamino::validate_kamino_vault_metrics_params(&p)
         }
         "kamino_vault_metrics_history" => {
             let p: kamino::KaminoVaultMetricsHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_metrics_history params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_vault_metrics_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_vault_metrics_history_params(&p)
         }
         "kamino_vault_allocation_history" => {
-            let p: kamino::KaminoVaultAllocationHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_allocation_history params: {e}")))?;
+            let p: kamino::KaminoVaultAllocationHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_vault_allocation_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_vault_allocation_history_params(&p)
         }
         "kamino_vaults_rewards" => {
             let p: kamino::KaminoVaultsRewardsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vaults_rewards params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_vaults_rewards params: {e}"))
+                })?;
             kamino::validate_kamino_vaults_rewards_params(&p)
         }
         "kamino_vaults_summary" => {
             let p: kamino::KaminoVaultsSummaryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vaults_summary params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_vaults_summary params: {e}"))
+                })?;
             kamino::validate_kamino_vaults_summary_params(&p)
         }
         "kamino_vault_mint_metadata" => {
             let p: kamino::KaminoVaultMintMetadataParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_mint_metadata params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid kamino_vault_mint_metadata params: {e}"))
+            })?;
             kamino::validate_kamino_vault_mint_metadata_params(&p)
         }
         "kamino_vault_mint_image" => {
             let p: kamino::KaminoVaultMintImageParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_mint_image params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_vault_mint_image params: {e}"))
+                })?;
             kamino::validate_kamino_vault_mint_image_params(&p)
         }
         "kamino_user_metrics_history" => {
             let p: kamino::KaminoUserMetricsHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_metrics_history params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_user_metrics_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_user_metrics_history_params(&p)
         }
         "kamino_user_transactions" => {
             let p: kamino::KaminoUserTransactionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_transactions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_user_transactions params: {e}"))
+                })?;
             kamino::validate_kamino_user_transactions_params(&p)
         }
         "kamino_user_kvault_rewards" => {
             let p: kamino::KaminoUserKvaultRewardsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_kvault_rewards params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid kamino_user_kvault_rewards params: {e}"))
+            })?;
             kamino::validate_kamino_user_kvault_rewards_params(&p)
         }
         "kamino_vault_transactions" => {
             let p: kamino::KaminoVaultTransactionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_transactions params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid kamino_vault_transactions params: {e}"))
+            })?;
             kamino::validate_kamino_vault_transactions_params(&p)
         }
         "kamino_user_vault_position" => {
             let p: kamino::KaminoUserVaultPositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_vault_position params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid kamino_user_vault_position params: {e}"))
+            })?;
             kamino::validate_kamino_user_vault_position_params(&p)
         }
         "kamino_user_vault_metrics_history" => {
-            let p: kamino::KaminoUserVaultMetricsHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_vault_metrics_history params: {e}")))?;
+            let p: kamino::KaminoUserVaultMetricsHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_user_vault_metrics_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_user_vault_metrics_history_params(&p)
         }
         "kamino_user_vault_pnl" => {
             let p: kamino::KaminoUserVaultPnlParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_vault_pnl params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_user_vault_pnl params: {e}"))
+                })?;
             kamino::validate_kamino_user_vault_pnl_params(&p)
         }
         "kamino_user_vault_pnl_history" => {
             let p: kamino::KaminoUserVaultPnlHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_vault_pnl_history params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_user_vault_pnl_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_user_vault_pnl_history_params(&p)
         }
         "kamino_vault_deposit_instructions" => {
-            let p: kamino::KaminoVaultDepositInstructionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_deposit_instructions params: {e}")))?;
+            let p: kamino::KaminoVaultDepositInstructionsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_vault_deposit_instructions params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_vault_deposit_instructions_params(&p)
         }
         "kamino_vault_withdraw_instructions" => {
-            let p: kamino::KaminoVaultWithdrawInstructionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_vault_withdraw_instructions params: {e}")))?;
+            let p: kamino::KaminoVaultWithdrawInstructionsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_vault_withdraw_instructions params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_vault_withdraw_instructions_params(&p)
         }
         "kamino_market_detail" => {
             let p: kamino::KaminoMarketDetailParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_market_detail params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_market_detail params: {e}"))
+                })?;
             kamino::validate_kamino_market_detail_params(&p)
         }
         "kamino_market_reserve_history" => {
-            let p: kamino::KaminoMarketReserveHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_market_reserve_history params: {e}")))?;
+            let p: kamino::KaminoMarketReserveHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_market_reserve_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_market_reserve_history_params(&p)
         }
         "kamino_market_leverage_metrics" => {
-            let p: kamino::KaminoMarketLeverageMetricsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_market_leverage_metrics params: {e}")))?;
+            let p: kamino::KaminoMarketLeverageMetricsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_market_leverage_metrics params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_market_leverage_metrics_params(&p)
         }
         "kamino_market_metrics_history" => {
-            let p: kamino::KaminoMarketMetricsHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_market_metrics_history params: {e}")))?;
+            let p: kamino::KaminoMarketMetricsHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_market_metrics_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_market_metrics_history_params(&p)
         }
         "kamino_reserve_borrow_apy_history" => {
-            let p: kamino::KaminoReserveBorrowApyHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_reserve_borrow_apy_history params: {e}")))?;
+            let p: kamino::KaminoReserveBorrowApyHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_reserve_borrow_apy_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_reserve_borrow_apy_history_params(&p)
         }
         "kamino_reserve_borrow_apy_median" => {
-            let p: kamino::KaminoReserveBorrowApyMedianParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_reserve_borrow_apy_median params: {e}")))?;
+            let p: kamino::KaminoReserveBorrowApyMedianParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_reserve_borrow_apy_median params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_reserve_borrow_apy_median_params(&p)
         }
         "kamino_obligation_interest_earned" => {
-            let p: kamino::KaminoObligationInterestEarnedParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_obligation_interest_earned params: {e}")))?;
+            let p: kamino::KaminoObligationInterestEarnedParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_obligation_interest_earned params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_obligation_interest_earned_params(&p)
         }
         "kamino_obligation_interest_paid" => {
-            let p: kamino::KaminoObligationInterestPaidParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_obligation_interest_paid params: {e}")))?;
+            let p: kamino::KaminoObligationInterestPaidParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_obligation_interest_paid params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_obligation_interest_paid_params(&p)
         }
         "kamino_obligation_transactions" => {
-            let p: kamino::KaminoObligationTransactionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_obligation_transactions params: {e}")))?;
+            let p: kamino::KaminoObligationTransactionsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_obligation_transactions params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_obligation_transactions_params(&p)
         }
         "kamino_user_klend_transactions_all" => {
-            let p: kamino::KaminoUserKlendTransactionsAllParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_klend_transactions_all params: {e}")))?;
+            let p: kamino::KaminoUserKlendTransactionsAllParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_user_klend_transactions_all params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_user_klend_transactions_all_params(&p)
         }
         "kamino_user_klend_transactions" => {
-            let p: kamino::KaminoUserKlendTransactionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_klend_transactions params: {e}")))?;
+            let p: kamino::KaminoUserKlendTransactionsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_user_klend_transactions params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_user_klend_transactions_params(&p)
         }
         "kamino_borrow_order_fills" => {
             let p: kamino::KaminoBorrowOrderFillsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_borrow_order_fills params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_borrow_order_fills params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_borrow_order_fills_params(&p)
         }
         "kamino_open_borrow_orders" => {
             let p: kamino::KaminoOpenBorrowOrdersParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_open_borrow_orders params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_open_borrow_orders params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_open_borrow_orders_params(&p)
         }
         "kamino_yield_history" => {
             let p: kamino::KaminoYieldHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_yield_history params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_yield_history params: {e}"))
+                })?;
             kamino::validate_kamino_yield_history_params(&p)
         }
         "kamino_principal_token_yields" => {
-            let p: kamino::KaminoPrincipalTokenYieldsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_principal_token_yields params: {e}")))?;
+            let p: kamino::KaminoPrincipalTokenYieldsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_principal_token_yields params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_principal_token_yields_params(&p)
         }
         "kamino_airdrop_allocations" => {
             let p: kamino::KaminoAirdropAllocationsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_airdrop_allocations params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_airdrop_allocations params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_airdrop_allocations_params(&p)
         }
         "kamino_airdrop_metrics" => {
             let p: kamino::KaminoAirdropMetricsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_airdrop_metrics params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_airdrop_metrics params: {e}"))
+                })?;
             kamino::validate_kamino_airdrop_metrics_params(&p)
         }
         "kamino_staking_yields" => {
             let p: kamino::KaminoStakingYieldsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_staking_yields params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_staking_yields params: {e}"))
+                })?;
             kamino::validate_kamino_staking_yields_params(&p)
         }
         "kamino_staking_yields_median" => {
             let p: kamino::KaminoStakingYieldsMedianParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_staking_yields_median params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_staking_yields_median params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_staking_yields_median_params(&p)
         }
         "kamino_staking_yields_mean" => {
             let p: kamino::KaminoStakingYieldsMeanParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_staking_yields_mean params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid kamino_staking_yields_mean params: {e}"))
+            })?;
             kamino::validate_kamino_staking_yields_mean_params(&p)
         }
         "kamino_user_staking_boosts" => {
             let p: kamino::KaminoUserStakingBoostsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_staking_boosts params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid kamino_user_staking_boosts params: {e}"))
+            })?;
             kamino::validate_kamino_user_staking_boosts_params(&p)
         }
         "kamino_season_rewards_user" => {
             let p: kamino::KaminoSeasonRewardsUserParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_season_rewards_user params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid kamino_season_rewards_user params: {e}"))
+            })?;
             kamino::validate_kamino_season_rewards_user_params(&p)
         }
         "kamino_season_rewards_vesting_pool" => {
-            let p: kamino::KaminoSeasonRewardsVestingPoolParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_season_rewards_vesting_pool params: {e}")))?;
+            let p: kamino::KaminoSeasonRewardsVestingPoolParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_season_rewards_vesting_pool params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_season_rewards_vesting_pool_params(&p)
         }
         "kamino_private_credit_metrics" => {
-            let p: kamino::KaminoPrivateCreditMetricsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_private_credit_metrics params: {e}")))?;
+            let p: kamino::KaminoPrivateCreditMetricsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_private_credit_metrics params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_private_credit_metrics_params(&p)
         }
         "kamino_private_credit_metrics_history" => {
-            let p: kamino::KaminoPrivateCreditMetricsHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_private_credit_metrics_history params: {e}")))?;
+            let p: kamino::KaminoPrivateCreditMetricsHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_private_credit_metrics_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_private_credit_metrics_history_params(&p)
         }
         "kamino_user_farm_transactions" => {
-            let p: kamino::KaminoUserFarmTransactionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_farm_transactions params: {e}")))?;
+            let p: kamino::KaminoUserFarmTransactionsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_user_farm_transactions params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_user_farm_transactions_params(&p)
         }
         "kamino_farm_transactions" => {
             let p: kamino::KaminoFarmTransactionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_farm_transactions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_farm_transactions params: {e}"))
+                })?;
             kamino::validate_kamino_farm_transactions_params(&p)
         }
         "kamino_market_reserves_account" => {
-            let p: kamino::KaminoMarketReservesAccountParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_market_reserves_account params: {e}")))?;
+            let p: kamino::KaminoMarketReservesAccountParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_market_reserves_account params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_market_reserves_account_params(&p)
         }
         "kamino_user_rewards" => {
             let p: kamino::KaminoUserRewardsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_user_rewards params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_user_rewards params: {e}"))
+                })?;
             kamino::validate_kamino_user_rewards_params(&p)
         }
         "kamino_loan_detail" => {
             let p: kamino::KaminoLoanDetailParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_loan_detail params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_loan_detail params: {e}"))
+                })?;
             kamino::validate_kamino_loan_detail_params(&p)
         }
         "kamino_obligation_pnl" => {
             let p: kamino::KaminoObligationPnlParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_obligation_pnl params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_obligation_pnl params: {e}"))
+                })?;
             kamino::validate_kamino_obligation_pnl_params(&p)
         }
         "kamino_obligation_metrics_history" => {
-            let p: kamino::KaminoObligationMetricsHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_obligation_metrics_history params: {e}")))?;
+            let p: kamino::KaminoObligationMetricsHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_obligation_metrics_history params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_obligation_metrics_history_params(&p)
         }
         "kamino_rewards_list" => {
             let p: kamino::KaminoRewardsListParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_rewards_list params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_rewards_list params: {e}"))
+                })?;
             kamino::validate_kamino_rewards_list_params(&p)
         }
         "kamino_rewards_history" => {
             let p: kamino::KaminoRewardsHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_rewards_history params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_rewards_history params: {e}"))
+                })?;
             kamino::validate_kamino_rewards_history_params(&p)
         }
         "kamino_borrow_instructions" => {
             let p: kamino::KaminoBorrowInstructionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_borrow_instructions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_borrow_instructions params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_borrow_instructions_params(&p)
         }
         "kamino_repay_instructions" => {
             let p: kamino::KaminoRepayInstructionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_repay_instructions params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid kamino_repay_instructions params: {e}"))
+            })?;
             kamino::validate_kamino_repay_instructions_params(&p)
         }
         "kamino_kswap" => {
-            let p: kamino::KaminoKswapParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_kswap params: {e}")))?;
+            let p: kamino::KaminoKswapParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid kamino_kswap params: {e}"))
+                })?;
             kamino::validate_kamino_kswap_params(&p)
         }
         "kamino_deposit_instructions" => {
             let p: kamino::KaminoDepositInstructionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_deposit_instructions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_deposit_instructions params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_deposit_instructions_params(&p)
         }
         "kamino_withdraw_instructions" => {
-            let p: kamino::KaminoWithdrawInstructionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid kamino_withdraw_instructions params: {e}")))?;
+            let p: kamino::KaminoWithdrawInstructionsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid kamino_withdraw_instructions params: {e}"
+                    ))
+                })?;
             kamino::validate_kamino_withdraw_instructions_params(&p)
         }
         // ── Jito Finance Actions ─────────────────────────────────────────────────────
@@ -1478,8 +2152,10 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             jito::validate_jito_stake_params(&p)
         }
         "jito_unstake" => {
-            let p: jito::JitoUnstakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jito_unstake params: {e}")))?;
+            let p: jito::JitoUnstakeParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jito_unstake params: {e}"))
+                })?;
             jito::validate_jito_unstake_params(&p)
         }
         "jito_tip" => {
@@ -1493,611 +2169,927 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             jito::validate_jito_bundle_params(&p)
         }
         "jito_bundle_status" => {
-            let p: jito::JitoBundleStatusParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid jito_bundle_status params: {e}")))?;
+            let p: jito::JitoBundleStatusParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid jito_bundle_status params: {e}"))
+                })?;
             jito::validate_jito_bundle_status_params(&p)
         }
         // ── Meteora Protocol Actions ─────────────────────────────────────────────────
         "meteora_swap" => {
-            let p: meteora::MeteoraSwapParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_swap params: {e}")))?;
+            let p: meteora::MeteoraSwapParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_swap params: {e}"))
+                })?;
             meteora::validate_meteora_swap_params(&p)
         }
         "meteora_add_liquidity" => {
             let p: meteora::MeteoraAddLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_add_liquidity params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_add_liquidity params: {e}"))
+                })?;
             meteora::validate_meteora_add_liquidity_params(&p)
         }
         "meteora_remove_liquidity" => {
             let p: meteora::MeteoraRemoveLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_remove_liquidity params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid meteora_remove_liquidity params: {e}"))
+            })?;
             meteora::validate_meteora_remove_liquidity_params(&p)
         }
         "meteora_create_pool" => {
             let p: meteora::MeteoraCreatePoolParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_create_pool params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_create_pool params: {e}"))
+                })?;
             meteora::validate_meteora_create_pool_params(&p)
         }
         "meteora_open_position" => {
             let p: meteora::MeteoraOpenPositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_open_position params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_open_position params: {e}"))
+                })?;
             meteora::validate_meteora_open_position_params(&p)
         }
         "meteora_close_position" => {
             let p: meteora::MeteoraClosePositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_close_position params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_close_position params: {e}"))
+                })?;
             meteora::validate_meteora_close_position_params(&p)
         }
         "meteora_add_to_position" => {
             let p: meteora::MeteoraAddToPositionParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_add_to_position params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_add_to_position params: {e}"))
+                })?;
             meteora::validate_meteora_add_to_position_params(&p)
         }
         "meteora_claim_fees" => {
             let p: meteora::MeteoraClaimFeesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_claim_fees params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_claim_fees params: {e}"))
+                })?;
             meteora::validate_meteora_claim_fees_params(&p)
         }
         "meteora_claim_rewards" => {
             let p: meteora::MeteoraClaimRewardsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_claim_rewards params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_claim_rewards params: {e}"))
+                })?;
             meteora::validate_meteora_claim_rewards_params(&p)
         }
         "meteora_stake" => {
-            let p: meteora::MeteoraStakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_stake params: {e}")))?;
+            let p: meteora::MeteoraStakeParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_stake params: {e}"))
+                })?;
             meteora::validate_meteora_stake_params(&p)
         }
         "meteora_unstake" => {
-            let p: meteora::MeteoraUnstakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_unstake params: {e}")))?;
+            let p: meteora::MeteoraUnstakeParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_unstake params: {e}"))
+                })?;
             meteora::validate_meteora_unstake_params(&p)
         }
         "meteora_harvest" => {
-            let p: meteora::MeteoraHarvestParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_harvest params: {e}")))?;
+            let p: meteora::MeteoraHarvestParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_harvest params: {e}"))
+                })?;
             meteora::validate_meteora_harvest_params(&p)
         }
         // ── Meteora GET Query Actions ────────────────────────────────────────────────
         "meteora_dlmm_get_pairs" => {
             let p: meteora::MeteoraDlmmGetPairsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dlmm_get_pairs params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dlmm_get_pairs params: {e}"))
+                })?;
             meteora::validate_meteora_dlmm_get_pairs_params(&p)
         }
         "meteora_dlmm_get_pair" => {
             let p: meteora::MeteoraDlmmGetPairParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dlmm_get_pair params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dlmm_get_pair params: {e}"))
+                })?;
             meteora::validate_meteora_dlmm_get_pair_params(&p)
         }
         "meteora_dlmm_get_user_positions" => {
-            let p: meteora::MeteoraDlmmGetUserPositionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dlmm_get_user_positions params: {e}")))?;
+            let p: meteora::MeteoraDlmmGetUserPositionsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dlmm_get_user_positions params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dlmm_get_user_positions_params(&p)
         }
         "meteora_dlmm_get_active_bin" => {
             let p: meteora::MeteoraDlmmGetActiveBinParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dlmm_get_active_bin params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dlmm_get_active_bin params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dlmm_get_active_bin_params(&p)
         }
         "meteora_dlmm_get_pool_groups" => {
             let p: meteora::MeteoraDlmmGetPoolGroupsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dlmm_get_pool_groups params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dlmm_get_pool_groups params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dlmm_get_pool_groups_params(&p)
         }
         "meteora_dlmm_get_pool_group" => {
             let p: meteora::MeteoraDlmmGetPoolGroupParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dlmm_get_pool_group params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dlmm_get_pool_group params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dlmm_get_pool_group_params(&p)
         }
         "meteora_dlmm_get_pool_ohlcv" => {
             let p: meteora::MeteoraDlmmGetPoolOhlcvParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dlmm_get_pool_ohlcv params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dlmm_get_pool_ohlcv params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dlmm_get_pool_ohlcv_params(&p)
         }
         "meteora_dlmm_get_pool_volume_history" => {
-            let p: meteora::MeteoraDlmmGetPoolVolumeHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dlmm_get_pool_volume_history params: {e}")))?;
+            let p: meteora::MeteoraDlmmGetPoolVolumeHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dlmm_get_pool_volume_history params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dlmm_get_pool_volume_history_params(&p)
         }
         "meteora_dlmm_get_protocol_stats" => {
-            let p: meteora::MeteoraDlmmGetProtocolStatsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dlmm_get_protocol_stats params: {e}")))?;
+            let p: meteora::MeteoraDlmmGetProtocolStatsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dlmm_get_protocol_stats params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dlmm_get_protocol_stats_params(&p)
         }
         "meteora_dammv2_get_pools" => {
             let p: meteora::MeteoraDammV2GetPoolsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_get_pools params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dammv2_get_pools params: {e}"))
+                })?;
             meteora::validate_meteora_dammv2_get_pools_params(&p)
         }
         "meteora_dammv2_get_pool_groups" => {
-            let p: meteora::MeteoraDammV2GetPoolGroupsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_get_pool_groups params: {e}")))?;
+            let p: meteora::MeteoraDammV2GetPoolGroupsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv2_get_pool_groups params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv2_get_pool_groups_params(&p)
         }
         "meteora_dammv2_get_pool_group" => {
-            let p: meteora::MeteoraDammV2GetPoolGroupParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_get_pool_group params: {e}")))?;
+            let p: meteora::MeteoraDammV2GetPoolGroupParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv2_get_pool_group params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv2_get_pool_group_params(&p)
         }
         "meteora_dammv2_get_pool" => {
             let p: meteora::MeteoraDammV2GetPoolParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_get_pool params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dammv2_get_pool params: {e}"))
+                })?;
             meteora::validate_meteora_dammv2_get_pool_params(&p)
         }
         "meteora_dammv2_get_pool_ohlcv" => {
-            let p: meteora::MeteoraDammV2GetPoolOhlcvParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_get_pool_ohlcv params: {e}")))?;
+            let p: meteora::MeteoraDammV2GetPoolOhlcvParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv2_get_pool_ohlcv params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv2_get_pool_ohlcv_params(&p)
         }
         "meteora_dammv2_get_pool_volume_history" => {
-            let p: meteora::MeteoraDammV2GetPoolVolumeHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_get_pool_volume_history params: {e}")))?;
+            let p: meteora::MeteoraDammV2GetPoolVolumeHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv2_get_pool_volume_history params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv2_get_pool_volume_history_params(&p)
         }
         "meteora_dammv2_get_protocol_metrics" => {
-            let p: meteora::MeteoraDammV2GetProtocolMetricsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_get_protocol_metrics params: {e}")))?;
+            let p: meteora::MeteoraDammV2GetProtocolMetricsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv2_get_protocol_metrics params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv2_get_protocol_metrics_params(&p)
         }
         "meteora_dammv1_get_pools" => {
             let p: meteora::MeteoraDammV1GetPoolsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_get_pools params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dammv1_get_pools params: {e}"))
+                })?;
             meteora::validate_meteora_dammv1_get_pools_params(&p)
         }
         "meteora_dammv1_get_pool_configs" => {
-            let p: meteora::MeteoraDammV1GetPoolConfigsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_get_pool_configs params: {e}")))?;
+            let p: meteora::MeteoraDammV1GetPoolConfigsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv1_get_pool_configs params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv1_get_pool_configs_params(&p)
         }
         "meteora_dammv1_search_pools" => {
             let p: meteora::MeteoraDammV1SearchPoolsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_search_pools params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv1_search_pools params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv1_search_pools_params(&p)
         }
         "meteora_dammv1_get_farms" => {
             let p: meteora::MeteoraDammV1GetFarmsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_get_farms params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dammv1_get_farms params: {e}"))
+                })?;
             meteora::validate_meteora_dammv1_get_farms_params(&p)
         }
         "meteora_dammv1_get_pools_metrics" => {
-            let p: meteora::MeteoraDammV1GetPoolsMetricsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_get_pools_metrics params: {e}")))?;
+            let p: meteora::MeteoraDammV1GetPoolsMetricsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv1_get_pools_metrics params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv1_get_pools_metrics_params(&p)
         }
         "meteora_dammv1_get_alpha_vaults" => {
-            let p: meteora::MeteoraDammV1GetAlphaVaultsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_get_alpha_vaults params: {e}")))?;
+            let p: meteora::MeteoraDammV1GetAlphaVaultsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv1_get_alpha_vaults params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv1_get_alpha_vaults_params(&p)
         }
         "meteora_dammv1_get_alpha_vault_configs" => {
-            let p: meteora::MeteoraDammV1GetAlphaVaultConfigsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_get_alpha_vault_configs params: {e}")))?;
+            let p: meteora::MeteoraDammV1GetAlphaVaultConfigsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv1_get_alpha_vault_configs params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv1_get_alpha_vault_configs_params(&p)
         }
         "meteora_dammv1_get_pools_by_vault_lp" => {
-            let p: meteora::MeteoraDammV1GetPoolsByVaultLpParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_get_pools_by_vault_lp params: {e}")))?;
+            let p: meteora::MeteoraDammV1GetPoolsByVaultLpParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv1_get_pools_by_vault_lp params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv1_get_pools_by_vault_lp_params(&p)
         }
         "meteora_dammv1_get_fee_config" => {
-            let p: meteora::MeteoraDammV1GetFeeConfigParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_get_fee_config params: {e}")))?;
+            let p: meteora::MeteoraDammV1GetFeeConfigParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv1_get_fee_config params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv1_get_fee_config_params(&p)
         }
         "meteora_s2e_get_analytics" => {
             let p: meteora::MeteoraS2EGetAnalyticsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_s2e_get_analytics params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid meteora_s2e_get_analytics params: {e}"))
+            })?;
             meteora::validate_meteora_s2e_get_analytics_params(&p)
         }
         "meteora_s2e_get_all_vaults" => {
             let p: meteora::MeteoraS2EGetAllVaultsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_s2e_get_all_vaults params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid meteora_s2e_get_all_vaults params: {e}"))
+            })?;
             meteora::validate_meteora_s2e_get_all_vaults_params(&p)
         }
         "meteora_s2e_filter_vaults" => {
             let p: meteora::MeteoraS2EFilterVaultsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_s2e_filter_vaults params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid meteora_s2e_filter_vaults params: {e}"))
+            })?;
             meteora::validate_meteora_s2e_filter_vaults_params(&p)
         }
         "meteora_s2e_get_vault" => {
             let p: meteora::MeteoraS2EGetVaultParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_s2e_get_vault params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_s2e_get_vault params: {e}"))
+                })?;
             meteora::validate_meteora_s2e_get_vault_params(&p)
         }
         "meteora_vault_get_info" => {
             let p: meteora::MeteoraVaultGetInfoParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_vault_get_info params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_vault_get_info params: {e}"))
+                })?;
             meteora::validate_meteora_vault_get_info_params(&p)
         }
         "meteora_vault_get_addresses" => {
             let p: meteora::MeteoraVaultGetAddressesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_vault_get_addresses params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_vault_get_addresses params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_vault_get_addresses_params(&p)
         }
         "meteora_vault_get_state" => {
             let p: meteora::MeteoraVaultGetStateParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_vault_get_state params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_vault_get_state params: {e}"))
+                })?;
             meteora::validate_meteora_vault_get_state_params(&p)
         }
         "meteora_vault_get_apy" => {
             let p: meteora::MeteoraVaultGetApyParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_vault_get_apy params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_vault_get_apy params: {e}"))
+                })?;
             meteora::validate_meteora_vault_get_apy_params(&p)
         }
         "meteora_vault_get_apy_history" => {
-            let p: meteora::MeteoraVaultGetApyHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_vault_get_apy_history params: {e}")))?;
+            let p: meteora::MeteoraVaultGetApyHistoryParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_vault_get_apy_history params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_vault_get_apy_history_params(&p)
         }
         "meteora_vault_get_virtual_price" => {
-            let p: meteora::MeteoraVaultGetVirtualPriceParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_vault_get_virtual_price params: {e}")))?;
+            let p: meteora::MeteoraVaultGetVirtualPriceParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_vault_get_virtual_price params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_vault_get_virtual_price_params(&p)
         }
         // ── Meteora TX Actions (new) ─────────────────────────────────────────────────
         "meteora_dammv1_swap" => {
             let p: meteora::MeteoraDammV1SwapParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_swap params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dammv1_swap params: {e}"))
+                })?;
             meteora::validate_meteora_dammv1_swap_params(&p)
         }
         "meteora_dammv1_deposit" => {
             let p: meteora::MeteoraDammV1DepositParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_deposit params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dammv1_deposit params: {e}"))
+                })?;
             meteora::validate_meteora_dammv1_deposit_params(&p)
         }
         "meteora_dammv1_withdraw" => {
             let p: meteora::MeteoraDammV1WithdrawParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv1_withdraw params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dammv1_withdraw params: {e}"))
+                })?;
             meteora::validate_meteora_dammv1_withdraw_params(&p)
         }
         "meteora_dammv2_swap" => {
             let p: meteora::MeteoraDammV2SwapParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_swap params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dammv2_swap params: {e}"))
+                })?;
             meteora::validate_meteora_dammv2_swap_params(&p)
         }
         "meteora_dammv2_add_liquidity" => {
-            let p: meteora::MeteoraDammV2AddLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_add_liquidity params: {e}")))?;
+            let p: meteora::MeteoraDammV2AddLiquidityParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv2_add_liquidity params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv2_add_liquidity_params(&p)
         }
         "meteora_dammv2_remove_liquidity" => {
-            let p: meteora::MeteoraDammV2RemoveLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_dammv2_remove_liquidity params: {e}")))?;
+            let p: meteora::MeteoraDammV2RemoveLiquidityParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_dammv2_remove_liquidity params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_dammv2_remove_liquidity_params(&p)
         }
         "meteora_vault_deposit" => {
             let p: meteora::MeteoraVaultDepositParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_vault_deposit params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_vault_deposit params: {e}"))
+                })?;
             meteora::validate_meteora_vault_deposit_params(&p)
         }
         "meteora_vault_withdraw" => {
             let p: meteora::MeteoraVaultWithdrawParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_vault_withdraw params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_vault_withdraw params: {e}"))
+                })?;
             meteora::validate_meteora_vault_withdraw_params(&p)
         }
         "meteora_s2e_stake" => {
             let p: meteora::MeteoraS2EStakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_s2e_stake params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_s2e_stake params: {e}"))
+                })?;
             meteora::validate_meteora_s2e_stake_params(&p)
         }
         "meteora_s2e_unstake" => {
             let p: meteora::MeteoraS2EUnstakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_s2e_unstake params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_s2e_unstake params: {e}"))
+                })?;
             meteora::validate_meteora_s2e_unstake_params(&p)
         }
         "meteora_s2e_claim_fee" => {
             let p: meteora::MeteoraS2EClaimFeeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_s2e_claim_fee params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_s2e_claim_fee params: {e}"))
+                })?;
             meteora::validate_meteora_s2e_claim_fee_params(&p)
         }
         "meteora_s2e_cancel_unstake" => {
             let p: meteora::MeteoraS2ECancelUnstakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_s2e_cancel_unstake params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid meteora_s2e_cancel_unstake params: {e}"
+                    ))
+                })?;
             meteora::validate_meteora_s2e_cancel_unstake_params(&p)
         }
         "meteora_s2e_withdraw" => {
             let p: meteora::MeteoraS2EWithdrawParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid meteora_s2e_withdraw params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_s2e_withdraw params: {e}"))
+                })?;
             meteora::validate_meteora_s2e_withdraw_params(&p)
         }
         // ── Marinade Finance Actions ─────────────────────────────────────────────────
         "marinade_stake" => {
-            let p: marinade::MarinadeStakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marinade_stake params: {e}")))?;
+            let p: marinade::MarinadeStakeParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marinade_stake params: {e}"))
+                })?;
             marinade::validate_marinade_stake_params(&p)
         }
         "marinade_unstake" => {
             let p: marinade::MarinadeUnstakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marinade_unstake params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marinade_unstake params: {e}"))
+                })?;
             marinade::validate_marinade_unstake_params(&p)
         }
         "marinade_delayed_unstake" => {
             let p: marinade::MarinadeDelayedUnstakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marinade_delayed_unstake params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marinade_delayed_unstake params: {e}"))
+                })?;
             marinade::validate_marinade_delayed_unstake_params(&p)
         }
         "marinade_claim_ticket" | "marinade_claim" => {
             let p: marinade::MarinadeClaimTicketParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marinade_claim_ticket params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marinade_claim_ticket params: {e}"))
+                })?;
             marinade::validate_marinade_claim_ticket_params(&p)
         }
         // ── marginfi v2 Protocol Actions ─────────────────────────────────────────────
         "marginfi_create_account" => {
             let p: marginfi::MarginfiCreateAccountParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_create_account params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid marginfi_create_account params: {e}"))
+            })?;
             marginfi::validate_marginfi_create_account_params(&p)
         }
         "marginfi_create_account_pda" => {
-            let p: marginfi::MarginfiCreateAccountPdaParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_create_account_pda params: {e}")))?;
+            let p: marginfi::MarginfiCreateAccountPdaParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid marginfi_create_account_pda params: {e}"
+                    ))
+                })?;
             marginfi::validate_marginfi_create_account_pda_params(&p)
         }
         "marginfi_close_account" => {
             let p: marginfi::MarginfiCloseAccountParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_close_account params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_close_account params: {e}"))
+                })?;
             marginfi::validate_marginfi_close_account_params(&p)
         }
         "marginfi_close_balance" => {
             let p: marginfi::MarginfiCloseBalanceParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_close_balance params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_close_balance params: {e}"))
+                })?;
             marginfi::validate_marginfi_close_balance_params(&p)
         }
         "marginfi_transfer_account" => {
             let p: marginfi::MarginfiTransferAccountParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_transfer_account params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid marginfi_transfer_account params: {e}"
+                    ))
+                })?;
             marginfi::validate_marginfi_transfer_account_params(&p)
         }
         "marginfi_deposit" => {
             let p: marginfi::MarginfiDepositParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_deposit params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_deposit params: {e}"))
+                })?;
             marginfi::validate_marginfi_deposit_params(&p)
         }
         "marginfi_withdraw" => {
             let p: marginfi::MarginfiWithdrawParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_withdraw params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_withdraw params: {e}"))
+                })?;
             marginfi::validate_marginfi_withdraw_params(&p)
         }
         "marginfi_borrow" => {
             let p: marginfi::MarginfiBorrowParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_borrow params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_borrow params: {e}"))
+                })?;
             marginfi::validate_marginfi_borrow_params(&p)
         }
         "marginfi_repay" => {
-            let p: marginfi::MarginfiRepayParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_repay params: {e}")))?;
+            let p: marginfi::MarginfiRepayParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_repay params: {e}"))
+                })?;
             marginfi::validate_marginfi_repay_params(&p)
         }
         "marginfi_liquidate" => {
             let p: marginfi::MarginfiLiquidateParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_liquidate params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_liquidate params: {e}"))
+                })?;
             marginfi::validate_marginfi_liquidate_params(&p)
         }
         "marginfi_start_liquidation" => {
-            let p: marginfi::MarginfiStartLiquidationParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_start_liquidation params: {e}")))?;
+            let p: marginfi::MarginfiStartLiquidationParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid marginfi_start_liquidation params: {e}"
+                    ))
+                })?;
             marginfi::validate_marginfi_start_liquidation_params(&p)
         }
         "marginfi_end_liquidation" => {
             let p: marginfi::MarginfiEndLiquidationParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_end_liquidation params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_end_liquidation params: {e}"))
+                })?;
             marginfi::validate_marginfi_end_liquidation_params(&p)
         }
         "marginfi_flashloan_start" => {
             let p: marginfi::MarginfiFlashloanStartParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_flashloan_start params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_flashloan_start params: {e}"))
+                })?;
             marginfi::validate_marginfi_flashloan_start_params(&p)
         }
         "marginfi_flashloan_end" => {
             let p: marginfi::MarginfiFlashloanEndParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_flashloan_end params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_flashloan_end params: {e}"))
+                })?;
             marginfi::validate_marginfi_flashloan_end_params(&p)
         }
         "marginfi_place_order" => {
             let p: marginfi::MarginfiPlaceOrderParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_place_order params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_place_order params: {e}"))
+                })?;
             marginfi::validate_marginfi_place_order_params(&p)
         }
         "marginfi_close_order" => {
             let p: marginfi::MarginfiCloseOrderParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_close_order params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_close_order params: {e}"))
+                })?;
             marginfi::validate_marginfi_close_order_params(&p)
         }
         "marginfi_execute_order_start" => {
-            let p: marginfi::MarginfiExecuteOrderStartParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_execute_order_start params: {e}")))?;
+            let p: marginfi::MarginfiExecuteOrderStartParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid marginfi_execute_order_start params: {e}"
+                    ))
+                })?;
             marginfi::validate_marginfi_execute_order_start_params(&p)
         }
         "marginfi_execute_order_end" => {
             let p: marginfi::MarginfiExecuteOrderEndParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_execute_order_end params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid marginfi_execute_order_end params: {e}"
+                    ))
+                })?;
             marginfi::validate_marginfi_execute_order_end_params(&p)
         }
         "marginfi_accrue_interest" => {
             let p: marginfi::MarginfiAccrueInterestParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_accrue_interest params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_accrue_interest params: {e}"))
+                })?;
             marginfi::validate_marginfi_accrue_interest_params(&p)
         }
         "marginfi_pulse_price" => {
             let p: marginfi::MarginfiPulsePriceParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_pulse_price params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_pulse_price params: {e}"))
+                })?;
             marginfi::validate_marginfi_pulse_price_params(&p)
         }
         "marginfi_pulse_health" => {
             let p: marginfi::MarginfiPulseHealthParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_pulse_health params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_pulse_health params: {e}"))
+                })?;
             marginfi::validate_marginfi_pulse_health_params(&p)
         }
         "marginfi_account_info" => {
             let p: marginfi::MarginfiAccountInfoParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_account_info params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_account_info params: {e}"))
+                })?;
             marginfi::validate_marginfi_account_info_params(&p)
         }
         "marginfi_banks" => {
-            let p: marginfi::MarginfiBanksParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_banks params: {e}")))?;
+            let p: marginfi::MarginfiBanksParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_banks params: {e}"))
+                })?;
             marginfi::validate_marginfi_banks_params(&p)
         }
         "marginfi_health" => {
             let p: marginfi::MarginfiHealthParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_health params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_health params: {e}"))
+                })?;
             marginfi::validate_marginfi_health_params(&p)
         }
         "marginfi_points" => {
             let p: marginfi::MarginfiPointsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_points params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_points params: {e}"))
+                })?;
             marginfi::validate_marginfi_points_params(&p)
         }
         "marginfi_bank_detail" => {
             let p: marginfi::MarginfiBankDetailParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_bank_detail params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_bank_detail params: {e}"))
+                })?;
             marginfi::validate_marginfi_bank_detail_params(&p)
         }
         "marginfi_user_accounts" => {
             let p: marginfi::MarginfiUserAccountsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_user_accounts params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_user_accounts params: {e}"))
+                })?;
             marginfi::validate_marginfi_user_accounts_params(&p)
         }
         "marginfi_claim_emissions" => {
             let p: marginfi::MarginfiClaimEmissionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_claim_emissions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_claim_emissions params: {e}"))
+                })?;
             marginfi::validate_marginfi_claim_emissions_params(&p)
         }
         "marginfi_settle_emissions" => {
             let p: marginfi::MarginfiSettleEmissionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_settle_emissions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid marginfi_settle_emissions params: {e}"
+                    ))
+                })?;
             marginfi::validate_marginfi_settle_emissions_params(&p)
         }
         "marginfi_withdraw_emissions_permissionless" => {
-            let p: marginfi::MarginfiWithdrawEmissionsPermissionlessParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_withdraw_emissions_permissionless params: {e}")))?;
+            let p: marginfi::MarginfiWithdrawEmissionsPermissionlessParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid marginfi_withdraw_emissions_permissionless params: {e}"
+                    ))
+                })?;
             marginfi::validate_marginfi_withdraw_emissions_permissionless_params(&p)
         }
         "marginfi_set_keeper_flags" => {
             let p: marginfi::MarginfiSetKeeperFlagsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_set_keeper_flags params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid marginfi_set_keeper_flags params: {e}"
+                    ))
+                })?;
             marginfi::validate_marginfi_set_keeper_flags_params(&p)
         }
         "marginfi_init_liq_record" => {
             let p: marginfi::MarginfiInitLiqRecordParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_init_liq_record params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid marginfi_init_liq_record params: {e}"))
+            })?;
             marginfi::validate_marginfi_init_liq_record_params(&p)
         }
         "marginfi_update_emissions_destination" => {
-            let p: marginfi::MarginfiUpdateEmissionsDestinationParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_update_emissions_destination params: {e}")))?;
+            let p: marginfi::MarginfiUpdateEmissionsDestinationParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid marginfi_update_emissions_destination params: {e}"
+                    ))
+                })?;
             marginfi::validate_marginfi_update_emissions_destination_params(&p)
         }
         "marginfi_clear_emissions" => {
             let p: marginfi::MarginfiClearEmissionsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid marginfi_clear_emissions params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid marginfi_clear_emissions params: {e}"))
+                })?;
             marginfi::validate_marginfi_clear_emissions_params(&p)
         }
         // ── Solend Protocol Actions ────────────────────────────────────────────────
         "solend_deposit" => {
-            let p: solend::SolendDepositParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_deposit params: {e}")))?;
+            let p: solend::SolendDepositParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_deposit params: {e}"))
+                })?;
             solend::validate_solend_deposit_params(&p)
         }
         "solend_withdraw" => {
-            let p: solend::SolendWithdrawParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_withdraw params: {e}")))?;
+            let p: solend::SolendWithdrawParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_withdraw params: {e}"))
+                })?;
             solend::validate_solend_withdraw_params(&p)
         }
         "solend_borrow" => {
-            let p: solend::SolendBorrowParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_borrow params: {e}")))?;
+            let p: solend::SolendBorrowParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_borrow params: {e}"))
+                })?;
             solend::validate_solend_borrow_params(&p)
         }
         "solend_repay" => {
-            let p: solend::SolendRepayParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_repay params: {e}")))?;
+            let p: solend::SolendRepayParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_repay params: {e}"))
+                })?;
             solend::validate_solend_repay_params(&p)
         }
         "solend_add_collateral" => {
             let p: solend::SolendAddCollateralParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_add_collateral params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_add_collateral params: {e}"))
+                })?;
             solend::validate_solend_add_collateral_params(&p)
         }
         "solend_withdraw_collateral" => {
             let p: solend::SolendWithdrawCollateralParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_withdraw_collateral params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid solend_withdraw_collateral params: {e}"
+                    ))
+                })?;
             solend::validate_solend_withdraw_collateral_params(&p)
         }
         "solend_liquidate" => {
-            let p: solend::SolendLiquidateParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_liquidate params: {e}")))?;
+            let p: solend::SolendLiquidateParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_liquidate params: {e}"))
+                })?;
             solend::validate_solend_liquidate_params(&p)
         }
         "solend_user_info" => {
-            let p: solend::SolendUserInfoParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_user_info params: {e}")))?;
+            let p: solend::SolendUserInfoParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_user_info params: {e}"))
+                })?;
             solend::validate_solend_user_info_params(&p)
         }
         "solend_market" => {
-            let p: solend::SolendMarketParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_market params: {e}")))?;
+            let p: solend::SolendMarketParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_market params: {e}"))
+                })?;
             solend::validate_solend_market_params(&p)
         }
         "solend_reserves" => {
-            let p: solend::SolendReservesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_reserves params: {e}")))?;
+            let p: solend::SolendReservesParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_reserves params: {e}"))
+                })?;
             solend::validate_solend_reserves_params(&p)
         }
         "solend_stats" => {
-            let _p: solend::SolendStatsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_stats params: {e}")))?;
+            let _p: solend::SolendStatsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_stats params: {e}"))
+                })?;
             Ok(())
         }
         "solend_lst_rates" => {
-            let _p: solend::SolendLstRatesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_lst_rates params: {e}")))?;
+            let _p: solend::SolendLstRatesParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_lst_rates params: {e}"))
+                })?;
             Ok(())
         }
         "solend_prices" => {
-            let _p: solend::SolendPricesParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_prices params: {e}")))?;
+            let _p: solend::SolendPricesParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_prices params: {e}"))
+                })?;
             Ok(())
         }
         "solend_reserves_history" => {
             let p: solend::SolendReservesHistoryParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_reserves_history params: {e}")))?;
-            if p.ids.is_empty() { return Err(AppError::InvalidParams("ids is required".into())); }
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_reserves_history params: {e}"))
+                })?;
+            if p.ids.is_empty() {
+                return Err(AppError::InvalidParams("ids is required".into()));
+            }
             Ok(())
         }
         "solend_daily_stats" => {
             let p: solend::SolendDailyStatsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_daily_stats params: {e}")))?;
-            if p.date.is_empty() { return Err(AppError::InvalidParams("date is required".into())); }
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_daily_stats params: {e}"))
+                })?;
+            if p.date.is_empty() {
+                return Err(AppError::InvalidParams("date is required".into()));
+            }
             Ok(())
         }
         "solend_flash_loan" => {
-            let p: solend::SolendFlashLoanParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_flash_loan params: {e}")))?;
+            let p: solend::SolendFlashLoanParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_flash_loan params: {e}"))
+                })?;
             solend::validate_solend_flash_loan_params(&p)
         }
         "solend_claim_rewards" => {
             let _p: solend::SolendClaimRewardsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_claim_rewards params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_claim_rewards params: {e}"))
+                })?;
             Ok(())
         }
         "solend_deposit_liquidity" => {
             let p: solend::SolendDepositLiquidityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_deposit_liquidity params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_deposit_liquidity params: {e}"))
+                })?;
             solend::validate_solend_deposit_liquidity_params(&p)
         }
         "solend_deposit_obligation_collateral" => {
-            let p: solend::SolendDepositObligationCollateralParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_deposit_obligation_collateral params: {e}")))?;
+            let p: solend::SolendDepositObligationCollateralParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!(
+                        "Invalid solend_deposit_obligation_collateral params: {e}"
+                    ))
+                })?;
             solend::validate_solend_deposit_obligation_collateral_params(&p)
         }
         "solend_redeem_collateral" => {
             let p: solend::SolendRedeemCollateralParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_redeem_collateral params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_redeem_collateral params: {e}"))
+                })?;
             solend::validate_solend_redeem_collateral_params(&p)
         }
         "solend_exercise_reward" => {
             let p: solend::SolendExerciseRewardParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid solend_exercise_reward params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid solend_exercise_reward params: {e}"))
+                })?;
             solend::validate_solend_exercise_reward_params(&p)
         }
         // ── Magic Eden NFT Marketplace Actions ───────────────────────────────────────
@@ -2113,27 +3105,37 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         }
         "me_cancel_listing" => {
             let p: magic_eden::MeCancelListingParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid me_cancel_listing params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid me_cancel_listing params: {e}"))
+                })?;
             magic_eden::validate_me_cancel_listing_params(&p)
         }
         "me_make_offer" => {
-            let p: magic_eden::MeMakeOfferParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid me_make_offer params: {e}")))?;
+            let p: magic_eden::MeMakeOfferParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid me_make_offer params: {e}"))
+                })?;
             magic_eden::validate_me_make_offer_params(&p)
         }
         "me_accept_offer" => {
             let p: magic_eden::MeAcceptOfferParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid me_accept_offer params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid me_accept_offer params: {e}"))
+                })?;
             magic_eden::validate_me_accept_offer_params(&p)
         }
         "me_cancel_offer" => {
             let p: magic_eden::MeCancelOfferParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid me_cancel_offer params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid me_cancel_offer params: {e}"))
+                })?;
             magic_eden::validate_me_cancel_offer_params(&p)
         }
         "me_collection_info" => {
             let p: magic_eden::MeCollectionInfoParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid me_collection_info params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid me_collection_info params: {e}"))
+                })?;
             magic_eden::validate_me_collection_info_params(&p)
         }
         "me_nft_info" => {
@@ -2143,12 +3145,16 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         }
         "me_wallet_nfts" => {
             let p: magic_eden::MeWalletNFTsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid me_wallet_nfts params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid me_wallet_nfts params: {e}"))
+                })?;
             magic_eden::validate_me_wallet_nfts_params(&p)
         }
         "me_collection_activity" => {
             let p: magic_eden::MeCollectionActivityParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid me_collection_activity params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid me_collection_activity params: {e}"))
+                })?;
             magic_eden::validate_me_collection_activity_params(&p)
         }
         "me_listings" => {
@@ -2163,7 +3169,9 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         }
         "me_collection_nfts" => {
             let p: magic_eden::MeCollectionNFTsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid me_collection_nfts params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid me_collection_nfts params: {e}"))
+                })?;
             magic_eden::validate_me_collection_nfts_params(&p)
         }
         // ── Tensor NFT ────────────────────────────────────────────────────────────────
@@ -2183,8 +3191,12 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             }
             Ok(())
         }
-        "tensor_cancel_listing" | "tensor_cancel_offer"
-        | "tensor_collection_info" | "tensor_nft_info" | "tensor_wallet_nfts" | "tensor_listings"
+        "tensor_cancel_listing"
+        | "tensor_cancel_offer"
+        | "tensor_collection_info"
+        | "tensor_nft_info"
+        | "tensor_wallet_nfts"
+        | "tensor_listings"
         | "tensor_make_offer" => Ok(()),
         "burn" => {
             let p: burn::BurnParams = serde_json::from_value(params.clone())
@@ -2192,41 +3204,59 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             burn::validate_burn_params(&p)
         }
         "close_accounts" => {
-            let p: burn::CloseAccountsParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid close_accounts params: {e}")))?;
+            let p: burn::CloseAccountsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid close_accounts params: {e}"))
+                })?;
             burn::validate_close_accounts_params(&p)
         }
         "scan_empty_accounts" => Ok(()),
-        "streamflow_create" | "streamflow_cancel" | "streamflow_withdraw" | "streamflow_transfer"
-        | "streamflow_list" | "streamflow_topup" | "streamflow_update"
-        | "streamflow_create_multiple" | "streamflow_get_one" => Ok(()),
+        "streamflow_create"
+        | "streamflow_cancel"
+        | "streamflow_withdraw"
+        | "streamflow_transfer"
+        | "streamflow_list"
+        | "streamflow_topup"
+        | "streamflow_update"
+        | "streamflow_create_multiple"
+        | "streamflow_get_one" => Ok(()),
         // Read-only actions proxied wholesale to the TS service. No params
         // validation here — the TS layer reads `wallet` from the auth header.
         "drift_list_positions" | "marginfi_user_balances" => Ok(()),
         // pumpfun query actions validated in primary validate block above
         "native_stake" => {
             let p: native_stake::NativeStakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid native_stake params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid native_stake params: {e}"))
+                })?;
             native_stake::validate_native_stake_params(&p)
         }
         "native_stake_deactivate" => {
             let _p: native_stake::NativeDeactivateParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid native_stake_deactivate params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid native_stake_deactivate params: {e}"))
+            })?;
             Ok(())
         }
         "native_stake_withdraw" => {
-            let _p: native_stake::NativeWithdrawStakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid native_stake_withdraw params: {e}")))?;
+            let _p: native_stake::NativeWithdrawStakeParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid native_stake_withdraw params: {e}"))
+                })?;
             Ok(())
         }
         "native_stake_split" => {
             let p: native_stake::NativeSplitStakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid native_stake_split params: {e}")))?;
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid native_stake_split params: {e}"))
+                })?;
             native_stake::validate_native_split_params(&p)
         }
         "native_stake_merge" => {
             let _p: native_stake::NativeMergeStakeParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid native_stake_merge params: {e}")))?;
+                .map_err(|e| {
+                AppError::InvalidParams(format!("Invalid native_stake_merge params: {e}"))
+            })?;
             Ok(())
         }
         _ => Err(AppError::InvalidParams(format!(
@@ -2235,7 +3265,9 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
     }
 }
 
-fn streamflow_to_build_response(result: streamflow::StreamflowBuildResult) -> Result<BuildResponse, AppError> {
+fn streamflow_to_build_response(
+    result: streamflow::StreamflowBuildResult,
+) -> Result<BuildResponse, AppError> {
     Ok(BuildResponse {
         preview: ActionPreview {
             id: result.preview.id,
@@ -2311,13 +3343,14 @@ pub async fn build_action(
                 execution_steps: None,
                 quote: None,
                 is_cross_chain: false,
-        data: None,
+                data: None,
             })
         }
         "swap" => {
             let p: swap::SwapParams = serde_json::from_value(params)?;
             let result =
-                swap::build_swap_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p).await?;
+                swap::build_swap_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p)
+                    .await?;
 
             Ok(BuildResponse {
                 preview: ActionPreview {
@@ -2335,7 +3368,7 @@ pub async fn build_action(
                 execution_steps: None,
                 quote: None,
                 is_cross_chain: false,
-        data: None,
+                data: None,
             })
         }
         "launch_token" | "pumpfun_launch" => {
@@ -2353,13 +3386,15 @@ pub async fn build_action(
             // perform the dev-buy as a follow-up (via `pumpfun_initial_buy`/PumpPortal)
             // once the create tx confirms — keeps the create tx under the 1232-byte
             // limit AND handles Mayhem-mode tokens the bonding-curve buy can't.
-            let launch_data = result.initial_buy.map(|ib| serde_json::json!({
-                "initialBuy": {
-                    "mint": ib.mint,
-                    "amountSol": ib.amount_sol,
-                    "mayhem": ib.mayhem,
-                }
-            }));
+            let launch_data = result.initial_buy.map(|ib| {
+                serde_json::json!({
+                    "initialBuy": {
+                        "mint": ib.mint,
+                        "amountSol": ib.amount_sol,
+                        "mayhem": ib.mayhem,
+                    }
+                })
+            });
             Ok(BuildResponse {
                 preview: ActionPreview {
                     id: result.preview.id,
@@ -2391,16 +3426,31 @@ pub async fn build_action(
         }
         "limit_order" => {
             let p: limit_order::LimitOrderParams = serde_json::from_value(params)?;
-            limit_order::create_limit_order_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p).await
+            limit_order::create_limit_order_transaction(
+                http,
+                jupiter_api_key,
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "cancel_limit_order" => {
             let p: limit_order::CancelLimitOrderParams = serde_json::from_value(params)?;
-            limit_order::cancel_limit_order_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p).await
+            limit_order::cancel_limit_order_transaction(
+                http,
+                jupiter_api_key,
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "cancel_all_limit_orders" => {
             let responses = limit_order::cancel_all_limit_orders_transactions(
-                http, jupiter_api_key, &user_pubkey.to_string()
-            ).await?;
+                http,
+                jupiter_api_key,
+                &user_pubkey.to_string(),
+            )
+            .await?;
             Ok(limit_order::pack_cancel_all_response(responses))
         }
         "dca" => {
@@ -2417,63 +3467,118 @@ pub async fn build_action(
         }
         "jup_limit_orders" => {
             let p: limit_order::JupLimitOrdersParams = serde_json::from_value(params)?;
-            limit_order::build_jup_limit_orders(http, jupiter_api_key, &user_pubkey.to_string(), &p).await
+            limit_order::build_jup_limit_orders(http, jupiter_api_key, &user_pubkey.to_string(), &p)
+                .await
         }
         "jup_price" => {
             let p: jupiter_query::JupPriceParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_price(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_price(http, &user_pubkey.to_string(), &p, jupiter_api_key)
+                .await
         }
         "jup_token_search" => {
             let p: jupiter_query::JupTokenSearchParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_token_search(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_token_search(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                jupiter_api_key,
+            )
+            .await
         }
         "jup_tokens_tag" => {
             let p: jupiter_query::JupTokensTagParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_tokens_tag(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_tokens_tag(http, &user_pubkey.to_string(), &p, jupiter_api_key)
+                .await
         }
         "jup_tokens_recent" => {
             let p: jupiter_query::JupTokensRecentParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_tokens_recent(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_tokens_recent(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                jupiter_api_key,
+            )
+            .await
         }
         "jup_tokens_trending" => {
             let p: jupiter_query::JupTokensTrendingParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_tokens_trending(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_tokens_trending(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                jupiter_api_key,
+            )
+            .await
         }
         "jup_portfolio_positions" => {
             let p: jupiter_query::JupPortfolioPositionsParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_portfolio_positions(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_portfolio_positions(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                jupiter_api_key,
+            )
+            .await
         }
         "jup_staked_jup" => {
             let p: jupiter_query::JupStakedJupParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_staked_jup(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_staked_jup(http, &user_pubkey.to_string(), &p, jupiter_api_key)
+                .await
         }
         "jup_lend_positions" => {
             let p: jupiter_query::JupLendPositionsParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_lend_positions(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_lend_positions(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                jupiter_api_key,
+            )
+            .await
         }
         "jup_lend_earnings" => {
             let p: jupiter_query::JupLendEarningsParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_lend_earnings(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_lend_earnings(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                jupiter_api_key,
+            )
+            .await
         }
         "jup_pending_invites" => {
             let p: jupiter_query::JupPendingInvitesParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_pending_invites(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_pending_invites(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                jupiter_api_key,
+            )
+            .await
         }
         "jup_platforms" => {
             let p: jupiter_query::JupPlatformsParams = serde_json::from_value(params)?;
-            jupiter_query::build_jup_platforms(http, &user_pubkey.to_string(), &p, jupiter_api_key).await
+            jupiter_query::build_jup_platforms(http, &user_pubkey.to_string(), &p, jupiter_api_key)
+                .await
         }
         "helius_tx_history" => {
             let p: helius::HeliusTxHistoryParams = serde_json::from_value(params)?;
-            helius::build_helius_tx_history(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_tx_history(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_parse_transactions" => {
             let p: helius::HeliusParseTransactionsParams = serde_json::from_value(params)?;
-            helius::build_helius_parse_transactions(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_parse_transactions(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_get_assets" => {
             let p: helius::HeliusGetAssetsParams = serde_json::from_value(params)?;
-            helius::build_helius_get_assets(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_get_assets(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_get_asset" => {
             let p: helius::HeliusGetAssetParams = serde_json::from_value(params)?;
@@ -2481,147 +3586,283 @@ pub async fn build_action(
         }
         "helius_search_assets" => {
             let p: helius::HeliusSearchAssetsParams = serde_json::from_value(params)?;
-            helius::build_helius_search_assets(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_search_assets(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_nft_editions" => {
             let p: helius::HeliusNftEditionsParams = serde_json::from_value(params)?;
-            helius::build_helius_nft_editions(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_nft_editions(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_get_token_accounts" => {
             let p: helius::HeliusGetTokenAccountsParams = serde_json::from_value(params)?;
-            helius::build_helius_get_token_accounts(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_get_token_accounts(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_asset_signatures" => {
             let p: helius::HeliusAssetSignaturesParams = serde_json::from_value(params)?;
-            helius::build_helius_asset_signatures(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_asset_signatures(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_priority_fee" => {
             let p: helius::HeliusPriorityFeeParams = serde_json::from_value(params)?;
-            helius::build_helius_priority_fee(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_priority_fee(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_wallet_identity" => {
             let p: helius::HeliusWalletIdentityParams = serde_json::from_value(params)?;
-            helius::build_helius_wallet_identity(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_wallet_identity(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_batch_identity" => {
             let p: helius::HeliusBatchIdentityParams = serde_json::from_value(params)?;
-            helius::build_helius_batch_identity(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_batch_identity(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_wallet_balances" => {
             let p: helius::HeliusWalletBalancesParams = serde_json::from_value(params)?;
-            helius::build_helius_wallet_balances(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_wallet_balances(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_wallet_history" => {
             let p: helius::HeliusWalletHistoryParams = serde_json::from_value(params)?;
-            helius::build_helius_wallet_history(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_wallet_history(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_wallet_transfers" => {
             let p: helius::HeliusWalletTransfersParams = serde_json::from_value(params)?;
-            helius::build_helius_wallet_transfers(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_wallet_transfers(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_wallet_funded_by" => {
             let p: helius::HeliusWalletFundedByParams = serde_json::from_value(params)?;
-            helius::build_helius_wallet_funded_by(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_wallet_funded_by(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_get_asset_batch" => {
             let p: helius::HeliusGetAssetBatchParams = serde_json::from_value(params)?;
-            helius::build_helius_get_asset_batch(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_get_asset_batch(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_get_assets_by_creator" => {
             let p: helius::HeliusGetAssetsByCreatorParams = serde_json::from_value(params)?;
-            helius::build_helius_get_assets_by_creator(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_get_assets_by_creator(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_get_assets_by_authority" => {
             let p: helius::HeliusGetAssetsByAuthorityParams = serde_json::from_value(params)?;
-            helius::build_helius_get_assets_by_authority(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_get_assets_by_authority(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_get_assets_by_group" => {
             let p: helius::HeliusGetAssetsByGroupParams = serde_json::from_value(params)?;
-            helius::build_helius_get_assets_by_group(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_get_assets_by_group(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_get_asset_proof" => {
             let p: helius::HeliusGetAssetProofParams = serde_json::from_value(params)?;
-            helius::build_helius_get_asset_proof(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_get_asset_proof(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_get_asset_proof_batch" => {
             let p: helius::HeliusGetAssetProofBatchParams = serde_json::from_value(params)?;
-            helius::build_helius_get_asset_proof_batch(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_get_asset_proof_batch(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_create_webhook" => {
             let p: helius::HeliusCreateWebhookParams = serde_json::from_value(params)?;
-            helius::build_helius_create_webhook(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_create_webhook(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_list_webhooks" => {
             let p: helius::HeliusListWebhooksParams = serde_json::from_value(params)?;
-            helius::build_helius_list_webhooks(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_list_webhooks(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_get_webhook" => {
             let p: helius::HeliusGetWebhookParams = serde_json::from_value(params)?;
-            helius::build_helius_get_webhook(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_get_webhook(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_update_webhook" => {
             let p: helius::HeliusUpdateWebhookParams = serde_json::from_value(params)?;
-            helius::build_helius_update_webhook(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_update_webhook(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_toggle_webhook" => {
             let p: helius::HeliusToggleWebhookParams = serde_json::from_value(params)?;
-            helius::build_helius_toggle_webhook(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_toggle_webhook(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_delete_webhook" => {
             let p: helius::HeliusDeleteWebhookParams = serde_json::from_value(params)?;
-            helius::build_helius_delete_webhook(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_delete_webhook(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_send_transaction" => {
             let p: helius::HeliusSendTransactionParams = serde_json::from_value(params)?;
-            helius::build_helius_send_transaction(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_send_transaction(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_compressed_account" => {
             let p: helius::HeliusZkAccountParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_compressed_account(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_compressed_account(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_multiple_compressed_accounts" => {
             let p: helius::HeliusZkMultipleAccountsParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_multiple_compressed_accounts(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_multiple_compressed_accounts(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_compressed_balance_by_owner" => {
             let p: helius::HeliusZkOwnerParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_compressed_balance_by_owner(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_compressed_balance_by_owner(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_token_accounts_by_owner" => {
             let p: helius::HeliusZkOwnerParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_token_accounts_by_owner(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_token_accounts_by_owner(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_token_balances_by_owner" => {
             let p: helius::HeliusZkOwnerParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_token_balances_by_owner(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_token_balances_by_owner(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_mint_token_holders" => {
             let p: helius::HeliusZkMintParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_mint_token_holders(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_mint_token_holders(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_compression_signatures_for_owner" => {
             let p: helius::HeliusZkSignaturesParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_compression_signatures_for_owner(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_compression_signatures_for_owner(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_transaction_with_compression" => {
             let p: helius::HeliusZkSignaturesParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_transaction_with_compression(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_transaction_with_compression(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_indexer_health" => {
             let p: helius::HeliusZkIndexerParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_indexer_health(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_indexer_health(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_indexer_slot" => {
             let p: helius::HeliusZkIndexerParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_indexer_slot(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_indexer_slot(http, &user_pubkey.to_string(), &p, helius_api_key)
+                .await
         }
         "helius_zk_validity_proof" => {
             let p: helius::HeliusZkAccountParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_validity_proof(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_validity_proof(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_zk_new_address_proofs" => {
             let p: helius::HeliusZkNewAddressProofsParams = serde_json::from_value(params)?;
-            helius::build_helius_zk_new_address_proofs(http, &user_pubkey.to_string(), &p, helius_api_key).await
+            helius::build_helius_zk_new_address_proofs(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                helius_api_key,
+            )
+            .await
         }
         "helius_smart_send" => {
             let p: helius::HeliusSmartSendParams = serde_json::from_value(params)?;
@@ -2629,19 +3870,41 @@ pub async fn build_action(
         }
         "jupsol_stake" => {
             let p: jupsol::JupSolParams = serde_json::from_value(params)?;
-            jupsol::build_jupsol_stake_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p).await
+            jupsol::build_jupsol_stake_transaction(
+                http,
+                jupiter_api_key,
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "jupsol_unstake" => {
             let p: jupsol::JupSolParams = serde_json::from_value(params)?;
-            jupsol::build_jupsol_unstake_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p).await
+            jupsol::build_jupsol_unstake_transaction(
+                http,
+                jupiter_api_key,
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         // Generic lend — routes by protocol field (default: jupiter)
         "lend" | "withdraw_lend" => {
-            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("jupiter").to_string();
+            let protocol = params
+                .get("protocol")
+                .and_then(|v| v.as_str())
+                .unwrap_or("jupiter")
+                .to_string();
             match protocol.as_str() {
                 "marginfi" => {
                     let p: marginfi::MarginfiDepositParams = serde_json::from_value(params)?;
-                    marginfi::build_marginfi_deposit(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+                    marginfi::build_marginfi_deposit(
+                        http,
+                        rpc.endpoint(),
+                        &user_pubkey.to_string(),
+                        &p,
+                    )
+                    .await
                 }
                 "solend" => {
                     let p: solend::SolendDepositParams = serde_json::from_value(params)?;
@@ -2657,11 +3920,21 @@ pub async fn build_action(
             }
         }
         "borrow" | "repay" => {
-            let protocol = params.get("protocol").and_then(|v| v.as_str()).unwrap_or("jupiter").to_string();
+            let protocol = params
+                .get("protocol")
+                .and_then(|v| v.as_str())
+                .unwrap_or("jupiter")
+                .to_string();
             match protocol.as_str() {
                 "marginfi" => {
                     let p: marginfi::MarginfiBorrowParams = serde_json::from_value(params)?;
-                    marginfi::build_marginfi_borrow(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+                    marginfi::build_marginfi_borrow(
+                        http,
+                        rpc.endpoint(),
+                        &user_pubkey.to_string(),
+                        &p,
+                    )
+                    .await
                 }
                 "solend" => {
                     let p: solend::SolendBorrowParams = serde_json::from_value(params)?;
@@ -2683,18 +3956,39 @@ pub async fn build_action(
         // Jupiter Perp
         "perp_open" | "perp_close" => {
             let mut p_val = params;
-            p_val["operation"] = serde_json::json!(if action_type == "perp_open" { "open" } else { "close" });
+            p_val["operation"] = serde_json::json!(if action_type == "perp_open" {
+                "open"
+            } else {
+                "close"
+            });
             let p: jupiter_perp::JupiterPerpParams = serde_json::from_value(p_val)?;
-            jupiter_perp::build_perp_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p).await
+            jupiter_perp::build_perp_transaction(
+                http,
+                jupiter_api_key,
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "perp_positions" => {
-            jupiter_perp::build_perp_positions(http, jupiter_api_key, &user_pubkey.to_string()).await
+            jupiter_perp::build_perp_positions(http, jupiter_api_key, &user_pubkey.to_string())
+                .await
         }
         "jlp_add" | "jlp_remove" => {
             let mut p_val = params;
-            p_val["operation"] = serde_json::json!(if action_type == "jlp_add" { "add" } else { "remove" });
+            p_val["operation"] = serde_json::json!(if action_type == "jlp_add" {
+                "add"
+            } else {
+                "remove"
+            });
             let p: jupiter_perp::JupiterPerpLiquidityParams = serde_json::from_value(p_val)?;
-            jupiter_perp::build_perp_liquidity_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p).await
+            jupiter_perp::build_perp_liquidity_transaction(
+                http,
+                jupiter_api_key,
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "pumpfun_buy" => {
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
@@ -2862,7 +4156,14 @@ pub async fn build_action(
         // ── Orca Whirlpools Actions ─────────────────────────────────────────────────
         "orca_swap" => {
             let p: orca::OrcaSwapParams = serde_json::from_value(params)?;
-            orca::build_orca_swap(http, rpc.endpoint(), jupiter_api_key, &user_pubkey.to_string(), &p).await
+            orca::build_orca_swap(
+                http,
+                rpc.endpoint(),
+                jupiter_api_key,
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "orca_add_liquidity" => {
             let p: orca::OrcaAddLiquidityParams = serde_json::from_value(params)?;
@@ -2870,7 +4171,8 @@ pub async fn build_action(
         }
         "orca_remove_liquidity" => {
             let p: orca::OrcaRemoveLiquidityParams = serde_json::from_value(params)?;
-            orca::build_orca_remove_liquidity(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            orca::build_orca_remove_liquidity(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "orca_open_position" => {
             let p: orca::OrcaOpenPositionParams = serde_json::from_value(params)?;
@@ -2878,15 +4180,18 @@ pub async fn build_action(
         }
         "orca_close_position" => {
             let p: orca::OrcaClosePositionParams = serde_json::from_value(params)?;
-            orca::build_orca_close_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            orca::build_orca_close_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "orca_increase_position" => {
             let p: orca::OrcaIncreasePositionParams = serde_json::from_value(params)?;
-            orca::build_orca_increase_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            orca::build_orca_increase_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "orca_decrease_position" => {
             let p: orca::OrcaDecreasePositionParams = serde_json::from_value(params)?;
-            orca::build_orca_decrease_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            orca::build_orca_decrease_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "orca_collect_fees" => {
             let p: orca::OrcaCollectFeesParams = serde_json::from_value(params)?;
@@ -2894,7 +4199,8 @@ pub async fn build_action(
         }
         "orca_collect_rewards" => {
             let p: orca::OrcaCollectRewardsParams = serde_json::from_value(params)?;
-            orca::build_orca_collect_rewards(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            orca::build_orca_collect_rewards(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "orca_create_pool" => {
             let p: orca::OrcaCreatePoolParams = serde_json::from_value(params)?;
@@ -2946,7 +4252,8 @@ pub async fn build_action(
         }
         "orca_get_user_positions" => {
             let p: orca::OrcaGetUserPositionsParams = serde_json::from_value(params)?;
-            orca::build_orca_get_user_positions(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            orca::build_orca_get_user_positions(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "orca_get_pool_positions" => {
             let p: orca::OrcaGetPoolPositionsParams = serde_json::from_value(params)?;
@@ -3103,7 +4410,8 @@ pub async fn build_action(
         }
         "kamino_user_vault_metrics_history" => {
             let p: kamino::KaminoUserVaultMetricsHistoryParams = serde_json::from_value(params)?;
-            kamino::build_kamino_user_vault_metrics_history(http, &user_pubkey.to_string(), &p).await
+            kamino::build_kamino_user_vault_metrics_history(http, &user_pubkey.to_string(), &p)
+                .await
         }
         "kamino_user_vault_pnl" => {
             let p: kamino::KaminoUserVaultPnlParams = serde_json::from_value(params)?;
@@ -3115,11 +4423,13 @@ pub async fn build_action(
         }
         "kamino_vault_deposit_instructions" => {
             let p: kamino::KaminoVaultDepositInstructionsParams = serde_json::from_value(params)?;
-            kamino::build_kamino_vault_deposit_instructions(http, &user_pubkey.to_string(), &p).await
+            kamino::build_kamino_vault_deposit_instructions(http, &user_pubkey.to_string(), &p)
+                .await
         }
         "kamino_vault_withdraw_instructions" => {
             let p: kamino::KaminoVaultWithdrawInstructionsParams = serde_json::from_value(params)?;
-            kamino::build_kamino_vault_withdraw_instructions(http, &user_pubkey.to_string(), &p).await
+            kamino::build_kamino_vault_withdraw_instructions(http, &user_pubkey.to_string(), &p)
+                .await
         }
         "kamino_market_detail" => {
             let p: kamino::KaminoMarketDetailParams = serde_json::from_value(params)?;
@@ -3139,7 +4449,8 @@ pub async fn build_action(
         }
         "kamino_reserve_borrow_apy_history" => {
             let p: kamino::KaminoReserveBorrowApyHistoryParams = serde_json::from_value(params)?;
-            kamino::build_kamino_reserve_borrow_apy_history(http, &user_pubkey.to_string(), &p).await
+            kamino::build_kamino_reserve_borrow_apy_history(http, &user_pubkey.to_string(), &p)
+                .await
         }
         "kamino_reserve_borrow_apy_median" => {
             let p: kamino::KaminoReserveBorrowApyMedianParams = serde_json::from_value(params)?;
@@ -3147,7 +4458,8 @@ pub async fn build_action(
         }
         "kamino_obligation_interest_earned" => {
             let p: kamino::KaminoObligationInterestEarnedParams = serde_json::from_value(params)?;
-            kamino::build_kamino_obligation_interest_earned(http, &user_pubkey.to_string(), &p).await
+            kamino::build_kamino_obligation_interest_earned(http, &user_pubkey.to_string(), &p)
+                .await
         }
         "kamino_obligation_interest_paid" => {
             let p: kamino::KaminoObligationInterestPaidParams = serde_json::from_value(params)?;
@@ -3159,7 +4471,8 @@ pub async fn build_action(
         }
         "kamino_user_klend_transactions_all" => {
             let p: kamino::KaminoUserKlendTransactionsAllParams = serde_json::from_value(params)?;
-            kamino::build_kamino_user_klend_transactions_all(http, &user_pubkey.to_string(), &p).await
+            kamino::build_kamino_user_klend_transactions_all(http, &user_pubkey.to_string(), &p)
+                .await
         }
         "kamino_user_klend_transactions" => {
             let p: kamino::KaminoUserKlendTransactionsParams = serde_json::from_value(params)?;
@@ -3211,15 +4524,18 @@ pub async fn build_action(
         }
         "kamino_season_rewards_vesting_pool" => {
             let p: kamino::KaminoSeasonRewardsVestingPoolParams = serde_json::from_value(params)?;
-            kamino::build_kamino_season_rewards_vesting_pool(http, &user_pubkey.to_string(), &p).await
+            kamino::build_kamino_season_rewards_vesting_pool(http, &user_pubkey.to_string(), &p)
+                .await
         }
         "kamino_private_credit_metrics" => {
             let p: kamino::KaminoPrivateCreditMetricsParams = serde_json::from_value(params)?;
             kamino::build_kamino_private_credit_metrics(http, &user_pubkey.to_string(), &p).await
         }
         "kamino_private_credit_metrics_history" => {
-            let p: kamino::KaminoPrivateCreditMetricsHistoryParams = serde_json::from_value(params)?;
-            kamino::build_kamino_private_credit_metrics_history(http, &user_pubkey.to_string(), &p).await
+            let p: kamino::KaminoPrivateCreditMetricsHistoryParams =
+                serde_json::from_value(params)?;
+            kamino::build_kamino_private_credit_metrics_history(http, &user_pubkey.to_string(), &p)
+                .await
         }
         "kamino_user_farm_transactions" => {
             let p: kamino::KaminoUserFarmTransactionsParams = serde_json::from_value(params)?;
@@ -3247,7 +4563,8 @@ pub async fn build_action(
         }
         "kamino_obligation_metrics_history" => {
             let p: kamino::KaminoObligationMetricsHistoryParams = serde_json::from_value(params)?;
-            kamino::build_kamino_obligation_metrics_history(http, &user_pubkey.to_string(), &p).await
+            kamino::build_kamino_obligation_metrics_history(http, &user_pubkey.to_string(), &p)
+                .await
         }
         "kamino_rewards_list" => {
             let p: kamino::KaminoRewardsListParams = serde_json::from_value(params)?;
@@ -3313,7 +4630,7 @@ pub async fn build_action(
                 execution_steps: None,
                 quote: None,
                 is_cross_chain: false,
-        data: None,
+                data: None,
             })
         }
         // ── Meteora Protocol Actions ─────────────────────────────────────────────────
@@ -3323,35 +4640,58 @@ pub async fn build_action(
         }
         "meteora_add_liquidity" => {
             let p: meteora::MeteoraAddLiquidityParams = serde_json::from_value(params)?;
-            meteora::build_meteora_add_liquidity(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_add_liquidity(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_remove_liquidity" => {
             let p: meteora::MeteoraRemoveLiquidityParams = serde_json::from_value(params)?;
-            meteora::build_meteora_remove_liquidity(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_remove_liquidity(
+                http,
+                rpc.endpoint(),
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "meteora_create_pool" => {
             let p: meteora::MeteoraCreatePoolParams = serde_json::from_value(params)?;
-            meteora::build_meteora_create_pool(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_create_pool(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_open_position" => {
             let p: meteora::MeteoraOpenPositionParams = serde_json::from_value(params)?;
-            meteora::build_meteora_open_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_open_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_close_position" => {
             let p: meteora::MeteoraClosePositionParams = serde_json::from_value(params)?;
-            meteora::build_meteora_close_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_close_position(
+                http,
+                rpc.endpoint(),
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "meteora_add_to_position" => {
             let p: meteora::MeteoraAddToPositionParams = serde_json::from_value(params)?;
-            meteora::build_meteora_add_to_position(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_add_to_position(
+                http,
+                rpc.endpoint(),
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "meteora_claim_fees" => {
             let p: meteora::MeteoraClaimFeesParams = serde_json::from_value(params)?;
-            meteora::build_meteora_claim_fees(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_claim_fees(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_claim_rewards" => {
             let p: meteora::MeteoraClaimRewardsParams = serde_json::from_value(params)?;
-            meteora::build_meteora_claim_rewards(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_claim_rewards(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_stake" => {
             let p: meteora::MeteoraStakeParams = serde_json::from_value(params)?;
@@ -3423,7 +4763,8 @@ pub async fn build_action(
             meteora::build_meteora_dammv2_get_pool_ohlcv(http, &p).await
         }
         "meteora_dammv2_get_pool_volume_history" => {
-            let p: meteora::MeteoraDammV2GetPoolVolumeHistoryParams = serde_json::from_value(params)?;
+            let p: meteora::MeteoraDammV2GetPoolVolumeHistoryParams =
+                serde_json::from_value(params)?;
             meteora::build_meteora_dammv2_get_pool_volume_history(http, &p).await
         }
         "meteora_dammv2_get_protocol_metrics" => {
@@ -3455,7 +4796,8 @@ pub async fn build_action(
             meteora::build_meteora_dammv1_get_alpha_vaults(http, &p).await
         }
         "meteora_dammv1_get_alpha_vault_configs" => {
-            let p: meteora::MeteoraDammV1GetAlphaVaultConfigsParams = serde_json::from_value(params)?;
+            let p: meteora::MeteoraDammV1GetAlphaVaultConfigsParams =
+                serde_json::from_value(params)?;
             meteora::build_meteora_dammv1_get_alpha_vault_configs(http, &p).await
         }
         "meteora_dammv1_get_pools_by_vault_lp" => {
@@ -3509,55 +4851,98 @@ pub async fn build_action(
         // ── Meteora TX Actions (new) ─────────────────────────────────────────────────
         "meteora_dammv1_swap" => {
             let p: meteora::MeteoraDammV1SwapParams = serde_json::from_value(params)?;
-            meteora::build_meteora_dammv1_swap(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_dammv1_swap(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_dammv1_deposit" => {
             let p: meteora::MeteoraDammV1DepositParams = serde_json::from_value(params)?;
-            meteora::build_meteora_dammv1_deposit(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_dammv1_deposit(
+                http,
+                rpc.endpoint(),
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "meteora_dammv1_withdraw" => {
             let p: meteora::MeteoraDammV1WithdrawParams = serde_json::from_value(params)?;
-            meteora::build_meteora_dammv1_withdraw(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_dammv1_withdraw(
+                http,
+                rpc.endpoint(),
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "meteora_dammv2_swap" => {
             let p: meteora::MeteoraDammV2SwapParams = serde_json::from_value(params)?;
-            meteora::build_meteora_dammv2_swap(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_dammv2_swap(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_dammv2_add_liquidity" => {
             let p: meteora::MeteoraDammV2AddLiquidityParams = serde_json::from_value(params)?;
-            meteora::build_meteora_dammv2_add_liquidity(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_dammv2_add_liquidity(
+                http,
+                rpc.endpoint(),
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "meteora_dammv2_remove_liquidity" => {
             let p: meteora::MeteoraDammV2RemoveLiquidityParams = serde_json::from_value(params)?;
-            meteora::build_meteora_dammv2_remove_liquidity(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_dammv2_remove_liquidity(
+                http,
+                rpc.endpoint(),
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "meteora_vault_deposit" => {
             let p: meteora::MeteoraVaultDepositParams = serde_json::from_value(params)?;
-            meteora::build_meteora_vault_deposit(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_vault_deposit(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_vault_withdraw" => {
             let p: meteora::MeteoraVaultWithdrawParams = serde_json::from_value(params)?;
-            meteora::build_meteora_vault_withdraw(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_vault_withdraw(
+                http,
+                rpc.endpoint(),
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "meteora_s2e_stake" => {
             let p: meteora::MeteoraS2EStakeParams = serde_json::from_value(params)?;
-            meteora::build_meteora_s2e_stake(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_s2e_stake(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_s2e_unstake" => {
             let p: meteora::MeteoraS2EUnstakeParams = serde_json::from_value(params)?;
-            meteora::build_meteora_s2e_unstake(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_s2e_unstake(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_s2e_claim_fee" => {
             let p: meteora::MeteoraS2EClaimFeeParams = serde_json::from_value(params)?;
-            meteora::build_meteora_s2e_claim_fee(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_s2e_claim_fee(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         "meteora_s2e_cancel_unstake" => {
             let p: meteora::MeteoraS2ECancelUnstakeParams = serde_json::from_value(params)?;
-            meteora::build_meteora_s2e_cancel_unstake(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_s2e_cancel_unstake(
+                http,
+                rpc.endpoint(),
+                &user_pubkey.to_string(),
+                &p,
+            )
+            .await
         }
         "meteora_s2e_withdraw" => {
             let p: meteora::MeteoraS2EWithdrawParams = serde_json::from_value(params)?;
-            meteora::build_meteora_s2e_withdraw(http, rpc.endpoint(), &user_pubkey.to_string(), &p).await
+            meteora::build_meteora_s2e_withdraw(http, rpc.endpoint(), &user_pubkey.to_string(), &p)
+                .await
         }
         // ── Marinade Finance Actions ─────────────────────────────────────────────────
         "marinade_stake" => {
@@ -3570,7 +4955,8 @@ pub async fn build_action(
         }
         "marinade_delayed_unstake" => {
             let p: marinade::MarinadeDelayedUnstakeParams = serde_json::from_value(params)?;
-            marinade::build_marinade_delayed_unstake(http, user_pubkey.to_string().as_str(), &p).await
+            marinade::build_marinade_delayed_unstake(http, user_pubkey.to_string().as_str(), &p)
+                .await
         }
         "marinade_claim_ticket" | "marinade_claim" => {
             let p: marinade::MarinadeClaimTicketParams = serde_json::from_value(params)?;
@@ -3579,87 +4965,213 @@ pub async fn build_action(
         // ── marginfi v2 Protocol Actions ─────────────────────────────────────────────
         "marginfi_create_account" => {
             let p: marginfi::MarginfiCreateAccountParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_create_account(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_create_account(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_create_account_pda" => {
             let p: marginfi::MarginfiCreateAccountPdaParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_create_account_pda(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_create_account_pda(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_close_account" => {
             let p: marginfi::MarginfiCloseAccountParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_close_account(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_close_account(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_close_balance" => {
             let p: marginfi::MarginfiCloseBalanceParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_close_balance(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_close_balance(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_transfer_account" => {
             let p: marginfi::MarginfiTransferAccountParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_transfer_account(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_transfer_account(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_deposit" => {
             let p: marginfi::MarginfiDepositParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_deposit(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_deposit(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_withdraw" => {
             let p: marginfi::MarginfiWithdrawParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_withdraw(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_withdraw(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_borrow" => {
             let p: marginfi::MarginfiBorrowParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_borrow(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_borrow(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_repay" => {
             let p: marginfi::MarginfiRepayParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_repay(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_repay(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_liquidate" => {
             let p: marginfi::MarginfiLiquidateParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_liquidate(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_liquidate(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_start_liquidation" => {
             let p: marginfi::MarginfiStartLiquidationParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_start_liquidation(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_start_liquidation(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_end_liquidation" => {
             let p: marginfi::MarginfiEndLiquidationParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_end_liquidation(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_end_liquidation(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_flashloan_start" => {
             let p: marginfi::MarginfiFlashloanStartParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_flashloan_start(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_flashloan_start(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_flashloan_end" => {
             let p: marginfi::MarginfiFlashloanEndParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_flashloan_end(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_flashloan_end(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_place_order" => {
             let p: marginfi::MarginfiPlaceOrderParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_place_order(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_place_order(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_close_order" => {
             let p: marginfi::MarginfiCloseOrderParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_close_order(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_close_order(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_execute_order_start" => {
             let p: marginfi::MarginfiExecuteOrderStartParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_execute_order_start(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_execute_order_start(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_execute_order_end" => {
             let p: marginfi::MarginfiExecuteOrderEndParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_execute_order_end(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_execute_order_end(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_accrue_interest" => {
             let p: marginfi::MarginfiAccrueInterestParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_accrue_interest(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_accrue_interest(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_pulse_price" => {
             let p: marginfi::MarginfiPulsePriceParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_pulse_price(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_pulse_price(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_pulse_health" => {
             let p: marginfi::MarginfiPulseHealthParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_pulse_health(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_pulse_health(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_account_info" => {
             let p: marginfi::MarginfiAccountInfoParams = serde_json::from_value(params)?;
@@ -3687,31 +5199,75 @@ pub async fn build_action(
         }
         "marginfi_claim_emissions" => {
             let p: marginfi::MarginfiClaimEmissionsParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_claim_emissions(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_claim_emissions(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_settle_emissions" => {
             let p: marginfi::MarginfiSettleEmissionsParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_settle_emissions(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_settle_emissions(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_withdraw_emissions_permissionless" => {
-            let p: marginfi::MarginfiWithdrawEmissionsPermissionlessParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_withdraw_emissions_permissionless(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            let p: marginfi::MarginfiWithdrawEmissionsPermissionlessParams =
+                serde_json::from_value(params)?;
+            marginfi::build_marginfi_withdraw_emissions_permissionless(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_set_keeper_flags" => {
             let p: marginfi::MarginfiSetKeeperFlagsParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_set_keeper_flags(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_set_keeper_flags(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_init_liq_record" => {
             let p: marginfi::MarginfiInitLiqRecordParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_init_liq_record(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_init_liq_record(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_update_emissions_destination" => {
-            let p: marginfi::MarginfiUpdateEmissionsDestinationParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_update_emissions_destination(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            let p: marginfi::MarginfiUpdateEmissionsDestinationParams =
+                serde_json::from_value(params)?;
+            marginfi::build_marginfi_update_emissions_destination(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "marginfi_clear_emissions" => {
             let p: marginfi::MarginfiClearEmissionsParams = serde_json::from_value(params)?;
-            marginfi::build_marginfi_clear_emissions(http, rpc.endpoint(), user_pubkey.to_string().as_str(), &p).await
+            marginfi::build_marginfi_clear_emissions(
+                http,
+                rpc.endpoint(),
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         // ── Solend Protocol Actions ────────────────────────────────────────────────
         "solend_deposit" => {
@@ -3736,7 +5292,8 @@ pub async fn build_action(
         }
         "solend_withdraw_collateral" => {
             let p: solend::SolendWithdrawCollateralParams = serde_json::from_value(params)?;
-            solend::build_solend_withdraw_collateral(http, user_pubkey.to_string().as_str(), &p).await
+            solend::build_solend_withdraw_collateral(http, user_pubkey.to_string().as_str(), &p)
+                .await
         }
         "solend_liquidate" => {
             let p: solend::SolendLiquidateParams = serde_json::from_value(params)?;
@@ -3787,8 +5344,14 @@ pub async fn build_action(
             solend::build_solend_deposit_liquidity(http, user_pubkey.to_string().as_str(), &p).await
         }
         "solend_deposit_obligation_collateral" => {
-            let p: solend::SolendDepositObligationCollateralParams = serde_json::from_value(params)?;
-            solend::build_solend_deposit_obligation_collateral(http, user_pubkey.to_string().as_str(), &p).await
+            let p: solend::SolendDepositObligationCollateralParams =
+                serde_json::from_value(params)?;
+            solend::build_solend_deposit_obligation_collateral(
+                http,
+                user_pubkey.to_string().as_str(),
+                &p,
+            )
+            .await
         }
         "solend_redeem_collateral" => {
             let p: solend::SolendRedeemCollateralParams = serde_json::from_value(params)?;
@@ -3855,7 +5418,8 @@ pub async fn build_action(
         "cross_chain_swap" | "bridge" => {
             // bridge is an alias for cross_chain_swap
             // Get provider from params, default to relay
-            let provider = params.get("provider")
+            let provider = params
+                .get("provider")
                 .and_then(|v| v.as_str())
                 .unwrap_or("relay")
                 .to_lowercase();
@@ -3863,7 +5427,8 @@ pub async fn build_action(
             match provider.as_str() {
                 "debridge" => {
                     let p: debridge::DebridgeParams = serde_json::from_value(params.clone())?;
-                    let result = debridge::build_debridge_swap(http, &user_pubkey.to_string(), &p).await?;
+                    let result =
+                        debridge::build_debridge_swap(http, &user_pubkey.to_string(), &p).await?;
 
                     // For EVM source chains, surface the EVM tx data as an execution step
                     let execution_steps = result.evm_tx.as_ref().map(|evm| {
@@ -3881,14 +5446,15 @@ pub async fn build_action(
                             action_type: result.preview.action_type,
                             description: result.preview.description,
                             estimated_fee: result.preview.estimated_fee,
-                    estimated_refund: None,
+                            estimated_refund: None,
                             params: serde_json::to_value(result.preview.params)?,
                             warnings: result.preview.warnings,
                             requires_approval: result.preview.requires_approval,
                         },
                         transaction: result.solana_tx,
                         additional_signers_required: 0,
-                        execution_steps: execution_steps.map(|s| serde_json::to_value(s).unwrap_or_default()),
+                        execution_steps: execution_steps
+                            .map(|s| serde_json::to_value(s).unwrap_or_default()),
                         quote: Some(serde_json::to_value(&result.quote)?),
                         is_cross_chain: true,
                         data: None,
@@ -3900,7 +5466,8 @@ pub async fn build_action(
                     if p.from_address.is_empty() {
                         p.from_address = user_pubkey.to_string();
                     }
-                    let result = squid::build_squid_swap(http, &user_pubkey.to_string(), &p).await?;
+                    let result =
+                        squid::build_squid_swap(http, &user_pubkey.to_string(), &p).await?;
 
                     let execution_steps = result.evm_tx.as_ref().map(|evm| {
                         vec![serde_json::json!({
@@ -3928,7 +5495,8 @@ pub async fn build_action(
                         },
                         transaction: result.solana_tx,
                         additional_signers_required: 0,
-                        execution_steps: execution_steps.map(|s| serde_json::to_value(s).unwrap_or_default()),
+                        execution_steps: execution_steps
+                            .map(|s| serde_json::to_value(s).unwrap_or_default()),
                         quote: Some(serde_json::to_value(&result.quote)?),
                         is_cross_chain: true,
                         data: None,
@@ -3943,7 +5511,8 @@ pub async fn build_action(
                             action_type: "squid_status".to_string(),
                             description: format!(
                                 "Squid TX {} — {}",
-                                &status.transaction_id[..std::cmp::min(12, status.transaction_id.len())],
+                                &status.transaction_id
+                                    [..std::cmp::min(12, status.transaction_id.len())],
                                 status.status
                             ),
                             estimated_fee: "0".to_string(),
@@ -3963,7 +5532,13 @@ pub async fn build_action(
                 "relay" | _ => {
                     // Default to relay
                     let p: relay::CrossChainSwapParams = serde_json::from_value(params)?;
-                    let result = relay::build_cross_chain_swap(http, &user_pubkey.to_string(), &p, relay_fee_recipient).await?;
+                    let result = relay::build_cross_chain_swap(
+                        http,
+                        &user_pubkey.to_string(),
+                        &p,
+                        relay_fee_recipient,
+                    )
+                    .await?;
 
                     // Cross-chain swaps don't return a Solana transaction,
                     // but execution steps for the frontend to execute via viem/wagmi
@@ -3973,7 +5548,7 @@ pub async fn build_action(
                             action_type: result.preview.action_type,
                             description: result.preview.description,
                             estimated_fee: result.preview.estimated_fee,
-                    estimated_refund: None,
+                            estimated_refund: None,
                             params: serde_json::to_value(result.preview.params)?,
                             warnings: result.preview.warnings,
                             requires_approval: result.preview.requires_approval,
@@ -4012,7 +5587,8 @@ pub async fn build_action(
                 },
                 transaction: result.solana_tx,
                 additional_signers_required: 0,
-                execution_steps: execution_steps.map(|s| serde_json::to_value(s).unwrap_or_default()),
+                execution_steps: execution_steps
+                    .map(|s| serde_json::to_value(s).unwrap_or_default()),
                 quote: Some(serde_json::to_value(&result.quote)?),
                 is_cross_chain: true,
                 data: None,
@@ -4046,7 +5622,8 @@ pub async fn build_action(
                 },
                 transaction: result.solana_tx,
                 additional_signers_required: 0,
-                execution_steps: execution_steps.map(|s| serde_json::to_value(s).unwrap_or_default()),
+                execution_steps: execution_steps
+                    .map(|s| serde_json::to_value(s).unwrap_or_default()),
                 quote: Some(serde_json::to_value(&result.quote)?),
                 is_cross_chain: true,
                 data: None,
@@ -4054,7 +5631,9 @@ pub async fn build_action(
         }
         "relay_bridge" => {
             let p: relay::RelayBridgeParams = serde_json::from_value(params)?;
-            let result = relay::relay_bridge(http, &user_pubkey.to_string(), &p, relay_fee_recipient).await?;
+            let result =
+                relay::relay_bridge(http, &user_pubkey.to_string(), &p, relay_fee_recipient)
+                    .await?;
             Ok(BuildResponse {
                 preview: ActionPreview {
                     id: result.preview.id,
@@ -4082,15 +5661,18 @@ pub async fn build_action(
             }
             let result = squid::get_squid_quote(http, &user_pubkey.to_string(), &p).await?;
             let from_display = squid::chain_display(&result.from_chain);
-            let to_display   = squid::chain_display(&result.to_chain);
+            let to_display = squid::chain_display(&result.to_chain);
             Ok(BuildResponse {
                 preview: ActionPreview {
                     id: format!("ccq_{}", Uuid::new_v4()),
                     action_type: "cross_chain_quote".to_string(),
                     description: format!(
                         "{} {} ({}) → {} ({}) | fee ~${:.2} | ETA ~{}s",
-                        p.amount, result.from_token, from_display,
-                        result.to_token, to_display,
+                        p.amount,
+                        result.from_token,
+                        from_display,
+                        result.to_token,
+                        to_display,
                         result.total_fee_usd,
                         result.estimated_duration_seconds,
                     ),
@@ -4114,7 +5696,10 @@ pub async fn build_action(
                 preview: ActionPreview {
                     id: format!("ccc_{}", Uuid::new_v4()),
                     action_type: "cross_chain_chains".to_string(),
-                    description: format!("Squid supports {} chains for cross-chain bridging", result.count),
+                    description: format!(
+                        "Squid supports {} chains for cross-chain bridging",
+                        result.count
+                    ),
                     estimated_fee: "0".to_string(),
                     estimated_refund: None,
                     params,
@@ -4131,11 +5716,14 @@ pub async fn build_action(
         }
         "cross_chain_tokens" => {
             // Optional chain filter from params
-            let chain_id_filter = params.get("chainId").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let chain_id_filter = params
+                .get("chainId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let result = squid::get_squid_tokens(http, chain_id_filter.as_deref()).await?;
             let description = match &result.chain_filter {
                 Some(cid) => format!("Squid supports {} tokens on chain {}", result.count, cid),
-                None       => format!("Squid supports {} tokens across all chains", result.count),
+                None => format!("Squid supports {} tokens across all chains", result.count),
             };
             Ok(BuildResponse {
                 preview: ActionPreview {
@@ -4157,9 +5745,15 @@ pub async fn build_action(
             })
         }
         // ── Tensor NFT Marketplace Actions ──────────────────────────────────────────
-        "tensor_buy" | "tensor_list" | "tensor_cancel_listing" | "tensor_make_offer"
-        | "tensor_cancel_offer" | "tensor_collection_info" | "tensor_nft_info"
-        | "tensor_wallet_nfts" | "tensor_listings" => {
+        "tensor_buy"
+        | "tensor_list"
+        | "tensor_cancel_listing"
+        | "tensor_make_offer"
+        | "tensor_cancel_offer"
+        | "tensor_collection_info"
+        | "tensor_nft_info"
+        | "tensor_wallet_nfts"
+        | "tensor_listings" => {
             tensor::build_tensor_action(http, &user_pubkey.to_string(), action_type, params).await
         }
         // ── Burn (SPL token burn / close empty account) ───────────────────────────
@@ -4167,11 +5761,10 @@ pub async fn build_action(
             let p: burn::BurnParams = serde_json::from_value(params)?;
             let rpc = rpc.clone();
             let pubkey = *user_pubkey;
-            let result = actix_web::web::block(move || {
-                burn::build_burn_transaction(&rpc, &pubkey, &p)
-            })
-            .await
-            .map_err(|e| AppError::Internal(format!("Blocking error: {e}")))??;
+            let result =
+                actix_web::web::block(move || burn::build_burn_transaction(&rpc, &pubkey, &p))
+                    .await
+                    .map_err(|e| AppError::Internal(format!("Blocking error: {e}")))??;
             let tx_bytes = bincode::serialize(&result.transaction)
                 .map_err(|e| AppError::Internal(format!("Serialization error: {e}")))?;
             let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
@@ -4234,11 +5827,10 @@ pub async fn build_action(
         "scan_empty_accounts" => {
             let rpc = rpc.clone();
             let pubkey = *user_pubkey;
-            let (empty, total_sol, _) = actix_web::web::block(move || {
-                burn::scan_empty_accounts(&rpc, &pubkey)
-            })
-            .await
-            .map_err(|e| AppError::Internal(format!("Blocking error: {e}")))??;
+            let (empty, total_sol, _) =
+                actix_web::web::block(move || burn::scan_empty_accounts(&rpc, &pubkey))
+                    .await
+                    .map_err(|e| AppError::Internal(format!("Blocking error: {e}")))??;
 
             let count = empty.len();
             let closeable_mints: Vec<String> = empty
@@ -4293,11 +5885,10 @@ pub async fn build_action(
             let p: native_stake::NativeStakeParams = serde_json::from_value(params)?;
             let rpc = rpc.clone();
             let pubkey = *user_pubkey;
-            let result = actix_web::web::block(move || {
-                native_stake::build_native_stake(&rpc, &pubkey, &p)
-            })
-            .await
-            .map_err(|e| AppError::Internal(format!("Blocking error: {e}")))??;
+            let result =
+                actix_web::web::block(move || native_stake::build_native_stake(&rpc, &pubkey, &p))
+                    .await
+                    .map_err(|e| AppError::Internal(format!("Blocking error: {e}")))??;
             Ok(BuildResponse {
                 preview: ActionPreview {
                     id: result.preview.id,
@@ -4479,7 +6070,13 @@ pub async fn build_action(
         // ── Relay.link — query actions ────────────────────────────────────────
         "relay_get_quote" => {
             let p: relay::RelayBridgeParams = serde_json::from_value(params)?;
-            let quote = relay::get_relay_quote_full(http, &p, &user_pubkey.to_string(), relay_fee_recipient).await?;
+            let quote = relay::get_relay_quote_full(
+                http,
+                &p,
+                &user_pubkey.to_string(),
+                relay_fee_recipient,
+            )
+            .await?;
             Ok(BuildResponse {
                 preview: ActionPreview {
                     id: format!("relayq_{}", Uuid::new_v4()),
@@ -4488,7 +6085,12 @@ pub async fn build_action(
                         "Relay quote: {} {} (chain {}) → chain {}",
                         p.amount, p.origin_currency, p.origin_chain_id, p.destination_chain_id
                     ),
-                    estimated_fee: quote.fees.as_ref().and_then(|f| f.total_usd).map(|f| format!("${:.2}", f)).unwrap_or_else(|| "~$2-5".to_string()),
+                    estimated_fee: quote
+                        .fees
+                        .as_ref()
+                        .and_then(|f| f.total_usd)
+                        .map(|f| format!("${:.2}", f))
+                        .unwrap_or_else(|| "~$2-5".to_string()),
                     estimated_refund: None,
                     params: serde_json::to_value(&p)?,
                     warnings: vec![],
@@ -4525,16 +6127,24 @@ pub async fn build_action(
             })
         }
         "relay_get_chains_liquidity" => {
-            let chain_id = params.get("chainId")
+            let chain_id = params
+                .get("chainId")
                 .and_then(|v| v.as_u64())
-                .ok_or_else(|| AppError::InvalidParams("chainId is required for relay_get_chains_liquidity".into()))?;
+                .ok_or_else(|| {
+                    AppError::InvalidParams(
+                        "chainId is required for relay_get_chains_liquidity".into(),
+                    )
+                })?;
             let result = relay::get_relay_chains_liquidity(http, chain_id).await?;
             let count = result.liquidity.len();
             Ok(BuildResponse {
                 preview: ActionPreview {
                     id: format!("relayliq_{}", Uuid::new_v4()),
                     action_type: "relay_get_chains_liquidity".to_string(),
-                    description: format!("Relay solver liquidity on chain {}: {} currencies", chain_id, count),
+                    description: format!(
+                        "Relay solver liquidity on chain {}: {} currencies",
+                        chain_id, count
+                    ),
                     estimated_fee: "0".to_string(),
                     estimated_refund: None,
                     params: serde_json::Value::Null,
@@ -4572,7 +6182,11 @@ pub async fn build_action(
             })
         }
         "relay_get_token_price" => {
-            let address = params.get("address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let address = params
+                .get("address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let chain_id = params.get("chainId").and_then(|v| v.as_u64()).unwrap_or(1);
             let price = relay::get_relay_token_price(http, &address, chain_id).await?;
             Ok(BuildResponse {
@@ -4686,7 +6300,11 @@ pub async fn build_action(
             let chain_id = params.get("chainId").and_then(|v| v.as_u64());
             let result = relay::get_swap_sources(http, chain_id).await?;
             let description = match chain_id {
-                Some(cid) => format!("Relay swap sources for chain {}: {} available", cid, result.sources.len()),
+                Some(cid) => format!(
+                    "Relay swap sources for chain {}: {} available",
+                    cid,
+                    result.sources.len()
+                ),
                 None => format!("Relay swap sources: {} available", result.sources.len()),
             };
             Ok(BuildResponse {
@@ -4762,7 +6380,9 @@ pub async fn build_action(
         }
         "relay_fast_fill" => {
             let api_key = relay_api_key.ok_or_else(|| {
-                AppError::InvalidParams("RELAY_API_KEY is not configured — fast-fill unavailable".into())
+                AppError::InvalidParams(
+                    "RELAY_API_KEY is not configured — fast-fill unavailable".into(),
+                )
             })?;
             let request_id = params
                 .get("requestId")
@@ -4773,9 +6393,7 @@ pub async fn build_action(
                 .get("solverInputCurrencyAmount")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let max_fill_amount_usd = params
-                .get("maxFillAmountUsd")
-                .and_then(|v| v.as_f64());
+            let max_fill_amount_usd = params.get("maxFillAmountUsd").and_then(|v| v.as_f64());
             let fast_fill_req = relay::RelayFastFillRequest {
                 request_id: request_id.clone(),
                 solver_input_currency_amount,
@@ -4786,7 +6404,10 @@ pub async fn build_action(
                 preview: ActionPreview {
                     id: format!("relayfastfill_{}", Uuid::new_v4()),
                     action_type: "relay_fast_fill".to_string(),
-                    description: format!("Relay fast-fill queued for request {}", &request_id[..request_id.len().min(16)]),
+                    description: format!(
+                        "Relay fast-fill queued for request {}",
+                        &request_id[..request_id.len().min(16)]
+                    ),
                     estimated_fee: "0".to_string(),
                     estimated_refund: None,
                     params: serde_json::Value::Null,
@@ -4803,11 +6424,14 @@ pub async fn build_action(
         }
         "relay_execute" => {
             let api_key = relay_api_key.ok_or_else(|| {
-                AppError::InvalidParams("RELAY_API_KEY is not configured — relay_execute unavailable".into())
+                AppError::InvalidParams(
+                    "RELAY_API_KEY is not configured — relay_execute unavailable".into(),
+                )
             })?;
-            let execute_req: relay::RelayExecuteRequest =
-                serde_json::from_value(params.clone())
-                    .map_err(|e| AppError::InvalidParams(format!("Invalid relay_execute params: {e}")))?;
+            let execute_req: relay::RelayExecuteRequest = serde_json::from_value(params.clone())
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid relay_execute params: {e}"))
+                })?;
             let chain_id = execute_req.data.chain_id;
             let to = execute_req.data.to.clone();
             let result = relay::relay_execute(http, api_key, &execute_req).await?;
@@ -4859,7 +6483,10 @@ pub async fn build_action(
                 preview: ActionPreview {
                     id: format!("relayindex_{}", Uuid::new_v4()),
                     action_type: "relay_index_transaction".to_string(),
-                    description: format!("Relay: indexed transaction {}", &tx_hash[..tx_hash.len().min(16)]),
+                    description: format!(
+                        "Relay: indexed transaction {}",
+                        &tx_hash[..tx_hash.len().min(16)]
+                    ),
                     estimated_fee: "0".to_string(),
                     estimated_refund: None,
                     params: serde_json::Value::Null,
@@ -4900,7 +6527,10 @@ pub async fn build_action(
                 preview: ActionPreview {
                     id: format!("relaysingle_{}", Uuid::new_v4()),
                     action_type: "relay_single_transaction".to_string(),
-                    description: format!("Relay: indexed single transaction {}", &tx[..tx.len().min(16)]),
+                    description: format!(
+                        "Relay: indexed single transaction {}",
+                        &tx[..tx.len().min(16)]
+                    ),
                     estimated_fee: "0".to_string(),
                     estimated_refund: None,
                     params: serde_json::Value::Null,
@@ -4916,10 +6546,7 @@ pub async fn build_action(
             })
         }
         "relay_deposit_address_reindex" => {
-            let chain_id = params
-                .get("chainId")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let chain_id = params.get("chainId").and_then(|v| v.as_u64()).unwrap_or(0);
             let deposit_address = params
                 .get("depositAddress")
                 .and_then(|v| v.as_str())
@@ -4962,24 +6589,33 @@ pub async fn build_action(
         // ── Streamflow ────────────────────────────────────────────────────────
         "streamflow_list" => {
             let direction = params.get("direction").and_then(|v| v.as_str());
-            let result = streamflow::list_streams(http, &user_pubkey.to_string(), direction).await?;
+            let result =
+                streamflow::list_streams(http, &user_pubkey.to_string(), direction).await?;
             streamflow_to_build_response(result)
         }
         "streamflow_create" => {
             let p: streamflow::StreamflowCreateParams = serde_json::from_value(params)?;
-            streamflow_to_build_response(streamflow::build_create_stream(http, &user_pubkey.to_string(), &p).await?)
+            streamflow_to_build_response(
+                streamflow::build_create_stream(http, &user_pubkey.to_string(), &p).await?,
+            )
         }
         "streamflow_cancel" => {
             let p: streamflow::StreamflowCancelParams = serde_json::from_value(params)?;
-            streamflow_to_build_response(streamflow::build_cancel_stream(http, &user_pubkey.to_string(), &p).await?)
+            streamflow_to_build_response(
+                streamflow::build_cancel_stream(http, &user_pubkey.to_string(), &p).await?,
+            )
         }
         "streamflow_withdraw" => {
             let p: streamflow::StreamflowWithdrawParams = serde_json::from_value(params)?;
-            streamflow_to_build_response(streamflow::build_withdraw_stream(http, &user_pubkey.to_string(), &p).await?)
+            streamflow_to_build_response(
+                streamflow::build_withdraw_stream(http, &user_pubkey.to_string(), &p).await?,
+            )
         }
         "streamflow_transfer" => {
             let p: streamflow::StreamflowTransferParams = serde_json::from_value(params)?;
-            streamflow_to_build_response(streamflow::build_transfer_stream(http, &user_pubkey.to_string(), &p).await?)
+            streamflow_to_build_response(
+                streamflow::build_transfer_stream(http, &user_pubkey.to_string(), &p).await?,
+            )
         }
         "streamflow_topup" => {
             let p: streamflow::StreamflowTopupParams = serde_json::from_value(params)?;
@@ -4988,12 +6624,15 @@ pub async fn build_action(
         }
         "streamflow_update" => {
             let p: streamflow::StreamflowUpdateParams = serde_json::from_value(params)?;
-            let result = streamflow::build_update_stream(http, &user_pubkey.to_string(), &p).await?;
+            let result =
+                streamflow::build_update_stream(http, &user_pubkey.to_string(), &p).await?;
             streamflow_to_build_response(result)
         }
         "streamflow_create_multiple" => {
             let p: streamflow::StreamflowCreateMultipleParams = serde_json::from_value(params)?;
-            let result = streamflow::build_create_multiple_streams(http, &user_pubkey.to_string(), &p).await?;
+            let result =
+                streamflow::build_create_multiple_streams(http, &user_pubkey.to_string(), &p)
+                    .await?;
             streamflow_to_build_response(result)
         }
         "streamflow_get_one" => {
@@ -5170,7 +6809,10 @@ async fn build_stake(
 ) -> Result<BuildResponse, AppError> {
     match protocol {
         "jito" => {
-            let jito_params = jito::JitoStakeParams { amount: params.amount.clone(), slippage_bps: None };
+            let jito_params = jito::JitoStakeParams {
+                amount: params.amount.clone(),
+                slippage_bps: None,
+            };
             jito::build_jito_stake_action(http, rpc, user_pubkey, &jito_params).await
         }
         _ => {
@@ -5208,12 +6850,18 @@ async fn build_unstake(
                     amount: params.amount.clone(),
                     slippage_bps: None,
                 };
-                marinade::build_marinade_unstake(http, &user_pubkey.to_string(), &marinade_params).await
+                marinade::build_marinade_unstake(http, &user_pubkey.to_string(), &marinade_params)
+                    .await
             } else {
                 let marinade_params = marinade::MarinadeDelayedUnstakeParams {
                     amount: params.amount.clone(),
                 };
-                marinade::build_marinade_delayed_unstake(http, &user_pubkey.to_string(), &marinade_params).await
+                marinade::build_marinade_delayed_unstake(
+                    http,
+                    &user_pubkey.to_string(),
+                    &marinade_params,
+                )
+                .await
             }
         }
     }

@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_request::TokenAccountsFilter;
-use solana_sdk::{
-    message::Message,
-    pubkey::Pubkey,
-    transaction::Transaction,
-};
+use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
 use spl_associated_token_account::get_associated_token_address;
 use spl_token::instruction as spl_ix;
 use uuid::Uuid;
@@ -121,22 +117,16 @@ pub fn build_burn_transaction(
 
     let (token_decimals, token_symbol) = match get_token_info(&params.mint) {
         Some(info) => (info.decimals, info.symbol.to_string()),
-        None => (
-            9u8,
-            params.mint[..6.min(params.mint.len())].to_uppercase(),
-        ),
+        None => (9u8, params.mint[..6.min(params.mint.len())].to_uppercase()),
     };
 
     // Verify the token account exists and get current balance.
-    let balance_info = rpc
-        .client()
-        .get_token_account_balance(&ata)
-        .map_err(|_| {
-            AppError::InvalidParams(format!(
-                "No {} token account found. Your balance is 0 {}.",
-                token_symbol, token_symbol,
-            ))
-        })?;
+    let balance_info = rpc.client().get_token_account_balance(&ata).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "No {} token account found. Your balance is 0 {}.",
+            token_symbol, token_symbol,
+        ))
+    })?;
     let current_balance_raw = balance_info.amount.parse::<u64>().unwrap_or(0);
     let current_balance_ui = balance_info.ui_amount.unwrap_or(0.0);
 
@@ -205,10 +195,7 @@ pub fn build_burn_transaction(
 
     let blockhash = rpc.get_latest_blockhash_with_retry()?;
     let message = Message::new(&instructions, Some(owner));
-    let fee = rpc
-        .client()
-        .get_fee_for_message(&message)
-        .unwrap_or(5_000);
+    let fee = rpc.client().get_fee_for_message(&message).unwrap_or(5_000);
 
     // Verify SOL covers the fee.
     let sol_balance = rpc.client().get_balance(owner).unwrap_or(0);
@@ -427,10 +414,7 @@ pub fn build_close_accounts_transaction(
 
     let blockhash = rpc.get_latest_blockhash_with_retry()?;
     let message = Message::new(&instructions, Some(owner));
-    let fee = rpc
-        .client()
-        .get_fee_for_message(&message)
-        .unwrap_or(5_000);
+    let fee = rpc.client().get_fee_for_message(&message).unwrap_or(5_000);
 
     // Verify SOL covers the fee.
     let sol_balance = rpc.client().get_balance(owner).unwrap_or(0);
@@ -446,11 +430,7 @@ pub fn build_close_accounts_transaction(
     let count = closed_symbols.len();
 
     let names_preview = if closed_symbols.len() > 4 {
-        format!(
-            "{}, +{} more",
-            closed_symbols[..4].join(", "),
-            count - 4
-        )
+        format!("{}, +{} more", closed_symbols[..4].join(", "), count - 4)
     } else {
         closed_symbols.join(", ")
     };
@@ -477,7 +457,11 @@ pub fn build_close_accounts_transaction(
             "Skipped {} account{} with non-zero balance: {}. \
              Use 'Burn & Close' to permanently remove those.",
             skipped_non_empty.len(),
-            if skipped_non_empty.len() == 1 { "" } else { "s" },
+            if skipped_non_empty.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
             skipped_non_empty.join(", "),
         ));
     }

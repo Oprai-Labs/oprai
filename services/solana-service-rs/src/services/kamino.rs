@@ -35,7 +35,6 @@ use crate::services::builder::{ActionPreview, BuildResponse};
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 
-
 /// Kamino REST API base URL (no trailing slash).
 const KAMINO_API: &str = "https://api.kamino.finance";
 
@@ -54,7 +53,10 @@ fn resolve_kamino_market<'a>(market: Option<&'a str>) -> &'a str {
         Some("") => KAMINO_MAIN_MARKET,
         Some(m) => {
             let lower = m.to_ascii_lowercase();
-            if matches!(lower.as_str(), "main" | "default" | "primary" | "kamino_main" | "klend_main") {
+            if matches!(
+                lower.as_str(),
+                "main" | "default" | "primary" | "kamino_main" | "klend_main"
+            ) {
                 KAMINO_MAIN_MARKET
             } else if m.len() >= 32 && m.len() <= 44 && !m.contains(' ') {
                 m
@@ -305,7 +307,9 @@ pub struct KaminoUnstakeParams {
 
 fn validate_reserve_address(reserve: &str, field: &str) -> Result<(), AppError> {
     if reserve.is_empty() || reserve.len() < 32 {
-        return Err(AppError::InvalidParams(format!("{field} must be a valid KLend reserve account address (base58)")));
+        return Err(AppError::InvalidParams(format!(
+            "{field} must be a valid KLend reserve account address (base58)"
+        )));
     }
     Ok(())
 }
@@ -314,7 +318,11 @@ pub fn validate_kamino_deposit_params(p: &KaminoDepositParams) -> Result<(), App
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
     if let Some(ref m) = p.market {
-        if m.len() < 32 { return Err(AppError::InvalidParams(format!("market '{m}' is not a valid Solana address"))); }
+        if m.len() < 32 {
+            return Err(AppError::InvalidParams(format!(
+                "market '{m}' is not a valid Solana address"
+            )));
+        }
     }
     Ok(())
 }
@@ -323,7 +331,11 @@ pub fn validate_kamino_withdraw_params(p: &KaminoWithdrawParams) -> Result<(), A
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
     if let Some(ref m) = p.market {
-        if m.len() < 32 { return Err(AppError::InvalidParams(format!("market '{m}' is not a valid Solana address"))); }
+        if m.len() < 32 {
+            return Err(AppError::InvalidParams(format!(
+                "market '{m}' is not a valid Solana address"
+            )));
+        }
     }
     Ok(())
 }
@@ -332,7 +344,11 @@ pub fn validate_kamino_borrow_params(p: &KaminoBorrowParams) -> Result<(), AppEr
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
     if let Some(ref m) = p.market {
-        if m.len() < 32 { return Err(AppError::InvalidParams(format!("market '{m}' is not a valid Solana address"))); }
+        if m.len() < 32 {
+            return Err(AppError::InvalidParams(format!(
+                "market '{m}' is not a valid Solana address"
+            )));
+        }
     }
     Ok(())
 }
@@ -341,25 +357,41 @@ pub fn validate_kamino_repay_params(p: &KaminoRepayParams) -> Result<(), AppErro
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
     if let Some(ref m) = p.market {
-        if m.len() < 32 { return Err(AppError::InvalidParams(format!("market '{m}' is not a valid Solana address"))); }
+        if m.len() < 32 {
+            return Err(AppError::InvalidParams(format!(
+                "market '{m}' is not a valid Solana address"
+            )));
+        }
     }
     Ok(())
 }
 
-pub fn validate_kamino_add_collateral_params(p: &KaminoAddCollateralParams) -> Result<(), AppError> {
+pub fn validate_kamino_add_collateral_params(
+    p: &KaminoAddCollateralParams,
+) -> Result<(), AppError> {
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
     if let Some(ref m) = p.market {
-        if m.len() < 32 { return Err(AppError::InvalidParams(format!("market '{m}' is not a valid Solana address"))); }
+        if m.len() < 32 {
+            return Err(AppError::InvalidParams(format!(
+                "market '{m}' is not a valid Solana address"
+            )));
+        }
     }
     Ok(())
 }
 
-pub fn validate_kamino_withdraw_collateral_params(p: &KaminoWithdrawCollateralParams) -> Result<(), AppError> {
+pub fn validate_kamino_withdraw_collateral_params(
+    p: &KaminoWithdrawCollateralParams,
+) -> Result<(), AppError> {
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
     if let Some(ref m) = p.market {
-        if m.len() < 32 { return Err(AppError::InvalidParams(format!("market '{m}' is not a valid Solana address"))); }
+        if m.len() < 32 {
+            return Err(AppError::InvalidParams(format!(
+                "market '{m}' is not a valid Solana address"
+            )));
+        }
     }
     Ok(())
 }
@@ -370,7 +402,9 @@ pub fn validate_kamino_multiply_open_params(p: &KaminoMultiplyOpenParams) -> Res
     }
     validate_positive_amount(&p.amount, "amount")?;
     if p.leverage < 1.0 || p.leverage > 10.0 {
-        return Err(AppError::InvalidParams("leverage must be between 1.0 and 10.0".into()));
+        return Err(AppError::InvalidParams(
+            "leverage must be between 1.0 and 10.0".into(),
+        ));
     }
     Ok(())
 }
@@ -383,7 +417,9 @@ pub fn validate_kamino_multiply_add_params(p: &KaminoMultiplyAddParams) -> Resul
     Ok(())
 }
 
-pub fn validate_kamino_multiply_withdraw_params(p: &KaminoMultiplyWithdrawParams) -> Result<(), AppError> {
+pub fn validate_kamino_multiply_withdraw_params(
+    p: &KaminoMultiplyWithdrawParams,
+) -> Result<(), AppError> {
     if p.position.is_empty() {
         return Err(AppError::InvalidParams("position is required".into()));
     }
@@ -395,7 +431,9 @@ pub fn validate_kamino_multiply_withdraw_params(p: &KaminoMultiplyWithdrawParams
     Ok(())
 }
 
-pub fn validate_kamino_multiply_close_params(p: &KaminoMultiplyCloseParams) -> Result<(), AppError> {
+pub fn validate_kamino_multiply_close_params(
+    p: &KaminoMultiplyCloseParams,
+) -> Result<(), AppError> {
     if p.position.is_empty() {
         return Err(AppError::InvalidParams("position is required".into()));
     }
@@ -404,27 +442,37 @@ pub fn validate_kamino_multiply_close_params(p: &KaminoMultiplyCloseParams) -> R
 
 pub fn validate_kamino_long_open_params(p: &KaminoLongOpenParams) -> Result<(), AppError> {
     if p.collateral_token.is_empty() {
-        return Err(AppError::InvalidParams("collateralToken is required".into()));
+        return Err(AppError::InvalidParams(
+            "collateralToken is required".into(),
+        ));
     }
     validate_positive_amount(&p.collateral_amount, "collateralAmount")?;
     if p.leverage < 1.0 || p.leverage > 20.0 {
-        return Err(AppError::InvalidParams("leverage must be between 1.0 and 20.0".into()));
+        return Err(AppError::InvalidParams(
+            "leverage must be between 1.0 and 20.0".into(),
+        ));
     }
     Ok(())
 }
 
 pub fn validate_kamino_short_open_params(p: &KaminoShortOpenParams) -> Result<(), AppError> {
     if p.collateral_token.is_empty() {
-        return Err(AppError::InvalidParams("collateralToken is required".into()));
+        return Err(AppError::InvalidParams(
+            "collateralToken is required".into(),
+        ));
     }
     validate_positive_amount(&p.collateral_amount, "collateralAmount")?;
     if p.leverage < 1.0 || p.leverage > 20.0 {
-        return Err(AppError::InvalidParams("leverage must be between 1.0 and 20.0".into()));
+        return Err(AppError::InvalidParams(
+            "leverage must be between 1.0 and 20.0".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_kamino_position_close_params(p: &KaminoPositionCloseParams) -> Result<(), AppError> {
+pub fn validate_kamino_position_close_params(
+    p: &KaminoPositionCloseParams,
+) -> Result<(), AppError> {
     if p.position.is_empty() {
         return Err(AppError::InvalidParams("position is required".into()));
     }
@@ -443,18 +491,26 @@ pub fn validate_kamino_vault_deposit_params(p: &KaminoVaultDepositParams) -> Res
         return Err(AppError::InvalidParams("vault address is required".into()));
     }
     if p.vault.len() < 32 {
-        return Err(AppError::InvalidParams(format!("vault '{}' is not a valid Solana address", p.vault)));
+        return Err(AppError::InvalidParams(format!(
+            "vault '{}' is not a valid Solana address",
+            p.vault
+        )));
     }
     validate_positive_amount(&p.amount, "amount")?;
     Ok(())
 }
 
-pub fn validate_kamino_vault_withdraw_params(p: &KaminoVaultWithdrawParams) -> Result<(), AppError> {
+pub fn validate_kamino_vault_withdraw_params(
+    p: &KaminoVaultWithdrawParams,
+) -> Result<(), AppError> {
     if p.vault.is_empty() {
         return Err(AppError::InvalidParams("vault address is required".into()));
     }
     if p.vault.len() < 32 {
-        return Err(AppError::InvalidParams(format!("vault '{}' is not a valid Solana address", p.vault)));
+        return Err(AppError::InvalidParams(format!(
+            "vault '{}' is not a valid Solana address",
+            p.vault
+        )));
     }
     validate_positive_amount(&p.ktoken_amount, "ktokenAmount")?;
     Ok(())
@@ -473,11 +529,15 @@ pub fn validate_kamino_unstake_params(p: &KaminoUnstakeParams) -> Result<(), App
 // ──────────────────────────────────────────────────────────────────────────────
 
 fn validate_positive_amount(amount: &str, field: &str) -> Result<(), AppError> {
-    let v: f64 = amount
-        .parse()
-        .map_err(|_| AppError::InvalidParams(format!("{field} must be a positive number, got: '{amount}'")))?;
+    let v: f64 = amount.parse().map_err(|_| {
+        AppError::InvalidParams(format!(
+            "{field} must be a positive number, got: '{amount}'"
+        ))
+    })?;
     if v <= 0.0 {
-        return Err(AppError::InvalidParams(format!("{field} must be positive, got: {amount}")));
+        return Err(AppError::InvalidParams(format!(
+            "{field} must be positive, got: {amount}"
+        )));
     }
     Ok(())
 }
@@ -493,7 +553,6 @@ fn sdk_only_error(feature: &str) -> AppError {
          via the REST API. Use the OpraiOS SDK integration for this feature."
     ))
 }
-
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Internal HTTP helpers
@@ -1093,7 +1152,10 @@ pub async fn build_kamino_user_vault_positions(
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_user_vault_positions".into(),
-            description: format!("{count} active Kamino Earn position(s) for {}", short_id(target)),
+            description: format!(
+                "{count} active Kamino Earn position(s) for {}",
+                short_id(target)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data,
@@ -1117,7 +1179,9 @@ pub async fn build_kamino_markets(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_markets_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref p) = params.program_id { query.push(("programId", p.clone())); }
+    if let Some(ref p) = params.program_id {
+        query.push(("programId", p.clone()));
+    }
     let data = kamino_get_q(http, "/v2/kamino-market", &query).await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
@@ -1149,9 +1213,15 @@ pub async fn build_kamino_market_reserves(
     validate_kamino_market_reserves_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env { query.push(("env", e.clone())); }
-    let data =
-        kamino_get_q(http, &format!("/kamino-market/{market}/reserves/metrics"), &query).await?;
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    let data = kamino_get_q(
+        http,
+        &format!("/kamino-market/{market}/reserves/metrics"),
+        &query,
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1183,7 +1253,9 @@ pub async fn build_kamino_user_obligations(
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env { query.push(("env", e.clone())); }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
     let data = kamino_get_q(
         http,
         &format!("/kamino-market/{market}/users/{target}/obligations"),
@@ -1541,14 +1613,18 @@ pub struct KaminoMarketReservesAccountParams {
 
 pub fn validate_kamino_vault_detail_params(p: &KaminoVaultDetailParams) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
 
 pub fn validate_kamino_vault_metrics_params(p: &KaminoVaultMetricsParams) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
@@ -1557,7 +1633,9 @@ pub fn validate_kamino_vault_metrics_history_params(
     p: &KaminoVaultMetricsHistoryParams,
 ) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
@@ -1566,16 +1644,22 @@ pub fn validate_kamino_vault_allocation_history_params(
     p: &KaminoVaultAllocationHistoryParams,
 ) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_kamino_vaults_rewards_params(_p: &KaminoVaultsRewardsParams) -> Result<(), AppError> {
+pub fn validate_kamino_vaults_rewards_params(
+    _p: &KaminoVaultsRewardsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_kamino_vaults_summary_params(_p: &KaminoVaultsSummaryParams) -> Result<(), AppError> {
+pub fn validate_kamino_vaults_summary_params(
+    _p: &KaminoVaultsSummaryParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -1583,7 +1667,9 @@ pub fn validate_kamino_vault_mint_metadata_params(
     p: &KaminoVaultMintMetadataParams,
 ) -> Result<(), AppError> {
     if p.mint.is_empty() || p.mint.len() < 32 {
-        return Err(AppError::InvalidParams("mint must be a valid Solana address (kToken mint)".into()));
+        return Err(AppError::InvalidParams(
+            "mint must be a valid Solana address (kToken mint)".into(),
+        ));
     }
     Ok(())
 }
@@ -1592,7 +1678,9 @@ pub fn validate_kamino_vault_mint_image_params(
     p: &KaminoVaultMintImageParams,
 ) -> Result<(), AppError> {
     if p.mint.is_empty() || p.mint.len() < 32 {
-        return Err(AppError::InvalidParams("mint must be a valid Solana address (kToken mint)".into()));
+        return Err(AppError::InvalidParams(
+            "mint must be a valid Solana address (kToken mint)".into(),
+        ));
     }
     Ok(())
 }
@@ -1613,7 +1701,9 @@ pub fn validate_kamino_user_vault_position_params(
     p: &KaminoUserVaultPositionParams,
 ) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
@@ -1622,16 +1712,18 @@ pub fn validate_kamino_user_vault_metrics_history_params(
     p: &KaminoUserVaultMetricsHistoryParams,
 ) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_kamino_user_vault_pnl_params(
-    p: &KaminoUserVaultPnlParams,
-) -> Result<(), AppError> {
+pub fn validate_kamino_user_vault_pnl_params(p: &KaminoUserVaultPnlParams) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
@@ -1640,7 +1732,9 @@ pub fn validate_kamino_user_vault_pnl_history_params(
     p: &KaminoUserVaultPnlHistoryParams,
 ) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
@@ -1649,7 +1743,9 @@ pub fn validate_kamino_vault_deposit_instructions_params(
     p: &KaminoVaultDepositInstructionsParams,
 ) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     validate_positive_amount(&p.amount, "amount")
 }
@@ -1658,7 +1754,9 @@ pub fn validate_kamino_vault_withdraw_instructions_params(
     p: &KaminoVaultWithdrawInstructionsParams,
 ) -> Result<(), AppError> {
     if p.vault.is_empty() || p.vault.len() < 32 {
-        return Err(AppError::InvalidParams("vault must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "vault must be a valid Solana address".into(),
+        ));
     }
     validate_positive_amount(&p.ktoken_amount, "ktokenAmount")
 }
@@ -1671,7 +1769,9 @@ pub fn validate_kamino_market_reserve_history_params(
     p: &KaminoMarketReserveHistoryParams,
 ) -> Result<(), AppError> {
     if p.reserve.is_empty() {
-        return Err(AppError::InvalidParams("reserve (mint address) is required".into()));
+        return Err(AppError::InvalidParams(
+            "reserve (mint address) is required".into(),
+        ));
     }
     Ok(())
 }
@@ -1763,7 +1863,10 @@ pub async fn build_kamino_vault_metrics(
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_vault_metrics".into(),
-            description: format!("APY/TVL metrics for Kamino Earn vault {}", short_id(&params.vault)),
+            description: format!(
+                "APY/TVL metrics for Kamino Earn vault {}",
+                short_id(&params.vault)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -1787,19 +1890,27 @@ pub async fn build_kamino_vault_metrics_history(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_vault_metrics_history_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(s) = params.start { query.push(("start", s.to_string())); }
-    if let Some(e) = params.end   { query.push(("end", e.to_string())); }
+    if let Some(s) = params.start {
+        query.push(("start", s.to_string()));
+    }
+    if let Some(e) = params.end {
+        query.push(("end", e.to_string()));
+    }
     let data = kamino_get_q(
         http,
         &format!("/kvaults/vaults/{}/metrics/history", params.vault),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_vault_metrics_history".into(),
-            description: format!("{count} historical metric entries for vault {}", short_id(&params.vault)),
+            description: format!(
+                "{count} historical metric entries for vault {}",
+                short_id(&params.vault)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -1823,19 +1934,27 @@ pub async fn build_kamino_vault_allocation_history(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_vault_allocation_history_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(s) = params.start { query.push(("start", s.to_string())); }
-    if let Some(e) = params.end   { query.push(("end", e.to_string())); }
+    if let Some(s) = params.start {
+        query.push(("start", s.to_string()));
+    }
+    if let Some(e) = params.end {
+        query.push(("end", e.to_string()));
+    }
     let data = kamino_get_q(
         http,
         &format!("/kvaults/vaults/{}/allocation-volume/history", params.vault),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_vault_allocation_history".into(),
-            description: format!("{count} allocation history entries for vault {}", short_id(&params.vault)),
+            description: format!(
+                "{count} allocation history entries for vault {}",
+                short_id(&params.vault)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -1859,7 +1978,9 @@ pub async fn build_kamino_vaults_rewards(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_vaults_rewards_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.source { query.push(("source", s.clone())); }
+    if let Some(ref s) = params.source {
+        query.push(("source", s.clone()));
+    }
     let data = kamino_get_q(http, "/kvaults/rewards", &query).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1889,7 +2010,9 @@ pub async fn build_kamino_vaults_summary(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_vaults_summary_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref t) = params.vault_type { query.push(("type", t.clone())); }
+    if let Some(ref t) = params.vault_type {
+        query.push(("type", t.clone()));
+    }
     let data = kamino_get_q(http, "/kvaults/summary", &query).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1919,8 +2042,15 @@ pub async fn build_kamino_vault_mint_metadata(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_vault_mint_metadata_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env { query.push(("env", e.clone())); }
-    let data = kamino_get_q(http, &format!("/kvaults/mints/{}/metadata", params.mint), &query).await?;
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    let data = kamino_get_q(
+        http,
+        &format!("/kvaults/mints/{}/metadata", params.mint),
+        &query,
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -1949,7 +2079,10 @@ pub async fn build_kamino_vault_mint_image(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_vault_mint_image_params(params)?;
     // Returns SVG/image data; we return it as a JSON string value
-    let mut url = format!("{KAMINO_API}/kvaults/mints/{}/metadata/image.svg", params.mint);
+    let mut url = format!(
+        "{KAMINO_API}/kvaults/mints/{}/metadata/image.svg",
+        params.mint
+    );
     if let Some(ref e) = params.env {
         url.push_str(&format!("?env={e}"));
     }
@@ -2002,19 +2135,27 @@ pub async fn build_kamino_user_metrics_history(
     validate_kamino_user_metrics_history_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(s) = params.start { query.push(("start", s.to_string())); }
-    if let Some(e) = params.end   { query.push(("end", e.to_string())); }
+    if let Some(s) = params.start {
+        query.push(("start", s.to_string()));
+    }
+    if let Some(e) = params.end {
+        query.push(("end", e.to_string()));
+    }
     let data = kamino_get_q(
         http,
         &format!("/kvaults/users/{target}/metrics/history"),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_user_metrics_history".into(),
-            description: format!("{count} Earn metric history entries for {}", short_id(target)),
+            description: format!(
+                "{count} Earn metric history entries for {}",
+                short_id(target)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -2039,19 +2180,27 @@ pub async fn build_kamino_user_transactions(
     validate_kamino_user_transactions_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(l) = params.limit  { query.push(("limit", l.to_string())); }
-    if let Some(ref c) = params.cursor { query.push(("cursor", c.clone())); }
+    if let Some(l) = params.limit {
+        query.push(("limit", l.to_string()));
+    }
+    if let Some(ref c) = params.cursor {
+        query.push(("cursor", c.clone()));
+    }
     let data = kamino_get_q(
         http,
         &format!("/kvaults/users/{target}/transactions"),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_user_transactions".into(),
-            description: format!("{count} Kamino Earn transaction(s) for {}", short_id(target)),
+            description: format!(
+                "{count} Kamino Earn transaction(s) for {}",
+                short_id(target)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -2077,8 +2226,9 @@ pub async fn build_kamino_user_vault_position(
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let data = kamino_get(
         http,
-        &format!("/kvaults/users/{target}/positions/{}", params.vault),  // correct: /positions/{vault}
-    ).await?;
+        &format!("/kvaults/users/{target}/positions/{}", params.vault), // correct: /positions/{vault}
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -2112,13 +2262,21 @@ pub async fn build_kamino_user_vault_metrics_history(
     validate_kamino_user_vault_metrics_history_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(s) = params.start { query.push(("start", s.to_string())); }
-    if let Some(e) = params.end   { query.push(("end", e.to_string())); }
+    if let Some(s) = params.start {
+        query.push(("start", s.to_string()));
+    }
+    if let Some(e) = params.end {
+        query.push(("end", e.to_string()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/kvaults/users/{target}/vaults/{}/metrics/history", params.vault),
+        &format!(
+            "/kvaults/users/{target}/vaults/{}/metrics/history",
+            params.vault
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -2155,7 +2313,8 @@ pub async fn build_kamino_user_vault_pnl(
     let data = kamino_get(
         http,
         &format!("/kvaults/users/{target}/vaults/{}/pnl", params.vault),
-    ).await?;
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -2189,13 +2348,21 @@ pub async fn build_kamino_user_vault_pnl_history(
     validate_kamino_user_vault_pnl_history_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(s) = params.start { query.push(("start", s.to_string())); }
-    if let Some(e) = params.end   { query.push(("end", e.to_string())); }
+    if let Some(s) = params.start {
+        query.push(("start", s.to_string()));
+    }
+    if let Some(e) = params.end {
+        query.push(("end", e.to_string()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/kvaults/users/{target}/vaults/{}/pnl/history", params.vault),
+        &format!(
+            "/kvaults/users/{target}/vaults/{}/pnl/history",
+            params.vault
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -2241,12 +2408,10 @@ pub async fn build_kamino_vault_deposit_instructions(
         body["slippageBps"] = serde_json::Value::Number(s.into());
     }
     let url = format!("{KAMINO_API}/ktx/kvault/deposit/instructions");
-    let resp = http
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Kamino vault deposit instructions: {e}")))?;
+    let resp =
+        http.post(&url).json(&body).send().await.map_err(|e| {
+            AppError::ProtocolError(format!("Kamino vault deposit instructions: {e}"))
+        })?;
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body_text = resp.text().await.unwrap_or_default();
@@ -2254,10 +2419,9 @@ pub async fn build_kamino_vault_deposit_instructions(
             "Kamino vault deposit instructions returned {status}: {body_text}"
         )));
     }
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Kamino vault deposit instructions parse: {e}")))?;
+    let data: serde_json::Value = resp.json().await.map_err(|e| {
+        AppError::ProtocolError(format!("Kamino vault deposit instructions parse: {e}"))
+    })?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -2369,12 +2533,10 @@ pub async fn build_kamino_vault_withdraw_instructions(
         body["slippageBps"] = serde_json::Value::Number(s.into());
     }
     let url = format!("{KAMINO_API}/ktx/kvault/withdraw/instructions");
-    let resp = http
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Kamino vault withdraw instructions: {e}")))?;
+    let resp =
+        http.post(&url).json(&body).send().await.map_err(|e| {
+            AppError::ProtocolError(format!("Kamino vault withdraw instructions: {e}"))
+        })?;
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body_text = resp.text().await.unwrap_or_default();
@@ -2382,10 +2544,9 @@ pub async fn build_kamino_vault_withdraw_instructions(
             "Kamino vault withdraw instructions returned {status}: {body_text}"
         )));
     }
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Kamino vault withdraw instructions parse: {e}")))?;
+    let data: serde_json::Value = resp.json().await.map_err(|e| {
+        AppError::ProtocolError(format!("Kamino vault withdraw instructions parse: {e}"))
+    })?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -2423,7 +2584,9 @@ pub async fn build_kamino_market_detail(
     validate_kamino_market_detail_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref p) = params.program_id { query.push(("programId", p.clone())); }
+    if let Some(ref p) = params.program_id {
+        query.push(("programId", p.clone()));
+    }
     let data = kamino_get_q(http, &format!("/v2/kamino-market/{market}"), &query).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -2454,15 +2617,27 @@ pub async fn build_kamino_market_reserve_history(
     validate_kamino_market_reserve_history_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(s) = params.start       { query.push(("start", s.to_string())); }
-    if let Some(e) = params.end         { query.push(("end", e.to_string())); }
-    if let Some(ref f) = params.frequency { query.push(("frequency", f.clone())); }
-    if let Some(ref e) = params.env     { query.push(("env", e.clone())); }
+    if let Some(s) = params.start {
+        query.push(("start", s.to_string()));
+    }
+    if let Some(e) = params.end {
+        query.push(("end", e.to_string()));
+    }
+    if let Some(ref f) = params.frequency {
+        query.push(("frequency", f.clone()));
+    }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/kamino-market/{market}/reserves/{}/metrics/history", params.reserve),
+        &format!(
+            "/kamino-market/{market}/reserves/{}/metrics/history",
+            params.reserve
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -2497,8 +2672,15 @@ pub async fn build_kamino_market_leverage_metrics(
     validate_kamino_market_leverage_metrics_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env { query.push(("env", e.clone())); }
-    let data = kamino_get_q(http, &format!("/kamino-market/{market}/leverage/metrics"), &query).await?;
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    let data = kamino_get_q(
+        http,
+        &format!("/kamino-market/{market}/leverage/metrics"),
+        &query,
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -2533,15 +2715,22 @@ pub async fn build_kamino_market_reserves_account(
         params.markets.clone()
     };
     let mut query: Vec<(&str, String)> = vec![];
-    for m in &market_list { query.push(("markets", m.clone())); }
-    if let Some(ref p) = params.program_id { query.push(("programId", p.clone())); }
+    for m in &market_list {
+        query.push(("markets", m.clone()));
+    }
+    if let Some(ref p) = params.program_id {
+        query.push(("programId", p.clone()));
+    }
     let data = kamino_get_q(http, "/kamino-market/reserves/account-data", &query).await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_market_reserves_account".into(),
-            description: format!("{count} reserve account data entries for {} market(s)", market_list.len()),
+            description: format!(
+                "{count} reserve account data entries for {} market(s)",
+                market_list.len()
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -2720,14 +2909,20 @@ pub fn validate_kamino_user_rewards_params(_p: &KaminoUserRewardsParams) -> Resu
 
 pub fn validate_kamino_loan_detail_params(p: &KaminoLoanDetailParams) -> Result<(), AppError> {
     if p.loan.is_empty() || p.loan.len() < 32 {
-        return Err(AppError::InvalidParams("loan must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "loan must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_kamino_obligation_pnl_params(p: &KaminoObligationPnlParams) -> Result<(), AppError> {
+pub fn validate_kamino_obligation_pnl_params(
+    p: &KaminoObligationPnlParams,
+) -> Result<(), AppError> {
     if p.obligation.is_empty() || p.obligation.len() < 32 {
-        return Err(AppError::InvalidParams("obligation must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "obligation must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
@@ -2736,7 +2931,9 @@ pub fn validate_kamino_obligation_metrics_history_params(
     p: &KaminoObligationMetricsHistoryParams,
 ) -> Result<(), AppError> {
     if p.obligation.is_empty() || p.obligation.len() < 32 {
-        return Err(AppError::InvalidParams("obligation must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "obligation must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
@@ -2745,12 +2942,18 @@ pub fn validate_kamino_rewards_list_params(_p: &KaminoRewardsListParams) -> Resu
     Ok(())
 }
 
-pub fn validate_kamino_rewards_history_params(p: &KaminoRewardsHistoryParams) -> Result<(), AppError> {
+pub fn validate_kamino_rewards_history_params(
+    p: &KaminoRewardsHistoryParams,
+) -> Result<(), AppError> {
     if p.deposit_reserve.is_empty() || p.deposit_reserve.len() < 32 {
-        return Err(AppError::InvalidParams("depositReserve must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "depositReserve must be a valid Solana address".into(),
+        ));
     }
     if p.borrow_reserve.is_empty() || p.borrow_reserve.len() < 32 {
-        return Err(AppError::InvalidParams("borrowReserve must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "borrowReserve must be a valid Solana address".into(),
+        ));
     }
     Ok(())
 }
@@ -2759,7 +2962,9 @@ pub fn validate_kamino_borrow_instructions_params(
     p: &KaminoBorrowInstructionsParams,
 ) -> Result<(), AppError> {
     if p.reserve.is_empty() || p.reserve.len() < 32 {
-        return Err(AppError::InvalidParams("reserve must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "reserve must be a valid Solana address".into(),
+        ));
     }
     validate_positive_amount(&p.amount, "amount")
 }
@@ -2768,7 +2973,9 @@ pub fn validate_kamino_repay_instructions_params(
     p: &KaminoRepayInstructionsParams,
 ) -> Result<(), AppError> {
     if p.reserve.is_empty() || p.reserve.len() < 32 {
-        return Err(AppError::InvalidParams("reserve must be a valid Solana address".into()));
+        return Err(AppError::InvalidParams(
+            "reserve must be a valid Solana address".into(),
+        ));
     }
     validate_positive_amount(&p.amount, "amount")
 }
@@ -2796,12 +3003,10 @@ pub async fn build_kamino_user_rewards(
     validate_kamino_user_rewards_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.source { query.push(("source", s.clone())); }
-    let data = kamino_get_q(
-        http,
-        &format!("/klend/users/{target}/rewards"),
-        &query,
-    ).await?;
+    if let Some(ref s) = params.source {
+        query.push(("source", s.clone()));
+    }
+    let data = kamino_get_q(http, &format!("/klend/users/{target}/rewards"), &query).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -2830,12 +3035,10 @@ pub async fn build_kamino_loan_detail(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_loan_detail_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env { query.push(("env", e.clone())); }
-    let data = kamino_get_q(
-        http,
-        &format!("/klend/loans/{}", params.loan),
-        &query,
-    ).await?;
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    let data = kamino_get_q(http, &format!("/klend/loans/{}", params.loan), &query).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -2865,14 +3068,24 @@ pub async fn build_kamino_obligation_pnl(
     validate_kamino_obligation_pnl_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env        { query.push(("env", e.clone())); }
-    if let Some(ref p) = params.program_id { query.push(("programId", p.clone())); }
-    if let Some(s) = params.use_stake_rate { query.push(("useStakeRate", s.to_string())); }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    if let Some(ref p) = params.program_id {
+        query.push(("programId", p.clone()));
+    }
+    if let Some(s) = params.use_stake_rate {
+        query.push(("useStakeRate", s.to_string()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/v2/kamino-market/{market}/obligations/{}/pnl", params.obligation),
+        &format!(
+            "/v2/kamino-market/{market}/obligations/{}/pnl",
+            params.obligation
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -2906,15 +3119,27 @@ pub async fn build_kamino_obligation_metrics_history(
     validate_kamino_obligation_metrics_history_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env                         { query.push(("env", e.clone())); }
-    if let Some(s) = params.start                           { query.push(("start", s.to_string())); }
-    if let Some(e) = params.end                             { query.push(("end", e.to_string())); }
-    if let Some(s) = params.use_stake_rate_for_obligation   { query.push(("useStakeRateForObligation", s.to_string())); }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    if let Some(s) = params.start {
+        query.push(("start", s.to_string()));
+    }
+    if let Some(e) = params.end {
+        query.push(("end", e.to_string()));
+    }
+    if let Some(s) = params.use_stake_rate_for_obligation {
+        query.push(("useStakeRateForObligation", s.to_string()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/v2/kamino-market/{market}/obligations/{}/metrics/history", params.obligation),
+        &format!(
+            "/v2/kamino-market/{market}/obligations/{}/metrics/history",
+            params.obligation
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data
         .get("history")
         .and_then(|h| h.as_array())
@@ -2951,7 +3176,9 @@ pub async fn build_kamino_rewards_list(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_rewards_list_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.source { query.push(("source", s.clone())); }
+    if let Some(ref s) = params.source {
+        query.push(("source", s.clone()));
+    }
     let data = kamino_get_q(http, "/klend/rewards", &query).await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
@@ -2982,14 +3209,24 @@ pub async fn build_kamino_rewards_history(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_rewards_history_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(s) = params.start          { query.push(("start", s.to_string())); }
-    if let Some(e) = params.end            { query.push(("end", e.to_string())); }
-    if let Some(ref f) = params.frequency  { query.push(("frequency", f.clone())); }
+    if let Some(s) = params.start {
+        query.push(("start", s.to_string()));
+    }
+    if let Some(e) = params.end {
+        query.push(("end", e.to_string()));
+    }
+    if let Some(ref f) = params.frequency {
+        query.push(("frequency", f.clone()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/klend/{}/{}/rewards/history", params.deposit_reserve, params.borrow_reserve),
+        &format!(
+            "/klend/{}/{}/rewards/history",
+            params.deposit_reserve, params.borrow_reserve
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -3135,14 +3372,18 @@ pub async fn build_kamino_kswap(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_kswap_params(params)?;
     let mut query: Vec<(&str, String)> = vec![
-        ("tokenIn",        params.token_in.clone()),
-        ("tokenOut",       params.token_out.clone()),
-        ("amountIn",       params.amount_in.clone()),
+        ("tokenIn", params.token_in.clone()),
+        ("tokenOut", params.token_out.clone()),
+        ("amountIn", params.amount_in.clone()),
         ("maxSlippageBps", params.max_slippage_bps.to_string()),
-        ("wallet",         wallet.to_string()),
+        ("wallet", wallet.to_string()),
     ];
-    if let Some(v) = params.include_setup_ixs   { query.push(("includeSetupIxs",   v.to_string())); }
-    if let Some(v) = params.wrap_and_unwrap_sol  { query.push(("wrapAndUnwrapSol",  v.to_string())); }
+    if let Some(v) = params.include_setup_ixs {
+        query.push(("includeSetupIxs", v.to_string()));
+    }
+    if let Some(v) = params.wrap_and_unwrap_sol {
+        query.push(("wrapAndUnwrapSol", v.to_string()));
+    }
     let resp_json = kamino_get_q(http, "/kswap/swap/", &query).await?;
     let tx_b64 = resp_json
         .get("data")
@@ -3361,7 +3602,8 @@ pub fn validate_kamino_market_metrics_history_params(
 ) -> Result<(), AppError> {
     if p.market.len() < 32 {
         return Err(AppError::InvalidParams(format!(
-            "market '{}' is not a valid Solana address", p.market
+            "market '{}' is not a valid Solana address",
+            p.market
         )));
     }
     Ok(())
@@ -3374,16 +3616,30 @@ pub async fn build_kamino_market_metrics_history(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_market_metrics_history_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.start { query.push(("start", s.clone())); }
-    if let Some(ref e) = params.end   { query.push(("end", e.clone())); }
-    if let Some(ref e) = params.env   { query.push(("env", e.clone())); }
-    let data = kamino_get_q(http, &format!("/kamino-market/{}/metrics/history", params.market), &query).await?;
+    if let Some(ref s) = params.start {
+        query.push(("start", s.clone()));
+    }
+    if let Some(ref e) = params.end {
+        query.push(("end", e.clone()));
+    }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    let data = kamino_get_q(
+        http,
+        &format!("/kamino-market/{}/metrics/history", params.market),
+        &query,
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_market_metrics_history".into(),
-            description: format!("{count} metric snapshots for K-Lend market {}", short_id(&params.market)),
+            description: format!(
+                "{count} metric snapshots for K-Lend market {}",
+                short_id(&params.market)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3416,10 +3672,16 @@ pub fn validate_kamino_reserve_borrow_apy_history_params(
     p: &KaminoReserveBorrowApyHistoryParams,
 ) -> Result<(), AppError> {
     if p.market.len() < 32 {
-        return Err(AppError::InvalidParams(format!("market '{}' is not a valid Solana address", p.market)));
+        return Err(AppError::InvalidParams(format!(
+            "market '{}' is not a valid Solana address",
+            p.market
+        )));
     }
     if p.reserve.len() < 32 {
-        return Err(AppError::InvalidParams(format!("reserve '{}' is not a valid Solana address", p.reserve)));
+        return Err(AppError::InvalidParams(format!(
+            "reserve '{}' is not a valid Solana address",
+            p.reserve
+        )));
     }
     Ok(())
 }
@@ -3431,20 +3693,33 @@ pub async fn build_kamino_reserve_borrow_apy_history(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_reserve_borrow_apy_history_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.start { query.push(("start", s.clone())); }
-    if let Some(ref e) = params.end   { query.push(("end", e.clone())); }
-    if let Some(ref e) = params.env   { query.push(("env", e.clone())); }
+    if let Some(ref s) = params.start {
+        query.push(("start", s.clone()));
+    }
+    if let Some(ref e) = params.end {
+        query.push(("end", e.clone()));
+    }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/kamino-market/{}/reserves/{}/borrow-and-staking-apys/history", params.market, params.reserve),
+        &format!(
+            "/kamino-market/{}/reserves/{}/borrow-and-staking-apys/history",
+            params.market, params.reserve
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_reserve_borrow_apy_history".into(),
-            description: format!("{count} borrow+staking APY snapshots for reserve {}", short_id(&params.reserve)),
+            description: format!(
+                "{count} borrow+staking APY snapshots for reserve {}",
+                short_id(&params.reserve)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3477,10 +3752,16 @@ pub fn validate_kamino_reserve_borrow_apy_median_params(
     p: &KaminoReserveBorrowApyMedianParams,
 ) -> Result<(), AppError> {
     if p.market.len() < 32 {
-        return Err(AppError::InvalidParams(format!("market '{}' is not a valid Solana address", p.market)));
+        return Err(AppError::InvalidParams(format!(
+            "market '{}' is not a valid Solana address",
+            p.market
+        )));
     }
     if p.reserve.len() < 32 {
-        return Err(AppError::InvalidParams(format!("reserve '{}' is not a valid Solana address", p.reserve)));
+        return Err(AppError::InvalidParams(format!(
+            "reserve '{}' is not a valid Solana address",
+            p.reserve
+        )));
     }
     Ok(())
 }
@@ -3492,20 +3773,33 @@ pub async fn build_kamino_reserve_borrow_apy_median(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_reserve_borrow_apy_median_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.start { query.push(("start", s.clone())); }
-    if let Some(ref e) = params.end   { query.push(("end", e.clone())); }
-    if let Some(ref e) = params.env   { query.push(("env", e.clone())); }
+    if let Some(ref s) = params.start {
+        query.push(("start", s.clone()));
+    }
+    if let Some(ref e) = params.end {
+        query.push(("end", e.clone()));
+    }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/kamino-market/{}/reserves/{}/borrow-and-staking-apys/history/median", params.market, params.reserve),
+        &format!(
+            "/kamino-market/{}/reserves/{}/borrow-and-staking-apys/history/median",
+            params.market, params.reserve
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_reserve_borrow_apy_median".into(),
-            description: format!("{count} median APY snapshots for reserve {}", short_id(&params.reserve)),
+            description: format!(
+                "{count} median APY snapshots for reserve {}",
+                short_id(&params.reserve)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3540,10 +3834,16 @@ pub fn validate_kamino_obligation_interest_earned_params(
     p: &KaminoObligationInterestEarnedParams,
 ) -> Result<(), AppError> {
     if p.market.len() < 32 {
-        return Err(AppError::InvalidParams(format!("market '{}' is not a valid Solana address", p.market)));
+        return Err(AppError::InvalidParams(format!(
+            "market '{}' is not a valid Solana address",
+            p.market
+        )));
     }
     if p.obligation.len() < 32 {
-        return Err(AppError::InvalidParams(format!("obligation '{}' is not a valid Solana address", p.obligation)));
+        return Err(AppError::InvalidParams(format!(
+            "obligation '{}' is not a valid Solana address",
+            p.obligation
+        )));
     }
     Ok(())
 }
@@ -3555,20 +3855,35 @@ pub async fn build_kamino_obligation_interest_earned(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_obligation_interest_earned_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.start      { query.push(("start", s.clone())); }
-    if let Some(ref e) = params.end        { query.push(("end", e.clone())); }
-    if let Some(ref e) = params.env        { query.push(("env", e.clone())); }
-    if let Some(ref p) = params.program_id { query.push(("programId", p.clone())); }
+    if let Some(ref s) = params.start {
+        query.push(("start", s.clone()));
+    }
+    if let Some(ref e) = params.end {
+        query.push(("end", e.clone()));
+    }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    if let Some(ref p) = params.program_id {
+        query.push(("programId", p.clone()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/v2/kamino-market/{}/obligations/{}/interest-fees", params.market, params.obligation),
+        &format!(
+            "/v2/kamino-market/{}/obligations/{}/interest-fees",
+            params.market, params.obligation
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_obligation_interest_earned".into(),
-            description: format!("Interest fees earned for obligation {}", short_id(&params.obligation)),
+            description: format!(
+                "Interest fees earned for obligation {}",
+                short_id(&params.obligation)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3603,10 +3918,16 @@ pub fn validate_kamino_obligation_interest_paid_params(
     p: &KaminoObligationInterestPaidParams,
 ) -> Result<(), AppError> {
     if p.market.len() < 32 {
-        return Err(AppError::InvalidParams(format!("market '{}' is not a valid Solana address", p.market)));
+        return Err(AppError::InvalidParams(format!(
+            "market '{}' is not a valid Solana address",
+            p.market
+        )));
     }
     if p.obligation.len() < 32 {
-        return Err(AppError::InvalidParams(format!("obligation '{}' is not a valid Solana address", p.obligation)));
+        return Err(AppError::InvalidParams(format!(
+            "obligation '{}' is not a valid Solana address",
+            p.obligation
+        )));
     }
     Ok(())
 }
@@ -3618,20 +3939,35 @@ pub async fn build_kamino_obligation_interest_paid(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_obligation_interest_paid_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.start      { query.push(("start", s.clone())); }
-    if let Some(ref e) = params.end        { query.push(("end", e.clone())); }
-    if let Some(ref e) = params.env        { query.push(("env", e.clone())); }
-    if let Some(ref p) = params.program_id { query.push(("programId", p.clone())); }
+    if let Some(ref s) = params.start {
+        query.push(("start", s.clone()));
+    }
+    if let Some(ref e) = params.end {
+        query.push(("end", e.clone()));
+    }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    if let Some(ref p) = params.program_id {
+        query.push(("programId", p.clone()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/v2/kamino-market/{}/obligations/{}/interest-paid", params.market, params.obligation),
+        &format!(
+            "/v2/kamino-market/{}/obligations/{}/interest-paid",
+            params.market, params.obligation
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_obligation_interest_paid".into(),
-            description: format!("Interest fees paid for obligation {}", short_id(&params.obligation)),
+            description: format!(
+                "Interest fees paid for obligation {}",
+                short_id(&params.obligation)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3667,12 +4003,20 @@ pub struct KaminoObligationTransactionsParams {
     pub use_log_prices: Option<bool>,
 }
 
-pub fn validate_kamino_obligation_transactions_params(p: &KaminoObligationTransactionsParams) -> Result<(), AppError> {
+pub fn validate_kamino_obligation_transactions_params(
+    p: &KaminoObligationTransactionsParams,
+) -> Result<(), AppError> {
     if p.market.len() < 32 {
-        return Err(AppError::InvalidParams(format!("market '{}' is not a valid Solana address", p.market)));
+        return Err(AppError::InvalidParams(format!(
+            "market '{}' is not a valid Solana address",
+            p.market
+        )));
     }
     if p.obligation.len() < 32 {
-        return Err(AppError::InvalidParams(format!("obligation '{}' is not a valid Solana address", p.obligation)));
+        return Err(AppError::InvalidParams(format!(
+            "obligation '{}' is not a valid Solana address",
+            p.obligation
+        )));
     }
     Ok(())
 }
@@ -3684,20 +4028,37 @@ pub async fn build_kamino_obligation_transactions(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_obligation_transactions_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env  { query.push(("env", e.clone())); }
-    if let Some(ref s) = params.sort { query.push(("sort", s.clone())); }
-    if let Some(v) = params.use_log_prices { query.push(("useLogPrices", v.to_string())); }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    if let Some(ref s) = params.sort {
+        query.push(("sort", s.clone()));
+    }
+    if let Some(v) = params.use_log_prices {
+        query.push(("useLogPrices", v.to_string()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/v2/kamino-market/{}/obligations/{}/transactions", params.market, params.obligation),
+        &format!(
+            "/v2/kamino-market/{}/obligations/{}/transactions",
+            params.market, params.obligation
+        ),
         &query,
-    ).await?;
-    let count = data.get("transactions").and_then(|t| t.as_array()).map(|a| a.len()).unwrap_or(0);
+    )
+    .await?;
+    let count = data
+        .get("transactions")
+        .and_then(|t| t.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_obligation_transactions".into(),
-            description: format!("{count} transactions for obligation {}", short_id(&params.obligation)),
+            description: format!(
+                "{count} transactions for obligation {}",
+                short_id(&params.obligation)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3726,7 +4087,9 @@ pub struct KaminoUserKlendTransactionsAllParams {
     pub sort: Option<String>,
 }
 
-pub fn validate_kamino_user_klend_transactions_all_params(_p: &KaminoUserKlendTransactionsAllParams) -> Result<(), AppError> {
+pub fn validate_kamino_user_klend_transactions_all_params(
+    _p: &KaminoUserKlendTransactionsAllParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -3738,14 +4101,26 @@ pub async fn build_kamino_user_klend_transactions_all(
     validate_kamino_user_klend_transactions_all_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env  { query.push(("env", e.clone())); }
-    if let Some(ref s) = params.sort { query.push(("sort", s.clone())); }
-    let data = kamino_get_q(http, &format!("/v2/kamino-market/users/{target}/transactions"), &query).await?;
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    if let Some(ref s) = params.sort {
+        query.push(("sort", s.clone()));
+    }
+    let data = kamino_get_q(
+        http,
+        &format!("/v2/kamino-market/users/{target}/transactions"),
+        &query,
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_user_klend_transactions_all".into(),
-            description: format!("K-Lend transactions across all markets for {}", short_id(target)),
+            description: format!(
+                "K-Lend transactions across all markets for {}",
+                short_id(target)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3774,9 +4149,14 @@ pub struct KaminoUserKlendTransactionsParams {
     pub sort: Option<String>,
 }
 
-pub fn validate_kamino_user_klend_transactions_params(p: &KaminoUserKlendTransactionsParams) -> Result<(), AppError> {
+pub fn validate_kamino_user_klend_transactions_params(
+    p: &KaminoUserKlendTransactionsParams,
+) -> Result<(), AppError> {
     if p.market.len() < 32 {
-        return Err(AppError::InvalidParams(format!("market '{}' is not a valid Solana address", p.market)));
+        return Err(AppError::InvalidParams(format!(
+            "market '{}' is not a valid Solana address",
+            p.market
+        )));
     }
     Ok(())
 }
@@ -3789,18 +4169,30 @@ pub async fn build_kamino_user_klend_transactions(
     validate_kamino_user_klend_transactions_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env  { query.push(("env", e.clone())); }
-    if let Some(ref s) = params.sort { query.push(("sort", s.clone())); }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    if let Some(ref s) = params.sort {
+        query.push(("sort", s.clone()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/v2/kamino-market/{}/users/{}/transactions", params.market, target),
+        &format!(
+            "/v2/kamino-market/{}/users/{}/transactions",
+            params.market, target
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_user_klend_transactions".into(),
-            description: format!("K-Lend transactions in market {} for {}", short_id(&params.market), short_id(target)),
+            description: format!(
+                "K-Lend transactions in market {} for {}",
+                short_id(&params.market),
+                short_id(target)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3824,9 +4216,14 @@ pub struct KaminoBorrowOrderFillsParams {
     pub obligation: String,
 }
 
-pub fn validate_kamino_borrow_order_fills_params(p: &KaminoBorrowOrderFillsParams) -> Result<(), AppError> {
+pub fn validate_kamino_borrow_order_fills_params(
+    p: &KaminoBorrowOrderFillsParams,
+) -> Result<(), AppError> {
     if p.obligation.len() < 32 {
-        return Err(AppError::InvalidParams(format!("obligation '{}' is not a valid Solana address", p.obligation)));
+        return Err(AppError::InvalidParams(format!(
+            "obligation '{}' is not a valid Solana address",
+            p.obligation
+        )));
     }
     Ok(())
 }
@@ -3837,13 +4234,27 @@ pub async fn build_kamino_borrow_order_fills(
     params: &KaminoBorrowOrderFillsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_borrow_order_fills_params(params)?;
-    let data = kamino_get(http, &format!("/v2/kamino-market/obligations/{}/borrow-order-fills", params.obligation)).await?;
-    let count = data.get("fills").and_then(|f| f.as_array()).map(|a| a.len()).unwrap_or(0);
+    let data = kamino_get(
+        http,
+        &format!(
+            "/v2/kamino-market/obligations/{}/borrow-order-fills",
+            params.obligation
+        ),
+    )
+    .await?;
+    let count = data
+        .get("fills")
+        .and_then(|f| f.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_borrow_order_fills".into(),
-            description: format!("{count} borrow order fills for obligation {}", short_id(&params.obligation)),
+            description: format!(
+                "{count} borrow order fills for obligation {}",
+                short_id(&params.obligation)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3870,9 +4281,14 @@ pub struct KaminoOpenBorrowOrdersParams {
     pub program_id: Option<String>,
 }
 
-pub fn validate_kamino_open_borrow_orders_params(p: &KaminoOpenBorrowOrdersParams) -> Result<(), AppError> {
+pub fn validate_kamino_open_borrow_orders_params(
+    p: &KaminoOpenBorrowOrdersParams,
+) -> Result<(), AppError> {
     if p.market.len() < 32 {
-        return Err(AppError::InvalidParams(format!("market '{}' is not a valid Solana address", p.market)));
+        return Err(AppError::InvalidParams(format!(
+            "market '{}' is not a valid Solana address",
+            p.market
+        )));
     }
     Ok(())
 }
@@ -3884,18 +4300,29 @@ pub async fn build_kamino_open_borrow_orders(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_open_borrow_orders_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref e) = params.env        { query.push(("env", e.clone())); }
-    if let Some(ref p) = params.program_id { query.push(("programId", p.clone())); }
+    if let Some(ref e) = params.env {
+        query.push(("env", e.clone()));
+    }
+    if let Some(ref p) = params.program_id {
+        query.push(("programId", p.clone()));
+    }
     let data = kamino_get_q(
         http,
-        &format!("/v2/kamino-market/{}/obligations-with-open-borrow-orders", params.market),
+        &format!(
+            "/v2/kamino-market/{}/obligations-with-open-borrow-orders",
+            params.market
+        ),
         &query,
-    ).await?;
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_open_borrow_orders".into(),
-            description: format!("Open borrow orders in K-Lend market {}", short_id(&params.market)),
+            description: format!(
+                "Open borrow orders in K-Lend market {}",
+                short_id(&params.market)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3925,7 +4352,9 @@ pub struct KaminoYieldHistoryParams {
 
 pub fn validate_kamino_yield_history_params(p: &KaminoYieldHistoryParams) -> Result<(), AppError> {
     if p.yield_source.is_empty() {
-        return Err(AppError::InvalidParams("yield_source must not be empty".into()));
+        return Err(AppError::InvalidParams(
+            "yield_source must not be empty".into(),
+        ));
     }
     Ok(())
 }
@@ -3937,15 +4366,27 @@ pub async fn build_kamino_yield_history(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_yield_history_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.start { query.push(("start", s.clone())); }
-    if let Some(ref e) = params.end   { query.push(("end", e.clone())); }
-    let data = kamino_get_q(http, &format!("/yields/{}/history", params.yield_source), &query).await?;
+    if let Some(ref s) = params.start {
+        query.push(("start", s.clone()));
+    }
+    if let Some(ref e) = params.end {
+        query.push(("end", e.clone()));
+    }
+    let data = kamino_get_q(
+        http,
+        &format!("/yields/{}/history", params.yield_source),
+        &query,
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_yield_history".into(),
-            description: format!("{count} yield history snapshots for {}", short_id(&params.yield_source)),
+            description: format!(
+                "{count} yield history snapshots for {}",
+                short_id(&params.yield_source)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -3966,7 +4407,9 @@ pub async fn build_kamino_yield_history(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KaminoPrincipalTokenYieldsParams {}
 
-pub fn validate_kamino_principal_token_yields_params(_p: &KaminoPrincipalTokenYieldsParams) -> Result<(), AppError> {
+pub fn validate_kamino_principal_token_yields_params(
+    _p: &KaminoPrincipalTokenYieldsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4010,7 +4453,9 @@ pub struct KaminoAirdropAllocationsParams {
     pub source: Option<String>,
 }
 
-pub fn validate_kamino_airdrop_allocations_params(_p: &KaminoAirdropAllocationsParams) -> Result<(), AppError> {
+pub fn validate_kamino_airdrop_allocations_params(
+    _p: &KaminoAirdropAllocationsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4022,8 +4467,15 @@ pub async fn build_kamino_airdrop_allocations(
     validate_kamino_airdrop_allocations_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.source { query.push(("source", s.clone())); }
-    let data = kamino_get_q(http, &format!("/v2/airdrop/users/{target}/allocations"), &query).await?;
+    if let Some(ref s) = params.source {
+        query.push(("source", s.clone()));
+    }
+    let data = kamino_get_q(
+        http,
+        &format!("/v2/airdrop/users/{target}/allocations"),
+        &query,
+    )
+    .await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -4054,7 +4506,9 @@ pub struct KaminoAirdropMetricsParams {
     pub source: Option<String>,
 }
 
-pub fn validate_kamino_airdrop_metrics_params(_p: &KaminoAirdropMetricsParams) -> Result<(), AppError> {
+pub fn validate_kamino_airdrop_metrics_params(
+    _p: &KaminoAirdropMetricsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4065,7 +4519,9 @@ pub async fn build_kamino_airdrop_metrics(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_airdrop_metrics_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.source { query.push(("source", s.clone())); }
+    if let Some(ref s) = params.source {
+        query.push(("source", s.clone()));
+    }
     let data = kamino_get_q(http, "/v2/airdrop/metrics", &query).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -4092,7 +4548,11 @@ pub async fn build_kamino_airdrop_metrics(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KaminoStakingYieldsParams {}
 
-pub fn validate_kamino_staking_yields_params(_p: &KaminoStakingYieldsParams) -> Result<(), AppError> { Ok(()) }
+pub fn validate_kamino_staking_yields_params(
+    _p: &KaminoStakingYieldsParams,
+) -> Result<(), AppError> {
+    Ok(())
+}
 
 pub async fn build_kamino_staking_yields(
     http: &reqwest::Client,
@@ -4125,7 +4585,11 @@ pub async fn build_kamino_staking_yields(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KaminoStakingYieldsMedianParams {}
 
-pub fn validate_kamino_staking_yields_median_params(_p: &KaminoStakingYieldsMedianParams) -> Result<(), AppError> { Ok(()) }
+pub fn validate_kamino_staking_yields_median_params(
+    _p: &KaminoStakingYieldsMedianParams,
+) -> Result<(), AppError> {
+    Ok(())
+}
 
 pub async fn build_kamino_staking_yields_median(
     http: &reqwest::Client,
@@ -4158,7 +4622,11 @@ pub async fn build_kamino_staking_yields_median(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KaminoStakingYieldsMeanParams {}
 
-pub fn validate_kamino_staking_yields_mean_params(_p: &KaminoStakingYieldsMeanParams) -> Result<(), AppError> { Ok(()) }
+pub fn validate_kamino_staking_yields_mean_params(
+    _p: &KaminoStakingYieldsMeanParams,
+) -> Result<(), AppError> {
+    Ok(())
+}
 
 pub async fn build_kamino_staking_yields_mean(
     http: &reqwest::Client,
@@ -4203,7 +4671,9 @@ pub struct KaminoUserKvaultRewardsParams {
     pub source: Option<String>,
 }
 
-pub fn validate_kamino_user_kvault_rewards_params(_p: &KaminoUserKvaultRewardsParams) -> Result<(), AppError> {
+pub fn validate_kamino_user_kvault_rewards_params(
+    _p: &KaminoUserKvaultRewardsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4215,7 +4685,9 @@ pub async fn build_kamino_user_kvault_rewards(
     validate_kamino_user_kvault_rewards_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.source { query.push(("source", s.clone())); }
+    if let Some(ref s) = params.source {
+        query.push(("source", s.clone()));
+    }
     let data = kamino_get_q(http, &format!("/kvaults/users/{target}/rewards"), &query).await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
@@ -4260,9 +4732,14 @@ pub struct KaminoVaultTransactionsParams {
     pub pagination_token: Option<String>,
 }
 
-pub fn validate_kamino_vault_transactions_params(p: &KaminoVaultTransactionsParams) -> Result<(), AppError> {
+pub fn validate_kamino_vault_transactions_params(
+    p: &KaminoVaultTransactionsParams,
+) -> Result<(), AppError> {
     if p.vault.len() < 32 {
-        return Err(AppError::InvalidParams(format!("vault '{}' is not a valid Solana address", p.vault)));
+        return Err(AppError::InvalidParams(format!(
+            "vault '{}' is not a valid Solana address",
+            p.vault
+        )));
     }
     Ok(())
 }
@@ -4274,11 +4751,21 @@ pub async fn build_kamino_vault_transactions(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_vault_transactions_params(params)?;
     let mut body = serde_json::json!({});
-    if let Some(ref ix) = params.instruction  { body["instruction"] = serde_json::Value::String(ix.clone()); }
-    if let Some(ref s)  = params.start        { body["start"] = serde_json::Value::String(s.clone()); }
-    if let Some(ref e)  = params.end          { body["end"] = serde_json::Value::String(e.clone()); }
-    if let Some(ref d)  = params.direction    { body["direction"] = serde_json::Value::String(d.clone()); }
-    if let Some(ref pt) = params.pagination_token { body["paginationToken"] = serde_json::Value::String(pt.clone()); }
+    if let Some(ref ix) = params.instruction {
+        body["instruction"] = serde_json::Value::String(ix.clone());
+    }
+    if let Some(ref s) = params.start {
+        body["start"] = serde_json::Value::String(s.clone());
+    }
+    if let Some(ref e) = params.end {
+        body["end"] = serde_json::Value::String(e.clone());
+    }
+    if let Some(ref d) = params.direction {
+        body["direction"] = serde_json::Value::String(d.clone());
+    }
+    if let Some(ref pt) = params.pagination_token {
+        body["paginationToken"] = serde_json::Value::String(pt.clone());
+    }
     let url = format!("{KAMINO_API}/kvaults/vaults/{}/transactions", params.vault);
     let resp = http
         .post(&url)
@@ -4297,12 +4784,19 @@ pub async fn build_kamino_vault_transactions(
         .json()
         .await
         .map_err(|e| AppError::ProtocolError(format!("Kamino vault transactions parse: {e}")))?;
-    let count = data.get("result").and_then(|r| r.as_array()).map(|a| a.len()).unwrap_or(0);
+    let count = data
+        .get("result")
+        .and_then(|r| r.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_vault_transactions".into(),
-            description: format!("{count} transaction(s) for KVault {}", short_id(&params.vault)),
+            description: format!(
+                "{count} transaction(s) for KVault {}",
+                short_id(&params.vault)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data.clone(),
@@ -4334,7 +4828,9 @@ pub struct KaminoUserStakingBoostsParams {
     pub source: Option<String>,
 }
 
-pub fn validate_kamino_user_staking_boosts_params(_p: &KaminoUserStakingBoostsParams) -> Result<(), AppError> {
+pub fn validate_kamino_user_staking_boosts_params(
+    _p: &KaminoUserStakingBoostsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4346,7 +4842,9 @@ pub async fn build_kamino_user_staking_boosts(
     validate_kamino_user_staking_boosts_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.source { query.push(("source", s.clone())); }
+    if let Some(ref s) = params.source {
+        query.push(("source", s.clone()));
+    }
     let data = kamino_get_q(http, &format!("/users/{target}/staking-boosts"), &query).await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
@@ -4381,7 +4879,9 @@ pub struct KaminoSeasonRewardsUserParams {
     pub source: Option<String>,
 }
 
-pub fn validate_kamino_season_rewards_user_params(_p: &KaminoSeasonRewardsUserParams) -> Result<(), AppError> {
+pub fn validate_kamino_season_rewards_user_params(
+    _p: &KaminoSeasonRewardsUserParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4393,7 +4893,9 @@ pub async fn build_kamino_season_rewards_user(
     validate_kamino_season_rewards_user_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.source { query.push(("source", s.clone())); }
+    if let Some(ref s) = params.source {
+        query.push(("source", s.clone()));
+    }
     let data = kamino_get_q(http, &format!("/season-rewards/users/{target}"), &query).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -4424,7 +4926,9 @@ pub struct KaminoSeasonRewardsVestingPoolParams {
     pub source: Option<String>,
 }
 
-pub fn validate_kamino_season_rewards_vesting_pool_params(_p: &KaminoSeasonRewardsVestingPoolParams) -> Result<(), AppError> {
+pub fn validate_kamino_season_rewards_vesting_pool_params(
+    _p: &KaminoSeasonRewardsVestingPoolParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4435,7 +4939,9 @@ pub async fn build_kamino_season_rewards_vesting_pool(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_season_rewards_vesting_pool_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.source { query.push(("source", s.clone())); }
+    if let Some(ref s) = params.source {
+        query.push(("source", s.clone()));
+    }
     let data = kamino_get_q(http, "/season-rewards/final-vesting-pool", &query).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -4462,7 +4968,9 @@ pub async fn build_kamino_season_rewards_vesting_pool(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KaminoPrivateCreditMetricsParams {}
 
-pub fn validate_kamino_private_credit_metrics_params(_p: &KaminoPrivateCreditMetricsParams) -> Result<(), AppError> {
+pub fn validate_kamino_private_credit_metrics_params(
+    _p: &KaminoPrivateCreditMetricsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4503,7 +5011,9 @@ pub struct KaminoPrivateCreditMetricsHistoryParams {
     pub end: Option<String>,
 }
 
-pub fn validate_kamino_private_credit_metrics_history_params(_p: &KaminoPrivateCreditMetricsHistoryParams) -> Result<(), AppError> {
+pub fn validate_kamino_private_credit_metrics_history_params(
+    _p: &KaminoPrivateCreditMetricsHistoryParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4514,8 +5024,12 @@ pub async fn build_kamino_private_credit_metrics_history(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_private_credit_metrics_history_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(ref s) = params.start { query.push(("start", s.clone())); }
-    if let Some(ref e) = params.end   { query.push(("end", e.clone())); }
+    if let Some(ref s) = params.start {
+        query.push(("start", s.clone()));
+    }
+    if let Some(ref e) = params.end {
+        query.push(("end", e.clone()));
+    }
     let data = kamino_get_q(http, "/kvaults/private-credit/metrics/history", &query).await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
@@ -4559,7 +5073,9 @@ pub struct KaminoUserFarmTransactionsParams {
     pub no_pagination: Option<bool>,
 }
 
-pub fn validate_kamino_user_farm_transactions_params(_p: &KaminoUserFarmTransactionsParams) -> Result<(), AppError> {
+pub fn validate_kamino_user_farm_transactions_params(
+    _p: &KaminoUserFarmTransactionsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -4571,12 +5087,24 @@ pub async fn build_kamino_user_farm_transactions(
     validate_kamino_user_farm_transactions_params(params)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(l)  = params.limit          { query.push(("limit", l.to_string())); }
-    if let Some(ref s) = params.sort        { query.push(("sort", s.clone())); }
-    if let Some(ref pt) = params.pagination_token { query.push(("paginationToken", pt.clone())); }
-    if let Some(np) = params.no_pagination  { query.push(("noPagination", np.to_string())); }
+    if let Some(l) = params.limit {
+        query.push(("limit", l.to_string()));
+    }
+    if let Some(ref s) = params.sort {
+        query.push(("sort", s.clone()));
+    }
+    if let Some(ref pt) = params.pagination_token {
+        query.push(("paginationToken", pt.clone()));
+    }
+    if let Some(np) = params.no_pagination {
+        query.push(("noPagination", np.to_string()));
+    }
     let data = kamino_get_q(http, &format!("/farms/users/{target}/transactions"), &query).await?;
-    let count = data.get("result").and_then(|r| r.as_array()).map(|a| a.len()).unwrap_or(0);
+    let count = data
+        .get("result")
+        .and_then(|r| r.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
@@ -4614,9 +5142,14 @@ pub struct KaminoFarmTransactionsParams {
     pub pagination_token: Option<String>,
 }
 
-pub fn validate_kamino_farm_transactions_params(p: &KaminoFarmTransactionsParams) -> Result<(), AppError> {
+pub fn validate_kamino_farm_transactions_params(
+    p: &KaminoFarmTransactionsParams,
+) -> Result<(), AppError> {
     if p.farm.len() < 32 {
-        return Err(AppError::InvalidParams(format!("farm '{}' is not a valid Solana address", p.farm)));
+        return Err(AppError::InvalidParams(format!(
+            "farm '{}' is not a valid Solana address",
+            p.farm
+        )));
     }
     Ok(())
 }
@@ -4628,11 +5161,26 @@ pub async fn build_kamino_farm_transactions(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_farm_transactions_params(params)?;
     let mut query: Vec<(&str, String)> = vec![];
-    if let Some(l)  = params.limit          { query.push(("limit", l.to_string())); }
-    if let Some(ref s) = params.sort        { query.push(("sort", s.clone())); }
-    if let Some(ref pt) = params.pagination_token { query.push(("paginationToken", pt.clone())); }
-    let data = kamino_get_q(http, &format!("/farms/{}/transactions", params.farm), &query).await?;
-    let count = data.get("result").and_then(|r| r.as_array()).map(|a| a.len()).unwrap_or(0);
+    if let Some(l) = params.limit {
+        query.push(("limit", l.to_string()));
+    }
+    if let Some(ref s) = params.sort {
+        query.push(("sort", s.clone()));
+    }
+    if let Some(ref pt) = params.pagination_token {
+        query.push(("paginationToken", pt.clone()));
+    }
+    let data = kamino_get_q(
+        http,
+        &format!("/farms/{}/transactions", params.farm),
+        &query,
+    )
+    .await?;
+    let count = data
+        .get("result")
+        .and_then(|r| r.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),

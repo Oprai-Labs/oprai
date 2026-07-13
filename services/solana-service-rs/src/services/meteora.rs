@@ -33,13 +33,11 @@ use solana_sdk::{
     message::{v0, VersionedMessage},
     pubkey::Pubkey,
     signature::Signature,
-    system_program,
-    sysvar,
+    system_program, sysvar,
     transaction::VersionedTransaction,
 };
 use spl_associated_token_account::{
-    get_associated_token_address,
-    instruction::create_associated_token_account_idempotent,
+    get_associated_token_address, instruction::create_associated_token_account_idempotent,
 };
 
 use crate::error::AppError;
@@ -150,12 +148,14 @@ impl DlmmPairInfo {
     /// from both shapes — downstream `Pubkey::from_str` will surface a
     /// useful parse error in that (theoretically impossible) case.
     fn mint_x_str(&self) -> &str {
-        self.mint_x.as_deref()
+        self.mint_x
+            .as_deref()
             .or_else(|| self.token_x.as_ref().map(|t| t.address.as_str()))
             .unwrap_or("")
     }
     fn mint_y_str(&self) -> &str {
-        self.mint_y.as_deref()
+        self.mint_y
+            .as_deref()
             .or_else(|| self.token_y.as_ref().map(|t| t.address.as_str()))
             .unwrap_or("")
     }
@@ -178,13 +178,19 @@ impl DlmmPairInfo {
     /// from current_price + bin_step (the new datapi response doesn't
     /// expose active_id but does give current_price).
     fn active_id_resolved(&self) -> Option<i32> {
-        if self.active_id.is_some() { return self.active_id; }
+        if self.active_id.is_some() {
+            return self.active_id;
+        }
         let bin_step = self.bin_step_resolved();
         let price = self.current_price?;
-        if bin_step == 0 || price <= 0.0 { return None; }
+        if bin_step == 0 || price <= 0.0 {
+            return None;
+        }
         let factor = 1.0 + (bin_step as f64) / 10_000.0;
         let id = price.ln() / factor.ln();
-        if !id.is_finite() { return None; }
+        if !id.is_finite() {
+            return None;
+        }
         Some(id.round() as i32)
     }
     /// Combined reward mints list, regardless of API shape. Filters out
@@ -196,10 +202,14 @@ impl DlmmPairInfo {
         const ZERO: &str = "11111111111111111111111111111111";
         let mut out = Vec::new();
         if let Some(m) = &self.reward_mint_x {
-            if m != ZERO { out.push(m.clone()); }
+            if m != ZERO {
+                out.push(m.clone());
+            }
         }
         if let Some(m) = &self.reward_mint_y {
-            if m != ZERO { out.push(m.clone()); }
+            if m != ZERO {
+                out.push(m.clone());
+            }
         }
         out
     }
@@ -507,42 +517,68 @@ struct FarmWithdrawArgs {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn validate_meteora_swap_params(p: &MeteoraSwapParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.input_mint)
-        .map_err(|_| AppError::InvalidParams(format!("inputMint '{}' is not a valid address", p.input_mint)))?;
-    Pubkey::from_str(&p.output_mint)
-        .map_err(|_| AppError::InvalidParams(format!("outputMint '{}' is not a valid address", p.output_mint)))?;
+    Pubkey::from_str(&p.input_mint).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "inputMint '{}' is not a valid address",
+            p.input_mint
+        ))
+    })?;
+    Pubkey::from_str(&p.output_mint).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "outputMint '{}' is not a valid address",
+            p.output_mint
+        ))
+    })?;
     if p.input_mint == p.output_mint {
-        return Err(AppError::InvalidParams("inputMint and outputMint must differ".into()));
+        return Err(AppError::InvalidParams(
+            "inputMint and outputMint must differ".into(),
+        ));
     }
-    let amount: f64 = p.amount.parse()
+    let amount: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a positive number".into()))?;
     if amount <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
     }
     if let Some(s) = p.slippage_bps {
         if s > 5000 {
-            return Err(AppError::InvalidParams("slippageBps must be ≤ 5000 (50%)".into()));
+            return Err(AppError::InvalidParams(
+                "slippageBps must be ≤ 5000 (50%)".into(),
+            ));
         }
     }
     if let Some(ref pool) = p.pool {
-        Pubkey::from_str(pool)
-            .map_err(|_| AppError::InvalidParams(format!("pool '{}' is not a valid address", pool)))?;
+        Pubkey::from_str(pool).map_err(|_| {
+            AppError::InvalidParams(format!("pool '{}' is not a valid address", pool))
+        })?;
     }
     Ok(())
 }
 
-pub fn validate_meteora_add_liquidity_params(p: &MeteoraAddLiquidityParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.pool)
-        .map_err(|_| AppError::InvalidParams(format!("pool '{}' is not a valid address", p.pool)))?;
-    let ax: f64 = p.amount_x.parse()
+pub fn validate_meteora_add_liquidity_params(
+    p: &MeteoraAddLiquidityParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.pool).map_err(|_| {
+        AppError::InvalidParams(format!("pool '{}' is not a valid address", p.pool))
+    })?;
+    let ax: f64 = p
+        .amount_x
+        .parse()
         .map_err(|_| AppError::InvalidParams("amountX must be a number".into()))?;
-    let ay: f64 = p.amount_y.parse()
+    let ay: f64 = p
+        .amount_y
+        .parse()
         .map_err(|_| AppError::InvalidParams("amountY must be a number".into()))?;
     if ax < 0.0 || ay < 0.0 {
-        return Err(AppError::InvalidParams("Amounts must be non-negative".into()));
+        return Err(AppError::InvalidParams(
+            "Amounts must be non-negative".into(),
+        ));
     }
     if ax == 0.0 && ay == 0.0 {
-        return Err(AppError::InvalidParams("At least one amount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "At least one amount must be positive".into(),
+        ));
     }
     let has_bins = p.min_bin_id.is_some() && p.max_bin_id.is_some();
     let has_prices = p.min_price.is_some() && p.max_price.is_some();
@@ -553,12 +589,15 @@ pub fn validate_meteora_add_liquidity_params(p: &MeteoraAddLiquidityParams) -> R
     }
     if let (Some(mn), Some(mx)) = (p.min_bin_id, p.max_bin_id) {
         if mn >= mx {
-            return Err(AppError::InvalidParams("minBinId must be less than maxBinId".into()));
+            return Err(AppError::InvalidParams(
+                "minBinId must be less than maxBinId".into(),
+            ));
         }
         if mx - mn > MAX_BIN_PER_ARRAY {
-            return Err(AppError::InvalidParams(
-                format!("Bin range cannot exceed {} bins per position", MAX_BIN_PER_ARRAY),
-            ));
+            return Err(AppError::InvalidParams(format!(
+                "Bin range cannot exceed {} bins per position",
+                MAX_BIN_PER_ARRAY
+            )));
         }
     }
     if let (Some(mn), Some(mx)) = (p.min_price, p.max_price) {
@@ -566,7 +605,9 @@ pub fn validate_meteora_add_liquidity_params(p: &MeteoraAddLiquidityParams) -> R
             return Err(AppError::InvalidParams("Prices must be positive".into()));
         }
         if mn >= mx {
-            return Err(AppError::InvalidParams("minPrice must be less than maxPrice".into()));
+            return Err(AppError::InvalidParams(
+                "minPrice must be less than maxPrice".into(),
+            ));
         }
     }
     if let Some(s) = p.slippage_bps {
@@ -577,24 +618,33 @@ pub fn validate_meteora_add_liquidity_params(p: &MeteoraAddLiquidityParams) -> R
     Ok(())
 }
 
-pub fn validate_meteora_remove_liquidity_params(p: &MeteoraRemoveLiquidityParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
+pub fn validate_meteora_remove_liquidity_params(
+    p: &MeteoraRemoveLiquidityParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
     if let Some(bps) = p.bps_to_remove {
         if bps == 0 || bps > 10_000 {
-            return Err(AppError::InvalidParams("bpsToRemove must be between 1 and 10000".into()));
+            return Err(AppError::InvalidParams(
+                "bpsToRemove must be between 1 and 10000".into(),
+            ));
         }
     }
     Ok(())
 }
 
 pub fn validate_meteora_create_pool_params(p: &MeteoraCreatePoolParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.token_x_mint)
-        .map_err(|_| AppError::InvalidParams(format!("tokenXMint '{}' is not valid", p.token_x_mint)))?;
-    Pubkey::from_str(&p.token_y_mint)
-        .map_err(|_| AppError::InvalidParams(format!("tokenYMint '{}' is not valid", p.token_y_mint)))?;
+    Pubkey::from_str(&p.token_x_mint).map_err(|_| {
+        AppError::InvalidParams(format!("tokenXMint '{}' is not valid", p.token_x_mint))
+    })?;
+    Pubkey::from_str(&p.token_y_mint).map_err(|_| {
+        AppError::InvalidParams(format!("tokenYMint '{}' is not valid", p.token_y_mint))
+    })?;
     if p.token_x_mint == p.token_y_mint {
-        return Err(AppError::InvalidParams("tokenXMint and tokenYMint must differ".into()));
+        return Err(AppError::InvalidParams(
+            "tokenXMint and tokenYMint must differ".into(),
+        ));
     }
     if p.bin_step == 0 {
         return Err(AppError::InvalidParams("binStep must be positive".into()));
@@ -603,23 +653,36 @@ pub fn validate_meteora_create_pool_params(p: &MeteoraCreatePoolParams) -> Resul
         return Err(AppError::InvalidParams("binStep must be ≤ 10000".into()));
     }
     if p.initial_price <= 0.0 {
-        return Err(AppError::InvalidParams("initialPrice must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "initialPrice must be positive".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_meteora_open_position_params(p: &MeteoraOpenPositionParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.pool)
-        .map_err(|_| AppError::InvalidParams(format!("pool '{}' is not a valid address", p.pool)))?;
-    let ax: f64 = p.amount_x.parse()
+pub fn validate_meteora_open_position_params(
+    p: &MeteoraOpenPositionParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.pool).map_err(|_| {
+        AppError::InvalidParams(format!("pool '{}' is not a valid address", p.pool))
+    })?;
+    let ax: f64 = p
+        .amount_x
+        .parse()
         .map_err(|_| AppError::InvalidParams("amountX must be a number".into()))?;
-    let ay: f64 = p.amount_y.parse()
+    let ay: f64 = p
+        .amount_y
+        .parse()
         .map_err(|_| AppError::InvalidParams("amountY must be a number".into()))?;
     if ax < 0.0 || ay < 0.0 {
-        return Err(AppError::InvalidParams("Amounts must be non-negative".into()));
+        return Err(AppError::InvalidParams(
+            "Amounts must be non-negative".into(),
+        ));
     }
     if ax == 0.0 && ay == 0.0 {
-        return Err(AppError::InvalidParams("At least one amount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "At least one amount must be positive".into(),
+        ));
     }
     let has_bins = p.min_bin_id.is_some() && p.max_bin_id.is_some();
     let has_prices = p.min_price.is_some() && p.max_price.is_some();
@@ -630,12 +693,15 @@ pub fn validate_meteora_open_position_params(p: &MeteoraOpenPositionParams) -> R
     }
     if let (Some(mn), Some(mx)) = (p.min_bin_id, p.max_bin_id) {
         if mn >= mx {
-            return Err(AppError::InvalidParams("minBinId must be less than maxBinId".into()));
+            return Err(AppError::InvalidParams(
+                "minBinId must be less than maxBinId".into(),
+            ));
         }
         if mx - mn > MAX_BIN_PER_ARRAY {
-            return Err(AppError::InvalidParams(
-                format!("Position width cannot exceed {} bins", MAX_BIN_PER_ARRAY),
-            ));
+            return Err(AppError::InvalidParams(format!(
+                "Position width cannot exceed {} bins",
+                MAX_BIN_PER_ARRAY
+            )));
         }
     }
     if let (Some(mn), Some(mx)) = (p.min_price, p.max_price) {
@@ -643,43 +709,63 @@ pub fn validate_meteora_open_position_params(p: &MeteoraOpenPositionParams) -> R
             return Err(AppError::InvalidParams("Prices must be positive".into()));
         }
         if mn >= mx {
-            return Err(AppError::InvalidParams("minPrice must be less than maxPrice".into()));
+            return Err(AppError::InvalidParams(
+                "minPrice must be less than maxPrice".into(),
+            ));
         }
     }
     Ok(())
 }
 
-pub fn validate_meteora_close_position_params(p: &MeteoraClosePositionParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
+pub fn validate_meteora_close_position_params(
+    p: &MeteoraClosePositionParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
     Ok(())
 }
 
-pub fn validate_meteora_add_to_position_params(p: &MeteoraAddToPositionParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
-    let ax: f64 = p.amount_x.parse()
+pub fn validate_meteora_add_to_position_params(
+    p: &MeteoraAddToPositionParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
+    let ax: f64 = p
+        .amount_x
+        .parse()
         .map_err(|_| AppError::InvalidParams("amountX must be a number".into()))?;
-    let ay: f64 = p.amount_y.parse()
+    let ay: f64 = p
+        .amount_y
+        .parse()
         .map_err(|_| AppError::InvalidParams("amountY must be a number".into()))?;
     if ax < 0.0 || ay < 0.0 {
-        return Err(AppError::InvalidParams("Amounts must be non-negative".into()));
+        return Err(AppError::InvalidParams(
+            "Amounts must be non-negative".into(),
+        ));
     }
     if ax == 0.0 && ay == 0.0 {
-        return Err(AppError::InvalidParams("At least one amount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "At least one amount must be positive".into(),
+        ));
     }
     Ok(())
 }
 
 pub fn validate_meteora_claim_fees_params(p: &MeteoraClaimFeesParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
     Ok(())
 }
 
-pub fn validate_meteora_claim_rewards_params(p: &MeteoraClaimRewardsParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
+pub fn validate_meteora_claim_rewards_params(
+    p: &MeteoraClaimRewardsParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
     if let Some(idx) = p.reward_index {
         if idx > 1 {
             return Err(AppError::InvalidParams("rewardIndex must be 0 or 1".into()));
@@ -689,9 +775,12 @@ pub fn validate_meteora_claim_rewards_params(p: &MeteoraClaimRewardsParams) -> R
 }
 
 pub fn validate_meteora_stake_params(p: &MeteoraStakeParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.farm)
-        .map_err(|_| AppError::InvalidParams(format!("farm '{}' is not a valid address", p.farm)))?;
-    let amount: f64 = p.amount.parse()
+    Pubkey::from_str(&p.farm).map_err(|_| {
+        AppError::InvalidParams(format!("farm '{}' is not a valid address", p.farm))
+    })?;
+    let amount: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a number".into()))?;
     if amount <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
@@ -700,9 +789,12 @@ pub fn validate_meteora_stake_params(p: &MeteoraStakeParams) -> Result<(), AppEr
 }
 
 pub fn validate_meteora_unstake_params(p: &MeteoraUnstakeParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.farm)
-        .map_err(|_| AppError::InvalidParams(format!("farm '{}' is not a valid address", p.farm)))?;
-    let amount: f64 = p.amount.parse()
+    Pubkey::from_str(&p.farm).map_err(|_| {
+        AppError::InvalidParams(format!("farm '{}' is not a valid address", p.farm))
+    })?;
+    let amount: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a number".into()))?;
     if amount <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
@@ -711,8 +803,9 @@ pub fn validate_meteora_unstake_params(p: &MeteoraUnstakeParams) -> Result<(), A
 }
 
 pub fn validate_meteora_harvest_params(p: &MeteoraHarvestParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.farm)
-        .map_err(|_| AppError::InvalidParams(format!("farm '{}' is not a valid address", p.farm)))?;
+    Pubkey::from_str(&p.farm).map_err(|_| {
+        AppError::InvalidParams(format!("farm '{}' is not a valid address", p.farm))
+    })?;
     Ok(())
 }
 
@@ -746,23 +839,18 @@ fn lb_pair_pda(token_x: &Pubkey, token_y: &Pubkey, bin_step: u16) -> Pubkey {
     Pubkey::find_program_address(
         &[token_x.as_ref(), token_y.as_ref(), &bin_step.to_le_bytes()],
         &dlmm_program(),
-    ).0
+    )
+    .0
 }
 
 /// Reserve vault PDA: [token_mint, lb_pair]  ← mint FIRST, then pool
 fn reserve_pda(token_mint: &Pubkey, lb_pair: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(
-        &[token_mint.as_ref(), lb_pair.as_ref()],
-        &dlmm_program(),
-    ).0
+    Pubkey::find_program_address(&[token_mint.as_ref(), lb_pair.as_ref()], &dlmm_program()).0
 }
 
 /// Oracle PDA: [b"oracle", lb_pair]
 fn oracle_pda(lb_pair: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(
-        &[b"oracle", lb_pair.as_ref()],
-        &dlmm_program(),
-    ).0
+    Pubkey::find_program_address(&[b"oracle", lb_pair.as_ref()], &dlmm_program()).0
 }
 
 /// Bin array PDA: [b"bin_array", lb_pair, index_i64_le]
@@ -770,7 +858,8 @@ fn bin_array_pda(lb_pair: &Pubkey, index: i64) -> Pubkey {
     Pubkey::find_program_address(
         &[b"bin_array", lb_pair.as_ref(), &index.to_le_bytes()],
         &dlmm_program(),
-    ).0
+    )
+    .0
 }
 
 /// Position PDA (initializePositionPda): [b"position", lb_pair, owner, lower_bin_id_i32_le, width_i32_le]
@@ -784,7 +873,8 @@ fn position_pda(lb_pair: &Pubkey, owner: &Pubkey, lower_bin_id: i32, width: i32)
             &width.to_le_bytes(),
         ],
         &dlmm_program(),
-    ).0
+    )
+    .0
 }
 
 /// Reward vault PDA: [lb_pair, reward_index_u64_le]
@@ -792,7 +882,8 @@ fn reward_vault_pda(lb_pair: &Pubkey, reward_index: u64) -> Pubkey {
     Pubkey::find_program_address(
         &[lb_pair.as_ref(), &reward_index.to_le_bytes()],
         &dlmm_program(),
-    ).0
+    )
+    .0
 }
 
 /// Preset parameter PDA: [b"preset_parameter", bin_step_u16_le]
@@ -800,7 +891,8 @@ fn preset_parameter_pda(bin_step: u16) -> Pubkey {
     Pubkey::find_program_address(
         &[b"preset_parameter", &bin_step.to_le_bytes()],
         &dlmm_program(),
-    ).0
+    )
+    .0
 }
 
 /// Farm user staking state PDA: [b"user_staking", farm, user]
@@ -808,15 +900,13 @@ fn farm_user_pda(farm: &Pubkey, user: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(
         &[b"user_staking", farm.as_ref(), user.as_ref()],
         &farm_program(),
-    ).0
+    )
+    .0
 }
 
 /// Farm reward vault PDA: [b"reward_vault", farm]
 fn farm_reward_vault_pda(farm: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(
-        &[b"reward_vault", farm.as_ref()],
-        &farm_program(),
-    ).0
+    Pubkey::find_program_address(&[b"reward_vault", farm.as_ref()], &farm_program()).0
 }
 
 /// Convert a bin_id to the index of its containing bin-array account.
@@ -887,12 +977,15 @@ struct LbPairFields {
 
 async fn fetch_reserves(rpc_url: &str, lb_pair: &Pubkey) -> Result<LbPairFields, AppError> {
     let rpc = AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
-    let acc = rpc.get_account(lb_pair).await
+    let acc = rpc
+        .get_account(lb_pair)
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Fetch LbPair {lb_pair}: {e}")))?;
     let data = acc.data;
     if data.len() < 216 {
         return Err(AppError::ProtocolError(format!(
-            "LbPair {lb_pair} data too short ({} bytes)", data.len()
+            "LbPair {lb_pair} data too short ({} bytes)",
+            data.len()
         )));
     }
     let read_pubkey = |off: usize| -> Pubkey {
@@ -927,20 +1020,30 @@ fn build_lp_token_setup_ixs(
     let mut ixs: Vec<Instruction> = Vec::new();
 
     ixs.push(create_associated_token_account_idempotent(
-        user, user, mint_x, &token_prog,
+        user,
+        user,
+        mint_x,
+        &token_prog,
     ));
     ixs.push(create_associated_token_account_idempotent(
-        user, user, mint_y, &token_prog,
+        user,
+        user,
+        mint_y,
+        &token_prog,
     ));
 
     if *mint_x == wsol && amount_x > 0 {
         let ata = get_associated_token_address(user, &wsol);
-        ixs.push(solana_sdk::system_instruction::transfer(user, &ata, amount_x));
+        ixs.push(solana_sdk::system_instruction::transfer(
+            user, &ata, amount_x,
+        ));
         ixs.push(spl_token::instruction::sync_native(&token_prog, &ata).expect("valid"));
     }
     if *mint_y == wsol && amount_y > 0 {
         let ata = get_associated_token_address(user, &wsol);
-        ixs.push(solana_sdk::system_instruction::transfer(user, &ata, amount_y));
+        ixs.push(solana_sdk::system_instruction::transfer(
+            user, &ata, amount_y,
+        ));
         ixs.push(spl_token::instruction::sync_native(&token_prog, &ata).expect("valid"));
     }
     ixs
@@ -958,7 +1061,8 @@ fn build_wsol_unwrap_ixs(user: &Pubkey, mint_x: &Pubkey, mint_y: &Pubkey) -> Vec
     }
     let ata = get_associated_token_address(user, &wsol);
     vec![
-        spl_token::instruction::close_account(&token_program(), &ata, user, user, &[]).expect("valid"),
+        spl_token::instruction::close_account(&token_program(), &ata, user, user, &[])
+            .expect("valid"),
     ]
 }
 
@@ -968,7 +1072,9 @@ async fn ensure_bin_arrays_initialized(
     indices: &[i64],
     funder: &Pubkey,
 ) -> Result<Vec<Instruction>, AppError> {
-    if indices.is_empty() { return Ok(Vec::new()); }
+    if indices.is_empty() {
+        return Ok(Vec::new());
+    }
 
     // Deduplicate (lower / upper often share an array for narrow ranges).
     let mut unique: Vec<i64> = indices.to_vec();
@@ -976,18 +1082,22 @@ async fn ensure_bin_arrays_initialized(
     unique.dedup();
 
     // Map each index → its PDA, then ask the RPC which ones exist.
-    let pdas: Vec<Pubkey> = unique.iter()
-        .map(|i| bin_array_pda(lb_pair, *i))
-        .collect();
-    let accounts = rpc.get_multiple_accounts(&pdas).await
+    let pdas: Vec<Pubkey> = unique.iter().map(|i| bin_array_pda(lb_pair, *i)).collect();
+    let accounts = rpc
+        .get_multiple_accounts(&pdas)
+        .await
         .map_err(|e| AppError::ProtocolError(format!("RPC get_multiple_accounts: {e}")))?;
 
     #[derive(BorshSerialize)]
-    struct InitBinArrayArgs { index: i64 }
+    struct InitBinArrayArgs {
+        index: i64,
+    }
 
     let mut ixs: Vec<Instruction> = Vec::new();
     for (i, account_opt) in accounts.into_iter().enumerate() {
-        if account_opt.is_some() { continue; }
+        if account_opt.is_some() {
+            continue;
+        }
         let index = unique[i];
         let bin_array = pdas[i];
         ixs.push(Instruction {
@@ -1055,11 +1165,12 @@ fn build_bin_distribution(
 
 /// Fetch a confirmed blockhash and serialize a v0 transaction to base64.
 /// This replaces the broken `serialize_vtx` that used `Hash::default()`.
-async fn build_vtx_b64(rpc_url: &str, user: &Pubkey, ixs: &[Instruction]) -> Result<String, AppError> {
-    let rpc = AsyncRpc::new_with_commitment(
-        rpc_url.to_string(),
-        CommitmentConfig::confirmed(),
-    );
+async fn build_vtx_b64(
+    rpc_url: &str,
+    user: &Pubkey,
+    ixs: &[Instruction],
+) -> Result<String, AppError> {
+    let rpc = AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
     let blockhash = rpc
         .get_latest_blockhash()
         .await
@@ -1076,20 +1187,23 @@ async fn build_vtx_b64(rpc_url: &str, user: &Pubkey, ixs: &[Instruction]) -> Res
     // the real failing account / log line back to the chat error message
     // instead of the wallet's opaque "program error 3012". sig_verify=false
     // and replace_recent_blockhash skip the unsigned-tx checks.
-    if let Ok(sim) = rpc.simulate_transaction_with_config(
-        &vtx,
-        solana_client::rpc_config::RpcSimulateTransactionConfig {
-            sig_verify: false,
-            replace_recent_blockhash: true,
-            commitment: Some(CommitmentConfig::confirmed()),
-            // VersionedTransaction needs base64; default base58 trips
-            // -32602 on the RPC and silently swallows the simulation.
-            encoding: Some(solana_transaction_status::UiTransactionEncoding::Base64),
-            accounts: None,
-            min_context_slot: None,
-            inner_instructions: false,
-        },
-    ).await {
+    if let Ok(sim) = rpc
+        .simulate_transaction_with_config(
+            &vtx,
+            solana_client::rpc_config::RpcSimulateTransactionConfig {
+                sig_verify: false,
+                replace_recent_blockhash: true,
+                commitment: Some(CommitmentConfig::confirmed()),
+                // VersionedTransaction needs base64; default base58 trips
+                // -32602 on the RPC and silently swallows the simulation.
+                encoding: Some(solana_transaction_status::UiTransactionEncoding::Base64),
+                accounts: None,
+                min_context_slot: None,
+                inner_instructions: false,
+            },
+        )
+        .await
+    {
         if let Some(err) = sim.value.err {
             let logs = sim.value.logs.unwrap_or_default();
             let tail: Vec<String> = logs.iter().rev().take(8).rev().cloned().collect();
@@ -1119,7 +1233,9 @@ async fn fetch_pair(http: &reqwest::Client, pool: &str) -> Result<DlmmPairInfo, 
         .await
         .map_err(|e| AppError::ProtocolError(format!("DLMM pair fetch: {e}")))?;
     if !resp.status().is_success() {
-        return Err(AppError::ProtocolError(format!("Pool '{pool}' not found on Meteora DLMM")));
+        return Err(AppError::ProtocolError(format!(
+            "Pool '{pool}' not found on Meteora DLMM"
+        )));
     }
     resp.json::<DlmmPairInfo>()
         .await
@@ -1166,7 +1282,9 @@ pub async fn build_meteora_swap(
     let output_mint = Pubkey::from_str(&params.output_mint)
         .map_err(|e| AppError::InvalidParams(format!("Invalid outputMint: {e}")))?;
 
-    let pool_str = params.pool.as_deref()
+    let pool_str = params
+        .pool
+        .as_deref()
         .ok_or_else(|| AppError::InvalidParams("pool is required for DLMM swap".into()))?;
     let lb_pair = Pubkey::from_str(pool_str)
         .map_err(|e| AppError::InvalidParams(format!("Invalid pool: {e}")))?;
@@ -1180,16 +1298,25 @@ pub async fn build_meteora_swap(
         .map_err(|e| AppError::ProtocolError(format!("Invalid mintY from API: {e}")))?;
 
     let x_to_y = input_mint == mint_x;
-    let input_decimals = if x_to_y { pair.token_x_decimals() } else { pair.token_y_decimals() };
+    let input_decimals = if x_to_y {
+        pair.token_x_decimals()
+    } else {
+        pair.token_y_decimals()
+    };
 
     let slippage = params.slippage_bps.unwrap_or(50);
-    let amount_float: f64 = params.amount.parse()
+    let amount_float: f64 = params
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?;
     let amount_in = (amount_float * 10_f64.powi(input_decimals as i32)) as u64;
     // min_amount_out: set to 0 — slippage enforced by on-chain slippage param
     let min_amount_out = 0u64;
 
-    let args = SwapIxArgs { amount_in, min_amount_out };
+    let args = SwapIxArgs {
+        amount_in,
+        min_amount_out,
+    };
 
     // 3 consecutive bin arrays centered on the active bin.
     let active_arr = bin_id_to_array_index(active_id);
@@ -1200,7 +1327,7 @@ pub async fn build_meteora_swap(
     let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
     let reserve_x = _lb_fields.reserve_x;
     let reserve_y = _lb_fields.reserve_y;
-    let user_token_in  = get_associated_token_address(&user, &input_mint);
+    let user_token_in = get_associated_token_address(&user, &input_mint);
     let user_token_out = get_associated_token_address(&user, &output_mint);
     let oracle = oracle_pda(&lb_pair);
     let event_authority = dlmm_event_authority();
@@ -1229,7 +1356,7 @@ pub async fn build_meteora_swap(
             AccountMeta::new(user_token_out, false),
             AccountMeta::new_readonly(mint_x, false),
             AccountMeta::new_readonly(mint_y, false),
-            AccountMeta::new(oracle, false),             // oracle MUST be writable
+            AccountMeta::new(oracle, false), // oracle MUST be writable
             // host_fee_in: optional — pass system_program
             AccountMeta::new_readonly(system_program::id(), false),
             AccountMeta::new_readonly(user, true),
@@ -1319,8 +1446,13 @@ pub async fn build_meteora_open_position(
     let y_dec = pair.token_y_decimals();
 
     // Resolve bin range from either direct IDs or prices.
-    let (lower_bin_id, upper_bin_id) = resolve_bin_range(params.min_bin_id, params.max_bin_id,
-        params.min_price, params.max_price, bin_step)?;
+    let (lower_bin_id, upper_bin_id) = resolve_bin_range(
+        params.min_bin_id,
+        params.max_bin_id,
+        params.min_price,
+        params.max_price,
+        bin_step,
+    )?;
     let width = upper_bin_id - lower_bin_id;
 
     let amount_x = parse_to_base_units(&params.amount_x, x_dec)?;
@@ -1328,7 +1460,10 @@ pub async fn build_meteora_open_position(
 
     let slippage_bins = params.slippage_bps.map(|s| (s as i32).max(1)).unwrap_or(3);
     let bin_dist = build_bin_distribution(
-        lower_bin_id, upper_bin_id, active_id, params.strategy.as_deref(),
+        lower_bin_id,
+        upper_bin_id,
+        active_id,
+        params.strategy.as_deref(),
     );
 
     let position = position_pda(&lb_pair, &user, lower_bin_id, width);
@@ -1340,7 +1475,11 @@ pub async fn build_meteora_open_position(
     // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
     // missing array, so this is safe.
     let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
-    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
+    let upper_arr = if upper_arr_raw == lower_arr {
+        lower_arr + 1
+    } else {
+        upper_arr_raw
+    };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
     let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
@@ -1354,9 +1493,8 @@ pub async fn build_meteora_open_position(
     // into a fresh range otherwise hit Anchor 3007 when add_liquidity
     // tries to deserialize an uninitialized bin_array PDA.
     let rpc = AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
-    let init_bin_ixs = ensure_bin_arrays_initialized(
-        &rpc, &lb_pair, &[lower_arr, upper_arr], &user,
-    ).await?;
+    let init_bin_ixs =
+        ensure_bin_arrays_initialized(&rpc, &lb_pair, &[lower_arr, upper_arr], &user).await?;
 
     let mut ixs: Vec<Instruction> = vec![];
 
@@ -1372,17 +1510,23 @@ pub async fn build_meteora_open_position(
     ixs.push(Instruction {
         program_id: dlmm_program(),
         accounts: vec![
-            AccountMeta::new(user, true),               // payer (writable, signer)
-            AccountMeta::new_readonly(user, true),      // base (signer, determines PDA)
-            AccountMeta::new(position, false),           // position PDA (writable)
-            AccountMeta::new(lb_pair, false),            // lb_pair (writable)
-            AccountMeta::new_readonly(user, false),     // owner (readonly)
+            AccountMeta::new(user, true),           // payer (writable, signer)
+            AccountMeta::new_readonly(user, true),  // base (signer, determines PDA)
+            AccountMeta::new(position, false),      // position PDA (writable)
+            AccountMeta::new(lb_pair, false),       // lb_pair (writable)
+            AccountMeta::new_readonly(user, false), // owner (readonly)
             AccountMeta::new_readonly(system_program::id(), false),
             AccountMeta::new_readonly(sysvar::rent::id(), false),
             AccountMeta::new_readonly(event_auth, false),
             AccountMeta::new_readonly(dlmm_program(), false),
         ],
-        data: ix_data(disc("initialize_position_pda"), &InitPosPdaArgs { lower_bin_id, width }),
+        data: ix_data(
+            disc("initialize_position_pda"),
+            &InitPosPdaArgs {
+                lower_bin_id,
+                width,
+            },
+        ),
     });
 
     // 2. add_liquidity_by_weight
@@ -1411,13 +1555,16 @@ pub async fn build_meteora_open_position(
             AccountMeta::new_readonly(event_auth, false),
             AccountMeta::new_readonly(dlmm_program(), false),
         ],
-        data: ix_data(disc("add_liquidity_by_weight"), &LiqByWeightArgs {
-            amount_x,
-            amount_y,
-            active_id,
-            max_active_bin_slippage: slippage_bins,
-            bin_liquidity_dist: bin_dist,
-        }),
+        data: ix_data(
+            disc("add_liquidity_by_weight"),
+            &LiqByWeightArgs {
+                amount_x,
+                amount_y,
+                active_id,
+                max_active_bin_slippage: slippage_bins,
+                bin_liquidity_dist: bin_dist,
+            },
+        ),
     });
 
     // Close wSOL ATA so any unused wrapped SOL refunds to the wallet as
@@ -1490,15 +1637,21 @@ pub async fn build_meteora_add_liquidity(
     let y_dec = pair.token_y_decimals();
 
     let (lower_bin_id, upper_bin_id) = resolve_bin_range(
-        params.min_bin_id, params.max_bin_id,
-        params.min_price, params.max_price, bin_step,
+        params.min_bin_id,
+        params.max_bin_id,
+        params.min_price,
+        params.max_price,
+        bin_step,
     )?;
     let width = upper_bin_id - lower_bin_id;
     let amount_x = parse_to_base_units(&params.amount_x, x_dec)?;
     let amount_y = parse_to_base_units(&params.amount_y, y_dec)?;
     let slippage_bins = params.slippage_bps.map(|s| (s as i32).max(1)).unwrap_or(3);
     let bin_dist = build_bin_distribution(
-        lower_bin_id, upper_bin_id, active_id, params.strategy.as_deref(),
+        lower_bin_id,
+        upper_bin_id,
+        active_id,
+        params.strategy.as_deref(),
     );
 
     let position = position_pda(&lb_pair, &user, lower_bin_id, width);
@@ -1510,7 +1663,11 @@ pub async fn build_meteora_add_liquidity(
     // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
     // missing array, so this is safe.
     let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
-    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
+    let upper_arr = if upper_arr_raw == lower_arr {
+        lower_arr + 1
+    } else {
+        upper_arr_raw
+    };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
     let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
@@ -1538,9 +1695,8 @@ pub async fn build_meteora_add_liquidity(
     ));
 
     // Bin array init ixs — emit only for arrays not yet on-chain.
-    let init_bin_ixs = ensure_bin_arrays_initialized(
-        &rpc, &lb_pair, &[lower_arr, upper_arr], &user,
-    ).await?;
+    let init_bin_ixs =
+        ensure_bin_arrays_initialized(&rpc, &lb_pair, &[lower_arr, upper_arr], &user).await?;
     ixs.extend(init_bin_ixs);
 
     if !position_exists {
@@ -1557,7 +1713,13 @@ pub async fn build_meteora_add_liquidity(
                 AccountMeta::new_readonly(event_auth, false),
                 AccountMeta::new_readonly(dlmm_program(), false),
             ],
-            data: ix_data(disc("initialize_position_pda"), &InitPosPdaArgs { lower_bin_id, width }),
+            data: ix_data(
+                disc("initialize_position_pda"),
+                &InitPosPdaArgs {
+                    lower_bin_id,
+                    width,
+                },
+            ),
         });
     }
 
@@ -1584,13 +1746,16 @@ pub async fn build_meteora_add_liquidity(
             AccountMeta::new_readonly(event_auth, false),
             AccountMeta::new_readonly(dlmm_program(), false),
         ],
-        data: ix_data(disc("add_liquidity_by_weight"), &LiqByWeightArgs {
-            amount_x,
-            amount_y,
-            active_id,
-            max_active_bin_slippage: slippage_bins,
-            bin_liquidity_dist: bin_dist,
-        }),
+        data: ix_data(
+            disc("add_liquidity_by_weight"),
+            &LiqByWeightArgs {
+                amount_x,
+                amount_y,
+                active_id,
+                max_active_bin_slippage: slippage_bins,
+                bin_liquidity_dist: bin_dist,
+            },
+        ),
     });
 
     // Close wSOL ATA so any unused wrapped SOL refunds to the wallet as
@@ -1666,11 +1831,17 @@ pub async fn build_meteora_remove_liquidity(
     // Which bins to remove from.
     let bin_removals: Vec<BinLiqReduction> = if let Some(ref ids) = params.bin_ids {
         ids.iter()
-            .map(|&bin_id| BinLiqReduction { bin_id, bps_to_remove: bps })
+            .map(|&bin_id| BinLiqReduction {
+                bin_id,
+                bps_to_remove: bps,
+            })
             .collect()
     } else {
         (lower_bin_id..upper_bin_id)
-            .map(|bin_id| BinLiqReduction { bin_id, bps_to_remove: bps })
+            .map(|bin_id| BinLiqReduction {
+                bin_id,
+                bps_to_remove: bps,
+            })
             .collect()
     };
 
@@ -1686,7 +1857,11 @@ pub async fn build_meteora_remove_liquidity(
     // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
     // missing array, so this is safe.
     let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
-    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
+    let upper_arr = if upper_arr_raw == lower_arr {
+        lower_arr + 1
+    } else {
+        upper_arr_raw
+    };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
     let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
@@ -1721,11 +1896,14 @@ pub async fn build_meteora_remove_liquidity(
             AccountMeta::new_readonly(event_auth, false),
             AccountMeta::new_readonly(dlmm_program(), false),
         ],
-        data: ix_data(disc("remove_liquidity"), &RemoveLiqArgs {
-            bin_liquidity_removal: bin_removals.clone(),
-            amount_x_min,
-            amount_y_min,
-        }),
+        data: ix_data(
+            disc("remove_liquidity"),
+            &RemoveLiqArgs {
+                bin_liquidity_removal: bin_removals.clone(),
+                amount_x_min,
+                amount_y_min,
+            },
+        ),
     }];
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
@@ -1795,7 +1973,10 @@ pub async fn build_meteora_close_position(
     let upper_bin_id = pos_data.upper_bin_id;
 
     let bin_removals: Vec<BinLiqReduction> = (lower_bin_id..upper_bin_id)
-        .map(|bin_id| BinLiqReduction { bin_id, bps_to_remove: 10_000 })
+        .map(|bin_id| BinLiqReduction {
+            bin_id,
+            bps_to_remove: 10_000,
+        })
         .collect();
 
     let lower_arr = bin_id_to_array_index(lower_bin_id);
@@ -1806,7 +1987,11 @@ pub async fn build_meteora_close_position(
     // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
     // missing array, so this is safe.
     let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
-    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
+    let upper_arr = if upper_arr_raw == lower_arr {
+        lower_arr + 1
+    } else {
+        upper_arr_raw
+    };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
     let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
@@ -1839,11 +2024,14 @@ pub async fn build_meteora_close_position(
                 AccountMeta::new_readonly(event_auth, false),
                 AccountMeta::new_readonly(dlmm_program(), false),
             ],
-            data: ix_data(disc("remove_liquidity"), &RemoveLiqArgs {
-                bin_liquidity_removal: bin_removals,
-                amount_x_min: 0,
-                amount_y_min: 0,
-            }),
+            data: ix_data(
+                disc("remove_liquidity"),
+                &RemoveLiqArgs {
+                    bin_liquidity_removal: bin_removals,
+                    amount_x_min: 0,
+                    amount_y_min: 0,
+                },
+            ),
         },
         // claim_fee2: 14 accounts
         Instruction {
@@ -1864,9 +2052,12 @@ pub async fn build_meteora_close_position(
                 AccountMeta::new_readonly(event_auth, false),
                 AccountMeta::new_readonly(dlmm_program(), false),
             ],
-            data: ix_data(disc("claim_fee2"), &ClaimFee2Args {
-                remaining_accounts_info: empty_remaining_accounts(),
-            }),
+            data: ix_data(
+                disc("claim_fee2"),
+                &ClaimFee2Args {
+                    remaining_accounts_info: empty_remaining_accounts(),
+                },
+            ),
         },
     ];
 
@@ -1875,8 +2066,8 @@ pub async fn build_meteora_close_position(
         program_id: dlmm_program(),
         accounts: vec![
             AccountMeta::new(position, false),
-            AccountMeta::new_readonly(user, true),      // sender
-            AccountMeta::new(user, false),              // rent_receiver
+            AccountMeta::new_readonly(user, true), // sender
+            AccountMeta::new(user, false),         // rent_receiver
             AccountMeta::new_readonly(event_auth, false),
             AccountMeta::new_readonly(dlmm_program(), false),
         ],
@@ -1900,9 +2091,7 @@ pub async fn build_meteora_close_position(
                 "position": params.position,
                 "pool":     pos_data.lb_pair,
             }),
-            warnings: vec![
-                "Two sequential transactions required — sign both.".into(),
-            ],
+            warnings: vec!["Two sequential transactions required — sign both.".into()],
             requires_approval: true,
         },
         transaction: Some(tx1.clone()),
@@ -1959,7 +2148,10 @@ pub async fn build_meteora_add_to_position(
     let amount_y = parse_to_base_units(&params.amount_y, y_dec)?;
     let slippage_bins = params.slippage_bps.map(|s| (s as i32).max(1)).unwrap_or(3);
     let bin_dist = build_bin_distribution(
-        lower_bin_id, upper_bin_id, active_id, params.strategy.as_deref(),
+        lower_bin_id,
+        upper_bin_id,
+        active_id,
+        params.strategy.as_deref(),
     );
 
     let lower_arr = bin_id_to_array_index(lower_bin_id);
@@ -1970,7 +2162,11 @@ pub async fn build_meteora_add_to_position(
     // as it is initialized. `ensure_bin_arrays_initialized` will rent-fund any
     // missing array, so this is safe.
     let upper_arr_raw = bin_id_to_array_index(upper_bin_id.saturating_sub(1));
-    let upper_arr = if upper_arr_raw == lower_arr { lower_arr + 1 } else { upper_arr_raw };
+    let upper_arr = if upper_arr_raw == lower_arr {
+        lower_arr + 1
+    } else {
+        upper_arr_raw
+    };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
     let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
@@ -1981,9 +2177,8 @@ pub async fn build_meteora_add_to_position(
     let event_auth = dlmm_event_authority();
 
     // ATA + wSOL wrap prelude (see build_meteora_add_liquidity for rationale).
-    let mut ixs: Vec<Instruction> = build_lp_token_setup_ixs(
-        &user, &mint_x, &mint_y, amount_x, amount_y,
-    );
+    let mut ixs: Vec<Instruction> =
+        build_lp_token_setup_ixs(&user, &mint_x, &mint_y, amount_x, amount_y);
     ixs.push(Instruction {
         program_id: dlmm_program(),
         accounts: vec![
@@ -2005,13 +2200,16 @@ pub async fn build_meteora_add_to_position(
             AccountMeta::new_readonly(event_auth, false),
             AccountMeta::new_readonly(dlmm_program(), false),
         ],
-        data: ix_data(disc("add_liquidity_by_weight"), &LiqByWeightArgs {
-            amount_x,
-            amount_y,
-            active_id,
-            max_active_bin_slippage: slippage_bins,
-            bin_liquidity_dist: bin_dist,
-        }),
+        data: ix_data(
+            disc("add_liquidity_by_weight"),
+            &LiqByWeightArgs {
+                amount_x,
+                amount_y,
+                active_id,
+                max_active_bin_slippage: slippage_bins,
+                bin_liquidity_dist: bin_dist,
+            },
+        ),
     });
 
     // Close wSOL ATA so any unused wrapped SOL refunds to the wallet as
@@ -2091,8 +2289,18 @@ pub async fn build_meteora_claim_fees(
     let mut ixs: Vec<Instruction> = vec![];
 
     // Ensure output ATAs exist.
-    ixs.push(create_associated_token_account_idempotent(&user, &user, &mint_x, &token_program()));
-    ixs.push(create_associated_token_account_idempotent(&user, &user, &mint_y, &token_program()));
+    ixs.push(create_associated_token_account_idempotent(
+        &user,
+        &user,
+        &mint_x,
+        &token_program(),
+    ));
+    ixs.push(create_associated_token_account_idempotent(
+        &user,
+        &user,
+        &mint_y,
+        &token_program(),
+    ));
 
     ixs.push(Instruction {
         program_id: dlmm_program(),
@@ -2112,9 +2320,12 @@ pub async fn build_meteora_claim_fees(
             AccountMeta::new_readonly(event_auth, false),
             AccountMeta::new_readonly(dlmm_program(), false),
         ],
-        data: ix_data(disc("claim_fee2"), &ClaimFee2Args {
-            remaining_accounts_info: empty_remaining_accounts(),
-        }),
+        data: ix_data(
+            disc("claim_fee2"),
+            &ClaimFee2Args {
+                remaining_accounts_info: empty_remaining_accounts(),
+            },
+        ),
     });
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
@@ -2191,7 +2402,8 @@ pub async fn build_meteora_claim_rewards(
         // Reward mint: derive from pool's reward_mints or use the vault ATA owner lookup.
         // If the API doesn't provide reward mints, default to a best-effort vault derivation.
         let reward_mints_vec = pair.reward_mints_resolved();
-        let reward_mint_str = reward_mints_vec.get(reward_index as usize)
+        let reward_mint_str = reward_mints_vec
+            .get(reward_index as usize)
             .map(|s| s.as_str())
             .unwrap_or("");
 
@@ -2200,13 +2412,17 @@ pub async fn build_meteora_claim_rewards(
             continue;
         }
 
-        let reward_mint = Pubkey::from_str(reward_mint_str)
-            .map_err(|_| AppError::ProtocolError(format!("Invalid reward_mint at index {reward_index}")))?;
+        let reward_mint = Pubkey::from_str(reward_mint_str).map_err(|_| {
+            AppError::ProtocolError(format!("Invalid reward_mint at index {reward_index}"))
+        })?;
 
         let user_reward_ata = get_associated_token_address(&user, &reward_mint);
 
         ixs.push(create_associated_token_account_idempotent(
-            &user, &user, &reward_mint, &token_program(),
+            &user,
+            &user,
+            &reward_mint,
+            &token_program(),
         ));
 
         ixs.push(Instruction {
@@ -2223,10 +2439,13 @@ pub async fn build_meteora_claim_rewards(
                 AccountMeta::new_readonly(event_auth, false),
                 AccountMeta::new_readonly(dlmm_program(), false),
             ],
-            data: ix_data(disc("claim_reward2"), &ClaimReward2Args {
-                reward_index,
-                remaining_accounts_info: empty_remaining_accounts(),
-            }),
+            data: ix_data(
+                disc("claim_reward2"),
+                &ClaimReward2Args {
+                    reward_index,
+                    remaining_accounts_info: empty_remaining_accounts(),
+                },
+            ),
         });
     }
 
@@ -2326,14 +2545,20 @@ pub async fn build_meteora_create_pool(
             AccountMeta::new(reserve_y, false),
             AccountMeta::new(oracle, false),
             AccountMeta::new_readonly(preset, false),
-            AccountMeta::new(user, true),              // funder
+            AccountMeta::new(user, true), // funder
             AccountMeta::new_readonly(token_program(), false),
             AccountMeta::new_readonly(system_program::id(), false),
             AccountMeta::new_readonly(sysvar::rent::id(), false),
             AccountMeta::new_readonly(event_auth, false),
             AccountMeta::new_readonly(dlmm_program(), false),
         ],
-        data: ix_data(disc("initialize_lb_pair"), &InitLbPairArgs { active_id, bin_step }),
+        data: ix_data(
+            disc("initialize_lb_pair"),
+            &InitLbPairArgs {
+                active_id,
+                bin_step,
+            },
+        ),
     }];
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
@@ -2390,7 +2615,9 @@ pub async fn build_meteora_stake(
     let farm = Pubkey::from_str(&params.farm)
         .map_err(|e| AppError::InvalidParams(format!("Invalid farm: {e}")))?;
 
-    let amount_float: f64 = params.amount.parse()
+    let amount_float: f64 = params
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?;
     // LP tokens typically have 6 decimals on Meteora.
     let amount = (amount_float * 1_000_000.0) as u64;
@@ -2427,8 +2654,11 @@ pub async fn build_meteora_stake(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_stake".into(),
-            description: format!("Stake {} LP tokens in Meteora farm {}…", params.amount,
-                &params.farm[..8.min(params.farm.len())]),
+            description: format!(
+                "Stake {} LP tokens in Meteora farm {}…",
+                params.amount,
+                &params.farm[..8.min(params.farm.len())]
+            ),
             estimated_fee: "~0.002 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "farm": params.farm, "amount": params.amount }),
@@ -2460,7 +2690,9 @@ pub async fn build_meteora_unstake(
     let farm = Pubkey::from_str(&params.farm)
         .map_err(|e| AppError::InvalidParams(format!("Invalid farm: {e}")))?;
 
-    let amount_float: f64 = params.amount.parse()
+    let amount_float: f64 = params
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?;
     let amount = (amount_float * 1_000_000.0) as u64;
 
@@ -2496,8 +2728,11 @@ pub async fn build_meteora_unstake(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_unstake".into(),
-            description: format!("Unstake {} LP tokens from Meteora farm {}…", params.amount,
-                &params.farm[..8.min(params.farm.len())]),
+            description: format!(
+                "Unstake {} LP tokens from Meteora farm {}…",
+                params.amount,
+                &params.farm[..8.min(params.farm.len())]
+            ),
             estimated_fee: "~0.0003 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "farm": params.farm, "amount": params.amount }),
@@ -2557,8 +2792,10 @@ pub async fn build_meteora_harvest(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_harvest".into(),
-            description: format!("Harvest rewards from Meteora farm {}…",
-                &params.farm[..8.min(params.farm.len())]),
+            description: format!(
+                "Harvest rewards from Meteora farm {}…",
+                &params.farm[..8.min(params.farm.len())]
+            ),
             estimated_fee: "~0.0003 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "farm": params.farm }),
@@ -2580,10 +2817,13 @@ pub async fn build_meteora_harvest(
 
 /// Convert a human-readable amount string to base units (e.g. "1.5" with decimals=6 → 1_500_000).
 fn parse_to_base_units(amount_str: &str, decimals: u8) -> Result<u64, AppError> {
-    let f: f64 = amount_str.parse()
+    let f: f64 = amount_str
+        .parse()
         .map_err(|_| AppError::InvalidParams(format!("Cannot parse amount '{amount_str}'")))?;
     if f < 0.0 {
-        return Err(AppError::InvalidParams(format!("Amount '{amount_str}' must be non-negative")));
+        return Err(AppError::InvalidParams(format!(
+            "Amount '{amount_str}' must be non-negative"
+        )));
     }
     Ok((f * 10_f64.powi(decimals as i32)) as u64)
 }
@@ -2598,18 +2838,24 @@ fn resolve_bin_range(
 ) -> Result<(i32, i32), AppError> {
     if let (Some(lower), Some(upper)) = (min_bin_id, max_bin_id) {
         if lower >= upper {
-            return Err(AppError::InvalidParams("minBinId must be less than maxBinId".into()));
+            return Err(AppError::InvalidParams(
+                "minBinId must be less than maxBinId".into(),
+            ));
         }
         return Ok((lower, upper));
     }
     if let (Some(min_p), Some(max_p)) = (min_price, max_price) {
         if min_p <= 0.0 || max_p <= 0.0 || min_p >= max_p {
-            return Err(AppError::InvalidParams("minPrice must be positive and less than maxPrice".into()));
+            return Err(AppError::InvalidParams(
+                "minPrice must be positive and less than maxPrice".into(),
+            ));
         }
         let lower = price_to_bin_id(min_p, bin_step);
         let upper = price_to_bin_id(max_p, bin_step) + 1; // +1 to make upper exclusive
         if lower >= upper {
-            return Err(AppError::InvalidParams("Price range maps to empty bin range".into()));
+            return Err(AppError::InvalidParams(
+                "Price range maps to empty bin range".into(),
+            ));
         }
         return Ok((lower, upper));
     }
@@ -3150,49 +3396,68 @@ pub struct MeteoraS2EWithdrawParams {
 // Validators — GET Query Actions (minimal, mostly check required string params)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn validate_meteora_dlmm_get_pairs_params(_p: &MeteoraDlmmGetPairsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dlmm_get_pairs_params(
+    _p: &MeteoraDlmmGetPairsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
 pub fn validate_meteora_dlmm_get_pair_params(p: &MeteoraDlmmGetPairParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.address)
-        .map_err(|_| AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address)))?;
+    Pubkey::from_str(&p.address).map_err(|_| {
+        AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address))
+    })?;
     Ok(())
 }
 
-pub fn validate_meteora_dlmm_get_user_positions_params(p: &MeteoraDlmmGetUserPositionsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dlmm_get_user_positions_params(
+    p: &MeteoraDlmmGetUserPositionsParams,
+) -> Result<(), AppError> {
     if let Some(ref w) = p.wallet {
-        Pubkey::from_str(w)
-            .map_err(|_| AppError::InvalidParams(format!("wallet '{}' is not a valid pubkey", w)))?;
+        Pubkey::from_str(w).map_err(|_| {
+            AppError::InvalidParams(format!("wallet '{}' is not a valid pubkey", w))
+        })?;
     }
     Ok(())
 }
 
-pub fn validate_meteora_dlmm_get_active_bin_params(p: &MeteoraDlmmGetActiveBinParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.address)
-        .map_err(|_| AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address)))?;
+pub fn validate_meteora_dlmm_get_active_bin_params(
+    p: &MeteoraDlmmGetActiveBinParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.address).map_err(|_| {
+        AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address))
+    })?;
     Ok(())
 }
 
-pub fn validate_meteora_dlmm_get_pool_groups_params(_p: &MeteoraDlmmGetPoolGroupsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dlmm_get_pool_groups_params(
+    _p: &MeteoraDlmmGetPoolGroupsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dlmm_get_pool_group_params(p: &MeteoraDlmmGetPoolGroupParams) -> Result<(), AppError> {
+pub fn validate_meteora_dlmm_get_pool_group_params(
+    p: &MeteoraDlmmGetPoolGroupParams,
+) -> Result<(), AppError> {
     if p.lexical_order_mints.is_empty() {
-        return Err(AppError::InvalidParams("lexicalOrderMints is required".into()));
+        return Err(AppError::InvalidParams(
+            "lexicalOrderMints is required".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_meteora_dlmm_get_pool_ohlcv_params(p: &MeteoraDlmmGetPoolOhlcvParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.address)
-        .map_err(|_| AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address)))?;
+pub fn validate_meteora_dlmm_get_pool_ohlcv_params(
+    p: &MeteoraDlmmGetPoolOhlcvParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.address).map_err(|_| {
+        AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address))
+    })?;
     if let Some(ref tf) = p.timeframe {
         let valid = ["5m", "30m", "1h", "2h", "4h", "12h", "24h"];
         if !valid.contains(&tf.as_str()) {
             return Err(AppError::InvalidParams(format!(
-                "timeframe '{}' is invalid; valid values: {:?}", tf, valid
+                "timeframe '{}' is invalid; valid values: {:?}",
+                tf, valid
             )));
         }
     }
@@ -3203,99 +3468,134 @@ pub fn validate_meteora_dlmm_get_pool_ohlcv_params(p: &MeteoraDlmmGetPoolOhlcvPa
 #[derive(Debug, Clone, Deserialize)]
 pub struct MeteoraDlmmGetProtocolStatsParams {}
 
-pub fn validate_meteora_dlmm_get_protocol_stats_params(_p: &MeteoraDlmmGetProtocolStatsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dlmm_get_protocol_stats_params(
+    _p: &MeteoraDlmmGetProtocolStatsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dlmm_get_pool_volume_history_params(p: &MeteoraDlmmGetPoolVolumeHistoryParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.address)
-        .map_err(|_| AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address)))?;
+pub fn validate_meteora_dlmm_get_pool_volume_history_params(
+    p: &MeteoraDlmmGetPoolVolumeHistoryParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.address).map_err(|_| {
+        AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address))
+    })?;
     if let Some(ref tf) = p.timeframe {
         let valid = ["5m", "30m", "1h", "2h", "4h", "12h", "24h"];
         if !valid.contains(&tf.as_str()) {
             return Err(AppError::InvalidParams(format!(
-                "timeframe '{}' is invalid; valid values: {:?}", tf, valid
+                "timeframe '{}' is invalid; valid values: {:?}",
+                tf, valid
             )));
         }
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv2_get_pools_params(_p: &MeteoraDammV2GetPoolsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv2_get_pools_params(
+    _p: &MeteoraDammV2GetPoolsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dammv2_get_pool_groups_params(_p: &MeteoraDammV2GetPoolGroupsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv2_get_pool_groups_params(
+    _p: &MeteoraDammV2GetPoolGroupsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dammv2_get_pool_group_params(p: &MeteoraDammV2GetPoolGroupParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv2_get_pool_group_params(
+    p: &MeteoraDammV2GetPoolGroupParams,
+) -> Result<(), AppError> {
     if p.lexical_order_mints.is_empty() {
-        return Err(AppError::InvalidParams("lexicalOrderMints is required".into()));
+        return Err(AppError::InvalidParams(
+            "lexicalOrderMints is required".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv2_get_pool_params(p: &MeteoraDammV2GetPoolParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.address)
-        .map_err(|_| AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address)))?;
+pub fn validate_meteora_dammv2_get_pool_params(
+    p: &MeteoraDammV2GetPoolParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.address).map_err(|_| {
+        AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address))
+    })?;
     Ok(())
 }
 
-pub fn validate_meteora_dammv2_get_pool_ohlcv_params(p: &MeteoraDammV2GetPoolOhlcvParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.address)
-        .map_err(|_| AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address)))?;
+pub fn validate_meteora_dammv2_get_pool_ohlcv_params(
+    p: &MeteoraDammV2GetPoolOhlcvParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.address).map_err(|_| {
+        AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address))
+    })?;
     if let Some(ref tf) = p.timeframe {
         let valid = ["5m", "30m", "1h", "2h", "4h", "12h", "24h"];
         if !valid.contains(&tf.as_str()) {
             return Err(AppError::InvalidParams(format!(
-                "timeframe '{}' is invalid; valid values: {:?}", tf, valid
+                "timeframe '{}' is invalid; valid values: {:?}",
+                tf, valid
             )));
         }
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv2_get_pool_volume_history_params(p: &MeteoraDammV2GetPoolVolumeHistoryParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.address)
-        .map_err(|_| AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address)))?;
+pub fn validate_meteora_dammv2_get_pool_volume_history_params(
+    p: &MeteoraDammV2GetPoolVolumeHistoryParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.address).map_err(|_| {
+        AppError::InvalidParams(format!("address '{}' is not a valid pubkey", p.address))
+    })?;
     if let Some(ref tf) = p.timeframe {
         let valid = ["5m", "30m", "1h", "2h", "4h", "12h", "24h"];
         if !valid.contains(&tf.as_str()) {
             return Err(AppError::InvalidParams(format!(
-                "timeframe '{}' is invalid; valid values: {:?}", tf, valid
+                "timeframe '{}' is invalid; valid values: {:?}",
+                tf, valid
             )));
         }
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv2_get_protocol_metrics_params(_p: &MeteoraDammV2GetProtocolMetricsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv2_get_protocol_metrics_params(
+    _p: &MeteoraDammV2GetProtocolMetricsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_get_pools_params(p: &MeteoraDammV1GetPoolsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_get_pools_params(
+    p: &MeteoraDammV1GetPoolsParams,
+) -> Result<(), AppError> {
     if let Some(ref pt) = p.pool_type {
         let valid = ["dynamic", "multitoken", "lst", "farms"];
         if !valid.contains(&pt.as_str()) {
             return Err(AppError::InvalidParams(format!(
-                "poolType '{}' is invalid; valid values: {:?}", pt, valid
+                "poolType '{}' is invalid; valid values: {:?}",
+                pt, valid
             )));
         }
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_get_pool_configs_params(_p: &MeteoraDammV1GetPoolConfigsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_get_pool_configs_params(
+    _p: &MeteoraDammV1GetPoolConfigsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_search_pools_params(p: &MeteoraDammV1SearchPoolsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_search_pools_params(
+    p: &MeteoraDammV1SearchPoolsParams,
+) -> Result<(), AppError> {
     if let Some(ref sk) = p.sort_key {
         let valid = ["tvl", "volume", "fee_tvl_ratio", "l_m"];
         if !valid.contains(&sk.as_str()) {
             return Err(AppError::InvalidParams(format!(
-                "sortKey '{}' is invalid; valid values: {:?}", sk, valid
+                "sortKey '{}' is invalid; valid values: {:?}",
+                sk, valid
             )));
         }
     }
@@ -3303,7 +3603,8 @@ pub fn validate_meteora_dammv1_search_pools_params(p: &MeteoraDammV1SearchPoolsP
         let valid = ["asc", "desc"];
         if !valid.contains(&ob.as_str()) {
             return Err(AppError::InvalidParams(format!(
-                "orderBy '{}' is invalid; valid values: asc, desc", ob
+                "orderBy '{}' is invalid; valid values: asc, desc",
+                ob
             )));
         }
     }
@@ -3311,107 +3612,164 @@ pub fn validate_meteora_dammv1_search_pools_params(p: &MeteoraDammV1SearchPoolsP
         let valid = ["dynamic", "multitoken", "lst", "farms"];
         if !valid.contains(&pt.as_str()) {
             return Err(AppError::InvalidParams(format!(
-                "poolType '{}' is invalid; valid values: {:?}", pt, valid
+                "poolType '{}' is invalid; valid values: {:?}",
+                pt, valid
             )));
         }
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_get_farms_params(_p: &MeteoraDammV1GetFarmsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_get_farms_params(
+    _p: &MeteoraDammV1GetFarmsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_get_pools_metrics_params(_p: &MeteoraDammV1GetPoolsMetricsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_get_pools_metrics_params(
+    _p: &MeteoraDammV1GetPoolsMetricsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_get_alpha_vaults_params(_p: &MeteoraDammV1GetAlphaVaultsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_get_alpha_vaults_params(
+    _p: &MeteoraDammV1GetAlphaVaultsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_get_alpha_vault_configs_params(_p: &MeteoraDammV1GetAlphaVaultConfigsParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_get_alpha_vault_configs_params(
+    _p: &MeteoraDammV1GetAlphaVaultConfigsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_get_pools_by_vault_lp_params(p: &MeteoraDammV1GetPoolsByVaultLpParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_get_pools_by_vault_lp_params(
+    p: &MeteoraDammV1GetPoolsByVaultLpParams,
+) -> Result<(), AppError> {
     if p.a_vault_lp.is_empty() {
         return Err(AppError::InvalidParams("aVaultLp is required".into()));
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_get_fee_config_params(p: &MeteoraDammV1GetFeeConfigParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.config_address)
-        .map_err(|_| AppError::InvalidParams(format!("configAddress '{}' is not a valid pubkey", p.config_address)))?;
+pub fn validate_meteora_dammv1_get_fee_config_params(
+    p: &MeteoraDammV1GetFeeConfigParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.config_address).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "configAddress '{}' is not a valid pubkey",
+            p.config_address
+        ))
+    })?;
     Ok(())
 }
 
-pub fn validate_meteora_s2e_get_analytics_params(_p: &MeteoraS2EGetAnalyticsParams) -> Result<(), AppError> {
+pub fn validate_meteora_s2e_get_analytics_params(
+    _p: &MeteoraS2EGetAnalyticsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_s2e_get_all_vaults_params(_p: &MeteoraS2EGetAllVaultsParams) -> Result<(), AppError> {
+pub fn validate_meteora_s2e_get_all_vaults_params(
+    _p: &MeteoraS2EGetAllVaultsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_s2e_filter_vaults_params(p: &MeteoraS2EFilterVaultsParams) -> Result<(), AppError> {
+pub fn validate_meteora_s2e_filter_vaults_params(
+    p: &MeteoraS2EFilterVaultsParams,
+) -> Result<(), AppError> {
     if let Some(ref addrs) = p.pool_address {
         let count = addrs.split(',').filter(|s| !s.trim().is_empty()).count();
         if count > 100 {
-            return Err(AppError::InvalidParams(
-                format!("pool_address: maximum 100 addresses allowed, got {count}")
-            ));
+            return Err(AppError::InvalidParams(format!(
+                "pool_address: maximum 100 addresses allowed, got {count}"
+            )));
         }
     }
     Ok(())
 }
 
 pub fn validate_meteora_s2e_get_vault_params(p: &MeteoraS2EGetVaultParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.vault_address)
-        .map_err(|_| AppError::InvalidParams(format!("vaultAddress '{}' is not a valid pubkey", p.vault_address)))?;
+    Pubkey::from_str(&p.vault_address).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "vaultAddress '{}' is not a valid pubkey",
+            p.vault_address
+        ))
+    })?;
     Ok(())
 }
 
-pub fn validate_meteora_vault_get_info_params(_p: &MeteoraVaultGetInfoParams) -> Result<(), AppError> {
+pub fn validate_meteora_vault_get_info_params(
+    _p: &MeteoraVaultGetInfoParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_vault_get_addresses_params(_p: &MeteoraVaultGetAddressesParams) -> Result<(), AppError> {
+pub fn validate_meteora_vault_get_addresses_params(
+    _p: &MeteoraVaultGetAddressesParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_meteora_vault_get_state_params(p: &MeteoraVaultGetStateParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.token_mint)
-        .map_err(|_| AppError::InvalidParams(format!("tokenMint '{}' is not a valid pubkey", p.token_mint)))?;
+pub fn validate_meteora_vault_get_state_params(
+    p: &MeteoraVaultGetStateParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.token_mint).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "tokenMint '{}' is not a valid pubkey",
+            p.token_mint
+        ))
+    })?;
     Ok(())
 }
 
 pub fn validate_meteora_vault_get_apy_params(p: &MeteoraVaultGetApyParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.token_mint)
-        .map_err(|_| AppError::InvalidParams(format!("tokenMint '{}' is not a valid pubkey", p.token_mint)))?;
+    Pubkey::from_str(&p.token_mint).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "tokenMint '{}' is not a valid pubkey",
+            p.token_mint
+        ))
+    })?;
     Ok(())
 }
 
-pub fn validate_meteora_vault_get_apy_history_params(p: &MeteoraVaultGetApyHistoryParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.token_mint)
-        .map_err(|_| AppError::InvalidParams(format!("tokenMint '{}' is not a valid pubkey", p.token_mint)))?;
+pub fn validate_meteora_vault_get_apy_history_params(
+    p: &MeteoraVaultGetApyHistoryParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.token_mint).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "tokenMint '{}' is not a valid pubkey",
+            p.token_mint
+        ))
+    })?;
     if p.start_timestamp <= 0 {
-        return Err(AppError::InvalidParams("startTimestamp must be a positive Unix timestamp (seconds)".into()));
-    }
-    if p.start_timestamp >= p.end_timestamp {
         return Err(AppError::InvalidParams(
-            format!("startTimestamp ({}) must be less than endTimestamp ({})", p.start_timestamp, p.end_timestamp)
+            "startTimestamp must be a positive Unix timestamp (seconds)".into(),
         ));
     }
+    if p.start_timestamp >= p.end_timestamp {
+        return Err(AppError::InvalidParams(format!(
+            "startTimestamp ({}) must be less than endTimestamp ({})",
+            p.start_timestamp, p.end_timestamp
+        )));
+    }
     Ok(())
 }
 
-pub fn validate_meteora_vault_get_virtual_price_params(p: &MeteoraVaultGetVirtualPriceParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.token_mint)
-        .map_err(|_| AppError::InvalidParams(format!("tokenMint '{}' is not a valid pubkey", p.token_mint)))?;
-    Pubkey::from_str(&p.strategy)
-        .map_err(|_| AppError::InvalidParams(format!("strategy '{}' is not a valid pubkey", p.strategy)))?;
+pub fn validate_meteora_vault_get_virtual_price_params(
+    p: &MeteoraVaultGetVirtualPriceParams,
+) -> Result<(), AppError> {
+    Pubkey::from_str(&p.token_mint).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "tokenMint '{}' is not a valid pubkey",
+            p.token_mint
+        ))
+    })?;
+    Pubkey::from_str(&p.strategy).map_err(|_| {
+        AppError::InvalidParams(format!("strategy '{}' is not a valid pubkey", p.strategy))
+    })?;
     Ok(())
 }
 
@@ -3420,44 +3778,66 @@ pub fn validate_meteora_vault_get_virtual_price_params(p: &MeteoraVaultGetVirtua
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn validate_meteora_dammv1_swap_params(p: &MeteoraDammV1SwapParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.input_mint)
-        .map_err(|_| AppError::InvalidParams(format!("inputMint '{}' is not valid", p.input_mint)))?;
-    Pubkey::from_str(&p.output_mint)
-        .map_err(|_| AppError::InvalidParams(format!("outputMint '{}' is not valid", p.output_mint)))?;
+    Pubkey::from_str(&p.input_mint).map_err(|_| {
+        AppError::InvalidParams(format!("inputMint '{}' is not valid", p.input_mint))
+    })?;
+    Pubkey::from_str(&p.output_mint).map_err(|_| {
+        AppError::InvalidParams(format!("outputMint '{}' is not valid", p.output_mint))
+    })?;
     if p.input_mint == p.output_mint {
-        return Err(AppError::InvalidParams("inputMint and outputMint must differ".into()));
+        return Err(AppError::InvalidParams(
+            "inputMint and outputMint must differ".into(),
+        ));
     }
-    let amt: f64 = p.amount.parse()
+    let amt: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a positive number".into()))?;
     if amt <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
     }
     if let Some(s) = p.slippage_bps {
-        if s > 5000 { return Err(AppError::InvalidParams("slippageBps must be ≤ 5000".into())); }
+        if s > 5000 {
+            return Err(AppError::InvalidParams("slippageBps must be ≤ 5000".into()));
+        }
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_deposit_params(p: &MeteoraDammV1DepositParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_deposit_params(
+    p: &MeteoraDammV1DepositParams,
+) -> Result<(), AppError> {
     Pubkey::from_str(&p.pool)
         .map_err(|_| AppError::InvalidParams(format!("pool '{}' is not valid", p.pool)))?;
-    let a: f64 = p.token_a_amount.parse()
+    let a: f64 = p
+        .token_a_amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("tokenAAmount must be a number".into()))?;
-    let b: f64 = p.token_b_amount.parse()
+    let b: f64 = p
+        .token_b_amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("tokenBAmount must be a number".into()))?;
     if a < 0.0 || b < 0.0 {
-        return Err(AppError::InvalidParams("Amounts must be non-negative".into()));
+        return Err(AppError::InvalidParams(
+            "Amounts must be non-negative".into(),
+        ));
     }
     if a == 0.0 && b == 0.0 {
-        return Err(AppError::InvalidParams("At least one amount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "At least one amount must be positive".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv1_withdraw_params(p: &MeteoraDammV1WithdrawParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv1_withdraw_params(
+    p: &MeteoraDammV1WithdrawParams,
+) -> Result<(), AppError> {
     Pubkey::from_str(&p.pool)
         .map_err(|_| AppError::InvalidParams(format!("pool '{}' is not valid", p.pool)))?;
-    let lp: f64 = p.lp_amount.parse()
+    let lp: f64 = p
+        .lp_amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("lpAmount must be a number".into()))?;
     if lp <= 0.0 {
         return Err(AppError::InvalidParams("lpAmount must be positive".into()));
@@ -3466,46 +3846,69 @@ pub fn validate_meteora_dammv1_withdraw_params(p: &MeteoraDammV1WithdrawParams) 
 }
 
 pub fn validate_meteora_dammv2_swap_params(p: &MeteoraDammV2SwapParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.input_mint)
-        .map_err(|_| AppError::InvalidParams(format!("inputMint '{}' is not valid", p.input_mint)))?;
-    Pubkey::from_str(&p.output_mint)
-        .map_err(|_| AppError::InvalidParams(format!("outputMint '{}' is not valid", p.output_mint)))?;
+    Pubkey::from_str(&p.input_mint).map_err(|_| {
+        AppError::InvalidParams(format!("inputMint '{}' is not valid", p.input_mint))
+    })?;
+    Pubkey::from_str(&p.output_mint).map_err(|_| {
+        AppError::InvalidParams(format!("outputMint '{}' is not valid", p.output_mint))
+    })?;
     if p.input_mint == p.output_mint {
-        return Err(AppError::InvalidParams("inputMint and outputMint must differ".into()));
+        return Err(AppError::InvalidParams(
+            "inputMint and outputMint must differ".into(),
+        ));
     }
-    let amt: f64 = p.amount.parse()
+    let amt: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a positive number".into()))?;
     if amt <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
     }
     if let Some(s) = p.slippage_bps {
-        if s > 5000 { return Err(AppError::InvalidParams("slippageBps must be ≤ 5000".into())); }
+        if s > 5000 {
+            return Err(AppError::InvalidParams("slippageBps must be ≤ 5000".into()));
+        }
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv2_add_liquidity_params(p: &MeteoraDammV2AddLiquidityParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv2_add_liquidity_params(
+    p: &MeteoraDammV2AddLiquidityParams,
+) -> Result<(), AppError> {
     Pubkey::from_str(&p.pool)
         .map_err(|_| AppError::InvalidParams(format!("pool '{}' is not valid", p.pool)))?;
-    let a: f64 = p.max_amount_a.parse()
+    let a: f64 = p
+        .max_amount_a
+        .parse()
         .map_err(|_| AppError::InvalidParams("maxAmountA must be a number".into()))?;
-    let b: f64 = p.max_amount_b.parse()
+    let b: f64 = p
+        .max_amount_b
+        .parse()
         .map_err(|_| AppError::InvalidParams("maxAmountB must be a number".into()))?;
     if a < 0.0 || b < 0.0 {
-        return Err(AppError::InvalidParams("Amounts must be non-negative".into()));
+        return Err(AppError::InvalidParams(
+            "Amounts must be non-negative".into(),
+        ));
     }
     if a == 0.0 && b == 0.0 {
-        return Err(AppError::InvalidParams("At least one amount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "At least one amount must be positive".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_meteora_dammv2_remove_liquidity_params(p: &MeteoraDammV2RemoveLiquidityParams) -> Result<(), AppError> {
+pub fn validate_meteora_dammv2_remove_liquidity_params(
+    p: &MeteoraDammV2RemoveLiquidityParams,
+) -> Result<(), AppError> {
     Pubkey::from_str(&p.pool)
         .map_err(|_| AppError::InvalidParams(format!("pool '{}' is not valid", p.pool)))?;
-    Pubkey::from_str(&p.position_nft)
-        .map_err(|_| AppError::InvalidParams(format!("positionNft '{}' is not valid", p.position_nft)))?;
-    let lp: f64 = p.lp_amount.parse()
+    Pubkey::from_str(&p.position_nft).map_err(|_| {
+        AppError::InvalidParams(format!("positionNft '{}' is not valid", p.position_nft))
+    })?;
+    let lp: f64 = p
+        .lp_amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("lpAmount must be a number".into()))?;
     if lp <= 0.0 {
         return Err(AppError::InvalidParams("lpAmount must be positive".into()));
@@ -3513,11 +3916,15 @@ pub fn validate_meteora_dammv2_remove_liquidity_params(p: &MeteoraDammV2RemoveLi
     Ok(())
 }
 
-pub fn validate_meteora_vault_deposit_params(p: &MeteoraVaultDepositParams) -> Result<(), AppError> {
+pub fn validate_meteora_vault_deposit_params(
+    p: &MeteoraVaultDepositParams,
+) -> Result<(), AppError> {
     if p.token_mint.is_empty() {
         return Err(AppError::InvalidParams("tokenMint is required".into()));
     }
-    let amt: f64 = p.amount.parse()
+    let amt: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a number".into()))?;
     if amt <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
@@ -3525,14 +3932,20 @@ pub fn validate_meteora_vault_deposit_params(p: &MeteoraVaultDepositParams) -> R
     Ok(())
 }
 
-pub fn validate_meteora_vault_withdraw_params(p: &MeteoraVaultWithdrawParams) -> Result<(), AppError> {
+pub fn validate_meteora_vault_withdraw_params(
+    p: &MeteoraVaultWithdrawParams,
+) -> Result<(), AppError> {
     if p.token_mint.is_empty() {
         return Err(AppError::InvalidParams("tokenMint is required".into()));
     }
-    let amt: f64 = p.unmint_amount.parse()
+    let amt: f64 = p
+        .unmint_amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("unmintAmount must be a number".into()))?;
     if amt <= 0.0 {
-        return Err(AppError::InvalidParams("unmintAmount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "unmintAmount must be positive".into(),
+        ));
     }
     Ok(())
 }
@@ -3540,7 +3953,9 @@ pub fn validate_meteora_vault_withdraw_params(p: &MeteoraVaultWithdrawParams) ->
 pub fn validate_meteora_s2e_stake_params(p: &MeteoraS2EStakeParams) -> Result<(), AppError> {
     Pubkey::from_str(&p.vault)
         .map_err(|_| AppError::InvalidParams(format!("vault '{}' is not valid", p.vault)))?;
-    let amt: f64 = p.amount.parse()
+    let amt: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a number".into()))?;
     if amt <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
@@ -3551,7 +3966,9 @@ pub fn validate_meteora_s2e_stake_params(p: &MeteoraS2EStakeParams) -> Result<()
 pub fn validate_meteora_s2e_unstake_params(p: &MeteoraS2EUnstakeParams) -> Result<(), AppError> {
     Pubkey::from_str(&p.vault)
         .map_err(|_| AppError::InvalidParams(format!("vault '{}' is not valid", p.vault)))?;
-    let amt: f64 = p.amount.parse()
+    let amt: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a number".into()))?;
     if amt <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
@@ -3565,7 +3982,9 @@ pub fn validate_meteora_s2e_claim_fee_params(p: &MeteoraS2EClaimFeeParams) -> Re
     Ok(())
 }
 
-pub fn validate_meteora_s2e_cancel_unstake_params(p: &MeteoraS2ECancelUnstakeParams) -> Result<(), AppError> {
+pub fn validate_meteora_s2e_cancel_unstake_params(
+    p: &MeteoraS2ECancelUnstakeParams,
+) -> Result<(), AppError> {
     Pubkey::from_str(&p.vault)
         .map_err(|_| AppError::InvalidParams(format!("vault '{}' is not valid", p.vault)))?;
     Pubkey::from_str(&p.escrow)
@@ -3593,17 +4012,31 @@ pub async fn build_meteora_dlmm_get_pairs(
 ) -> Result<BuildResponse, AppError> {
     // reqwest query builder → spaces / special chars get percent-encoded.
     let mut qs: Vec<(&str, String)> = Vec::new();
-    if let Some(n) = params.page           { qs.push(("page", n.to_string())); }
-    if let Some(n) = params.page_size      { qs.push(("page_size", n.min(1000).to_string())); }
-    if let Some(ref q) = params.query      { qs.push(("query", q.clone())); }
-    if let Some(ref s) = params.sort_by    { qs.push(("sort_by", s.clone())); }
-    if let Some(ref f) = params.filter_by  { qs.push(("filter_by", f.clone())); }
-    let resp = http.get(format!("{DLMM_API}/pools"))
+    if let Some(n) = params.page {
+        qs.push(("page", n.to_string()));
+    }
+    if let Some(n) = params.page_size {
+        qs.push(("page_size", n.min(1000).to_string()));
+    }
+    if let Some(ref q) = params.query {
+        qs.push(("query", q.clone()));
+    }
+    if let Some(ref s) = params.sort_by {
+        qs.push(("sort_by", s.clone()));
+    }
+    if let Some(ref f) = params.filter_by {
+        qs.push(("filter_by", f.clone()));
+    }
+    let resp = http
+        .get(format!("{DLMM_API}/pools"))
         .query(&qs)
         .header("Accept", "application/json")
-        .send().await
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DLMM GET: {e}")))?;
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DLMM parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -3635,7 +4068,10 @@ pub async fn build_meteora_dlmm_get_pair(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dlmm_get_pair".into(),
-            description: format!("Meteora DLMM pair: {}…", &params.address[..8.min(params.address.len())]),
+            description: format!(
+                "Meteora DLMM pair: {}…",
+                &params.address[..8.min(params.address.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -3665,7 +4101,10 @@ pub async fn build_meteora_dlmm_get_user_positions(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dlmm_get_user_positions".into(),
-            description: format!("Meteora DLMM positions for {}…", &wallet[..8.min(wallet.len())]),
+            description: format!(
+                "Meteora DLMM positions for {}…",
+                &wallet[..8.min(wallet.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -3698,7 +4137,10 @@ pub async fn build_meteora_dlmm_get_active_bin(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dlmm_get_active_bin".into(),
-            description: format!("Meteora DLMM active bin for {}…", &params.address[..8.min(params.address.len())]),
+            description: format!(
+                "Meteora DLMM active bin for {}…",
+                &params.address[..8.min(params.address.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -3719,19 +4161,37 @@ pub async fn build_meteora_dlmm_get_pool_groups(
     params: &MeteoraDlmmGetPoolGroupsParams,
 ) -> Result<BuildResponse, AppError> {
     let mut qs: Vec<(&str, String)> = Vec::new();
-    if let Some(n) = params.page               { qs.push(("page", n.to_string())); }
-    if let Some(n) = params.page_size          { qs.push(("page_size", n.min(100).to_string())); }
-    if let Some(ref q) = params.query          { qs.push(("query", q.clone())); }
-    if let Some(ref s) = params.sort_by        { qs.push(("sort_by", s.clone())); }
-    if let Some(ref f) = params.filter_by      { qs.push(("filter_by", f.clone())); }
-    if let Some(ref v) = params.volume_tw      { qs.push(("volume_tw", v.clone())); }
-    if let Some(ref r) = params.fee_tvl_ratio_tw { qs.push(("fee_tvl_ratio_tw", r.clone())); }
-    let resp = http.get(format!("{DLMM_API}/pools/groups"))
+    if let Some(n) = params.page {
+        qs.push(("page", n.to_string()));
+    }
+    if let Some(n) = params.page_size {
+        qs.push(("page_size", n.min(100).to_string()));
+    }
+    if let Some(ref q) = params.query {
+        qs.push(("query", q.clone()));
+    }
+    if let Some(ref s) = params.sort_by {
+        qs.push(("sort_by", s.clone()));
+    }
+    if let Some(ref f) = params.filter_by {
+        qs.push(("filter_by", f.clone()));
+    }
+    if let Some(ref v) = params.volume_tw {
+        qs.push(("volume_tw", v.clone()));
+    }
+    if let Some(ref r) = params.fee_tvl_ratio_tw {
+        qs.push(("fee_tvl_ratio_tw", r.clone()));
+    }
+    let resp = http
+        .get(format!("{DLMM_API}/pools/groups"))
         .query(&qs)
         .header("Accept", "application/json")
-        .send().await
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DLMM groups GET: {e}")))?;
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DLMM groups parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -3758,10 +4218,18 @@ pub async fn build_meteora_dlmm_get_pool_group(
     params: &MeteoraDlmmGetPoolGroupParams,
 ) -> Result<BuildResponse, AppError> {
     let mut url = format!("{DLMM_API}/pools/groups/{}?", params.lexical_order_mints);
-    if let Some(n) = params.page          { url.push_str(&format!("page={n}&")); }
-    if let Some(n) = params.page_size     { url.push_str(&format!("page_size={}&", n.min(100))); }
-    if let Some(ref s) = params.sort_by   { url.push_str(&format!("sort_by={s}&")); }
-    if let Some(ref f) = params.filter_by { url.push_str(&format!("filter_by={f}&")); }
+    if let Some(n) = params.page {
+        url.push_str(&format!("page={n}&"));
+    }
+    if let Some(n) = params.page_size {
+        url.push_str(&format!("page_size={}&", n.min(100)));
+    }
+    if let Some(ref s) = params.sort_by {
+        url.push_str(&format!("sort_by={s}&"));
+    }
+    if let Some(ref f) = params.filter_by {
+        url.push_str(&format!("filter_by={f}&"));
+    }
     let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -3788,15 +4256,24 @@ pub async fn build_meteora_dlmm_get_pool_ohlcv(
     params: &MeteoraDlmmGetPoolOhlcvParams,
 ) -> Result<BuildResponse, AppError> {
     let mut url = format!("{DLMM_API}/pools/{}/ohlcv?", params.address);
-    if let Some(ref tf) = params.timeframe { url.push_str(&format!("timeframe={tf}&")); }
-    if let Some(t) = params.start_time    { url.push_str(&format!("start_time={t}&")); }
-    if let Some(t) = params.end_time      { url.push_str(&format!("end_time={t}&")); }
+    if let Some(ref tf) = params.timeframe {
+        url.push_str(&format!("timeframe={tf}&"));
+    }
+    if let Some(t) = params.start_time {
+        url.push_str(&format!("start_time={t}&"));
+    }
+    if let Some(t) = params.end_time {
+        url.push_str(&format!("end_time={t}&"));
+    }
     let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dlmm_get_pool_ohlcv".into(),
-            description: format!("Meteora DLMM OHLCV for {}…", &params.address[..8.min(params.address.len())]),
+            description: format!(
+                "Meteora DLMM OHLCV for {}…",
+                &params.address[..8.min(params.address.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -3817,15 +4294,24 @@ pub async fn build_meteora_dlmm_get_pool_volume_history(
     params: &MeteoraDlmmGetPoolVolumeHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     let mut url = format!("{DLMM_API}/pools/{}/volume/history?", params.address);
-    if let Some(ref tf) = params.timeframe { url.push_str(&format!("timeframe={tf}&")); }
-    if let Some(t) = params.start_time    { url.push_str(&format!("start_time={t}&")); }
-    if let Some(t) = params.end_time      { url.push_str(&format!("end_time={t}&")); }
+    if let Some(ref tf) = params.timeframe {
+        url.push_str(&format!("timeframe={tf}&"));
+    }
+    if let Some(t) = params.start_time {
+        url.push_str(&format!("start_time={t}&"));
+    }
+    if let Some(t) = params.end_time {
+        url.push_str(&format!("end_time={t}&"));
+    }
     let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dlmm_get_pool_volume_history".into(),
-            description: format!("Meteora DLMM volume history for {}…", &params.address[..8.min(params.address.len())]),
+            description: format!(
+                "Meteora DLMM volume history for {}…",
+                &params.address[..8.min(params.address.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -3878,17 +4364,31 @@ pub async fn build_meteora_dammv2_get_pools(
     // `url` crate rejects → request fails → empty mini-app card with no error
     // surfaced to the user.
     let mut qs: Vec<(&str, String)> = Vec::new();
-    if let Some(n) = params.page           { qs.push(("page", n.to_string())); }
-    if let Some(n) = params.page_size      { qs.push(("page_size", n.min(1000).to_string())); }
-    if let Some(ref q) = params.query      { qs.push(("query", q.clone())); }
-    if let Some(ref s) = params.sort_by    { qs.push(("sort_by", s.clone())); }
-    if let Some(ref f) = params.filter_by  { qs.push(("filter_by", f.clone())); }
-    let resp = http.get(format!("{DAMM_V2_API}/pools"))
+    if let Some(n) = params.page {
+        qs.push(("page", n.to_string()));
+    }
+    if let Some(n) = params.page_size {
+        qs.push(("page_size", n.min(1000).to_string()));
+    }
+    if let Some(ref q) = params.query {
+        qs.push(("query", q.clone()));
+    }
+    if let Some(ref s) = params.sort_by {
+        qs.push(("sort_by", s.clone()));
+    }
+    if let Some(ref f) = params.filter_by {
+        qs.push(("filter_by", f.clone()));
+    }
+    let resp = http
+        .get(format!("{DAMM_V2_API}/pools"))
         .query(&qs)
         .header("Accept", "application/json")
-        .send().await
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 GET: {e}")))?;
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -3915,19 +4415,37 @@ pub async fn build_meteora_dammv2_get_pool_groups(
     params: &MeteoraDammV2GetPoolGroupsParams,
 ) -> Result<BuildResponse, AppError> {
     let mut qs: Vec<(&str, String)> = Vec::new();
-    if let Some(n) = params.page                { qs.push(("page", n.to_string())); }
-    if let Some(n) = params.page_size           { qs.push(("page_size", n.to_string())); }
-    if let Some(ref q) = params.query           { qs.push(("query", q.clone())); }
-    if let Some(ref s) = params.sort_by         { qs.push(("sort_by", s.clone())); }
-    if let Some(ref f) = params.filter_by       { qs.push(("filter_by", f.clone())); }
-    if let Some(ref v) = params.volume_tw       { qs.push(("volume_tw", v.clone())); }
-    if let Some(ref r) = params.fee_tvl_ratio_tw { qs.push(("fee_tvl_ratio_tw", r.clone())); }
-    let resp = http.get(format!("{DAMM_V2_API}/pools/groups"))
+    if let Some(n) = params.page {
+        qs.push(("page", n.to_string()));
+    }
+    if let Some(n) = params.page_size {
+        qs.push(("page_size", n.to_string()));
+    }
+    if let Some(ref q) = params.query {
+        qs.push(("query", q.clone()));
+    }
+    if let Some(ref s) = params.sort_by {
+        qs.push(("sort_by", s.clone()));
+    }
+    if let Some(ref f) = params.filter_by {
+        qs.push(("filter_by", f.clone()));
+    }
+    if let Some(ref v) = params.volume_tw {
+        qs.push(("volume_tw", v.clone()));
+    }
+    if let Some(ref r) = params.fee_tvl_ratio_tw {
+        qs.push(("fee_tvl_ratio_tw", r.clone()));
+    }
+    let resp = http
+        .get(format!("{DAMM_V2_API}/pools/groups"))
         .query(&qs)
         .header("Accept", "application/json")
-        .send().await
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 groups GET: {e}")))?;
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 groups parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -3954,17 +4472,34 @@ pub async fn build_meteora_dammv2_get_pool_group(
     params: &MeteoraDammV2GetPoolGroupParams,
 ) -> Result<BuildResponse, AppError> {
     let mut qs: Vec<(&str, String)> = Vec::new();
-    if let Some(n) = params.page           { qs.push(("page", n.to_string())); }
-    if let Some(n) = params.page_size      { qs.push(("page_size", n.to_string())); }
-    if let Some(ref q) = params.query      { qs.push(("query", q.clone())); }
-    if let Some(ref s) = params.sort_by    { qs.push(("sort_by", s.clone())); }
-    if let Some(ref f) = params.filter_by  { qs.push(("filter_by", f.clone())); }
-    let resp = http.get(format!("{DAMM_V2_API}/pools/groups/{}", params.lexical_order_mints))
+    if let Some(n) = params.page {
+        qs.push(("page", n.to_string()));
+    }
+    if let Some(n) = params.page_size {
+        qs.push(("page_size", n.to_string()));
+    }
+    if let Some(ref q) = params.query {
+        qs.push(("query", q.clone()));
+    }
+    if let Some(ref s) = params.sort_by {
+        qs.push(("sort_by", s.clone()));
+    }
+    if let Some(ref f) = params.filter_by {
+        qs.push(("filter_by", f.clone()));
+    }
+    let resp = http
+        .get(format!(
+            "{DAMM_V2_API}/pools/groups/{}",
+            params.lexical_order_mints
+        ))
         .query(&qs)
         .header("Accept", "application/json")
-        .send().await
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pool group GET: {e}")))?;
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pool group parse: {e}")))?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -3996,7 +4531,10 @@ pub async fn build_meteora_dammv2_get_pool(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dammv2_get_pool".into(),
-            description: format!("Meteora DAMM v2 pool: {}…", &params.address[..8.min(params.address.len())]),
+            description: format!(
+                "Meteora DAMM v2 pool: {}…",
+                &params.address[..8.min(params.address.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4018,15 +4556,24 @@ pub async fn build_meteora_dammv2_get_pool_ohlcv(
 ) -> Result<BuildResponse, AppError> {
     validate_meteora_dammv2_get_pool_ohlcv_params(params)?;
     let mut url = format!("{DAMM_V2_API}/pools/{}/ohlcv?", params.address);
-    if let Some(ref tf) = params.timeframe  { url.push_str(&format!("timeframe={tf}&")); }
-    if let Some(t) = params.start_time     { url.push_str(&format!("start_time={t}&")); }
-    if let Some(t) = params.end_time       { url.push_str(&format!("end_time={t}&")); }
+    if let Some(ref tf) = params.timeframe {
+        url.push_str(&format!("timeframe={tf}&"));
+    }
+    if let Some(t) = params.start_time {
+        url.push_str(&format!("start_time={t}&"));
+    }
+    if let Some(t) = params.end_time {
+        url.push_str(&format!("end_time={t}&"));
+    }
     let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dammv2_get_pool_ohlcv".into(),
-            description: format!("Meteora DAMM v2 OHLCV for {}…", &params.address[..8.min(params.address.len())]),
+            description: format!(
+                "Meteora DAMM v2 OHLCV for {}…",
+                &params.address[..8.min(params.address.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4048,15 +4595,24 @@ pub async fn build_meteora_dammv2_get_pool_volume_history(
 ) -> Result<BuildResponse, AppError> {
     validate_meteora_dammv2_get_pool_volume_history_params(params)?;
     let mut url = format!("{DAMM_V2_API}/pools/{}/volume/history?", params.address);
-    if let Some(ref tf) = params.timeframe  { url.push_str(&format!("timeframe={tf}&")); }
-    if let Some(t) = params.start_time     { url.push_str(&format!("start_time={t}&")); }
-    if let Some(t) = params.end_time       { url.push_str(&format!("end_time={t}&")); }
+    if let Some(ref tf) = params.timeframe {
+        url.push_str(&format!("timeframe={tf}&"));
+    }
+    if let Some(t) = params.start_time {
+        url.push_str(&format!("start_time={t}&"));
+    }
+    if let Some(t) = params.end_time {
+        url.push_str(&format!("end_time={t}&"));
+    }
     let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dammv2_get_pool_volume_history".into(),
-            description: format!("Meteora DAMM v2 volume history for {}…", &params.address[..8.min(params.address.len())]),
+            description: format!(
+                "Meteora DAMM v2 volume history for {}…",
+                &params.address[..8.min(params.address.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4106,13 +4662,27 @@ pub async fn build_meteora_dammv1_get_pools(
 ) -> Result<BuildResponse, AppError> {
     validate_meteora_dammv1_get_pools_params(params)?;
     let mut url = format!("{DAMM_V1_API}/pools?");
-    if let Some(ref a) = params.address          { url.push_str(&format!("address={a}&")); }
-    if let Some(b) = params.unknown              { url.push_str(&format!("unknown={b}&")); }
-    if let Some(ref pt) = params.pool_type       { url.push_str(&format!("pool_type={pt}&")); }
-    if let Some(b) = params.is_monitoring        { url.push_str(&format!("is_monitoring={b}&")); }
-    if let Some(v) = params.hide_low_tvl         { url.push_str(&format!("hide_low_tvl={v}&")); }
-    if let Some(b) = params.hide_low_apr         { url.push_str(&format!("hide_low_apr={b}&")); }
-    if let Some(ref l) = params.launchpad        { url.push_str(&format!("launchpad={l}&")); }
+    if let Some(ref a) = params.address {
+        url.push_str(&format!("address={a}&"));
+    }
+    if let Some(b) = params.unknown {
+        url.push_str(&format!("unknown={b}&"));
+    }
+    if let Some(ref pt) = params.pool_type {
+        url.push_str(&format!("pool_type={pt}&"));
+    }
+    if let Some(b) = params.is_monitoring {
+        url.push_str(&format!("is_monitoring={b}&"));
+    }
+    if let Some(v) = params.hide_low_tvl {
+        url.push_str(&format!("hide_low_tvl={v}&"));
+    }
+    if let Some(b) = params.hide_low_apr {
+        url.push_str(&format!("hide_low_apr={b}&"));
+    }
+    if let Some(ref l) = params.launchpad {
+        url.push_str(&format!("launchpad={l}&"));
+    }
     let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -4165,26 +4735,55 @@ pub async fn build_meteora_dammv1_search_pools(
     params: &MeteoraDammV1SearchPoolsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_meteora_dammv1_search_pools_params(params)?;
-    let mut url = format!("{DAMM_V1_API}/pools/search?page={}&size={}&", params.page, params.size);
-    if let Some(ref f) = params.filter              { url.push_str(&format!("filter={f}&")); }
-    if let Some(ref sk) = params.sort_key           { url.push_str(&format!("sort_key={sk}&")); }
-    if let Some(ref ob) = params.order_by           { url.push_str(&format!("order_by={ob}&")); }
-    if let Some(ref pt) = params.pools_to_top       { url.push_str(&format!("pools_to_top={pt}&")); }
-    if let Some(b) = params.unknown                 { url.push_str(&format!("unknown={b}&")); }
-    if let Some(ref pt) = params.pool_type          { url.push_str(&format!("pool_type={pt}&")); }
-    if let Some(b) = params.is_monitoring           { url.push_str(&format!("is_monitoring={b}&")); }
-    if let Some(v) = params.hide_low_tvl            { url.push_str(&format!("hide_low_tvl={v}&")); }
-    if let Some(b) = params.hide_low_apr            { url.push_str(&format!("hide_low_apr={b}&")); }
-    if let Some(ref m) = params.include_token_mints { url.push_str(&format!("include_token_mints={m}&")); }
-    if let Some(ref p) = params.include_pool_token_pairs { url.push_str(&format!("include_pool_token_pairs={p}&")); }
-    if let Some(ref l) = params.launchpad           { url.push_str(&format!("launchpad={l}&")); }
+    let mut url = format!(
+        "{DAMM_V1_API}/pools/search?page={}&size={}&",
+        params.page, params.size
+    );
+    if let Some(ref f) = params.filter {
+        url.push_str(&format!("filter={f}&"));
+    }
+    if let Some(ref sk) = params.sort_key {
+        url.push_str(&format!("sort_key={sk}&"));
+    }
+    if let Some(ref ob) = params.order_by {
+        url.push_str(&format!("order_by={ob}&"));
+    }
+    if let Some(ref pt) = params.pools_to_top {
+        url.push_str(&format!("pools_to_top={pt}&"));
+    }
+    if let Some(b) = params.unknown {
+        url.push_str(&format!("unknown={b}&"));
+    }
+    if let Some(ref pt) = params.pool_type {
+        url.push_str(&format!("pool_type={pt}&"));
+    }
+    if let Some(b) = params.is_monitoring {
+        url.push_str(&format!("is_monitoring={b}&"));
+    }
+    if let Some(v) = params.hide_low_tvl {
+        url.push_str(&format!("hide_low_tvl={v}&"));
+    }
+    if let Some(b) = params.hide_low_apr {
+        url.push_str(&format!("hide_low_apr={b}&"));
+    }
+    if let Some(ref m) = params.include_token_mints {
+        url.push_str(&format!("include_token_mints={m}&"));
+    }
+    if let Some(ref p) = params.include_pool_token_pairs {
+        url.push_str(&format!("include_pool_token_pairs={p}&"));
+    }
+    if let Some(ref l) = params.launchpad {
+        url.push_str(&format!("launchpad={l}&"));
+    }
     let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dammv1_search_pools".into(),
-            description: format!("Meteora DAMM v1 pool search: \"{}\"",
-                params.filter.as_deref().unwrap_or("(all)")),
+            description: format!(
+                "Meteora DAMM v1 pool search: \"{}\"",
+                params.filter.as_deref().unwrap_or("(all)")
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4259,9 +4858,15 @@ pub async fn build_meteora_dammv1_get_alpha_vaults(
     params: &MeteoraDammV1GetAlphaVaultsParams,
 ) -> Result<BuildResponse, AppError> {
     let mut url = format!("{DAMM_V1_API}/alpha-vault?");
-    if let Some(ref v) = params.vault_address { url.push_str(&format!("vault_address={v}&")); }
-    if let Some(ref v) = params.pool_address { url.push_str(&format!("pool_address={v}&")); }
-    if let Some(ref v) = params.base_mint { url.push_str(&format!("base_mint={v}&")); }
+    if let Some(ref v) = params.vault_address {
+        url.push_str(&format!("vault_address={v}&"));
+    }
+    if let Some(ref v) = params.pool_address {
+        url.push_str(&format!("pool_address={v}&"));
+    }
+    if let Some(ref v) = params.base_mint {
+        url.push_str(&format!("base_mint={v}&"));
+    }
     let data = meteora_get(http, url.trim_end_matches(['&', '?'])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -4320,7 +4925,10 @@ pub async fn build_meteora_dammv1_get_pools_by_vault_lp(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dammv1_get_pools_by_vault_lp".into(),
-            description: format!("Meteora DAMM v1 pools for vault LP: {}…", &params.a_vault_lp[..8.min(params.a_vault_lp.len())]),
+            description: format!(
+                "Meteora DAMM v1 pools for vault LP: {}…",
+                &params.a_vault_lp[..8.min(params.a_vault_lp.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4346,7 +4954,10 @@ pub async fn build_meteora_dammv1_get_fee_config(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dammv1_get_fee_config".into(),
-            description: format!("Meteora DAMM v1 fee config: {}…", &params.config_address[..8.min(params.config_address.len())]),
+            description: format!(
+                "Meteora DAMM v1 fee config: {}…",
+                &params.config_address[..8.min(params.config_address.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4457,7 +5068,10 @@ pub async fn build_meteora_s2e_get_vault(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_s2e_get_vault".into(),
-            description: format!("Meteora Stake2Earn vault: {}…", &params.vault_address[..8.min(params.vault_address.len())]),
+            description: format!(
+                "Meteora Stake2Earn vault: {}…",
+                &params.vault_address[..8.min(params.vault_address.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4592,7 +5206,10 @@ pub async fn build_meteora_vault_get_apy_history(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_vault_get_apy_history".into(),
-            description: format!("Meteora Dynamic Vault APY history for {}", params.token_mint),
+            description: format!(
+                "Meteora Dynamic Vault APY history for {}",
+                params.token_mint
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4612,13 +5229,19 @@ pub async fn build_meteora_vault_get_virtual_price(
     http: &reqwest::Client,
     params: &MeteoraVaultGetVirtualPriceParams,
 ) -> Result<BuildResponse, AppError> {
-    let url = format!("{VAULT_API}/virtual_price/{}/{}", params.token_mint, params.strategy);
+    let url = format!(
+        "{VAULT_API}/virtual_price/{}/{}",
+        params.token_mint, params.strategy
+    );
     let data = meteora_get(http, &url).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_vault_get_virtual_price".into(),
-            description: format!("Meteora Dynamic Vault virtual price for {}", params.token_mint),
+            description: format!(
+                "Meteora Dynamic Vault virtual price for {}",
+                params.token_mint
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4655,10 +5278,13 @@ pub async fn build_meteora_dammv1_swap(
         "https://lite-api.jup.ag/swap/v1/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}&onlyDirectRoutes=false",
         params.input_mint, params.output_mint, params.amount, slippage
     );
-    let quote: serde_json::Value = http.get(&quote_url)
-        .send().await
+    let quote: serde_json::Value = http
+        .get(&quote_url)
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter quote: {e}")))?
-        .json().await
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter quote parse: {e}")))?;
 
     let swap_body = serde_json::json!({
@@ -4671,9 +5297,11 @@ pub async fn build_meteora_dammv1_swap(
     let swap_resp: serde_json::Value = http
         .post("https://quote-api.jup.ag/v6/swap")
         .json(&swap_body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter swap: {e}")))?
-        .json().await
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter swap parse: {e}")))?;
 
     let tx_b64 = swap_resp["swapTransaction"]
@@ -4732,15 +5360,21 @@ pub async fn build_meteora_dammv1_deposit(
     let pool_info_url = format!("{DAMM_V1_API}/pools/{}", params.pool);
     let pool_info = meteora_get(http, &pool_info_url).await?;
 
-    let mint_a_str = pool_info["pool_token_mints"][0].as_str()
+    let mint_a_str = pool_info["pool_token_mints"][0]
+        .as_str()
         .or_else(|| pool_info["tokenA"]["mint"].as_str())
         .or_else(|| pool_info["mint_a"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("DAMM v1 pool API response missing token A mint".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("DAMM v1 pool API response missing token A mint".into())
+        })?
         .to_string();
-    let mint_b_str = pool_info["pool_token_mints"][1].as_str()
+    let mint_b_str = pool_info["pool_token_mints"][1]
+        .as_str()
         .or_else(|| pool_info["tokenB"]["mint"].as_str())
         .or_else(|| pool_info["mint_b"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("DAMM v1 pool API response missing token B mint".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("DAMM v1 pool API response missing token B mint".into())
+        })?
         .to_string();
 
     // Parse amounts with 6 decimals (default) — exact decimals are on-chain
@@ -4776,7 +5410,11 @@ pub async fn build_meteora_dammv1_deposit(
         AccountMeta::new_readonly(token_program(), false),
     ];
 
-    let ixs = vec![Instruction { program_id: program, accounts, data }];
+    let ixs = vec![Instruction {
+        program_id: program,
+        accounts,
+        data,
+    }];
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
     Ok(BuildResponse {
@@ -4785,7 +5423,8 @@ pub async fn build_meteora_dammv1_deposit(
             action_type: "meteora_dammv1_deposit".into(),
             description: format!(
                 "Deposit {} / {} into Meteora DAMM v1 pool {}…",
-                params.token_a_amount, params.token_b_amount,
+                params.token_a_amount,
+                params.token_b_amount,
                 &params.pool[..8.min(params.pool.len())]
             ),
             estimated_fee: "~0.0004 SOL".into(),
@@ -4798,7 +5437,8 @@ pub async fn build_meteora_dammv1_deposit(
             }),
             warnings: vec![
                 "DAMM v1 deposit: exact account ordering follows the on-chain IDL. \
-                 Verify with Meteora SDK before signing.".into()
+                 Verify with Meteora SDK before signing."
+                    .into(),
             ],
             requires_approval: true,
         },
@@ -4830,20 +5470,34 @@ pub async fn build_meteora_dammv1_withdraw(
     let pool_info_url = format!("{DAMM_V1_API}/pools/{}", params.pool);
     let pool_info = meteora_get(http, &pool_info_url).await?;
 
-    let mint_a_str = pool_info["pool_token_mints"][0].as_str()
+    let mint_a_str = pool_info["pool_token_mints"][0]
+        .as_str()
         .or_else(|| pool_info["mint_a"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("DAMM v1 pool API response missing token A mint".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("DAMM v1 pool API response missing token A mint".into())
+        })?
         .to_string();
-    let mint_b_str = pool_info["pool_token_mints"][1].as_str()
+    let mint_b_str = pool_info["pool_token_mints"][1]
+        .as_str()
         .or_else(|| pool_info["mint_b"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("DAMM v1 pool API response missing token B mint".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("DAMM v1 pool API response missing token B mint".into())
+        })?
         .to_string();
 
     let lp_amount = parse_to_base_units(&params.lp_amount, 6)?;
-    let min_a: u64 = params.min_a_amount.as_deref()
-        .map(|s| parse_to_base_units(s, 6)).transpose()?.unwrap_or(0);
-    let min_b: u64 = params.min_b_amount.as_deref()
-        .map(|s| parse_to_base_units(s, 6)).transpose()?.unwrap_or(0);
+    let min_a: u64 = params
+        .min_a_amount
+        .as_deref()
+        .map(|s| parse_to_base_units(s, 6))
+        .transpose()?
+        .unwrap_or(0);
+    let min_b: u64 = params
+        .min_b_amount
+        .as_deref()
+        .map(|s| parse_to_base_units(s, 6))
+        .transpose()?
+        .unwrap_or(0);
 
     let disc = {
         let mut h = Sha256::new();
@@ -4869,7 +5523,11 @@ pub async fn build_meteora_dammv1_withdraw(
         AccountMeta::new_readonly(token_program(), false),
     ];
 
-    let ixs = vec![Instruction { program_id: program, accounts, data }];
+    let ixs = vec![Instruction {
+        program_id: program,
+        accounts,
+        data,
+    }];
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
     Ok(BuildResponse {
@@ -4891,7 +5549,8 @@ pub async fn build_meteora_dammv1_withdraw(
             }),
             warnings: vec![
                 "DAMM v1 withdraw: exact account ordering follows the on-chain IDL. \
-                 Verify with Meteora SDK before signing.".into()
+                 Verify with Meteora SDK before signing."
+                    .into(),
             ],
             requires_approval: true,
         },
@@ -4918,10 +5577,13 @@ pub async fn build_meteora_dammv2_swap(
         "https://quote-api.jup.ag/v6/quote?inputMint={}&outputMint={}&amount={}&slippageBps={}&onlyDirectRoutes=false",
         params.input_mint, params.output_mint, params.amount, slippage
     );
-    let quote: serde_json::Value = http.get(&quote_url)
-        .send().await
+    let quote: serde_json::Value = http
+        .get(&quote_url)
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter quote: {e}")))?
-        .json().await
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter quote parse: {e}")))?;
 
     let swap_body = serde_json::json!({
@@ -4934,9 +5596,11 @@ pub async fn build_meteora_dammv2_swap(
     let swap_resp: serde_json::Value = http
         .post("https://quote-api.jup.ag/v6/swap")
         .json(&swap_body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter swap: {e}")))?
-        .json().await
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter swap parse: {e}")))?;
 
     let tx_b64 = swap_resp["swapTransaction"]
@@ -4994,13 +5658,19 @@ pub async fn build_meteora_dammv2_add_liquidity(
     let pool_info_url = format!("{DAMM_V2_API}/pools/{}", params.pool);
     let pool_info = meteora_get(http, &pool_info_url).await?;
 
-    let mint_a_str = pool_info["mintA"].as_str()
+    let mint_a_str = pool_info["mintA"]
+        .as_str()
         .or_else(|| pool_info["token_a_mint"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("DAMM v2 pool API response missing token A mint".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("DAMM v2 pool API response missing token A mint".into())
+        })?
         .to_string();
-    let mint_b_str = pool_info["mintB"].as_str()
+    let mint_b_str = pool_info["mintB"]
+        .as_str()
         .or_else(|| pool_info["token_b_mint"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("DAMM v2 pool API response missing token B mint".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("DAMM v2 pool API response missing token B mint".into())
+        })?
         .to_string();
 
     let amount_a = parse_to_base_units(&params.max_amount_a, 6)?;
@@ -5031,7 +5701,11 @@ pub async fn build_meteora_dammv2_add_liquidity(
         AccountMeta::new_readonly(token_program(), false),
     ];
 
-    let ixs = vec![Instruction { program_id: program, accounts, data }];
+    let ixs = vec![Instruction {
+        program_id: program,
+        accounts,
+        data,
+    }];
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
     Ok(BuildResponse {
@@ -5052,7 +5726,8 @@ pub async fn build_meteora_dammv2_add_liquidity(
             }),
             warnings: vec![
                 "DAMM v2 add_liquidity: exact account ordering follows the on-chain IDL. \
-                 Verify with Meteora SDK before signing.".into()
+                 Verify with Meteora SDK before signing."
+                    .into(),
             ],
             requires_approval: true,
         },
@@ -5086,20 +5761,34 @@ pub async fn build_meteora_dammv2_remove_liquidity(
     let pool_info_url = format!("{DAMM_V2_API}/pools/{}", params.pool);
     let pool_info = meteora_get(http, &pool_info_url).await?;
 
-    let mint_a_str = pool_info["mintA"].as_str()
+    let mint_a_str = pool_info["mintA"]
+        .as_str()
         .or_else(|| pool_info["token_a_mint"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("DAMM v2 pool API response missing token A mint".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("DAMM v2 pool API response missing token A mint".into())
+        })?
         .to_string();
-    let mint_b_str = pool_info["mintB"].as_str()
+    let mint_b_str = pool_info["mintB"]
+        .as_str()
         .or_else(|| pool_info["token_b_mint"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("DAMM v2 pool API response missing token B mint".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("DAMM v2 pool API response missing token B mint".into())
+        })?
         .to_string();
 
     let lp_amount = parse_to_base_units(&params.lp_amount, 6)?;
-    let min_a: u64 = params.min_amount_a.as_deref()
-        .map(|s| parse_to_base_units(s, 6)).transpose()?.unwrap_or(0);
-    let min_b: u64 = params.min_amount_b.as_deref()
-        .map(|s| parse_to_base_units(s, 6)).transpose()?.unwrap_or(0);
+    let min_a: u64 = params
+        .min_amount_a
+        .as_deref()
+        .map(|s| parse_to_base_units(s, 6))
+        .transpose()?
+        .unwrap_or(0);
+    let min_b: u64 = params
+        .min_amount_b
+        .as_deref()
+        .map(|s| parse_to_base_units(s, 6))
+        .transpose()?
+        .unwrap_or(0);
 
     let disc = {
         let mut h = Sha256::new();
@@ -5124,7 +5813,11 @@ pub async fn build_meteora_dammv2_remove_liquidity(
         AccountMeta::new_readonly(token_program(), false),
     ];
 
-    let ixs = vec![Instruction { program_id: program, accounts, data }];
+    let ixs = vec![Instruction {
+        program_id: program,
+        accounts,
+        data,
+    }];
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
     Ok(BuildResponse {
@@ -5147,7 +5840,8 @@ pub async fn build_meteora_dammv2_remove_liquidity(
             }),
             warnings: vec![
                 "DAMM v2 remove_liquidity: exact account ordering follows the on-chain IDL. \
-                 Verify with Meteora SDK before signing.".into()
+                 Verify with Meteora SDK before signing."
+                    .into(),
             ],
             requires_approval: true,
         },
@@ -5177,9 +5871,12 @@ pub async fn build_meteora_vault_deposit(
     // Fetch vault state to get vault address
     let state_url = format!("{VAULT_API}/vault_state/{}", params.token_mint);
     let vault_state = meteora_get(http, &state_url).await?;
-    let vault_addr_str = vault_state["vault"].as_str()
+    let vault_addr_str = vault_state["vault"]
+        .as_str()
         .or_else(|| vault_state["vault_address"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("Dynamic Vault API response missing vault address".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("Dynamic Vault API response missing vault address".into())
+        })?
         .to_string();
 
     let amount = parse_to_base_units(&params.amount, 6)?;
@@ -5201,19 +5898,29 @@ pub async fn build_meteora_vault_deposit(
         accounts.insert(0, AccountMeta::new(vault_pk, false));
     }
     if let Ok(mint_pk) = Pubkey::from_str(&params.token_mint) {
-        accounts.push(AccountMeta::new(get_associated_token_address(&user, &mint_pk), false));
+        accounts.push(AccountMeta::new(
+            get_associated_token_address(&user, &mint_pk),
+            false,
+        ));
     }
     accounts.push(AccountMeta::new_readonly(token_program(), false));
     accounts.push(AccountMeta::new_readonly(system_program::id(), false));
 
-    let ixs = vec![Instruction { program_id: program, accounts, data }];
+    let ixs = vec![Instruction {
+        program_id: program,
+        accounts,
+        data,
+    }];
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_vault_deposit".into(),
-            description: format!("Deposit {} into Meteora Dynamic Vault ({})", params.amount, params.token_mint),
+            description: format!(
+                "Deposit {} into Meteora Dynamic Vault ({})",
+                params.amount, params.token_mint
+            ),
             estimated_fee: "~0.0003 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -5223,7 +5930,8 @@ pub async fn build_meteora_vault_deposit(
             }),
             warnings: vec![
                 "Vault deposit: exact account ordering follows the on-chain IDL. \
-                 Verify with Meteora Vault SDK before signing.".into()
+                 Verify with Meteora Vault SDK before signing."
+                    .into(),
             ],
             requires_approval: true,
         },
@@ -5252,9 +5960,12 @@ pub async fn build_meteora_vault_withdraw(
 
     let state_url = format!("{VAULT_API}/vault_state/{}", params.token_mint);
     let vault_state = meteora_get(http, &state_url).await?;
-    let vault_addr_str = vault_state["vault"].as_str()
+    let vault_addr_str = vault_state["vault"]
+        .as_str()
         .or_else(|| vault_state["vault_address"].as_str())
-        .ok_or_else(|| AppError::ProtocolError("Dynamic Vault API response missing vault address".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("Dynamic Vault API response missing vault address".into())
+        })?
         .to_string();
 
     let unmint_amount = parse_to_base_units(&params.unmint_amount, 6)?;
@@ -5276,18 +5987,28 @@ pub async fn build_meteora_vault_withdraw(
         accounts.insert(0, AccountMeta::new(vault_pk, false));
     }
     if let Ok(mint_pk) = Pubkey::from_str(&params.token_mint) {
-        accounts.push(AccountMeta::new(get_associated_token_address(&user, &mint_pk), false));
+        accounts.push(AccountMeta::new(
+            get_associated_token_address(&user, &mint_pk),
+            false,
+        ));
     }
     accounts.push(AccountMeta::new_readonly(token_program(), false));
 
-    let ixs = vec![Instruction { program_id: program, accounts, data }];
+    let ixs = vec![Instruction {
+        program_id: program,
+        accounts,
+        data,
+    }];
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_vault_withdraw".into(),
-            description: format!("Withdraw {} LP from Meteora Dynamic Vault ({})", params.unmint_amount, params.token_mint),
+            description: format!(
+                "Withdraw {} LP from Meteora Dynamic Vault ({})",
+                params.unmint_amount, params.token_mint
+            ),
             estimated_fee: "~0.0003 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -5297,7 +6018,8 @@ pub async fn build_meteora_vault_withdraw(
             }),
             warnings: vec![
                 "Vault withdraw: exact account ordering follows the on-chain IDL. \
-                 Verify with Meteora Vault SDK before signing.".into()
+                 Verify with Meteora Vault SDK before signing."
+                    .into(),
             ],
             requires_approval: true,
         },
@@ -5353,14 +6075,16 @@ pub async fn build_meteora_s2e_stake(
             action_type: "meteora_s2e_stake".into(),
             description: format!(
                 "Stake {} into Meteora Stake2Earn vault {}…",
-                params.amount, &params.vault[..8.min(params.vault.len())]
+                params.amount,
+                &params.vault[..8.min(params.vault.len())]
             ),
             estimated_fee: "~0.0003 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "vault": params.vault, "amount": params.amount }),
             warnings: vec![
                 "S2E stake: exact account ordering follows the on-chain IDL. \
-                 Verify with Meteora m3m3 SDK before signing.".into()
+                 Verify with Meteora m3m3 SDK before signing."
+                    .into(),
             ],
             requires_approval: true,
         },
@@ -5451,8 +6175,12 @@ pub async fn build_meteora_s2e_claim_fee(
         .map_err(|e| AppError::InvalidParams(format!("Invalid vault: {e}")))?;
     let program = Pubkey::from_str(METEORA_S2E_PROGRAM_ID).unwrap();
 
-    let max_amount: u64 = params.max_amount.as_deref()
-        .map(|s| parse_to_base_units(s, 6)).transpose()?.unwrap_or(u64::MAX);
+    let max_amount: u64 = params
+        .max_amount
+        .as_deref()
+        .map(|s| parse_to_base_units(s, 6))
+        .transpose()?
+        .unwrap_or(u64::MAX);
 
     let disc = {
         let mut h = Sha256::new();
@@ -5485,7 +6213,7 @@ pub async fn build_meteora_s2e_claim_fee(
             estimated_refund: None,
             params: serde_json::json!({ "vault": params.vault, "maxAmount": params.max_amount }),
             warnings: vec![
-                "S2E claim_fee: exact account ordering follows the on-chain IDL.".into()
+                "S2E claim_fee: exact account ordering follows the on-chain IDL.".into(),
             ],
             requires_approval: true,
         },
@@ -5546,7 +6274,7 @@ pub async fn build_meteora_s2e_cancel_unstake(
             estimated_refund: None,
             params: serde_json::json!({ "vault": params.vault, "escrow": params.escrow }),
             warnings: vec![
-                "S2E cancel_unstake: exact account ordering follows the on-chain IDL.".into()
+                "S2E cancel_unstake: exact account ordering follows the on-chain IDL.".into(),
             ],
             requires_approval: true,
         },
@@ -5607,9 +6335,7 @@ pub async fn build_meteora_s2e_withdraw(
             estimated_fee: "~0.0002 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "vault": params.vault, "escrow": params.escrow }),
-            warnings: vec![
-                "S2E withdraw: exact account ordering follows the on-chain IDL.".into()
-            ],
+            warnings: vec!["S2E withdraw: exact account ordering follows the on-chain IDL.".into()],
             requires_approval: true,
         },
         transaction: Some(tx),
@@ -5699,13 +6425,17 @@ mod tests {
 
     #[test]
     fn test_validate_get_pair_valid_address_ok() {
-        let p = MeteoraDlmmGetPairParams { address: VALID_PAIR.into() };
+        let p = MeteoraDlmmGetPairParams {
+            address: VALID_PAIR.into(),
+        };
         assert!(validate_meteora_dlmm_get_pair_params(&p).is_ok());
     }
 
     #[test]
     fn test_validate_get_pair_invalid_address_err() {
-        let p = MeteoraDlmmGetPairParams { address: "not-a-pubkey".into() };
+        let p = MeteoraDlmmGetPairParams {
+            address: "not-a-pubkey".into(),
+        };
         assert!(validate_meteora_dlmm_get_pair_params(&p).is_err());
     }
 
@@ -5726,13 +6456,17 @@ mod tests {
 
     #[test]
     fn test_validate_get_active_bin_valid_ok() {
-        let p = MeteoraDlmmGetActiveBinParams { address: VALID_PAIR.into() };
+        let p = MeteoraDlmmGetActiveBinParams {
+            address: VALID_PAIR.into(),
+        };
         assert!(validate_meteora_dlmm_get_active_bin_params(&p).is_ok());
     }
 
     #[test]
     fn test_validate_get_active_bin_invalid_err() {
-        let p = MeteoraDlmmGetActiveBinParams { address: "bad".into() };
+        let p = MeteoraDlmmGetActiveBinParams {
+            address: "bad".into(),
+        };
         assert!(validate_meteora_dlmm_get_active_bin_params(&p).is_err());
     }
 
@@ -5747,7 +6481,10 @@ mod tests {
                 start_time: None,
                 end_time: None,
             };
-            assert!(validate_meteora_dlmm_get_pool_ohlcv_params(&p).is_ok(), "timeframe {tf} should be valid");
+            assert!(
+                validate_meteora_dlmm_get_pool_ohlcv_params(&p).is_ok(),
+                "timeframe {tf} should be valid"
+            );
         }
     }
 
@@ -5861,7 +6598,9 @@ mod tests {
 
     #[test]
     fn test_validate_user_positions_valid_wallet_ok() {
-        let p = MeteoraDlmmGetUserPositionsParams { wallet: Some(VALID_WALLET.into()) };
+        let p = MeteoraDlmmGetUserPositionsParams {
+            wallet: Some(VALID_WALLET.into()),
+        };
         assert!(validate_meteora_dlmm_get_user_positions_params(&p).is_ok());
     }
 
@@ -5873,7 +6612,9 @@ mod tests {
 
     #[test]
     fn test_validate_user_positions_invalid_wallet_err() {
-        let p = MeteoraDlmmGetUserPositionsParams { wallet: Some("invalid!wallet".into()) };
+        let p = MeteoraDlmmGetUserPositionsParams {
+            wallet: Some("invalid!wallet".into()),
+        };
         assert!(validate_meteora_dlmm_get_user_positions_params(&p).is_err());
     }
 
@@ -5943,11 +6684,18 @@ mod tests {
         let http = reqwest::Client::new();
         let p = MeteoraDlmmGetProtocolStatsParams {};
         let result = build_meteora_dlmm_get_protocol_stats(&http, &p).await;
-        assert!(result.is_ok(), "build_meteora_dlmm_get_protocol_stats failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "build_meteora_dlmm_get_protocol_stats failed: {:?}",
+            result.err()
+        );
         let resp = result.unwrap();
         assert_eq!(resp.preview.action_type, "meteora_dlmm_get_protocol_stats");
         assert!(resp.transaction.is_none());
-        assert!(resp.data.is_some(), "data field should be populated with API response");
+        assert!(
+            resp.data.is_some(),
+            "data field should be populated with API response"
+        );
     }
 
     #[tokio::test]
@@ -5955,9 +6703,14 @@ mod tests {
     async fn integration_build_protocol_stats_data_is_json() {
         let http = reqwest::Client::new();
         let p = MeteoraDlmmGetProtocolStatsParams {};
-        let resp = build_meteora_dlmm_get_protocol_stats(&http, &p).await.unwrap();
+        let resp = build_meteora_dlmm_get_protocol_stats(&http, &p)
+            .await
+            .unwrap();
         let data = resp.data.unwrap();
-        assert!(data.is_object() || data.is_array(), "expected JSON object or array");
+        assert!(
+            data.is_object() || data.is_array(),
+            "expected JSON object or array"
+        );
     }
 
     #[tokio::test]
@@ -5965,7 +6718,11 @@ mod tests {
     async fn integration_build_get_pairs_default_params() {
         let http = reqwest::Client::new();
         let p = MeteoraDlmmGetPairsParams {
-            page: None, page_size: None, query: None, sort_by: None, filter_by: None,
+            page: None,
+            page_size: None,
+            query: None,
+            sort_by: None,
+            filter_by: None,
         };
         let result = build_meteora_dlmm_get_pairs(&http, &p).await;
         assert!(result.is_ok(), "{:?}", result.err());
@@ -5976,7 +6733,9 @@ mod tests {
     #[ignore]
     async fn integration_build_get_pair_sol_usdc() {
         let http = reqwest::Client::new();
-        let p = MeteoraDlmmGetPairParams { address: VALID_PAIR.into() };
+        let p = MeteoraDlmmGetPairParams {
+            address: VALID_PAIR.into(),
+        };
         let result = build_meteora_dlmm_get_pair(&http, &p).await;
         assert!(result.is_ok(), "{:?}", result.err());
     }
@@ -5985,7 +6744,9 @@ mod tests {
     #[ignore]
     async fn integration_build_get_active_bin_sol_usdc() {
         let http = reqwest::Client::new();
-        let p = MeteoraDlmmGetActiveBinParams { address: VALID_PAIR.into() };
+        let p = MeteoraDlmmGetActiveBinParams {
+            address: VALID_PAIR.into(),
+        };
         let result = build_meteora_dlmm_get_active_bin(&http, &p).await;
         assert!(result.is_ok(), "{:?}", result.err());
     }

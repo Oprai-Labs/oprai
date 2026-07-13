@@ -60,10 +60,8 @@ impl Config {
             // via the gateway on the same host. Set BIND_HOST=0.0.0.0 in
             // Docker/Compose environments where network isolation is handled
             // at the container/orchestration layer.
-            bind_host: env::var("BIND_HOST")
-                .unwrap_or_else(|_| "127.0.0.1".into()),
-            grpc_bind_host: env::var("GRPC_BIND_HOST")
-                .unwrap_or_else(|_| "127.0.0.1".into()),
+            bind_host: env::var("BIND_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
+            grpc_bind_host: env::var("GRPC_BIND_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
             database_url: env::var("DATABASE_URL").unwrap_or_else(|_| {
                 let host = env::var("DB_HOST").unwrap_or_else(|_| "localhost".into());
                 let port = env::var("DB_PORT").unwrap_or_else(|_| "5433".into());
@@ -79,17 +77,17 @@ impl Config {
                 .unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".into()),
             solana_rpc_fallback: env::var("SOLANA_RPC_FALLBACK")
                 .unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".into()),
-            solana_network: env::var("SOLANA_NETWORK")
-                .unwrap_or_else(|_| "mainnet-beta".into()),
+            solana_network: env::var("SOLANA_NETWORK").unwrap_or_else(|_| "mainnet-beta".into()),
             internal_api_key: env::var("OPRAI_INTERNAL_API_KEY")
                 .expect("OPRAI_INTERNAL_API_KEY must be set"),
-            node_env: env::var("NODE_ENV")
-                .unwrap_or_else(|_| "development".into()),
+            node_env: env::var("NODE_ENV").unwrap_or_else(|_| "development".into()),
             jupiter_api_key: env::var("JUPITER_API_KEY").ok().filter(|s| !s.is_empty()),
             helius_api_key: env::var("HELIUS_API_KEY").ok().filter(|s| !s.is_empty()),
             streamflow_sdk_url: env::var("STREAMFLOW_SDK_URL")
                 .unwrap_or_else(|_| "http://localhost:3031".into()),
-            relay_fee_recipient: env::var("RELAY_FEE_RECIPIENT").ok().filter(|s| !s.is_empty()),
+            relay_fee_recipient: env::var("RELAY_FEE_RECIPIENT")
+                .ok()
+                .filter(|s| !s.is_empty()),
             relay_api_key: env::var("RELAY_API_KEY").ok().filter(|s| !s.is_empty()),
             auth_service_url: env::var("AUTH_SERVICE_HTTP")
                 .unwrap_or_else(|_| "http://localhost:3010".into()),

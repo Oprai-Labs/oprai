@@ -3,10 +3,10 @@ use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     Error, HttpMessage, HttpResponse,
 };
-use subtle::ConstantTimeEq;
 use std::future::{self, Future, Ready};
 use std::pin::Pin;
 use std::rc::Rc;
+use subtle::ConstantTimeEq;
 
 /// Key used to store the authenticated wallet address in request extensions.
 #[derive(Debug, Clone)]

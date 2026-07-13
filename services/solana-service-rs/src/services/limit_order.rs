@@ -81,7 +81,9 @@ pub fn validate_limit_order_params(params: &LimitOrderParams) -> Result<(), AppE
         .parse()
         .map_err(|_| AppError::InvalidParams("Target price must be a positive number".into()))?;
     if target_price <= 0.0 {
-        return Err(AppError::InvalidParams("Target price must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "Target price must be positive".into(),
+        ));
     }
 
     if let Some(slippage) = params.slippage_bps {
@@ -195,7 +197,8 @@ pub async fn create_limit_order_transaction(
         let msg = serde_json::from_str::<serde_json::Value>(&body_text)
             .ok()
             .and_then(|v| {
-                v["error"].as_str()
+                v["error"]
+                    .as_str()
                     .or_else(|| v["message"].as_str())
                     .map(|s| s.to_string())
             })
@@ -279,7 +282,12 @@ pub async fn cancel_limit_order_transaction(
         let body_text = resp.text().await.unwrap_or_default();
         let msg = serde_json::from_str::<serde_json::Value>(&body_text)
             .ok()
-            .and_then(|v| v["error"].as_str().or_else(|| v["message"].as_str()).map(|s| s.to_string()))
+            .and_then(|v| {
+                v["error"]
+                    .as_str()
+                    .or_else(|| v["message"].as_str())
+                    .map(|s| s.to_string())
+            })
             .unwrap_or(body_text);
         return Err(AppError::InvalidParams(msg));
     }
@@ -331,13 +339,13 @@ pub async fn cancel_all_limit_orders_transactions(
     user_pubkey: &str,
 ) -> Result<Vec<BuildResponse>, AppError> {
     let orders = get_limit_orders(http, jupiter_api_key, user_pubkey, "open").await?;
-    let order_list: Vec<serde_json::Value> = orders["orders"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let order_list: Vec<serde_json::Value> =
+        orders["orders"].as_array().cloned().unwrap_or_default();
 
     if order_list.is_empty() {
-        return Err(AppError::InvalidParams("No open limit orders found to cancel.".into()));
+        return Err(AppError::InvalidParams(
+            "No open limit orders found to cancel.".into(),
+        ));
     }
 
     let mut results = Vec::new();
@@ -358,7 +366,9 @@ pub async fn cancel_all_limit_orders_transactions(
     }
 
     if results.is_empty() {
-        return Err(AppError::InvalidParams("Failed to build cancel transactions for all orders.".into()));
+        return Err(AppError::InvalidParams(
+            "Failed to build cancel transactions for all orders.".into(),
+        ));
     }
 
     Ok(results)
@@ -374,10 +384,12 @@ pub fn pack_cancel_all_response(mut responses: Vec<BuildResponse>) -> BuildRespo
     let first = responses.remove(0);
     let remaining: Vec<serde_json::Value> = responses
         .into_iter()
-        .map(|r| json!({
-            "transaction": r.transaction,
-            "description": r.preview.description,
-        }))
+        .map(|r| {
+            json!({
+                "transaction": r.transaction,
+                "description": r.preview.description,
+            })
+        })
         .collect();
 
     let execution_steps = if remaining.is_empty() {
@@ -463,15 +475,21 @@ pub async fn build_jup_limit_orders(
             orders.retain(|order| {
                 let input_ok = params.input_token.as_ref().map_or(true, |tok| {
                     let resolved = crate::solana::tokens::resolve_token_address(tok.trim());
-                    order.get("inputMint")
+                    order
+                        .get("inputMint")
                         .and_then(|v| v.as_str())
-                        .map_or(false, |m| m == resolved || m.eq_ignore_ascii_case(tok.trim()))
+                        .map_or(false, |m| {
+                            m == resolved || m.eq_ignore_ascii_case(tok.trim())
+                        })
                 });
                 let output_ok = params.output_token.as_ref().map_or(true, |tok| {
                     let resolved = crate::solana::tokens::resolve_token_address(tok.trim());
-                    order.get("outputMint")
+                    order
+                        .get("outputMint")
                         .and_then(|v| v.as_str())
-                        .map_or(false, |m| m == resolved || m.eq_ignore_ascii_case(tok.trim()))
+                        .map_or(false, |m| {
+                            m == resolved || m.eq_ignore_ascii_case(tok.trim())
+                        })
                 });
                 input_ok && output_ok
             });
@@ -527,7 +545,11 @@ pub async fn get_limit_orders(
     order_status: &str,
 ) -> Result<serde_json::Value, AppError> {
     // Jupiter Trigger API uses "active"/"history", not "open"/"closed"
-    let jup_status = if order_status == "open" { "active" } else { order_status };
+    let jup_status = if order_status == "open" {
+        "active"
+    } else {
+        order_status
+    };
     let url = format!(
         "{JUPITER_TRIGGER_BASE}/getTriggerOrders?user={user_pubkey}&orderStatus={jup_status}"
     );
@@ -544,7 +566,9 @@ pub async fn get_limit_orders(
     if !resp.status().is_success() {
         let status_code = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
-        tracing::warn!("Jupiter Trigger API returned {status_code} for wallet {user_pubkey}: {body_text}");
+        tracing::warn!(
+            "Jupiter Trigger API returned {status_code} for wallet {user_pubkey}: {body_text}"
+        );
         // Treat non-2xx as empty orders (wallet may have no orders or API key issue)
         return Ok(serde_json::json!({ "orders": [] }));
     }

@@ -14,16 +14,11 @@ use base64::Engine;
 use borsh::BorshDeserialize;
 use serde::{Deserialize, Serialize};
 use solana_sdk::{
-    message::Message,
-    pubkey::Pubkey,
-    signature::Keypair,
-    signer::Signer,
-    system_instruction,
+    message::Message, pubkey::Pubkey, signature::Keypair, signer::Signer, system_instruction,
     transaction::Transaction,
 };
 use spl_associated_token_account::{
-    get_associated_token_address,
-    instruction::create_associated_token_account_idempotent,
+    get_associated_token_address, instruction::create_associated_token_account_idempotent,
 };
 use spl_stake_pool::{instruction as stake_pool_ix, state::StakePool};
 use std::str::FromStr;
@@ -465,7 +460,9 @@ pub fn validate_jito_tip_params(params: &JitoTipParams) -> Result<(), AppError> 
         .parse()
         .map_err(|_| AppError::InvalidParams("Invalid tip amount".into()))?;
     if amount <= 0.0 {
-        return Err(AppError::InvalidParams("Tip amount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "Tip amount must be positive".into(),
+        ));
     }
     if amount > 10.0 {
         return Err(AppError::InvalidParams(
@@ -559,10 +556,7 @@ pub fn compute_onchain_exchange_rate(rpc: &SolanaRpc) -> Result<f64, AppError> {
 /// Get the current jitoSOL→SOL exchange rate. Tries Jito's Kobe analytics API
 /// first (fast, cached); on failure falls back to the on-chain StakePool. Both
 /// are Jito's own services — no static constant is used as a fallback.
-pub async fn get_exchange_rate(
-    http: &reqwest::Client,
-    rpc: &SolanaRpc,
-) -> Result<f64, AppError> {
+pub async fn get_exchange_rate(http: &reqwest::Client, rpc: &SolanaRpc) -> Result<f64, AppError> {
     if let Ok(resp) = get_jitosol_sol_ratio(http, None, None).await {
         let latest = resp.latest_rate();
         if latest.is_finite() && latest > 0.0 {
@@ -756,7 +750,9 @@ pub async fn get_mev_commission_average_over_time(
     http: &reqwest::Client,
 ) -> Result<serde_json::Value, AppError> {
     let resp = http
-        .get(format!("{JITO_KOBE_API}/api/v1/mev_commission_average_over_time"))
+        .get(format!(
+            "{JITO_KOBE_API}/api/v1/mev_commission_average_over_time"
+        ))
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("Kobe API error: {e}")))?;
@@ -795,7 +791,9 @@ pub async fn get_bam_epoch_metrics(
     epoch: u64,
 ) -> Result<BamEpochMetricsResponse, AppError> {
     let resp = http
-        .get(format!("{JITO_KOBE_API}/api/v1/bam_epoch_metrics?epoch={epoch}"))
+        .get(format!(
+            "{JITO_KOBE_API}/api/v1/bam_epoch_metrics?epoch={epoch}"
+        ))
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("Kobe API error: {e}")))?;
@@ -810,7 +808,9 @@ pub async fn get_bam_validators(
     epoch: u64,
 ) -> Result<BamValidatorsResponse, AppError> {
     let resp = http
-        .get(format!("{JITO_KOBE_API}/api/v1/bam_validators?epoch={epoch}"))
+        .get(format!(
+            "{JITO_KOBE_API}/api/v1/bam_validators?epoch={epoch}"
+        ))
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("Kobe API error: {e}")))?;
@@ -856,9 +856,7 @@ pub async fn get_bam_validator_score(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// GET /api/v1/tipFloor — current Jito tip floor percentiles.
-pub async fn get_jito_tip_floor(
-    http: &reqwest::Client,
-) -> Result<JitoTipFloorResponse, AppError> {
+pub async fn get_jito_tip_floor(http: &reqwest::Client) -> Result<JitoTipFloorResponse, AppError> {
     let resp = http
         .get(format!("{JITO_BLOCK_ENGINE_API}/tipFloor"))
         .send()
@@ -876,8 +874,7 @@ pub async fn get_jito_tip_floor(
 /// Fetch and deserialize the Jito stake pool account from on-chain.
 /// Called synchronously — wrap with `actix_web::web::block` in async contexts.
 fn fetch_stake_pool(rpc: &SolanaRpc) -> Result<StakePool, AppError> {
-    let stake_pool_pubkey =
-        Pubkey::from_str(JITO_STAKE_POOL_STR).expect("valid stake pool pubkey");
+    let stake_pool_pubkey = Pubkey::from_str(JITO_STAKE_POOL_STR).expect("valid stake pool pubkey");
     let account = rpc
         .client()
         .get_account(&stake_pool_pubkey)
@@ -893,11 +890,8 @@ fn fetch_stake_pool(rpc: &SolanaRpc) -> Result<StakePool, AppError> {
 
 /// Derive the withdraw authority PDA for the Jito stake pool.
 fn withdraw_authority_pda(program_id: &Pubkey, stake_pool: &Pubkey, bump: u8) -> Pubkey {
-    Pubkey::create_program_address(
-        &[stake_pool.as_ref(), b"withdraw", &[bump]],
-        program_id,
-    )
-    .expect("valid withdraw authority PDA")
+    Pubkey::create_program_address(&[stake_pool.as_ref(), b"withdraw", &[bump]], program_id)
+        .expect("valid withdraw authority PDA")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -920,16 +914,16 @@ fn build_stake_transaction(
         return Err(AppError::InvalidParams("Amount too small".into()));
     }
 
-    let program_id =
-        Pubkey::from_str(STAKE_POOL_PROGRAM_ID_STR).expect("valid program id");
-    let stake_pool_pubkey =
-        Pubkey::from_str(JITO_STAKE_POOL_STR).expect("valid stake pool pubkey");
-    let jitosol_mint =
-        Pubkey::from_str(JITOSOL_MINT).expect("valid jitoSOL mint");
+    let program_id = Pubkey::from_str(STAKE_POOL_PROGRAM_ID_STR).expect("valid program id");
+    let stake_pool_pubkey = Pubkey::from_str(JITO_STAKE_POOL_STR).expect("valid stake pool pubkey");
+    let jitosol_mint = Pubkey::from_str(JITOSOL_MINT).expect("valid jitoSOL mint");
 
     let pool = fetch_stake_pool(rpc)?;
-    let withdraw_authority =
-        withdraw_authority_pda(&program_id, &stake_pool_pubkey, pool.stake_withdraw_bump_seed);
+    let withdraw_authority = withdraw_authority_pda(
+        &program_id,
+        &stake_pool_pubkey,
+        pool.stake_withdraw_bump_seed,
+    );
 
     // User's jitoSOL associated token account (create idempotently if missing).
     let user_jitosol_ata = get_associated_token_address(user_pubkey, &jitosol_mint);
@@ -955,11 +949,10 @@ fn build_stake_transaction(
         lamports,
     );
 
-    let blockhash = rpc.get_latest_blockhash_with_retry().map_err(|e| {
-        AppError::Internal(format!("Failed to get blockhash: {e}"))
-    })?;
-    let message =
-        Message::new(&[create_ata_ix, deposit_ix], Some(user_pubkey));
+    let blockhash = rpc
+        .get_latest_blockhash_with_retry()
+        .map_err(|e| AppError::Internal(format!("Failed to get blockhash: {e}")))?;
+    let message = Message::new(&[create_ata_ix, deposit_ix], Some(user_pubkey));
     let mut transaction = Transaction::new_unsigned(message);
     transaction.message.recent_blockhash = blockhash;
 
@@ -982,9 +975,7 @@ fn build_stake_transaction(
                 "jitosolMint": JITOSOL_MINT,
                 "stakePool": JITO_STAKE_POOL_STR,
             }),
-            warnings: vec![
-                "JitoSOL accumulates staking + MEV rewards each epoch".into(),
-            ],
+            warnings: vec!["JitoSOL accumulates staking + MEV rewards each epoch".into()],
             requires_approval: true,
         },
         presigned: false,
@@ -1016,18 +1007,18 @@ fn build_unstake_transaction(
         return Err(AppError::InvalidParams("Amount too small".into()));
     }
 
-    let program_id =
-        Pubkey::from_str(STAKE_POOL_PROGRAM_ID_STR).expect("valid program id");
-    let stake_pool_pubkey =
-        Pubkey::from_str(JITO_STAKE_POOL_STR).expect("valid stake pool pubkey");
-    let jitosol_mint =
-        Pubkey::from_str(JITOSOL_MINT).expect("valid jitoSOL mint");
+    let program_id = Pubkey::from_str(STAKE_POOL_PROGRAM_ID_STR).expect("valid program id");
+    let stake_pool_pubkey = Pubkey::from_str(JITO_STAKE_POOL_STR).expect("valid stake pool pubkey");
+    let jitosol_mint = Pubkey::from_str(JITOSOL_MINT).expect("valid jitoSOL mint");
     let validator_stake_account = Pubkey::from_str(&preferred_validator.stake_account)
         .map_err(|_| AppError::InvalidParams("Invalid validator stake account".into()))?;
 
     let pool = fetch_stake_pool(rpc)?;
-    let withdraw_authority =
-        withdraw_authority_pda(&program_id, &stake_pool_pubkey, pool.stake_withdraw_bump_seed);
+    let withdraw_authority = withdraw_authority_pda(
+        &program_id,
+        &stake_pool_pubkey,
+        pool.stake_withdraw_bump_seed,
+    );
 
     // User's jitoSOL ATA (must exist at this point).
     let user_jitosol_ata = get_associated_token_address(user_pubkey, &jitosol_mint);
@@ -1059,8 +1050,8 @@ fn build_unstake_transaction(
         &withdraw_authority,
         &validator_stake_account,
         &new_stake_pubkey,
-        user_pubkey,         // user owns the new stake account
-        user_pubkey,         // user authorises the pool token transfer
+        user_pubkey, // user owns the new stake account
+        user_pubkey, // user authorises the pool token transfer
         &user_jitosol_ata,
         &pool.manager_fee_account,
         &pool.pool_mint,
@@ -1068,9 +1059,9 @@ fn build_unstake_transaction(
         pool_tokens,
     );
 
-    let blockhash = rpc.get_latest_blockhash_with_retry().map_err(|e| {
-        AppError::Internal(format!("Failed to get blockhash: {e}"))
-    })?;
+    let blockhash = rpc
+        .get_latest_blockhash_with_retry()
+        .map_err(|e| AppError::Internal(format!("Failed to get blockhash: {e}")))?;
     let message = Message::new(&[create_stake_ix, withdraw_ix], Some(user_pubkey));
     let mut transaction = Transaction::new_unsigned(message);
     transaction.message.recent_blockhash = blockhash;
@@ -1136,16 +1127,16 @@ fn build_instant_unstake_transaction(
         return Err(AppError::InvalidParams("Amount too small".into()));
     }
 
-    let program_id =
-        Pubkey::from_str(STAKE_POOL_PROGRAM_ID_STR).expect("valid program id");
-    let stake_pool_pubkey =
-        Pubkey::from_str(JITO_STAKE_POOL_STR).expect("valid stake pool pubkey");
-    let jitosol_mint =
-        Pubkey::from_str(JITOSOL_MINT).expect("valid jitoSOL mint");
+    let program_id = Pubkey::from_str(STAKE_POOL_PROGRAM_ID_STR).expect("valid program id");
+    let stake_pool_pubkey = Pubkey::from_str(JITO_STAKE_POOL_STR).expect("valid stake pool pubkey");
+    let jitosol_mint = Pubkey::from_str(JITOSOL_MINT).expect("valid jitoSOL mint");
 
     let pool = fetch_stake_pool(rpc)?;
-    let withdraw_authority =
-        withdraw_authority_pda(&program_id, &stake_pool_pubkey, pool.stake_withdraw_bump_seed);
+    let withdraw_authority = withdraw_authority_pda(
+        &program_id,
+        &stake_pool_pubkey,
+        pool.stake_withdraw_bump_seed,
+    );
 
     // Validate reserve has sufficient balance.
     let reserve_balance = rpc
@@ -1170,19 +1161,19 @@ fn build_instant_unstake_transaction(
         &program_id,
         &stake_pool_pubkey,
         &withdraw_authority,
-        user_pubkey,           // user authorizes pool token burn
-        &user_jitosol_ata,     // source of jitoSOL tokens
-        &pool.reserve_stake,   // reserve stake account
-        user_pubkey,           // lamports destination = user's wallet
+        user_pubkey,         // user authorizes pool token burn
+        &user_jitosol_ata,   // source of jitoSOL tokens
+        &pool.reserve_stake, // reserve stake account
+        user_pubkey,         // lamports destination = user's wallet
         &pool.manager_fee_account,
         &pool.pool_mint,
         &pool.token_program_id,
         pool_tokens,
     );
 
-    let blockhash = rpc.get_latest_blockhash_with_retry().map_err(|e| {
-        AppError::Internal(format!("Failed to get blockhash: {e}"))
-    })?;
+    let blockhash = rpc
+        .get_latest_blockhash_with_retry()
+        .map_err(|e| AppError::Internal(format!("Failed to get blockhash: {e}")))?;
     let message = Message::new(&[withdraw_sol_ix], Some(user_pubkey));
     let mut transaction = Transaction::new_unsigned(message);
     transaction.message.recent_blockhash = blockhash;
@@ -1246,9 +1237,9 @@ pub async fn build_jito_tip(
     let tip_floor = get_jito_tip_floor(http).await.ok();
 
     let ix = system_instruction::transfer(user_pubkey, &tip_account, tip_lamports);
-    let blockhash = rpc.get_latest_blockhash_with_retry().map_err(|e| {
-        AppError::Internal(format!("Blockhash error: {e}"))
-    })?;
+    let blockhash = rpc
+        .get_latest_blockhash_with_retry()
+        .map_err(|e| AppError::Internal(format!("Blockhash error: {e}")))?;
     let message = Message::new(&[ix], Some(user_pubkey));
     let mut tx = Transaction::new_unsigned(message);
     tx.message.recent_blockhash = blockhash;
@@ -1447,9 +1438,7 @@ pub struct JitoGetMevRewardsParams {
 // Validation — Deactivate / Withdraw
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn validate_jito_deposit_stake_params(
-    params: &JitoDepositStakeParams,
-) -> Result<(), AppError> {
+pub fn validate_jito_deposit_stake_params(params: &JitoDepositStakeParams) -> Result<(), AppError> {
     Pubkey::from_str(&params.stake_account)
         .map_err(|_| AppError::InvalidParams("Invalid stake account address".into()))?;
     Ok(())
@@ -1510,16 +1499,13 @@ pub async fn build_jito_stake_action(
 
     // Fetch the live exchange rate (Kobe API → on-chain fallback) and APY in
     // parallel. The rate is required (no static fallback); APY is best-effort.
-    let (rate_res, apy_pct) = tokio::join!(
-        get_exchange_rate(http, rpc),
-        async {
-            get_stake_pool_stats(http)
-                .await
-                .ok()
-                .and_then(|s| s.current_apy_pct())
-                .unwrap_or(7.5)
-        }
-    );
+    let (rate_res, apy_pct) = tokio::join!(get_exchange_rate(http, rpc), async {
+        get_stake_pool_stats(http)
+            .await
+            .ok()
+            .and_then(|s| s.current_apy_pct())
+            .unwrap_or(7.5)
+    });
     let exchange_rate = rate_res?;
 
     // Build transaction in blocking task (RpcClient is sync).
@@ -1589,8 +1575,7 @@ pub async fn build_jito_unstake_action(
         .map_err(|e| AppError::Internal(format!("Blocking task error: {e}")))??
     } else {
         // ── Standard path: withdraw_stake with preferred validator ────────────
-        let preferred_list =
-            get_preferred_withdraw_validators(http, Some(1), None, false).await;
+        let preferred_list = get_preferred_withdraw_validators(http, Some(1), None, false).await;
         let preferred = preferred_list
             .map_err(|e| AppError::Internal(format!("Preferred validator fetch failed: {e}")))?
             .into_iter()
@@ -1757,7 +1742,11 @@ pub async fn build_jito_withdraw_stake(
             action_type: "jito_withdraw_stake".into(),
             description: format!(
                 "Withdraw {sol_amount:.4} SOL from deactivated stake account to {}",
-                if params.recipient.is_some() { &params.recipient.as_ref().unwrap()[..8] } else { "wallet" }
+                if params.recipient.is_some() {
+                    &params.recipient.as_ref().unwrap()[..8]
+                } else {
+                    "wallet"
+                }
             ),
             estimated_fee: "~0.000005 SOL".into(),
             estimated_refund: None,
@@ -1792,7 +1781,8 @@ pub async fn query_jito_stats(
     rpc: &SolanaRpc,
     _params: &JitoGetStatsParams,
 ) -> Result<BuildResponse, AppError> {
-    let (stats_result, rate_res) = tokio::join!(get_stake_pool_stats(http), get_exchange_rate(http, rpc));
+    let (stats_result, rate_res) =
+        tokio::join!(get_stake_pool_stats(http), get_exchange_rate(http, rpc));
     let stats = stats_result?;
     let rate = rate_res?;
     let apy = stats.current_apy_pct().unwrap_or(0.0);
@@ -2070,8 +2060,11 @@ pub async fn build_jito_deposit_stake_action(
         let jitosol_mint = Pubkey::from_str(JITOSOL_MINT).unwrap();
 
         let pool = fetch_stake_pool(&rpc2)?;
-        let withdraw_authority =
-            withdraw_authority_pda(&program_id, &stake_pool_pubkey, pool.stake_withdraw_bump_seed);
+        let withdraw_authority = withdraw_authority_pda(
+            &program_id,
+            &stake_pool_pubkey,
+            pool.stake_withdraw_bump_seed,
+        );
 
         let user_jitosol_ata = get_associated_token_address(&pubkey, &jitosol_mint);
 
@@ -2093,12 +2086,12 @@ pub async fn build_jito_deposit_stake_action(
             &pool.validator_list,
             &withdraw_authority,
             &deposit_stake_pubkey,
-            &pubkey,               // current stake withdraw authority = user
+            &pubkey, // current stake withdraw authority = user
             &validator_stake_account,
             &pool.reserve_stake,
             &user_jitosol_ata,
             &pool.manager_fee_account,
-            &user_jitosol_ata,     // referrer = user (no referral fee)
+            &user_jitosol_ata, // referrer = user (no referral fee)
             &pool.pool_mint,
             &pool.token_program_id,
         );

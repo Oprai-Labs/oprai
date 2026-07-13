@@ -78,7 +78,9 @@ pub fn validate_borrow_params(params: &JupiterBorrowParams) -> Result<(), AppErr
 // factors arrive as basis-point strings ("503" = 5.03%, "800" = 80% factor).
 
 fn parse_rate(s: &Option<String>) -> f64 {
-    s.as_deref().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0)
+    s.as_deref()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0)
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,8 +232,7 @@ pub async fn build_lend_transaction(
         m.symbol.eq_ignore_ascii_case(want)
             || m.mint == want
             || (want_sol
-                && (m.symbol.eq_ignore_ascii_case("SOL")
-                    || m.symbol.eq_ignore_ascii_case("WSOL")))
+                && (m.symbol.eq_ignore_ascii_case("SOL") || m.symbol.eq_ignore_ascii_case("WSOL")))
     });
 
     let (symbol, apy) = if let Some(asset) = asset_info {
@@ -259,7 +260,11 @@ pub async fn build_lend_transaction(
         },
         description: format!(
             "{} {} to Jupiter Earn (APY: {:.2}%)",
-            if params.operation == "deposit" { "Deposit" } else { "Withdraw" },
+            if params.operation == "deposit" {
+                "Deposit"
+            } else {
+                "Withdraw"
+            },
             format!("{:.4} {}", amount, symbol),
             apy
         ),
@@ -329,7 +334,11 @@ pub async fn build_borrow_transaction(
         },
         description: format!(
             "{} {} {} (Collateral: {}, LTV: {:.0}%)",
-            if params.operation == "borrow" { "Borrow" } else { "Repay" },
+            if params.operation == "borrow" {
+                "Borrow"
+            } else {
+                "Repay"
+            },
             format!("{:.4} {}", amount, symbol),
             if params.operation == "borrow" {
                 format!("@ {:.2}% APY", borrow_apy)
@@ -402,11 +411,13 @@ pub async fn build_jup_lend_markets(
     let borrow_entries: Vec<serde_json::Value> = markets
         .borrow
         .iter()
-        .map(|m| serde_json::json!({
-            "symbol": m.symbol,
-            "borrowApy": m.borrow_apy,
-            "collateralFactor": m.collateral_factor,
-        }))
+        .map(|m| {
+            serde_json::json!({
+                "symbol": m.symbol,
+                "borrowApy": m.borrow_apy,
+                "collateralFactor": m.collateral_factor,
+            })
+        })
         .collect();
 
     let description = match params.side.as_deref() {
@@ -422,7 +433,14 @@ pub async fn build_jup_lend_markets(
             let list: Vec<String> = markets
                 .borrow
                 .iter()
-                .map(|m| format!("{} ({:.2}% APY, LTV {:.0}%)", m.symbol, m.borrow_apy, m.collateral_factor * 100.0))
+                .map(|m| {
+                    format!(
+                        "{} ({:.2}% APY, LTV {:.0}%)",
+                        m.symbol,
+                        m.borrow_apy,
+                        m.collateral_factor * 100.0
+                    )
+                })
                 .collect();
             format!("Borrow markets: {}", list.join(", "))
         }

@@ -3,7 +3,6 @@ syntax = "proto3";
 package oprai.stream.v1;
 
 option go_package = "github.com/oprai/oprai/proto/gen/go/streampb";
-option python_generic_services = true;
 
 // ============================================================================
 // Stream Service - Real-time bidirectional streaming

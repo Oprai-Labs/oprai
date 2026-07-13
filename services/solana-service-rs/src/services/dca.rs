@@ -61,7 +61,9 @@ pub fn validate_dca_params(params: &DcaParams) -> Result<(), AppError> {
         .parse()
         .map_err(|_| AppError::InvalidParams("Total amount must be a positive number".into()))?;
     if total <= 0.0 {
-        return Err(AppError::InvalidParams("Total amount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "Total amount must be positive".into(),
+        ));
     }
 
     if params.number_of_orders == 0 {
@@ -127,7 +129,10 @@ pub async fn create_dca_transaction(
         .map(|t| t.symbol.to_string())
         .unwrap_or_else(|| output_mint[..8.min(output_mint.len())].to_string());
 
-    let total_float: f64 = params.total_amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid total_amount".into()))?;
+    let total_float: f64 = params
+        .total_amount
+        .parse::<f64>()
+        .map_err(|_| AppError::InvalidParams("Invalid total_amount".into()))?;
     let per_cycle_float = total_float / params.number_of_orders as f64;
     // Jupiter Recurring `time` expects the TOTAL raw input amount as `inAmount`;
     // it derives the per-cycle amount from numberOfOrders itself.
@@ -188,7 +193,8 @@ pub async fn create_dca_transaction(
         let body_text = resp.text().await.unwrap_or_default();
         tracing::warn!("DCA order creation failed ({status}): {body_text}");
         return Err(AppError::JupiterApiError(
-            "Couldn't set up the DCA order right now. Please check the amount and try again.".into(),
+            "Couldn't set up the DCA order right now. Please check the amount and try again."
+                .into(),
         ));
     }
 
@@ -341,7 +347,9 @@ pub async fn cancel_dca_transaction(
 
     let tx_base64 = data["transaction"]
         .as_str()
-        .ok_or_else(|| AppError::JupiterApiError("Missing transaction in cancel DCA response".into()))?
+        .ok_or_else(|| {
+            AppError::JupiterApiError("Missing transaction in cancel DCA response".into())
+        })?
         .to_string();
 
     let short_order = &order_address[..8.min(order_address.len())];
@@ -423,10 +431,7 @@ pub async fn build_jup_dca_orders(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "jup_dca_orders".into(),
-            description: format!(
-                "{count} {} DCA order(s) for {wallet_short}",
-                params.status
-            ),
+            description: format!("{count} {} DCA order(s) for {wallet_short}", params.status),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data,
@@ -470,7 +475,9 @@ pub async fn get_dca_orders(
     if !resp.status().is_success() {
         let status_code = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
-        tracing::warn!("Jupiter Recurring API returned {status_code} for wallet {user_pubkey}: {body_text}");
+        tracing::warn!(
+            "Jupiter Recurring API returned {status_code} for wallet {user_pubkey}: {body_text}"
+        );
         // Treat non-2xx as empty orders (wallet may have no orders or API key issue)
         return Ok(serde_json::json!({ "orders": [] }));
     }

@@ -62,12 +62,7 @@ pub async fn build_jupsol_stake_transaction(
     let result = build_swap_transaction(http, jupiter_api_key, user_pubkey, &swap_params).await?;
 
     let amount: f64 = params.amount.parse().unwrap_or(0.0);
-    let out_amount: f64 = result
-        .quote
-        .out_amount
-        .parse::<u64>()
-        .unwrap_or(0) as f64
-        / 1e9; // JupSOL has 9 decimals
+    let out_amount: f64 = result.quote.out_amount.parse::<u64>().unwrap_or(0) as f64 / 1e9; // JupSOL has 9 decimals
 
     let preview = ActionPreview {
         id: Uuid::new_v4().to_string(),
@@ -117,20 +112,12 @@ pub async fn build_jupsol_unstake_transaction(
     let result = build_swap_transaction(http, jupiter_api_key, user_pubkey, &swap_params).await?;
 
     let amount: f64 = params.amount.parse().unwrap_or(0.0);
-    let out_amount: f64 = result
-        .quote
-        .out_amount
-        .parse::<u64>()
-        .unwrap_or(0) as f64
-        / 1e9; // SOL has 9 decimals
+    let out_amount: f64 = result.quote.out_amount.parse::<u64>().unwrap_or(0) as f64 / 1e9; // SOL has 9 decimals
 
     let preview = ActionPreview {
         id: Uuid::new_v4().to_string(),
         action_type: "jupsol_unstake".to_string(),
-        description: format!(
-            "Unstake {:.4} JupSOL → {:.6} SOL",
-            amount, out_amount,
-        ),
+        description: format!("Unstake {:.4} JupSOL → {:.6} SOL", amount, out_amount,),
         estimated_fee: result.preview.estimated_fee,
         estimated_refund: None,
         params: serde_json::to_value(params).unwrap_or_default(),

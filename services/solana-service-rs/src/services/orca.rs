@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use uuid::Uuid;
 
+use solana_rpc_client::nonblocking::rpc_client::RpcClient as AsyncRpc;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     hash::Hash as SolanaHash,
@@ -27,7 +28,6 @@ use solana_sdk::{
     signer::{keypair::Keypair, Signer},
     transaction::{Transaction, VersionedTransaction},
 };
-use solana_rpc_client::nonblocking::rpc_client::RpcClient as AsyncRpc;
 
 // Orca Whirlpools SDK v7 — uses solana v3 sub-crates internally.
 use orca_solana_ix::{AccountMeta as SdkAccountMeta, Instruction as SdkInstruction};
@@ -35,16 +35,12 @@ use orca_solana_keypair::Keypair as SdkKeypair;
 use orca_solana_pubkey::Pubkey as SdkPubkey;
 use orca_solana_rpc::nonblocking::rpc_client::RpcClient as SdkRpcClient;
 use orca_whirlpools::{
-    close_position_instructions,
-    create_concentrated_liquidity_pool_instructions,
-    decrease_liquidity_instructions, DecreaseLiquidityParam,
-    fetch_positions_for_owner, PositionOrBundle,
-    fetch_positions_in_whirlpool,
-    harvest_position_instructions,
-    increase_liquidity_instructions, IncreaseLiquidityParam,
-    open_full_range_position_instructions,
-    open_position_instructions,
-    open_position_instructions_with_tick_bounds,
+    close_position_instructions, create_concentrated_liquidity_pool_instructions,
+    decrease_liquidity_instructions, fetch_positions_for_owner, fetch_positions_in_whirlpool,
+    harvest_position_instructions, increase_liquidity_instructions,
+    open_full_range_position_instructions, open_position_instructions,
+    open_position_instructions_with_tick_bounds, DecreaseLiquidityParam, IncreaseLiquidityParam,
+    PositionOrBundle,
 };
 
 use crate::error::AppError;
@@ -64,9 +60,9 @@ const ORCA_V2_API: &str = "https://api.orca.so/v2/solana";
 /// Jupiter endpoints — paid (`api.jup.ag/swap/v1`) used when API key is present,
 /// public (`quote-api.jup.ag/v6`) used otherwise (lower rate limits).
 const JUP_PAID_QUOTE: &str = "https://api.jup.ag/swap/v1/quote";
-const JUP_PAID_SWAP:  &str = "https://api.jup.ag/swap/v1/swap";
-const JUP_PUB_QUOTE:  &str = "https://quote-api.jup.ag/v6/quote";
-const JUP_PUB_SWAP:   &str = "https://quote-api.jup.ag/v6/swap";
+const JUP_PAID_SWAP: &str = "https://api.jup.ag/swap/v1/swap";
+const JUP_PUB_QUOTE: &str = "https://quote-api.jup.ag/v6/quote";
+const JUP_PUB_SWAP: &str = "https://quote-api.jup.ag/v6/swap";
 
 /// Whirlpool tick index bounds (from orca_whirlpools_core).
 const MIN_TICK_INDEX: i32 = -443636;
@@ -410,7 +406,9 @@ pub fn validate_orca_swap_params(p: &OrcaSwapParams) -> Result<(), AppError> {
     let resolved_in = resolve_token_address(&p.input_mint);
     let resolved_out = resolve_token_address(&p.output_mint);
     if resolved_in == resolved_out {
-        return Err(AppError::InvalidParams("inputMint and outputMint cannot be the same token".into()));
+        return Err(AppError::InvalidParams(
+            "inputMint and outputMint cannot be the same token".into(),
+        ));
     }
     let amount: f64 = p
         .amount
@@ -421,15 +419,19 @@ pub fn validate_orca_swap_params(p: &OrcaSwapParams) -> Result<(), AppError> {
     }
     if let Some(slippage) = p.slippage_bps {
         if slippage > 5000 {
-            return Err(AppError::InvalidParams("slippageBps must be between 0 and 5000 (50%)".into()));
+            return Err(AppError::InvalidParams(
+                "slippageBps must be between 0 and 5000 (50%)".into(),
+            ));
         }
     }
     if let Some(ref mode) = p.swap_mode {
         match mode.to_lowercase().as_str() {
             "in" | "exactin" | "out" | "exactout" => {}
-            other => return Err(AppError::InvalidParams(format!(
-                "Invalid swapMode '{other}'. Accepted: 'in' / 'ExactIn' or 'out' / 'ExactOut'"
-            ))),
+            other => {
+                return Err(AppError::InvalidParams(format!(
+                    "Invalid swapMode '{other}'. Accepted: 'in' / 'ExactIn' or 'out' / 'ExactOut'"
+                )))
+            }
         }
     }
     Ok(())
@@ -440,8 +442,12 @@ pub fn validate_orca_add_liquidity_params(p: &OrcaAddLiquidityParams) -> Result<
         return Err(AppError::InvalidParams("whirlpool is required".into()));
     }
     // Validate whirlpool is a valid base58 pubkey.
-    Pubkey::from_str(&p.whirlpool)
-        .map_err(|_| AppError::InvalidParams(format!("whirlpool '{}' is not a valid address", p.whirlpool)))?;
+    Pubkey::from_str(&p.whirlpool).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "whirlpool '{}' is not a valid address",
+            p.whirlpool
+        ))
+    })?;
 
     let a: f64 = p
         .amount_a
@@ -455,17 +461,23 @@ pub fn validate_orca_add_liquidity_params(p: &OrcaAddLiquidityParams) -> Result<
         .parse()
         .map_err(|_| AppError::InvalidParams("amountB must be a non-negative number".into()))?;
     if b < 0.0 {
-        return Err(AppError::InvalidParams("amountB must be non-negative".into()));
+        return Err(AppError::InvalidParams(
+            "amountB must be non-negative".into(),
+        ));
     }
     if let Some(slippage) = p.slippage_bps {
         if slippage > 5000 {
-            return Err(AppError::InvalidParams("slippageBps must be between 0 and 5000 (50%)".into()));
+            return Err(AppError::InvalidParams(
+                "slippageBps must be between 0 and 5000 (50%)".into(),
+            ));
         }
     }
     Ok(())
 }
 
-pub fn validate_orca_remove_liquidity_params(_p: &OrcaRemoveLiquidityParams) -> Result<(), AppError> {
+pub fn validate_orca_remove_liquidity_params(
+    _p: &OrcaRemoveLiquidityParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -481,19 +493,24 @@ pub fn validate_orca_open_position_params(p: &OrcaOpenPositionParams) -> Result<
     }
     // Validate whirlpool address when provided.
     if let Some(ref wp) = p.whirlpool {
-        Pubkey::from_str(wp)
-            .map_err(|_| AppError::InvalidParams(format!("whirlpool '{wp}' is not a valid address")))?;
+        Pubkey::from_str(wp).map_err(|_| {
+            AppError::InvalidParams(format!("whirlpool '{wp}' is not a valid address"))
+        })?;
     }
     // If using the token-pair lookup path, both tokens must be specified.
     if p.token_a.is_some() && p.token_b.is_none() {
-        return Err(AppError::InvalidParams("tokenB is required when tokenA is provided".into()));
+        return Err(AppError::InvalidParams(
+            "tokenB is required when tokenA is provided".into(),
+        ));
     }
     if p.token_b.is_some() && p.token_a.is_none() {
-        return Err(AppError::InvalidParams("tokenA is required when tokenB is provided".into()));
+        return Err(AppError::InvalidParams(
+            "tokenA is required when tokenB is provided".into(),
+        ));
     }
     // Range: accept either tick indices OR prices — but exactly one pair must be complete.
-    let has_ticks  = p.tick_lower.is_some() && p.tick_upper.is_some();
-    let has_prices = p.min_price.is_some()  && p.max_price.is_some();
+    let has_ticks = p.tick_lower.is_some() && p.tick_upper.is_some();
+    let has_prices = p.min_price.is_some() && p.max_price.is_some();
     if !has_ticks && !has_prices {
         return Err(AppError::InvalidParams(
             "Provide a price range: either (minPrice + maxPrice) or (tickLower + tickUpper)".into(),
@@ -501,7 +518,9 @@ pub fn validate_orca_open_position_params(p: &OrcaOpenPositionParams) -> Result<
     }
     if let (Some(mn), Some(mx)) = (p.min_price, p.max_price) {
         if mn >= mx {
-            return Err(AppError::InvalidParams("minPrice must be less than maxPrice".into()));
+            return Err(AppError::InvalidParams(
+                "minPrice must be less than maxPrice".into(),
+            ));
         }
         if mn <= 0.0 {
             return Err(AppError::InvalidParams("minPrice must be positive".into()));
@@ -509,7 +528,9 @@ pub fn validate_orca_open_position_params(p: &OrcaOpenPositionParams) -> Result<
     }
     if let (Some(tl), Some(tu)) = (p.tick_lower, p.tick_upper) {
         if tl >= tu {
-            return Err(AppError::InvalidParams("tickLower must be less than tickUpper".into()));
+            return Err(AppError::InvalidParams(
+                "tickLower must be less than tickUpper".into(),
+            ));
         }
         if tl < MIN_TICK_INDEX || tu > MAX_TICK_INDEX {
             return Err(AppError::InvalidParams(format!(
@@ -518,22 +539,30 @@ pub fn validate_orca_open_position_params(p: &OrcaOpenPositionParams) -> Result<
         }
     }
     // At least one of inputAmount / amountA must be a positive number.
-    let amount_str = p.input_amount.as_deref().or(p.amount_a.as_deref()).unwrap_or("");
+    let amount_str = p
+        .input_amount
+        .as_deref()
+        .or(p.amount_a.as_deref())
+        .unwrap_or("");
     if amount_str.is_empty() {
         return Err(AppError::InvalidParams(
             "Provide an input amount: inputAmount (with inputMint) or amountA".into(),
         ));
     }
-    let amount: f64 = amount_str
-        .parse()
-        .map_err(|_| AppError::InvalidParams("inputAmount / amountA must be a positive number".into()))?;
+    let amount: f64 = amount_str.parse().map_err(|_| {
+        AppError::InvalidParams("inputAmount / amountA must be a positive number".into())
+    })?;
     if amount <= 0.0 {
-        return Err(AppError::InvalidParams("inputAmount / amountA must be greater than 0".into()));
+        return Err(AppError::InvalidParams(
+            "inputAmount / amountA must be greater than 0".into(),
+        ));
     }
 
     if let Some(slippage) = p.slippage_bps {
         if slippage > 5000 {
-            return Err(AppError::InvalidParams("slippageBps must be between 0 and 5000 (50%)".into()));
+            return Err(AppError::InvalidParams(
+                "slippageBps must be between 0 and 5000 (50%)".into(),
+            ));
         }
     }
     Ok(())
@@ -543,84 +572,116 @@ pub fn validate_orca_close_position_params(p: &OrcaClosePositionParams) -> Resul
     if p.position.is_empty() {
         return Err(AppError::InvalidParams("position is required".into()));
     }
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
     if let Some(slippage) = p.slippage_bps {
         if slippage > 5000 {
-            return Err(AppError::InvalidParams("slippageBps must be between 0 and 5000 (50%)".into()));
+            return Err(AppError::InvalidParams(
+                "slippageBps must be between 0 and 5000 (50%)".into(),
+            ));
         }
     }
     Ok(())
 }
 
-pub fn validate_orca_increase_position_params(p: &OrcaIncreasePositionParams) -> Result<(), AppError> {
+pub fn validate_orca_increase_position_params(
+    p: &OrcaIncreasePositionParams,
+) -> Result<(), AppError> {
     if p.position.is_empty() {
         return Err(AppError::InvalidParams("position is required".into()));
     }
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
     if p.input_mint.is_empty() {
         return Err(AppError::InvalidParams("inputMint is required".into()));
     }
-    let amt: f64 = p.input_amount
+    let amt: f64 = p
+        .input_amount
         .parse()
         .map_err(|_| AppError::InvalidParams("inputAmount must be a positive number".into()))?;
     if amt <= 0.0 {
-        return Err(AppError::InvalidParams("inputAmount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "inputAmount must be positive".into(),
+        ));
     }
     if let Some(slippage) = p.slippage_bps {
         if slippage > 5000 {
-            return Err(AppError::InvalidParams("slippageBps must be between 0 and 5000 (50%)".into()));
+            return Err(AppError::InvalidParams(
+                "slippageBps must be between 0 and 5000 (50%)".into(),
+            ));
         }
     }
     Ok(())
 }
 
-pub fn validate_orca_decrease_position_params(p: &OrcaDecreasePositionParams) -> Result<(), AppError> {
+pub fn validate_orca_decrease_position_params(
+    p: &OrcaDecreasePositionParams,
+) -> Result<(), AppError> {
     if p.position.is_empty() {
         return Err(AppError::InvalidParams("position is required".into()));
     }
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
 
     // Exactly one withdrawal mode must be specified.
-    let has_liquidity = p.liquidity.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
-    let has_token     = p.input_mint.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+    let has_liquidity = p
+        .liquidity
+        .as_deref()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    let has_token = p
+        .input_mint
+        .as_deref()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
 
     if !has_liquidity && !has_token {
         return Err(AppError::InvalidParams(
             "Specify a withdrawal amount: either `liquidity` (raw u128) \
-             or `inputMint` + `inputAmount` (token amount)".into(),
+             or `inputMint` + `inputAmount` (token amount)"
+                .into(),
         ));
     }
     if has_liquidity && has_token {
         return Err(AppError::InvalidParams(
-            "`liquidity` and `inputMint`/`inputAmount` are mutually exclusive — specify only one".into(),
+            "`liquidity` and `inputMint`/`inputAmount` are mutually exclusive — specify only one"
+                .into(),
         ));
     }
 
     if has_liquidity {
-        let liq: u128 = p.liquidity.as_deref().unwrap().parse()
-            .map_err(|_| AppError::InvalidParams(
-                "liquidity must be a valid positive integer (u128, e.g. '500000000')".into()
-            ))?;
+        let liq: u128 = p.liquidity.as_deref().unwrap().parse().map_err(|_| {
+            AppError::InvalidParams(
+                "liquidity must be a valid positive integer (u128, e.g. '500000000')".into(),
+            )
+        })?;
         if liq == 0 {
-            return Err(AppError::InvalidParams("liquidity must be greater than 0".into()));
+            return Err(AppError::InvalidParams(
+                "liquidity must be greater than 0".into(),
+            ));
         }
     }
 
     if has_token {
         let amount_str = p.input_amount.as_deref().unwrap_or("0");
-        let amount: f64 = amount_str.parse()
+        let amount: f64 = amount_str
+            .parse()
             .map_err(|_| AppError::InvalidParams("inputAmount must be a positive number".into()))?;
         if amount <= 0.0 {
-            return Err(AppError::InvalidParams("inputAmount must be greater than 0".into()));
+            return Err(AppError::InvalidParams(
+                "inputAmount must be greater than 0".into(),
+            ));
         }
     }
 
     if let Some(slippage) = p.slippage_bps {
         if slippage > 5000 {
-            return Err(AppError::InvalidParams("slippageBps must be between 0 and 5000 (50%)".into()));
+            return Err(AppError::InvalidParams(
+                "slippageBps must be between 0 and 5000 (50%)".into(),
+            ));
         }
     }
     Ok(())
@@ -630,8 +691,9 @@ pub fn validate_orca_collect_fees_params(p: &OrcaCollectFeesParams) -> Result<()
     if p.position.is_empty() {
         return Err(AppError::InvalidParams("position is required".into()));
     }
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
     Ok(())
 }
 
@@ -639,12 +701,14 @@ pub fn validate_orca_collect_rewards_params(p: &OrcaCollectRewardsParams) -> Res
     if p.position.is_empty() {
         return Err(AppError::InvalidParams("position is required".into()));
     }
-    Pubkey::from_str(&p.position)
-        .map_err(|_| AppError::InvalidParams(format!("position '{}' is not a valid address", p.position)))?;
+    Pubkey::from_str(&p.position).map_err(|_| {
+        AppError::InvalidParams(format!("position '{}' is not a valid address", p.position))
+    })?;
     if let Some(idx) = p.reward_index {
         if idx > 2 {
             return Err(AppError::InvalidParams(
-                "rewardIndex must be 0, 1, or 2 (Whirlpools supports at most 3 rewards per pool)".into(),
+                "rewardIndex must be 0, 1, or 2 (Whirlpools supports at most 3 rewards per pool)"
+                    .into(),
             ));
         }
     }
@@ -659,13 +723,16 @@ pub fn validate_orca_create_pool_params(p: &OrcaCreatePoolParams) -> Result<(), 
         return Err(AppError::InvalidParams("tokenB is required".into()));
     }
     if p.initial_price <= 0.0 {
-        return Err(AppError::InvalidParams("initialPrice must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "initialPrice must be positive".into(),
+        ));
     }
     if let Some(ts) = p.tick_spacing {
         let valid: &[u16] = &[1, 2, 4, 8, 16, 32, 64, 128, 256, 32896];
         if !valid.contains(&ts) {
             return Err(AppError::InvalidParams(
-                "tickSpacing must be one of: 1, 2, 4, 8, 16, 32, 64, 128, 256, 32896 (splash)".into(),
+                "tickSpacing must be one of: 1, 2, 4, 8, 16, 32, 64, 128, 256, 32896 (splash)"
+                    .into(),
             ));
         }
     }
@@ -674,14 +741,26 @@ pub fn validate_orca_create_pool_params(p: &OrcaCreatePoolParams) -> Result<(), 
 
 pub fn validate_orca_get_pools_params(p: &OrcaGetPoolsParams) -> Result<(), AppError> {
     if let Some(ref s) = p.sort_by {
-        let valid = ["volume", "tvl", "fees", "rewards", "yieldovertvl", "lockedliquiditypercent"];
+        let valid = [
+            "volume",
+            "tvl",
+            "fees",
+            "rewards",
+            "yieldovertvl",
+            "lockedliquiditypercent",
+        ];
         if !valid.contains(&s.as_str()) {
-            return Err(AppError::InvalidParams(format!("sortBy must be one of: {}", valid.join(", "))));
+            return Err(AppError::InvalidParams(format!(
+                "sortBy must be one of: {}",
+                valid.join(", ")
+            )));
         }
     }
     if let Some(ref d) = p.sort_direction {
         if d != "asc" && d != "desc" {
-            return Err(AppError::InvalidParams("sortDirection must be 'asc' or 'desc'".into()));
+            return Err(AppError::InvalidParams(
+                "sortDirection must be 'asc' or 'desc'".into(),
+            ));
         }
     }
     Ok(())
@@ -689,7 +768,9 @@ pub fn validate_orca_get_pools_params(p: &OrcaGetPoolsParams) -> Result<(), AppE
 
 pub fn validate_orca_search_pools_params(p: &OrcaSearchPoolsParams) -> Result<(), AppError> {
     if p.q.is_empty() {
-        return Err(AppError::InvalidParams("q (search query) is required".into()));
+        return Err(AppError::InvalidParams(
+            "q (search query) is required".into(),
+        ));
     }
     Ok(())
 }
@@ -701,28 +782,49 @@ pub fn validate_orca_get_pool_params(p: &OrcaGetPoolParams) -> Result<(), AppErr
     Ok(())
 }
 
-pub fn validate_orca_get_locked_liquidity_params(p: &OrcaGetLockedLiquidityParams) -> Result<(), AppError> {
+pub fn validate_orca_get_locked_liquidity_params(
+    p: &OrcaGetLockedLiquidityParams,
+) -> Result<(), AppError> {
     if p.address.is_empty() {
         return Err(AppError::InvalidParams("address is required".into()));
     }
     Ok(())
 }
 
-pub fn validate_orca_get_protocol_stats_params(_p: &OrcaGetProtocolStatsParams) -> Result<(), AppError> { Ok(()) }
-pub fn validate_orca_get_orca_token_params(_p: &OrcaGetOrcaTokenParams) -> Result<(), AppError> { Ok(()) }
-pub fn validate_orca_get_circulating_supply_params(_p: &OrcaGetCirculatingSupplyParams) -> Result<(), AppError> { Ok(()) }
-pub fn validate_orca_get_total_supply_params(_p: &OrcaGetTotalSupplyParams) -> Result<(), AppError> { Ok(()) }
+pub fn validate_orca_get_protocol_stats_params(
+    _p: &OrcaGetProtocolStatsParams,
+) -> Result<(), AppError> {
+    Ok(())
+}
+pub fn validate_orca_get_orca_token_params(_p: &OrcaGetOrcaTokenParams) -> Result<(), AppError> {
+    Ok(())
+}
+pub fn validate_orca_get_circulating_supply_params(
+    _p: &OrcaGetCirculatingSupplyParams,
+) -> Result<(), AppError> {
+    Ok(())
+}
+pub fn validate_orca_get_total_supply_params(
+    _p: &OrcaGetTotalSupplyParams,
+) -> Result<(), AppError> {
+    Ok(())
+}
 
 pub fn validate_orca_get_tokens_params(p: &OrcaGetTokensParams) -> Result<(), AppError> {
     if let Some(ref s) = p.sort_by {
         let valid = ["address", "mint_id", "volume_24h"];
         if !valid.contains(&s.as_str()) {
-            return Err(AppError::InvalidParams(format!("sort_by must be one of: {}", valid.join(", "))));
+            return Err(AppError::InvalidParams(format!(
+                "sort_by must be one of: {}",
+                valid.join(", ")
+            )));
         }
     }
     if let Some(ref d) = p.sort_direction {
         if d != "asc" && d != "desc" {
-            return Err(AppError::InvalidParams("sort_direction must be 'asc' or 'desc'".into()));
+            return Err(AppError::InvalidParams(
+                "sort_direction must be 'asc' or 'desc'".into(),
+            ));
         }
     }
     Ok(())
@@ -730,7 +832,9 @@ pub fn validate_orca_get_tokens_params(p: &OrcaGetTokensParams) -> Result<(), Ap
 
 pub fn validate_orca_search_tokens_params(p: &OrcaSearchTokensParams) -> Result<(), AppError> {
     if p.q.is_empty() {
-        return Err(AppError::InvalidParams("q (search query) is required".into()));
+        return Err(AppError::InvalidParams(
+            "q (search query) is required".into(),
+        ));
     }
     Ok(())
 }
@@ -742,7 +846,9 @@ pub fn validate_orca_get_token_params(p: &OrcaGetTokenParams) -> Result<(), AppE
     Ok(())
 }
 
-pub fn validate_orca_get_user_positions_params(p: &OrcaGetUserPositionsParams) -> Result<(), AppError> {
+pub fn validate_orca_get_user_positions_params(
+    p: &OrcaGetUserPositionsParams,
+) -> Result<(), AppError> {
     if let Some(ref w) = p.wallet {
         if !w.is_empty() {
             Pubkey::from_str(w).map_err(|_| {
@@ -753,12 +859,17 @@ pub fn validate_orca_get_user_positions_params(p: &OrcaGetUserPositionsParams) -
     Ok(())
 }
 
-pub fn validate_orca_get_pool_positions_params(p: &OrcaGetPoolPositionsParams) -> Result<(), AppError> {
+pub fn validate_orca_get_pool_positions_params(
+    p: &OrcaGetPoolPositionsParams,
+) -> Result<(), AppError> {
     if p.whirlpool.is_empty() {
         return Err(AppError::InvalidParams("whirlpool is required".into()));
     }
     Pubkey::from_str(&p.whirlpool).map_err(|_| {
-        AppError::InvalidParams(format!("whirlpool '{}' is not a valid address", p.whirlpool))
+        AppError::InvalidParams(format!(
+            "whirlpool '{}' is not a valid address",
+            p.whirlpool
+        ))
     })?;
     Ok(())
 }
@@ -770,7 +881,7 @@ pub fn validate_orca_get_pool_positions_params(p: &OrcaGetPoolPositionsParams) -
 #[derive(Debug)]
 struct WhirlpoolOnchain {
     tick_spacing: i32,
-    sqrt_price: u128,   // Q64.64
+    sqrt_price: u128, // Q64.64
     #[allow(dead_code)]
     tick_current_index: i32,
     token_mint_a: Pubkey,
@@ -805,18 +916,20 @@ fn parse_pubkey_bytes(data: &[u8], offset: usize) -> Result<Pubkey, AppError> {
 /// Parse Whirlpool account data (raw bytes, including 8-byte discriminator).
 fn parse_whirlpool(data: &[u8]) -> Result<WhirlpoolOnchain, AppError> {
     if data.len() < 269 + 3 * 128 {
-        return Err(AppError::ProtocolError("Whirlpool account data too short".into()));
+        return Err(AppError::ProtocolError(
+            "Whirlpool account data too short".into(),
+        ));
     }
     // All offsets are absolute (including the 8-byte discriminator prefix).
     let tick_spacing = u16::from_le_bytes([data[41], data[42]]) as i32;
     let sqrt_price = u128::from_le_bytes(
-        data[65..81].try_into()
+        data[65..81]
+            .try_into()
             .map_err(|_| AppError::ProtocolError("Whirlpool: invalid sqrt_price slice".into()))?,
     );
-    let tick_current_index = i32::from_le_bytes(
-        data[81..85].try_into()
-            .map_err(|_| AppError::ProtocolError("Whirlpool: invalid tick_current_index slice".into()))?,
-    );
+    let tick_current_index = i32::from_le_bytes(data[81..85].try_into().map_err(|_| {
+        AppError::ProtocolError("Whirlpool: invalid tick_current_index slice".into())
+    })?);
     let token_mint_a = parse_pubkey_bytes(data, 101)?;
     let token_vault_a = parse_pubkey_bytes(data, 133)?;
     let token_mint_b = parse_pubkey_bytes(data, 181)?;
@@ -855,24 +968,32 @@ fn parse_position(data: &[u8]) -> Result<PositionOnchain, AppError> {
     // 16 liquidity + 4 lower + 4 upper + ... = 216 total).
     if data.len() < 216 {
         return Err(AppError::ProtocolError(format!(
-            "Position account data too short: {} bytes (expected >= 216)", data.len()
+            "Position account data too short: {} bytes (expected >= 216)",
+            data.len()
         )));
     }
     let whirlpool = parse_pubkey_bytes(data, 8)?;
     let position_mint = parse_pubkey_bytes(data, 40)?;
     let liquidity = u128::from_le_bytes(
-        data[72..88].try_into()
+        data[72..88]
+            .try_into()
             .map_err(|_| AppError::ProtocolError("Position: invalid liquidity slice".into()))?,
     );
-    let tick_lower_index = i32::from_le_bytes(
-        data[88..92].try_into()
-            .map_err(|_| AppError::ProtocolError("Position: invalid tick_lower_index slice".into()))?,
-    );
-    let tick_upper_index = i32::from_le_bytes(
-        data[92..96].try_into()
-            .map_err(|_| AppError::ProtocolError("Position: invalid tick_upper_index slice".into()))?,
-    );
-    Ok(PositionOnchain { whirlpool, position_mint, liquidity, tick_lower_index, tick_upper_index })
+    let tick_lower_index =
+        i32::from_le_bytes(data[88..92].try_into().map_err(|_| {
+            AppError::ProtocolError("Position: invalid tick_lower_index slice".into())
+        })?);
+    let tick_upper_index =
+        i32::from_le_bytes(data[92..96].try_into().map_err(|_| {
+            AppError::ProtocolError("Position: invalid tick_upper_index slice".into())
+        })?);
+    Ok(PositionOnchain {
+        whirlpool,
+        position_mint,
+        liquidity,
+        tick_lower_index,
+        tick_upper_index,
+    })
 }
 
 /// Create an async RPC client for the given URL.
@@ -901,13 +1022,17 @@ fn to_base_units(amount: &str, decimals: u8) -> Result<u64, AppError> {
         .parse()
         .map_err(|_| AppError::InvalidParams(format!("Invalid amount: {amount}")))?;
     if f < 0.0 {
-        return Err(AppError::InvalidParams(format!("Amount must be non-negative, got: {amount}")));
+        return Err(AppError::InvalidParams(format!(
+            "Amount must be non-negative, got: {amount}"
+        )));
     }
     Ok((f * 10_f64.powi(decimals as i32)).round() as u64)
 }
 
 fn token_decimals(symbol_or_mint: &str) -> u8 {
-    get_token_info(symbol_or_mint).map(|t| t.decimals).unwrap_or(9)
+    get_token_info(symbol_or_mint)
+        .map(|t| t.decimals)
+        .unwrap_or(9)
 }
 
 fn token_symbol(symbol_or_mint: &str) -> String {
@@ -1119,7 +1244,13 @@ pub async fn build_orca_swap(
     let input_mint = resolve_token_address(&params.input_mint);
     let output_mint = resolve_token_address(&params.output_mint);
     let slippage_bps = params.slippage_bps.unwrap_or(50);
-    let swap_mode = match params.swap_mode.as_deref().unwrap_or("in").to_lowercase().as_str() {
+    let swap_mode = match params
+        .swap_mode
+        .as_deref()
+        .unwrap_or("in")
+        .to_lowercase()
+        .as_str()
+    {
         "out" | "exactout" => "ExactOut",
         _ => "ExactIn",
     };
@@ -1137,22 +1268,28 @@ pub async fn build_orca_swap(
     pk(&output_mint)?;
 
     // Use paid endpoint (higher rate limits) when API key is present, fall back to public.
-    let quote_url = if jupiter_api_key.is_some() { JUP_PAID_QUOTE } else { JUP_PUB_QUOTE };
-    let swap_url  = if jupiter_api_key.is_some() { JUP_PAID_SWAP  } else { JUP_PUB_SWAP  };
+    let quote_url = if jupiter_api_key.is_some() {
+        JUP_PAID_QUOTE
+    } else {
+        JUP_PUB_QUOTE
+    };
+    let swap_url = if jupiter_api_key.is_some() {
+        JUP_PAID_SWAP
+    } else {
+        JUP_PUB_SWAP
+    };
 
     // Quote via Jupiter with Orca Whirlpool DEX filter
     let amount_str = amount_base.to_string();
     let slippage_str = slippage_bps.to_string();
-    let mut quote_req = http
-        .get(quote_url)
-        .query(&[
-            ("inputMint",   input_mint.as_str()),
-            ("outputMint",  output_mint.as_str()),
-            ("amount",      amount_str.as_str()),
-            ("slippageBps", slippage_str.as_str()),
-            ("swapMode",    swap_mode),
-            ("dexes",       "Whirlpool"),
-        ]);
+    let mut quote_req = http.get(quote_url).query(&[
+        ("inputMint", input_mint.as_str()),
+        ("outputMint", output_mint.as_str()),
+        ("amount", amount_str.as_str()),
+        ("slippageBps", slippage_str.as_str()),
+        ("swapMode", swap_mode),
+        ("dexes", "Whirlpool"),
+    ]);
     if let Some(key) = jupiter_api_key {
         quote_req = quote_req.header("Authorization", format!("Bearer {key}"));
     }
@@ -1162,18 +1299,23 @@ pub async fn build_orca_swap(
         .map_err(|e| AppError::ProtocolError(format!("Jupiter quote request: {e}")))?;
     if !quote_resp.status().is_success() {
         let body = quote_resp.text().await.unwrap_or_default();
-        return Err(AppError::ProtocolError(format!("Jupiter Whirlpool quote: {body}")));
+        return Err(AppError::ProtocolError(format!(
+            "Jupiter Whirlpool quote: {body}"
+        )));
     }
-    let quote: serde_json::Value = quote_resp.json().await
+    let quote: serde_json::Value = quote_resp
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter quote parse: {e}")))?;
 
     // Wire priority_fee to Jupiter's prioritizationFeeLamports
     let prioritization_fee = match params.priority_fee.as_deref() {
-        Some("low")    => serde_json::json!(1_000u64),
+        Some("low") => serde_json::json!(1_000u64),
         Some("medium") => serde_json::json!(10_000u64),
-        Some("high")   => serde_json::json!(100_000u64),
+        Some("high") => serde_json::json!(100_000u64),
         Some("auto") | None => serde_json::json!("auto"),
-        Some(exact) => exact.parse::<u64>()
+        Some(exact) => exact
+            .parse::<u64>()
             .map(|n| serde_json::json!(n))
             .unwrap_or(serde_json::json!("auto")),
     };
@@ -1190,24 +1332,37 @@ pub async fn build_orca_swap(
     if let Some(key) = jupiter_api_key {
         swap_req = swap_req.header("Authorization", format!("Bearer {key}"));
     }
-    let swap_resp = swap_req.send().await
+    let swap_resp = swap_req
+        .send()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter swap request: {e}")))?;
     if !swap_resp.status().is_success() {
         let body = swap_resp.text().await.unwrap_or_default();
-        return Err(AppError::ProtocolError(format!("Jupiter swap build: {body}")));
+        return Err(AppError::ProtocolError(format!(
+            "Jupiter swap build: {body}"
+        )));
     }
-    let swap_data: serde_json::Value = swap_resp.json().await
+    let swap_data: serde_json::Value = swap_resp
+        .json()
+        .await
         .map_err(|e| AppError::ProtocolError(format!("Jupiter swap parse: {e}")))?;
     let tx_b64 = swap_data["swapTransaction"]
         .as_str()
-        .ok_or_else(|| AppError::ProtocolError("Missing swapTransaction in Jupiter response".into()))?
+        .ok_or_else(|| {
+            AppError::ProtocolError("Missing swapTransaction in Jupiter response".into())
+        })?
         .to_string();
 
     let out_decimals = token_decimals(&params.output_mint);
-    let out_amount = quote["outAmount"].as_str().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let out_amount = quote["outAmount"]
+        .as_str()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
     let estimated_out = out_amount as f64 / 10_f64.powi(out_decimals as i32);
-    let price_impact: f64 = quote["priceImpactPct"].as_str()
-        .and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    let price_impact: f64 = quote["priceImpactPct"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
 
     let in_sym = token_symbol(&params.input_mint);
     let out_sym = token_symbol(&params.output_mint);
@@ -1275,7 +1430,10 @@ pub async fn build_orca_add_liquidity(
     let result = open_full_range_position_instructions(
         &sdk_rpc,
         to_sdk_pk(&pool_pk),
-        IncreaseLiquidityParam { token_max_a, token_max_b },
+        IncreaseLiquidityParam {
+            token_max_a,
+            token_max_b,
+        },
         Some(slippage_bps as u16),
         Some(to_sdk_pk(&user_pk)),
     )
@@ -1285,7 +1443,11 @@ pub async fn build_orca_add_liquidity(
     let position_mint_pk = from_sdk_pk(result.position_mint);
     let init_cost = result.initialization_cost;
     let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
-    let signers: Vec<Keypair> = result.additional_signers.into_iter().map(from_sdk_kp).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
 
@@ -1356,11 +1518,9 @@ pub async fn build_orca_open_position(
     } else {
         let ta = params.token_a.as_deref().unwrap_or("");
         let tb = params.token_b.as_deref().unwrap_or("");
-        let (addr, _) = lookup_orca_whirlpool(
-            http,
-            &resolve_token_address(ta),
-            &resolve_token_address(tb),
-        ).await?;
+        let (addr, _) =
+            lookup_orca_whirlpool(http, &resolve_token_address(ta), &resolve_token_address(tb))
+                .await?;
         addr
     };
 
@@ -1369,10 +1529,14 @@ pub async fn build_orca_open_position(
     // Fetch pool to determine which mint is token A (for input routing).
     let pool = fetch_whirlpool(&rpc, &pool_pk).await?;
 
-    let input_sym = params.input_mint.as_deref()
+    let input_sym = params
+        .input_mint
+        .as_deref()
         .or(params.token_a.as_deref())
         .unwrap_or("");
-    let amount_str = params.input_amount.as_deref()
+    let amount_str = params
+        .input_amount
+        .as_deref()
         .or(params.amount_a.as_deref())
         .unwrap_or("0");
     let in_decimals = token_decimals(input_sym);
@@ -1380,14 +1544,17 @@ pub async fn build_orca_open_position(
     let slippage_bps = params.slippage_bps.unwrap_or(100);
 
     // Route input to the correct side; cap the other side at u64::MAX.
-    let input_is_a = !input_sym.is_empty()
-        && resolve_token_address(input_sym) == pool.token_mint_a.to_string();
+    let input_is_a =
+        !input_sym.is_empty() && resolve_token_address(input_sym) == pool.token_mint_a.to_string();
     let (token_max_a, token_max_b) = if input_is_a {
         (amount_base, u64::MAX)
     } else {
         (u64::MAX, amount_base)
     };
-    let liquidity_param = IncreaseLiquidityParam { token_max_a, token_max_b };
+    let liquidity_param = IncreaseLiquidityParam {
+        token_max_a,
+        token_max_b,
+    };
 
     let result = if let (Some(tl), Some(tu)) = (params.tick_lower, params.tick_upper) {
         // Direct tick bounds — SDK validates alignment to tick_spacing.
@@ -1404,8 +1571,12 @@ pub async fn build_orca_open_position(
         .map_err(|e| AppError::ProtocolError(format!("open_position_with_tick_bounds: {e}")))?
     } else {
         // Price-range path — SDK converts prices to aligned tick indices.
-        let min_price = params.min_price.ok_or_else(|| AppError::InvalidParams("minPrice is required".into()))?;
-        let max_price = params.max_price.ok_or_else(|| AppError::InvalidParams("maxPrice is required".into()))?;
+        let min_price = params
+            .min_price
+            .ok_or_else(|| AppError::InvalidParams("minPrice is required".into()))?;
+        let max_price = params
+            .max_price
+            .ok_or_else(|| AppError::InvalidParams("maxPrice is required".into()))?;
         open_position_instructions(
             &sdk_rpc,
             to_sdk_pk(&pool_pk),
@@ -1422,7 +1593,11 @@ pub async fn build_orca_open_position(
     let position_mint_pk = from_sdk_pk(result.position_mint);
     let init_cost = result.initialization_cost;
     let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
-    let signers: Vec<Keypair> = result.additional_signers.into_iter().map(from_sdk_kp).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
     let in_sym = token_symbol(input_sym);
@@ -1484,7 +1659,11 @@ pub async fn build_orca_close_position(
     .map_err(|e| AppError::ProtocolError(format!("close_position: {e}")))?;
 
     let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
-    let signers: Vec<Keypair> = result.additional_signers.into_iter().map(from_sdk_kp).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
 
@@ -1546,7 +1725,10 @@ pub async fn build_orca_increase_position(
     let result = increase_liquidity_instructions(
         &sdk_rpc,
         to_sdk_pk(&pos.position_mint),
-        IncreaseLiquidityParam { token_max_a, token_max_b },
+        IncreaseLiquidityParam {
+            token_max_a,
+            token_max_b,
+        },
         Some(slippage_bps as u16),
         Some(to_sdk_pk(&user_pk)),
     )
@@ -1554,7 +1736,11 @@ pub async fn build_orca_increase_position(
     .map_err(|e| AppError::ProtocolError(format!("increase_liquidity: {e}")))?;
 
     let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
-    let signers: Vec<Keypair> = result.additional_signers.into_iter().map(from_sdk_kp).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
     let sym = token_symbol(&params.input_mint);
@@ -1565,7 +1751,9 @@ pub async fn build_orca_increase_position(
             action_type: "orca_increase_position".to_string(),
             description: format!(
                 "Add {} {} to Whirlpool position {}",
-                params.input_amount, sym, short_id(&params.position)
+                params.input_amount,
+                sym,
+                short_id(&params.position)
             ),
             estimated_fee: "~0.005 SOL".to_string(),
             estimated_refund: None,
@@ -1608,8 +1796,9 @@ pub async fn build_orca_decrease_position(
 
     if let Some(ref liq_str) = params.liquidity {
         // Liquidity-units mode.
-        let liquidity: u128 = liq_str.parse()
-            .map_err(|_| AppError::InvalidParams("liquidity must be a valid u128 integer".into()))?;
+        let liquidity: u128 = liq_str.parse().map_err(|_| {
+            AppError::InvalidParams("liquidity must be a valid u128 integer".into())
+        })?;
         if liquidity > pos.liquidity {
             return Err(AppError::InvalidParams(format!(
                 "Requested liquidity {liquidity} exceeds position liquidity {} — \
@@ -1620,7 +1809,8 @@ pub async fn build_orca_decrease_position(
         sdk_param = DecreaseLiquidityParam::Liquidity(liquidity);
         description = format!(
             "Remove {} liquidity units from Whirlpool position {}",
-            liq_str, short_id(&params.position)
+            liq_str,
+            short_id(&params.position)
         );
     } else {
         // Token-amount mode — resolve which side of the pool the input mint is on.
@@ -1656,7 +1846,11 @@ pub async fn build_orca_decrease_position(
     .map_err(|e| AppError::ProtocolError(format!("decrease_liquidity: {e}")))?;
 
     let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
-    let signers: Vec<Keypair> = result.additional_signers.into_iter().map(from_sdk_kp).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
 
@@ -1709,9 +1903,17 @@ pub async fn build_orca_collect_fees(
 
     let fee_a = result.fees_quote.fee_owed_a;
     let fee_b = result.fees_quote.fee_owed_b;
-    let has_rewards = result.rewards_quote.rewards.iter().any(|r| r.rewards_owed > 0);
+    let has_rewards = result
+        .rewards_quote
+        .rewards
+        .iter()
+        .any(|r| r.rewards_owed > 0);
     let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
-    let signers: Vec<Keypair> = result.additional_signers.into_iter().map(from_sdk_kp).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
 
@@ -1777,7 +1979,9 @@ pub async fn build_orca_collect_rewards(
     // Validate that rewards exist (optionally scoped to a single index).
     let target_index = params.reward_index;
     let active_count = if let Some(idx) = target_index {
-        let owed = result.rewards_quote.rewards
+        let owed = result
+            .rewards_quote
+            .rewards
             .get(idx as usize)
             .map(|r| r.rewards_owed)
             .unwrap_or(0);
@@ -1788,17 +1992,26 @@ pub async fn build_orca_collect_rewards(
         }
         1
     } else {
-        let count = result.rewards_quote.rewards.iter().filter(|r| r.rewards_owed > 0).count();
+        let count = result
+            .rewards_quote
+            .rewards
+            .iter()
+            .filter(|r| r.rewards_owed > 0)
+            .count();
         if count == 0 {
             return Err(AppError::ProtocolError(
-                "No active reward emissions found on this pool".into()
+                "No active reward emissions found on this pool".into(),
             ));
         }
         count
     };
 
     let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
-    let signers: Vec<Keypair> = result.additional_signers.into_iter().map(from_sdk_kp).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
 
@@ -1850,7 +2063,9 @@ async fn orca_get(http: &reqwest::Client, url: &str) -> Result<serde_json::Value
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
         let preview = &body[..body.len().min(300)];
-        return Err(AppError::ProtocolError(format!("Orca API {status}: {preview}")));
+        return Err(AppError::ProtocolError(format!(
+            "Orca API {status}: {preview}"
+        )));
     }
     resp.json::<serde_json::Value>()
         .await
@@ -1903,11 +2118,19 @@ pub async fn build_orca_create_pool(
     let pool_addr = from_sdk_pk(result.pool_address);
     let init_cost = result.initialization_cost;
     let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
-    let signers: Vec<Keypair> = result.additional_signers.into_iter().map(from_sdk_kp).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
 
-    let pool_type_str = if tick_spacing == 32896 { "splash" } else { "concentrated" };
+    let pool_type_str = if tick_spacing == 32896 {
+        "splash"
+    } else {
+        "concentrated"
+    };
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1929,7 +2152,8 @@ pub async fn build_orca_create_pool(
             }),
             warnings: vec![
                 format!("Pool address: {pool_addr}"),
-                "After pool creation, tick arrays must be initialized before opening positions".to_string(),
+                "After pool creation, tick arrays must be initialized before opening positions"
+                    .to_string(),
             ],
             requires_approval: true,
         },
@@ -1951,18 +2175,42 @@ pub async fn build_orca_get_pools(
     params: &OrcaGetPoolsParams,
 ) -> Result<BuildResponse, AppError> {
     let mut url = format!("{ORCA_V2_API}/pools?");
-    if let Some(ref s) = params.sort_by { url.push_str(&format!("sortBy={s}&")); }
-    if let Some(ref d) = params.sort_direction { url.push_str(&format!("sortDirection={d}&")); }
-    if let Some(n) = params.size { url.push_str(&format!("size={n}&")); }
-    if let Some(ref n) = params.next { url.push_str(&format!("next={n}&")); }
-    if let Some(ref p) = params.previous { url.push_str(&format!("previous={p}&")); }
-    if let Some(r) = params.has_rewards { url.push_str(&format!("hasRewards={r}&")); }
-    if let Some(w) = params.has_warning { url.push_str(&format!("hasWarning={w}&")); }
-    if let Some(a) = params.has_adaptive_fee { url.push_str(&format!("hasAdaptiveFee={a}&")); }
-    if let Some(w) = params.is_wavebreak { url.push_str(&format!("isWavebreak={w}&")); }
-    if let Some(v) = params.min_tvl { url.push_str(&format!("minTvl={v}&")); }
-    if let Some(v) = params.min_volume { url.push_str(&format!("minVolume={v}&")); }
-    if let Some(v) = params.min_locked_liquidity_percent { url.push_str(&format!("minLockedLiquidityPercent={v}&")); }
+    if let Some(ref s) = params.sort_by {
+        url.push_str(&format!("sortBy={s}&"));
+    }
+    if let Some(ref d) = params.sort_direction {
+        url.push_str(&format!("sortDirection={d}&"));
+    }
+    if let Some(n) = params.size {
+        url.push_str(&format!("size={n}&"));
+    }
+    if let Some(ref n) = params.next {
+        url.push_str(&format!("next={n}&"));
+    }
+    if let Some(ref p) = params.previous {
+        url.push_str(&format!("previous={p}&"));
+    }
+    if let Some(r) = params.has_rewards {
+        url.push_str(&format!("hasRewards={r}&"));
+    }
+    if let Some(w) = params.has_warning {
+        url.push_str(&format!("hasWarning={w}&"));
+    }
+    if let Some(a) = params.has_adaptive_fee {
+        url.push_str(&format!("hasAdaptiveFee={a}&"));
+    }
+    if let Some(w) = params.is_wavebreak {
+        url.push_str(&format!("isWavebreak={w}&"));
+    }
+    if let Some(v) = params.min_tvl {
+        url.push_str(&format!("minTvl={v}&"));
+    }
+    if let Some(v) = params.min_volume {
+        url.push_str(&format!("minVolume={v}&"));
+    }
+    if let Some(v) = params.min_locked_liquidity_percent {
+        url.push_str(&format!("minLockedLiquidityPercent={v}&"));
+    }
     if let Some(ref t) = params.token {
         let resolved = resolve_token_address(t);
         url.push_str(&format!("token={resolved}&"));
@@ -1973,9 +2221,15 @@ pub async fn build_orca_get_pools(
             url.push_str(&format!("tokensBothOf[]={mint}&"));
         }
     }
-    if let Some(ref a) = params.addresses { url.push_str(&format!("addresses={a}&")); }
-    if let Some(ref s) = params.stats { url.push_str(&format!("stats={s}&")); }
-    if let Some(b) = params.include_blocked { url.push_str(&format!("includeBlocked={b}&")); }
+    if let Some(ref a) = params.addresses {
+        url.push_str(&format!("addresses={a}&"));
+    }
+    if let Some(ref s) = params.stats {
+        url.push_str(&format!("stats={s}&"));
+    }
+    if let Some(b) = params.include_blocked {
+        url.push_str(&format!("includeBlocked={b}&"));
+    }
 
     let data = orca_get(http, url.trim_end_matches('&')).await?;
     Ok(BuildResponse {
@@ -2002,27 +2256,53 @@ pub async fn build_orca_search_pools(
     http: &reqwest::Client,
     params: &OrcaSearchPoolsParams,
 ) -> Result<BuildResponse, AppError> {
-    let q_enc: String = params.q.chars().flat_map(|c| {
-        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~') {
-            vec![c]
-        } else if c == ' ' {
-            vec!['+']
-        } else {
-            format!("%{:02X}", c as u32).chars().collect()
-        }
-    }).collect();
+    let q_enc: String = params
+        .q
+        .chars()
+        .flat_map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~') {
+                vec![c]
+            } else if c == ' ' {
+                vec!['+']
+            } else {
+                format!("%{:02X}", c as u32).chars().collect()
+            }
+        })
+        .collect();
     let mut url = format!("{ORCA_V2_API}/pools/search?q={q_enc}");
-    if let Some(n) = params.size { url.push_str(&format!("&size={n}")); }
-    if let Some(ref n) = params.next { url.push_str(&format!("&next={n}")); }
-    if let Some(ref s) = params.sort_by { url.push_str(&format!("&sortBy={s}")); }
-    if let Some(ref d) = params.sort_direction { url.push_str(&format!("&sortDirection={d}")); }
-    if let Some(v) = params.min_tvl { url.push_str(&format!("&minTvl={v}")); }
-    if let Some(v) = params.min_volume { url.push_str(&format!("&minVolume={v}")); }
-    if let Some(ref s) = params.stats { url.push_str(&format!("&stats={s}")); }
-    if let Some(ref t) = params.user_tokens { url.push_str(&format!("&userTokens={t}")); }
-    if let Some(r) = params.has_rewards { url.push_str(&format!("&hasRewards={r}")); }
-    if let Some(v) = params.verified_only { url.push_str(&format!("&verifiedOnly={v}")); }
-    if let Some(l) = params.has_locked_liquidity { url.push_str(&format!("&hasLockedLiquidity={l}")); }
+    if let Some(n) = params.size {
+        url.push_str(&format!("&size={n}"));
+    }
+    if let Some(ref n) = params.next {
+        url.push_str(&format!("&next={n}"));
+    }
+    if let Some(ref s) = params.sort_by {
+        url.push_str(&format!("&sortBy={s}"));
+    }
+    if let Some(ref d) = params.sort_direction {
+        url.push_str(&format!("&sortDirection={d}"));
+    }
+    if let Some(v) = params.min_tvl {
+        url.push_str(&format!("&minTvl={v}"));
+    }
+    if let Some(v) = params.min_volume {
+        url.push_str(&format!("&minVolume={v}"));
+    }
+    if let Some(ref s) = params.stats {
+        url.push_str(&format!("&stats={s}"));
+    }
+    if let Some(ref t) = params.user_tokens {
+        url.push_str(&format!("&userTokens={t}"));
+    }
+    if let Some(r) = params.has_rewards {
+        url.push_str(&format!("&hasRewards={r}"));
+    }
+    if let Some(v) = params.verified_only {
+        url.push_str(&format!("&verifiedOnly={v}"));
+    }
+    if let Some(l) = params.has_locked_liquidity {
+        url.push_str(&format!("&hasLockedLiquidity={l}"));
+    }
 
     let data = orca_get(http, &url).await?;
     Ok(BuildResponse {
@@ -2050,7 +2330,9 @@ pub async fn build_orca_get_pool(
     params: &OrcaGetPoolParams,
 ) -> Result<BuildResponse, AppError> {
     let mut url = format!("{ORCA_V2_API}/pools/{}", params.address);
-    if let Some(ref s) = params.stats { url.push_str(&format!("?stats={s}")); }
+    if let Some(ref s) = params.stats {
+        url.push_str(&format!("?stats={s}"));
+    }
     let data = orca_get(http, &url).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -2152,7 +2434,11 @@ pub async fn build_orca_get_circulating_supply(
     http: &reqwest::Client,
     _params: &OrcaGetCirculatingSupplyParams,
 ) -> Result<BuildResponse, AppError> {
-    let data = orca_get(http, &format!("{ORCA_V2_API}/protocol/token/circulating_supply")).await?;
+    let data = orca_get(
+        http,
+        &format!("{ORCA_V2_API}/protocol/token/circulating_supply"),
+    )
+    .await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -2203,12 +2489,24 @@ pub async fn build_orca_get_tokens(
     params: &OrcaGetTokensParams,
 ) -> Result<BuildResponse, AppError> {
     let mut url = format!("{ORCA_V2_API}/tokens?");
-    if let Some(n) = params.size { url.push_str(&format!("size={n}&")); }
-    if let Some(ref n) = params.next { url.push_str(&format!("next={n}&")); }
-    if let Some(ref p) = params.previous { url.push_str(&format!("previous={p}&")); }
-    if let Some(ref s) = params.sort_by { url.push_str(&format!("sort_by={s}&")); }
-    if let Some(ref d) = params.sort_direction { url.push_str(&format!("sort_direction={d}&")); }
-    if let Some(ref t) = params.tokens { url.push_str(&format!("tokens={t}&")); }
+    if let Some(n) = params.size {
+        url.push_str(&format!("size={n}&"));
+    }
+    if let Some(ref n) = params.next {
+        url.push_str(&format!("next={n}&"));
+    }
+    if let Some(ref p) = params.previous {
+        url.push_str(&format!("previous={p}&"));
+    }
+    if let Some(ref s) = params.sort_by {
+        url.push_str(&format!("sort_by={s}&"));
+    }
+    if let Some(ref d) = params.sort_direction {
+        url.push_str(&format!("sort_direction={d}&"));
+    }
+    if let Some(ref t) = params.tokens {
+        url.push_str(&format!("tokens={t}&"));
+    }
 
     let data = orca_get(http, url.trim_end_matches('&')).await?;
     Ok(BuildResponse {
@@ -2235,15 +2533,19 @@ pub async fn build_orca_search_tokens(
     http: &reqwest::Client,
     params: &OrcaSearchTokensParams,
 ) -> Result<BuildResponse, AppError> {
-    let q_enc: String = params.q.chars().flat_map(|c| {
-        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~') {
-            vec![c]
-        } else if c == ' ' {
-            vec!['+']
-        } else {
-            format!("%{:02X}", c as u32).chars().collect()
-        }
-    }).collect();
+    let q_enc: String = params
+        .q
+        .chars()
+        .flat_map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~') {
+                vec![c]
+            } else if c == ' ' {
+                vec!['+']
+            } else {
+                format!("%{:02X}", c as u32).chars().collect()
+            }
+        })
+        .collect();
     let url = format!("{ORCA_V2_API}/tokens/search?q={q_enc}");
     let data = orca_get(http, &url).await?;
     Ok(BuildResponse {
@@ -2340,21 +2642,25 @@ pub async fn build_orca_get_user_positions(
                 }));
             }
             PositionOrBundle::PositionBundle(bundle) => {
-                let bundled: Vec<serde_json::Value> = bundle.positions.iter().map(|bp| {
-                    let price_lower = tick_to_sqrt_price_f64(bp.data.tick_lower_index).powi(2);
-                    let price_upper = tick_to_sqrt_price_f64(bp.data.tick_upper_index).powi(2);
-                    serde_json::json!({
-                        "positionAddress": bp.address.to_string(),
-                        "whirlpool": bp.data.whirlpool.to_string(),
-                        "liquidity": bp.data.liquidity.to_string(),
-                        "tickLowerIndex": bp.data.tick_lower_index,
-                        "tickUpperIndex": bp.data.tick_upper_index,
-                        "priceLower": price_lower,
-                        "priceUpper": price_upper,
-                        "feeOwedA": bp.data.fee_owed_a,
-                        "feeOwedB": bp.data.fee_owed_b,
+                let bundled: Vec<serde_json::Value> = bundle
+                    .positions
+                    .iter()
+                    .map(|bp| {
+                        let price_lower = tick_to_sqrt_price_f64(bp.data.tick_lower_index).powi(2);
+                        let price_upper = tick_to_sqrt_price_f64(bp.data.tick_upper_index).powi(2);
+                        serde_json::json!({
+                            "positionAddress": bp.address.to_string(),
+                            "whirlpool": bp.data.whirlpool.to_string(),
+                            "liquidity": bp.data.liquidity.to_string(),
+                            "tickLowerIndex": bp.data.tick_lower_index,
+                            "tickUpperIndex": bp.data.tick_upper_index,
+                            "priceLower": price_lower,
+                            "priceUpper": price_upper,
+                            "feeOwedA": bp.data.fee_owed_a,
+                            "feeOwedB": bp.data.fee_owed_b,
+                        })
                     })
-                }).collect();
+                    .collect();
                 positions.push(serde_json::json!({
                     "type": "bundle",
                     "positionBundleAddress": bundle.address.to_string(),
@@ -2370,7 +2676,10 @@ pub async fn build_orca_get_user_positions(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "orca_get_user_positions".to_string(),
-            description: format!("Orca positions for {} ({total} found)", short_id(wallet_str)),
+            description: format!(
+                "Orca positions for {} ({total} found)",
+                short_id(wallet_str)
+            ),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
             params: serde_json::json!({ "positions": positions, "total": total, "wallet": wallet_str }),
@@ -2409,23 +2718,26 @@ pub async fn build_orca_get_pool_positions(
         .await
         .map_err(|e| AppError::ProtocolError(format!("fetch_positions_in_whirlpool: {e}")))?;
 
-    let positions: Vec<serde_json::Value> = all.iter().map(|decoded| {
-        let pos = &decoded.data;
-        let price_lower = tick_to_sqrt_price_f64(pos.tick_lower_index).powi(2);
-        let price_upper = tick_to_sqrt_price_f64(pos.tick_upper_index).powi(2);
-        serde_json::json!({
-            "positionAddress": decoded.address.to_string(),
-            "positionMint": pos.position_mint.to_string(),
-            "whirlpool": pos.whirlpool.to_string(),
-            "liquidity": pos.liquidity.to_string(),
-            "tickLowerIndex": pos.tick_lower_index,
-            "tickUpperIndex": pos.tick_upper_index,
-            "priceLower": price_lower,
-            "priceUpper": price_upper,
-            "feeOwedA": pos.fee_owed_a,
-            "feeOwedB": pos.fee_owed_b,
+    let positions: Vec<serde_json::Value> = all
+        .iter()
+        .map(|decoded| {
+            let pos = &decoded.data;
+            let price_lower = tick_to_sqrt_price_f64(pos.tick_lower_index).powi(2);
+            let price_upper = tick_to_sqrt_price_f64(pos.tick_upper_index).powi(2);
+            serde_json::json!({
+                "positionAddress": decoded.address.to_string(),
+                "positionMint": pos.position_mint.to_string(),
+                "whirlpool": pos.whirlpool.to_string(),
+                "liquidity": pos.liquidity.to_string(),
+                "tickLowerIndex": pos.tick_lower_index,
+                "tickUpperIndex": pos.tick_upper_index,
+                "priceLower": price_lower,
+                "priceUpper": price_upper,
+                "feeOwedA": pos.fee_owed_a,
+                "feeOwedB": pos.fee_owed_b,
+            })
         })
-    }).collect();
+        .collect();
 
     let total = positions.len();
     Ok(BuildResponse {

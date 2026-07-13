@@ -123,10 +123,7 @@ pub async fn classify_mint(
     // isn't either a known symbol (handled above) or a syntactically-valid
     // pubkey — this also catches malformed input the LLM might emit.
     let mint = mint_or_symbol;
-    if mint
-        .parse::<solana_sdk::pubkey::Pubkey>()
-        .is_err()
-    {
+    if mint.parse::<solana_sdk::pubkey::Pubkey>().is_err() {
         return Err(AppError::InvalidParams(format!(
             "Mint '{mint}' is not a valid Solana address and is not in the registry"
         )));
@@ -136,7 +133,9 @@ pub async fn classify_mint(
         return Ok(cached);
     }
 
-    let provenance = jupiter_lookup(http, mint).await.unwrap_or(MintProvenance::Unknown);
+    let provenance = jupiter_lookup(http, mint)
+        .await
+        .unwrap_or(MintProvenance::Unknown);
     cache.put(mint.to_string(), provenance.clone()).await;
     Ok(provenance)
 }
@@ -211,10 +210,7 @@ pub fn assert_registry_self_consistent() {
         info.address
             .parse::<solana_sdk::pubkey::Pubkey>()
             .unwrap_or_else(|_| {
-                panic!(
-                    "registry entry {} has malformed mint {}",
-                    sym, info.address
-                )
+                panic!("registry entry {} has malformed mint {}", sym, info.address)
             });
     }
 }

@@ -94,8 +94,8 @@ fn parse_amount_raw(amount: &str, decimals: u8) -> Result<u64, AppError> {
 
 /// Serialize an unsigned transaction to base64.
 fn serialize_tx(tx: &Transaction) -> Result<String, AppError> {
-    let serialized = bincode::serialize(tx)
-        .map_err(|e| AppError::Internal(format!("Serialize error: {e}")))?;
+    let serialized =
+        bincode::serialize(tx).map_err(|e| AppError::Internal(format!("Serialize error: {e}")))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(&serialized))
 }
 
@@ -191,31 +191,19 @@ fn order_pda(marginfi_account: &Pubkey, bank_pubkeys: &[[u8; 32]]) -> Pubkey {
         hasher.update(b);
     }
     let hash: [u8; 32] = hasher.finalize().into();
-    Pubkey::find_program_address(
-        &[b"order", marginfi_account.as_ref(), &hash],
-        &program_id(),
-    )
-    .0
+    Pubkey::find_program_address(&[b"order", marginfi_account.as_ref(), &hash], &program_id()).0
 }
 
 /// Compute the EXECUTE_RECORD PDA for a given order key.
 /// Seeds: ["execute_order", order]
 fn execute_record_pda(order: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(
-        &[b"execute_order", order.as_ref()],
-        &program_id(),
-    )
-    .0
+    Pubkey::find_program_address(&[b"execute_order", order.as_ref()], &program_id()).0
 }
 
 /// Compute the LIQUIDATION_RECORD PDA for a given marginfi_account.
 /// Seeds: ["liq_record", marginfi_account]
 fn liq_record_pda(marginfi_account: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(
-        &[b"liq_record", marginfi_account.as_ref()],
-        &program_id(),
-    )
-    .0
+    Pubkey::find_program_address(&[b"liq_record", marginfi_account.as_ref()], &program_id()).0
 }
 
 /// Sysvar1nstructions address (fixed).
@@ -933,9 +921,9 @@ fn validate_bank_required(bank: &str) -> Result<(), AppError> {
 }
 
 fn validate_positive_amount(amount: &str) -> Result<(), AppError> {
-    let v: f64 = amount
-        .parse()
-        .map_err(|_| AppError::InvalidParams(format!("amount must be a positive number, got: '{amount}'")))?;
+    let v: f64 = amount.parse().map_err(|_| {
+        AppError::InvalidParams(format!("amount must be a positive number, got: '{amount}'"))
+    })?;
     if v <= 0.0 {
         return Err(AppError::InvalidParams("amount must be positive".into()));
     }
@@ -960,16 +948,22 @@ pub fn validate_marginfi_close_account_params(
     Ok(())
 }
 
-pub fn validate_marginfi_close_balance_params(p: &MarginfiCloseBalanceParams) -> Result<(), AppError> {
+pub fn validate_marginfi_close_balance_params(
+    p: &MarginfiCloseBalanceParams,
+) -> Result<(), AppError> {
     validate_bank_required(&p.bank)
 }
 
-pub fn validate_marginfi_transfer_account_params(p: &MarginfiTransferAccountParams) -> Result<(), AppError> {
+pub fn validate_marginfi_transfer_account_params(
+    p: &MarginfiTransferAccountParams,
+) -> Result<(), AppError> {
     if p.source_account.is_empty() {
         return Err(AppError::InvalidParams("sourceAccount is required".into()));
     }
     if p.destination_account.is_empty() {
-        return Err(AppError::InvalidParams("destinationAccount is required".into()));
+        return Err(AppError::InvalidParams(
+            "destinationAccount is required".into(),
+        ));
     }
     Ok(())
 }
@@ -1008,22 +1002,30 @@ pub fn validate_marginfi_liquidate_params(p: &MarginfiLiquidateParams) -> Result
     validate_bank_required(&p.liab_bank)?;
     validate_positive_amount(&p.asset_amount)?;
     if p.liquidatee_account.is_empty() {
-        return Err(AppError::InvalidParams("liquidateeAccount is required".into()));
+        return Err(AppError::InvalidParams(
+            "liquidateeAccount is required".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_marginfi_start_liquidation_params(p: &MarginfiStartLiquidationParams) -> Result<(), AppError> {
+pub fn validate_marginfi_start_liquidation_params(
+    p: &MarginfiStartLiquidationParams,
+) -> Result<(), AppError> {
     if p.account.is_empty() {
         return Err(AppError::InvalidParams("account is required".into()));
     }
     if p.liquidation_receiver.is_empty() {
-        return Err(AppError::InvalidParams("liquidationReceiver is required".into()));
+        return Err(AppError::InvalidParams(
+            "liquidationReceiver is required".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_marginfi_end_liquidation_params(p: &MarginfiEndLiquidationParams) -> Result<(), AppError> {
+pub fn validate_marginfi_end_liquidation_params(
+    p: &MarginfiEndLiquidationParams,
+) -> Result<(), AppError> {
     if p.account.is_empty() {
         return Err(AppError::InvalidParams("account is required".into()));
     }
@@ -1044,15 +1046,15 @@ pub fn validate_marginfi_flashloan_end_params(
 
 pub fn validate_marginfi_place_order_params(p: &MarginfiPlaceOrderParams) -> Result<(), AppError> {
     if p.banks.is_empty() {
-        return Err(AppError::InvalidParams("banks is required (at least one)".into()));
+        return Err(AppError::InvalidParams(
+            "banks is required (at least one)".into(),
+        ));
     }
     validate_positive_amount(&p.limit)?;
     validate_positive_amount(&p.max_debt_coverage)
 }
 
-pub fn validate_marginfi_close_order_params(
-    p: &MarginfiCloseOrderParams,
-) -> Result<(), AppError> {
+pub fn validate_marginfi_close_order_params(p: &MarginfiCloseOrderParams) -> Result<(), AppError> {
     if p.order.is_empty() {
         return Err(AppError::InvalidParams("order address is required".into()));
     }
@@ -1089,26 +1091,36 @@ pub fn validate_marginfi_execute_order_end_params(
     Ok(())
 }
 
-pub fn validate_marginfi_claim_emissions_params(p: &MarginfiClaimEmissionsParams) -> Result<(), AppError> {
+pub fn validate_marginfi_claim_emissions_params(
+    p: &MarginfiClaimEmissionsParams,
+) -> Result<(), AppError> {
     validate_bank_required(&p.bank)
 }
 
-pub fn validate_marginfi_set_keeper_flags_params(_p: &MarginfiSetKeeperFlagsParams) -> Result<(), AppError> {
+pub fn validate_marginfi_set_keeper_flags_params(
+    _p: &MarginfiSetKeeperFlagsParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_marginfi_init_liq_record_params(_p: &MarginfiInitLiqRecordParams) -> Result<(), AppError> {
+pub fn validate_marginfi_init_liq_record_params(
+    _p: &MarginfiInitLiqRecordParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_marginfi_update_emissions_destination_params(p: &MarginfiUpdateEmissionsDestinationParams) -> Result<(), AppError> {
+pub fn validate_marginfi_update_emissions_destination_params(
+    p: &MarginfiUpdateEmissionsDestinationParams,
+) -> Result<(), AppError> {
     if p.destination.is_empty() {
         return Err(AppError::InvalidParams("destination is required".into()));
     }
     Ok(())
 }
 
-pub fn validate_marginfi_settle_emissions_params(p: &MarginfiSettleEmissionsParams) -> Result<(), AppError> {
+pub fn validate_marginfi_settle_emissions_params(
+    p: &MarginfiSettleEmissionsParams,
+) -> Result<(), AppError> {
     validate_bank_required(&p.bank)
 }
 
@@ -1121,30 +1133,40 @@ pub fn validate_marginfi_withdraw_emissions_permissionless_params(
     validate_bank_required(&p.bank)
 }
 
-pub fn validate_marginfi_clear_emissions_params(p: &MarginfiClearEmissionsParams) -> Result<(), AppError> {
+pub fn validate_marginfi_clear_emissions_params(
+    p: &MarginfiClearEmissionsParams,
+) -> Result<(), AppError> {
     validate_bank_required(&p.bank)
 }
 
-pub fn validate_marginfi_accrue_interest_params(p: &MarginfiAccrueInterestParams) -> Result<(), AppError> {
+pub fn validate_marginfi_accrue_interest_params(
+    p: &MarginfiAccrueInterestParams,
+) -> Result<(), AppError> {
     validate_bank_required(&p.bank)
 }
 
 pub fn validate_marginfi_pulse_price_params(p: &MarginfiPulsePriceParams) -> Result<(), AppError> {
     validate_bank_required(&p.bank)?;
     if p.oracle.is_empty() {
-        return Err(AppError::InvalidParams("oracle feed address is required".into()));
+        return Err(AppError::InvalidParams(
+            "oracle feed address is required".into(),
+        ));
     }
     Ok(())
 }
 
-pub fn validate_marginfi_pulse_health_params(p: &MarginfiPulseHealthParams) -> Result<(), AppError> {
+pub fn validate_marginfi_pulse_health_params(
+    p: &MarginfiPulseHealthParams,
+) -> Result<(), AppError> {
     if p.account.is_empty() {
         return Err(AppError::InvalidParams("account is required".into()));
     }
     Ok(())
 }
 
-pub fn validate_marginfi_account_info_params(_p: &MarginfiAccountInfoParams) -> Result<(), AppError> {
+pub fn validate_marginfi_account_info_params(
+    _p: &MarginfiAccountInfoParams,
+) -> Result<(), AppError> {
     // account and wallet are both optional — the build function falls back to the JWT-injected
     // user pubkey at execution time, so no pre-validation error is needed here.
     Ok(())
@@ -1222,10 +1244,7 @@ pub async fn get_account_info(
 }
 
 /// Fetch points info from the marginfi API (best-effort).
-pub async fn get_points(
-    http: &reqwest::Client,
-    wallet: &str,
-) -> Result<MarginfiPoints, AppError> {
+pub async fn get_points(http: &reqwest::Client, wallet: &str) -> Result<MarginfiPoints, AppError> {
     let resp = http
         .get(format!("https://api.mrgn.fi/v1/points/{wallet}"))
         .send()
@@ -1291,9 +1310,7 @@ pub async fn build_marginfi_create_account(
             estimated_fee: "~0.001 SOL".into(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
-            warnings: vec![
-                "A new account keypair must be generated client-side.".into()
-            ],
+            warnings: vec!["A new account keypair must be generated client-side.".into()],
             requires_approval: false,
         },
         transaction: Some(encoded),
@@ -1343,8 +1360,8 @@ pub async fn build_marginfi_create_account_pda(
         accounts: vec![
             AccountMeta::new_readonly(group, false),
             AccountMeta::new(account_pda, false),
-            AccountMeta::new_readonly(owner, true),    // authority (signer)
-            AccountMeta::new(owner, true),             // fee_payer (mut, signer)
+            AccountMeta::new_readonly(owner, true), // authority (signer)
+            AccountMeta::new(owner, true),          // fee_payer (mut, signer)
             AccountMeta::new_readonly(system_program::id(), false),
             AccountMeta::new_readonly(instructions_sysvar(), false), // ixs_sysvar
         ],
@@ -1394,9 +1411,9 @@ pub async fn build_marginfi_close_account(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),     // marginfi_account (close=fee_payer)
+            AccountMeta::new(account, false), // marginfi_account (close=fee_payer)
             AccountMeta::new_readonly(owner, true), // authority
-            AccountMeta::new(owner, true),        // fee_payer (receives rent)
+            AccountMeta::new(owner, true),    // fee_payer (receives rent)
         ],
         data,
     };
@@ -1446,10 +1463,10 @@ pub async fn build_marginfi_close_balance(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new_readonly(group, false),          // marginfi_group (readonly)
-            AccountMeta::new(account, false),                 // marginfi_account (mut)
-            AccountMeta::new_readonly(owner, true),           // authority (signer)
-            AccountMeta::new(bank_meta.address, false),       // bank (mut)
+            AccountMeta::new_readonly(group, false), // marginfi_group (readonly)
+            AccountMeta::new(account, false),        // marginfi_account (mut)
+            AccountMeta::new_readonly(owner, true),  // authority (signer)
+            AccountMeta::new(bank_meta.address, false), // bank (mut)
         ],
         data,
     };
@@ -1462,10 +1479,7 @@ pub async fn build_marginfi_close_balance(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "marginfi_close_balance".into(),
-            description: format!(
-                "Close {} balance entry in marginfi",
-                bank_meta.symbol
-            ),
+            description: format!("Close {} balance entry in marginfi", bank_meta.symbol),
             estimated_fee: "~0.00001 SOL".into(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
@@ -1502,10 +1516,10 @@ pub async fn build_marginfi_transfer_account(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new_readonly(group, false),   // marginfi_group (readonly)
-            AccountMeta::new(source, false),           // marginfi_account (source, mut)
-            AccountMeta::new_readonly(owner, true),    // authority (signer)
-            AccountMeta::new(destination, false),      // marginfi_account_to (destination, mut)
+            AccountMeta::new_readonly(group, false), // marginfi_group (readonly)
+            AccountMeta::new(source, false),         // marginfi_account (source, mut)
+            AccountMeta::new_readonly(owner, true),  // authority (signer)
+            AccountMeta::new(destination, false),    // marginfi_account_to (destination, mut)
         ],
         data,
     };
@@ -1586,10 +1600,7 @@ pub async fn build_marginfi_deposit(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "marginfi_deposit".into(),
-            description: format!(
-                "Deposit {} {} to marginfi",
-                params.amount, bank_meta.symbol
-            ),
+            description: format!("Deposit {} {} to marginfi", params.amount, bank_meta.symbol),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
@@ -1846,8 +1857,7 @@ pub async fn build_marginfi_liquidate(
 
     let asset_bank_meta = resolve_bank_meta(http, &params.asset_bank).await?;
     let liab_bank_meta = resolve_bank_meta(http, &params.liab_bank).await?;
-    let liquidator_account =
-        resolve_account(http, &params.account, user_pubkey_str).await?;
+    let liquidator_account = resolve_account(http, &params.account, user_pubkey_str).await?;
     let liquidatee_account = parse_pk(&params.liquidatee_account, "liquidateeAccount")?;
 
     let (vault_authority, _) = bank_vault_authority_pda(&liab_bank_meta.address);
@@ -1866,12 +1876,12 @@ pub async fn build_marginfi_liquidate(
         program_id: pid,
         accounts: vec![
             AccountMeta::new_readonly(group, false),
-            AccountMeta::new(asset_bank_meta.address, false),  // asset_bank
-            AccountMeta::new(liab_bank_meta.address, false),   // liab_bank
-            AccountMeta::new(liquidator_account, false),        // liquidator account
-            AccountMeta::new_readonly(owner, true),             // authority
-            AccountMeta::new(liquidatee_account, false),        // liquidatee account
-            AccountMeta::new_readonly(vault_authority, false),  // vault authority PDA
+            AccountMeta::new(asset_bank_meta.address, false), // asset_bank
+            AccountMeta::new(liab_bank_meta.address, false),  // liab_bank
+            AccountMeta::new(liquidator_account, false),      // liquidator account
+            AccountMeta::new_readonly(owner, true),           // authority
+            AccountMeta::new(liquidatee_account, false),      // liquidatee account
+            AccountMeta::new_readonly(vault_authority, false), // vault authority PDA
             AccountMeta::new(liquidity_vault, false),
             AccountMeta::new(insurance_vault, false),
             AccountMeta::new_readonly(liab_bank_meta.token_program, false),
@@ -1930,10 +1940,10 @@ pub async fn build_marginfi_start_liquidation(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),                              // marginfi_account (mut)
-            AccountMeta::new(liq_record, false),                           // liquidation_record (mut, PDA)
-            AccountMeta::new_readonly(liquidation_receiver, false),        // liquidation_receiver (unchecked, readonly)
-            AccountMeta::new_readonly(instructions_sysvar(), false),       // ixs_sysvar (fixed address)
+            AccountMeta::new(account, false),    // marginfi_account (mut)
+            AccountMeta::new(liq_record, false), // liquidation_record (mut, PDA)
+            AccountMeta::new_readonly(liquidation_receiver, false), // liquidation_receiver (unchecked, readonly)
+            AccountMeta::new_readonly(instructions_sysvar(), false), // ixs_sysvar (fixed address)
         ],
         data,
     };
@@ -1988,11 +1998,11 @@ pub async fn build_marginfi_end_liquidation(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),              // marginfi_account (mut)
-            AccountMeta::new(liq_record, false),           // liquidation_record (mut, PDA)
-            AccountMeta::new(owner, true),                 // liquidation_receiver / owner (mut, signer)
-            AccountMeta::new_readonly(fee_state, false),   // fee_state (readonly, PDA)
-            AccountMeta::new(global_fee_wallet, false),    // global_fee_wallet (mut)
+            AccountMeta::new(account, false),    // marginfi_account (mut)
+            AccountMeta::new(liq_record, false), // liquidation_record (mut, PDA)
+            AccountMeta::new(owner, true),       // liquidation_receiver / owner (mut, signer)
+            AccountMeta::new_readonly(fee_state, false), // fee_state (readonly, PDA)
+            AccountMeta::new(global_fee_wallet, false), // global_fee_wallet (mut)
             AccountMeta::new_readonly(system_program::id(), false),
         ],
         data,
@@ -2048,8 +2058,8 @@ pub async fn build_marginfi_flashloan_start(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),                        // marginfi_account (mut)
-            AccountMeta::new_readonly(owner, true),                  // authority (signer)
+            AccountMeta::new(account, false),       // marginfi_account (mut)
+            AccountMeta::new_readonly(owner, true), // authority (signer)
             AccountMeta::new_readonly(instructions_sysvar(), false), // ixs_sysvar (fixed address)
         ],
         data,
@@ -2098,8 +2108,8 @@ pub async fn build_marginfi_flashloan_end(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),         // marginfi_account (mut)
-            AccountMeta::new_readonly(owner, true),   // authority (signer)
+            AccountMeta::new(account, false),       // marginfi_account (mut)
+            AccountMeta::new_readonly(owner, true), // authority (signer)
         ],
         data,
     };
@@ -2149,10 +2159,12 @@ pub async fn build_marginfi_place_order(
         .limit
         .parse()
         .map_err(|_| AppError::InvalidParams(format!("Invalid limit value: '{}'", params.limit)))?;
-    let max_debt_raw: u64 = params
-        .max_debt_coverage
-        .parse()
-        .map_err(|_| AppError::InvalidParams(format!("Invalid maxDebtCoverage: '{}'", params.max_debt_coverage)))?;
+    let max_debt_raw: u64 = params.max_debt_coverage.parse().map_err(|_| {
+        AppError::InvalidParams(format!(
+            "Invalid maxDebtCoverage: '{}'",
+            params.max_debt_coverage
+        ))
+    })?;
 
     // Parse bank addresses; skip invalid entries but require at least one valid one.
     let bank_pubkeys: Vec<[u8; 32]> = params
@@ -2186,12 +2198,12 @@ pub async fn build_marginfi_place_order(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),                        // marginfi_account (mut)
-            AccountMeta::new_readonly(owner, true),                  // authority (signer)
-            AccountMeta::new(owner, true),                           // fee_payer (mut, signer)
-            AccountMeta::new(order, false),                          // order PDA (mut)
-            AccountMeta::new_readonly(fee_state, false),             // fee_state (readonly, PDA)
-            AccountMeta::new(global_fee_wallet, false),              // global_fee_wallet (mut)
+            AccountMeta::new(account, false),       // marginfi_account (mut)
+            AccountMeta::new_readonly(owner, true), // authority (signer)
+            AccountMeta::new(owner, true),          // fee_payer (mut, signer)
+            AccountMeta::new(order, false),         // order PDA (mut)
+            AccountMeta::new_readonly(fee_state, false), // fee_state (readonly, PDA)
+            AccountMeta::new(global_fee_wallet, false), // global_fee_wallet (mut)
             AccountMeta::new_readonly(system_program::id(), false),
         ],
         data,
@@ -2243,10 +2255,10 @@ pub async fn build_marginfi_close_order(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),              // marginfi_account (mut)
-            AccountMeta::new_readonly(owner, true),        // authority (signer)
-            AccountMeta::new(order, false),                // order (mut)
-            AccountMeta::new(fee_recipient, false),        // fee_recipient (mut)
+            AccountMeta::new(account, false),       // marginfi_account (mut)
+            AccountMeta::new_readonly(owner, true), // authority (signer)
+            AccountMeta::new(order, false),         // order (mut)
+            AccountMeta::new(fee_recipient, false), // fee_recipient (mut)
             AccountMeta::new_readonly(system_program::id(), false),
         ],
         data,
@@ -2301,11 +2313,11 @@ pub async fn build_marginfi_execute_order_start(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),                        // marginfi_account (mut)
-            AccountMeta::new_readonly(executor, true),               // executor (signer)
-            AccountMeta::new(owner, true),                           // fee_payer (mut, signer)
-            AccountMeta::new_readonly(order, false),                 // order (readonly)
-            AccountMeta::new(execute_record, false),                 // execute_record PDA (mut)
+            AccountMeta::new(account, false),          // marginfi_account (mut)
+            AccountMeta::new_readonly(executor, true), // executor (signer)
+            AccountMeta::new(owner, true),             // fee_payer (mut, signer)
+            AccountMeta::new_readonly(order, false),   // order (readonly)
+            AccountMeta::new(execute_record, false),   // execute_record PDA (mut)
             AccountMeta::new_readonly(instructions_sysvar(), false), // ixs_sysvar (fixed address)
             AccountMeta::new_readonly(system_program::id(), false),
         ],
@@ -2366,13 +2378,13 @@ pub async fn build_marginfi_execute_order_end(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),              // marginfi_account (mut)
-            AccountMeta::new_readonly(executor, true),     // executor (signer)
-            AccountMeta::new(fee_recipient, false),        // fee_recipient (mut)
-            AccountMeta::new(order, false),                // order (mut)
-            AccountMeta::new(execute_record, false),       // execute_record PDA (mut)
-            AccountMeta::new_readonly(fee_state, false),   // fee_state (readonly, PDA)
-            AccountMeta::new(global_fee_wallet, false),    // global_fee_wallet (mut)
+            AccountMeta::new(account, false),          // marginfi_account (mut)
+            AccountMeta::new_readonly(executor, true), // executor (signer)
+            AccountMeta::new(fee_recipient, false),    // fee_recipient (mut)
+            AccountMeta::new(order, false),            // order (mut)
+            AccountMeta::new(execute_record, false),   // execute_record PDA (mut)
+            AccountMeta::new_readonly(fee_state, false), // fee_state (readonly, PDA)
+            AccountMeta::new(global_fee_wallet, false), // global_fee_wallet (mut)
         ],
         data,
     };
@@ -2440,9 +2452,7 @@ pub async fn build_marginfi_claim_emissions(
             .iter()
             .find(|b| b.mint == emissions_mint)
             .map(|b| b.token_program)
-            .unwrap_or_else(|| {
-                Pubkey::from_str(SPL_TOKEN_PROGRAM).expect("valid spl-token")
-            })
+            .unwrap_or_else(|| Pubkey::from_str(SPL_TOKEN_PROGRAM).expect("valid spl-token"))
     } else {
         // Default case: emissions_mint == bank_meta.mint → use bank's token program
         bank_meta.token_program
@@ -2450,14 +2460,22 @@ pub async fn build_marginfi_claim_emissions(
 
     // Emissions auth PDA: seeds = ["emissions_auth_seed", bank, emissions_mint]
     let (emissions_auth_pda, _) = Pubkey::find_program_address(
-        &[b"emissions_auth_seed", bank_meta.address.as_ref(), emissions_mint.as_ref()],
+        &[
+            b"emissions_auth_seed",
+            bank_meta.address.as_ref(),
+            emissions_mint.as_ref(),
+        ],
         &pid,
     );
 
     // Emissions vault PDA: seeds = ["emissions_token_account_seed", bank, emissions_mint]
     // NOTE: This is a program-owned PDA vault, NOT an ATA of emissions_auth.
     let (emissions_vault_pda, _) = Pubkey::find_program_address(
-        &[b"emissions_token_account_seed", bank_meta.address.as_ref(), emissions_mint.as_ref()],
+        &[
+            b"emissions_token_account_seed",
+            bank_meta.address.as_ref(),
+            emissions_mint.as_ref(),
+        ],
         &pid,
     );
 
@@ -2472,15 +2490,15 @@ pub async fn build_marginfi_claim_emissions(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new_readonly(group, false),                           // marginfi_group
-            AccountMeta::new(account, false),                                  // marginfi_account
-            AccountMeta::new_readonly(owner, true),                            // authority (signer)
-            AccountMeta::new(bank_meta.address, false),                        // bank
-            AccountMeta::new_readonly(emissions_mint, false),                  // emissions_mint (readonly)
-            AccountMeta::new_readonly(emissions_auth_pda, false),              // emissions_auth (PDA, readonly)
-            AccountMeta::new(emissions_vault_pda, false),                      // emissions_vault (PDA, writable)
-            AccountMeta::new(destination_token_account, false),                // destination_account (writable)
-            AccountMeta::new_readonly(emissions_token_program, false),         // token_program
+            AccountMeta::new_readonly(group, false),    // marginfi_group
+            AccountMeta::new(account, false),           // marginfi_account
+            AccountMeta::new_readonly(owner, true),     // authority (signer)
+            AccountMeta::new(bank_meta.address, false), // bank
+            AccountMeta::new_readonly(emissions_mint, false), // emissions_mint (readonly)
+            AccountMeta::new_readonly(emissions_auth_pda, false), // emissions_auth (PDA, readonly)
+            AccountMeta::new(emissions_vault_pda, false), // emissions_vault (PDA, writable)
+            AccountMeta::new(destination_token_account, false), // destination_account (writable)
+            AccountMeta::new_readonly(emissions_token_program, false), // token_program
         ],
         data,
     };
@@ -2534,8 +2552,8 @@ pub async fn build_marginfi_settle_emissions(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),                // marginfi_account (writable)
-            AccountMeta::new(bank_meta.address, false),      // bank (writable)
+            AccountMeta::new(account, false), // marginfi_account (writable)
+            AccountMeta::new(bank_meta.address, false), // bank (writable)
         ],
         data,
     };
@@ -2599,11 +2617,19 @@ pub async fn build_marginfi_withdraw_emissions_permissionless(
     };
 
     let (emissions_auth_pda, _) = Pubkey::find_program_address(
-        &[b"emissions_auth_seed", bank_meta.address.as_ref(), emissions_mint.as_ref()],
+        &[
+            b"emissions_auth_seed",
+            bank_meta.address.as_ref(),
+            emissions_mint.as_ref(),
+        ],
         &pid,
     );
     let (emissions_vault_pda, _) = Pubkey::find_program_address(
-        &[b"emissions_token_account_seed", bank_meta.address.as_ref(), emissions_mint.as_ref()],
+        &[
+            b"emissions_token_account_seed",
+            bank_meta.address.as_ref(),
+            emissions_mint.as_ref(),
+        ],
         &pid,
     );
 
@@ -2622,14 +2648,14 @@ pub async fn build_marginfi_withdraw_emissions_permissionless(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new_readonly(group, false),                           // marginfi_group
-            AccountMeta::new(account, false),                                  // marginfi_account
-            AccountMeta::new(bank_meta.address, false),                        // bank
-            AccountMeta::new_readonly(emissions_mint, false),                  // emissions_mint
-            AccountMeta::new_readonly(emissions_auth_pda, false),              // emissions_auth
-            AccountMeta::new(emissions_vault_pda, false),                      // emissions_vault
-            AccountMeta::new(destination_token_account, false),                // destination_account
-            AccountMeta::new_readonly(emissions_token_program, false),         // token_program
+            AccountMeta::new_readonly(group, false),    // marginfi_group
+            AccountMeta::new(account, false),           // marginfi_account
+            AccountMeta::new(bank_meta.address, false), // bank
+            AccountMeta::new_readonly(emissions_mint, false), // emissions_mint
+            AccountMeta::new_readonly(emissions_auth_pda, false), // emissions_auth
+            AccountMeta::new(emissions_vault_pda, false), // emissions_vault
+            AccountMeta::new(destination_token_account, false), // destination_account
+            AccountMeta::new_readonly(emissions_token_program, false), // token_program
         ],
         data,
     };
@@ -2698,8 +2724,8 @@ pub async fn build_marginfi_set_keeper_flags(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),           // marginfi_account
-            AccountMeta::new_readonly(owner, true),     // authority (signer)
+            AccountMeta::new(account, false),       // marginfi_account
+            AccountMeta::new_readonly(owner, true), // authority (signer)
         ],
         data,
     };
@@ -2726,7 +2752,8 @@ pub async fn build_marginfi_set_keeper_flags(
             estimated_refund: None,
             params: serde_json::to_value(params)?,
             warnings: vec![
-                "Clearing balance tags allows keepers to close your open orders automatically".into(),
+                "Clearing balance tags allows keepers to close your open orders automatically"
+                    .into(),
             ],
             requires_approval: false,
         },
@@ -2767,11 +2794,11 @@ pub async fn build_marginfi_init_liq_record(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new_readonly(group, false),              // marginfi_group (readonly)
-            AccountMeta::new(account, false),                     // marginfi_account (mut)
-            AccountMeta::new_readonly(owner, true),               // authority (signer)
-            AccountMeta::new(owner, true),                        // fee_payer (mut, signer)
-            AccountMeta::new(liq_record, false),                  // liq_record PDA (mut)
+            AccountMeta::new_readonly(group, false), // marginfi_group (readonly)
+            AccountMeta::new(account, false),        // marginfi_account (mut)
+            AccountMeta::new_readonly(owner, true),  // authority (signer)
+            AccountMeta::new(owner, true),           // fee_payer (mut, signer)
+            AccountMeta::new(liq_record, false),     // liq_record PDA (mut)
             AccountMeta::new_readonly(system_program::id(), false),
         ],
         data,
@@ -2823,8 +2850,8 @@ pub async fn build_marginfi_update_emissions_destination(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),              // marginfi_account (mut)
-            AccountMeta::new_readonly(owner, true),        // authority (signer)
+            AccountMeta::new(account, false),       // marginfi_account (mut)
+            AccountMeta::new_readonly(owner, true), // authority (signer)
             AccountMeta::new_readonly(destination, false), // destination (unchecked, readonly)
         ],
         data,
@@ -2874,8 +2901,8 @@ pub async fn build_marginfi_clear_emissions(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new(account, false),             // marginfi_account (mut)
-            AccountMeta::new(bank_meta.address, false),   // bank (mut)
+            AccountMeta::new(account, false),           // marginfi_account (mut)
+            AccountMeta::new(bank_meta.address, false), // bank (mut)
         ],
         data,
     };
@@ -2888,7 +2915,10 @@ pub async fn build_marginfi_clear_emissions(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "marginfi_clear_emissions".into(),
-            description: format!("Clear stale {} emissions (bank rewards disabled)", bank_meta.symbol),
+            description: format!(
+                "Clear stale {} emissions (bank rewards disabled)",
+                bank_meta.symbol
+            ),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
@@ -2944,10 +2974,7 @@ pub async fn build_marginfi_accrue_interest(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "marginfi_accrue_interest".into(),
-            description: format!(
-                "Accrue interest for {} bank",
-                bank_meta.symbol
-            ),
+            description: format!("Accrue interest for {} bank", bank_meta.symbol),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
@@ -2984,9 +3011,9 @@ pub async fn build_marginfi_pulse_price(
     let ix = Instruction {
         program_id: pid,
         accounts: vec![
-            AccountMeta::new_readonly(group, false),        // marginfi_group (readonly)
-            AccountMeta::new(bank_meta.address, false),     // bank (mut)
-            AccountMeta::new_readonly(oracle, false),       // oracle feed (readonly)
+            AccountMeta::new_readonly(group, false), // marginfi_group (readonly)
+            AccountMeta::new(bank_meta.address, false), // bank (mut)
+            AccountMeta::new_readonly(oracle, false), // oracle feed (readonly)
         ],
         data,
     };
@@ -2999,10 +3026,7 @@ pub async fn build_marginfi_pulse_price(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "marginfi_pulse_price".into(),
-            description: format!(
-                "Update price cache for {} bank",
-                bank_meta.symbol
-            ),
+            description: format!("Update price cache for {} bank", bank_meta.symbol),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
@@ -3217,7 +3241,10 @@ pub async fn build_marginfi_points(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "marginfi_points".into(),
-            description: format!("Points: {:.2} | Rank: #{}", points.total_points, points.rank),
+            description: format!(
+                "Points: {:.2} | Rank: #{}",
+                points.total_points, points.rank
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::to_value(&points)?,

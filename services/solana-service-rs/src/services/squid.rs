@@ -1,3 +1,5 @@
+use crate::error::AppError;
+use reqwest::Client;
 /**
  * Squid Protocol Cross-Chain Swap Service — v2 complete
  *
@@ -12,9 +14,7 @@
  * Status values: SUCCESS | PARTIAL_SUCCESS | NEEDS_GAS | ONGOING | NOT_FOUND | REFUND
  */
 use serde::{Deserialize, Serialize};
-use reqwest::Client;
 use uuid::Uuid;
-use crate::error::AppError;
 
 const SQUID_API: &str = "https://v2.api.squidrouter.com";
 const SQUID_INTEGRATOR_ID: &str = "oprai-dapp";
@@ -29,44 +29,44 @@ const EVM_NATIVE: &str = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 pub fn chain_id_to_squid(chain_id: u64) -> Option<&'static str> {
     match chain_id {
         0 | 900 | 7565164 => Some("solana"),
-        1               => Some("1"),        // Ethereum
-        56              => Some("56"),       // BSC
-        137             => Some("137"),      // Polygon
-        43114           => Some("43114"),    // Avalanche
-        42161           => Some("42161"),    // Arbitrum
-        10              => Some("10"),       // Optimism
-        8453            => Some("8453"),     // Base
-        59144           => Some("59144"),    // Linea
-        534352          => Some("534352"),   // Scroll
-        1284            => Some("1284"),     // Moonbeam
-        2222            => Some("2222"),     // Kava
-        1101            => Some("1101"),     // zkEVM
-        324             => Some("324"),      // zkSync
-        100             => Some("100"),      // Gnosis
-        250             => Some("250"),      // Fantom
-        _               => None,
+        1 => Some("1"),           // Ethereum
+        56 => Some("56"),         // BSC
+        137 => Some("137"),       // Polygon
+        43114 => Some("43114"),   // Avalanche
+        42161 => Some("42161"),   // Arbitrum
+        10 => Some("10"),         // Optimism
+        8453 => Some("8453"),     // Base
+        59144 => Some("59144"),   // Linea
+        534352 => Some("534352"), // Scroll
+        1284 => Some("1284"),     // Moonbeam
+        2222 => Some("2222"),     // Kava
+        1101 => Some("1101"),     // zkEVM
+        324 => Some("324"),       // zkSync
+        100 => Some("100"),       // Gnosis
+        250 => Some("250"),       // Fantom
+        _ => None,
     }
 }
 
 pub fn chain_display(squid_chain: &str) -> &'static str {
     match squid_chain {
         "solana" => "Solana",
-        "1"      => "Ethereum",
-        "56"     => "BSC",
-        "137"    => "Polygon",
-        "43114"  => "Avalanche",
-        "42161"  => "Arbitrum",
-        "10"     => "Optimism",
-        "8453"   => "Base",
-        "59144"  => "Linea",
+        "1" => "Ethereum",
+        "56" => "BSC",
+        "137" => "Polygon",
+        "43114" => "Avalanche",
+        "42161" => "Arbitrum",
+        "10" => "Optimism",
+        "8453" => "Base",
+        "59144" => "Linea",
         "534352" => "Scroll",
-        "1284"   => "Moonbeam",
-        "2222"   => "Kava",
-        "1101"   => "zkEVM",
-        "324"    => "zkSync",
-        "100"    => "Gnosis",
-        "250"    => "Fantom",
-        _        => "unknown",
+        "1284" => "Moonbeam",
+        "2222" => "Kava",
+        "1101" => "zkEVM",
+        "324" => "zkSync",
+        "100" => "Gnosis",
+        "250" => "Fantom",
+        _ => "unknown",
     }
 }
 
@@ -336,15 +336,15 @@ struct SquidStatusResponse {
 fn resolve_token(token: &str, squid_chain: &str) -> String {
     if squid_chain == "solana" {
         match token.to_uppercase().as_str() {
-            "SOL"    => "So11111111111111111111111111111111111111112".into(),
-            "USDC"   => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".into(),
-            "USDT"   => "Es9vMFrzaCERm2cTEVTg9w5zcTreHDfS1YDGgY6m2t8X".into(),
-            "BONK"   => "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".into(),
-            "JUP"    => "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN".into(),
-            "RAY"    => "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R".into(),
-            "ORCA"   => "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE".into(),
-            "WETH"   => "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs".into(),
-            other    => other.to_string(),
+            "SOL" => "So11111111111111111111111111111111111111112".into(),
+            "USDC" => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".into(),
+            "USDT" => "Es9vMFrzaCERm2cTEVTg9w5zcTreHDfS1YDGgY6m2t8X".into(),
+            "BONK" => "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".into(),
+            "JUP" => "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN".into(),
+            "RAY" => "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R".into(),
+            "ORCA" => "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE".into(),
+            "WETH" => "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs".into(),
+            other => other.to_string(),
         }
     } else {
         match token.to_uppercase().as_str() {
@@ -355,8 +355,8 @@ fn resolve_token(token: &str, squid_chain: &str) -> String {
             "USDT" => "0xdAC17F958D2ee523a2206206994597C13D831ec7".into(),
             "WETH" => "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".into(),
             "WBTC" => "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599".into(),
-            "DAI"  => "0x6B175474E89094C44Da98b954EedeAC495271d0F".into(),
-            other  => other.to_string(),
+            "DAI" => "0x6B175474E89094C44Da98b954EedeAC495271d0F".into(),
+            other => other.to_string(),
         }
     }
 }
@@ -364,10 +364,10 @@ fn resolve_token(token: &str, squid_chain: &str) -> String {
 fn token_decimals_solana(symbol: &str) -> u32 {
     match symbol.to_uppercase().as_str() {
         "SOL" | "RAY" | "ORCA" | "JUP" => 9,
-        "USDC" | "USDT" | "MNGO"       => 6,
-        "BONK"                          => 5,
-        "WETH" | "WBTC"                 => 8,
-        _                               => 9,
+        "USDC" | "USDT" | "MNGO" => 6,
+        "BONK" => 5,
+        "WETH" | "WBTC" => 8,
+        _ => 9,
     }
 }
 
@@ -376,7 +376,9 @@ fn token_decimals_solana(symbol: &str) -> u32 {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn validate_squid_params(p: &SquidParams) -> Result<(), AppError> {
-    let amount: f64 = p.amount.parse()
+    let amount: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams(format!("Invalid amount: {}", p.amount)))?;
     if amount <= 0.0 {
         return Err(AppError::InvalidParams("Amount must be positive".into()));
@@ -451,10 +453,16 @@ fn build_route_body(
         }
     }
     if let Some(ref cf) = p.collect_fees {
-        obj.insert("collectFees".into(), serde_json::to_value(cf).unwrap_or_default());
+        obj.insert(
+            "collectFees".into(),
+            serde_json::to_value(cf).unwrap_or_default(),
+        );
     }
     if let Some(ref hook) = p.post_hook {
-        obj.insert("postHook".into(), serde_json::to_value(hook).unwrap_or_default());
+        obj.insert(
+            "postHook".into(),
+            serde_json::to_value(hook).unwrap_or_default(),
+        );
     }
 
     body
@@ -471,15 +479,25 @@ pub async fn build_squid_swap(
 ) -> Result<SquidBuildResult, AppError> {
     validate_squid_params(params)?;
 
-    let from_chain = chain_id_to_squid(params.origin_chain_id)
-        .ok_or_else(|| AppError::InvalidParams(format!("Unsupported origin chain: {}", params.origin_chain_id)))?;
-    let to_chain = chain_id_to_squid(params.destination_chain_id)
-        .ok_or_else(|| AppError::InvalidParams(format!("Unsupported destination chain: {}", params.destination_chain_id)))?;
+    let from_chain = chain_id_to_squid(params.origin_chain_id).ok_or_else(|| {
+        AppError::InvalidParams(format!(
+            "Unsupported origin chain: {}",
+            params.origin_chain_id
+        ))
+    })?;
+    let to_chain = chain_id_to_squid(params.destination_chain_id).ok_or_else(|| {
+        AppError::InvalidParams(format!(
+            "Unsupported destination chain: {}",
+            params.destination_chain_id
+        ))
+    })?;
 
     let from_token = resolve_token(&params.origin_token, from_chain);
-    let to_token   = resolve_token(&params.destination_token, to_chain);
+    let to_token = resolve_token(&params.destination_token, to_chain);
 
-    let amount: f64 = params.amount.parse()
+    let amount: f64 = params
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams(format!("Invalid amount: {}", params.amount)))?;
     let recipient = params.recipient.as_deref().unwrap_or(user_address);
 
@@ -494,7 +512,13 @@ pub async fn build_squid_swap(
     // ── POST /v2/route ────────────────────────────────────────────────────────
     let url = format!("{SQUID_API}/v2/route");
     let body = build_route_body(
-        params, from_chain, to_chain, &from_token, &to_token, &from_amount_raw, recipient,
+        params,
+        from_chain,
+        to_chain,
+        &from_token,
+        &to_token,
+        &from_amount_raw,
+        recipient,
     );
 
     let resp = http
@@ -509,7 +533,9 @@ pub async fn build_squid_swap(
     if !resp.status().is_success() {
         let status = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
-        return Err(AppError::Internal(format!("Squid route API error {status}: {body_text}")));
+        return Err(AppError::Internal(format!(
+            "Squid route API error {status}: {body_text}"
+        )));
     }
 
     let data: SquidRouteResponse = resp
@@ -517,17 +543,23 @@ pub async fn build_squid_swap(
         .await
         .map_err(|e| AppError::Internal(format!("Squid route parse failed: {e}")))?;
 
-    let route   = data.route.as_ref();
-    let est     = route.and_then(|r| r.estimate.as_ref());
-    let tx_req  = route.and_then(|r| r.transaction_request.as_ref());
+    let route = data.route.as_ref();
+    let est = route.and_then(|r| r.estimate.as_ref());
+    let tx_req = route.and_then(|r| r.transaction_request.as_ref());
     let quote_id = route.and_then(|r| r.quote_id.clone());
 
     // ── Extract estimate fields ───────────────────────────────────────────────
-    let from_sym = est.and_then(|e| e.from_token.as_ref()).and_then(|t| t.symbol.clone())
+    let from_sym = est
+        .and_then(|e| e.from_token.as_ref())
+        .and_then(|t| t.symbol.clone())
         .unwrap_or_else(|| params.origin_token.clone());
-    let to_sym = est.and_then(|e| e.to_token.as_ref()).and_then(|t| t.symbol.clone())
+    let to_sym = est
+        .and_then(|e| e.to_token.as_ref())
+        .and_then(|t| t.symbol.clone())
         .unwrap_or_else(|| params.destination_token.clone());
-    let to_amount = est.and_then(|e| e.to_amount.clone()).unwrap_or_else(|| "0".into());
+    let to_amount = est
+        .and_then(|e| e.to_amount.clone())
+        .unwrap_or_else(|| "0".into());
     let to_amount_min = est.and_then(|e| e.to_amount_min.clone());
     let to_amount_usd = est.and_then(|e| e.to_amount_usd.clone());
     let from_amount_usd = est.and_then(|e| e.from_amount_usd.clone());
@@ -540,12 +572,22 @@ pub async fn build_squid_swap(
         .unwrap_or(0.0);
 
     let total_fee_usd: f64 = {
-        let fee = est.and_then(|e| e.fee_costs.as_ref()).map(|v| {
-            v.iter().filter_map(|f| f.amount_usd.as_ref()?.parse::<f64>().ok()).sum::<f64>()
-        }).unwrap_or(0.0);
-        let gas = est.and_then(|e| e.gas_costs.as_ref()).map(|v| {
-            v.iter().filter_map(|f| f.amount_usd.as_ref()?.parse::<f64>().ok()).sum::<f64>()
-        }).unwrap_or(0.0);
+        let fee = est
+            .and_then(|e| e.fee_costs.as_ref())
+            .map(|v| {
+                v.iter()
+                    .filter_map(|f| f.amount_usd.as_ref()?.parse::<f64>().ok())
+                    .sum::<f64>()
+            })
+            .unwrap_or(0.0);
+        let gas = est
+            .and_then(|e| e.gas_costs.as_ref())
+            .map(|v| {
+                v.iter()
+                    .filter_map(|f| f.amount_usd.as_ref()?.parse::<f64>().ok())
+                    .sum::<f64>()
+            })
+            .unwrap_or(0.0);
         fee + gas
     };
 
@@ -562,12 +604,16 @@ pub async fn build_squid_swap(
             .map(|v| v.to_string().trim_matches('"').to_string())
             .unwrap_or_else(|| from_chain.to_string());
         let evm = tx_req.map(|t| EvmTxData {
-            to:                       t.target.clone().or_else(|| t.to_addr.clone()).unwrap_or_default(),
-            data:                     t.data.clone().unwrap_or_default(),
-            value:                    t.value.clone().unwrap_or_else(|| "0".into()),
-            chain_id:                 chain_id_str,
-            gas_limit:                t.gas_limit.clone(),
-            max_fee_per_gas:          t.max_fee_per_gas.clone(),
+            to: t
+                .target
+                .clone()
+                .or_else(|| t.to_addr.clone())
+                .unwrap_or_default(),
+            data: t.data.clone().unwrap_or_default(),
+            value: t.value.clone().unwrap_or_else(|| "0".into()),
+            chain_id: chain_id_str,
+            gas_limit: t.gas_limit.clone(),
+            max_fee_per_gas: t.max_fee_per_gas.clone(),
             max_priority_fee_per_gas: t.max_priority_fee_per_gas.clone(),
         });
         (None, evm)
@@ -578,9 +624,9 @@ pub async fn build_squid_swap(
         quote_id,
         request_id: data.request_id,
         from_chain: from_chain.into(),
-        to_chain:   to_chain.into(),
+        to_chain: to_chain.into(),
         from_token: from_sym.clone(),
-        to_token:   to_sym.clone(),
+        to_token: to_sym.clone(),
         from_amount: from_amount_raw,
         from_amount_usd,
         to_amount,
@@ -597,9 +643,10 @@ pub async fn build_squid_swap(
     let src_display = chain_display(from_chain);
     let dst_display = chain_display(to_chain);
 
-    let mut warnings = vec![
-        format!("Cross-chain via Squid: {} → {}", src_display, dst_display),
-    ];
+    let mut warnings = vec![format!(
+        "Cross-chain via Squid: {} → {}",
+        src_display, dst_display
+    )];
     if price_impact > 1.0 {
         warnings.push(format!("Price impact: {:.2}%", price_impact));
     }
@@ -611,19 +658,24 @@ pub async fn build_squid_swap(
     }
 
     let preview = SquidPreview {
-        id:              format!("sq_{}", Uuid::new_v4()),
-        action_type:     "squid_bridge".into(),
-        description:     format!(
+        id: format!("sq_{}", Uuid::new_v4()),
+        action_type: "squid_bridge".into(),
+        description: format!(
             "Swap {} {} ({}) → {} ({}) via Squid",
             params.amount, from_sym, src_display, to_sym, dst_display
         ),
-        estimated_fee:   format!("~${:.2}", total_fee_usd),
-        params:          serde_json::to_value(params).unwrap_or(serde_json::Value::Null),
+        estimated_fee: format!("~${:.2}", total_fee_usd),
+        params: serde_json::to_value(params).unwrap_or(serde_json::Value::Null),
         warnings,
         requires_approval: true,
     };
 
-    Ok(SquidBuildResult { solana_tx, evm_tx, preview, quote })
+    Ok(SquidBuildResult {
+        solana_tx,
+        evm_tx,
+        preview,
+        quote,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -718,7 +770,9 @@ pub async fn get_squid_chains(http: &Client) -> Result<SquidChainsResult, AppErr
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::Internal(format!("Squid chains API error {status}: {body}")));
+        return Err(AppError::Internal(format!(
+            "Squid chains API error {status}: {body}"
+        )));
     }
 
     let data: serde_json::Value = resp
@@ -757,7 +811,9 @@ pub async fn get_squid_tokens(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::Internal(format!("Squid tokens API error {status}: {body}")));
+        return Err(AppError::Internal(format!(
+            "Squid tokens API error {status}: {body}"
+        )));
     }
 
     let data: serde_json::Value = resp
@@ -785,24 +841,37 @@ pub async fn get_squid_quote(
     user_address: &str,
     p: &SquidQuoteParams,
 ) -> Result<SquidQuoteResult, AppError> {
-    let from_chain = chain_id_to_squid(p.origin_chain_id)
-        .ok_or_else(|| AppError::InvalidParams(format!("Unsupported origin chain: {}", p.origin_chain_id)))?;
-    let to_chain = chain_id_to_squid(p.destination_chain_id)
-        .ok_or_else(|| AppError::InvalidParams(format!("Unsupported destination chain: {}", p.destination_chain_id)))?;
+    let from_chain = chain_id_to_squid(p.origin_chain_id).ok_or_else(|| {
+        AppError::InvalidParams(format!("Unsupported origin chain: {}", p.origin_chain_id))
+    })?;
+    let to_chain = chain_id_to_squid(p.destination_chain_id).ok_or_else(|| {
+        AppError::InvalidParams(format!(
+            "Unsupported destination chain: {}",
+            p.destination_chain_id
+        ))
+    })?;
 
     if p.origin_chain_id == p.destination_chain_id {
-        return Err(AppError::InvalidParams("Source and destination chains must differ".into()));
+        return Err(AppError::InvalidParams(
+            "Source and destination chains must differ".into(),
+        ));
     }
 
-    let amount: f64 = p.amount.parse()
+    let amount: f64 = p
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams(format!("Invalid amount: {}", p.amount)))?;
     if amount <= 0.0 {
         return Err(AppError::InvalidParams("Amount must be positive".into()));
     }
 
     let from_token = resolve_token(&p.origin_token, from_chain);
-    let to_token   = resolve_token(&p.destination_token, to_chain);
-    let from_address = if p.from_address.is_empty() { user_address } else { &p.from_address };
+    let to_token = resolve_token(&p.destination_token, to_chain);
+    let from_address = if p.from_address.is_empty() {
+        user_address
+    } else {
+        &p.from_address
+    };
 
     let from_amount_raw = if from_chain == "solana" {
         let dec = token_decimals_solana(&p.origin_token);
@@ -823,11 +892,15 @@ pub async fn get_squid_quote(
         "enableBoost": true,
     });
     if let Some(s) = p.slippage {
-        body.as_object_mut().unwrap().insert("slippage".into(), serde_json::json!(s));
+        body.as_object_mut()
+            .unwrap()
+            .insert("slippage".into(), serde_json::json!(s));
     }
     if let Some(ref pref) = p.prefer {
         if !pref.is_empty() {
-            body.as_object_mut().unwrap().insert("prefer".into(), serde_json::json!(pref));
+            body.as_object_mut()
+                .unwrap()
+                .insert("prefer".into(), serde_json::json!(pref));
         }
     }
 
@@ -844,7 +917,9 @@ pub async fn get_squid_quote(
     if !resp.status().is_success() {
         let status = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
-        return Err(AppError::Internal(format!("Squid quote API error {status}: {body_text}")));
+        return Err(AppError::Internal(format!(
+            "Squid quote API error {status}: {body_text}"
+        )));
     }
 
     let data: SquidRouteResponse = resp
@@ -855,9 +930,13 @@ pub async fn get_squid_quote(
     let route = data.route.as_ref();
     let est = route.and_then(|r| r.estimate.as_ref());
 
-    let from_sym = est.and_then(|e| e.from_token.as_ref()).and_then(|t| t.symbol.clone())
+    let from_sym = est
+        .and_then(|e| e.from_token.as_ref())
+        .and_then(|t| t.symbol.clone())
         .unwrap_or_else(|| p.origin_token.clone());
-    let to_sym = est.and_then(|e| e.to_token.as_ref()).and_then(|t| t.symbol.clone())
+    let to_sym = est
+        .and_then(|e| e.to_token.as_ref())
+        .and_then(|t| t.symbol.clone())
         .unwrap_or_else(|| p.destination_token.clone());
 
     let price_impact: f64 = est
@@ -865,29 +944,41 @@ pub async fn get_squid_quote(
         .and_then(|s| s.parse().ok())
         .unwrap_or(0.0);
     let total_fee_usd: f64 = {
-        let fee = est.and_then(|e| e.fee_costs.as_ref()).map(|v| {
-            v.iter().filter_map(|f| f.amount_usd.as_ref()?.parse::<f64>().ok()).sum::<f64>()
-        }).unwrap_or(0.0);
-        let gas = est.and_then(|e| e.gas_costs.as_ref()).map(|v| {
-            v.iter().filter_map(|f| f.amount_usd.as_ref()?.parse::<f64>().ok()).sum::<f64>()
-        }).unwrap_or(0.0);
+        let fee = est
+            .and_then(|e| e.fee_costs.as_ref())
+            .map(|v| {
+                v.iter()
+                    .filter_map(|f| f.amount_usd.as_ref()?.parse::<f64>().ok())
+                    .sum::<f64>()
+            })
+            .unwrap_or(0.0);
+        let gas = est
+            .and_then(|e| e.gas_costs.as_ref())
+            .map(|v| {
+                v.iter()
+                    .filter_map(|f| f.amount_usd.as_ref()?.parse::<f64>().ok())
+                    .sum::<f64>()
+            })
+            .unwrap_or(0.0);
         fee + gas
     };
 
     Ok(SquidQuoteResult {
-        quote_id:                  route.and_then(|r| r.quote_id.clone()),
-        from_chain:                from_chain.into(),
-        to_chain:                  to_chain.into(),
-        from_token:                from_sym,
-        to_token:                  to_sym,
-        from_amount:               from_amount_raw,
-        to_amount:                 est.and_then(|e| e.to_amount.clone()).unwrap_or_else(|| "0".into()),
-        to_amount_min:             est.and_then(|e| e.to_amount_min.clone()),
-        price_impact_pct:          price_impact,
+        quote_id: route.and_then(|r| r.quote_id.clone()),
+        from_chain: from_chain.into(),
+        to_chain: to_chain.into(),
+        from_token: from_sym,
+        to_token: to_sym,
+        from_amount: from_amount_raw,
+        to_amount: est
+            .and_then(|e| e.to_amount.clone())
+            .unwrap_or_else(|| "0".into()),
+        to_amount_min: est.and_then(|e| e.to_amount_min.clone()),
+        price_impact_pct: price_impact,
         total_fee_usd,
         estimated_duration_seconds: est.and_then(|e| e.estimated_route_duration).unwrap_or(180),
-        exchange_rate:             est.and_then(|e| e.exchange_rate.clone()),
-        is_boost_supported:        route.and_then(|r| r.is_boost_supported),
+        exchange_rate: est.and_then(|e| e.exchange_rate.clone()),
+        is_boost_supported: route.and_then(|r| r.is_boost_supported),
     })
 }
 
@@ -934,7 +1025,9 @@ pub async fn get_squid_status(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::Internal(format!("Squid status API error {status}: {body}")));
+        return Err(AppError::Internal(format!(
+            "Squid status API error {status}: {body}"
+        )));
     }
 
     let data: SquidStatusResponse = resp
@@ -942,7 +1035,8 @@ pub async fn get_squid_status(
         .await
         .map_err(|e| AppError::Internal(format!("Squid status parse failed: {e}")))?;
 
-    let raw_status = data.squid_transaction_status
+    let raw_status = data
+        .squid_transaction_status
         .or(data.status)
         .unwrap_or_else(|| "UNKNOWN".into())
         .to_uppercase();
@@ -953,7 +1047,8 @@ pub async fn get_squid_status(
     );
 
     let extract_tx = |chain: &Option<serde_json::Value>| -> Option<String> {
-        chain.as_ref()
+        chain
+            .as_ref()
             .and_then(|c| c.get("transactionDetails"))
             .and_then(|td| td.get("txHash"))
             .and_then(|v| v.as_str())
@@ -961,26 +1056,26 @@ pub async fn get_squid_status(
     };
 
     let from_tx = extract_tx(&data.from_chain);
-    let to_tx   = extract_tx(&data.to_chain);
+    let to_tx = extract_tx(&data.to_chain);
 
     let meaning = match raw_status.as_str() {
-        "SUCCESS"          => "Fully completed on all chains.",
-        "PARTIAL_SUCCESS"  => "Source chain executed; destination chain reverted.",
-        "NEEDS_GAS"        => "Axelar gas spike on destination — add gas manually.",
-        "ONGOING"          => "In progress — keep polling every 10s.",
-        "NOT_FOUND"        => "No on-chain record found yet — may still propagate.",
-        "REFUND"           => "Coral route failed; tokens refunded to source.",
-        _                  => "Unknown status",
+        "SUCCESS" => "Fully completed on all chains.",
+        "PARTIAL_SUCCESS" => "Source chain executed; destination chain reverted.",
+        "NEEDS_GAS" => "Axelar gas spike on destination — add gas manually.",
+        "ONGOING" => "In progress — keep polling every 10s.",
+        "NOT_FOUND" => "No on-chain record found yet — may still propagate.",
+        "REFUND" => "Coral route failed; tokens refunded to source.",
+        _ => "Unknown status",
     };
 
     Ok(SquidStatusResult {
-        transaction_id:   status_params.transaction_id.clone(),
-        quote_id:         status_params.quote_id.clone(),
-        status:           raw_status,
+        transaction_id: status_params.transaction_id.clone(),
+        quote_id: status_params.quote_id.clone(),
+        status: raw_status,
         is_terminal,
         from_chain_tx_hash: from_tx,
-        to_chain_tx_hash:   to_tx,
-        axelarscan_url:   format!("https://axelarscan.io/gmp/{}", status_params.transaction_id),
-        status_meaning:   meaning.into(),
+        to_chain_tx_hash: to_tx,
+        axelarscan_url: format!("https://axelarscan.io/gmp/{}", status_params.transaction_id),
+        status_meaning: meaning.into(),
     })
 }

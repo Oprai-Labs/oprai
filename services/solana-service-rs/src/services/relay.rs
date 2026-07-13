@@ -427,7 +427,8 @@ pub async fn get_cross_chain_quote(
     user_address: &str,
     fee_recipient: Option<&str>,
 ) -> Result<RelayQuote, AppError> {
-    let base_url = if is_testnet(params.origin_chain_id) || is_testnet(params.destination_chain_id) {
+    let base_url = if is_testnet(params.origin_chain_id) || is_testnet(params.destination_chain_id)
+    {
         RELAY_TESTNET_API
     } else {
         RELAY_API
@@ -521,10 +522,8 @@ pub async fn build_cross_chain_swap(
     // Calculate output amount
     let out_amount = details.amount_out.clone().unwrap_or_default();
     let out_decimals = details.currency_out.decimals.unwrap_or(18);
-    let out_amount_float = out_amount
-        .parse::<u64>()
-        .unwrap_or(0) as f64
-        / 10_f64.powi(out_decimals as i32);
+    let out_amount_float =
+        out_amount.parse::<u64>().unwrap_or(0) as f64 / 10_f64.powi(out_decimals as i32);
 
     // Build warnings
     let mut warnings = Vec::new();
@@ -565,7 +564,12 @@ pub async fn build_cross_chain_swap(
         action_type: "cross_chain_swap".to_string(),
         description: format!(
             "Swap {} {} ({}) → {:.6} {} ({})",
-            params.amount, origin_symbol, origin_chain_name, out_amount_float, dest_symbol, dest_chain_name
+            params.amount,
+            origin_symbol,
+            origin_chain_name,
+            out_amount_float,
+            dest_symbol,
+            dest_chain_name
         ),
         estimated_fee: quote
             .fees
@@ -610,7 +614,9 @@ pub async fn get_supported_chains(
         .await
         .map_err(|e| AppError::RelayApiError(format!("Failed to parse chains: {}", e)))?;
 
-    let chains: Vec<RelayChainInfo> = if let Some(arr) = raw.get("chains").and_then(|v| v.as_array()) {
+    let chains: Vec<RelayChainInfo> = if let Some(arr) =
+        raw.get("chains").and_then(|v| v.as_array())
+    {
         serde_json::from_value(serde_json::Value::Array(arr.clone()))
             .map_err(|e| AppError::RelayApiError(format!("Failed to deserialize chains: {}", e)))?
     } else {
@@ -856,23 +862,57 @@ pub async fn get_relay_quote_full(
         "tradeType": params.trade_type,
     });
 
-    if let Some(ref v) = params.recipient { body["recipient"] = serde_json::json!(v); }
-    if let Some(ref v) = params.refund_to { body["refundTo"] = serde_json::json!(v); }
-    if let Some(ref v) = params.refund_type { body["refundType"] = serde_json::json!(v); }
-    if let Some(v) = params.topup_gas { body["topupGas"] = serde_json::json!(v); }
-    if let Some(ref v) = params.topup_gas_amount { body["topupGasAmount"] = serde_json::json!(v); }
-    if let Some(v) = params.slippage_tolerance { body["slippageTolerance"] = serde_json::json!(v); }
-    if let Some(v) = params.subsidize_fees { body["subsidizeFees"] = serde_json::json!(v); }
-    if let Some(ref v) = params.referrer { body["referrer"] = serde_json::json!(v); }
-    if let Some(ref v) = params.referrer_address { body["referrerAddress"] = serde_json::json!(v); }
-    if let Some(v) = params.use_deposit_address { body["useDepositAddress"] = serde_json::json!(v); }
-    if let Some(v) = params.disable_origin_swaps { body["disableOriginSwaps"] = serde_json::json!(v); }
-    if let Some(v) = params.force_solver_execution { body["forceSolverExecution"] = serde_json::json!(v); }
-    if let Some(v) = params.fixed_rate { body["fixedRate"] = serde_json::json!(v); }
-    if let Some(v) = params.max_route_length { body["maxRouteLength"] = serde_json::json!(v); }
-    if let Some(v) = params.strict { body["strict"] = serde_json::json!(v); }
-    if let Some(v) = params.override_price_impact { body["overridePriceImpact"] = serde_json::json!(v); }
-    if let Some(v) = params.include_compute_unit_limit { body["includeComputeUnitLimit"] = serde_json::json!(v); }
+    if let Some(ref v) = params.recipient {
+        body["recipient"] = serde_json::json!(v);
+    }
+    if let Some(ref v) = params.refund_to {
+        body["refundTo"] = serde_json::json!(v);
+    }
+    if let Some(ref v) = params.refund_type {
+        body["refundType"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.topup_gas {
+        body["topupGas"] = serde_json::json!(v);
+    }
+    if let Some(ref v) = params.topup_gas_amount {
+        body["topupGasAmount"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.slippage_tolerance {
+        body["slippageTolerance"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.subsidize_fees {
+        body["subsidizeFees"] = serde_json::json!(v);
+    }
+    if let Some(ref v) = params.referrer {
+        body["referrer"] = serde_json::json!(v);
+    }
+    if let Some(ref v) = params.referrer_address {
+        body["referrerAddress"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.use_deposit_address {
+        body["useDepositAddress"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.disable_origin_swaps {
+        body["disableOriginSwaps"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.force_solver_execution {
+        body["forceSolverExecution"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.fixed_rate {
+        body["fixedRate"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.max_route_length {
+        body["maxRouteLength"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.strict {
+        body["strict"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.override_price_impact {
+        body["overridePriceImpact"] = serde_json::json!(v);
+    }
+    if let Some(v) = params.include_compute_unit_limit {
+        body["includeComputeUnitLimit"] = serde_json::json!(v);
+    }
     append_app_fee(&mut body, fee_recipient);
 
     let response = http
@@ -884,7 +924,10 @@ pub async fn get_relay_quote_full(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!("Relay quote failed: {}", err)));
+        return Err(AppError::RelayApiError(format!(
+            "Relay quote failed: {}",
+            err
+        )));
     }
 
     response
@@ -903,8 +946,16 @@ pub async fn relay_bridge(
     let quote = get_relay_quote_full(http, params, user_address, fee_recipient).await?;
 
     let details = &quote.details;
-    let origin_symbol = details.currency_in.symbol.clone().unwrap_or_else(|| "TOKEN".to_string());
-    let dest_symbol = details.currency_out.symbol.clone().unwrap_or_else(|| "TOKEN".to_string());
+    let origin_symbol = details
+        .currency_in
+        .symbol
+        .clone()
+        .unwrap_or_else(|| "TOKEN".to_string());
+    let dest_symbol = details
+        .currency_out
+        .symbol
+        .clone()
+        .unwrap_or_else(|| "TOKEN".to_string());
     let origin_chain_name = get_chain_name(params.origin_chain_id);
     let dest_chain_name = get_chain_name(params.destination_chain_id);
 
@@ -913,7 +964,10 @@ pub async fn relay_bridge(
     let out_amount_float =
         out_amount.parse::<u64>().unwrap_or(0) as f64 / 10_f64.powi(out_decimals as i32);
 
-    let mut warnings = vec![format!("Cross-chain bridge: {} → {}", origin_chain_name, dest_chain_name)];
+    let mut warnings = vec![format!(
+        "Cross-chain bridge: {} → {}",
+        origin_chain_name, dest_chain_name
+    )];
     if let Some(time) = details.estimated_time {
         if time > 300 {
             warnings.push(format!("May take {}+ minutes", time / 60));
@@ -921,12 +975,16 @@ pub async fn relay_bridge(
     }
     if let Some(ref impact) = details.price_impact {
         if let Ok(v) = impact.parse::<f64>() {
-            if v > 1.0 { warnings.push(format!("High price impact: {:.2}%", v)); }
+            if v > 1.0 {
+                warnings.push(format!("High price impact: {:.2}%", v));
+            }
         }
     }
     if let Some(ref fees) = quote.fees {
         if let Some(total) = fees.total_usd {
-            if total > 10.0 { warnings.push(format!("Total fees: ${:.2}", total)); }
+            if total > 10.0 {
+                warnings.push(format!("Total fees: ${:.2}", total));
+            }
         }
     }
 
@@ -948,8 +1006,12 @@ pub async fn relay_bridge(
         action_type: "relay_bridge".to_string(),
         description: format!(
             "Bridge {} {} ({}) → {:.6} {} ({})",
-            params.amount, origin_symbol, origin_chain_name,
-            out_amount_float, dest_symbol, dest_chain_name
+            params.amount,
+            origin_symbol,
+            origin_chain_name,
+            out_amount_float,
+            dest_symbol,
+            dest_chain_name
         ),
         estimated_fee: quote
             .fees
@@ -1256,7 +1318,10 @@ pub async fn reindex_deposit_address(
     req: &RelayDepositAddressReindexRequest,
 ) -> Result<RelayDepositAddressReindexResponse, AppError> {
     let response = http
-        .post(format!("{}/transactions/deposit-address/reindex", RELAY_API))
+        .post(format!(
+            "{}/transactions/deposit-address/reindex",
+            RELAY_API
+        ))
         .header("Content-Type", "application/json")
         .json(req)
         .send()
@@ -1397,7 +1462,10 @@ pub async fn execute_relay_permits(
     body: &RelayExecutePermitsRequest,
 ) -> Result<RelayExecutePermitsResponse, AppError> {
     let response = http
-        .post(format!("{}/execute/permits?signature={}", RELAY_API, signature))
+        .post(format!(
+            "{}/execute/permits?signature={}",
+            RELAY_API, signature
+        ))
         .header("Content-Type", "application/json")
         .json(body)
         .send()
@@ -1414,7 +1482,9 @@ pub async fn execute_relay_permits(
     response
         .json::<RelayExecutePermitsResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse execute/permits response: {}", e)))
+        .map_err(|e| {
+            AppError::RelayApiError(format!("Failed to parse execute/permits response: {}", e))
+        })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1456,7 +1526,10 @@ pub async fn get_relay_chains_liquidity(
     chain_id: u64,
 ) -> Result<RelayLiquidityResponse, AppError> {
     let response = http
-        .get(format!("{}/chains/liquidity?chainId={}", RELAY_API, chain_id))
+        .get(format!(
+            "{}/chains/liquidity?chainId={}",
+            RELAY_API, chain_id
+        ))
         .send()
         .await?;
 
@@ -1513,17 +1586,39 @@ pub async fn get_relay_currencies(
     query: &RelayCurrenciesQuery,
 ) -> Result<Vec<RelayTokenInfo>, AppError> {
     let mut body = serde_json::json!({});
-    if let Some(ref v) = query.chain_ids { body["chainIds"] = serde_json::json!(v); }
-    if let Some(ref v) = query.term { body["term"] = serde_json::json!(v); }
-    if let Some(ref v) = query.address { body["address"] = serde_json::json!(v); }
-    if let Some(ref v) = query.currency_id { body["currencyId"] = serde_json::json!(v); }
-    if let Some(ref v) = query.tokens { body["tokens"] = serde_json::json!(v); }
-    if let Some(v) = query.verified { body["verified"] = serde_json::json!(v); }
-    if let Some(v) = query.limit { body["limit"] = serde_json::json!(v); }
-    if let Some(v) = query.default_list { body["defaultList"] = serde_json::json!(v); }
-    if let Some(v) = query.include_all_chains { body["includeAllChains"] = serde_json::json!(v); }
-    if let Some(v) = query.use_external_search { body["useExternalSearch"] = serde_json::json!(v); }
-    if let Some(v) = query.deposit_address_only { body["depositAddressOnly"] = serde_json::json!(v); }
+    if let Some(ref v) = query.chain_ids {
+        body["chainIds"] = serde_json::json!(v);
+    }
+    if let Some(ref v) = query.term {
+        body["term"] = serde_json::json!(v);
+    }
+    if let Some(ref v) = query.address {
+        body["address"] = serde_json::json!(v);
+    }
+    if let Some(ref v) = query.currency_id {
+        body["currencyId"] = serde_json::json!(v);
+    }
+    if let Some(ref v) = query.tokens {
+        body["tokens"] = serde_json::json!(v);
+    }
+    if let Some(v) = query.verified {
+        body["verified"] = serde_json::json!(v);
+    }
+    if let Some(v) = query.limit {
+        body["limit"] = serde_json::json!(v);
+    }
+    if let Some(v) = query.default_list {
+        body["defaultList"] = serde_json::json!(v);
+    }
+    if let Some(v) = query.include_all_chains {
+        body["includeAllChains"] = serde_json::json!(v);
+    }
+    if let Some(v) = query.use_external_search {
+        body["useExternalSearch"] = serde_json::json!(v);
+    }
+    if let Some(v) = query.deposit_address_only {
+        body["depositAddressOnly"] = serde_json::json!(v);
+    }
 
     let response = http
         .post(format!("{}/currencies/v2", RELAY_API))
@@ -1534,7 +1629,10 @@ pub async fn get_relay_currencies(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!("Failed to fetch currencies: {}", err)));
+        return Err(AppError::RelayApiError(format!(
+            "Failed to fetch currencies: {}",
+            err
+        )));
     }
 
     response
@@ -1567,7 +1665,10 @@ pub async fn get_relay_token_price(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!("Failed to fetch token price: {}", err)));
+        return Err(AppError::RelayApiError(format!(
+            "Failed to fetch token price: {}",
+            err
+        )));
     }
 
     response
@@ -1645,27 +1746,69 @@ pub async fn get_relay_requests(
     query: &RelayRequestsQuery,
 ) -> Result<RelayRequestsResponse, AppError> {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(v) = query.limit { parts.push(format!("limit={}", v)); }
-    if let Some(ref v) = query.continuation { parts.push(format!("continuation={}", v)); }
-    if let Some(ref v) = query.user { parts.push(format!("user={}", v)); }
-    if let Some(ref v) = query.hash { parts.push(format!("hash={}", v)); }
-    if let Some(v) = query.origin_chain_id { parts.push(format!("originChainId={}", v)); }
-    if let Some(v) = query.destination_chain_id { parts.push(format!("destinationChainId={}", v)); }
-    if let Some(ref v) = query.chain_id { parts.push(format!("chainId={}", v)); }
-    if let Some(ref v) = query.id { parts.push(format!("id={}", v)); }
-    if let Some(ref v) = query.order_id { parts.push(format!("orderId={}", v)); }
-    if let Some(ref v) = query.deposit_address { parts.push(format!("depositAddress={}", v)); }
-    if let Some(ref v) = query.status { parts.push(format!("status={}", v)); }
-    if let Some(v) = query.start_timestamp { parts.push(format!("startTimestamp={}", v)); }
-    if let Some(v) = query.end_timestamp { parts.push(format!("endTimestamp={}", v)); }
-    if let Some(v) = query.start_block { parts.push(format!("startBlock={}", v)); }
-    if let Some(v) = query.end_block { parts.push(format!("endBlock={}", v)); }
-    if let Some(ref v) = query.referrer { parts.push(format!("referrer={}", v)); }
-    if let Some(v) = query.include_order_data { parts.push(format!("includeOrderData={}", v)); }
-    if let Some(v) = query.include_child_requests { parts.push(format!("includeChildRequests={}", v)); }
-    if let Some(ref v) = query.private_chains_to_include { parts.push(format!("privateChainsToInclude={}", v)); }
-    if let Some(ref v) = query.sort_by { parts.push(format!("sortBy={}", v)); }
-    if let Some(ref v) = query.sort_direction { parts.push(format!("sortDirection={}", v)); }
+    if let Some(v) = query.limit {
+        parts.push(format!("limit={}", v));
+    }
+    if let Some(ref v) = query.continuation {
+        parts.push(format!("continuation={}", v));
+    }
+    if let Some(ref v) = query.user {
+        parts.push(format!("user={}", v));
+    }
+    if let Some(ref v) = query.hash {
+        parts.push(format!("hash={}", v));
+    }
+    if let Some(v) = query.origin_chain_id {
+        parts.push(format!("originChainId={}", v));
+    }
+    if let Some(v) = query.destination_chain_id {
+        parts.push(format!("destinationChainId={}", v));
+    }
+    if let Some(ref v) = query.chain_id {
+        parts.push(format!("chainId={}", v));
+    }
+    if let Some(ref v) = query.id {
+        parts.push(format!("id={}", v));
+    }
+    if let Some(ref v) = query.order_id {
+        parts.push(format!("orderId={}", v));
+    }
+    if let Some(ref v) = query.deposit_address {
+        parts.push(format!("depositAddress={}", v));
+    }
+    if let Some(ref v) = query.status {
+        parts.push(format!("status={}", v));
+    }
+    if let Some(v) = query.start_timestamp {
+        parts.push(format!("startTimestamp={}", v));
+    }
+    if let Some(v) = query.end_timestamp {
+        parts.push(format!("endTimestamp={}", v));
+    }
+    if let Some(v) = query.start_block {
+        parts.push(format!("startBlock={}", v));
+    }
+    if let Some(v) = query.end_block {
+        parts.push(format!("endBlock={}", v));
+    }
+    if let Some(ref v) = query.referrer {
+        parts.push(format!("referrer={}", v));
+    }
+    if let Some(v) = query.include_order_data {
+        parts.push(format!("includeOrderData={}", v));
+    }
+    if let Some(v) = query.include_child_requests {
+        parts.push(format!("includeChildRequests={}", v));
+    }
+    if let Some(ref v) = query.private_chains_to_include {
+        parts.push(format!("privateChainsToInclude={}", v));
+    }
+    if let Some(ref v) = query.sort_by {
+        parts.push(format!("sortBy={}", v));
+    }
+    if let Some(ref v) = query.sort_direction {
+        parts.push(format!("sortDirection={}", v));
+    }
 
     let url = if parts.is_empty() {
         format!("{}/requests/v2", RELAY_API)
@@ -1677,7 +1820,10 @@ pub async fn get_relay_requests(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!("Failed to fetch requests: {}", err)));
+        return Err(AppError::RelayApiError(format!(
+            "Failed to fetch requests: {}",
+            err
+        )));
     }
 
     response

@@ -1,10 +1,6 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use solana_sdk::{
-    message::Message,
-    pubkey::Pubkey,
-    transaction::Transaction,
-};
+use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -308,9 +304,10 @@ pub fn validate_me_list_params(params: &MeListParams) -> Result<(), AppError> {
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price format".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price format".into()))?;
     if price <= 0.0 {
         return Err(AppError::InvalidParams("Price must be positive".into()));
     }
@@ -320,13 +317,16 @@ pub fn validate_me_list_params(params: &MeListParams) -> Result<(), AppError> {
             .unwrap_or_default()
             .as_secs();
         if expiry < now {
-            return Err(AppError::InvalidParams("Expiry cannot be in the past".into()));
+            return Err(AppError::InvalidParams(
+                "Expiry cannot be in the past".into(),
+            ));
         }
     }
     // Validate mint address is a valid pubkey
-    params.mint_address.parse::<Pubkey>().map_err(|_| {
-        AppError::InvalidParams("Invalid mint address format".into())
-    })?;
+    params
+        .mint_address
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::InvalidParams("Invalid mint address format".into()))?;
     Ok(())
 }
 
@@ -334,15 +334,17 @@ pub fn validate_me_buy_params(params: &MeBuyParams) -> Result<(), AppError> {
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price format".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price format".into()))?;
     if price <= 0.0 {
         return Err(AppError::InvalidParams("Price must be positive".into()));
     }
-    params.mint_address.parse::<Pubkey>().map_err(|_| {
-        AppError::InvalidParams("Invalid mint address format".into())
-    })?;
+    params
+        .mint_address
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::InvalidParams("Invalid mint address format".into()))?;
     Ok(())
 }
 
@@ -350,9 +352,10 @@ pub fn validate_me_cancel_listing_params(params: &MeCancelListingParams) -> Resu
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    params.mint_address.parse::<Pubkey>().map_err(|_| {
-        AppError::InvalidParams("Invalid mint address format".into())
-    })?;
+    params
+        .mint_address
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::InvalidParams("Invalid mint address format".into()))?;
     Ok(())
 }
 
@@ -360,15 +363,19 @@ pub fn validate_me_make_offer_params(params: &MeMakeOfferParams) -> Result<(), A
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price format".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price format".into()))?;
     if price <= 0.0 {
-        return Err(AppError::InvalidParams("Offer price must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "Offer price must be positive".into(),
+        ));
     }
-    params.mint_address.parse::<Pubkey>().map_err(|_| {
-        AppError::InvalidParams("Invalid mint address format".into())
-    })?;
+    params
+        .mint_address
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::InvalidParams("Invalid mint address format".into()))?;
     Ok(())
 }
 
@@ -376,15 +383,17 @@ pub fn validate_me_accept_offer_params(params: &MeAcceptOfferParams) -> Result<(
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price format".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price format".into()))?;
     if price <= 0.0 {
         return Err(AppError::InvalidParams("Price must be positive".into()));
     }
-    params.mint_address.parse::<Pubkey>().map_err(|_| {
-        AppError::InvalidParams("Invalid mint address format".into())
-    })?;
+    params
+        .mint_address
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::InvalidParams("Invalid mint address format".into()))?;
     Ok(())
 }
 
@@ -392,15 +401,18 @@ pub fn validate_me_cancel_offer_params(params: &MeCancelOfferParams) -> Result<(
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    params.mint_address.parse::<Pubkey>().map_err(|_| {
-        AppError::InvalidParams("Invalid mint address format".into())
-    })?;
+    params
+        .mint_address
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::InvalidParams("Invalid mint address format".into()))?;
     Ok(())
 }
 
 pub fn validate_me_collection_info_params(params: &MeCollectionInfoParams) -> Result<(), AppError> {
     if params.symbol.is_empty() {
-        return Err(AppError::InvalidParams("Collection symbol is required".into()));
+        return Err(AppError::InvalidParams(
+            "Collection symbol is required".into(),
+        ));
     }
     Ok(())
 }
@@ -409,9 +421,10 @@ pub fn validate_me_nft_info_params(params: &MeNFTInfoParams) -> Result<(), AppEr
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    params.mint_address.parse::<Pubkey>().map_err(|_| {
-        AppError::InvalidParams("Invalid mint address format".into())
-    })?;
+    params
+        .mint_address
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::InvalidParams("Invalid mint address format".into()))?;
     Ok(())
 }
 
@@ -419,22 +432,29 @@ pub fn validate_me_wallet_nfts_params(params: &MeWalletNFTsParams) -> Result<(),
     if params.wallet_address.is_empty() {
         return Err(AppError::InvalidParams("Wallet address is required".into()));
     }
-    params.wallet_address.parse::<Pubkey>().map_err(|_| {
-        AppError::InvalidParams("Invalid wallet address format".into())
-    })?;
+    params
+        .wallet_address
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::InvalidParams("Invalid wallet address format".into()))?;
     Ok(())
 }
 
-pub fn validate_me_collection_activity_params(params: &MeCollectionActivityParams) -> Result<(), AppError> {
+pub fn validate_me_collection_activity_params(
+    params: &MeCollectionActivityParams,
+) -> Result<(), AppError> {
     if params.symbol.is_empty() {
-        return Err(AppError::InvalidParams("Collection symbol is required".into()));
+        return Err(AppError::InvalidParams(
+            "Collection symbol is required".into(),
+        ));
     }
     Ok(())
 }
 
 pub fn validate_me_listings_params(params: &MeListingsParams) -> Result<(), AppError> {
     if params.symbol.is_empty() {
-        return Err(AppError::InvalidParams("Collection symbol is required".into()));
+        return Err(AppError::InvalidParams(
+            "Collection symbol is required".into(),
+        ));
     }
     Ok(())
 }
@@ -443,15 +463,18 @@ pub fn validate_me_offers_params(params: &MeOffersParams) -> Result<(), AppError
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    params.mint_address.parse::<Pubkey>().map_err(|_| {
-        AppError::InvalidParams("Invalid mint address format".into())
-    })?;
+    params
+        .mint_address
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::InvalidParams("Invalid mint address format".into()))?;
     Ok(())
 }
 
 pub fn validate_me_collection_nfts_params(params: &MeCollectionNFTsParams) -> Result<(), AppError> {
     if params.symbol.is_empty() {
-        return Err(AppError::InvalidParams("Collection symbol is required".into()));
+        return Err(AppError::InvalidParams(
+            "Collection symbol is required".into(),
+        ));
     }
     Ok(())
 }
@@ -472,7 +495,10 @@ pub async fn get_collection_info(
         .map_err(|e| AppError::Internal(format!("Failed to fetch collection: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::NotFound(format!("Collection '{}' not found", symbol)));
+        return Err(AppError::NotFound(format!(
+            "Collection '{}' not found",
+            symbol
+        )));
     }
 
     resp.json::<MeCollection>()
@@ -492,7 +518,10 @@ pub async fn get_collection_stats(
         .map_err(|e| AppError::Internal(format!("Failed to fetch collection stats: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::NotFound(format!("Collection '{}' stats not found", symbol)));
+        return Err(AppError::NotFound(format!(
+            "Collection '{}' stats not found",
+            symbol
+        )));
     }
 
     resp.json::<MeCollectionStats>()
@@ -501,10 +530,7 @@ pub async fn get_collection_stats(
 }
 
 /// Get NFT info by mint address
-pub async fn get_nft_info(
-    http: &reqwest::Client,
-    mint_address: &str,
-) -> Result<MeNFT, AppError> {
+pub async fn get_nft_info(http: &reqwest::Client, mint_address: &str) -> Result<MeNFT, AppError> {
     let resp = http
         .get(format!("{}/nfts/{}", MAGIC_EDEN_API, mint_address))
         .send()
@@ -512,7 +538,10 @@ pub async fn get_nft_info(
         .map_err(|e| AppError::Internal(format!("Failed to fetch NFT: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::NotFound(format!("NFT '{}' not found", mint_address)));
+        return Err(AppError::NotFound(format!(
+            "NFT '{}' not found",
+            mint_address
+        )));
     }
 
     resp.json::<MeNFT>()
@@ -553,7 +582,10 @@ pub async fn get_wallet_nfts(
         .map_err(|e| AppError::Internal(format!("Failed to fetch wallet NFTs: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::NotFound(format!("Wallet '{}' NFTs not found", wallet_address)));
+        return Err(AppError::NotFound(format!(
+            "Wallet '{}' NFTs not found",
+            wallet_address
+        )));
     }
 
     resp.json::<Vec<MeWalletNFT>>()
@@ -594,7 +626,10 @@ pub async fn get_collection_activity(
         .map_err(|e| AppError::Internal(format!("Failed to fetch collection activity: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::NotFound(format!("Collection '{}' activity not found", symbol)));
+        return Err(AppError::NotFound(format!(
+            "Collection '{}' activity not found",
+            symbol
+        )));
     }
 
     resp.json::<Vec<MeActivity>>()
@@ -631,7 +666,10 @@ pub async fn get_collection_listings(
         .map_err(|e| AppError::Internal(format!("Failed to fetch listings: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::NotFound(format!("Collection '{}' listings not found", symbol)));
+        return Err(AppError::NotFound(format!(
+            "Collection '{}' listings not found",
+            symbol
+        )));
     }
 
     resp.json::<Vec<MeListing>>()
@@ -668,7 +706,10 @@ pub async fn get_nft_offers(
         .map_err(|e| AppError::Internal(format!("Failed to fetch offers: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::NotFound(format!("NFT '{}' offers not found", mint_address)));
+        return Err(AppError::NotFound(format!(
+            "NFT '{}' offers not found",
+            mint_address
+        )));
     }
 
     resp.json::<Vec<MeOffer>>()
@@ -705,7 +746,10 @@ pub async fn get_collection_nfts(
         .map_err(|e| AppError::Internal(format!("Failed to fetch collection NFTs: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::NotFound(format!("Collection '{}' NFTs not found", symbol)));
+        return Err(AppError::NotFound(format!(
+            "Collection '{}' NFTs not found",
+            symbol
+        )));
     }
 
     resp.json::<Vec<MeNFT>>()
@@ -725,7 +769,10 @@ pub async fn get_nft_listings(
         .map_err(|e| AppError::Internal(format!("Failed to fetch NFT listings: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::NotFound(format!("NFT '{}' listings not found", mint_address)));
+        return Err(AppError::NotFound(format!(
+            "NFT '{}' listings not found",
+            mint_address
+        )));
     }
 
     resp.json::<Vec<MeListing>>()
@@ -746,9 +793,10 @@ pub async fn build_me_list(
 ) -> Result<BuildResponse, AppError> {
     validate_me_list_params(params)?;
 
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price".into()))?;
 
     // Get NFT info for preview
     let nft_info = get_nft_info(http, &params.mint_address).await.ok();
@@ -770,10 +818,16 @@ pub async fn build_me_list(
             action_type: "me_list".to_string(),
             description: format!(
                 "List {} for {} SOL",
-                nft_info.as_ref().map(|n| n.name.as_str()).unwrap_or(&params.mint_address),
+                nft_info
+                    .as_ref()
+                    .map(|n| n.name.as_str())
+                    .unwrap_or(&params.mint_address),
                 price
             ),
-            estimated_fee: format!("~0.000005 SOL + {} SOL marketplace fee on sale", marketplace_fee),
+            estimated_fee: format!(
+                "~0.000005 SOL + {} SOL marketplace fee on sale",
+                marketplace_fee
+            ),
             estimated_refund: None,
             params: serde_json::json!({
                 "mintAddress": params.mint_address,
@@ -785,7 +839,11 @@ pub async fn build_me_list(
                 "auctionHouse": MAGIC_EDEN_AUCTION_HOUSE,
             }),
             warnings: vec![
-                format!("Marketplace fee: {}% ({} SOL)", MARKETPLACE_FEE_BPS as f64 / 100.0, marketplace_fee),
+                format!(
+                    "Marketplace fee: {}% ({} SOL)",
+                    MARKETPLACE_FEE_BPS as f64 / 100.0,
+                    marketplace_fee
+                ),
                 "Listing will be active until cancelled or sold".into(),
             ],
             requires_approval: true,
@@ -808,9 +866,10 @@ pub async fn build_me_buy(
 ) -> Result<BuildResponse, AppError> {
     validate_me_buy_params(params)?;
 
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price".into()))?;
 
     // Get NFT info and listings
     let nft_info = get_nft_info(http, &params.mint_address).await.ok();
@@ -834,7 +893,10 @@ pub async fn build_me_buy(
             action_type: "me_buy".to_string(),
             description: format!(
                 "Buy {} for {} SOL",
-                nft_info.as_ref().map(|n| n.name.as_str()).unwrap_or(&params.mint_address),
+                nft_info
+                    .as_ref()
+                    .map(|n| n.name.as_str())
+                    .unwrap_or(&params.mint_address),
                 price
             ),
             estimated_fee: format!("~{} SOL total (price + fee)", total_cost),
@@ -850,7 +912,10 @@ pub async fn build_me_buy(
                 "collectionName": nft_info.as_ref().and_then(|n| n.collection_name.clone()),
             }),
             warnings: vec![
-                format!("Total cost: {} SOL (includes {} SOL fee)", total_cost, marketplace_fee),
+                format!(
+                    "Total cost: {} SOL (includes {} SOL fee)",
+                    total_cost, marketplace_fee
+                ),
                 "Transaction will fail if listing is no longer active".into(),
             ],
             requires_approval: true,
@@ -890,7 +955,10 @@ pub async fn build_me_cancel_listing(
             action_type: "me_cancel_listing".to_string(),
             description: format!(
                 "Cancel listing for {}",
-                nft_info.as_ref().map(|n| n.name.as_str()).unwrap_or(&params.mint_address)
+                nft_info
+                    .as_ref()
+                    .map(|n| n.name.as_str())
+                    .unwrap_or(&params.mint_address)
             ),
             estimated_fee: "~0.000005 SOL".to_string(),
             estimated_refund: None,
@@ -921,9 +989,10 @@ pub async fn build_me_make_offer(
 ) -> Result<BuildResponse, AppError> {
     validate_me_make_offer_params(params)?;
 
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price".into()))?;
 
     let nft_info = get_nft_info(http, &params.mint_address).await.ok();
 
@@ -945,7 +1014,10 @@ pub async fn build_me_make_offer(
             description: format!(
                 "Make offer of {} SOL on {}",
                 price,
-                nft_info.as_ref().map(|n| n.name.as_str()).unwrap_or(&params.mint_address)
+                nft_info
+                    .as_ref()
+                    .map(|n| n.name.as_str())
+                    .unwrap_or(&params.mint_address)
             ),
             estimated_fee: "~0.000005 SOL (offer amount escrowed)".to_string(),
             estimated_refund: None,
@@ -959,7 +1031,10 @@ pub async fn build_me_make_offer(
             }),
             warnings: vec![
                 format!("Offer amount ({}) SOL will be escrowed", price),
-                format!("Marketplace fee: {}% on sale", MARKETPLACE_FEE_BPS as f64 / 100.0),
+                format!(
+                    "Marketplace fee: {}% on sale",
+                    MARKETPLACE_FEE_BPS as f64 / 100.0
+                ),
             ],
             requires_approval: true,
         },
@@ -981,12 +1056,15 @@ pub async fn build_me_accept_offer(
 ) -> Result<BuildResponse, AppError> {
     validate_me_accept_offer_params(params)?;
 
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price".into()))?;
 
     let nft_info = get_nft_info(http, &params.mint_address).await.ok();
-    let offers = get_nft_offers(http, &params.mint_address, Some(10), None).await.ok();
+    let offers = get_nft_offers(http, &params.mint_address, Some(10), None)
+        .await
+        .ok();
 
     let blockhash = solana_sdk::hash::Hash::default();
     let message = Message::new(&[], Some(user_pubkey));
@@ -1007,9 +1085,15 @@ pub async fn build_me_accept_offer(
             description: format!(
                 "Accept offer of {} SOL on {}",
                 price,
-                nft_info.as_ref().map(|n| n.name.as_str()).unwrap_or(&params.mint_address)
+                nft_info
+                    .as_ref()
+                    .map(|n| n.name.as_str())
+                    .unwrap_or(&params.mint_address)
             ),
-            estimated_fee: format!("~{} SOL net (after {} SOL fee)", net_proceeds, marketplace_fee),
+            estimated_fee: format!(
+                "~{} SOL net (after {} SOL fee)",
+                net_proceeds, marketplace_fee
+            ),
             estimated_refund: None,
             params: serde_json::json!({
                 "mintAddress": params.mint_address,
@@ -1020,7 +1104,10 @@ pub async fn build_me_accept_offer(
                 "nftName": nft_info.as_ref().map(|n| n.name.clone()),
             }),
             warnings: vec![
-                format!("You will receive {} SOL after {} SOL marketplace fee", net_proceeds, marketplace_fee),
+                format!(
+                    "You will receive {} SOL after {} SOL marketplace fee",
+                    net_proceeds, marketplace_fee
+                ),
                 "Transaction will fail if offer is no longer active".into(),
             ],
             requires_approval: true,
@@ -1060,7 +1147,10 @@ pub async fn build_me_cancel_offer(
             action_type: "me_cancel_offer".to_string(),
             description: format!(
                 "Cancel offer on {}",
-                nft_info.as_ref().map(|n| n.name.as_str()).unwrap_or(&params.mint_address)
+                nft_info
+                    .as_ref()
+                    .map(|n| n.name.as_str())
+                    .unwrap_or(&params.mint_address)
             ),
             estimated_fee: "~0.000005 SOL".to_string(),
             estimated_refund: None,
@@ -1176,13 +1266,18 @@ pub async fn build_me_wallet_nfts(
         params.collection_symbol.as_deref(),
         params.limit,
         params.offset,
-    ).await?;
+    )
+    .await?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "me_wallet_nfts".to_string(),
-            description: format!("Get NFTs for wallet: {} ({} NFTs)", params.wallet_address, nfts.len()),
+            description: format!(
+                "Get NFTs for wallet: {} ({} NFTs)",
+                params.wallet_address,
+                nfts.len()
+            ),
             estimated_fee: "0 SOL (query only)".to_string(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -1216,13 +1311,18 @@ pub async fn build_me_collection_activity(
         params.activity_type.as_deref(),
         params.limit,
         params.offset,
-    ).await?;
+    )
+    .await?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "me_collection_activity".to_string(),
-            description: format!("Get activity for collection: {} ({} events)", params.symbol, activities.len()),
+            description: format!(
+                "Get activity for collection: {} ({} events)",
+                params.symbol,
+                activities.len()
+            ),
             estimated_fee: "0 SOL (query only)".to_string(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -1250,18 +1350,18 @@ pub async fn build_me_listings(
 ) -> Result<BuildResponse, AppError> {
     validate_me_listings_params(params)?;
 
-    let listings = get_collection_listings(
-        http,
-        &params.symbol,
-        params.limit,
-        params.offset,
-    ).await?;
+    let listings =
+        get_collection_listings(http, &params.symbol, params.limit, params.offset).await?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "me_listings".to_string(),
-            description: format!("Get listings for collection: {} ({} items)", params.symbol, listings.len()),
+            description: format!(
+                "Get listings for collection: {} ({} items)",
+                params.symbol,
+                listings.len()
+            ),
             estimated_fee: "0 SOL (query only)".to_string(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -1288,18 +1388,17 @@ pub async fn build_me_offers(
 ) -> Result<BuildResponse, AppError> {
     validate_me_offers_params(params)?;
 
-    let offers = get_nft_offers(
-        http,
-        &params.mint_address,
-        params.limit,
-        params.offset,
-    ).await?;
+    let offers = get_nft_offers(http, &params.mint_address, params.limit, params.offset).await?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "me_offers".to_string(),
-            description: format!("Get offers for NFT: {} ({} offers)", params.mint_address, offers.len()),
+            description: format!(
+                "Get offers for NFT: {} ({} offers)",
+                params.mint_address,
+                offers.len()
+            ),
             estimated_fee: "0 SOL (query only)".to_string(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -1326,18 +1425,17 @@ pub async fn build_me_collection_nfts(
 ) -> Result<BuildResponse, AppError> {
     validate_me_collection_nfts_params(params)?;
 
-    let nfts = get_collection_nfts(
-        http,
-        &params.symbol,
-        params.limit,
-        params.offset,
-    ).await?;
+    let nfts = get_collection_nfts(http, &params.symbol, params.limit, params.offset).await?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "me_collection_nfts".to_string(),
-            description: format!("Get NFTs in collection: {} ({} items)", params.symbol, nfts.len()),
+            description: format!(
+                "Get NFTs in collection: {} ({} items)",
+                params.symbol,
+                nfts.len()
+            ),
             estimated_fee: "0 SOL (query only)".to_string(),
             estimated_refund: None,
             params: serde_json::json!({

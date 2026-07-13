@@ -30,9 +30,9 @@ const HELIUS_RPC_API: &str = "https://mainnet.helius-rpc.com";
 const HELIUS_WALLET_API: &str = "https://api.helius.xyz";
 
 fn require_key(api_key: Option<&str>) -> Result<&str, AppError> {
-    api_key.filter(|k| !k.is_empty()).ok_or_else(|| {
-        AppError::InvalidParams("HELIUS_API_KEY is not configured".into())
-    })
+    api_key
+        .filter(|k| !k.is_empty())
+        .ok_or_else(|| AppError::InvalidParams("HELIUS_API_KEY is not configured".into()))
 }
 
 fn short_addr(addr: &str) -> String {
@@ -43,11 +43,7 @@ fn short_addr(addr: &str) -> String {
     }
 }
 
-async fn helius_get(
-    http: &reqwest::Client,
-    url: &str,
-    api_key: &str,
-) -> Result<Value, AppError> {
+async fn helius_get(http: &reqwest::Client, url: &str, api_key: &str) -> Result<Value, AppError> {
     let resp = http
         .get(url)
         .header("Accept", "application/json")
@@ -59,9 +55,7 @@ async fn helius_get(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::Internal(format!(
-            "Helius {status}: {body}"
-        )));
+        return Err(AppError::Internal(format!("Helius {status}: {body}")));
     }
 
     resp.json::<Value>()
@@ -87,9 +81,7 @@ async fn helius_post(
     if !resp.status().is_success() {
         let status = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
-        return Err(AppError::Internal(format!(
-            "Helius {status}: {body_text}"
-        )));
+        return Err(AppError::Internal(format!("Helius {status}: {body_text}")));
     }
 
     resp.json::<Value>()
@@ -139,9 +131,8 @@ pub async fn build_helius_tx_history(
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let limit = params.limit.unwrap_or(25).min(100).max(1);
 
-    let mut url = format!(
-        "{HELIUS_ENHANCED_TX_API}/v0/addresses/{target}/transactions?limit={limit}"
-    );
+    let mut url =
+        format!("{HELIUS_ENHANCED_TX_API}/v0/addresses/{target}/transactions?limit={limit}");
     if let Some(before) = &params.before {
         url.push_str(&format!("&before={before}"));
     }
@@ -192,12 +183,18 @@ pub struct HeliusParseTransactionsParams {
     pub commitment: Option<String>,
 }
 
-pub fn validate_helius_parse_transactions_params(p: &HeliusParseTransactionsParams) -> Result<(), AppError> {
+pub fn validate_helius_parse_transactions_params(
+    p: &HeliusParseTransactionsParams,
+) -> Result<(), AppError> {
     if p.transactions.is_empty() {
-        return Err(AppError::InvalidParams("transactions list cannot be empty".into()));
+        return Err(AppError::InvalidParams(
+            "transactions list cannot be empty".into(),
+        ));
     }
     if p.transactions.len() > 100 {
-        return Err(AppError::InvalidParams("max 100 transactions per request".into()));
+        return Err(AppError::InvalidParams(
+            "max 100 transactions per request".into(),
+        ));
     }
     Ok(())
 }
@@ -303,14 +300,24 @@ pub async fn build_helius_get_assets(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let items = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let total = result.get("total").and_then(|v| v.as_u64()).unwrap_or(items as u64);
+    let items = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let total = result
+        .get("total")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(items as u64);
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_get_assets".into(),
-            description: format!("{items} asset(s) (of {total} total) for {}", short_addr(target)),
+            description: format!(
+                "{items} asset(s) (of {total} total) for {}",
+                short_addr(target)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: result,
@@ -339,7 +346,9 @@ pub struct HeliusGetAssetParams {
 
 pub fn validate_helius_get_asset_params(p: &HeliusGetAssetParams) -> Result<(), AppError> {
     if p.id.is_empty() {
-        return Err(AppError::InvalidParams("id (mint address) is required".into()));
+        return Err(AppError::InvalidParams(
+            "id (mint address) is required".into(),
+        ));
     }
     Ok(())
 }
@@ -366,7 +375,12 @@ pub async fn build_helius_get_asset(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let name = result.get("content").and_then(|c| c.get("metadata")).and_then(|m| m.get("name")).and_then(|n| n.as_str()).unwrap_or("unknown");
+    let name = result
+        .get("content")
+        .and_then(|c| c.get("metadata"))
+        .and_then(|m| m.get("name"))
+        .and_then(|n| n.as_str())
+        .unwrap_or("unknown");
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -468,8 +482,15 @@ pub async fn build_helius_search_assets(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let items = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let total = result.get("total").and_then(|v| v.as_u64()).unwrap_or(items as u64);
+    let items = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let total = result
+        .get("total")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(items as u64);
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -541,14 +562,24 @@ pub async fn build_helius_nft_editions(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let editions = result.get("editions").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let total = result.get("total").and_then(|v| v.as_u64()).unwrap_or(editions as u64);
+    let editions = result
+        .get("editions")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let total = result
+        .get("total")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(editions as u64);
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_nft_editions".into(),
-            description: format!("{editions} edition(s) of {total} for {}", short_addr(&params.mint)),
+            description: format!(
+                "{editions} edition(s) of {total} for {}",
+                short_addr(&params.mint)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: result,
@@ -585,9 +616,13 @@ pub struct HeliusGetTokenAccountsParams {
     pub limit: Option<u32>,
 }
 
-pub fn validate_helius_get_token_accounts_params(p: &HeliusGetTokenAccountsParams) -> Result<(), AppError> {
+pub fn validate_helius_get_token_accounts_params(
+    p: &HeliusGetTokenAccountsParams,
+) -> Result<(), AppError> {
     if p.mint.is_none() && p.owner.is_none() {
-        return Err(AppError::InvalidParams("at least one of mint or owner is required".into()));
+        return Err(AppError::InvalidParams(
+            "at least one of mint or owner is required".into(),
+        ));
     }
     Ok(())
 }
@@ -624,14 +659,24 @@ pub async fn build_helius_get_token_accounts(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let items = result.get("token_accounts").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let total = result.get("total").and_then(|v| v.as_u64()).unwrap_or(items as u64);
+    let items = result
+        .get("token_accounts")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let total = result
+        .get("total")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(items as u64);
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_get_token_accounts".into(),
-            description: format!("{items} token account(s) (of {total} total) for {}", short_addr(owner)),
+            description: format!(
+                "{items} token account(s) (of {total} total) for {}",
+                short_addr(owner)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: result,
@@ -664,9 +709,13 @@ pub struct HeliusAssetSignaturesParams {
     pub limit: Option<u32>,
 }
 
-pub fn validate_helius_asset_signatures_params(p: &HeliusAssetSignaturesParams) -> Result<(), AppError> {
+pub fn validate_helius_asset_signatures_params(
+    p: &HeliusAssetSignaturesParams,
+) -> Result<(), AppError> {
     if p.id.is_empty() {
-        return Err(AppError::InvalidParams("id (mint address) is required".into()));
+        return Err(AppError::InvalidParams(
+            "id (mint address) is required".into(),
+        ));
     }
     Ok(())
 }
@@ -697,14 +746,24 @@ pub async fn build_helius_asset_signatures(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let items = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let total = result.get("total").and_then(|v| v.as_u64()).unwrap_or(items as u64);
+    let items = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let total = result
+        .get("total")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(items as u64);
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_asset_signatures".into(),
-            description: format!("{items} signature(s) (of {total}) for asset {}", short_addr(&params.id)),
+            description: format!(
+                "{items} signature(s) (of {total}) for asset {}",
+                short_addr(&params.id)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: result,
@@ -793,7 +852,10 @@ pub async fn build_helius_priority_fee(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let fee = result.get("priorityFeeEstimate").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let fee = result
+        .get("priorityFeeEstimate")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -827,7 +889,9 @@ pub struct HeliusWalletIdentityParams {
     pub wallet: Option<String>,
 }
 
-pub fn validate_helius_wallet_identity_params(_p: &HeliusWalletIdentityParams) -> Result<(), AppError> {
+pub fn validate_helius_wallet_identity_params(
+    _p: &HeliusWalletIdentityParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -842,7 +906,10 @@ pub async fn build_helius_wallet_identity(
 
     let url = format!("{HELIUS_WALLET_API}/v1/wallet/{target}/identity");
     let data = helius_get(http, &url, key).await?;
-    let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+    let name = data
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown");
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -875,12 +942,16 @@ pub struct HeliusBatchIdentityParams {
     pub addresses: Vec<String>,
 }
 
-pub fn validate_helius_batch_identity_params(p: &HeliusBatchIdentityParams) -> Result<(), AppError> {
+pub fn validate_helius_batch_identity_params(
+    p: &HeliusBatchIdentityParams,
+) -> Result<(), AppError> {
     if p.addresses.is_empty() {
         return Err(AppError::InvalidParams("addresses cannot be empty".into()));
     }
     if p.addresses.len() > 100 {
-        return Err(AppError::InvalidParams("max 100 addresses per request".into()));
+        return Err(AppError::InvalidParams(
+            "max 100 addresses per request".into(),
+        ));
     }
     Ok(())
 }
@@ -931,7 +1002,9 @@ pub struct HeliusWalletBalancesParams {
     pub wallet: Option<String>,
 }
 
-pub fn validate_helius_wallet_balances_params(_p: &HeliusWalletBalancesParams) -> Result<(), AppError> {
+pub fn validate_helius_wallet_balances_params(
+    _p: &HeliusWalletBalancesParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -961,7 +1034,10 @@ pub async fn build_helius_wallet_balances(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_wallet_balances".into(),
-            description: format!("{} — {native_sol:.4} SOL + {token_count} token(s)", short_addr(target)),
+            description: format!(
+                "{} — {native_sol:.4} SOL + {token_count} token(s)",
+                short_addr(target)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data,
@@ -993,7 +1069,9 @@ pub struct HeliusWalletHistoryParams {
     pub limit: Option<u32>,
 }
 
-pub fn validate_helius_wallet_history_params(_p: &HeliusWalletHistoryParams) -> Result<(), AppError> {
+pub fn validate_helius_wallet_history_params(
+    _p: &HeliusWalletHistoryParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -1051,7 +1129,9 @@ pub struct HeliusWalletTransfersParams {
     pub limit: Option<u32>,
 }
 
-pub fn validate_helius_wallet_transfers_params(_p: &HeliusWalletTransfersParams) -> Result<(), AppError> {
+pub fn validate_helius_wallet_transfers_params(
+    _p: &HeliusWalletTransfersParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -1105,7 +1185,9 @@ pub struct HeliusWalletFundedByParams {
     pub wallet: Option<String>,
 }
 
-pub fn validate_helius_wallet_funded_by_params(_p: &HeliusWalletFundedByParams) -> Result<(), AppError> {
+pub fn validate_helius_wallet_funded_by_params(
+    _p: &HeliusWalletFundedByParams,
+) -> Result<(), AppError> {
     Ok(())
 }
 
@@ -1158,7 +1240,9 @@ pub struct HeliusGetAssetBatchParams {
     pub ids: Vec<String>,
 }
 
-pub fn validate_helius_get_asset_batch_params(p: &HeliusGetAssetBatchParams) -> Result<(), AppError> {
+pub fn validate_helius_get_asset_batch_params(
+    p: &HeliusGetAssetBatchParams,
+) -> Result<(), AppError> {
     if p.ids.is_empty() {
         return Err(AppError::InvalidParams("ids cannot be empty".into()));
     }
@@ -1227,9 +1311,13 @@ pub struct HeliusGetAssetsByCreatorParams {
     pub sort_by: Option<String>,
 }
 
-pub fn validate_helius_get_assets_by_creator_params(p: &HeliusGetAssetsByCreatorParams) -> Result<(), AppError> {
+pub fn validate_helius_get_assets_by_creator_params(
+    p: &HeliusGetAssetsByCreatorParams,
+) -> Result<(), AppError> {
     if p.creator_address.is_empty() {
-        return Err(AppError::InvalidParams("creator_address is required".into()));
+        return Err(AppError::InvalidParams(
+            "creator_address is required".into(),
+        ));
     }
     Ok(())
 }
@@ -1259,14 +1347,24 @@ pub async fn build_helius_get_assets_by_creator(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let items = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let total = result.get("total").and_then(|v| v.as_u64()).unwrap_or(items as u64);
+    let items = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let total = result
+        .get("total")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(items as u64);
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_get_assets_by_creator".into(),
-            description: format!("{items} asset(s) (of {total}) by creator {}", short_addr(&params.creator_address)),
+            description: format!(
+                "{items} asset(s) (of {total}) by creator {}",
+                short_addr(&params.creator_address)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: result,
@@ -1298,9 +1396,13 @@ pub struct HeliusGetAssetsByAuthorityParams {
     pub sort_by: Option<String>,
 }
 
-pub fn validate_helius_get_assets_by_authority_params(p: &HeliusGetAssetsByAuthorityParams) -> Result<(), AppError> {
+pub fn validate_helius_get_assets_by_authority_params(
+    p: &HeliusGetAssetsByAuthorityParams,
+) -> Result<(), AppError> {
     if p.authority_address.is_empty() {
-        return Err(AppError::InvalidParams("authority_address is required".into()));
+        return Err(AppError::InvalidParams(
+            "authority_address is required".into(),
+        ));
     }
     Ok(())
 }
@@ -1329,14 +1431,24 @@ pub async fn build_helius_get_assets_by_authority(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let items = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let total = result.get("total").and_then(|v| v.as_u64()).unwrap_or(items as u64);
+    let items = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let total = result
+        .get("total")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(items as u64);
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_get_assets_by_authority".into(),
-            description: format!("{items} asset(s) (of {total}) for authority {}", short_addr(&params.authority_address)),
+            description: format!(
+                "{items} asset(s) (of {total}) for authority {}",
+                short_addr(&params.authority_address)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: result,
@@ -1371,7 +1483,9 @@ pub struct HeliusGetAssetsByGroupParams {
     pub sort_by: Option<String>,
 }
 
-pub fn validate_helius_get_assets_by_group_params(p: &HeliusGetAssetsByGroupParams) -> Result<(), AppError> {
+pub fn validate_helius_get_assets_by_group_params(
+    p: &HeliusGetAssetsByGroupParams,
+) -> Result<(), AppError> {
     if p.group_value.is_empty() {
         return Err(AppError::InvalidParams("group_value is required".into()));
     }
@@ -1403,14 +1517,25 @@ pub async fn build_helius_get_assets_by_group(
 
     let resp = helius_post(http, &url, &body, key).await?;
     let result = resp.get("result").cloned().unwrap_or(resp);
-    let items = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let total = result.get("total").and_then(|v| v.as_u64()).unwrap_or(items as u64);
+    let items = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let total = result
+        .get("total")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(items as u64);
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_get_assets_by_group".into(),
-            description: format!("{items} asset(s) (of {total}) in {} {}", params.group_key, short_addr(&params.group_value)),
+            description: format!(
+                "{items} asset(s) (of {total}) in {} {}",
+                params.group_key,
+                short_addr(&params.group_value)
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: result,
@@ -1437,7 +1562,9 @@ pub struct HeliusGetAssetProofParams {
     pub id: String,
 }
 
-pub fn validate_helius_get_asset_proof_params(p: &HeliusGetAssetProofParams) -> Result<(), AppError> {
+pub fn validate_helius_get_asset_proof_params(
+    p: &HeliusGetAssetProofParams,
+) -> Result<(), AppError> {
     if p.id.is_empty() {
         return Err(AppError::InvalidParams("id is required".into()));
     }
@@ -1495,7 +1622,9 @@ pub struct HeliusGetAssetProofBatchParams {
     pub ids: Vec<String>,
 }
 
-pub fn validate_helius_get_asset_proof_batch_params(p: &HeliusGetAssetProofBatchParams) -> Result<(), AppError> {
+pub fn validate_helius_get_asset_proof_batch_params(
+    p: &HeliusGetAssetProofBatchParams,
+) -> Result<(), AppError> {
     if p.ids.is_empty() {
         return Err(AppError::InvalidParams("ids cannot be empty".into()));
     }
@@ -1566,12 +1695,16 @@ pub struct HeliusCreateWebhookParams {
     pub encoding: Option<String>,
 }
 
-pub fn validate_helius_create_webhook_params(p: &HeliusCreateWebhookParams) -> Result<(), AppError> {
+pub fn validate_helius_create_webhook_params(
+    p: &HeliusCreateWebhookParams,
+) -> Result<(), AppError> {
     if p.url.is_empty() {
         return Err(AppError::InvalidParams("url is required".into()));
     }
     if p.addresses.is_empty() {
-        return Err(AppError::InvalidParams("at least one address is required".into()));
+        return Err(AppError::InvalidParams(
+            "at least one address is required".into(),
+        ));
     }
     Ok(())
 }
@@ -1597,7 +1730,10 @@ pub async fn build_helius_create_webhook(
     }
 
     let data = helius_post(http, &url, &body, key).await?;
-    let webhook_id = data.get("webhookID").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let webhook_id = data
+        .get("webhookID")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1715,7 +1851,9 @@ pub struct HeliusUpdateWebhookParams {
     pub transaction_types: Option<Vec<String>>,
 }
 
-pub fn validate_helius_update_webhook_params(p: &HeliusUpdateWebhookParams) -> Result<(), AppError> {
+pub fn validate_helius_update_webhook_params(
+    p: &HeliusUpdateWebhookParams,
+) -> Result<(), AppError> {
     if p.webhook_id.is_empty() {
         return Err(AppError::InvalidParams("webhook_id is required".into()));
     }
@@ -1733,9 +1871,15 @@ pub async fn build_helius_update_webhook(
 
     let endpoint = format!("{HELIUS_WEBHOOKS_API}/{}", params.webhook_id);
     let mut body = json!({});
-    if let Some(url) = &params.url { body["webhookURL"] = json!(url); }
-    if let Some(addrs) = &params.addresses { body["accountAddresses"] = json!(addrs); }
-    if let Some(types) = &params.transaction_types { body["transactionTypes"] = json!(types); }
+    if let Some(url) = &params.url {
+        body["webhookURL"] = json!(url);
+    }
+    if let Some(addrs) = &params.addresses {
+        body["accountAddresses"] = json!(addrs);
+    }
+    if let Some(types) = &params.transaction_types {
+        body["transactionTypes"] = json!(types);
+    }
 
     let resp = http
         .put(&endpoint)
@@ -1750,7 +1894,9 @@ pub async fn build_helius_update_webhook(
         let text = resp.text().await.unwrap_or_default();
         return Err(AppError::Internal(format!("Helius {status}: {text}")));
     }
-    let data = resp.json::<Value>().await
+    let data = resp
+        .json::<Value>()
+        .await
         .map_err(|e| AppError::Internal(format!("Helius parse error: {e}")))?;
 
     Ok(BuildResponse {
@@ -1780,7 +1926,9 @@ pub struct HeliusToggleWebhookParams {
     pub enabled: bool,
 }
 
-pub fn validate_helius_toggle_webhook_params(p: &HeliusToggleWebhookParams) -> Result<(), AppError> {
+pub fn validate_helius_toggle_webhook_params(
+    p: &HeliusToggleWebhookParams,
+) -> Result<(), AppError> {
     if p.webhook_id.is_empty() {
         return Err(AppError::InvalidParams("webhook_id is required".into()));
     }
@@ -1811,10 +1959,16 @@ pub async fn build_helius_toggle_webhook(
         let text = resp.text().await.unwrap_or_default();
         return Err(AppError::Internal(format!("Helius {status}: {text}")));
     }
-    let data = resp.json::<Value>().await
+    let data = resp
+        .json::<Value>()
+        .await
         .map_err(|e| AppError::Internal(format!("Helius parse error: {e}")))?;
 
-    let state = if params.enabled { "enabled" } else { "disabled" };
+    let state = if params.enabled {
+        "enabled"
+    } else {
+        "disabled"
+    };
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -1841,7 +1995,9 @@ pub struct HeliusDeleteWebhookParams {
     pub webhook_id: String,
 }
 
-pub fn validate_helius_delete_webhook_params(p: &HeliusDeleteWebhookParams) -> Result<(), AppError> {
+pub fn validate_helius_delete_webhook_params(
+    p: &HeliusDeleteWebhookParams,
+) -> Result<(), AppError> {
     if p.webhook_id.is_empty() {
         return Err(AppError::InvalidParams("webhook_id is required".into()));
     }
@@ -1910,7 +2066,9 @@ pub struct HeliusSendTransactionParams {
     pub max_retries: Option<u32>,
 }
 
-pub fn validate_helius_send_transaction_params(p: &HeliusSendTransactionParams) -> Result<(), AppError> {
+pub fn validate_helius_send_transaction_params(
+    p: &HeliusSendTransactionParams,
+) -> Result<(), AppError> {
     if p.transaction.is_empty() {
         return Err(AppError::InvalidParams("transaction is required".into()));
     }
@@ -1943,7 +2101,10 @@ pub async fn build_helius_send_transaction(
     });
 
     let data = helius_post(http, &url, &body, key).await?;
-    let sig = data.get("result").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let sig = data
+        .get("result")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1969,7 +2130,12 @@ pub async fn build_helius_send_transaction(
 // ZK Compression API
 // ──────────────────────────────────────────────────────────────────────────────
 
-async fn zk_call(http: &reqwest::Client, api_key: &str, method: &str, params: Value) -> Result<Value, AppError> {
+async fn zk_call(
+    http: &reqwest::Client,
+    api_key: &str,
+    method: &str,
+    params: Value,
+) -> Result<Value, AppError> {
     let url = format!("{HELIUS_RPC_API}/");
     let body = json!({ "jsonrpc": "2.0", "id": Uuid::new_v4().to_string(), "method": method, "params": params });
     let resp = helius_post(http, &url, &body, api_key).await?;
@@ -1978,17 +2144,31 @@ async fn zk_call(http: &reqwest::Client, api_key: &str, method: &str, params: Va
 
 macro_rules! zk_simple {
     ($fn_name:ident, $validate_name:ident, $param_type:ident, $method:expr, $desc_fn:expr) => {
-        pub fn $validate_name(_p: &$param_type) -> Result<(), AppError> { Ok(()) }
+        pub fn $validate_name(_p: &$param_type) -> Result<(), AppError> {
+            Ok(())
+        }
         pub async fn $fn_name(
-            http: &reqwest::Client, _wallet: &str, params: &$param_type, api_key: Option<&str>,
+            http: &reqwest::Client,
+            _wallet: &str,
+            params: &$param_type,
+            api_key: Option<&str>,
         ) -> Result<BuildResponse, AppError> {
             let key = require_key(api_key)?;
-            let result = zk_call(http, key, $method, serde_json::to_value(params).unwrap_or(json!({}))).await?;
+            let result = zk_call(
+                http,
+                key,
+                $method,
+                serde_json::to_value(params).unwrap_or(json!({})),
+            )
+            .await?;
             let description: String = ($desc_fn)(params, &result);
             Ok(BuildResponse {
                 preview: ActionPreview {
                     id: Uuid::new_v4().to_string(),
-                    action_type: stringify!($fn_name).trim_start_matches("build_").to_string().replace('_', "_"),
+                    action_type: stringify!($fn_name)
+                        .trim_start_matches("build_")
+                        .to_string()
+                        .replace('_', "_"),
                     description,
                     estimated_fee: "0".into(),
                     estimated_refund: None,
@@ -2020,28 +2200,44 @@ pub struct HeliusZkAccountParams {
 
 pub fn validate_helius_zk_account_params(p: &HeliusZkAccountParams) -> Result<(), AppError> {
     if p.address.is_none() && p.hash.is_none() {
-        return Err(AppError::InvalidParams("address or hash is required".into()));
+        return Err(AppError::InvalidParams(
+            "address or hash is required".into(),
+        ));
     }
     Ok(())
 }
 
 pub async fn build_helius_zk_compressed_account(
-    http: &reqwest::Client, _wallet: &str, params: &HeliusZkAccountParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &HeliusZkAccountParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     validate_helius_zk_account_params(params)?;
-    let hash = params.hash.as_deref().or(params.address.as_deref()).unwrap_or("");
+    let hash = params
+        .hash
+        .as_deref()
+        .or(params.address.as_deref())
+        .unwrap_or("");
     let result = zk_call(http, key, "getCompressedAccount", json!([hash])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_compressed_account".into(),
             description: "Compressed account info".into(),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
@@ -2052,22 +2248,34 @@ pub struct HeliusZkMultipleAccountsParams {
     pub hashes: Option<Vec<String>>,
 }
 
-pub fn validate_helius_zk_multiple_accounts_params(p: &HeliusZkMultipleAccountsParams) -> Result<(), AppError> {
+pub fn validate_helius_zk_multiple_accounts_params(
+    p: &HeliusZkMultipleAccountsParams,
+) -> Result<(), AppError> {
     if p.addresses.as_ref().map(|a| a.is_empty()).unwrap_or(true)
-        && p.hashes.as_ref().map(|h| h.is_empty()).unwrap_or(true) {
-        return Err(AppError::InvalidParams("addresses or hashes is required".into()));
+        && p.hashes.as_ref().map(|h| h.is_empty()).unwrap_or(true)
+    {
+        return Err(AppError::InvalidParams(
+            "addresses or hashes is required".into(),
+        ));
     }
     Ok(())
 }
 
 pub async fn build_helius_zk_multiple_compressed_accounts(
-    http: &reqwest::Client, _wallet: &str, params: &HeliusZkMultipleAccountsParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &HeliusZkMultipleAccountsParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     validate_helius_zk_multiple_accounts_params(params)?;
     let hashes = params.hashes.as_deref().unwrap_or(&[]);
     let addrs = params.addresses.as_deref().unwrap_or(&[]);
-    let list: Vec<&str> = if !hashes.is_empty() { hashes.iter().map(|s| s.as_str()).collect() } else { addrs.iter().map(|s| s.as_str()).collect() };
+    let list: Vec<&str> = if !hashes.is_empty() {
+        hashes.iter().map(|s| s.as_str()).collect()
+    } else {
+        addrs.iter().map(|s| s.as_str()).collect()
+    };
     let result = zk_call(http, key, "getMultipleCompressedAccounts", json!([list])).await?;
     let count = result.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
@@ -2075,11 +2283,18 @@ pub async fn build_helius_zk_multiple_compressed_accounts(
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_multiple_compressed_accounts".into(),
             description: format!("{count} compressed account(s)"),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
@@ -2094,10 +2309,15 @@ pub struct HeliusZkOwnerParams {
     pub limit: Option<u32>,
 }
 
-pub fn validate_helius_zk_owner_params(_p: &HeliusZkOwnerParams) -> Result<(), AppError> { Ok(()) }
+pub fn validate_helius_zk_owner_params(_p: &HeliusZkOwnerParams) -> Result<(), AppError> {
+    Ok(())
+}
 
 pub async fn build_helius_zk_compressed_balance_by_owner(
-    http: &reqwest::Client, wallet: &str, params: &HeliusZkOwnerParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    wallet: &str,
+    params: &HeliusZkOwnerParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
@@ -2107,52 +2327,109 @@ pub async fn build_helius_zk_compressed_balance_by_owner(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_compressed_balance_by_owner".into(),
-            description: format!("Compressed balance for {}: {} lamports", short_addr(target), balance),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            description: format!(
+                "Compressed balance for {}: {} lamports",
+                short_addr(target),
+                balance
+            ),
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
 pub async fn build_helius_zk_token_accounts_by_owner(
-    http: &reqwest::Client, wallet: &str, params: &HeliusZkOwnerParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    wallet: &str,
+    params: &HeliusZkOwnerParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
-    let result = zk_call(http, key, "getCompressedTokenAccountsByOwner", json!([target])).await?;
-    let count = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+    let result = zk_call(
+        http,
+        key,
+        "getCompressedTokenAccountsByOwner",
+        json!([target]),
+    )
+    .await?;
+    let count = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_token_accounts_by_owner".into(),
-            description: format!("{count} compressed token account(s) for {}", short_addr(target)),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            description: format!(
+                "{count} compressed token account(s) for {}",
+                short_addr(target)
+            ),
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
 pub async fn build_helius_zk_token_balances_by_owner(
-    http: &reqwest::Client, wallet: &str, params: &HeliusZkOwnerParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    wallet: &str,
+    params: &HeliusZkOwnerParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
-    let result = zk_call(http, key, "getCompressedTokenBalancesByOwnerV2", json!([target, null, null, null])).await?;
-    let count = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+    let result = zk_call(
+        http,
+        key,
+        "getCompressedTokenBalancesByOwnerV2",
+        json!([target, null, null, null]),
+    )
+    .await?;
+    let count = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_token_balances_by_owner".into(),
-            description: format!("{count} compressed token balance(s) for {}", short_addr(target)),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            description: format!(
+                "{count} compressed token balance(s) for {}",
+                short_addr(target)
+            ),
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
@@ -2167,27 +2444,52 @@ pub struct HeliusZkMintParams {
 }
 
 pub fn validate_helius_zk_mint_params(p: &HeliusZkMintParams) -> Result<(), AppError> {
-    if p.mint.is_empty() { return Err(AppError::InvalidParams("mint is required".into())); }
+    if p.mint.is_empty() {
+        return Err(AppError::InvalidParams("mint is required".into()));
+    }
     Ok(())
 }
 
 pub async fn build_helius_zk_mint_token_holders(
-    http: &reqwest::Client, _wallet: &str, params: &HeliusZkMintParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &HeliusZkMintParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     validate_helius_zk_mint_params(params)?;
-    let result = zk_call(http, key, "getCompressedMintTokenHolders", json!([params.mint, null, null])).await?;
-    let count = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+    let result = zk_call(
+        http,
+        key,
+        "getCompressedMintTokenHolders",
+        json!([params.mint, null, null]),
+    )
+    .await?;
+    let count = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_mint_token_holders".into(),
-            description: format!("{count} holder(s) for compressed mint {}", short_addr(&params.mint)),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            description: format!(
+                "{count} holder(s) for compressed mint {}",
+                short_addr(&params.mint)
+            ),
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
@@ -2206,45 +2508,88 @@ pub struct HeliusZkSignaturesParams {
     pub limit: Option<u32>,
 }
 
-pub fn validate_helius_zk_signatures_params(_p: &HeliusZkSignaturesParams) -> Result<(), AppError> { Ok(()) }
+pub fn validate_helius_zk_signatures_params(_p: &HeliusZkSignaturesParams) -> Result<(), AppError> {
+    Ok(())
+}
 
 pub async fn build_helius_zk_compression_signatures_for_owner(
-    http: &reqwest::Client, wallet: &str, params: &HeliusZkSignaturesParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    wallet: &str,
+    params: &HeliusZkSignaturesParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
-    let result = zk_call(http, key, "getCompressionSignaturesForOwner", json!([target])).await?;
-    let count = result.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+    let result = zk_call(
+        http,
+        key,
+        "getCompressionSignaturesForOwner",
+        json!([target]),
+    )
+    .await?;
+    let count = result
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_compression_signatures_for_owner".into(),
-            description: format!("{count} compression signature(s) for {}", short_addr(target)),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            description: format!(
+                "{count} compression signature(s) for {}",
+                short_addr(target)
+            ),
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
 pub async fn build_helius_zk_transaction_with_compression(
-    http: &reqwest::Client, _wallet: &str, params: &HeliusZkSignaturesParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &HeliusZkSignaturesParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
-    let sig = params.hash.as_deref().or(params.address.as_deref()).unwrap_or("");
-    if sig.is_empty() { return Err(AppError::InvalidParams("hash (signature) is required".into())); }
+    let sig = params
+        .hash
+        .as_deref()
+        .or(params.address.as_deref())
+        .unwrap_or("");
+    if sig.is_empty() {
+        return Err(AppError::InvalidParams(
+            "hash (signature) is required".into(),
+        ));
+    }
     let result = zk_call(http, key, "getTransactionWithCompressionInfo", json!([sig])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_transaction_with_compression".into(),
             description: format!("Compression info for tx {}", short_addr(sig)),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
@@ -2252,29 +2597,47 @@ pub async fn build_helius_zk_transaction_with_compression(
 #[serde(rename_all = "camelCase")]
 pub struct HeliusZkIndexerParams {}
 
-pub fn validate_helius_zk_indexer_params(_p: &HeliusZkIndexerParams) -> Result<(), AppError> { Ok(()) }
+pub fn validate_helius_zk_indexer_params(_p: &HeliusZkIndexerParams) -> Result<(), AppError> {
+    Ok(())
+}
 
 pub async fn build_helius_zk_indexer_health(
-    http: &reqwest::Client, _wallet: &str, _params: &HeliusZkIndexerParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    _wallet: &str,
+    _params: &HeliusZkIndexerParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     let result = zk_call(http, key, "getIndexerHealth", json!([])).await?;
-    let status = result.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let status = result
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_indexer_health".into(),
             description: format!("ZK indexer status: {status}"),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
 pub async fn build_helius_zk_indexer_slot(
-    http: &reqwest::Client, _wallet: &str, _params: &HeliusZkIndexerParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    _wallet: &str,
+    _params: &HeliusZkIndexerParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     let result = zk_call(http, key, "getIndexerSlot", json!([])).await?;
@@ -2284,31 +2647,52 @@ pub async fn build_helius_zk_indexer_slot(
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_indexer_slot".into(),
             description: format!("ZK indexer current slot: {slot}"),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
 pub async fn build_helius_zk_validity_proof(
-    http: &reqwest::Client, _wallet: &str, params: &HeliusZkAccountParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &HeliusZkAccountParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     validate_helius_zk_account_params(params)?;
-    let hash = params.hash.as_deref().or(params.address.as_deref()).unwrap_or("");
+    let hash = params
+        .hash
+        .as_deref()
+        .or(params.address.as_deref())
+        .unwrap_or("");
     let result = zk_call(http, key, "getValidityProof", json!([[hash], []])).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_validity_proof".into(),
             description: "ZK validity proof".into(),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
@@ -2325,17 +2709,26 @@ pub struct HeliusZkNewAddressProofsParams {
     pub addresses: Vec<HeliusZkNewAddressEntry>,
 }
 
-pub fn validate_helius_zk_new_address_proofs_params(p: &HeliusZkNewAddressProofsParams) -> Result<(), AppError> {
-    if p.addresses.is_empty() { return Err(AppError::InvalidParams("addresses is required".into())); }
+pub fn validate_helius_zk_new_address_proofs_params(
+    p: &HeliusZkNewAddressProofsParams,
+) -> Result<(), AppError> {
+    if p.addresses.is_empty() {
+        return Err(AppError::InvalidParams("addresses is required".into()));
+    }
     Ok(())
 }
 
 pub async fn build_helius_zk_new_address_proofs(
-    http: &reqwest::Client, _wallet: &str, params: &HeliusZkNewAddressProofsParams, api_key: Option<&str>,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &HeliusZkNewAddressProofsParams,
+    api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     validate_helius_zk_new_address_proofs_params(params)?;
-    let entries: Vec<serde_json::Value> = params.addresses.iter()
+    let entries: Vec<serde_json::Value> = params
+        .addresses
+        .iter()
         .map(|e| json!({ "address": e.address, "tree": e.tree }))
         .collect();
     let result = zk_call(http, key, "getMultipleNewAddressProofsV2", json!(entries)).await?;
@@ -2345,11 +2738,18 @@ pub async fn build_helius_zk_new_address_proofs(
             id: Uuid::new_v4().to_string(),
             action_type: "helius_zk_new_address_proofs".into(),
             description: format!("{count} new address proof(s)"),
-            estimated_fee: "0".into(), estimated_refund: None,
-            params: result, warnings: vec![], requires_approval: false,
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: result,
+            warnings: vec![],
+            requires_approval: false,
         },
-        transaction: None, additional_signers_required: 0, execution_steps: None,
-        quote: None, is_cross_chain: false, data: None,
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
     })
 }
 
@@ -2383,9 +2783,11 @@ pub fn validate_helius_smart_send_params(p: &HeliusSmartSendParams) -> Result<()
     if let Some(lvl) = &p.priority_level {
         match lvl.as_str() {
             "Min" | "Low" | "Medium" | "High" | "VeryHigh" | "UnsafeMax" => {}
-            other => return Err(AppError::InvalidParams(
-                format!("Invalid priority_level '{other}'. Use: Min/Low/Medium/High/VeryHigh/UnsafeMax")
-            )),
+            other => {
+                return Err(AppError::InvalidParams(format!(
+                    "Invalid priority_level '{other}'. Use: Min/Low/Medium/High/VeryHigh/UnsafeMax"
+                )))
+            }
         }
     }
     Ok(())
@@ -2423,15 +2825,27 @@ pub async fn build_helius_smart_send(
         .ok_or_else(|| AppError::InvalidParams("Empty transaction message".into()))?;
 
     // 2. Decompile compiled instructions back to Instruction objects
-    let original_ixs: Vec<Instruction> = msg.instructions.iter().map(|ci| {
-        let program_id = account_keys[ci.program_id_index as usize];
-        let accounts: Vec<AccountMeta> = ci.accounts.iter().map(|&idx| AccountMeta {
-            pubkey: account_keys[idx as usize],
-            is_signer: msg.is_signer(idx as usize),
-            is_writable: msg.is_writable(idx as usize),
-        }).collect();
-        Instruction { program_id, accounts, data: ci.data.clone() }
-    }).collect();
+    let original_ixs: Vec<Instruction> = msg
+        .instructions
+        .iter()
+        .map(|ci| {
+            let program_id = account_keys[ci.program_id_index as usize];
+            let accounts: Vec<AccountMeta> = ci
+                .accounts
+                .iter()
+                .map(|&idx| AccountMeta {
+                    pubkey: account_keys[idx as usize],
+                    is_signer: msg.is_signer(idx as usize),
+                    is_writable: msg.is_writable(idx as usize),
+                })
+                .collect();
+            Instruction {
+                program_id,
+                accounts,
+                data: ci.data.clone(),
+            }
+        })
+        .collect();
 
     // 3. Strip any existing compute budget instructions (we replace them with optimal values)
     let compute_budget_id = solana_sdk::compute_budget::id();
@@ -2474,7 +2888,8 @@ pub async fn build_helius_smart_send(
             ComputeBudgetInstruction::set_compute_unit_price(microlamports),
         ];
         probe_ixs.extend(non_budget_ixs.clone());
-        let probe_msg = Message::new_with_blockhash(&probe_ixs, Some(&fee_payer), &blockhash_for_probe);
+        let probe_msg =
+            Message::new_with_blockhash(&probe_ixs, Some(&fee_payer), &blockhash_for_probe);
         let probe_tx = Transaction::new_unsigned(probe_msg);
         let probe_versioned: solana_sdk::transaction::VersionedTransaction = probe_tx.into();
 

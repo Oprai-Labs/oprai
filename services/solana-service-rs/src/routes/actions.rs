@@ -15,11 +15,15 @@ use crate::db::tx_events;
 use crate::error::AppError;
 use crate::middleware::auth::UserWallet;
 use crate::services::builder::{self, BuildRequest};
-use crate::services::{dca, jupiter_perp, limit_order, simulation};
-use crate::services::relay::{self, CrossChainSwapParams, RelayExecutePermitsRequest, RelayIndexTransactionRequest, RelaySingleTransactionRequest, RelayDepositAddressReindexRequest, RelayClaimAppFeesRequest, RelayFastFillRequest, RelayExecuteRequest};
 use crate::services::mint_security::SharedMintSecurityCache;
+use crate::services::relay::{
+    self, CrossChainSwapParams, RelayClaimAppFeesRequest, RelayDepositAddressReindexRequest,
+    RelayExecutePermitsRequest, RelayExecuteRequest, RelayFastFillRequest,
+    RelayIndexTransactionRequest, RelaySingleTransactionRequest,
+};
 use crate::services::spending_client::SpendingClient;
 use crate::services::swap::{self, QuoteRequest, MAX_SLIPPAGE_BPS};
+use crate::services::{dca, jupiter_perp, limit_order, simulation};
 use crate::solana::connection::SolanaRpc;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -134,8 +138,8 @@ pub async fn post_quote(
         "Generated swap quote successfully"
     );
 
-    let warn_user = input_provenance.requires_user_warning()
-        || output_provenance.requires_user_warning();
+    let warn_user =
+        input_provenance.requires_user_warning() || output_provenance.requires_user_warning();
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "quote": quote,
@@ -365,8 +369,13 @@ pub async fn get_limit_orders(
     query: web::Query<OrderStatusQuery>,
 ) -> Result<HttpResponse, AppError> {
     let wallet = wallet_from_req(&req)?;
-    let orders =
-        limit_order::get_limit_orders(&state.http, state.jupiter_api_key.as_deref(), &wallet, &query.status).await?;
+    let orders = limit_order::get_limit_orders(
+        &state.http,
+        state.jupiter_api_key.as_deref(),
+        &wallet,
+        &query.status,
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(orders))
 }
 
@@ -382,7 +391,13 @@ pub async fn get_dca_orders(
     query: web::Query<OrderStatusQuery>,
 ) -> Result<HttpResponse, AppError> {
     let wallet = wallet_from_req(&req)?;
-    let orders = dca::get_dca_orders(&state.http, state.jupiter_api_key.as_deref(), &wallet, &query.status).await?;
+    let orders = dca::get_dca_orders(
+        &state.http,
+        state.jupiter_api_key.as_deref(),
+        &wallet,
+        &query.status,
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(orders))
 }
 
@@ -476,14 +491,8 @@ pub async fn create_transaction(
     new_tx.tx_hash = body.tx_hash.clone();
     new_tx.protocol = body.protocol.clone();
     new_tx.chain = body.chain.clone().unwrap_or_else(|| "solana".to_string());
-    new_tx.chat_session_id = body
-        .chat_session_id
-        .as_ref()
-        .and_then(|s| s.parse().ok());
-    new_tx.chat_message_id = body
-        .chat_message_id
-        .as_ref()
-        .and_then(|s| s.parse().ok());
+    new_tx.chat_session_id = body.chat_session_id.as_ref().and_then(|s| s.parse().ok());
+    new_tx.chat_message_id = body.chat_message_id.as_ref().and_then(|s| s.parse().ok());
 
     let mut conn = state
         .pool
@@ -835,16 +844,15 @@ pub async fn post_simulate(
     let value = sim_result.value;
     let success = value.err.is_none();
     let logs = value.logs.unwrap_or_default();
-    let error_message = value
-        .err
-        .as_ref()
-        .map(|e| format!("{e:?}"));
+    let error_message = value.err.as_ref().map(|e| format!("{e:?}"));
 
     Ok(HttpResponse::Ok().json(SimulateResponse {
         success,
         units_consumed: value.units_consumed,
         logs,
-        error: value.err.map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null)),
+        error: value
+            .err
+            .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null)),
         error_message,
     }))
 }
@@ -873,7 +881,9 @@ pub async fn post_advanced_simulate(
     _body: web::Json<AdvancedSimulateRequest>,
 ) -> Result<HttpResponse, AppError> {
     let _wallet = wallet_from_req(&req)?;
-    Err(AppError::Internal("Advanced simulation not yet available".into()))
+    Err(AppError::Internal(
+        "Advanced simulation not yet available".into(),
+    ))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -949,7 +959,9 @@ pub async fn post_relay_execute_permits(
     let wallet = wallet_from_req(&req)?;
 
     if query.signature.trim().is_empty() {
-        return Err(AppError::InvalidParams("signature query parameter is required".into()));
+        return Err(AppError::InvalidParams(
+            "signature query parameter is required".into(),
+        ));
     }
     if body.kind.trim().is_empty() {
         return Err(AppError::InvalidParams("kind is required".into()));
@@ -958,21 +970,17 @@ pub async fn post_relay_execute_permits(
         return Err(AppError::InvalidParams("requestId is required".into()));
     }
 
-    let result = relay::execute_relay_permits(
-        &state.http,
-        &query.signature,
-        &body,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!(
-            error = %e,
-            user_wallet = %wallet,
-            request_id = %body.request_id,
-            "Relay execute/permits failed"
-        );
-        e
-    })?;
+    let result = relay::execute_relay_permits(&state.http, &query.signature, &body)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                user_wallet = %wallet,
+                request_id = %body.request_id,
+                "Relay execute/permits failed"
+            );
+            e
+        })?;
 
     tracing::info!(
         action = "relay_execute_permits",

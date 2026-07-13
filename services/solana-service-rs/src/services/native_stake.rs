@@ -6,11 +6,7 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use solana_sdk::{
-    message::Message,
-    pubkey::Pubkey,
-    signature::Keypair,
-    signer::Signer,
-    system_instruction,
+    message::Message, pubkey::Pubkey, signature::Keypair, signer::Signer, system_instruction,
     transaction::Transaction,
 };
 use std::str::FromStr;
@@ -85,13 +81,10 @@ pub fn validate_native_stake_params(p: &NativeStakeParams) -> Result<(), AppErro
         .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a number".into()))?;
     if amount < 1.0 {
-        return Err(AppError::InvalidParams(
-            "Minimum stake is 1 SOL".into(),
-        ));
+        return Err(AppError::InvalidParams("Minimum stake is 1 SOL".into()));
     }
-    Pubkey::from_str(&p.validator_vote_account).map_err(|_| {
-        AppError::InvalidParams("Invalid validator vote account pubkey".into())
-    })?;
+    Pubkey::from_str(&p.validator_vote_account)
+        .map_err(|_| AppError::InvalidParams("Invalid validator vote account pubkey".into()))?;
     Ok(())
 }
 
@@ -131,12 +124,10 @@ pub fn validate_native_split_params(p: &NativeSplitStakeParams) -> Result<(), Ap
 }
 
 pub fn validate_native_merge_params(p: &NativeMergeStakeParams) -> Result<(), AppError> {
-    Pubkey::from_str(&p.destination_stake_account).map_err(|_| {
-        AppError::InvalidParams("Invalid destination stake account pubkey".into())
-    })?;
-    Pubkey::from_str(&p.source_stake_account).map_err(|_| {
-        AppError::InvalidParams("Invalid source stake account pubkey".into())
-    })?;
+    Pubkey::from_str(&p.destination_stake_account)
+        .map_err(|_| AppError::InvalidParams("Invalid destination stake account pubkey".into()))?;
+    Pubkey::from_str(&p.source_stake_account)
+        .map_err(|_| AppError::InvalidParams("Invalid source stake account pubkey".into()))?;
     if p.destination_stake_account == p.source_stake_account {
         return Err(AppError::InvalidParams(
             "Source and destination must be different accounts".into(),
@@ -292,15 +283,12 @@ pub fn build_native_stake_deactivate(
     let stake_pubkey = Pubkey::from_str(&params.stake_account).unwrap();
 
     // Verify the account exists
-    let account = rpc
-        .client()
-        .get_account(&stake_pubkey)
-        .map_err(|_| {
-            AppError::InvalidParams(format!(
-                "Stake account {} not found on-chain",
-                params.stake_account
-            ))
-        })?;
+    let account = rpc.client().get_account(&stake_pubkey).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "Stake account {} not found on-chain",
+            params.stake_account
+        ))
+    })?;
     let stake_lamports = account.lamports;
 
     let deactivate_ix =
@@ -354,15 +342,12 @@ pub fn build_native_stake_withdraw(
 
     let stake_pubkey = Pubkey::from_str(&params.stake_account).unwrap();
 
-    let account = rpc
-        .client()
-        .get_account(&stake_pubkey)
-        .map_err(|_| {
-            AppError::InvalidParams(format!(
-                "Stake account {} not found on-chain",
-                params.stake_account
-            ))
-        })?;
+    let account = rpc.client().get_account(&stake_pubkey).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "Stake account {} not found on-chain",
+            params.stake_account
+        ))
+    })?;
     let available = account.lamports;
 
     let withdraw_lamports: u64 = if params.amount == "all" {
@@ -383,7 +368,7 @@ pub fn build_native_stake_withdraw(
         user_pubkey, // withdraw authority
         user_pubkey, // destination (user's main wallet)
         withdraw_lamports,
-        None,        // custodian (none — no lockup)
+        None, // custodian (none — no lockup)
     );
 
     let blockhash = rpc.get_latest_blockhash_with_retry()?;
@@ -403,7 +388,11 @@ pub fn build_native_stake_withdraw(
                 "Withdraw {:.6} SOL from {}{}",
                 withdraw_lamports as f64 / LAMPORTS_PER_SOL,
                 short(&params.stake_account),
-                if is_full_close { " (closes account)" } else { "" },
+                if is_full_close {
+                    " (closes account)"
+                } else {
+                    ""
+                },
             ),
             estimated_fee: format!("{:.6} SOL", fee as f64 / LAMPORTS_PER_SOL),
             // Fee is paid from the main wallet, not deducted from the withdrawal amount
@@ -413,7 +402,10 @@ pub fn build_native_stake_withdraw(
             )),
             params: serde_json::to_value(params).unwrap_or_default(),
             warnings: if is_full_close {
-                vec!["Withdrawing the full balance will permanently close this stake account.".to_string()]
+                vec![
+                    "Withdrawing the full balance will permanently close this stake account."
+                        .to_string(),
+                ]
             } else {
                 vec![]
             },
@@ -442,15 +434,12 @@ pub fn build_native_stake_split(
     let stake_pubkey = Pubkey::from_str(&params.stake_account).unwrap();
     let split_lamports = (params.amount.parse::<f64>().unwrap() * LAMPORTS_PER_SOL) as u64;
 
-    let account = rpc
-        .client()
-        .get_account(&stake_pubkey)
-        .map_err(|_| {
-            AppError::InvalidParams(format!(
-                "Stake account {} not found on-chain",
-                params.stake_account
-            ))
-        })?;
+    let account = rpc.client().get_account(&stake_pubkey).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "Stake account {} not found on-chain",
+            params.stake_account
+        ))
+    })?;
 
     let rent = rpc
         .client()
@@ -558,32 +547,23 @@ pub fn build_native_stake_merge(
     let dest_pubkey = Pubkey::from_str(&params.destination_stake_account).unwrap();
     let source_pubkey = Pubkey::from_str(&params.source_stake_account).unwrap();
 
-    let dest_account = rpc
-        .client()
-        .get_account(&dest_pubkey)
-        .map_err(|_| {
-            AppError::InvalidParams(format!(
-                "Destination stake account {} not found",
-                params.destination_stake_account
-            ))
-        })?;
-    let source_account = rpc
-        .client()
-        .get_account(&source_pubkey)
-        .map_err(|_| {
-            AppError::InvalidParams(format!(
-                "Source stake account {} not found",
-                params.source_stake_account
-            ))
-        })?;
+    let dest_account = rpc.client().get_account(&dest_pubkey).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "Destination stake account {} not found",
+            params.destination_stake_account
+        ))
+    })?;
+    let source_account = rpc.client().get_account(&source_pubkey).map_err(|_| {
+        AppError::InvalidParams(format!(
+            "Source stake account {} not found",
+            params.source_stake_account
+        ))
+    })?;
 
     let total_after = dest_account.lamports + source_account.lamports;
 
-    let merge_ixs = solana_sdk::stake::instruction::merge(
-        &dest_pubkey,
-        &source_pubkey,
-        user_pubkey,
-    );
+    let merge_ixs =
+        solana_sdk::stake::instruction::merge(&dest_pubkey, &source_pubkey, user_pubkey);
 
     let blockhash = rpc.get_latest_blockhash_with_retry()?;
     let message = Message::new(&merge_ixs, Some(user_pubkey));

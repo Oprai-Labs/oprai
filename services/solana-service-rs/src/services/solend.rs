@@ -174,7 +174,6 @@ pub struct SolendExerciseRewardParams {
     pub reward_mint: Option<String>,
 }
 
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
@@ -226,7 +225,9 @@ pub fn validate_solend_repay_params(p: &SolendRepayParams) -> Result<(), AppErro
     Ok(())
 }
 
-pub fn validate_solend_add_collateral_params(p: &SolendAddCollateralParams) -> Result<(), AppError> {
+pub fn validate_solend_add_collateral_params(
+    p: &SolendAddCollateralParams,
+) -> Result<(), AppError> {
     if p.token.is_empty() {
         return Err(AppError::InvalidParams("token is required".into()));
     }
@@ -236,7 +237,9 @@ pub fn validate_solend_add_collateral_params(p: &SolendAddCollateralParams) -> R
     Ok(())
 }
 
-pub fn validate_solend_withdraw_collateral_params(p: &SolendWithdrawCollateralParams) -> Result<(), AppError> {
+pub fn validate_solend_withdraw_collateral_params(
+    p: &SolendWithdrawCollateralParams,
+) -> Result<(), AppError> {
     if p.token.is_empty() {
         return Err(AppError::InvalidParams("token is required".into()));
     }
@@ -279,7 +282,9 @@ pub fn validate_solend_claim_rewards_params(_p: &SolendClaimRewardsParams) -> Re
     Ok(())
 }
 
-pub fn validate_solend_deposit_liquidity_params(p: &SolendDepositLiquidityParams) -> Result<(), AppError> {
+pub fn validate_solend_deposit_liquidity_params(
+    p: &SolendDepositLiquidityParams,
+) -> Result<(), AppError> {
     if p.token.is_empty() {
         return Err(AppError::InvalidParams("token is required".into()));
     }
@@ -289,7 +294,9 @@ pub fn validate_solend_deposit_liquidity_params(p: &SolendDepositLiquidityParams
     Ok(())
 }
 
-pub fn validate_solend_deposit_obligation_collateral_params(p: &SolendDepositObligationCollateralParams) -> Result<(), AppError> {
+pub fn validate_solend_deposit_obligation_collateral_params(
+    p: &SolendDepositObligationCollateralParams,
+) -> Result<(), AppError> {
     if p.token.is_empty() {
         return Err(AppError::InvalidParams("token is required".into()));
     }
@@ -299,7 +306,9 @@ pub fn validate_solend_deposit_obligation_collateral_params(p: &SolendDepositObl
     Ok(())
 }
 
-pub fn validate_solend_redeem_collateral_params(p: &SolendRedeemCollateralParams) -> Result<(), AppError> {
+pub fn validate_solend_redeem_collateral_params(
+    p: &SolendRedeemCollateralParams,
+) -> Result<(), AppError> {
     if p.token.is_empty() {
         return Err(AppError::InvalidParams("token is required".into()));
     }
@@ -309,7 +318,9 @@ pub fn validate_solend_redeem_collateral_params(p: &SolendRedeemCollateralParams
     Ok(())
 }
 
-pub fn validate_solend_exercise_reward_params(p: &SolendExerciseRewardParams) -> Result<(), AppError> {
+pub fn validate_solend_exercise_reward_params(
+    p: &SolendExerciseRewardParams,
+) -> Result<(), AppError> {
     if p.amount.parse::<f64>().map(|v| v <= 0.0).unwrap_or(true) {
         return Err(AppError::InvalidParams("amount must be positive".into()));
     }
@@ -507,8 +518,12 @@ pub async fn build_solend_stats(
     let url = format!("{SOLEND_API}/stats");
     let resp = http.get(&url).send().await;
     let description = match resp {
-        Ok(r) if r.status().is_success() => format!("Solend protocol stats:\n{}", r.text().await.unwrap_or_default()),
-        _ => "Solend stats unavailable. Visit app.solend.fi for current TVL and protocol stats.".to_string(),
+        Ok(r) if r.status().is_success() => format!(
+            "Solend protocol stats:\n{}",
+            r.text().await.unwrap_or_default()
+        ),
+        _ => "Solend stats unavailable. Visit app.solend.fi for current TVL and protocol stats."
+            .to_string(),
     };
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -538,7 +553,9 @@ pub async fn build_solend_lst_rates(
     let url = format!("{SOLEND_API}/lst-rates");
     let resp = http.get(&url).send().await;
     let description = match resp {
-        Ok(r) if r.status().is_success() => format!("Solend LST rates:\n{}", r.text().await.unwrap_or_default()),
+        Ok(r) if r.status().is_success() => {
+            format!("Solend LST rates:\n{}", r.text().await.unwrap_or_default())
+        }
         _ => "Solend LST rates unavailable.".to_string(),
     };
     Ok(BuildResponse {
@@ -567,13 +584,23 @@ pub async fn build_solend_prices(
     p: &SolendPricesParams,
 ) -> Result<BuildResponse, AppError> {
     let mut qs_parts = vec![];
-    if let Some(m) = &p.mints { qs_parts.push(format!("mints={m}")); }
-    if let Some(s) = &p.symbols { qs_parts.push(format!("symbols={s}")); }
-    let qs = if qs_parts.is_empty() { String::new() } else { format!("?{}", qs_parts.join("&")) };
+    if let Some(m) = &p.mints {
+        qs_parts.push(format!("mints={m}"));
+    }
+    if let Some(s) = &p.symbols {
+        qs_parts.push(format!("symbols={s}"));
+    }
+    let qs = if qs_parts.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", qs_parts.join("&"))
+    };
     let url = format!("{SOLEND_API}/prices{qs}");
     let resp = http.get(&url).send().await;
     let description = match resp {
-        Ok(r) if r.status().is_success() => format!("Solend prices:\n{}", r.text().await.unwrap_or_default()),
+        Ok(r) if r.status().is_success() => {
+            format!("Solend prices:\n{}", r.text().await.unwrap_or_default())
+        }
         _ => "Solend prices unavailable.".to_string(),
     };
     Ok(BuildResponse {
@@ -602,10 +629,16 @@ pub async fn build_solend_reserves_history(
     p: &SolendReservesHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     let span = p.span.as_deref().unwrap_or("1w");
-    let url = format!("{SOLEND_API}/reserves/historical-interest-rates?ids={}&span={span}", p.ids);
+    let url = format!(
+        "{SOLEND_API}/reserves/historical-interest-rates?ids={}&span={span}",
+        p.ids
+    );
     let resp = http.get(&url).send().await;
     let description = match resp {
-        Ok(r) if r.status().is_success() => format!("Solend reserves APY history:\n{}", r.text().await.unwrap_or_default()),
+        Ok(r) if r.status().is_success() => format!(
+            "Solend reserves APY history:\n{}",
+            r.text().await.unwrap_or_default()
+        ),
         _ => "Solend reserves history unavailable.".to_string(),
     };
     Ok(BuildResponse {
@@ -636,7 +669,11 @@ pub async fn build_solend_daily_stats(
     let url = format!("{SOLEND_API}/daily-stats?date={}", p.date);
     let resp = http.get(&url).send().await;
     let description = match resp {
-        Ok(r) if r.status().is_success() => format!("Solend daily stats for {}:\n{}", p.date, r.text().await.unwrap_or_default()),
+        Ok(r) if r.status().is_success() => format!(
+            "Solend daily stats for {}:\n{}",
+            p.date,
+            r.text().await.unwrap_or_default()
+        ),
         _ => format!("Solend daily stats for {} unavailable.", p.date),
     };
     Ok(BuildResponse {

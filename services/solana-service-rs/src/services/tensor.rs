@@ -176,7 +176,10 @@ pub async fn get_nft_info(http: &reqwest::Client, mint_address: &str) -> Option<
 }
 
 /// Fetch collection info from Tensor API.
-pub async fn get_collection_info(http: &reqwest::Client, slug: &str) -> Option<TensorCollectionInfo> {
+pub async fn get_collection_info(
+    http: &reqwest::Client,
+    slug: &str,
+) -> Option<TensorCollectionInfo> {
     let url = format!("{TENSOR_API}/collections/{slug}");
     let resp = http.get(&url).send().await.ok()?;
     if !resp.status().is_success() {
@@ -218,7 +221,9 @@ pub async fn get_buy_tx(
             code: Some(status.as_u16() as i32),
         });
         return Err(AppError::Internal(
-            error.message.unwrap_or_else(|| "Unknown Tensor API error".to_string())
+            error
+                .message
+                .unwrap_or_else(|| "Unknown Tensor API error".to_string()),
         ));
     }
 
@@ -258,7 +263,9 @@ pub async fn get_list_tx(
             code: Some(status.as_u16() as i32),
         });
         return Err(AppError::Internal(
-            error.message.unwrap_or_else(|| "Unknown Tensor API error".to_string())
+            error
+                .message
+                .unwrap_or_else(|| "Unknown Tensor API error".to_string()),
         ));
     }
 
@@ -294,7 +301,9 @@ pub async fn get_cancel_list_tx(
             code: Some(status.as_u16() as i32),
         });
         return Err(AppError::Internal(
-            error.message.unwrap_or_else(|| "Unknown Tensor API error".to_string())
+            error
+                .message
+                .unwrap_or_else(|| "Unknown Tensor API error".to_string()),
         ));
     }
 
@@ -329,8 +338,8 @@ fn build_stub_tx(
 
     let message = Message::new(&[ix], Some(user_pubkey));
     let tx = Transaction::new_unsigned(message);
-    let serialized = bincode::serialize(&tx)
-        .map_err(|e| AppError::Internal(format!("Serialize error: {e}")))?;
+    let serialized =
+        bincode::serialize(&tx).map_err(|e| AppError::Internal(format!("Serialize error: {e}")))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(&serialized))
 }
 
@@ -371,9 +380,10 @@ pub async fn build_tensor_buy(
             tracing::warn!("Tensor API failed, using fallback: {}", e);
             let price_lamports = (price * 1_000_000_000.0) as u64;
             let encoded = build_stub_tx(
-                &Pubkey::from_str(user_pubkey_str).map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?,
+                &Pubkey::from_str(user_pubkey_str)
+                    .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?,
                 IX_BUY,
-                price_lamports.to_le_bytes().to_vec()
+                price_lamports.to_le_bytes().to_vec(),
             )?;
 
             return Ok(BuildResponse {
@@ -392,7 +402,9 @@ pub async fn build_tensor_buy(
                         "maxPrice": params.max_price,
                         "currentListingPrice": current_price,
                     }),
-                    warnings: vec!["Note: Using fallback transaction - Tensor API unavailable".into()],
+                    warnings: vec![
+                        "Note: Using fallback transaction - Tensor API unavailable".into()
+                    ],
                     requires_approval: true,
                 },
                 transaction: Some(encoded),
@@ -400,7 +412,7 @@ pub async fn build_tensor_buy(
                 execution_steps: None,
                 quote: None,
                 is_cross_chain: false,
-        data: None,
+                data: None,
             });
         }
     };
@@ -450,9 +462,10 @@ pub async fn build_tensor_list(
     user_pubkey_str: &str,
     params: &TensorListParams,
 ) -> Result<BuildResponse, AppError> {
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price: must be a positive number".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price: must be a positive number".into()))?;
     if price <= 0.0 {
         return Err(AppError::InvalidParams("Price must be positive".into()));
     }
@@ -476,9 +489,10 @@ pub async fn build_tensor_list(
             tracing::warn!("Tensor API failed for list, using fallback: {}", e);
             let price_lamports = (price * 1_000_000_000.0) as u64;
             let encoded = build_stub_tx(
-                &Pubkey::from_str(user_pubkey_str).map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?,
+                &Pubkey::from_str(user_pubkey_str)
+                    .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?,
                 IX_LIST,
-                price_lamports.to_le_bytes().to_vec()
+                price_lamports.to_le_bytes().to_vec(),
             )?;
 
             return Ok(BuildResponse {
@@ -497,7 +511,9 @@ pub async fn build_tensor_list(
                         "price": params.price,
                         "nftName": nft_name,
                     }),
-                    warnings: vec!["Note: Using fallback transaction - Tensor API unavailable".into()],
+                    warnings: vec![
+                        "Note: Using fallback transaction - Tensor API unavailable".into()
+                    ],
                     requires_approval: true,
                 },
                 transaction: Some(encoded),
@@ -505,7 +521,7 @@ pub async fn build_tensor_list(
                 execution_steps: None,
                 quote: None,
                 is_cross_chain: false,
-        data: None,
+                data: None,
             });
         }
     };
@@ -559,11 +575,15 @@ pub async fn build_tensor_cancel_listing(
         Ok(tx) => tx,
         Err(e) => {
             // If API fails, fall back to stub but warn user
-            tracing::warn!("Tensor API failed for cancel listing, using fallback: {}", e);
+            tracing::warn!(
+                "Tensor API failed for cancel listing, using fallback: {}",
+                e
+            );
             let encoded = build_stub_tx(
-                &Pubkey::from_str(user_pubkey_str).map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?,
+                &Pubkey::from_str(user_pubkey_str)
+                    .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?,
                 IX_CANCEL_LISTING,
-                vec![]
+                vec![],
             )?;
 
             return Ok(BuildResponse {
@@ -580,7 +600,9 @@ pub async fn build_tensor_cancel_listing(
                         "mintAddress": params.mint_address,
                         "nftName": nft_name,
                     }),
-                    warnings: vec!["Note: Using fallback transaction - Tensor API unavailable".into()],
+                    warnings: vec![
+                        "Note: Using fallback transaction - Tensor API unavailable".into()
+                    ],
                     requires_approval: false,
                 },
                 transaction: Some(encoded),
@@ -588,7 +610,7 @@ pub async fn build_tensor_cancel_listing(
                 execution_steps: None,
                 quote: None,
                 is_cross_chain: false,
-        data: None,
+                data: None,
             });
         }
     };
@@ -624,17 +646,25 @@ pub async fn build_tensor_make_offer(
     user_pubkey_str: &str,
     params: &TensorMakeOfferParams,
 ) -> Result<BuildResponse, AppError> {
-    let price: f64 = params.price.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid price: must be a positive number".into())
-    })?;
+    let price: f64 = params
+        .price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid price: must be a positive number".into()))?;
     if price <= 0.0 {
-        return Err(AppError::InvalidParams("Offer price must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "Offer price must be positive".into(),
+        ));
     }
 
     let wallet = Pubkey::from_str(user_pubkey_str)
         .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?;
 
-    let qty: u64 = params.quantity.as_deref().unwrap_or("1").parse().unwrap_or(1);
+    let qty: u64 = params
+        .quantity
+        .as_deref()
+        .unwrap_or("1")
+        .parse()
+        .unwrap_or(1);
     let price_lamports = (price * 1_000_000_000.0) as u64;
     let mut data = price_lamports.to_le_bytes().to_vec();
     data.extend_from_slice(&qty.to_le_bytes());
@@ -681,7 +711,10 @@ pub async fn build_tensor_cancel_offer(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "tensor_cancel_offer".into(),
-            description: format!("Cancel Tensor offer {}", &params.bid_id[..8.min(params.bid_id.len())]),
+            description: format!(
+                "Cancel Tensor offer {}",
+                &params.bid_id[..8.min(params.bid_id.len())]
+            ),
             estimated_fee: "~0.001 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "bidId": params.bid_id }),
@@ -797,7 +830,10 @@ pub async fn build_tensor_wallet_nfts(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "tensor_wallet_nfts".into(),
-            description: format!("NFTs for wallet {} (Tensor)", &params.wallet[..8.min(params.wallet.len())]),
+            description: format!(
+                "NFTs for wallet {} (Tensor)",
+                &params.wallet[..8.min(params.wallet.len())]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({ "wallet": params.wallet }),
@@ -822,7 +858,10 @@ pub async fn build_tensor_listings(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "tensor_listings".into(),
-            description: format!("Top {} listings for '{}' (Tensor)", limit, params.collection_slug),
+            description: format!(
+                "Top {} listings for '{}' (Tensor)",
+                limit, params.collection_slug
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -863,40 +902,49 @@ pub async fn build_tensor_action(
             build_tensor_list(http, user_pubkey_str, &p).await
         }
         "tensor_cancel_listing" => {
-            let p: TensorCancelListingParams = serde_json::from_value(params)
-                .map_err(|e| AppError::InvalidParams(format!("Invalid tensor_cancel_listing params: {e}")))?;
+            let p: TensorCancelListingParams = serde_json::from_value(params).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid tensor_cancel_listing params: {e}"))
+            })?;
             build_tensor_cancel_listing(http, user_pubkey_str, &p).await
         }
         "tensor_make_offer" => {
-            let p: TensorMakeOfferParams = serde_json::from_value(params)
-                .map_err(|e| AppError::InvalidParams(format!("Invalid tensor_make_offer params: {e}")))?;
+            let p: TensorMakeOfferParams = serde_json::from_value(params).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid tensor_make_offer params: {e}"))
+            })?;
             build_tensor_make_offer(http, user_pubkey_str, &p).await
         }
         "tensor_cancel_offer" => {
-            let p: TensorCancelOfferParams = serde_json::from_value(params)
-                .map_err(|e| AppError::InvalidParams(format!("Invalid tensor_cancel_offer params: {e}")))?;
+            let p: TensorCancelOfferParams = serde_json::from_value(params).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid tensor_cancel_offer params: {e}"))
+            })?;
             build_tensor_cancel_offer(http, user_pubkey_str, &p).await
         }
         "tensor_collection_info" => {
-            let p: TensorCollectionInfoParams = serde_json::from_value(params)
-                .map_err(|e| AppError::InvalidParams(format!("Invalid tensor_collection_info params: {e}")))?;
+            let p: TensorCollectionInfoParams = serde_json::from_value(params).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid tensor_collection_info params: {e}"))
+            })?;
             build_tensor_collection_info(http, &p).await
         }
         "tensor_nft_info" => {
-            let p: TensorNftInfoParams = serde_json::from_value(params)
-                .map_err(|e| AppError::InvalidParams(format!("Invalid tensor_nft_info params: {e}")))?;
+            let p: TensorNftInfoParams = serde_json::from_value(params).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid tensor_nft_info params: {e}"))
+            })?;
             build_tensor_nft_info(http, &p).await
         }
         "tensor_wallet_nfts" => {
-            let p: TensorWalletNftsParams = serde_json::from_value(params)
-                .map_err(|e| AppError::InvalidParams(format!("Invalid tensor_wallet_nfts params: {e}")))?;
+            let p: TensorWalletNftsParams = serde_json::from_value(params).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid tensor_wallet_nfts params: {e}"))
+            })?;
             build_tensor_wallet_nfts(http, &p).await
         }
         "tensor_listings" => {
-            let p: TensorListingsParams = serde_json::from_value(params)
-                .map_err(|e| AppError::InvalidParams(format!("Invalid tensor_listings params: {e}")))?;
+            let p: TensorListingsParams = serde_json::from_value(params).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid tensor_listings params: {e}"))
+            })?;
             build_tensor_listings(http, &p).await
         }
-        _ => Err(AppError::InvalidParams(format!("Unknown Tensor action: {action_type}"))),
+        _ => Err(AppError::InvalidParams(format!(
+            "Unknown Tensor action: {action_type}"
+        ))),
     }
 }

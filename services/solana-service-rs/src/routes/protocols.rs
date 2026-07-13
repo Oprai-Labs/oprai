@@ -28,7 +28,21 @@ static PROTOCOLS: LazyLock<Vec<ProtocolInfo>> = LazyLock::new(|| {
             description: "Solana's leading swap, lending and perpetuals aggregator",
             category: "DEX Aggregator",
             website: "https://jup.ag",
-            actions: &["swap", "limit_order", "dca", "lend", "withdraw_lend", "borrow", "repay", "perp_open", "perp_close", "jlp_add", "jlp_remove", "jupsol_stake", "jupsol_unstake"],
+            actions: &[
+                "swap",
+                "limit_order",
+                "dca",
+                "lend",
+                "withdraw_lend",
+                "borrow",
+                "repay",
+                "perp_open",
+                "perp_close",
+                "jlp_add",
+                "jlp_remove",
+                "jupsol_stake",
+                "jupsol_unstake",
+            ],
         },
         ProtocolInfo {
             id: "jupiter_lend",
@@ -177,9 +191,8 @@ static PROTOCOLS: LazyLock<Vec<ProtocolInfo>> = LazyLock::new(|| {
     ]
 });
 
-static PROTOCOL_MAP: LazyLock<HashMap<&'static str, &'static ProtocolInfo>> = LazyLock::new(|| {
-    PROTOCOLS.iter().map(|p| (p.id, p)).collect()
-});
+static PROTOCOL_MAP: LazyLock<HashMap<&'static str, &'static ProtocolInfo>> =
+    LazyLock::new(|| PROTOCOLS.iter().map(|p| (p.id, p)).collect());
 
 // ──────────────────────────────────────────────────────────────────────────────
 // GET /protocols
@@ -238,9 +251,7 @@ pub async fn get_token_by_symbol(path: web::Path<String>) -> Result<HttpResponse
 
 /// Alias: GET /tokens/{symbol}.
 #[get("/{symbol}")]
-pub async fn get_token_by_symbol_alias(
-    path: web::Path<String>,
-) -> Result<HttpResponse, AppError> {
+pub async fn get_token_by_symbol_alias(path: web::Path<String>) -> Result<HttpResponse, AppError> {
     let symbol = path.into_inner().to_uppercase();
     match COMMON_TOKENS.get(symbol.as_str()) {
         Some(info) => Ok(HttpResponse::Ok().json(serde_json::json!({ "token": info }))),

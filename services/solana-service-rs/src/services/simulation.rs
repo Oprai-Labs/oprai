@@ -22,7 +22,6 @@ pub enum RiskLevel {
     Critical,
 }
 
-
 /// Types of transactions that can be simulated
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "params")]
@@ -185,9 +184,6 @@ pub struct SimulationResult {
     pub proceed_with_caution: bool,
     pub message: String,
 }
-
-
-
 
 #[cfg(test)]
 mod tests {

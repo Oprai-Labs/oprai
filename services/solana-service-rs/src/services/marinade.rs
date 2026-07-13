@@ -123,39 +123,48 @@ pub fn validate_marinade_claim_ticket_params(
 }
 
 pub fn validate_marinade_stake_params(params: &MarinadeStakeParams) -> Result<(), AppError> {
-    let amount: f64 = params.amount.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid amount: must be a positive number".into())
-    })?;
+    let amount: f64 = params
+        .amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid amount: must be a positive number".into()))?;
     if amount <= 0.0 {
         return Err(AppError::InvalidParams("Amount must be positive".into()));
     }
     if let Some(bps) = params.slippage_bps {
         if bps > 10000 {
-            return Err(AppError::InvalidParams("Slippage must be <= 10000 bps (100%)".into()));
+            return Err(AppError::InvalidParams(
+                "Slippage must be <= 10000 bps (100%)".into(),
+            ));
         }
     }
     Ok(())
 }
 
 pub fn validate_marinade_unstake_params(params: &MarinadeUnstakeParams) -> Result<(), AppError> {
-    let amount: f64 = params.amount.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid amount: must be a positive number".into())
-    })?;
+    let amount: f64 = params
+        .amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid amount: must be a positive number".into()))?;
     if amount <= 0.0 {
         return Err(AppError::InvalidParams("Amount must be positive".into()));
     }
     if let Some(bps) = params.slippage_bps {
         if bps > 10000 {
-            return Err(AppError::InvalidParams("Slippage must be <= 10000 bps (100%)".into()));
+            return Err(AppError::InvalidParams(
+                "Slippage must be <= 10000 bps (100%)".into(),
+            ));
         }
     }
     Ok(())
 }
 
-pub fn validate_marinade_delayed_unstake_params(params: &MarinadeDelayedUnstakeParams) -> Result<(), AppError> {
-    let amount: f64 = params.amount.parse().map_err(|_| {
-        AppError::InvalidParams("Invalid amount: must be a positive number".into())
-    })?;
+pub fn validate_marinade_delayed_unstake_params(
+    params: &MarinadeDelayedUnstakeParams,
+) -> Result<(), AppError> {
+    let amount: f64 = params
+        .amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Invalid amount: must be a positive number".into()))?;
     if amount <= 0.0 {
         return Err(AppError::InvalidParams("Amount must be positive".into()));
     }
@@ -177,11 +186,17 @@ pub async fn get_marinade_stats(http: &reqwest::Client) -> Option<MarinadeStats>
     if !resp.status().is_success() {
         return None;
     }
-    resp.json::<serde_json::Value>().await.ok().map(|v| MarinadeStats {
-        msol_price: None, // populated separately by get_msol_exchange_rate
-        total_sol_staked: v.get("total_sol").and_then(|n| n.as_f64()).map(|n| n.to_string()),
-        apy: None,
-    })
+    resp.json::<serde_json::Value>()
+        .await
+        .ok()
+        .map(|v| MarinadeStats {
+            msol_price: None, // populated separately by get_msol_exchange_rate
+            total_sol_staked: v
+                .get("total_sol")
+                .and_then(|n| n.as_f64())
+                .map(|n| n.to_string()),
+            apy: None,
+        })
 }
 
 /// Get the current mSOL/SOL exchange rate from Marinade's own indexer.
@@ -238,8 +253,16 @@ pub async fn build_marinade_stake(
         .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {}", e)))?;
     let exchange_rate = get_msol_exchange_rate(http).await?;
     let slippage = params.slippage_bps.unwrap_or(50);
-    let amount_lamports = (params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * 1_000_000_000.0) as u64;
-    let expected_msol = params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? / exchange_rate;
+    let amount_lamports = (params
+        .amount
+        .parse::<f64>()
+        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?
+        * 1_000_000_000.0) as u64;
+    let expected_msol = params
+        .amount
+        .parse::<f64>()
+        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?
+        / exchange_rate;
 
     let program_id = Pubkey::from_str(MARINADE_PROGRAM_ID).unwrap_or_default();
     let msol_mint = Pubkey::from_str(MSOL_MINT).unwrap_or_default();
@@ -249,14 +272,15 @@ pub async fn build_marinade_stake(
     let ix = Instruction {
         program_id,
         accounts: vec![
-            AccountMeta::new(wallet_pubkey, true),           // Payer/Signer
-            AccountMeta::new(state, false),                   // Marinade state
-            AccountMeta::new(msol_mint, false),              // mSOL mint
+            AccountMeta::new(wallet_pubkey, true), // Payer/Signer
+            AccountMeta::new(state, false),        // Marinade state
+            AccountMeta::new(msol_mint, false),    // mSOL mint
             AccountMeta::new_readonly(system_program::id(), false),
         ],
         data: vec![
             0u8, // Deposit instruction discriminator
-        ].into_iter()
+        ]
+        .into_iter()
         .chain(amount_lamports.to_le_bytes().iter().copied())
         .chain((slippage as u64).to_le_bytes().iter().copied())
         .collect(),
@@ -270,7 +294,12 @@ pub async fn build_marinade_stake(
     let encoded = base64::engine::general_purpose::STANDARD.encode(&serialized);
 
     let mut warnings = vec![];
-    if params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? > 100.0 {
+    if params
+        .amount
+        .parse::<f64>()
+        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?
+        > 100.0
+    {
         warnings.push("Large stake amount - consider splitting for safety".into());
     }
 
@@ -278,7 +307,10 @@ pub async fn build_marinade_stake(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "marinade_stake".into(),
-            description: format!("Stake {} SOL → ~{:.4} mSOL (Marinade)", params.amount, expected_msol),
+            description: format!(
+                "Stake {} SOL → ~{:.4} mSOL (Marinade)",
+                params.amount, expected_msol
+            ),
             estimated_fee: "~0.001 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -310,8 +342,16 @@ pub async fn build_marinade_unstake(
         .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {}", e)))?;
     let exchange_rate = get_msol_exchange_rate(http).await?;
     let slippage = params.slippage_bps.unwrap_or(50);
-    let amount_lamports = (params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * 1_000_000_000.0) as u64;
-    let expected_sol = params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * exchange_rate;
+    let amount_lamports = (params
+        .amount
+        .parse::<f64>()
+        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?
+        * 1_000_000_000.0) as u64;
+    let expected_sol = params
+        .amount
+        .parse::<f64>()
+        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?
+        * exchange_rate;
 
     let program_id = Pubkey::from_str(MARINADE_PROGRAM_ID).unwrap_or_default();
     let msol_mint = Pubkey::from_str(MSOL_MINT).unwrap_or_default();
@@ -327,7 +367,8 @@ pub async fn build_marinade_unstake(
         ],
         data: vec![
             1u8, // Instant unstake instruction discriminator
-        ].into_iter()
+        ]
+        .into_iter()
         .chain(amount_lamports.to_le_bytes().iter().copied())
         .chain((slippage as u64).to_le_bytes().iter().copied())
         .collect(),
@@ -344,7 +385,10 @@ pub async fn build_marinade_unstake(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "marinade_unstake".into(),
-            description: format!("Instant Unstake {} mSOL → ~{:.4} SOL (Marinade)", params.amount, expected_sol),
+            description: format!(
+                "Instant Unstake {} mSOL → ~{:.4} SOL (Marinade)",
+                params.amount, expected_sol
+            ),
             estimated_fee: "~0.3% fee".into(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -375,8 +419,16 @@ pub async fn build_marinade_delayed_unstake(
     let wallet_pubkey = Pubkey::from_str(user_pubkey_str)
         .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {}", e)))?;
     let exchange_rate = get_msol_exchange_rate(http).await?;
-    let amount_lamports = (params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * 1_000_000_000.0) as u64;
-    let expected_sol = params.amount.parse::<f64>().map_err(|_| AppError::InvalidParams("Invalid amount".into()))? * exchange_rate;
+    let amount_lamports = (params
+        .amount
+        .parse::<f64>()
+        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?
+        * 1_000_000_000.0) as u64;
+    let expected_sol = params
+        .amount
+        .parse::<f64>()
+        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?
+        * exchange_rate;
 
     let program_id = Pubkey::from_str(MARINADE_PROGRAM_ID).unwrap_or_default();
     let msol_mint = Pubkey::from_str(MSOL_MINT).unwrap_or_default();
@@ -392,7 +444,8 @@ pub async fn build_marinade_delayed_unstake(
         ],
         data: vec![
             2u8, // Delayed unstake instruction discriminator
-        ].into_iter()
+        ]
+        .into_iter()
         .chain(amount_lamports.to_le_bytes().iter().copied())
         .collect(),
     };
@@ -408,7 +461,10 @@ pub async fn build_marinade_delayed_unstake(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "marinade_delayed_unstake".into(),
-            description: format!("Delayed Unstake {} mSOL → ~{:.4} SOL (Marinade)", params.amount, expected_sol),
+            description: format!(
+                "Delayed Unstake {} mSOL → ~{:.4} SOL (Marinade)",
+                params.amount, expected_sol
+            ),
             estimated_fee: "~0.001 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({
@@ -463,20 +519,20 @@ pub async fn build_marinade_claim_ticket(
     let ix = Instruction {
         program_id,
         accounts: vec![
-            AccountMeta::new(state, false),                                    // 0: state
-            AccountMeta::new(reserve_pda, false),                              // 1: reservePda (was missing!)
-            AccountMeta::new(ticket_pubkey, false),                            // 2: ticketAccount
-            AccountMeta::new(wallet_pubkey, false),                            // 3: transferSolTo (not signer per IDL)
+            AccountMeta::new(state, false),         // 0: state
+            AccountMeta::new(reserve_pda, false),   // 1: reservePda (was missing!)
+            AccountMeta::new(ticket_pubkey, false), // 2: ticketAccount
+            AccountMeta::new(wallet_pubkey, false), // 3: transferSolTo (not signer per IDL)
             AccountMeta::new_readonly(solana_sdk::sysvar::clock::id(), false), // 4: clock
-            AccountMeta::new_readonly(system_program::id(), false),            // 5: systemProgram
+            AccountMeta::new_readonly(system_program::id(), false), // 5: systemProgram
         ],
         data: discriminator.to_vec(),
     };
 
     let message = Message::new(&[ix], Some(&wallet_pubkey));
     let tx = Transaction::new_unsigned(message);
-    let serialized = bincode::serialize(&tx)
-        .map_err(|e| AppError::Internal(format!("Serialize error: {e}")))?;
+    let serialized =
+        bincode::serialize(&tx).map_err(|e| AppError::Internal(format!("Serialize error: {e}")))?;
     let encoded = base64::engine::general_purpose::STANDARD.encode(&serialized);
 
     let short = &params.ticket_account[..8.min(params.ticket_account.len())];
@@ -488,10 +544,9 @@ pub async fn build_marinade_claim_ticket(
             estimated_fee: "~0.000005 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "ticketAccount": params.ticket_account }),
-            warnings: vec![
-                "This will fail if the ticket has not yet matured. \
-                 Marinade delayed unstakes take ~2 epochs (~4 days).".into(),
-            ],
+            warnings: vec!["This will fail if the ticket has not yet matured. \
+                 Marinade delayed unstakes take ~2 epochs (~4 days)."
+                .into()],
             requires_approval: true,
         },
         transaction: Some(encoded),

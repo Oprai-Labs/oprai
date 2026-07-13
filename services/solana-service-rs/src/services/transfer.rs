@@ -1,10 +1,5 @@
 use serde::{Deserialize, Serialize};
-use solana_sdk::{
-    message::Message,
-    pubkey::Pubkey,
-    system_instruction,
-    transaction::Transaction,
-};
+use solana_sdk::{message::Message, pubkey::Pubkey, system_instruction, transaction::Transaction};
 use spl_associated_token_account::get_associated_token_address;
 use spl_token::instruction as spl_ix;
 use uuid::Uuid;
@@ -94,8 +89,7 @@ pub fn build_transfer_transaction(
 
     let to_pubkey: Pubkey = params.to.parse()?;
     let token_address = resolve_token_address(&params.token);
-    let is_native_sol =
-        token_address == SOL_MINT || params.token.to_uppercase() == "SOL";
+    let is_native_sol = token_address == SOL_MINT || params.token.to_uppercase() == "SOL";
 
     // Resolve decimals and symbol.
     let (token_decimals, token_symbol) = match get_token_info(&params.token) {
@@ -191,10 +185,7 @@ pub fn build_transfer_transaction(
 
     let blockhash = rpc.get_latest_blockhash_with_retry()?;
     let message = Message::new(&instructions, Some(from_pubkey));
-    let fee = rpc
-        .client()
-        .get_fee_for_message(&message)
-        .unwrap_or(5_000);
+    let fee = rpc.client().get_fee_for_message(&message).unwrap_or(5_000);
     let estimated_fee = format!("{:.6} SOL", fee as f64 / 1_000_000_000.0);
 
     // Verify SOL covers fee (and ATA rent if needed).

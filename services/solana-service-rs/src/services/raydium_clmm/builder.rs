@@ -194,14 +194,11 @@ pub async fn build_open_position(
     // 6. Fresh keypair for the position NFT mint.
     let position_nft_mint_kp = Keypair::new();
     let position_nft_mint = position_nft_mint_kp.pubkey();
-    let position_nft_account =
-        get_associated_token_address(&req.user_pubkey, &position_nft_mint);
+    let position_nft_account = get_associated_token_address(&req.user_pubkey, &position_nft_mint);
 
     // 7. User token ATAs for the pool's two mints.
-    let user_token_account_0 =
-        get_associated_token_address(&req.user_pubkey, &pool.token_mint_0);
-    let user_token_account_1 =
-        get_associated_token_address(&req.user_pubkey, &pool.token_mint_1);
+    let user_token_account_0 = get_associated_token_address(&req.user_pubkey, &pool.token_mint_0);
+    let user_token_account_1 = get_associated_token_address(&req.user_pubkey, &pool.token_mint_1);
 
     // 8. Encode the instruction.
     let inputs = OpenPositionV2Inputs {
@@ -235,10 +232,8 @@ pub async fn build_open_position(
     //    Fix: prepend a `create_tick_array` instruction for each missing
     //    array. The pool's `signer` field for create_tick_array is the
     //    payer (= user_pubkey), which then becomes the rent contributor.
-    let tick_array_lower_pda =
-        tick_array_pda(&req.pool_id, tick_array_lower_start_index);
-    let tick_array_upper_pda =
-        tick_array_pda(&req.pool_id, tick_array_upper_start_index);
+    let tick_array_lower_pda = tick_array_pda(&req.pool_id, tick_array_lower_start_index);
+    let tick_array_upper_pda = tick_array_pda(&req.pool_id, tick_array_upper_start_index);
     let rpc_clone = rpc.clone();
     let arrays_to_probe = vec![tick_array_lower_pda, tick_array_upper_pda];
     let probe_results: Vec<Option<solana_sdk::account::Account>> =
@@ -268,9 +263,7 @@ pub async fn build_open_position(
             tick_array_lower_start_index,
         ));
     }
-    if !upper_exists
-        && tick_array_lower_start_index != tick_array_upper_start_index
-    {
+    if !upper_exists && tick_array_lower_start_index != tick_array_upper_start_index {
         init_ixs.push(create_tick_array(
             req.user_pubkey,
             req.pool_id,
@@ -295,10 +288,11 @@ pub async fn build_open_position(
     // `get_latest_blockhash_with_retry` is also blocking — same actix
     // panic guard as above.
     let rpc_clone = rpc.clone();
-    let blockhash = tokio::task::spawn_blocking(move || rpc_clone.get_latest_blockhash_with_retry())
-        .await
-        .map_err(|e| AppError::Internal(format!("spawn_blocking join error: {e}")))?
-        .map_err(|e| AppError::ProtocolError(format!("blockhash: {e}")))?;
+    let blockhash =
+        tokio::task::spawn_blocking(move || rpc_clone.get_latest_blockhash_with_retry())
+            .await
+            .map_err(|e| AppError::Internal(format!("spawn_blocking join error: {e}")))?
+            .map_err(|e| AppError::ProtocolError(format!("blockhash: {e}")))?;
     let msg = Message::try_compile(&req.user_pubkey, &instructions, &[], blockhash)
         .map_err(|e| AppError::ProtocolError(format!("compile msg: {e}")))?;
 
@@ -343,11 +337,10 @@ pub async fn build_open_position(
     // server log. Uses the nonblocking RpcClient because actix workers
     // run single-threaded current-thread tokio runtimes.
     let endpoint = rpc.endpoint().to_string();
-    let async_rpc =
-        solana_rpc_client::nonblocking::rpc_client::RpcClient::new_with_commitment(
-            endpoint,
-            solana_sdk::commitment_config::CommitmentConfig::confirmed(),
-        );
+    let async_rpc = solana_rpc_client::nonblocking::rpc_client::RpcClient::new_with_commitment(
+        endpoint,
+        solana_sdk::commitment_config::CommitmentConfig::confirmed(),
+    );
     match async_rpc
         .simulate_transaction_with_config(
             &tx,
@@ -434,4 +427,3 @@ pub async fn build_open_position(
 
     Ok((response, position_nft_mint))
 }
-

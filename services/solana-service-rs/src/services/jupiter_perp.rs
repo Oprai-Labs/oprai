@@ -57,7 +57,11 @@ fn perp_asset_symbol(market: &str) -> &'static str {
 /// The perps API takes a symbol ("SOL"|"BTC"|"ETH"|"USDC"), not a mint.
 /// - Long positions default to the base token (SOL for SOL-PERP, etc.)
 /// - Short positions default to USDC
-fn collateral_symbol_and_decimals(asset: &str, side: &str, collateral_token: Option<&str>) -> (&'static str, u8) {
+fn collateral_symbol_and_decimals(
+    asset: &str,
+    side: &str,
+    collateral_token: Option<&str>,
+) -> (&'static str, u8) {
     if let Some(token) = collateral_token {
         return match token.to_uppercase().as_str() {
             "USDC" | "USDT" => ("USDC", 6),
@@ -110,7 +114,6 @@ pub struct JupiterPerpLiquidityParams {
     pub token: Option<String>,
 }
 
-
 pub fn validate_perp_params(params: &JupiterPerpParams) -> Result<(), AppError> {
     if params.operation != "open" && params.operation != "close" {
         return Err(AppError::InvalidParams(
@@ -128,7 +131,8 @@ pub fn validate_perp_params(params: &JupiterPerpParams) -> Result<(), AppError> 
             .map_err(|_| AppError::InvalidParams("collateralAmount must be a number".into()))?;
         if amount <= 0.0 {
             return Err(AppError::InvalidParams(
-                "collateralAmount must be positive when opening a position (e.g. \"2\" for 2 SOL).".into(),
+                "collateralAmount must be positive when opening a position (e.g. \"2\" for 2 SOL)."
+                    .into(),
             ));
         }
     }
@@ -167,7 +171,10 @@ pub fn validate_liquidity_params(params: &JupiterPerpLiquidityParams) -> Result<
 }
 
 /// Attach the identifying + (optional) auth headers every perps-api call needs.
-fn perps_headers(req: reqwest::RequestBuilder, jupiter_api_key: Option<&str>) -> reqwest::RequestBuilder {
+fn perps_headers(
+    req: reqwest::RequestBuilder,
+    jupiter_api_key: Option<&str>,
+) -> reqwest::RequestBuilder {
     let req = req.header("x-client-platform", "oprai");
     match jupiter_api_key {
         Some(key) => req.header("x-api-key", key),
@@ -239,10 +246,11 @@ pub async fn execute_perp_transaction(
         .map_err(|e| AppError::Internal(format!("Jupiter Perps execute request failed: {e}")))?;
 
     let status = response.status();
-    let resp_json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to parse Jupiter Perps execute response: {e}")))?;
+    let resp_json: serde_json::Value = response.json().await.map_err(|e| {
+        AppError::Internal(format!(
+            "Failed to parse Jupiter Perps execute response: {e}"
+        ))
+    })?;
 
     if !status.is_success() {
         return Err(perp_api_error(status, &resp_json));
@@ -315,7 +323,11 @@ pub async fn build_perp_transaction(
             "Open {asset} {} position on Jupiter Perps ({size_desc}, {} {input_token} collateral)",
             params.side, params.collateral_amount
         );
-        (format!("{JUPITER_PERPS_API}/positions/increase"), req_body, desc)
+        (
+            format!("{JUPITER_PERPS_API}/positions/increase"),
+            req_body,
+            desc,
+        )
     } else {
         // Close: the perps API decreases a position identified by its pubkey.
         // Resolve the pubkey from the wallet's open positions by asset + side.
@@ -365,7 +377,11 @@ pub async fn build_perp_transaction(
             "Close {asset} {} position on Jupiter Perps ({close_desc})",
             params.side
         );
-        (format!("{JUPITER_PERPS_API}/positions/decrease"), req_body, desc)
+        (
+            format!("{JUPITER_PERPS_API}/positions/decrease"),
+            req_body,
+            desc,
+        )
     };
 
     let response = perps_headers(http.post(&url).json(&body), jupiter_api_key)
@@ -433,7 +449,10 @@ pub async fn build_perp_positions(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "perp_positions".to_string(),
-            description: format!("{count} open position(s) on Jupiter Perps for {}", &wallet[..8.min(wallet.len())]),
+            description: format!(
+                "{count} open position(s) on Jupiter Perps for {}",
+                &wallet[..8.min(wallet.len())]
+            ),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
             params: serde_json::json!({ "dataList": positions, "count": count }),
@@ -483,7 +502,11 @@ pub async fn build_perp_liquidity_transaction(
         (
             token_mint.to_string(),
             JLP_MINT.to_string(),
-            format!("Add {} {} to Jupiter JLP pool", amount, token_sym.to_uppercase()),
+            format!(
+                "Add {} {} to Jupiter JLP pool",
+                amount,
+                token_sym.to_uppercase()
+            ),
         )
     } else {
         (
@@ -508,7 +531,8 @@ pub async fn build_perp_liquidity_transaction(
         restrict_intermediate_tokens: None,
     };
 
-    let result = swap::build_swap_transaction(http, jupiter_api_key, user_pubkey, &swap_params).await?;
+    let result =
+        swap::build_swap_transaction(http, jupiter_api_key, user_pubkey, &swap_params).await?;
 
     let preview = ActionPreview {
         id: Uuid::new_v4().to_string(),

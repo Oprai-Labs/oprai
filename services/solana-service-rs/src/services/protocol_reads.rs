@@ -81,13 +81,18 @@ async fn ts_proxy_read(
         )));
     }
 
-    let proxy: ProxyResponse = resp.json().await.map_err(|e| {
-        AppError::Internal(format!("TS proxy {action_type} parse error: {e}"))
-    })?;
+    let proxy: ProxyResponse = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("TS proxy {action_type} parse error: {e}")))?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
-            id: if proxy.preview.id.is_empty() { Uuid::new_v4().to_string() } else { proxy.preview.id },
+            id: if proxy.preview.id.is_empty() {
+                Uuid::new_v4().to_string()
+            } else {
+                proxy.preview.id
+            },
             action_type: proxy.preview.action_type,
             description: proxy.preview.description,
             estimated_fee: proxy.preview.estimated_fee,
@@ -113,6 +118,15 @@ pub async fn drift_list_positions(http: &Client, wallet: &str) -> Result<BuildRe
 /// MarginFi v2 — detailed per-bank balance breakdown (deposit/borrow side,
 /// USD value, APY). Goes beyond `marginfi_user_accounts` which only returns
 /// PDA addresses + health factor.
-pub async fn marginfi_user_balances(http: &Client, wallet: &str) -> Result<BuildResponse, AppError> {
-    ts_proxy_read(http, wallet, "marginfi_user_balances", serde_json::json!({})).await
+pub async fn marginfi_user_balances(
+    http: &Client,
+    wallet: &str,
+) -> Result<BuildResponse, AppError> {
+    ts_proxy_read(
+        http,
+        wallet,
+        "marginfi_user_balances",
+        serde_json::json!({}),
+    )
+    .await
 }

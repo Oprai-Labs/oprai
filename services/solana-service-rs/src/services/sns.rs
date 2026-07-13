@@ -5,8 +5,7 @@ use sha2::{Digest, Sha256};
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
-    system_program,
-    sysvar,
+    system_program, sysvar,
     transaction::Transaction,
 };
 use std::str::FromStr;
@@ -23,24 +22,24 @@ use crate::solana::connection::SolanaRpc;
 const SNS_PROXY: &str = "https://sns-sdk-proxy.bonfida.workers.dev";
 const HASH_PREFIX: &[u8] = b"SPL Name Service";
 
-const NAME_PROGRAM_ID_STR:       &str = "namesLPaSamrXa4y5Uv72vtnQiqRVhHtfnLt8FroKHf";
-const REGISTRAR_PROGRAM_STR:     &str = "jCebN34bUfdeUYJT13J1yG16XWQpt5PDx6Mse9GUqhR";
-const ROOT_DOMAIN_STR:           &str = "3mDqiU7grAHocTLG9m1vGFu1ZLZkTqzMPbqHtbRAcfko";
-const CENTRAL_STATE_STR:         &str = "2j4hkAaWKDwCMa5LiGpMQwTyMpPoC2bq3ER7B6xkiPr8";
-const REVERSE_LOOKUP_CLASS_STR:  &str = "33m47vH6Eav6jr5Ry86XjhRft2jRBLDnDgPSHoquXi2Z";
-const NAME_OFFERS_PROGRAM_STR:   &str = "85iDfUvr3HJyLM2zcq5BXSiDvUWfw6cSE1FfNBo8Ap29";
+const NAME_PROGRAM_ID_STR: &str = "namesLPaSamrXa4y5Uv72vtnQiqRVhHtfnLt8FroKHf";
+const REGISTRAR_PROGRAM_STR: &str = "jCebN34bUfdeUYJT13J1yG16XWQpt5PDx6Mse9GUqhR";
+const ROOT_DOMAIN_STR: &str = "3mDqiU7grAHocTLG9m1vGFu1ZLZkTqzMPbqHtbRAcfko";
+const CENTRAL_STATE_STR: &str = "2j4hkAaWKDwCMa5LiGpMQwTyMpPoC2bq3ER7B6xkiPr8";
+const REVERSE_LOOKUP_CLASS_STR: &str = "33m47vH6Eav6jr5Ry86XjhRft2jRBLDnDgPSHoquXi2Z";
+const NAME_OFFERS_PROGRAM_STR: &str = "85iDfUvr3HJyLM2zcq5BXSiDvUWfw6cSE1FfNBo8Ap29";
 // BONFIDA_USDC_VAULT is kept for reference; vault is derived via ATA of central_state
-const BONFIDA_USDC_VAULT_STR:    &str = "DmF1JCEFpRCHMjCXEnJCgqANLvZCT7BGWM9JTQ9Xb1eW";
-const USDC_MINT_STR:             &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const FIDA_MINT_STR:             &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
-const SPL_TOKEN_STR:             &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+const BONFIDA_USDC_VAULT_STR: &str = "DmF1JCEFpRCHMjCXEnJCgqANLvZCT7BGWM9JTQ9Xb1eW";
+const USDC_MINT_STR: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const FIDA_MINT_STR: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
+const SPL_TOKEN_STR: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 
 // SPL Name Service instruction tags (opcode byte at position 0 of instruction data)
-const IX_CREATE:    u8 = 0;
-const IX_UPDATE:    u8 = 1;
-const IX_TRANSFER:  u8 = 2;
-const IX_DELETE:    u8 = 3;
-const IX_REALLOC:   u8 = 4;
+const IX_CREATE: u8 = 0;
+const IX_UPDATE: u8 = 1;
+const IX_TRANSFER: u8 = 2;
+const IX_DELETE: u8 = 3;
+const IX_REALLOC: u8 = 4;
 
 // Name-Offers / registerFavorite instruction tag (Borsh, single u8)
 const IX_FAVOURITE: u8 = 6;
@@ -49,19 +48,41 @@ const IX_FAVOURITE: u8 = 6;
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn p(s: &str) -> Pubkey { Pubkey::from_str(s).expect("const pubkey") }
+fn p(s: &str) -> Pubkey {
+    Pubkey::from_str(s).expect("const pubkey")
+}
 
-fn name_program_id()      -> Pubkey { p(NAME_PROGRAM_ID_STR) }
-fn registrar_program()    -> Pubkey { p(REGISTRAR_PROGRAM_STR) }
-fn root_domain()          -> Pubkey { p(ROOT_DOMAIN_STR) }
-fn central_state()        -> Pubkey { p(CENTRAL_STATE_STR) }
-fn reverse_lookup_class() -> Pubkey { p(REVERSE_LOOKUP_CLASS_STR) }
-fn name_offers_program()  -> Pubkey { p(NAME_OFFERS_PROGRAM_STR) }
-fn usdc_mint()            -> Pubkey { p(USDC_MINT_STR) }
+fn name_program_id() -> Pubkey {
+    p(NAME_PROGRAM_ID_STR)
+}
+fn registrar_program() -> Pubkey {
+    p(REGISTRAR_PROGRAM_STR)
+}
+fn root_domain() -> Pubkey {
+    p(ROOT_DOMAIN_STR)
+}
+fn central_state() -> Pubkey {
+    p(CENTRAL_STATE_STR)
+}
+fn reverse_lookup_class() -> Pubkey {
+    p(REVERSE_LOOKUP_CLASS_STR)
+}
+fn name_offers_program() -> Pubkey {
+    p(NAME_OFFERS_PROGRAM_STR)
+}
+fn usdc_mint() -> Pubkey {
+    p(USDC_MINT_STR)
+}
 #[allow(dead_code)]
-fn bonfida_usdc_vault()   -> Pubkey { p(BONFIDA_USDC_VAULT_STR) }
-fn fida_mint()            -> Pubkey { p(FIDA_MINT_STR) }
-fn spl_token_program()    -> Pubkey { p(SPL_TOKEN_STR) }
+fn bonfida_usdc_vault() -> Pubkey {
+    p(BONFIDA_USDC_VAULT_STR)
+}
+fn fida_mint() -> Pubkey {
+    p(FIDA_MINT_STR)
+}
+fn spl_token_program() -> Pubkey {
+    p(SPL_TOKEN_STR)
+}
 
 /// sha256(HASH_PREFIX + name) — used for all PDA derivations
 fn hashed_name(name: &str) -> [u8; 32] {
@@ -73,14 +94,16 @@ fn hashed_name(name: &str) -> [u8; 32] {
 
 /// Derive name account PDA:
 /// seeds = [hashed_name, name_class (32 bytes), parent_name (32 bytes)]
-pub fn name_account_key(name: &str, name_class: Option<&Pubkey>, parent: Option<&Pubkey>) -> Pubkey {
+pub fn name_account_key(
+    name: &str,
+    name_class: Option<&Pubkey>,
+    parent: Option<&Pubkey>,
+) -> Pubkey {
     let hash = hashed_name(name);
     let class_bytes = name_class.map(|k| k.to_bytes()).unwrap_or([0u8; 32]);
     let parent_bytes = parent.map(|k| k.to_bytes()).unwrap_or([0u8; 32]);
-    let (key, _) = Pubkey::find_program_address(
-        &[&hash, &class_bytes, &parent_bytes],
-        &name_program_id(),
-    );
+    let (key, _) =
+        Pubkey::find_program_address(&[&hash, &class_bytes, &parent_bytes], &name_program_id());
     key
 }
 
@@ -143,8 +166,13 @@ struct ProxyRaw {
 }
 
 fn proxy_error_msg(raw: &ProxyRaw) -> String {
-    raw.error.clone()
-        .or_else(|| raw.result.as_ref().and_then(|v| v.as_str().map(|s| s.to_string())))
+    raw.error
+        .clone()
+        .or_else(|| {
+            raw.result
+                .as_ref()
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+        })
         .unwrap_or_else(|| "unknown".into())
 }
 
@@ -163,10 +191,16 @@ async fn proxy_get<T: serde::de::DeserializeOwned>(
         .map_err(|e| AppError::Internal(format!("SNS proxy parse failed: {e}")))?;
 
     if raw.s != "ok" {
-        return Err(AppError::Internal(format!("SNS proxy error: {}", proxy_error_msg(&raw))));
+        return Err(AppError::Internal(format!(
+            "SNS proxy error: {}",
+            proxy_error_msg(&raw)
+        )));
     }
-    let val = raw.result.ok_or_else(|| AppError::Internal("SNS proxy returned no result".into()))?;
-    serde_json::from_value(val).map_err(|e| AppError::Internal(format!("SNS proxy type mismatch: {e}")))
+    let val = raw
+        .result
+        .ok_or_else(|| AppError::Internal("SNS proxy returned no result".into()))?;
+    serde_json::from_value(val)
+        .map_err(|e| AppError::Internal(format!("SNS proxy type mismatch: {e}")))
 }
 
 /// Like `proxy_get` but returns `Ok(None)` when the domain/key is not found,
@@ -188,8 +222,10 @@ async fn proxy_get_optional<T: serde::de::DeserializeOwned>(
     if raw.s != "ok" {
         let msg = proxy_error_msg(&raw).to_lowercase();
         // Treat "not found" / "invalid domain" / "invalid input" as "does not exist" (not an error)
-        if msg.contains("not found") || msg.contains("invalid domain")
-            || msg.contains("unregistered") || msg.contains("invalid input")
+        if msg.contains("not found")
+            || msg.contains("invalid domain")
+            || msg.contains("unregistered")
+            || msg.contains("invalid input")
         {
             return Ok(None);
         }
@@ -476,17 +512,24 @@ pub async fn build_sns_domains(
     let count = domains.len();
     let domain_list: Vec<serde_json::Value> = domains
         .iter()
-        .map(|d| serde_json::json!({
-            "name": format!("{d}.sol"),
-            "key": domain_key(d).to_string(),
-        }))
+        .map(|d| {
+            serde_json::json!({
+                "name": format!("{d}.sol"),
+                "key": domain_key(d).to_string(),
+            })
+        })
         .collect();
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: format!("sns_domains_{}", Uuid::new_v4()),
             action_type: "sns_domains".into(),
-            description: format!("{} owns {} .sol domain{}", &owner[..8], count, if count == 1 { "" } else { "s" }),
+            description: format!(
+                "{} owns {} .sol domain{}",
+                &owner[..8],
+                count,
+                if count == 1 { "" } else { "s" }
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({ "owner": owner }),
@@ -526,7 +569,10 @@ pub async fn build_sns_record(
         preview: ActionPreview {
             id: format!("sns_rec_{}", Uuid::new_v4()),
             action_type: "sns_record".into(),
-            description: format!("{domain}.sol [{record} {version}]: {}", &value[..value.len().min(40)]),
+            description: format!(
+                "{domain}.sol [{record} {version}]: {}",
+                &value[..value.len().min(40)]
+            ),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({ "domain": domain, "record": record }),
@@ -559,13 +605,16 @@ pub async fn build_sns_domain_info(
     let dkey = domain_key(&domain);
 
     // Resolve owner via proxy — Ok(None) = unregistered, Err = real network failure
-    let (owner, available) = match proxy_get_optional::<String>(http, &format!("resolve/{domain}")).await? {
-        Some(o) => (Some(o), false),
-        None => (None, true),
-    };
+    let (owner, available) =
+        match proxy_get_optional::<String>(http, &format!("resolve/{domain}")).await? {
+            Some(o) => (Some(o), false),
+            None => (None, true),
+        };
 
     // Batch-fetch common records
-    let record_types = ["SOL", "ETH", "IPFS", "url", "twitter", "discord", "telegram", "github"];
+    let record_types = [
+        "SOL", "ETH", "IPFS", "url", "twitter", "discord", "telegram", "github",
+    ];
     let mut records: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     for rt in &record_types {
         if let Ok(val) = proxy_get::<String>(http, &format!("record/{domain}/{rt}")).await {
@@ -576,7 +625,10 @@ pub async fn build_sns_domain_info(
     let description = if available {
         format!("{domain}.sol is available for registration (~20 USDC)")
     } else {
-        format!("{domain}.sol — owner: {}", owner.as_deref().unwrap_or("unknown"))
+        format!(
+            "{domain}.sol — owner: {}",
+            owner.as_deref().unwrap_or("unknown")
+        )
     };
 
     Ok(BuildResponse {
@@ -614,7 +666,9 @@ pub async fn build_sns_check_available(
     params: SnsCheckAvailableParams,
 ) -> Result<BuildResponse, AppError> {
     let domain = params.domain.trim_end_matches(".sol").to_lowercase();
-    let available = proxy_get_optional::<String>(http, &format!("resolve/{domain}")).await?.is_none();
+    let available = proxy_get_optional::<String>(http, &format!("resolve/{domain}"))
+        .await?
+        .is_none();
 
     let msg = if available {
         format!("{domain}.sol is available — register for ~20 USDC")
@@ -657,7 +711,8 @@ pub async fn build_sns_primary_domain(
     let owner = &params.owner;
     // The proxy /reverse-key endpoint returns the primary domain for a wallet pubkey
     // /favorite-domain/:owner returns the wallet's set primary domain
-    let domain_result = proxy_get_optional::<String>(http, &format!("favorite-domain/{owner}")).await;
+    let domain_result =
+        proxy_get_optional::<String>(http, &format!("favorite-domain/{owner}")).await;
 
     let (domain, found) = match domain_result? {
         Some(d) => (format!("{d}.sol"), true),
@@ -706,18 +761,34 @@ pub async fn build_sns_register(
     let domain = params.domain.trim_end_matches(".sol").to_lowercase();
 
     // Reject already-registered domains
-    if proxy_get_optional::<String>(http, &format!("resolve/{domain}")).await?.is_some() {
-        return Err(AppError::InvalidParams(format!("{domain}.sol is already registered")));
+    if proxy_get_optional::<String>(http, &format!("resolve/{domain}"))
+        .await?
+        .is_some()
+    {
+        return Err(AppError::InvalidParams(format!(
+            "{domain}.sol is already registered"
+        )));
     }
 
     // Validate buyer pubkey
-    Pubkey::from_str(user)
-        .map_err(|_| AppError::InvalidParams("Invalid buyer pubkey".into()))?;
+    Pubkey::from_str(user).map_err(|_| AppError::InvalidParams("Invalid buyer pubkey".into()))?;
 
-    let token_mint = resolve_payment_token(if params.token.is_empty() { "USDC" } else { &params.token });
-    let mint_str = if token_mint == fida_mint() { FIDA_MINT_STR } else { USDC_MINT_STR };
+    let token_mint = resolve_payment_token(if params.token.is_empty() {
+        "USDC"
+    } else {
+        &params.token
+    });
+    let mint_str = if token_mint == fida_mint() {
+        FIDA_MINT_STR
+    } else {
+        USDC_MINT_STR
+    };
     let space = params.space.min(10_240);
-    let cost_label = if token_mint == fida_mint() { "15 FIDA" } else { "20 USDC" };
+    let cost_label = if token_mint == fida_mint() {
+        "15 FIDA"
+    } else {
+        "20 USDC"
+    };
 
     // Build registration transaction via proxy (handles versioning, account layout, pricing oracle)
     let mut path = format!(
@@ -728,7 +799,9 @@ pub async fn build_sns_register(
         if Pubkey::from_str(referrer_str).is_ok() {
             path.push_str(&format!("&referrer={referrer_str}"));
         } else {
-            referrer_warning = Some(format!("Referrer address '{referrer_str}' is invalid and was ignored"));
+            referrer_warning = Some(format!(
+                "Referrer address '{referrer_str}' is invalid and was ignored"
+            ));
         }
     }
 
@@ -741,9 +814,13 @@ pub async fn build_sns_register(
         format!("Storage: {} bytes", space),
     ];
     if space == 0 {
-        warnings.push("Space is 0 — no data can be stored. Consider requesting at least 1000 bytes.".into());
+        warnings.push(
+            "Space is 0 — no data can be stored. Consider requesting at least 1000 bytes.".into(),
+        );
     }
-    if let Some(w) = referrer_warning { warnings.push(w); }
+    if let Some(w) = referrer_warning {
+        warnings.push(w);
+    }
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -801,7 +878,8 @@ pub async fn build_sns_transfer(
     };
 
     let tx = Transaction::new_with_payer(&[ix], Some(&owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -811,7 +889,9 @@ pub async fn build_sns_transfer(
             estimated_fee: "~0.000005 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "domain": domain, "newOwner": params.new_owner }),
-            warnings: vec!["Domain transfer is irreversible without the new owner's cooperation".into()],
+            warnings: vec![
+                "Domain transfer is irreversible without the new owner's cooperation".into(),
+            ],
             requires_approval: true,
         },
         transaction: Some(serialized),
@@ -845,7 +925,7 @@ pub async fn build_sns_set_record(
 
     // Update instruction: [1(tag)] [offset(u32 LE)] [len(u32 LE)] [data bytes]
     let mut data = vec![IX_UPDATE];
-    data.extend_from_slice(&0u32.to_le_bytes());           // offset = 0
+    data.extend_from_slice(&0u32.to_le_bytes()); // offset = 0
     data.extend_from_slice(&(value_bytes.len() as u32).to_le_bytes());
     data.extend_from_slice(value_bytes);
 
@@ -860,13 +940,19 @@ pub async fn build_sns_set_record(
     };
 
     let tx = Transaction::new_with_payer(&[ix], Some(&owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: format!("sns_setrec_{}", Uuid::new_v4()),
             action_type: "sns_set_record".into(),
-            description: format!("Set {}.sol [{}] = {}", domain, params.record, &params.value[..params.value.len().min(30)]),
+            description: format!(
+                "Set {}.sol [{}] = {}",
+                domain,
+                params.record,
+                &params.value[..params.value.len().min(30)]
+            ),
             estimated_fee: "~0.000005 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "domain": domain, "record": params.record, "value": params.value }),
@@ -914,7 +1000,8 @@ pub async fn build_sns_delete(
     };
 
     let tx = Transaction::new_with_payer(&[ix], Some(&owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -948,9 +1035,15 @@ pub async fn build_sns_create_subdomain(
     user: &str,
     params: SnsCreateSubdomainParams,
 ) -> Result<BuildResponse, AppError> {
-    let parts: Vec<&str> = params.subdomain.trim_end_matches(".sol").splitn(2, '.').collect();
+    let parts: Vec<&str> = params
+        .subdomain
+        .trim_end_matches(".sol")
+        .splitn(2, '.')
+        .collect();
     if parts.len() != 2 {
-        return Err(AppError::InvalidParams("subdomain must be in format 'sub.parent'".into()));
+        return Err(AppError::InvalidParams(
+            "subdomain must be in format 'sub.parent'".into(),
+        ));
     }
     let sub_label = parts[0];
     let parent_label = parts[1];
@@ -979,7 +1072,7 @@ pub async fn build_sns_create_subdomain(
         accounts: vec![
             AccountMeta::new(owner, true),
             AccountMeta::new(sub_key, false),
-            AccountMeta::new_readonly(owner, false),  // initial owner
+            AccountMeta::new_readonly(owner, false), // initial owner
             AccountMeta::new_readonly(sysvar::rent::id(), false),
             AccountMeta::new_readonly(system_program::id(), false),
             AccountMeta::new(parent_key, false),
@@ -989,7 +1082,8 @@ pub async fn build_sns_create_subdomain(
     };
 
     let tx = Transaction::new_with_payer(&[create_ix], Some(&owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1000,7 +1094,8 @@ pub async fn build_sns_create_subdomain(
             estimated_refund: None,
             params: serde_json::json!({ "subdomain": params.subdomain }),
             warnings: vec![
-                "Parent domain owner can transfer subdomain without subdomain owner signature".into(),
+                "Parent domain owner can transfer subdomain without subdomain owner signature"
+                    .into(),
             ],
             requires_approval: true,
         },
@@ -1034,7 +1129,11 @@ pub async fn build_sns_list(
         return Err(AppError::InvalidParams("Price must be positive".into()));
     }
 
-    let token_mint = resolve_payment_token(if params.token.is_empty() { "USDC" } else { &params.token });
+    let token_mint = resolve_payment_token(if params.token.is_empty() {
+        "USDC"
+    } else {
+        &params.token
+    });
     let name_acct = domain_key(&domain);
     let price_lamports = (params.price * 1_000_000.0) as u64; // USDC = 6 decimals
 
@@ -1045,7 +1144,8 @@ pub async fn build_sns_list(
     );
 
     // Seller's token ATA (where they receive payment)
-    let seller_token_acct = spl_associated_token_account::get_associated_token_address(&seller, &token_mint);
+    let seller_token_acct =
+        spl_associated_token_account::get_associated_token_address(&seller, &token_mint);
 
     // Anchor discriminator for make_fixed_price_offer
     let disc = anchor_discriminator("make_fixed_price_offer");
@@ -1070,8 +1170,15 @@ pub async fn build_sns_list(
     };
 
     let tx = Transaction::new_with_payer(&[ix], Some(&seller));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
-    let token_label = if token_mint == fida_mint() { "FIDA" } else if token_mint == usdc_mint() { "USDC" } else { "tokens" };
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let token_label = if token_mint == fida_mint() {
+        "FIDA"
+    } else if token_mint == usdc_mint() {
+        "USDC"
+    } else {
+        "tokens"
+    };
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1081,7 +1188,9 @@ pub async fn build_sns_list(
             estimated_fee: "~0.000005 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "domain": domain, "price": params.price, "token": token_label }),
-            warnings: vec!["Domain custody transfers to the offer escrow until sold or cancelled".into()],
+            warnings: vec![
+                "Domain custody transfers to the offer escrow until sold or cancelled".into(),
+            ],
             requires_approval: true,
         },
         transaction: Some(serialized),
@@ -1113,7 +1222,8 @@ pub async fn build_sns_buy(
         .map_err(|_| AppError::InvalidParams("Invalid buyer pubkey".into()))?;
 
     // Resolve current owner (who made the fixed-price listing) from proxy
-    let seller_str = proxy_get::<String>(http, &format!("resolve/{domain}")).await
+    let seller_str = proxy_get::<String>(http, &format!("resolve/{domain}"))
+        .await
         .map_err(|_| AppError::InvalidParams(format!("{domain}.sol not found or not listed")))?;
     let seller = Pubkey::from_str(&seller_str)
         .map_err(|_| AppError::Internal("Invalid seller pubkey from proxy".into()))?;
@@ -1125,9 +1235,15 @@ pub async fn build_sns_buy(
     );
 
     // Use token specified by caller — must match what the seller listed with
-    let token_mint = resolve_payment_token(if params.token.is_empty() { "USDC" } else { &params.token });
-    let buyer_token = spl_associated_token_account::get_associated_token_address(&buyer, &token_mint);
-    let seller_token = spl_associated_token_account::get_associated_token_address(&seller, &token_mint);
+    let token_mint = resolve_payment_token(if params.token.is_empty() {
+        "USDC"
+    } else {
+        &params.token
+    });
+    let buyer_token =
+        spl_associated_token_account::get_associated_token_address(&buyer, &token_mint);
+    let seller_token =
+        spl_associated_token_account::get_associated_token_address(&seller, &token_mint);
 
     let disc = anchor_discriminator("buy_fixed_price");
 
@@ -1144,7 +1260,8 @@ pub async fn build_sns_buy(
 
     if let Some(ref referrer_str) = params.referrer {
         if let Ok(ref_key) = Pubkey::from_str(referrer_str) {
-            let ref_ata = spl_associated_token_account::get_associated_token_address(&ref_key, &token_mint);
+            let ref_ata =
+                spl_associated_token_account::get_associated_token_address(&ref_key, &token_mint);
             accounts.push(AccountMeta::new(ref_ata, false));
         }
     }
@@ -1155,20 +1272,32 @@ pub async fn build_sns_buy(
         data: disc.to_vec(),
     };
 
-    let token_label = if token_mint == fida_mint() { "FIDA" } else if token_mint == usdc_mint() { "USDC" } else { "tokens" };
+    let token_label = if token_mint == fida_mint() {
+        "FIDA"
+    } else if token_mint == usdc_mint() {
+        "USDC"
+    } else {
+        "tokens"
+    };
     let tx = Transaction::new_with_payer(&[ix], Some(&buyer));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: format!("sns_buy_{}", Uuid::new_v4()),
             action_type: "sns_buy".into(),
-            description: format!("Buy {domain}.sol from {} (pay in {token_label})", &seller_str[..8]),
+            description: format!(
+                "Buy {domain}.sol from {} (pay in {token_label})",
+                &seller_str[..8]
+            ),
             estimated_fee: format!("listing price in {token_label} + ~0.000005 SOL gas"),
             estimated_refund: None,
             params: serde_json::json!({ "domain": domain, "token": token_label }),
-            warnings: vec!["Price is set by the seller's fixed-price listing".into(),
-                           format!("Paying with {token_label} — must match the token the seller listed with")],
+            warnings: vec![
+                "Price is set by the seller's fixed-price listing".into(),
+                format!("Paying with {token_label} — must match the token the seller listed with"),
+            ],
             requires_approval: true,
         },
         transaction: Some(serialized),
@@ -1199,10 +1328,16 @@ pub async fn build_sns_make_offer(
         .map_err(|_| AppError::InvalidParams("Invalid buyer pubkey".into()))?;
 
     if params.amount <= 0.0 {
-        return Err(AppError::InvalidParams("Offer amount must be positive".into()));
+        return Err(AppError::InvalidParams(
+            "Offer amount must be positive".into(),
+        ));
     }
 
-    let token_mint = resolve_payment_token(if params.token.is_empty() { "USDC" } else { &params.token });
+    let token_mint = resolve_payment_token(if params.token.is_empty() {
+        "USDC"
+    } else {
+        &params.token
+    });
     let name_acct = domain_key(&domain);
     let offer_amount = (params.amount * 1_000_000.0) as u64;
 
@@ -1212,10 +1347,8 @@ pub async fn build_sns_make_offer(
     );
 
     // Escrow account where buyer's funds are held
-    let (escrow_acct, _) = Pubkey::find_program_address(
-        &[b"escrow", offer_acct.as_ref()],
-        &name_offers_program(),
-    );
+    let (escrow_acct, _) =
+        Pubkey::find_program_address(&[b"escrow", offer_acct.as_ref()], &name_offers_program());
 
     let buyer_token = if params.token_account.is_empty() {
         spl_associated_token_account::get_associated_token_address(&buyer, &token_mint)
@@ -1244,9 +1377,16 @@ pub async fn build_sns_make_offer(
         data,
     };
 
-    let token_label = if token_mint == fida_mint() { "FIDA" } else if token_mint == usdc_mint() { "USDC" } else { "tokens" };
+    let token_label = if token_mint == fida_mint() {
+        "FIDA"
+    } else if token_mint == usdc_mint() {
+        "USDC"
+    } else {
+        "tokens"
+    };
     let tx = Transaction::new_with_payer(&[ix], Some(&buyer));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1256,7 +1396,9 @@ pub async fn build_sns_make_offer(
             estimated_fee: "~0.000005 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "domain": domain, "amount": params.amount, "token": token_label }),
-            warnings: vec!["Funds are held in escrow until domain owner accepts or you cancel".into()],
+            warnings: vec![
+                "Funds are held in escrow until domain owner accepts or you cancel".into(),
+            ],
             requires_approval: true,
         },
         transaction: Some(serialized),
@@ -1289,14 +1431,17 @@ pub async fn build_sns_accept_offer(
         .map_err(|_| AppError::InvalidParams("Invalid offer_key".into()))?;
 
     let name_acct = domain_key(&domain);
-    let (escrow_acct, _) = Pubkey::find_program_address(
-        &[b"escrow", offer_acct.as_ref()],
-        &name_offers_program(),
-    );
+    let (escrow_acct, _) =
+        Pubkey::find_program_address(&[b"escrow", offer_acct.as_ref()], &name_offers_program());
 
     // Use token specified by caller — must match the token the buyer's offer was made in
-    let token_mint = resolve_payment_token(if params.token.is_empty() { "USDC" } else { &params.token });
-    let seller_token = spl_associated_token_account::get_associated_token_address(&domain_owner, &token_mint);
+    let token_mint = resolve_payment_token(if params.token.is_empty() {
+        "USDC"
+    } else {
+        &params.token
+    });
+    let seller_token =
+        spl_associated_token_account::get_associated_token_address(&domain_owner, &token_mint);
 
     let disc = anchor_discriminator("accept_offer");
 
@@ -1315,20 +1460,33 @@ pub async fn build_sns_accept_offer(
         data: disc.to_vec(),
     };
 
-    let token_label = if token_mint == fida_mint() { "FIDA" } else if token_mint == usdc_mint() { "USDC" } else { "tokens" };
+    let token_label = if token_mint == fida_mint() {
+        "FIDA"
+    } else if token_mint == usdc_mint() {
+        "USDC"
+    } else {
+        "tokens"
+    };
     let tx = Transaction::new_with_payer(&[ix], Some(&domain_owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: format!("sns_accept_{}", Uuid::new_v4()),
             action_type: "sns_accept_offer".into(),
-            description: format!("Accept {token_label} offer for {domain}.sol — receive payment from escrow"),
+            description: format!(
+                "Accept {token_label} offer for {domain}.sol — receive payment from escrow"
+            ),
             estimated_fee: "~0.000005 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "domain": domain, "offerKey": params.offer_key, "token": token_label }),
-            warnings: vec!["Domain transfers to buyer immediately upon acceptance".into(),
-                           format!("You will receive {token_label} from escrow — ensure this matches the offer")],
+            warnings: vec![
+                "Domain transfers to buyer immediately upon acceptance".into(),
+                format!(
+                    "You will receive {token_label} from escrow — ensure this matches the offer"
+                ),
+            ],
             requires_approval: true,
         },
         transaction: Some(serialized),
@@ -1359,12 +1517,15 @@ pub async fn build_sns_cancel_offer(
     let offer_acct = Pubkey::from_str(&params.offer_key)
         .map_err(|_| AppError::InvalidParams("Invalid offer_key".into()))?;
 
-    let token_mint = resolve_payment_token(if params.token.is_empty() { "USDC" } else { &params.token });
-    let (escrow_acct, _) = Pubkey::find_program_address(
-        &[b"escrow", offer_acct.as_ref()],
-        &name_offers_program(),
-    );
-    let buyer_token = spl_associated_token_account::get_associated_token_address(&buyer, &token_mint);
+    let token_mint = resolve_payment_token(if params.token.is_empty() {
+        "USDC"
+    } else {
+        &params.token
+    });
+    let (escrow_acct, _) =
+        Pubkey::find_program_address(&[b"escrow", offer_acct.as_ref()], &name_offers_program());
+    let buyer_token =
+        spl_associated_token_account::get_associated_token_address(&buyer, &token_mint);
 
     let disc = anchor_discriminator("cancel_offer");
 
@@ -1382,7 +1543,8 @@ pub async fn build_sns_cancel_offer(
     };
 
     let tx = Transaction::new_with_payer(&[ix], Some(&buyer));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1422,7 +1584,9 @@ pub async fn build_sns_p2p_create(
         .map_err(|_| AppError::InvalidParams("Invalid counter_party pubkey".into()))?;
 
     if params.base_domains.is_empty() {
-        return Err(AppError::InvalidParams("At least one base domain is required".into()));
+        return Err(AppError::InvalidParams(
+            "At least one base domain is required".into(),
+        ));
     }
 
     let (offer_acct, nonce) = Pubkey::find_program_address(
@@ -1468,9 +1632,14 @@ pub async fn build_sns_p2p_create(
         accounts.push(AccountMeta::new_readonly(key, false));
     }
 
-    let ix = Instruction { program_id: name_offers_program(), accounts, data };
+    let ix = Instruction {
+        program_id: name_offers_program(),
+        accounts,
+        data,
+    };
     let tx = Transaction::new_with_payer(&[ix], Some(&owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1478,8 +1647,18 @@ pub async fn build_sns_p2p_create(
             action_type: "sns_p2p_create".into(),
             description: format!(
                 "P2P offer: {} domain{} → {} domain{} + {} SOL to {}",
-                params.base_domains.len(), if params.base_domains.len() == 1 { "" } else { "s" },
-                params.quote_domains.len(), if params.quote_domains.len() == 1 { "" } else { "s" },
+                params.base_domains.len(),
+                if params.base_domains.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                },
+                params.quote_domains.len(),
+                if params.quote_domains.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                },
                 params.amount_sol,
                 &params.counter_party[..8]
             ),
@@ -1492,8 +1671,11 @@ pub async fn build_sns_p2p_create(
             }),
             warnings: vec![
                 format!("Only {} can accept this offer", &params.counter_party[..8]),
-                if params.expiry_ts > 0 { format!("Expires at unix ts {}", params.expiry_ts) }
-                else { "No expiry set".into() },
+                if params.expiry_ts > 0 {
+                    format!("Expires at unix ts {}", params.expiry_ts)
+                } else {
+                    "No expiry set".into()
+                },
             ],
             requires_approval: true,
         },
@@ -1521,8 +1703,8 @@ pub async fn build_sns_p2p_accept(
     user: &str,
     params: SnsP2pAcceptParams,
 ) -> Result<BuildResponse, AppError> {
-    let counter_party = Pubkey::from_str(user)
-        .map_err(|_| AppError::InvalidParams("Invalid pubkey".into()))?;
+    let counter_party =
+        Pubkey::from_str(user).map_err(|_| AppError::InvalidParams("Invalid pubkey".into()))?;
     let offer_acct = Pubkey::from_str(&params.offer_key)
         .map_err(|_| AppError::InvalidParams("Invalid offer_key".into()))?;
 
@@ -1540,7 +1722,8 @@ pub async fn build_sns_p2p_accept(
     };
 
     let tx = Transaction::new_with_payer(&[ix], Some(&counter_party));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1571,8 +1754,8 @@ pub async fn build_sns_p2p_cancel(
     user: &str,
     params: SnsP2pCancelParams,
 ) -> Result<BuildResponse, AppError> {
-    let owner = Pubkey::from_str(user)
-        .map_err(|_| AppError::InvalidParams("Invalid pubkey".into()))?;
+    let owner =
+        Pubkey::from_str(user).map_err(|_| AppError::InvalidParams("Invalid pubkey".into()))?;
     let offer_acct = Pubkey::from_str(&params.offer_key)
         .map_err(|_| AppError::InvalidParams("Invalid offer_key".into()))?;
 
@@ -1590,13 +1773,17 @@ pub async fn build_sns_p2p_cancel(
     };
 
     let tx = Transaction::new_with_payer(&[ix], Some(&owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: format!("sns_p2p_cancel_{}", Uuid::new_v4()),
             action_type: "sns_p2p_cancel".into(),
-            description: format!("Cancel P2P offer {} — reclaim domains", &params.offer_key[..8]),
+            description: format!(
+                "Cancel P2P offer {} — reclaim domains",
+                &params.offer_key[..8]
+            ),
             estimated_fee: "~0.000005 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "offerKey": params.offer_key }),
@@ -1654,7 +1841,8 @@ pub async fn build_sns_set_favorite(
     };
 
     let tx = Transaction::new_with_payer(&[ix], Some(&owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1695,7 +1883,8 @@ pub async fn build_sns_subdomains(
 ) -> Result<BuildResponse, AppError> {
     let parent = params.parent_domain.trim_end_matches(".sol").to_lowercase();
     // Proxy returns array of subdomain pubkeys/names for a parent domain
-    let subdomains: Vec<String> = proxy_get(http, &format!("subdomains/{parent}")).await
+    let subdomains: Vec<String> = proxy_get(http, &format!("subdomains/{parent}"))
+        .await
         .unwrap_or_default();
 
     Ok(BuildResponse {
@@ -1744,7 +1933,9 @@ pub async fn build_sns_realloc(
         .map_err(|_| AppError::InvalidParams("Invalid owner pubkey".into()))?;
 
     if params.new_space > 10_240 {
-        return Err(AppError::InvalidParams("new_space cannot exceed 10240 bytes".into()));
+        return Err(AppError::InvalidParams(
+            "new_space cannot exceed 10240 bytes".into(),
+        ));
     }
 
     let name_acct = domain_key(&domain);
@@ -1757,7 +1948,7 @@ pub async fn build_sns_realloc(
         program_id: name_program_id(),
         accounts: vec![
             AccountMeta::new_readonly(system_program::id(), false),
-            AccountMeta::new(owner, true),     // payer
+            AccountMeta::new(owner, true), // payer
             AccountMeta::new(name_acct, false),
             AccountMeta::new_readonly(owner, false), // name owner
         ],
@@ -1765,13 +1956,17 @@ pub async fn build_sns_realloc(
     };
 
     let tx = Transaction::new_with_payer(&[ix], Some(&owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: format!("sns_realloc_{}", Uuid::new_v4()),
             action_type: "sns_realloc".into(),
-            description: format!("Reallocate {domain}.sol storage to {} bytes", params.new_space),
+            description: format!(
+                "Reallocate {domain}.sol storage to {} bytes",
+                params.new_space
+            ),
             estimated_fee: "~rent difference in SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "domain": domain, "newSpace": params.new_space }),
@@ -1814,7 +2009,9 @@ pub async fn build_sns_transfer_subdomain(
     let full = params.subdomain.trim_end_matches(".sol");
     let parts: Vec<&str> = full.splitn(2, '.').collect();
     if parts.len() != 2 {
-        return Err(AppError::InvalidParams("subdomain must be in format 'sub.parent'".into()));
+        return Err(AppError::InvalidParams(
+            "subdomain must be in format 'sub.parent'".into(),
+        ));
     }
     let sub_label = parts[0];
     let parent_label = parts[1];
@@ -1842,19 +2039,29 @@ pub async fn build_sns_transfer_subdomain(
         accounts.push(AccountMeta::new_readonly(signer, true));
     }
 
-    let ix = Instruction { program_id: name_program_id(), accounts, data };
+    let ix = Instruction {
+        program_id: name_program_id(),
+        accounts,
+        data,
+    };
     let tx = Transaction::new_with_payer(&[ix], Some(&signer));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: format!("sns_tsub_{}", Uuid::new_v4()),
             action_type: "sns_transfer_subdomain".into(),
-            description: format!("Transfer {sub_label}.{parent_label}.sol → {}", &params.new_owner[..8]),
+            description: format!(
+                "Transfer {sub_label}.{parent_label}.sol → {}",
+                &params.new_owner[..8]
+            ),
             estimated_fee: "~0.000005 SOL".into(),
             estimated_refund: None,
             params: serde_json::json!({ "subdomain": params.subdomain, "newOwner": params.new_owner }),
-            warnings: vec!["Subdomain transfer is irreversible without the new owner's cooperation".into()],
+            warnings: vec![
+                "Subdomain transfer is irreversible without the new owner's cooperation".into(),
+            ],
             requires_approval: true,
         },
         transaction: Some(serialized),
@@ -1926,12 +2133,12 @@ pub async fn build_sns_create_record(
         program_id: name_program_id(),
         accounts: vec![
             AccountMeta::new_readonly(system_program::id(), false),
-            AccountMeta::new(owner, true),           // payer
-            AccountMeta::new(record_acct, false),    // new record account
-            AccountMeta::new_readonly(owner, false), // initial owner
+            AccountMeta::new(owner, true),               // payer
+            AccountMeta::new(record_acct, false),        // new record account
+            AccountMeta::new_readonly(owner, false),     // initial owner
             AccountMeta::new_readonly(rev_class, false), // name class = REVERSE_LOOKUP_CLASS
-            AccountMeta::new(domain_acct, false),    // parent = domain account
-            AccountMeta::new_readonly(owner, true),  // parent owner must sign
+            AccountMeta::new(domain_acct, false),        // parent = domain account
+            AccountMeta::new_readonly(owner, true),      // parent owner must sign
         ],
         data,
     };
@@ -1952,7 +2159,8 @@ pub async fn build_sns_create_record(
     };
 
     let tx = Transaction::new_with_payer(&[create_ix, update_ix], Some(&owner));
-    let serialized = base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
+    let serialized =
+        base64::engine::general_purpose::STANDARD.encode(bincode::serialize(&tx).unwrap());
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -2081,7 +2289,9 @@ pub async fn build_sns_twitter_handle(
     let input = params.input.trim_start_matches('@');
 
     // If it looks like a base58 pubkey (32–44 chars, alphanumeric), resolve key → handle
-    let (description, data) = if input.len() >= 32 && input.chars().all(|c| c.is_ascii_alphanumeric()) {
+    let (description, data) = if input.len() >= 32
+        && input.chars().all(|c| c.is_ascii_alphanumeric())
+    {
         let handle: String = proxy_get(http, &format!("twitter/get-handle-by-key/{input}")).await?;
         (
             format!("Twitter handle for key {}", &input[..8]),
@@ -2125,7 +2335,9 @@ pub fn validate_domain_name(domain: &str) -> Result<(), AppError> {
         return Err(AppError::InvalidParams("Domain name is empty".into()));
     }
     if clean.len() > 63 {
-        return Err(AppError::InvalidParams("Domain name too long (max 63 chars)".into()));
+        return Err(AppError::InvalidParams(
+            "Domain name too long (max 63 chars)".into(),
+        ));
     }
     if !clean.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err(AppError::InvalidParams(

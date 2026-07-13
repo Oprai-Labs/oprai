@@ -210,13 +210,15 @@ pub async fn estimate_swap_usd(
     };
     let price = payload
         .get(output_mint)
-        .and_then(|v| v.get("usdPrice").and_then(|p| p.as_f64()).or_else(|| {
-            v.get("price").and_then(|p| match p {
-                serde_json::Value::Number(n) => n.as_f64(),
-                serde_json::Value::String(s) => s.parse::<f64>().ok(),
-                _ => None,
+        .and_then(|v| {
+            v.get("usdPrice").and_then(|p| p.as_f64()).or_else(|| {
+                v.get("price").and_then(|p| match p {
+                    serde_json::Value::Number(n) => n.as_f64(),
+                    serde_json::Value::String(s) => s.parse::<f64>().ok(),
+                    _ => None,
+                })
             })
-        }))
+        })
         .unwrap_or(0.0);
     if price <= 0.0 {
         return 0.0;

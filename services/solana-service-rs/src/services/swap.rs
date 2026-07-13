@@ -5,7 +5,6 @@ use crate::error::AppError;
 use crate::services::amount::parse_amount_to_base_units;
 use crate::solana::tokens::{get_token_info, resolve_token_address, COMMON_TOKENS};
 
-
 /// Set of registry symbols we treat as "stable" for slippage purposes — pegs
 /// that should never need >100 bps of room except in extreme depegs. The
 /// actual ceiling is enforced by `slippage_ceiling_bps()` below.
@@ -60,7 +59,7 @@ pub const MAX_SLIPPAGE_BPS: u32 = 3000;
 
 /// Paid API (requires x-api-key header) — higher rate limits, priority routing.
 const JUPITER_PAID_QUOTE: &str = "https://api.jup.ag/swap/v1/quote";
-const JUPITER_PAID_SWAP:  &str = "https://api.jup.ag/swap/v1/swap";
+const JUPITER_PAID_SWAP: &str = "https://api.jup.ag/swap/v1/swap";
 /// Public API — no authentication required, lower rate limits.
 ///
 /// NOTE: Jupiter retired the legacy `quote-api.jup.ag/v6/*` host (it now
@@ -68,7 +67,7 @@ const JUPITER_PAID_SWAP:  &str = "https://api.jup.ag/swap/v1/swap";
 /// The path schema matches the paid API exactly, so callers don't need to
 /// branch on auth-mode for anything other than the host + header.
 const JUPITER_PUB_QUOTE: &str = "https://lite-api.jup.ag/swap/v1/quote";
-const JUPITER_PUB_SWAP:  &str = "https://lite-api.jup.ag/swap/v1/swap";
+const JUPITER_PUB_SWAP: &str = "https://lite-api.jup.ag/swap/v1/swap";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -133,19 +132,25 @@ pub struct QuoteRequest {
     pub restrict_intermediate_tokens: Option<bool>,
 }
 
-fn deserialize_optional_u32<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {
+fn deserialize_optional_u32<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<u32>, D::Error> {
     use serde::de::Error;
     let v: Option<serde_json::Value> = serde::Deserialize::deserialize(d)?;
     match v {
         None => Ok(None),
         Some(serde_json::Value::Null) => Ok(None),
-        Some(serde_json::Value::Number(n)) => n.as_u64()
+        Some(serde_json::Value::Number(n)) => n
+            .as_u64()
             .map(|n| Some(n as u32))
             .ok_or_else(|| D::Error::custom("expected unsigned integer")),
-        Some(serde_json::Value::String(s)) => s.parse::<u32>()
+        Some(serde_json::Value::String(s)) => s
+            .parse::<u32>()
             .map(Some)
             .map_err(|_| D::Error::custom(format!("cannot parse '{s}' as u32"))),
-        Some(other) => Err(D::Error::custom(format!("expected number or string for slippage_bps, got {other}"))),
+        Some(other) => Err(D::Error::custom(format!(
+            "expected number or string for slippage_bps, got {other}"
+        ))),
     }
 }
 
@@ -155,7 +160,9 @@ fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, 
     match v {
         serde_json::Value::String(s) => Ok(s),
         serde_json::Value::Number(n) => Ok(n.to_string()),
-        other => Err(D::Error::custom(format!("expected string or number for amount, got {other}"))),
+        other => Err(D::Error::custom(format!(
+            "expected string or number for amount, got {other}"
+        ))),
     }
 }
 
@@ -270,9 +277,13 @@ pub async fn get_swap_quote(
     };
 
     let amount_decimals = if swap_mode == "ExactOut" {
-        get_token_info(&params.output_mint).map(|t| t.decimals).unwrap_or(9)
+        get_token_info(&params.output_mint)
+            .map(|t| t.decimals)
+            .unwrap_or(9)
     } else {
-        get_token_info(&params.input_mint).map(|t| t.decimals).unwrap_or(9)
+        get_token_info(&params.input_mint)
+            .map(|t| t.decimals)
+            .unwrap_or(9)
     };
 
     let amount_in_smallest = parse_amount_to_base_units(&params.amount, amount_decimals)?;
@@ -280,7 +291,11 @@ pub async fn get_swap_quote(
 
     let restrict_intermediate = params.restrict_intermediate_tokens.unwrap_or(false);
 
-    let base_url = if jupiter_api_key.is_some() { JUPITER_PAID_QUOTE } else { JUPITER_PUB_QUOTE };
+    let base_url = if jupiter_api_key.is_some() {
+        JUPITER_PAID_QUOTE
+    } else {
+        JUPITER_PUB_QUOTE
+    };
     let url = format!(
         "{base_url}?\
          inputMint={input_mint}&\
@@ -310,7 +325,9 @@ pub async fn get_swap_quote(
 
     let quote: SwapQuote = response.json().await.map_err(|e| {
         tracing::warn!("Failed to parse Jupiter quote: {e}");
-        AppError::JupiterApiError("Couldn't read the swap quote. Please try again in a moment.".into())
+        AppError::JupiterApiError(
+            "Couldn't read the swap quote. Please try again in a moment.".into(),
+        )
     })?;
     Ok(quote)
 }
@@ -334,11 +351,12 @@ pub async fn build_swap_transaction(
     let quote = get_swap_quote(http, jupiter_api_key, params).await?;
 
     let prioritization_fee = match params.priority_fee.as_deref() {
-        Some("low")    => serde_json::json!(1_000),
+        Some("low") => serde_json::json!(1_000),
         Some("medium") => serde_json::json!(10_000),
-        Some("high")   => serde_json::json!(100_000),
+        Some("high") => serde_json::json!(100_000),
         Some("auto") | None => serde_json::json!("auto"),
-        Some(exact) => exact.parse::<u64>()
+        Some(exact) => exact
+            .parse::<u64>()
             .map(|n| serde_json::json!(n))
             .unwrap_or(serde_json::json!("auto")),
     };
@@ -351,7 +369,11 @@ pub async fn build_swap_transaction(
         "prioritizationFeeLamports": prioritization_fee,
     });
 
-    let swap_api_url = if jupiter_api_key.is_some() { JUPITER_PAID_SWAP } else { JUPITER_PUB_SWAP };
+    let swap_api_url = if jupiter_api_key.is_some() {
+        JUPITER_PAID_SWAP
+    } else {
+        JUPITER_PUB_SWAP
+    };
     let mut req = http.post(swap_api_url).json(&swap_body);
     if let Some(key) = jupiter_api_key {
         req = req.header("x-api-key", key);
@@ -370,9 +392,7 @@ pub async fn build_swap_transaction(
     let swap_data: serde_json::Value = swap_response.json().await?;
     let tx_base64 = swap_data["swapTransaction"]
         .as_str()
-        .ok_or_else(|| {
-            AppError::JupiterApiError("Missing swapTransaction in response".into())
-        })?
+        .ok_or_else(|| AppError::JupiterApiError("Missing swapTransaction in response".into()))?
         .to_string();
 
     // Build preview.
@@ -386,17 +406,18 @@ pub async fn build_swap_transaction(
         .unwrap_or_else(|| params.output_mint[..4.min(params.output_mint.len())].to_string());
     let output_decimals = output_token.map(|t| t.decimals).unwrap_or(9);
 
-    let out_amount_float: f64 = quote
-        .out_amount
-        .parse::<u64>()
-        .unwrap_or(0) as f64
-        / 10_f64.powi(output_decimals as i32);
+    let out_amount_float: f64 =
+        quote.out_amount.parse::<u64>().unwrap_or(0) as f64 / 10_f64.powi(output_decimals as i32);
 
     let mut warnings = Vec::new();
     let price_impact: f64 = match quote.price_impact_pct.parse() {
         Ok(v) => v,
         Err(e) => {
-            tracing::warn!("failed to parse price_impact_pct='{}': {}", quote.price_impact_pct, e);
+            tracing::warn!(
+                "failed to parse price_impact_pct='{}': {}",
+                quote.price_impact_pct,
+                e
+            );
             0.0
         }
     };

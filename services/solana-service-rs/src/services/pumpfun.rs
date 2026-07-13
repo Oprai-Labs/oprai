@@ -53,8 +53,8 @@ const PUMP_FEE_PROGRAM_ID: &str = "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ";
 /// Fee authority bytes for fee_config PDA seeds — from on-chain fee_config account at offset 8.
 /// Verified against fee_config account data: 8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt
 const PUMP_FEE_AUTHORITY: [u8; 32] = [
-    253, 211, 187, 140, 171, 52, 28, 224, 82, 132, 87, 242, 195, 129, 125, 50,
-    120, 68, 25, 99, 220, 213, 95, 237, 88, 186, 36, 201, 153, 221, 172, 2,
+    253, 211, 187, 140, 171, 52, 28, 224, 82, 132, 87, 242, 195, 129, 125, 50, 120, 68, 25, 99,
+    220, 213, 95, 237, 88, 186, 36, 201, 153, 221, 172, 2,
 ];
 
 /// Pump.fun fee_config PDA — constant, owned by fee_program.
@@ -162,7 +162,9 @@ pub fn validate_pumpfun_trade_params(params: &PumpFunTradeParams) -> Result<(), 
         .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a valid number".into()))?;
     if amount <= 0.0 {
-        return Err(AppError::InvalidParams("amount must be greater than zero".into()));
+        return Err(AppError::InvalidParams(
+            "amount must be greater than zero".into(),
+        ));
     }
     if let Some(slippage) = params.slippage {
         if slippage < 0.0 || slippage > 100.0 {
@@ -424,9 +426,16 @@ fn find_pumpswap_coin_creator_vault(creator: &Pubkey) -> Pubkey {
 fn find_pumpswap_pool_pda(creator: &Pubkey, base_mint: &Pubkey, quote_mint: &Pubkey) -> Pubkey {
     let amm = Pubkey::from_str(PUMP_AMM_PROGRAM_ID).expect("valid");
     Pubkey::find_program_address(
-        &[b"pool", &0u16.to_le_bytes(), creator.as_ref(), base_mint.as_ref(), quote_mint.as_ref()],
+        &[
+            b"pool",
+            &0u16.to_le_bytes(),
+            creator.as_ref(),
+            base_mint.as_ref(),
+            quote_mint.as_ref(),
+        ],
         &amm,
-    ).0
+    )
+    .0
 }
 
 /// PumpSwap global volume accumulator PDA
@@ -481,18 +490,25 @@ async fn fetch_pumpswap_global_config(rpc: &SolanaRpc) -> Result<PumpSwapGlobalC
         .map_err(|e| AppError::Internal(format!("spawn error fetching global_config: {e}")))?
         .map_err(|e| AppError::Internal(format!("RPC error fetching global_config: {e}")))?;
 
-    const PROTOCOL_FEE_OFFSET: usize = 57;   // first of 8 protocol_fee_recipients
-    const BUYBACK_FEE_OFFSET: usize = 643;   // first of 8 buyback_fee_recipients
+    const PROTOCOL_FEE_OFFSET: usize = 57; // first of 8 protocol_fee_recipients
+    const BUYBACK_FEE_OFFSET: usize = 643; // first of 8 buyback_fee_recipients
 
     if account.data.len() < BUYBACK_FEE_OFFSET + 32 {
-        return Err(AppError::Internal("GlobalConfig account data too short".into()));
+        return Err(AppError::Internal(
+            "GlobalConfig account data too short".into(),
+        ));
     }
-    let protocol_fee_recipient = Pubkey::try_from(&account.data[PROTOCOL_FEE_OFFSET..PROTOCOL_FEE_OFFSET + 32])
-        .map_err(|_| AppError::Internal("Failed to parse protocol_fee_recipient".into()))?;
-    let buyback_fee_recipient = Pubkey::try_from(&account.data[BUYBACK_FEE_OFFSET..BUYBACK_FEE_OFFSET + 32])
-        .map_err(|_| AppError::Internal("Failed to parse buyback_fee_recipient".into()))?;
+    let protocol_fee_recipient =
+        Pubkey::try_from(&account.data[PROTOCOL_FEE_OFFSET..PROTOCOL_FEE_OFFSET + 32])
+            .map_err(|_| AppError::Internal("Failed to parse protocol_fee_recipient".into()))?;
+    let buyback_fee_recipient =
+        Pubkey::try_from(&account.data[BUYBACK_FEE_OFFSET..BUYBACK_FEE_OFFSET + 32])
+            .map_err(|_| AppError::Internal("Failed to parse buyback_fee_recipient".into()))?;
 
-    Ok(PumpSwapGlobalConfig { protocol_fee_recipient, buyback_fee_recipient })
+    Ok(PumpSwapGlobalConfig {
+        protocol_fee_recipient,
+        buyback_fee_recipient,
+    })
 }
 
 /// All fields needed from a PumpSwap pool account (read in one RPC call).
@@ -523,7 +539,10 @@ struct PumpSwapPoolData {
 ///   [211..243] coin_creator: Pubkey
 ///   [243]     is_mayhem_mode: bool
 ///   [244]     is_cashback_coin: bool
-async fn fetch_pumpswap_pool_data(rpc: &SolanaRpc, pool: &Pubkey) -> Result<PumpSwapPoolData, AppError> {
+async fn fetch_pumpswap_pool_data(
+    rpc: &SolanaRpc,
+    pool: &Pubkey,
+) -> Result<PumpSwapPoolData, AppError> {
     let rpc2 = rpc.clone();
     let pool2 = *pool;
     let account = tokio::task::spawn_blocking(move || rpc2.client().get_account(&pool2))
@@ -543,15 +562,25 @@ async fn fetch_pumpswap_pool_data(rpc: &SolanaRpc, pool: &Pubkey) -> Result<Pump
         )));
     }
 
-    let pool_base_token_account = Pubkey::try_from(&account.data[BASE_VAULT_OFFSET..BASE_VAULT_OFFSET + 32])
-        .map_err(|_| AppError::Internal("Failed to parse pool_base_token_account from pool".into()))?;
-    let pool_quote_token_account = Pubkey::try_from(&account.data[QUOTE_VAULT_OFFSET..QUOTE_VAULT_OFFSET + 32])
-        .map_err(|_| AppError::Internal("Failed to parse pool_quote_token_account from pool".into()))?;
-    let coin_creator = Pubkey::try_from(&account.data[COIN_CREATOR_OFFSET..COIN_CREATOR_OFFSET + 32])
-        .map_err(|_| AppError::Internal("Failed to parse coin_creator from pool".into()))?;
+    let pool_base_token_account = Pubkey::try_from(
+        &account.data[BASE_VAULT_OFFSET..BASE_VAULT_OFFSET + 32],
+    )
+    .map_err(|_| AppError::Internal("Failed to parse pool_base_token_account from pool".into()))?;
+    let pool_quote_token_account = Pubkey::try_from(
+        &account.data[QUOTE_VAULT_OFFSET..QUOTE_VAULT_OFFSET + 32],
+    )
+    .map_err(|_| AppError::Internal("Failed to parse pool_quote_token_account from pool".into()))?;
+    let coin_creator =
+        Pubkey::try_from(&account.data[COIN_CREATOR_OFFSET..COIN_CREATOR_OFFSET + 32])
+            .map_err(|_| AppError::Internal("Failed to parse coin_creator from pool".into()))?;
     let is_cashback_coin = account.data[IS_CASHBACK_COIN_OFFSET] != 0;
 
-    Ok(PumpSwapPoolData { pool_base_token_account, pool_quote_token_account, coin_creator, is_cashback_coin })
+    Ok(PumpSwapPoolData {
+        pool_base_token_account,
+        pool_quote_token_account,
+        coin_creator,
+        is_cashback_coin,
+    })
 }
 
 /// Determine which token program owns a mint — classic SPL Token vs Token-2022.
@@ -604,7 +633,9 @@ async fn build_graduated_swap(
         .map_err(|_| AppError::InvalidParams(format!("Invalid mint: {}", params.mint)))?;
     let (_owner, decimals) = fetch_mint_info(rpc, &mint).await?;
 
-    let amt: f64 = params.amount.parse()
+    let amt: f64 = params
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams(format!("Invalid amount: {}", params.amount)))?;
     if !(amt > 0.0) {
         return Err(AppError::InvalidParams("Amount must be positive".into()));
@@ -628,11 +659,17 @@ async fn build_graduated_swap(
     };
     let amount_is_sol = denom_sol;
     let amount_is_input = if is_buy { denom_sol } else { !denom_sol };
-    let swap_mode = if amount_is_input { "ExactIn" } else { "ExactOut" };
+    let swap_mode = if amount_is_input {
+        "ExactIn"
+    } else {
+        "ExactOut"
+    };
     let amount_decimals: i32 = if amount_is_sol { 9 } else { decimals as i32 };
     let base_amount = (amt * 10f64.powi(amount_decimals)).round() as u64;
     if base_amount == 0 {
-        return Err(AppError::InvalidParams("Amount too small after decimal scaling".into()));
+        return Err(AppError::InvalidParams(
+            "Amount too small after decimal scaling".into(),
+        ));
     }
 
     // 1) Quote via Jupiter public API (same source the frontend prices with).
@@ -640,12 +677,17 @@ async fn build_graduated_swap(
         "https://lite-api.jup.ag/swap/v1/quote?inputMint={input_mint}&outputMint={output_mint}\
          &amount={base_amount}&slippageBps={slippage_bps}&swapMode={swap_mode}"
     );
-    let quote: serde_json::Value = http.get(&quote_url).send().await
+    let quote: serde_json::Value = http
+        .get(&quote_url)
+        .send()
+        .await
         .map_err(|e| AppError::Internal(format!("Jupiter quote request failed: {e}")))?
         .error_for_status()
-        .map_err(|_| AppError::InvalidParams(
-            "No Jupiter route found for this graduated token.".into()))?
-        .json().await
+        .map_err(|_| {
+            AppError::InvalidParams("No Jupiter route found for this graduated token.".into())
+        })?
+        .json()
+        .await
         .map_err(|e| AppError::Internal(format!("Jupiter quote decode: {e}")))?;
 
     // 2) Build the swap transaction (Jupiter returns a base64 versioned tx that
@@ -657,19 +699,29 @@ async fn build_graduated_swap(
         "dynamicComputeUnitLimit": true,
         "prioritizationFeeLamports": "auto",
     });
-    let swap_resp: serde_json::Value = http.post("https://lite-api.jup.ag/swap/v1/swap")
-        .json(&swap_body).send().await
+    let swap_resp: serde_json::Value = http
+        .post("https://lite-api.jup.ag/swap/v1/swap")
+        .json(&swap_body)
+        .send()
+        .await
         .map_err(|e| AppError::Internal(format!("Jupiter swap request failed: {e}")))?
         .error_for_status()
         .map_err(|e| AppError::Internal(format!("Jupiter swap build failed: {e}")))?
-        .json().await
+        .json()
+        .await
         .map_err(|e| AppError::Internal(format!("Jupiter swap decode: {e}")))?;
 
-    let tx_b64 = swap_resp.get("swapTransaction").and_then(|v| v.as_str())
+    let tx_b64 = swap_resp
+        .get("swapTransaction")
+        .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::Internal("Missing swapTransaction from Jupiter".into()))?
         .to_string();
 
-    let action_type = if is_buy { "pumpswap_buy" } else { "pumpswap_sell" };
+    let action_type = if is_buy {
+        "pumpswap_buy"
+    } else {
+        "pumpswap_sell"
+    };
     let verb = if is_buy { "Buy" } else { "Sell" };
     tracing::info!(
         mint = %mint, is_buy, base_amount, swap_mode, decimals,
@@ -706,25 +758,27 @@ async fn fetch_pumpswap_pool_reserves(
 ) -> Result<(u64, u64), AppError> {
     let rpc2 = rpc.clone();
     let base_vault = *pool_base_vault;
-    let base_balance = tokio::task::spawn_blocking(move || {
-        rpc2.client().get_token_account_balance(&base_vault)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn error fetching base reserve: {e}")))?
-    .map_err(|e| AppError::Internal(format!("RPC error fetching base reserve: {e}")))?;
+    let base_balance =
+        tokio::task::spawn_blocking(move || rpc2.client().get_token_account_balance(&base_vault))
+            .await
+            .map_err(|e| AppError::Internal(format!("spawn error fetching base reserve: {e}")))?
+            .map_err(|e| AppError::Internal(format!("RPC error fetching base reserve: {e}")))?;
 
     let rpc3 = rpc.clone();
     let quote_vault = *pool_quote_vault;
-    let quote_balance = tokio::task::spawn_blocking(move || {
-        rpc3.client().get_token_account_balance(&quote_vault)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn error fetching quote reserve: {e}")))?
-    .map_err(|e| AppError::Internal(format!("RPC error fetching quote reserve: {e}")))?;
+    let quote_balance =
+        tokio::task::spawn_blocking(move || rpc3.client().get_token_account_balance(&quote_vault))
+            .await
+            .map_err(|e| AppError::Internal(format!("spawn error fetching quote reserve: {e}")))?
+            .map_err(|e| AppError::Internal(format!("RPC error fetching quote reserve: {e}")))?;
 
-    let base_amount: u64 = base_balance.amount.parse()
+    let base_amount: u64 = base_balance
+        .amount
+        .parse()
         .map_err(|_| AppError::Internal("Failed to parse base reserve amount".into()))?;
-    let quote_amount: u64 = quote_balance.amount.parse()
+    let quote_amount: u64 = quote_balance
+        .amount
+        .parse()
         .map_err(|_| AppError::Internal("Failed to parse quote reserve amount".into()))?;
 
     Ok((base_amount, quote_amount))
@@ -733,8 +787,8 @@ async fn fetch_pumpswap_pool_reserves(
 /// Fee authority bytes for PumpSwap AMM fee_config PDA — DIFFERENT from bonding curve.
 /// From pump_amm.json IDL fee_config seeds.
 const PUMP_AMM_FEE_AUTHORITY: [u8; 32] = [
-    12, 20, 222, 252, 130, 94, 198, 118, 148, 37, 8, 24, 187, 101, 64, 101,
-    244, 41, 141, 49, 86, 213, 113, 180, 212, 248, 9, 12, 24, 233, 168, 99,
+    12, 20, 222, 252, 130, 94, 198, 118, 148, 37, 8, 24, 187, 101, 64, 101, 244, 41, 141, 49, 86,
+    213, 113, 180, 212, 248, 9, 12, 24, 233, 168, 99,
 ];
 
 /// Find fee_config PDA for PumpSwap AMM — uses a different authority than the bonding curve.
@@ -742,7 +796,6 @@ fn find_pumpswap_fee_config_pda() -> Pubkey {
     let fee_program = Pubkey::from_str(PUMP_FEE_PROGRAM_ID).expect("valid PUMP_FEE_PROGRAM_ID");
     Pubkey::find_program_address(&[b"fee_config", &PUMP_AMM_FEE_AUTHORITY], &fee_program).0
 }
-
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Build create_v2 Instruction (Token-2022, Mayhem mode — current pump.fun)
@@ -759,14 +812,18 @@ fn build_init_user_volume_accumulator_instruction(user: &Pubkey) -> Result<Instr
         .map_err(|e| AppError::Internal(format!("Invalid event authority: {e}")))?;
     let user_volume_acc = find_user_volume_accumulator_pda(user);
     let accounts = vec![
-        AccountMeta::new(*user, true),                                      // payer (writable, signer)
-        AccountMeta::new_readonly(*user, false),                            // user (readonly)
-        AccountMeta::new(user_volume_acc, false),                           // user_volume_accumulator (writable, PDA)
+        AccountMeta::new(*user, true),            // payer (writable, signer)
+        AccountMeta::new_readonly(*user, false),  // user (readonly)
+        AccountMeta::new(user_volume_acc, false), // user_volume_accumulator (writable, PDA)
         AccountMeta::new_readonly(solana_sdk::system_program::id(), false), // system_program
-        AccountMeta::new_readonly(event_authority, false),                  // event_authority
-        AccountMeta::new_readonly(program_id, false),                       // program
+        AccountMeta::new_readonly(event_authority, false), // event_authority
+        AccountMeta::new_readonly(program_id, false), // program
     ];
-    Ok(Instruction { program_id, accounts, data: DISCRIMINATOR.to_vec() })
+    Ok(Instruction {
+        program_id,
+        accounts,
+        data: DISCRIMINATOR.to_vec(),
+    })
 }
 
 fn build_create_v2_instruction(
@@ -795,9 +852,10 @@ fn build_create_v2_instruction(
     let global = find_global_pda();
     let assoc_bonding_curve = get_associated_bonding_curve(mint, &token_2022_program());
     let mayhem_state = find_mayhem_state_pda(mint);
-    let mayhem_token_vault = spl_associated_token_account::get_associated_token_address_with_program_id(
-        &sol_vault, mint, &t22,
-    );
+    let mayhem_token_vault =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            &sol_vault, mint, &t22,
+        );
 
     let args = CreateV2Args {
         name: name.to_string(),
@@ -815,25 +873,29 @@ fn build_create_v2_instruction(
     // 16 accounts matching the pump.fun create_v2 IDL (confirmed via PumpPortal transaction decoding).
     // global_params [10] is writable — the program writes to it during cashback registration.
     let accounts = vec![
-        AccountMeta::new(*mint, true),                                          // 0 mint
-        AccountMeta::new_readonly(mint_authority, false),                       // 1 mint_authority
-        AccountMeta::new(bonding_curve, false),                                 // 2 bonding_curve
-        AccountMeta::new(assoc_bonding_curve, false),                           // 3 assoc_bonding_curve
-        AccountMeta::new_readonly(global, false),                               // 4 global
-        AccountMeta::new(*creator, true),                                       // 5 user/creator
-        AccountMeta::new_readonly(solana_sdk::system_program::id(), false),     // 6 system_program
-        AccountMeta::new_readonly(t22, false),                                  // 7 token_2022_program
-        AccountMeta::new_readonly(spl_associated_token_account::id(), false),   // 8 associated_token_program
-        AccountMeta::new(mayhem_program, false),                                // 9 mayhem_program (writable)
-        AccountMeta::new(global_params, false),                                 // 10 global_params (writable)
-        AccountMeta::new(sol_vault, false),                                     // 11 sol_vault (writable)
-        AccountMeta::new(mayhem_state, false),                                  // 12 mayhem_state
-        AccountMeta::new(mayhem_token_vault, false),                            // 13 mayhem_token_vault
-        AccountMeta::new_readonly(event_authority, false),                      // 14 event_authority
-        AccountMeta::new_readonly(program_id, false),                           // 15 program
+        AccountMeta::new(*mint, true),                    // 0 mint
+        AccountMeta::new_readonly(mint_authority, false), // 1 mint_authority
+        AccountMeta::new(bonding_curve, false),           // 2 bonding_curve
+        AccountMeta::new(assoc_bonding_curve, false),     // 3 assoc_bonding_curve
+        AccountMeta::new_readonly(global, false),         // 4 global
+        AccountMeta::new(*creator, true),                 // 5 user/creator
+        AccountMeta::new_readonly(solana_sdk::system_program::id(), false), // 6 system_program
+        AccountMeta::new_readonly(t22, false),            // 7 token_2022_program
+        AccountMeta::new_readonly(spl_associated_token_account::id(), false), // 8 associated_token_program
+        AccountMeta::new(mayhem_program, false), // 9 mayhem_program (writable)
+        AccountMeta::new(global_params, false),  // 10 global_params (writable)
+        AccountMeta::new(sol_vault, false),      // 11 sol_vault (writable)
+        AccountMeta::new(mayhem_state, false),   // 12 mayhem_state
+        AccountMeta::new(mayhem_token_vault, false), // 13 mayhem_token_vault
+        AccountMeta::new_readonly(event_authority, false), // 14 event_authority
+        AccountMeta::new_readonly(program_id, false), // 15 program
     ];
 
-    Ok(Instruction { program_id, accounts, data })
+    Ok(Instruction {
+        program_id,
+        accounts,
+        data,
+    })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -878,20 +940,20 @@ fn build_create_instruction(
 
     // Build accounts list (14 accounts)
     let accounts = vec![
-        AccountMeta::new(*mint, true),                    // 0: mint (signer, writable)
-        AccountMeta::new(mint_authority, false),          // 1: mint_authority_pda (writable)
-        AccountMeta::new(bonding_curve, false),           // 2: bonding_curve (writable)
+        AccountMeta::new(*mint, true),           // 0: mint (signer, writable)
+        AccountMeta::new(mint_authority, false), // 1: mint_authority_pda (writable)
+        AccountMeta::new(bonding_curve, false),  // 2: bonding_curve (writable)
         AccountMeta::new(associated_bonding_curve, false), // 3: associated_bonding_curve (writable)
-        AccountMeta::new(global, false),                  // 4: global_pda (writable)
+        AccountMeta::new(global, false),         // 4: global_pda (writable)
         AccountMeta::new_readonly(mpl_token_metadata, false), // 5: mpl_token_metadata (readonly)
-        AccountMeta::new(metadata, false),                // 6: metadata_pda (writable)
-        AccountMeta::new(*creator, true),                 // 7: user (signer, writable)
+        AccountMeta::new(metadata, false),       // 6: metadata_pda (writable)
+        AccountMeta::new(*creator, true),        // 7: user (signer, writable)
         AccountMeta::new_readonly(solana_sdk::system_program::id(), false), // 8: system_program
         AccountMeta::new_readonly(spl_token::id(), false), // 9: token_program
         AccountMeta::new_readonly(spl_associated_token_account::id(), false), // 10: associated_token_program
-        AccountMeta::new_readonly(solana_sdk::sysvar::rent::id(), false), // 11: rent_sysvar
+        AccountMeta::new_readonly(solana_sdk::sysvar::rent::id(), false),     // 11: rent_sysvar
         AccountMeta::new_readonly(event_authority, false), // 12: event_authority (readonly)
-        AccountMeta::new_readonly(program_id, false),     // 13: pump_fun_program (readonly)
+        AccountMeta::new_readonly(program_id, false),      // 13: pump_fun_program (readonly)
     ];
 
     Ok(Instruction {
@@ -921,21 +983,28 @@ const PUMP_FUN_FEE_RECIPIENT_FALLBACK: &str = "CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7Abi
 async fn fetch_pumpfun_fee_recipient(rpc: &SolanaRpc) -> Pubkey {
     let global = find_global_pda();
     let rpc2 = rpc.clone();
-    let result = tokio::task::spawn_blocking(move || rpc2.client().get_account(&global))
-        .await;
+    let result = tokio::task::spawn_blocking(move || rpc2.client().get_account(&global)).await;
 
     match result {
         Ok(Ok(account)) => {
             const FEE_RECIPIENT_OFFSET: usize = 41; // 8 disc + 1 bool + 32 pubkey
             if account.data.len() >= FEE_RECIPIENT_OFFSET + 32 {
-                if let Ok(pk) = Pubkey::try_from(&account.data[FEE_RECIPIENT_OFFSET..FEE_RECIPIENT_OFFSET + 32]) {
+                if let Ok(pk) =
+                    Pubkey::try_from(&account.data[FEE_RECIPIENT_OFFSET..FEE_RECIPIENT_OFFSET + 32])
+                {
                     return pk;
                 }
             }
-            tracing::warn!("pump.fun global account data too short or invalid, using fallback fee_recipient");
+            tracing::warn!(
+                "pump.fun global account data too short or invalid, using fallback fee_recipient"
+            );
         }
-        Ok(Err(e)) => tracing::warn!(error = %e, "RPC error fetching pump.fun global, using fallback fee_recipient"),
-        Err(e) => tracing::warn!(error = %e, "spawn_blocking error fetching pump.fun global, using fallback fee_recipient"),
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "RPC error fetching pump.fun global, using fallback fee_recipient")
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "spawn_blocking error fetching pump.fun global, using fallback fee_recipient")
+        }
     }
 
     Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback fee_recipient")
@@ -963,9 +1032,10 @@ fn build_buy_instruction(
     let creator_vault = find_creator_vault_pda(creator);
 
     // User's token account — use the same token program as the mint
-    let user_token_account = spl_associated_token_account::get_associated_token_address_with_program_id(
-        buyer, mint, token_prog,
-    );
+    let user_token_account =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            buyer, mint, token_prog,
+        );
 
     // Volume/fee accounts — use hardcoded constants for global accounts to avoid
     // wrong PDA derivation. PUMP_GLOBAL_VOLUME_ACC and PUMP_FEE_CONFIG verified
@@ -999,24 +1069,24 @@ fn build_buy_instruction(
 
     // 16 declared + 2 remaining accounts (verified against real on-chain buy transactions).
     let accounts = vec![
-        AccountMeta::new_readonly(global, false),                              // 0: global (readonly)
-        AccountMeta::new(*fee_recipient, false),                               // 1: fee_recipient (mut)
-        AccountMeta::new_readonly(*mint, false),                               // 2: mint (readonly)
-        AccountMeta::new(bonding_curve, false),                                // 3: bonding_curve (mut)
-        AccountMeta::new(associated_bonding_curve, false),                     // 4: associated_bonding_curve (mut)
-        AccountMeta::new(user_token_account, false),                           // 5: associated_user (mut)
-        AccountMeta::new(*buyer, true),                                        // 6: user (mut, signer)
-        AccountMeta::new_readonly(solana_sdk::system_program::id(), false),    // 7: system_program
-        AccountMeta::new_readonly(*token_prog, false),                         // 8: token_program (SPL or Token-2022)
-        AccountMeta::new(creator_vault, false),                                // 9: creator_vault (mut)
-        AccountMeta::new_readonly(event_authority, false),                     // 10: event_authority
-        AccountMeta::new_readonly(program_id, false),                          // 11: program
-        AccountMeta::new_readonly(global_volume_acc, false),                   // 12: global_volume_accumulator (readonly)
-        AccountMeta::new(user_volume_acc, false),                              // 13: user_volume_accumulator (mut)
-        AccountMeta::new_readonly(fee_config, false),                          // 14: fee_config (readonly)
-        AccountMeta::new_readonly(fee_program, false),                         // 15: fee_program
-        AccountMeta::new_readonly(bonding_curve_v2, false),                    // 16: bonding-curve-v2 (readonly, remaining)
-        AccountMeta::new(buyback_fee_cfg, false),                              // 17: BuybackFeeConfig (mut, remaining)
+        AccountMeta::new_readonly(global, false), // 0: global (readonly)
+        AccountMeta::new(*fee_recipient, false),  // 1: fee_recipient (mut)
+        AccountMeta::new_readonly(*mint, false),  // 2: mint (readonly)
+        AccountMeta::new(bonding_curve, false),   // 3: bonding_curve (mut)
+        AccountMeta::new(associated_bonding_curve, false), // 4: associated_bonding_curve (mut)
+        AccountMeta::new(user_token_account, false), // 5: associated_user (mut)
+        AccountMeta::new(*buyer, true),           // 6: user (mut, signer)
+        AccountMeta::new_readonly(solana_sdk::system_program::id(), false), // 7: system_program
+        AccountMeta::new_readonly(*token_prog, false), // 8: token_program (SPL or Token-2022)
+        AccountMeta::new(creator_vault, false),   // 9: creator_vault (mut)
+        AccountMeta::new_readonly(event_authority, false), // 10: event_authority
+        AccountMeta::new_readonly(program_id, false), // 11: program
+        AccountMeta::new_readonly(global_volume_acc, false), // 12: global_volume_accumulator (readonly)
+        AccountMeta::new(user_volume_acc, false),            // 13: user_volume_accumulator (mut)
+        AccountMeta::new_readonly(fee_config, false),        // 14: fee_config (readonly)
+        AccountMeta::new_readonly(fee_program, false),       // 15: fee_program
+        AccountMeta::new_readonly(bonding_curve_v2, false), // 16: bonding-curve-v2 (readonly, remaining)
+        AccountMeta::new(buyback_fee_cfg, false),           // 17: BuybackFeeConfig (mut, remaining)
     ];
 
     Ok(Instruction {
@@ -1049,15 +1119,19 @@ fn build_sell_instruction(
     let bonding_curve = find_bonding_curve_pda(mint);
     let associated_bonding_curve = get_associated_bonding_curve(mint, token_prog);
     let creator_vault = find_creator_vault_pda(creator);
-    let user_token_account = spl_associated_token_account::get_associated_token_address_with_program_id(
-        seller, mint, token_prog,
-    );
+    let user_token_account =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            seller, mint, token_prog,
+        );
     let fee_config = Pubkey::from_str(PUMP_FEE_CONFIG)
         .map_err(|e| AppError::Internal(format!("Invalid fee_config: {e}")))?;
     let fee_program = Pubkey::from_str(PUMP_FEE_PROGRAM_ID)
         .map_err(|e| AppError::Internal(format!("Invalid fee program: {e}")))?;
 
-    let args = SellArgs { amount, min_sol_output };
+    let args = SellArgs {
+        amount,
+        min_sol_output,
+    };
     let mut data = Vec::with_capacity(8 + 16);
     data.extend_from_slice(&SELL_DISCRIMINATOR);
     args.serialize(&mut data)
@@ -1070,25 +1144,29 @@ fn build_sell_instruction(
 
     // 14 declared + 2 remaining — note creator_vault (#8) is BEFORE token_program (#9).
     let accounts = vec![
-        AccountMeta::new_readonly(global, false),           // 0: global (readonly)
-        AccountMeta::new(*fee_recipient, false),            // 1: fee_recipient (mut)
-        AccountMeta::new_readonly(*mint, false),            // 2: mint (readonly)
-        AccountMeta::new(bonding_curve, false),             // 3: bonding_curve (mut)
-        AccountMeta::new(associated_bonding_curve, false),  // 4: associated_bonding_curve (mut)
-        AccountMeta::new(user_token_account, false),        // 5: associated_user (mut)
-        AccountMeta::new(*seller, true),                    // 6: user (mut, signer)
+        AccountMeta::new_readonly(global, false), // 0: global (readonly)
+        AccountMeta::new(*fee_recipient, false),  // 1: fee_recipient (mut)
+        AccountMeta::new_readonly(*mint, false),  // 2: mint (readonly)
+        AccountMeta::new(bonding_curve, false),   // 3: bonding_curve (mut)
+        AccountMeta::new(associated_bonding_curve, false), // 4: associated_bonding_curve (mut)
+        AccountMeta::new(user_token_account, false), // 5: associated_user (mut)
+        AccountMeta::new(*seller, true),          // 6: user (mut, signer)
         AccountMeta::new_readonly(solana_sdk::system_program::id(), false), // 7: system_program
-        AccountMeta::new(creator_vault, false),             // 8: creator_vault (mut, before token_program)
-        AccountMeta::new_readonly(*token_prog, false),      // 9: token_program (SPL or Token-2022)
-        AccountMeta::new_readonly(event_authority, false),  // 10: event_authority
-        AccountMeta::new_readonly(program_id, false),       // 11: program
-        AccountMeta::new_readonly(fee_config, false),       // 12: fee_config (readonly)
-        AccountMeta::new_readonly(fee_program, false),      // 13: fee_program
+        AccountMeta::new(creator_vault, false),   // 8: creator_vault (mut, before token_program)
+        AccountMeta::new_readonly(*token_prog, false), // 9: token_program (SPL or Token-2022)
+        AccountMeta::new_readonly(event_authority, false), // 10: event_authority
+        AccountMeta::new_readonly(program_id, false), // 11: program
+        AccountMeta::new_readonly(fee_config, false), // 12: fee_config (readonly)
+        AccountMeta::new_readonly(fee_program, false), // 13: fee_program
         AccountMeta::new_readonly(bonding_curve_v2, false), // 14: bonding-curve-v2 (readonly, remaining)
         AccountMeta::new(buyback_fee_cfg, false),           // 15: BuybackFeeConfig (mut, remaining)
     ];
 
-    Ok(Instruction { program_id, accounts, data })
+    Ok(Instruction {
+        program_id,
+        accounts,
+        data,
+    })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1109,8 +1187,8 @@ fn build_pumpswap_buy_instruction(
     base_mint: &Pubkey,
     coin_creator: &Pubkey,
     protocol_fee: &Pubkey,
-    pool_base_vault: &Pubkey,   // pool_base_token_account from pool struct offset 139
-    pool_quote_vault: &Pubkey,  // pool_quote_token_account from pool struct offset 171
+    pool_base_vault: &Pubkey, // pool_base_token_account from pool struct offset 139
+    pool_quote_vault: &Pubkey, // pool_quote_token_account from pool struct offset 171
     base_amount_out: u64,
     max_quote_amount_in: u64,
     is_cashback_coin: bool,
@@ -1141,13 +1219,19 @@ fn build_pumpswap_buy_instruction(
     let user_quote_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
         buyer, &sol_mint, &spl_tok,
     );
-    let protocol_fee_quote_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        protocol_fee, &sol_mint, &spl_tok,
-    );
+    let protocol_fee_quote_ata =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            protocol_fee,
+            &sol_mint,
+            &spl_tok,
+        );
     // coin_creator_vault_ata is the wSOL (quote) ATA of vault authority, NOT the base token ATA
-    let coin_creator_vault_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        &coin_creator_vault_authority, &sol_mint, &spl_tok,
-    );
+    let coin_creator_vault_ata =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            &coin_creator_vault_authority,
+            &sol_mint,
+            &spl_tok,
+        );
 
     let global_vol_acc = find_pumpswap_global_volume_accumulator();
     let user_vol_acc = find_pumpswap_user_volume_accumulator(buyer);
@@ -1156,16 +1240,27 @@ fn build_pumpswap_buy_instruction(
     //   If is_cashback_coin → push user_vol_accumulator_wsol_ata (writable)
     //   If coin_creator != default → push poolV2Pda(base_mint) (readonly)
     //   Always → push buyback_fee_recipient (readonly), buyback_fee_recipient_wsol_ata (writable)
-    let user_vol_wsol_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        &user_vol_acc, &sol_mint, &spl_tok,
-    );
-    let pool_v2_pda = Pubkey::find_program_address(&[b"pool-v2", base_mint.as_ref()], &amm_program).0;
-    let buyback_wsol_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        buyback_fee_recipient, &sol_mint, &spl_tok,
-    );
+    let user_vol_wsol_ata =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            &user_vol_acc,
+            &sol_mint,
+            &spl_tok,
+        );
+    let pool_v2_pda =
+        Pubkey::find_program_address(&[b"pool-v2", base_mint.as_ref()], &amm_program).0;
+    let buyback_wsol_ata =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            buyback_fee_recipient,
+            &sol_mint,
+            &spl_tok,
+        );
     let default_pubkey = Pubkey::default();
 
-    let args = PumpSwapBuyArgs { base_amount_out, max_quote_amount_in, track_volume: OptionBool::None };
+    let args = PumpSwapBuyArgs {
+        base_amount_out,
+        max_quote_amount_in,
+        track_volume: OptionBool::None,
+    };
     let mut data = Vec::with_capacity(8 + 17);
     data.extend_from_slice(&BUY_DISCRIMINATOR);
     args.serialize(&mut data)
@@ -1173,29 +1268,29 @@ fn build_pumpswap_buy_instruction(
 
     // 23 declared accounts + remaining_accounts for buyback fee routing.
     let mut accounts = vec![
-        AccountMeta::new(pool, false),                                        // 0
-        AccountMeta::new(*buyer, true),                                       // 1
-        AccountMeta::new_readonly(global_config, false),                      // 2
-        AccountMeta::new_readonly(*base_mint, false),                         // 3
-        AccountMeta::new_readonly(sol_mint, false),                           // 4
-        AccountMeta::new(user_base_ata, false),                               // 5
-        AccountMeta::new(user_quote_ata, false),                              // 6
-        AccountMeta::new(*pool_base_vault, false),                            // 7
-        AccountMeta::new(*pool_quote_vault, false),                           // 8
-        AccountMeta::new_readonly(*protocol_fee, false),                      // 9
-        AccountMeta::new(protocol_fee_quote_ata, false),                      // 10
-        AccountMeta::new_readonly(base_prog, false),                          // 11 base token program (SPL or Token-2022)
-        AccountMeta::new_readonly(spl_tok, false),                            // 12 quote token program (wSOL = SPL)
-        AccountMeta::new_readonly(solana_sdk::system_program::id(), false),   // 13
+        AccountMeta::new(pool, false),                                      // 0
+        AccountMeta::new(*buyer, true),                                     // 1
+        AccountMeta::new_readonly(global_config, false),                    // 2
+        AccountMeta::new_readonly(*base_mint, false),                       // 3
+        AccountMeta::new_readonly(sol_mint, false),                         // 4
+        AccountMeta::new(user_base_ata, false),                             // 5
+        AccountMeta::new(user_quote_ata, false),                            // 6
+        AccountMeta::new(*pool_base_vault, false),                          // 7
+        AccountMeta::new(*pool_quote_vault, false),                         // 8
+        AccountMeta::new_readonly(*protocol_fee, false),                    // 9
+        AccountMeta::new(protocol_fee_quote_ata, false),                    // 10
+        AccountMeta::new_readonly(base_prog, false), // 11 base token program (SPL or Token-2022)
+        AccountMeta::new_readonly(spl_tok, false),   // 12 quote token program (wSOL = SPL)
+        AccountMeta::new_readonly(solana_sdk::system_program::id(), false), // 13
         AccountMeta::new_readonly(spl_associated_token_account::id(), false), // 14
-        AccountMeta::new_readonly(event_authority, false),                    // 15
-        AccountMeta::new_readonly(amm_program, false),                        // 16
-        AccountMeta::new(coin_creator_vault_ata, false),                      // 17
-        AccountMeta::new_readonly(coin_creator_vault_authority, false),       // 18
-        AccountMeta::new_readonly(global_vol_acc, false),                     // 19 readonly
-        AccountMeta::new(user_vol_acc, false),                                // 20 writable
-        AccountMeta::new_readonly(fee_config, false),                         // 21
-        AccountMeta::new_readonly(fee_program, false),                        // 22
+        AccountMeta::new_readonly(event_authority, false), // 15
+        AccountMeta::new_readonly(amm_program, false), // 16
+        AccountMeta::new(coin_creator_vault_ata, false), // 17
+        AccountMeta::new_readonly(coin_creator_vault_authority, false), // 18
+        AccountMeta::new_readonly(global_vol_acc, false), // 19 readonly
+        AccountMeta::new(user_vol_acc, false),       // 20 writable
+        AccountMeta::new_readonly(fee_config, false), // 21
+        AccountMeta::new_readonly(fee_program, false), // 22
     ];
 
     // remaining_accounts[0]: user_vol_wsol_ata (cashback coins only)
@@ -1210,7 +1305,11 @@ fn build_pumpswap_buy_instruction(
     accounts.push(AccountMeta::new_readonly(*buyback_fee_recipient, false));
     accounts.push(AccountMeta::new(buyback_wsol_ata, false));
 
-    Ok(Instruction { program_id: amm_program, accounts, data })
+    Ok(Instruction {
+        program_id: amm_program,
+        accounts,
+        data,
+    })
 }
 
 /// Build PumpSwap AMM sell instruction.
@@ -1223,8 +1322,8 @@ fn build_pumpswap_sell_instruction(
     base_mint: &Pubkey,
     coin_creator: &Pubkey,
     protocol_fee: &Pubkey,
-    pool_base_vault: &Pubkey,   // pool_base_token_account from pool struct offset 139
-    pool_quote_vault: &Pubkey,  // pool_quote_token_account from pool struct offset 171
+    pool_base_vault: &Pubkey, // pool_base_token_account from pool struct offset 139
+    pool_quote_vault: &Pubkey, // pool_quote_token_account from pool struct offset 171
     base_amount_in: u64,
     min_quote_amount_out: u64,
     is_cashback_coin: bool,
@@ -1253,26 +1352,42 @@ fn build_pumpswap_sell_instruction(
     let user_quote_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
         seller, &sol_mint, &spl_tok,
     );
-    let protocol_fee_quote_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        protocol_fee, &sol_mint, &spl_tok,
-    );
+    let protocol_fee_quote_ata =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            protocol_fee,
+            &sol_mint,
+            &spl_tok,
+        );
     // coin_creator_vault_ata is wSOL (quote) ATA of vault authority
-    let coin_creator_vault_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        &coin_creator_vault_authority, &sol_mint, &spl_tok,
-    );
+    let coin_creator_vault_ata =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            &coin_creator_vault_authority,
+            &sol_mint,
+            &spl_tok,
+        );
 
     let global_vol_acc = find_pumpswap_global_volume_accumulator();
     let user_vol_acc = find_pumpswap_user_volume_accumulator(seller);
-    let user_vol_wsol_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        &user_vol_acc, &sol_mint, &spl_tok,
-    );
-    let pool_v2_pda = Pubkey::find_program_address(&[b"pool-v2", base_mint.as_ref()], &amm_program).0;
-    let buyback_wsol_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        buyback_fee_recipient, &sol_mint, &spl_tok,
-    );
+    let user_vol_wsol_ata =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            &user_vol_acc,
+            &sol_mint,
+            &spl_tok,
+        );
+    let pool_v2_pda =
+        Pubkey::find_program_address(&[b"pool-v2", base_mint.as_ref()], &amm_program).0;
+    let buyback_wsol_ata =
+        spl_associated_token_account::get_associated_token_address_with_program_id(
+            buyback_fee_recipient,
+            &sol_mint,
+            &spl_tok,
+        );
     let default_pubkey = Pubkey::default();
 
-    let args = PumpSwapSellArgs { base_amount_in, min_quote_amount_out };
+    let args = PumpSwapSellArgs {
+        base_amount_in,
+        min_quote_amount_out,
+    };
     let mut data = Vec::with_capacity(8 + 16);
     data.extend_from_slice(&SELL_DISCRIMINATOR);
     args.serialize(&mut data)
@@ -1290,16 +1405,16 @@ fn build_pumpswap_sell_instruction(
         AccountMeta::new(*pool_quote_vault, false),                         // 8
         AccountMeta::new_readonly(*protocol_fee, false),                    // 9
         AccountMeta::new(protocol_fee_quote_ata, false),                    // 10
-        AccountMeta::new_readonly(base_prog, false),                        // 11 base token program (SPL or Token-2022)
-        AccountMeta::new_readonly(spl_tok, false),                          // 12 quote token program (wSOL = SPL)
+        AccountMeta::new_readonly(base_prog, false), // 11 base token program (SPL or Token-2022)
+        AccountMeta::new_readonly(spl_tok, false),   // 12 quote token program (wSOL = SPL)
         AccountMeta::new_readonly(solana_sdk::system_program::id(), false), // 13
         AccountMeta::new_readonly(spl_associated_token_account::id(), false), // 14
-        AccountMeta::new_readonly(event_authority, false),                  // 15
-        AccountMeta::new_readonly(amm_program, false),                      // 16
-        AccountMeta::new(coin_creator_vault_ata, false),                    // 17
-        AccountMeta::new_readonly(coin_creator_vault_authority, false),     // 18
-        AccountMeta::new_readonly(fee_config, false),                       // 19
-        AccountMeta::new_readonly(fee_program, false),                      // 20
+        AccountMeta::new_readonly(event_authority, false), // 15
+        AccountMeta::new_readonly(amm_program, false), // 16
+        AccountMeta::new(coin_creator_vault_ata, false), // 17
+        AccountMeta::new_readonly(coin_creator_vault_authority, false), // 18
+        AccountMeta::new_readonly(fee_config, false), // 19
+        AccountMeta::new_readonly(fee_program, false), // 20
     ];
 
     // remaining_accounts[0..1]: cashback wsol_ata + user_vol_acc (sell has 2 accounts for cashback)
@@ -1315,16 +1430,17 @@ fn build_pumpswap_sell_instruction(
     accounts.push(AccountMeta::new_readonly(*buyback_fee_recipient, false));
     accounts.push(AccountMeta::new(buyback_wsol_ata, false));
 
-    Ok(Instruction { program_id: amm_program, accounts, data })
+    Ok(Instruction {
+        program_id: amm_program,
+        accounts,
+        data,
+    })
 }
 
 /// Build Create ATA instruction for Token-2022 (idempotent)
 fn build_create_ata_instruction(owner: &Pubkey, mint: &Pubkey, token_prog: &Pubkey) -> Instruction {
     spl_associated_token_account::instruction::create_associated_token_account_idempotent(
-        owner,
-        owner,
-        mint,
-        token_prog,
+        owner, owner, mint, token_prog,
     )
 }
 
@@ -1343,11 +1459,16 @@ fn build_create_spl_ata_instruction(owner: &Pubkey, mint: &Pubkey) -> Instructio
 fn build_wrap_sol_instructions(owner: &Pubkey, lamports: u64) -> Vec<Instruction> {
     let wsol_mint = Pubkey::from_str(SOL_MINT).expect("valid SOL_MINT");
     let wsol_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        owner, &wsol_mint, &spl_token::id(),
+        owner,
+        &wsol_mint,
+        &spl_token::id(),
     );
     vec![
         spl_associated_token_account::instruction::create_associated_token_account_idempotent(
-            owner, owner, &wsol_mint, &spl_token::id(),
+            owner,
+            owner,
+            &wsol_mint,
+            &spl_token::id(),
         ),
         solana_sdk::system_instruction::transfer(owner, &wsol_ata, lamports),
         spl_token::instruction::sync_native(&spl_token::id(), &wsol_ata).expect("valid"),
@@ -1358,7 +1479,9 @@ fn build_wrap_sol_instructions(owner: &Pubkey, lamports: u64) -> Vec<Instruction
 fn build_close_wsol_instruction(owner: &Pubkey) -> Instruction {
     let wsol_mint = Pubkey::from_str(SOL_MINT).expect("valid SOL_MINT");
     let wsol_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        owner, &wsol_mint, &spl_token::id(),
+        owner,
+        &wsol_mint,
+        &spl_token::id(),
     );
     spl_token::instruction::close_account(&spl_token::id(), &wsol_ata, owner, owner, &[])
         .expect("valid close_account instruction")
@@ -1379,7 +1502,9 @@ fn parse_buy_amounts(
     v_sol: u64,
     v_tok: u64,
 ) -> Result<(u64, u64), AppError> {
-    let amount: f64 = params.amount.parse()
+    let amount: f64 = params
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a valid number".into()))?;
     let slippage_bps = ((params.slippage.unwrap_or(10.0)) * 100.0) as u64;
     let denominated_in_sol = params.denominated_in_sol.unwrap_or(true);
@@ -1409,7 +1534,9 @@ fn parse_sell_amounts(
     v_sol: u64,
     v_tok: u64,
 ) -> Result<(u64, u64), AppError> {
-    let amount: f64 = params.amount.parse()
+    let amount: f64 = params
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("amount must be a valid number".into()))?;
     let slippage_bps = ((params.slippage.unwrap_or(10.0)) * 100.0) as u64;
     let denominated_in_sol = params.denominated_in_sol.unwrap_or(false);
@@ -1425,7 +1552,9 @@ fn parse_sell_amounts(
         let target_lamports = (amount * 1_000_000_000.0) as u64;
         // Reverse: tokens = (v_tok * sol_out) / (v_sol - sol_out)
         if target_lamports >= v_sol {
-            return Err(AppError::InvalidParams("SOL amount exceeds pool liquidity".into()));
+            return Err(AppError::InvalidParams(
+                "SOL amount exceeds pool liquidity".into(),
+            ));
         }
         let vs = v_sol as u128;
         let vt = v_tok as u128;
@@ -1439,9 +1568,12 @@ fn parse_sell_amounts(
 /// Build compute budget instructions for a trade.
 fn build_compute_budget_instructions(priority_fee_sol: f64) -> [Instruction; 2] {
     let compute_units: u64 = 300_000;
-    let microlamports = ((priority_fee_sol * 1_000_000_000.0 * 1_000_000.0) as u64 / compute_units).max(1);
+    let microlamports =
+        ((priority_fee_sol * 1_000_000_000.0 * 1_000_000.0) as u64 / compute_units).max(1);
     [
-        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(compute_units as u32),
+        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
+            compute_units as u32,
+        ),
         solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_price(microlamports),
     ]
 }
@@ -1473,11 +1605,20 @@ pub fn validate_launch_params(params: &LaunchTokenParams) -> Result<(), AppError
         ));
     }
     // Either a pre-hosted metadata URI or at minimum an image URL is required
-    let has_metadata = params.metadata_uri.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
-    let has_image = params.image_url.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+    let has_metadata = params
+        .metadata_uri
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    let has_image = params
+        .image_url
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
     if !has_metadata && !has_image {
         return Err(AppError::InvalidParams(
-            "Token image is required. Upload via POST /upload/image, then POST /upload/metadata.".into(),
+            "Token image is required. Upload via POST /upload/image, then POST /upload/metadata."
+                .into(),
         ));
     }
     if params.description.len() > 500 {
@@ -1654,24 +1795,20 @@ pub async fn build_pumpfun_curve_global(
     let global_pda = find_global_pda();
 
     // Try live fetch first; fall back to constants on any error.
-    let (
-        v_sol_init,
-        v_tok_init,
-        real_tok_init,
-        total_supply,
-        fee_bps,
-        source,
-    ) = match async {
+    let (v_sol_init, v_tok_init, real_tok_init, total_supply, fee_bps, source) = match async {
         let client = AsyncRpc::new_with_commitment(
             rpc.endpoint().to_string(),
             CommitmentConfig::confirmed(),
         );
-        let acc = client.get_account(&global_pda).await
+        let acc = client
+            .get_account(&global_pda)
+            .await
             .map_err(|e| AppError::ProtocolError(format!("Fetch pump.fun global PDA: {e}")))?;
         let data = acc.data;
         if data.len() < 113 {
             return Err(AppError::ProtocolError(format!(
-                "Pump.fun global account too short ({} bytes, expected ≥113)", data.len()
+                "Pump.fun global account too short ({} bytes, expected ≥113)",
+                data.len()
             )));
         }
         // Skip 8-byte discriminator + 1-byte initialized + 64 bytes (2 pubkeys) = 73
@@ -1687,7 +1824,9 @@ pub async fn build_pumpfun_curve_global(
             read_u64(97),  // token_total_supply
             read_u64(105), // fee_basis_points
         ))
-    }.await {
+    }
+    .await
+    {
         Ok((vt, vs, rt, ts, fb)) => (vs, vt, rt, ts, fb, "on_chain"),
         Err(e) => {
             tracing::warn!("pumpfun_curve_global on-chain fetch failed, using constants: {e}");
@@ -1696,14 +1835,14 @@ pub async fn build_pumpfun_curve_global(
                 INITIAL_VIRTUAL_TOKEN_RESERVES,
                 793_100_000_000_000_u64, // ~793.1M tokens × 10^6 (canonical bonded supply)
                 1_000_000_000_000_000_u64, // 1B tokens × 10^6
-                100_u64, // 1% protocol fee
+                100_u64,                 // 1% protocol fee
                 "fallback",
             )
         }
     };
 
     // Convert to human-readable scales for the LLM.
-    let v_sol_init_sol = v_sol_init as f64 / 1e9;                  // lamports → SOL
+    let v_sol_init_sol = v_sol_init as f64 / 1e9; // lamports → SOL
     let v_tok_init_units = v_tok_init as f64 / PUMP_TOKEN_DECIMALS as f64; // base → tokens
     let real_tok_init_units = real_tok_init as f64 / PUMP_TOKEN_DECIMALS as f64;
     let total_supply_units = total_supply as f64 / PUMP_TOKEN_DECIMALS as f64;
@@ -1755,7 +1894,11 @@ pub async fn build_pumpfun_curve_global(
             let v_sol_from = v_sol_from_mc(from_mc);
             let v_sol_to = v_sol_from_mc(to_mc);
             let net_sol = v_sol_to - v_sol_from;
-            let gross_sol = if fee_pct < 1.0 { net_sol / (1.0 - fee_pct) } else { net_sol };
+            let gross_sol = if fee_pct < 1.0 {
+                net_sol / (1.0 - fee_pct)
+            } else {
+                net_sol
+            };
             computed.insert("mc_delta".into(), json!({
                 "from_mc_sol":      from_mc,
                 "to_mc_sol":        to_mc,
@@ -1775,13 +1918,15 @@ pub async fn build_pumpfun_curve_global(
             // After fee deduction, only (1 − fee_pct) × sol_in actually enters the curve.
             let sol_in_after_fee = sol_in * (1.0 - fee_pct);
             let sol_in_lamports = sol_in_after_fee * 1e9;
-            let tokens_out_base = (v_tok_init as f64) * sol_in_lamports
-                / ((v_sol_init as f64) + sol_in_lamports);
+            let tokens_out_base =
+                (v_tok_init as f64) * sol_in_lamports / ((v_sol_init as f64) + sol_in_lamports);
             let tokens_out_units = tokens_out_base / (PUMP_TOKEN_DECIMALS as f64);
             // Effective price including fee.
             let effective_price = if tokens_out_units > 0.0 {
                 sol_in / tokens_out_units
-            } else { 0.0 };
+            } else {
+                0.0
+            };
             computed.insert("buy_fresh".into(), json!({
                 "sol_in_gross":          sol_in,
                 "sol_in_after_fee":      sol_in_after_fee,
@@ -1798,10 +1943,14 @@ pub async fn build_pumpfun_curve_global(
         if tokens_out > 0.0 && tokens_out < v_tok_init_units {
             let tokens_out_base = tokens_out * (PUMP_TOKEN_DECIMALS as f64);
             // sol_in (lamports, post-fee) = (v_sol × tokens_out) / (v_tok − tokens_out)
-            let sol_in_lamports = (v_sol_init as f64) * tokens_out_base
-                / ((v_tok_init as f64) - tokens_out_base);
+            let sol_in_lamports =
+                (v_sol_init as f64) * tokens_out_base / ((v_tok_init as f64) - tokens_out_base);
             let sol_in_net = sol_in_lamports / 1e9;
-            let sol_in_gross = if fee_pct < 1.0 { sol_in_net / (1.0 - fee_pct) } else { sol_in_net };
+            let sol_in_gross = if fee_pct < 1.0 {
+                sol_in_net / (1.0 - fee_pct)
+            } else {
+                sol_in_net
+            };
             computed.insert("buy_fresh_reverse".into(), json!({
                 "tokens_target":    tokens_out,
                 "sol_needed_net":   sol_in_net,
@@ -1816,7 +1965,11 @@ pub async fn build_pumpfun_curve_global(
     if let Some(mc_sol) = params.get("mc_to_v_sol").and_then(|v| v.as_f64()) {
         if mc_sol > 0.0 {
             let v_sol = v_sol_from_mc(mc_sol);
-            let v_tok = if v_sol > 0.0 { const_product / (v_sol * 1e9) } else { 0.0 };
+            let v_tok = if v_sol > 0.0 {
+                const_product / (v_sol * 1e9)
+            } else {
+                0.0
+            };
             computed.insert("mc_to_v_sol".into(), json!({
                 "mc_sol":           mc_sol,
                 "v_sol":            v_sol,
@@ -1859,16 +2012,27 @@ pub async fn build_pumpfun_curve_global(
         ],
     });
 
-    let computed_summary = if !result["computed"].as_object().map(|m| m.is_empty()).unwrap_or(true) {
-        format!(", computed: {}", serde_json::to_string(&result["computed"]).unwrap_or_default())
+    let computed_summary = if !result["computed"]
+        .as_object()
+        .map(|m| m.is_empty())
+        .unwrap_or(true)
+    {
+        format!(
+            ", computed: {}",
+            serde_json::to_string(&result["computed"]).unwrap_or_default()
+        )
     } else {
         String::new()
     };
 
-    Ok(pf_response("pumpfun_curve_global",
-        format!("Pump.fun curve — v_sol: {:.2} SOL, v_tok: {:.0}, fee: {}bps, source: {}{}",
-            v_sol_init_sol, v_tok_init_units, fee_bps, source, computed_summary),
-        result))
+    Ok(pf_response(
+        "pumpfun_curve_global",
+        format!(
+            "Pump.fun curve — v_sol: {:.2} SOL, v_tok: {:.0}, fee: {}bps, source: {}{}",
+            v_sol_init_sol, v_tok_init_units, fee_bps, source, computed_summary
+        ),
+        result,
+    ))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1909,16 +2073,29 @@ pub fn build_launch_token_transaction_blocking(
     let metadata_uri = resolve_metadata_uri(params)?;
 
     // Step 2: Build the create_v2 instruction (Token-2022, Mayhem mode)
-    let is_mayhem = params.mayhem_mode.as_deref().map(|s| s == "true").unwrap_or(false);
-    let is_cashback = params.cashback.as_deref().map(|s| s == "true").unwrap_or(false);
-    let is_tokenized_agent = params.tokenized_agent.as_deref().map(|s| s == "true").unwrap_or(false);
+    let is_mayhem = params
+        .mayhem_mode
+        .as_deref()
+        .map(|s| s == "true")
+        .unwrap_or(false);
+    let is_cashback = params
+        .cashback
+        .as_deref()
+        .map(|s| s == "true")
+        .unwrap_or(false);
+    let is_tokenized_agent = params
+        .tokenized_agent
+        .as_deref()
+        .map(|s| s == "true")
+        .unwrap_or(false);
 
     // pump.fun requires a minimum 0.05 SOL initial buy for Mayhem launches (UI rule
     // that's likely also enforced on-chain — the original 0.023 SOL attempt reverted
     // in simulation). Enforce it here so the launch either meets the rule or fails fast.
     if is_mayhem {
         const MAYHEM_MIN_INITIAL_BUY_SOL: f64 = 0.05;
-        let initial_buy_sol = params.initial_buy_amount
+        let initial_buy_sol = params
+            .initial_buy_amount
             .as_ref()
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
@@ -1935,7 +2112,8 @@ pub fn build_launch_token_transaction_blocking(
     // field/ix from pump.fun's IDL — not just a validation tweak. Reject until ready.
     if is_tokenized_agent {
         return Err(AppError::InvalidParams(
-            "Tokenized Agent is not yet supported by this app. Disable the toggle and try again.".into()
+            "Tokenized Agent is not yet supported by this app. Disable the toggle and try again."
+                .into(),
         ));
     }
 
@@ -1944,11 +2122,16 @@ pub fn build_launch_token_transaction_blocking(
     // curve, and neither our IDL nor PumpPortal exposes the USDC variant — so
     // silently creating a SOL token here would be wrong (the initial buy would also
     // be SOL, not USDC). Reject clearly until the USDC create is implemented.
-    let is_pair_with_usdc = params.pair_with_usdc.as_deref().map(|s| s == "true").unwrap_or(false);
+    let is_pair_with_usdc = params
+        .pair_with_usdc
+        .as_deref()
+        .map(|s| s == "true")
+        .unwrap_or(false);
     if is_pair_with_usdc {
         return Err(AppError::InvalidParams(
             "Pairing with USDC isn't supported yet — this app can only launch SOL-paired tokens. \
-             Turn off \"Pair with USDC\" and try again.".into()
+             Turn off \"Pair with USDC\" and try again."
+                .into(),
         ));
     }
 
@@ -1982,20 +2165,26 @@ pub fn build_launch_token_transaction_blocking(
     //      frontend fetches the buy via `pumpfun_initial_buy` (PumpPortal trade-local,
     //      which builds the correct tx for ANY pool: bonding-curve or Mayhem) right
     //      after the create tx confirms and the token exists on-chain.
-    let initial_buy_sol = params.initial_buy_amount
+    let initial_buy_sol = params
+        .initial_buy_amount
         .as_ref()
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(0.0);
 
     let priority_fee_sol = params.priority_fee.unwrap_or(0.0005);
     // priority_fee_sol is the total SOL budget for priority; convert to price-per-CU.
-    let cu_price = |units: u64| ((priority_fee_sol * 1_000_000_000.0 * 1_000_000.0) as u64 / units).max(1);
+    let cu_price =
+        |units: u64| ((priority_fee_sol * 1_000_000_000.0 * 1_000_000.0) as u64 / units).max(1);
 
     // create_v2 needs ~400k CU (mayhem/cashback registration included).
     const CREATE_CU: u64 = 400_000;
     let create_instructions = vec![
-        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(CREATE_CU as u32),
-        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_price(cu_price(CREATE_CU)),
+        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
+            CREATE_CU as u32,
+        ),
+        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_price(cu_price(
+            CREATE_CU,
+        )),
         // Create instruction (cashback accounts are in remaining_accounts inside create_ix)
         create_ix,
     ];
@@ -2017,11 +2206,8 @@ pub fn build_launch_token_transaction_blocking(
         .map_err(|e| AppError::Internal(format!("Failed to get blockhash: {}", e)))?;
 
     // Step 5: Build the CREATE transaction
-    let create_message = Message::new_with_blockhash(
-        &create_instructions,
-        Some(creator_pubkey),
-        &blockhash,
-    );
+    let create_message =
+        Message::new_with_blockhash(&create_instructions, Some(creator_pubkey), &blockhash);
 
     let mut transaction = Transaction::new_unsigned(create_message);
 
@@ -2058,10 +2244,7 @@ pub fn build_launch_token_transaction_blocking(
     let preview = LaunchPreview {
         id: Uuid::new_v4().to_string(),
         action_type: "launch_token".to_string(),
-        description: format!(
-            "Launch {} ({}) on Pump.fun",
-            params.symbol, params.name
-        ),
+        description: format!("Launch {} ({}) on Pump.fun", params.symbol, params.name),
         estimated_fee: format!("~{} SOL", PUMP_FUN_CREATE_FEE + initial_buy_sol),
         params: params.clone(),
         warnings,
@@ -2090,10 +2273,14 @@ pub async fn build_pumpfun_initial_buy(
     wallet: &str,
     params: &PumpFunTradeParams,
 ) -> Result<BuildResponse, AppError> {
-    let amount_sol: f64 = params.amount.parse()
+    let amount_sol: f64 = params
+        .amount
+        .parse()
         .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?;
     if amount_sol <= 0.0 {
-        return Err(AppError::InvalidParams("Amount must be greater than 0".into()));
+        return Err(AppError::InvalidParams(
+            "Amount must be greater than 0".into(),
+        ));
     }
     let slippage = params.slippage.unwrap_or(15.0);
     let priority_fee = params.priority_fee.unwrap_or(0.0005);
@@ -2115,11 +2302,18 @@ pub async fn build_pumpfun_initial_buy(
         if attempt > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
         }
-        match http.post("https://pumpportal.fun/api/trade-local").json(&body).send().await {
+        match http
+            .post("https://pumpportal.fun/api/trade-local")
+            .json(&body)
+            .send()
+            .await
+        {
             Ok(r) => {
                 let status = r.status();
                 if status.is_success() {
-                    let bytes = r.bytes().await
+                    let bytes = r
+                        .bytes()
+                        .await
                         .map_err(|e| AppError::Internal(format!("PumpPortal read error: {e}")))?;
                     if bytes.len() < 64 {
                         // Too small to be a real tx — usually an error body; retry.
@@ -2146,7 +2340,11 @@ pub async fn build_pumpfun_initial_buy(
                         data: None,
                     });
                 }
-                last_err = format!("PumpPortal {}: {}", status, r.text().await.unwrap_or_default());
+                last_err = format!(
+                    "PumpPortal {}: {}",
+                    status,
+                    r.text().await.unwrap_or_default()
+                );
             }
             Err(e) => last_err = format!("PumpPortal request error: {e}"),
         }
@@ -2154,7 +2352,8 @@ pub async fn build_pumpfun_initial_buy(
     // Log the raw upstream detail; return a clean, user-facing message.
     tracing::warn!("PumpPortal initial-buy build failed: {last_err}");
     Err(AppError::Internal(
-        "The token isn't ready to trade yet — give it a few seconds after launch and try again.".into(),
+        "The token isn't ready to trade yet — give it a few seconds after launch and try again."
+            .into(),
     ))
 }
 
@@ -2171,7 +2370,9 @@ async fn pumpfun_get(http: &reqwest::Client, path: &str) -> Result<Value, AppErr
         .await
         .map_err(|e| {
             tracing::warn!("PumpFun API request error: {e}");
-            AppError::Internal("Pump.fun is temporarily unavailable. Please try again in a moment.".into())
+            AppError::Internal(
+                "Pump.fun is temporarily unavailable. Please try again in a moment.".into(),
+            )
         })?;
     if !resp.status().is_success() {
         let status = resp.status();
@@ -2254,83 +2455,151 @@ pub fn validate_pumpfun_mint_params(p: &PumpFunMintParams) -> Result<(), AppErro
 // ── Query Actions ─────────────────────────────────────────────────────────────
 
 pub async fn build_pumpfun_token_info(
-    http: &reqwest::Client, _wallet: &str, params: &PumpFunMintParams,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &PumpFunMintParams,
 ) -> Result<BuildResponse, AppError> {
     validate_pumpfun_mint_params(params)?;
-    let mint = params.mint.as_deref().or(params.token.as_deref()).unwrap_or("");
+    let mint = params
+        .mint
+        .as_deref()
+        .or(params.token.as_deref())
+        .unwrap_or("");
     let data = pumpfun_get(http, &format!("/coins/{mint}")).await?;
     let name = data.get("name").and_then(|v| v.as_str()).unwrap_or(mint);
-    let mc = data.get("usd_market_cap").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let complete = data.get("complete").and_then(|v| v.as_bool()).unwrap_or(false);
-    let status = if complete { "graduated" } else { "bonding curve" };
-    Ok(pf_response("pumpfun_token_info",
-        format!("{name} ({mint:.8}…) — ${mc:.0} mcap — {status}"), data))
+    let mc = data
+        .get("usd_market_cap")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let complete = data
+        .get("complete")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let status = if complete {
+        "graduated"
+    } else {
+        "bonding curve"
+    };
+    Ok(pf_response(
+        "pumpfun_token_info",
+        format!("{name} ({mint:.8}…) — ${mc:.0} mcap — {status}"),
+        data,
+    ))
 }
 
 pub async fn build_pumpfun_trending(
-    http: &reqwest::Client, _wallet: &str, params: &PumpFunListParams,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &PumpFunListParams,
 ) -> Result<BuildResponse, AppError> {
     let limit = params.limit.unwrap_or(20).min(50);
     let offset = params.offset.unwrap_or(0);
-    let data = pumpfun_get(http, &format!("/coins?offset={offset}&limit={limit}&sort=market_cap&order=DESC&includeNsfw=false")).await?;
-    let arr = data.as_array().or_else(|| data.get("tokens").and_then(|v| v.as_array()));
+    let data = pumpfun_get(
+        http,
+        &format!(
+            "/coins?offset={offset}&limit={limit}&sort=market_cap&order=DESC&includeNsfw=false"
+        ),
+    )
+    .await?;
+    let arr = data
+        .as_array()
+        .or_else(|| data.get("tokens").and_then(|v| v.as_array()));
     let count = arr.map(|a| a.len()).unwrap_or(0);
-    Ok(pf_response("pumpfun_trending", format!("{count} trending tokens by market cap"), data))
+    Ok(pf_response(
+        "pumpfun_trending",
+        format!("{count} trending tokens by market cap"),
+        data,
+    ))
 }
 
 pub async fn build_pumpfun_new(
-    http: &reqwest::Client, _wallet: &str, params: &PumpFunListParams,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &PumpFunListParams,
 ) -> Result<BuildResponse, AppError> {
     let limit = params.limit.unwrap_or(20).min(50);
     let offset = params.offset.unwrap_or(0);
     // frontend-api-v3 has no /coins/latest route (it 404s as a mint lookup);
     // newest = the /coins list sorted by creation time, descending.
     let data = pumpfun_get(http, &format!("/coins?offset={offset}&limit={limit}&sort=created_timestamp&order=DESC&includeNsfw=false")).await?;
-    let arr = data.as_array().or_else(|| data.get("tokens").and_then(|v| v.as_array()));
+    let arr = data
+        .as_array()
+        .or_else(|| data.get("tokens").and_then(|v| v.as_array()));
     let count = arr.map(|a| a.len()).unwrap_or(0);
-    Ok(pf_response("pumpfun_new", format!("{count} newest tokens"), data))
+    Ok(pf_response(
+        "pumpfun_new",
+        format!("{count} newest tokens"),
+        data,
+    ))
 }
 
 pub async fn build_pumpfun_graduating(
-    http: &reqwest::Client, _wallet: &str, params: &PumpFunListParams,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &PumpFunListParams,
 ) -> Result<BuildResponse, AppError> {
     let limit = params.limit.unwrap_or(20).min(50);
     // Tokens currently on bonding curve (live): use the /coins/currently-live endpoint
-    let data = pumpfun_get(http, &format!("/coins/currently-live?offset=0&limit={limit}&includeNsfw=false")).await?;
+    let data = pumpfun_get(
+        http,
+        &format!("/coins/currently-live?offset=0&limit={limit}&includeNsfw=false"),
+    )
+    .await?;
     // Filter for tokens with high bonding curve progress (virtual_sol > 75% of 85 SOL graduation target)
     let graduation_target_sol: f64 = 85_000_000_000.0; // 85 SOL in lamports
     let threshold = graduation_target_sol * 0.75;
-    let coins = data.as_array().or_else(|| data.get("tokens").and_then(|v| v.as_array()));
+    let coins = data
+        .as_array()
+        .or_else(|| data.get("tokens").and_then(|v| v.as_array()));
     let graduating: Vec<Value> = coins
-        .map(|arr| arr.iter()
-            .filter(|c| {
-                let v_sol = c.get("virtual_sol_reserves").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let complete = c.get("complete").and_then(|v| v.as_bool()).unwrap_or(false);
-                !complete && v_sol >= threshold
-            })
-            .take(limit as usize)
-            .cloned()
-            .collect())
+        .map(|arr| {
+            arr.iter()
+                .filter(|c| {
+                    let v_sol = c
+                        .get("virtual_sol_reserves")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    let complete = c.get("complete").and_then(|v| v.as_bool()).unwrap_or(false);
+                    !complete && v_sol >= threshold
+                })
+                .take(limit as usize)
+                .cloned()
+                .collect()
+        })
         .unwrap_or_default();
     let count = graduating.len();
-    Ok(pf_response("pumpfun_graduating", format!("{count} tokens approaching graduation (>75% bonding curve)"), json!(graduating)))
+    Ok(pf_response(
+        "pumpfun_graduating",
+        format!("{count} tokens approaching graduation (>75% bonding curve)"),
+        json!(graduating),
+    ))
 }
 
 pub async fn build_pumpfun_koth(
-    http: &reqwest::Client, _wallet: &str, params: &PumpFunListParams,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &PumpFunListParams,
 ) -> Result<BuildResponse, AppError> {
     let limit = params.limit.unwrap_or(10).min(20);
     // frontend-api-v3 dropped the /coins/king-of-the-hill route. KOTH ==
     // the highest-market-cap tokens still on the bonding curve, so query the
     // /coins list sorted by market cap with the not-yet-graduated filter.
     let data = pumpfun_get(http, &format!("/coins?offset=0&limit={limit}&sort=market_cap&order=DESC&complete=false&includeNsfw=false")).await?;
-    let arr = data.as_array().or_else(|| data.get("tokens").and_then(|v| v.as_array()));
+    let arr = data
+        .as_array()
+        .or_else(|| data.get("tokens").and_then(|v| v.as_array()));
     let count = arr.map(|a| a.len()).unwrap_or(1); // single object or array
-    Ok(pf_response("pumpfun_koth", format!("{count} King of the Hill token(s)"), data))
+    Ok(pf_response(
+        "pumpfun_koth",
+        format!("{count} King of the Hill token(s)"),
+        data,
+    ))
 }
 
 pub async fn build_pumpfun_search(
-    http: &reqwest::Client, _wallet: &str, params: &PumpFunSearchParams,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &PumpFunSearchParams,
 ) -> Result<BuildResponse, AppError> {
     let query = params.query.as_deref().unwrap_or("").trim().to_string();
     if query.is_empty() {
@@ -2340,17 +2609,33 @@ pub async fn build_pumpfun_search(
     let encoded = urlencoding_encode(&query);
     // frontend-api-v3 has no /coins/search route (it 404s as a mint lookup);
     // search = the /coins list filtered by the searchTerm query parameter.
-    let data = pumpfun_get(http, &format!("/coins?searchTerm={encoded}&offset=0&limit={limit}&includeNsfw=false")).await?;
-    let arr = data.as_array().or_else(|| data.get("coins").and_then(|v| v.as_array()));
+    let data = pumpfun_get(
+        http,
+        &format!("/coins?searchTerm={encoded}&offset=0&limit={limit}&includeNsfw=false"),
+    )
+    .await?;
+    let arr = data
+        .as_array()
+        .or_else(|| data.get("coins").and_then(|v| v.as_array()));
     let count = arr.map(|a| a.len()).unwrap_or(0);
-    Ok(pf_response("pumpfun_search", format!("{count} results for '{query}'"), data))
+    Ok(pf_response(
+        "pumpfun_search",
+        format!("{count} results for '{query}'"),
+        data,
+    ))
 }
 
 pub async fn build_pumpfun_comments(
-    http: &reqwest::Client, _wallet: &str, params: &PumpFunMintParams,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &PumpFunMintParams,
 ) -> Result<BuildResponse, AppError> {
     validate_pumpfun_mint_params(params)?;
-    let mint = params.mint.as_deref().or(params.token.as_deref()).unwrap_or("");
+    let mint = params
+        .mint
+        .as_deref()
+        .or(params.token.as_deref())
+        .unwrap_or("");
     // Correct path is `/replies/{mint}` with limit/offset/user/reverseOrder all
     // required (RepliesController_getReplies). Unlike /coins and /users, this
     // route is JWT-gated behind a pump.fun user session — unauthenticated
@@ -2360,10 +2645,20 @@ pub async fn build_pumpfun_comments(
     let path = format!("/replies/{mint}?limit=50&offset=0&user=&reverseOrder=true");
     match pumpfun_get(http, &path).await {
         Ok(data) => {
-            let count = data.as_array().map(|a| a.len())
-                .or_else(|| data.get("replies").and_then(|v| v.as_array()).map(|a| a.len()))
+            let count = data
+                .as_array()
+                .map(|a| a.len())
+                .or_else(|| {
+                    data.get("replies")
+                        .and_then(|v| v.as_array())
+                        .map(|a| a.len())
+                })
                 .unwrap_or(0);
-            Ok(pf_response("pumpfun_comments", format!("{count} comment(s) for {mint}"), data))
+            Ok(pf_response(
+                "pumpfun_comments",
+                format!("{count} comment(s) for {mint}"),
+                data,
+            ))
         }
         Err(_) => Ok(pf_response(
             "pumpfun_comments",
@@ -2380,30 +2675,63 @@ pub async fn build_pumpfun_comments(
 }
 
 pub async fn build_pumpfun_user(
-    http: &reqwest::Client, wallet: &str, params: &PumpFunUserParams,
+    http: &reqwest::Client,
+    wallet: &str,
+    params: &PumpFunUserParams,
 ) -> Result<BuildResponse, AppError> {
     let target = params.wallet.as_deref().unwrap_or(wallet);
     // User profile is on the main API; /users/{wallet} path confirmed in v3
     let data = pumpfun_get(http, &format!("/users/{target}")).await?;
-    let username = data.get("username").and_then(|v| v.as_str())
+    let username = data
+        .get("username")
+        .and_then(|v| v.as_str())
         .or_else(|| data.get("name").and_then(|v| v.as_str()))
         .unwrap_or(target);
-    Ok(pf_response("pumpfun_user", format!("PumpFun user: {username}"), data))
+    Ok(pf_response(
+        "pumpfun_user",
+        format!("PumpFun user: {username}"),
+        data,
+    ))
 }
 
 pub async fn build_pumpfun_bonding_curve(
-    http: &reqwest::Client, _wallet: &str, params: &PumpFunMintParams,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &PumpFunMintParams,
 ) -> Result<BuildResponse, AppError> {
     validate_pumpfun_mint_params(params)?;
-    let mint = params.mint.as_deref().or(params.token.as_deref()).unwrap_or("");
+    let mint = params
+        .mint
+        .as_deref()
+        .or(params.token.as_deref())
+        .unwrap_or("");
     let coin = pumpfun_get(http, &format!("/coins/{mint}")).await?;
-    let v_sol = coin.get("virtual_sol_reserves").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let v_tok = coin.get("virtual_token_reserves").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let complete = coin.get("complete").and_then(|v| v.as_bool()).unwrap_or(false);
-    let mc = coin.get("usd_market_cap").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let v_sol = coin
+        .get("virtual_sol_reserves")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let v_tok = coin
+        .get("virtual_token_reserves")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let complete = coin
+        .get("complete")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mc = coin
+        .get("usd_market_cap")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     // price = virtual_sol_reserves / virtual_token_reserves (in SOL per base unit, x10^3 for decimals)
-    let price_sol = if v_tok > 0.0 { v_sol / v_tok / 1e3 } else { 0.0 };
-    let bc_addr = coin.get("bonding_curve").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let price_sol = if v_tok > 0.0 {
+        v_sol / v_tok / 1e3
+    } else {
+        0.0
+    };
+    let bc_addr = coin
+        .get("bonding_curve")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     let result = json!({
         "mint": mint,
         "bonding_curve": bc_addr,
@@ -2414,16 +2742,21 @@ pub async fn build_pumpfun_bonding_curve(
         "complete": complete,
         "status": if complete { "graduated" } else { "active" },
     });
-    Ok(pf_response("pumpfun_bonding_curve",
-        format!("Bonding curve for {mint} — price: {price_sol:.8} SOL — ${mc:.0} mcap"), result))
+    Ok(pf_response(
+        "pumpfun_bonding_curve",
+        format!("Bonding curve for {mint} — price: {price_sol:.8} SOL — ${mc:.0} mcap"),
+        result,
+    ))
 }
 
 fn urlencoding_encode(s: &str) -> String {
-    s.chars().map(|c| match c {
-        'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
-        ' ' => "%20".to_string(),
-        _ => format!("%{:02X}", c as u8),
-    }).collect()
+    s.chars()
+        .map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            ' ' => "%20".to_string(),
+            _ => format!("%{:02X}", c as u8),
+        })
+        .collect()
 }
 
 // ── Bonding Curve Buy / Sell — Direct On-Chain Instructions ──────────────────
@@ -2449,28 +2782,43 @@ pub async fn build_pumpfun_buy(
 
     // Graduated tokens (complete: true) live on an external AMM (Raydium for older
     // tokens, PumpSwap for newer) — route through Jupiter, which handles either.
-    if coin.get("complete").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if coin
+        .get("complete")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         tracing::info!(mint = %mint, "Token graduated — routing pumpfun_buy → Jupiter aggregator");
         return build_graduated_swap(http, rpc, wallet, params, true).await;
     }
 
-    let creator_str = coin.get("creator").and_then(|v| v.as_str())
+    let creator_str = coin
+        .get("creator")
+        .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::Internal("Missing creator field in coin data".into()))?;
     let creator = Pubkey::from_str(creator_str)
         .map_err(|_| AppError::Internal("Invalid creator pubkey from API".into()))?;
-    let name = coin.get("name").and_then(|v| v.as_str()).unwrap_or(&params.mint).to_string();
-    let v_sol = coin.get("virtual_sol_reserves").and_then(|v| v.as_f64())
+    let name = coin
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&params.mint)
+        .to_string();
+    let v_sol = coin
+        .get("virtual_sol_reserves")
+        .and_then(|v| v.as_f64())
         .unwrap_or(INITIAL_VIRTUAL_SOL_RESERVES as f64) as u64;
-    let v_tok = coin.get("virtual_token_reserves").and_then(|v| v.as_f64())
+    let v_tok = coin
+        .get("virtual_token_reserves")
+        .and_then(|v| v.as_f64())
         .unwrap_or(INITIAL_VIRTUAL_TOKEN_RESERVES as f64) as u64;
 
     // token_program from API: "TokenzQd..." for Token-2022, "Tokenkeg..." for legacy SPL.
     // Falls back to Token-2022 (all current pump.fun tokens use it).
     let token_prog = {
-        let tp_str = coin.get("token_program").and_then(|v| v.as_str())
+        let tp_str = coin
+            .get("token_program")
+            .and_then(|v| v.as_str())
             .unwrap_or(TOKEN_2022_PROGRAM_ID);
-        Pubkey::from_str(tp_str)
-            .unwrap_or_else(|_| token_2022_program())
+        Pubkey::from_str(tp_str).unwrap_or_else(|_| token_2022_program())
     };
     tracing::info!(mint = %mint, token_program = %token_prog, "Token program from API for buy");
 
@@ -2483,7 +2831,15 @@ pub async fn build_pumpfun_buy(
     let fee_recipient = fetch_pumpfun_fee_recipient(rpc).await;
 
     let create_ata_ix = build_create_ata_instruction(&buyer, &mint, &token_prog);
-    let buy_ix = build_buy_instruction(&buyer, &mint, &creator, &fee_recipient, &token_prog, token_amount, max_sol_cost)?;
+    let buy_ix = build_buy_instruction(
+        &buyer,
+        &mint,
+        &creator,
+        &fee_recipient,
+        &token_prog,
+        token_amount,
+        max_sol_cost,
+    )?;
 
     let instructions = vec![cu_limit_ix, cu_price_ix, create_ata_ix, buy_ix];
     let blockhash = get_blockhash(rpc).await?;
@@ -2502,7 +2858,11 @@ pub async fn build_pumpfun_buy(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "pumpfun_buy".to_string(),
-            description: format!("Buy {} on Pump.fun bonding curve ({})", name, &params.mint[..8.min(params.mint.len())]),
+            description: format!(
+                "Buy {} on Pump.fun bonding curve ({})",
+                name,
+                &params.mint[..8.min(params.mint.len())]
+            ),
             estimated_fee: "~0.002 SOL".to_string(),
             estimated_refund: None,
             params: serde_json::to_value(params).unwrap_or_default(),
@@ -2535,26 +2895,41 @@ pub async fn build_pumpfun_sell(
 
     // Graduated tokens live on an external AMM (Raydium/PumpSwap) — route through
     // Jupiter, which handles either venue.
-    if coin.get("complete").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if coin
+        .get("complete")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         tracing::info!(mint = %mint, "Token graduated — routing pumpfun_sell → Jupiter aggregator");
         return build_graduated_swap(http, rpc, wallet, params, false).await;
     }
 
-    let creator_str = coin.get("creator").and_then(|v| v.as_str())
+    let creator_str = coin
+        .get("creator")
+        .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::Internal("Missing creator field in coin data".into()))?;
     let creator = Pubkey::from_str(creator_str)
         .map_err(|_| AppError::Internal("Invalid creator pubkey from API".into()))?;
-    let name = coin.get("name").and_then(|v| v.as_str()).unwrap_or(&params.mint).to_string();
-    let v_sol = coin.get("virtual_sol_reserves").and_then(|v| v.as_f64())
+    let name = coin
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&params.mint)
+        .to_string();
+    let v_sol = coin
+        .get("virtual_sol_reserves")
+        .and_then(|v| v.as_f64())
         .unwrap_or(INITIAL_VIRTUAL_SOL_RESERVES as f64) as u64;
-    let v_tok = coin.get("virtual_token_reserves").and_then(|v| v.as_f64())
+    let v_tok = coin
+        .get("virtual_token_reserves")
+        .and_then(|v| v.as_f64())
         .unwrap_or(INITIAL_VIRTUAL_TOKEN_RESERVES as f64) as u64;
 
     let token_prog = {
-        let tp_str = coin.get("token_program").and_then(|v| v.as_str())
+        let tp_str = coin
+            .get("token_program")
+            .and_then(|v| v.as_str())
             .unwrap_or(TOKEN_2022_PROGRAM_ID);
-        Pubkey::from_str(tp_str)
-            .unwrap_or_else(|_| token_2022_program())
+        Pubkey::from_str(tp_str).unwrap_or_else(|_| token_2022_program())
     };
     tracing::info!(mint = %mint, token_program = %token_prog, "Token program from API for sell");
 
@@ -2565,7 +2940,15 @@ pub async fn build_pumpfun_sell(
 
     let fee_recipient = fetch_pumpfun_fee_recipient(rpc).await;
 
-    let sell_ix = build_sell_instruction(&seller, &mint, &creator, &fee_recipient, &token_prog, token_amount, min_sol_output)?;
+    let sell_ix = build_sell_instruction(
+        &seller,
+        &mint,
+        &creator,
+        &fee_recipient,
+        &token_prog,
+        token_amount,
+        min_sol_output,
+    )?;
     let instructions = vec![cu_limit_ix, cu_price_ix, sell_ix];
 
     let blockhash = get_blockhash(rpc).await?;
@@ -2584,7 +2967,11 @@ pub async fn build_pumpfun_sell(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "pumpfun_sell".to_string(),
-            description: format!("Sell {} on Pump.fun bonding curve ({})", name, &params.mint[..8.min(params.mint.len())]),
+            description: format!(
+                "Sell {} on Pump.fun bonding curve ({})",
+                name,
+                &params.mint[..8.min(params.mint.len())]
+            ),
             estimated_fee: "~0.002 SOL".to_string(),
             estimated_refund: None,
             params: serde_json::to_value(params).unwrap_or_default(),
@@ -2616,7 +3003,10 @@ pub async fn build_pumpswap_buy(
         .map_err(|_| AppError::InvalidParams(format!("Invalid mint: {}", params.mint)))?;
 
     let coin = pumpfun_get(http, &format!("/coins/{}", params.mint)).await?;
-    let complete = coin.get("complete").and_then(|v| v.as_bool()).unwrap_or(false);
+    let complete = coin
+        .get("complete")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if !complete {
         return Err(AppError::InvalidParams(
             "Token has not graduated to PumpSwap AMM yet. Use pumpfun_buy for bonding curve tokens.".into()
@@ -2624,17 +3014,25 @@ pub async fn build_pumpswap_buy(
     }
 
     // Use pool address directly from API — PDA derivation is unreliable
-    let pool_str = coin.get("pool_address").or_else(|| coin.get("raydium_pool"))
+    let pool_str = coin
+        .get("pool_address")
+        .or_else(|| coin.get("raydium_pool"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Internal("Missing pool_address in coin data for graduated token".into()))?;
+        .ok_or_else(|| {
+            AppError::Internal("Missing pool_address in coin data for graduated token".into())
+        })?;
     let pool = Pubkey::from_str(pool_str)
         .map_err(|_| AppError::Internal(format!("Invalid pool address from API: {pool_str}")))?;
 
     // Read pool data (coin_creator + vault addresses) and protocol fee concurrently.
     // Pool vaults are stored in the pool struct at offsets 139/171 — NOT derivable as ATAs.
-    let api_fallback_sol = coin.get("virtual_sol_reserves").and_then(|v| v.as_f64())
+    let api_fallback_sol = coin
+        .get("virtual_sol_reserves")
+        .and_then(|v| v.as_f64())
         .unwrap_or(INITIAL_VIRTUAL_SOL_RESERVES as f64) as u64;
-    let api_fallback_tok = coin.get("virtual_token_reserves").and_then(|v| v.as_f64())
+    let api_fallback_tok = coin
+        .get("virtual_token_reserves")
+        .and_then(|v| v.as_f64())
         .unwrap_or(INITIAL_VIRTUAL_TOKEN_RESERVES as f64) as u64;
 
     let (pool_data_result, global_config_result, base_prog_result) = tokio::join!(
@@ -2660,7 +3058,13 @@ pub async fn build_pumpswap_buy(
     );
 
     // Fetch reserves from the actual vault accounts (not ATA derivation)
-    let (v_tok, v_sol) = match fetch_pumpswap_pool_reserves(rpc, &pool_base_vault, &pool_quote_vault).await {
+    let (v_tok, v_sol) = match fetch_pumpswap_pool_reserves(
+        rpc,
+        &pool_base_vault,
+        &pool_quote_vault,
+    )
+    .await
+    {
         Ok(reserves) => reserves,
         Err(e) => {
             tracing::warn!(error = %e, pool = %pool, "Failed to fetch PumpSwap pool reserves, falling back to API values");
@@ -2686,15 +3090,27 @@ pub async fn build_pumpswap_buy(
     let wrap_ixs = build_wrap_sol_instructions(&buyer, max_quote_in);
 
     let swap_ix = build_pumpswap_buy_instruction(
-        &buyer, &pool, &mint, &coin_creator, &fee_recipient,
-        &pool_base_vault, &pool_quote_vault,
-        base_amount_out, max_quote_in,
-        is_cashback_coin, &buyback_fee_recipient,
+        &buyer,
+        &pool,
+        &mint,
+        &coin_creator,
+        &fee_recipient,
+        &pool_base_vault,
+        &pool_quote_vault,
+        base_amount_out,
+        max_quote_in,
+        is_cashback_coin,
+        &buyback_fee_recipient,
         &base_token_program,
     )?;
     let close_wsol_ix = build_close_wsol_instruction(&buyer);
 
-    let mut instructions = vec![cu_limit_ix, cu_price_ix, create_base_ata_ix, create_quote_ata_ix];
+    let mut instructions = vec![
+        cu_limit_ix,
+        cu_price_ix,
+        create_base_ata_ix,
+        create_quote_ata_ix,
+    ];
     instructions.extend(wrap_ixs);
     instructions.push(swap_ix);
     instructions.push(close_wsol_ix);
@@ -2715,7 +3131,11 @@ pub async fn build_pumpswap_buy(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "pumpswap_buy".to_string(),
-            description: format!("Buy {} on PumpSwap AMM (graduated token {})", params.amount, &params.mint[..8.min(params.mint.len())]),
+            description: format!(
+                "Buy {} on PumpSwap AMM (graduated token {})",
+                params.amount,
+                &params.mint[..8.min(params.mint.len())]
+            ),
             estimated_fee: "~0.002 SOL".to_string(),
             estimated_refund: None,
             params: serde_json::to_value(params).unwrap_or_default(),
@@ -2745,7 +3165,10 @@ pub async fn build_pumpswap_sell(
         .map_err(|_| AppError::InvalidParams(format!("Invalid mint: {}", params.mint)))?;
 
     let coin = pumpfun_get(http, &format!("/coins/{}", params.mint)).await?;
-    let complete = coin.get("complete").and_then(|v| v.as_bool()).unwrap_or(false);
+    let complete = coin
+        .get("complete")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if !complete {
         return Err(AppError::InvalidParams(
             "Token has not graduated to PumpSwap AMM yet. Use pumpfun_sell for bonding curve tokens.".into()
@@ -2753,17 +3176,25 @@ pub async fn build_pumpswap_sell(
     }
 
     // Use pool address directly from API — PDA derivation is unreliable
-    let pool_str = coin.get("pool_address").or_else(|| coin.get("raydium_pool"))
+    let pool_str = coin
+        .get("pool_address")
+        .or_else(|| coin.get("raydium_pool"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Internal("Missing pool_address in coin data for graduated token".into()))?;
+        .ok_or_else(|| {
+            AppError::Internal("Missing pool_address in coin data for graduated token".into())
+        })?;
     let pool = Pubkey::from_str(pool_str)
         .map_err(|_| AppError::Internal(format!("Invalid pool address from API: {pool_str}")))?;
 
     // Read pool data (coin_creator + vault addresses) and protocol fee concurrently.
     // Pool vaults are stored in the pool struct at offsets 139/171 — NOT derivable as ATAs.
-    let api_fallback_sol = coin.get("virtual_sol_reserves").and_then(|v| v.as_f64())
+    let api_fallback_sol = coin
+        .get("virtual_sol_reserves")
+        .and_then(|v| v.as_f64())
         .unwrap_or(INITIAL_VIRTUAL_SOL_RESERVES as f64) as u64;
-    let api_fallback_tok = coin.get("virtual_token_reserves").and_then(|v| v.as_f64())
+    let api_fallback_tok = coin
+        .get("virtual_token_reserves")
+        .and_then(|v| v.as_f64())
         .unwrap_or(INITIAL_VIRTUAL_TOKEN_RESERVES as f64) as u64;
 
     let (pool_data_result, global_config_result, base_prog_result) = tokio::join!(
@@ -2789,7 +3220,13 @@ pub async fn build_pumpswap_sell(
     );
 
     // Fetch reserves from the actual vault accounts
-    let (v_tok, v_sol) = match fetch_pumpswap_pool_reserves(rpc, &pool_base_vault, &pool_quote_vault).await {
+    let (v_tok, v_sol) = match fetch_pumpswap_pool_reserves(
+        rpc,
+        &pool_base_vault,
+        &pool_quote_vault,
+    )
+    .await
+    {
         Ok(reserves) => reserves,
         Err(e) => {
             tracing::warn!(error = %e, pool = %pool, "Failed to fetch PumpSwap pool reserves, falling back to API values");
@@ -2806,15 +3243,28 @@ pub async fn build_pumpswap_sell(
     let sol_mint = Pubkey::from_str(SOL_MINT).expect("valid");
     let create_quote_ata_ix = build_create_spl_ata_instruction(&seller, &sol_mint);
     let swap_ix = build_pumpswap_sell_instruction(
-        &seller, &pool, &mint, &coin_creator, &fee_recipient,
-        &pool_base_vault, &pool_quote_vault,
-        base_amount_in, min_quote_out,
-        is_cashback_coin, &buyback_fee_recipient,
+        &seller,
+        &pool,
+        &mint,
+        &coin_creator,
+        &fee_recipient,
+        &pool_base_vault,
+        &pool_quote_vault,
+        base_amount_in,
+        min_quote_out,
+        is_cashback_coin,
+        &buyback_fee_recipient,
         &base_token_program,
     )?;
     let close_wsol_ix = build_close_wsol_instruction(&seller);
 
-    let instructions = vec![cu_limit_ix, cu_price_ix, create_quote_ata_ix, swap_ix, close_wsol_ix];
+    let instructions = vec![
+        cu_limit_ix,
+        cu_price_ix,
+        create_quote_ata_ix,
+        swap_ix,
+        close_wsol_ix,
+    ];
 
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&seller), &blockhash);
@@ -2832,7 +3282,11 @@ pub async fn build_pumpswap_sell(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "pumpswap_sell".to_string(),
-            description: format!("Sell {} on PumpSwap AMM (graduated token {})", params.amount, &params.mint[..8.min(params.mint.len())]),
+            description: format!(
+                "Sell {} on PumpSwap AMM (graduated token {})",
+                params.amount,
+                &params.mint[..8.min(params.mint.len())]
+            ),
             estimated_fee: "~0.002 SOL".to_string(),
             estimated_refund: None,
             params: serde_json::to_value(params).unwrap_or_default(),
@@ -2849,14 +3303,26 @@ pub async fn build_pumpswap_sell(
 }
 
 pub async fn build_pumpswap_pool_info(
-    http: &reqwest::Client, _wallet: &str, params: &PumpFunMintParams,
+    http: &reqwest::Client,
+    _wallet: &str,
+    params: &PumpFunMintParams,
 ) -> Result<BuildResponse, AppError> {
     validate_pumpfun_mint_params(params)?;
-    let mint = params.mint.as_deref().or(params.token.as_deref()).unwrap_or("");
+    let mint = params
+        .mint
+        .as_deref()
+        .or(params.token.as_deref())
+        .unwrap_or("");
     let coin = pumpfun_get(http, &format!("/coins/{mint}")).await?;
-    let pool_addr = coin.get("pool_address").or_else(|| coin.get("raydium_pool"))
-        .and_then(|v| v.as_str()).unwrap_or("");
-    let complete = coin.get("complete").and_then(|v| v.as_bool()).unwrap_or(false);
+    let pool_addr = coin
+        .get("pool_address")
+        .or_else(|| coin.get("raydium_pool"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let complete = coin
+        .get("complete")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     if !complete || pool_addr.is_empty() {
         return Err(AppError::InvalidParams(
@@ -2874,8 +3340,14 @@ pub async fn build_pumpswap_pool_info(
         .map_err(|_| AppError::InvalidParams(format!("Invalid mint: {mint}")))?;
     let pool_pda = find_pumpswap_pool_pda(&creator_pubkey, &mint_pubkey, &sol_mint_pubkey);
 
-    let v_sol = coin.get("virtual_sol_reserves").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let mc = coin.get("usd_market_cap").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let v_sol = coin
+        .get("virtual_sol_reserves")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let mc = coin
+        .get("usd_market_cap")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     let result = json!({
         "mint": mint,
         "pool_address": pool_addr,
@@ -2886,8 +3358,14 @@ pub async fn build_pumpswap_pool_info(
         "complete": true,
         "status": "graduated",
     });
-    Ok(pf_response("pumpswap_pool_info",
-        format!("PumpSwap pool for {mint} — ${mc:.0} mcap — pool: {}", &pool_addr[..8.min(pool_addr.len())]), result))
+    Ok(pf_response(
+        "pumpswap_pool_info",
+        format!(
+            "PumpSwap pool for {mint} — ${mc:.0} mcap — pool: {}",
+            &pool_addr[..8.min(pool_addr.len())]
+        ),
+        result,
+    ))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2907,23 +3385,34 @@ mod tests {
         let mut hasher = Sha256::new();
         hasher.update(b"global:create");
         let hash = hasher.finalize();
-        let expected_create: [u8; 8] = [hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7]];
-        assert_eq!(CREATE_DISCRIMINATOR, expected_create, "Create discriminator mismatch!");
+        let expected_create: [u8; 8] = [
+            hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
+        ];
+        assert_eq!(
+            CREATE_DISCRIMINATOR, expected_create,
+            "Create discriminator mismatch!"
+        );
         assert_eq!(CREATE_DISCRIMINATOR, [24, 30, 200, 40, 5, 28, 7, 119]);
 
         // Buy discriminator
         let mut hasher = Sha256::new();
         hasher.update(b"global:buy");
         let hash = hasher.finalize();
-        let expected_buy: [u8; 8] = [hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7]];
-        assert_eq!(BUY_DISCRIMINATOR, expected_buy, "Buy discriminator mismatch!");
+        let expected_buy: [u8; 8] = [
+            hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
+        ];
+        assert_eq!(
+            BUY_DISCRIMINATOR, expected_buy,
+            "Buy discriminator mismatch!"
+        );
         assert_eq!(BUY_DISCRIMINATOR, [102, 6, 61, 18, 1, 218, 235, 234]);
     }
 
     /// Verify PDA derivation
     #[test]
     fn test_pda_derivation() {
-        let mint = Pubkey::from_str("So11111111111111111111111111111111111111112").expect("valid SOL mint");
+        let mint = Pubkey::from_str("So11111111111111111111111111111111111111112")
+            .expect("valid SOL mint");
 
         let bonding_curve = find_bonding_curve_pda(&mint);
         assert!(!bonding_curve.to_bytes().iter().all(|&b| b == 0));
