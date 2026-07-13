@@ -81,22 +81,33 @@ pub async fn post_quote(
     // This is the primary defence against vanity-prefix grinding (an attacker
     // produces an address starting with `J1toso1u…` that the LLM mistakes for
     // JitoSOL). See `services::mint_security`.
+    // Resolve tickers to canonical mint addresses FIRST. The LLM (and third-party
+    // callers) may pass a bare symbol that isn't in our compile-time registry
+    // (e.g. PYUSD, a Token-2022 mint). Without this, the provenance check below
+    // rejects it as "not a valid Solana address", and Jupiter's quote API — which
+    // only speaks mint addresses — would fail too. The resolver is verified-only,
+    // so it can't be used to smuggle in a vanity-prefix impersonator.
+    let input_mint =
+        crate::services::mint_security::resolve_action_mint(&state.http, &body.input_mint).await?;
+    let output_mint =
+        crate::services::mint_security::resolve_action_mint(&state.http, &body.output_mint).await?;
+
     let input_provenance = crate::services::mint_security::require_known_mint(
         &state.mint_security,
         &state.http,
-        &body.input_mint,
+        &input_mint,
     )
     .await?;
     let output_provenance = crate::services::mint_security::require_known_mint(
         &state.mint_security,
         &state.http,
-        &body.output_mint,
+        &output_mint,
     )
     .await?;
 
     let params = swap::SwapParams {
-        input_mint: body.input_mint.clone(),
-        output_mint: body.output_mint.clone(),
+        input_mint: input_mint.clone(),
+        output_mint: output_mint.clone(),
         amount: body.amount.clone(),
         slippage_bps: Some(slippage_bps),
         only_direct_routes: body.only_direct_routes,
@@ -233,6 +244,23 @@ pub async fn post_build(
     body: web::Json<BuildRequest>,
 ) -> Result<HttpResponse, AppError> {
     let wallet = wallet_from_req(&req)?;
+    let mut body = body.into_inner();
+
+    // A swap's token args can be non-registry tickers (e.g. PYUSD). Resolve them
+    // to canonical, Jupiter-verified mint addresses BEFORE validation and the
+    // Jupiter build — otherwise `validate_swap_params` rejects the ticker as an
+    // "Invalid output token" and the quote step never runs. Mirrors the same
+    // resolution done in `post_quote`; verified-only, so no impersonator can slip
+    // through. Cross-chain swaps use chain-specific token fields and are left as-is.
+    if body.action_type == "swap" {
+        for key in ["inputMint", "input_mint", "outputMint", "output_mint"] {
+            if let Some(sym) = body.params.get(key).and_then(|v| v.as_str()) {
+                let resolved =
+                    crate::services::mint_security::resolve_action_mint(&state.http, sym).await?;
+                body.params[key] = serde_json::Value::String(resolved);
+            }
+        }
+    }
 
     // Validate action type.
     builder::validate_action(&body.action_type, &body.params)?;
