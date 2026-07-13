@@ -1533,7 +1533,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // connected yet on first render. Reload once it (or the target vault) lands.
   private _lastKaminoVaultWithdrawKey: string | null = null;
   private readonly _kaminoVaultWithdrawEffect = effect(() => {
-    if (this.action?.type !== 'kamino_vault_withdraw') return;
+    if (this.action?.type !== 'kamino_vault_withdraw' && this.action?.type !== 'kamino_unstake') return;
     const wallet = this.walletService.publicKey();
     const vault = this.editParams()['vault'] ?? '';
     if (!wallet) return;
@@ -2406,6 +2406,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // The user's live position in the vault they're withdrawing from (shares +
   // USD value + underlying tokenMint for the real icon).
   readonly kaminoVaultPosition = signal<KaminoVaultPosition | null>(null);
+  // The vault's underlying token mint — the positions API doesn't return it, so
+  // we resolve it from the vault list. Drives the card's real token icon/symbol.
+  readonly kaminoVaultTokenMint = signal<string>('');
 
   // Collateral
   readonly collateralOptions = signal<CollateralOption[]>([]);
@@ -3441,7 +3444,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action.type === 'kamino_borrow' || this.action.type === 'kamino_repay'
         || this.action.type === 'kamino_withdraw' || this.action.type === 'kamino_withdraw_collateral') this.loadKaminoBorrowInfo();
     if (this.action.type === 'kamino_vault_deposit') this.loadKaminoVaultInfo();
-    if (this.action.type === 'kamino_vault_withdraw') this.loadKaminoVaultWithdrawInfo();
+    if (this.action.type === 'kamino_vault_withdraw' || this.action.type === 'kamino_unstake') {
+      // kamino_unstake carries `amount`; the vault-withdraw card drives off
+      // `ktokenAmount`. Seed it so the input shows the user's share figure.
+      if (this.action.type === 'kamino_unstake' && !this.getEditParam('ktokenAmount') && p['amount']) {
+        this.setEditParam('ktokenAmount', p['amount']);
+      }
+      this.loadKaminoVaultWithdrawInfo();
+    }
     if (this.action.type === 'native_stake') this.loadValidators();
     // Eagerly resolve "all" → actual balance for pumpfun/pumpswap sells so the
     // number input shows a real value instead of appearing blank.
@@ -3546,11 +3556,25 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const s = this.kaminoRepayStats;
       if (s && s.fullRepay) mergedParams['repayAll'] = 'true';
     }
+    // "Unstake my position" almost always means exiting a Kamino Earn vault, and
+    // native KMNO governance unstaking has no live backend (SDK-only stub that
+    // errors on submit). When a real vault position backs this card, execute it
+    // as a vault withdraw against the pinned vault address. The backend maps our
+    // `amount`/`ktokenAmount` to kToken shares (serde alias), so no field rename
+    // is needed. Falls back to the (non-functional) native action only when the
+    // user genuinely has no vault position.
+    let dispatchType = this.action.type;
+    if (this.action.type === 'kamino_unstake' && this.kaminoVaultPosition()) {
+      dispatchType = 'kamino_vault_withdraw';
+      if (!mergedParams['ktokenAmount'] && mergedParams['amount']) {
+        mergedParams['ktokenAmount'] = mergedParams['amount'];
+      }
+    }
     // Merge user-edited slippage and priorityFee for ALL action types that use them
     // (launch, pumpfun_buy/sell, pumpswap_buy/sell, etc.)
     if (this.editSlippage()) mergedParams['slippage'] = this.editSlippage();
     if (this.editPriorityFee()) mergedParams['priorityFee'] = this.editPriorityFee();
-    const mergedAction: ParsedAction = { ...this.action, params: mergedParams };
+    const mergedAction: ParsedAction = { ...this.action, type: dispatchType, params: mergedParams };
     // Remember the EDITED params so the late async confirmations (RPC poll /
     // manual re-check, which run after this method returns) persist what was
     // actually submitted — not the original `this.action.params`. Without this
@@ -4687,7 +4711,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.kaminoVaultPosition.set(pos ?? null);
       const vaultAddr = pos?.vaultAddress || (want.length >= 32 ? want : '');
       if (pos?.vaultAddress) this.setEditParam('vault', pos.vaultAddress);
-      this.kaminoVaultMetrics.set(vaultAddr ? await this.kamino.getVaultMetrics(vaultAddr) : null);
+      // The positions payload has no tokenMint — resolve the vault's underlying
+      // token from the vault list so the card shows the real icon/symbol
+      // (e.g. PYUSD for the "Ethena PYUSD Prime" vault) instead of the address.
+      if (vaultAddr) {
+        const [metrics, vaults] = await Promise.all([
+          this.kamino.getVaultMetrics(vaultAddr),
+          this.kamino.getVaults(),
+        ]);
+        this.kaminoVaultMetrics.set(metrics);
+        const mint = vaults.find(v => v.address === vaultAddr)?.tokenMint ?? pos?.tokenMint ?? '';
+        this.kaminoVaultTokenMint.set(mint);
+        if (mint) this.tokenRegistry.resolveAsync(mint);
+      } else {
+        this.kaminoVaultMetrics.set(null);
+      }
     } catch {
       this.kaminoVaultPosition.set(null);
       this.kaminoVaultMetrics.set(null);
@@ -4717,13 +4755,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const tokenPrice = parseFloat(m?.tokenPrice ?? '0') || 0;
     const tokensPerShare = parseFloat(m?.tokensPerShare ?? '0') || 0;
     const sharesHeld = parseFloat(pos?.shares ?? '0') || 0;
-    const positionUsd = parseFloat(pos?.sharesUsd ?? '0') || 0;
     const raw = (this.getEditParam('ktokenAmount') || '').trim().toLowerCase();
     const fullWithdraw = raw === '' || raw === 'all' || raw === 'max' || raw === 'full';
     const withdrawShares = fullWithdraw ? sharesHeld : (parseFloat(raw) || 0);
+    // 1 share ≈ tokensPerShare underlying tokens; USD via the vault's tokenPrice.
+    // The positions API carries no USD, so derive it from live metrics.
     const receiveTokens = withdrawShares * tokensPerShare;
-    const receiveUsd = sharesHeld > 0 ? positionUsd * (withdrawShares / sharesHeld) : receiveTokens * tokenPrice;
-    const td = this.resolveTokenDisplay(pos?.tokenMint || this.getEditParam('token') || this.getEditParam('vault') || '');
+    const receiveUsd = receiveTokens * tokenPrice;
+    const positionUsd = sharesHeld * tokensPerShare * tokenPrice;
+    const mintForIcon = this.kaminoVaultTokenMint() || pos?.tokenMint || this.getEditParam('token') || '';
+    const td = mintForIcon
+      ? this.resolveTokenDisplay(mintForIcon)
+      : { symbol: '', name: '', logoURI: undefined };
     return {
       apyPct, apy30dPct, tvlUsd, holders: m?.numberOfHolders ?? 0,
       sharesHeld, positionUsd, withdrawShares, receiveTokens, receiveUsd, fullWithdraw,

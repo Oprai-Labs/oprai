@@ -347,10 +347,15 @@ export class KaminoService {
       const resp = await firstValueFrom(
         this.http.get<any[]>(`${KAMINO_API}/kvaults/users/${walletAddress}/positions`)
       );
+      // The live API returns { vaultAddress, stakedShares, unstakedShares,
+      // totalShares } — NOT the tokenMint/shares/sharesUsd this once assumed.
+      // Total position = staked (in the vault farm) + unstaked shares. The
+      // underlying tokenMint and USD value are not in this payload; callers
+      // resolve those from the vault itself (getVaults) + metrics.
       return (resp ?? []).map((p: any) => ({
         vaultAddress: p.vaultAddress ?? p.vault ?? p.address ?? '',
         tokenMint: p.tokenMint ?? '',
-        shares: p.shares ?? '0',
+        shares: p.totalShares ?? p.shares ?? p.stakedShares ?? '0',
         sharesUsd: p.sharesUsd ?? p.valueUsd ?? '0',
       }));
     } catch (err) {
