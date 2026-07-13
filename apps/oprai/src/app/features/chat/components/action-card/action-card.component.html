@@ -1747,6 +1747,7 @@
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
                        [value]="getEditParam('amount')"
                        (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       (focus)="reloadKaminoBorrowInfo()"
                        [disabled]="!isEditable()" />
                 <span class="pump-token">
                   @if (kmBorTd.logoURI) {

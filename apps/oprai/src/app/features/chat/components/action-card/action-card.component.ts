@@ -1473,6 +1473,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     });
   });
 
+  // Kamino borrow: (re)load the reserve rates + obligation whenever the wallet
+  // or borrow token changes. On a page reload the card can init BEFORE the
+  // wallet reconnects — the initial fetch then runs with no wallet and the
+  // obligation comes back empty (card wrongly shows "no collateral"). Tracking
+  // publicKey() here re-fetches the moment the wallet becomes available, so an
+  // existing on-chain position (even a tiny one) always shows, like Kamino's UI.
+  private _lastKaminoBorrowKey: string | null = null;
+  private readonly _kaminoBorrowEffect = effect(() => {
+    const wallet = this.walletService.publicKey();
+    const token = this.editParams()['token'] ?? this.editParams()['reserve'] ?? '';
+    if (this.action?.type !== 'kamino_borrow') return;
+    const key = `${wallet}:${token}`;
+    if (key === this._lastKaminoBorrowKey) return;
+    this._lastKaminoBorrowKey = key;
+    untracked(() => void this.loadKaminoBorrowInfo());
+  });
+
   // Input-token USD price, used to flag Jupiter's minimum order sizes UP FRONT
   // (limit order ≥ $5 total; DCA ≥ $50 per suborder) instead of surfacing the
   // backend rejection after submit. Refetches when the input token changes.
@@ -4256,6 +4273,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     catch { this.kaminoReserve.set(null); this.kaminoObligation.set(null); }
     finally { this.kaminoBorrowLoading.set(false); }
+  }
+
+  /** Force a fresh obligation+reserve fetch — used when the user focuses the
+   *  amount field, so a deposit made after this card opened is picked up. */
+  reloadKaminoBorrowInfo(): void {
+    this._lastKaminoBorrowKey = null;
+    void this.loadKaminoBorrowInfo();
   }
 
   /** USD price of one unit of the reserve token (supplyUsd ÷ supply). */
