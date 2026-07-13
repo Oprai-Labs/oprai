@@ -135,6 +135,29 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
     '6011':
       "This borrow would exceed what your collateral supports — the position's LTV is above the vault's limit. Add more collateral or borrow a smaller amount.",
   },
+  // Kamino K-Lend (klend program) error codes. These 60xx codes mean something
+  // DIFFERENT here than in the Jupiter Lend vaults program (e.g. 6018 is
+  // ObligationReserveLimit for KLend but VaultExcessDebtPayback for Jupiter),
+  // so they MUST stay action-scoped and never fall through to a shared map.
+  kamino_borrow: {
+    '6012': "Borrow amount is too small — after Kamino's origination fee you'd receive nothing. Borrow a larger amount.",
+    '6013': "This borrow is too large for your deposited collateral. Borrow a smaller amount, or deposit more collateral on Kamino first.",
+    '6008': "Kamino's reserve doesn't have enough of this token available to borrow right now. Try a smaller amount or a different token.",
+    '6020': "You have no collateral deposited on Kamino yet. Deposit a token first, then borrow against it.",
+  },
+  kamino_deposit: {
+    '6018': "Kamino's deposit cap for this reserve is reached. Try a smaller amount or a different token.",
+  },
+  kamino_withdraw: {
+    '6010': "Withdraw amount is too small. Enter a larger amount.",
+    '6011': "You can't withdraw this much — either it exceeds your deposit or it would drop your collateral below what your Kamino borrows require. Withdraw less, or repay debt first.",
+  },
+  kamino_withdraw_collateral: {
+    '6011': "Withdrawing this much collateral would push your Kamino position under its required health. Withdraw less, or repay some debt first.",
+  },
+  kamino_repay: {
+    '6014': "Repay amount is too small to transfer. Enter a larger amount.",
+  },
 };
 
 function sanitizeErrorMessage(msg: string, actionType?: string): string {
