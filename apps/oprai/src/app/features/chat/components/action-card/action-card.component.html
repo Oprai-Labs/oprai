@@ -2090,6 +2090,90 @@
               </div>
             }
           </div>
+        } @else if (action.type === 'kamino_vault_deposit') {
+          <!-- ─────── Kamino Earn vault deposit: auto-managed yield vault ─────── -->
+          @let kmVTd = resolveTokenDisplay(getEditParam('token') || 'USDC');
+          @let kmvStats = kaminoVaultStats;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Deposit</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmVTd.logoURI) {
+                    <img [src]="kmVTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmVTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmVTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            @if (kmvStats) {
+              <div class="bc-stats bc-stats--safe">
+                <div class="bc-stat">
+                  <span class="bc-stat-label"><app-jargon term="APY">Supply APY</app-jargon></span>
+                  <span class="bc-stat-value bc-stat-value--brand">{{ kmvStats.apyPct | number:'1.2-2' }}%
+                    @if (kmvStats.apy30dPct > 0) {
+                      <span style="opacity:.6">· 30d {{ kmvStats.apy30dPct | number:'1.2-2' }}%</span>
+                    }
+                  </span>
+                </div>
+                <div class="bc-stat">
+                  <span class="bc-stat-label">Vault TVL</span>
+                  <span class="bc-stat-value">${{ kmvStats.tvlUsd | number:'1.0-0' }}</span>
+                </div>
+                @if (kmvStats.depositUsd > 0) {
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">You deposit</span>
+                    <span class="bc-stat-value">≈ ${{ kmvStats.depositUsd | number:'1.2-2' }}</span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">You receive</span>
+                    <span class="bc-stat-value bc-stat-value--brand">≈ {{ kmvStats.sharesReceived | number:'1.0-4' }} shares</span>
+                  </div>
+                }
+                <div class="bc-stat">
+                  <span class="bc-stat-label">Holders</span>
+                  <span class="bc-stat-value">{{ kmvStats.holders | number:'1.0-0' }}</span>
+                </div>
+              </div>
+
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Auto-managed vault — deposits your {{ kmVTd.symbol }} across Kamino Lend markets and rebalances for yield. You receive vault shares that grow in value.
+              </div>
+            } @else if (kaminoVaultLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading vault rates…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Deposits {{ kmVTd.symbol }} into an automated Kamino Earn vault.
+              </div>
+            }
+          </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
                [class.proto-fields--swaplike]="false">

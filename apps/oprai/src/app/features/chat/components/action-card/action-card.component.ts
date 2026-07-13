@@ -14,7 +14,7 @@ import { UploadService } from '@core/services/upload.service';
 import { JupiterLendService, LEND_SUPPORTED_ASSETS, LendActionInfo, LendBorrowInfo } from '@core/services/market/jupiter-lend.service';
 import { WalletService } from '@core/services/wallet.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
-import { KaminoService, KaminoReserve, KaminoObligation, KAMINO_MAIN_MARKET } from '@core/services/market/kamino.service';
+import { KaminoService, KaminoReserve, KaminoObligation, KaminoVaultMetrics, KAMINO_MAIN_MARKET } from '@core/services/market/kamino.service';
 import { TransactionPreviewService, TransactionPreview, BalanceChange } from '../../services/transaction-preview.service';
 import { JargonTooltipComponent } from '@shared/components/jargon-tooltip/jargon-tooltip.component';
 import { TokenPickerComponent } from '../token-picker/token-picker.component';
@@ -2386,6 +2386,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly kaminoReserve = signal<KaminoReserve | null>(null);
   readonly kaminoObligation = signal<KaminoObligation | null>(null);
   readonly kaminoBorrowLoading = signal(false);
+  // K-Vault (automated Earn vault) live metrics for the deposit card.
+  readonly kaminoVaultMetrics = signal<KaminoVaultMetrics | null>(null);
+  readonly kaminoVaultLoading = signal(false);
 
   // Collateral
   readonly collateralOptions = signal<CollateralOption[]>([]);
@@ -3420,6 +3423,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (['lend','withdraw_lend'].includes(this.action.type)) this.loadLendInfo();
     if (this.action.type === 'kamino_borrow' || this.action.type === 'kamino_repay'
         || this.action.type === 'kamino_withdraw' || this.action.type === 'kamino_withdraw_collateral') this.loadKaminoBorrowInfo();
+    if (this.action.type === 'kamino_vault_deposit') this.loadKaminoVaultInfo();
     if (this.action.type === 'native_stake') this.loadValidators();
     // Eagerly resolve "all" → actual balance for pumpfun/pumpswap sells so the
     // number input shows a real value instead of appearing blank.
@@ -4600,6 +4604,45 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const target = s.hasDebt ? Math.min(s.suppliedToken, s.maxWithdrawable) : s.suppliedToken;
     if (target <= 0) return;
     this.setEditParam('amount', String(Math.floor(target * 1e6) / 1e6));
+  }
+
+  /** Fetch the chosen K-Vault's live metrics (APY, TVL, share price, holders). */
+  private async loadKaminoVaultInfo(): Promise<void> {
+    const vault = (this.editParams()['vault'] ?? '').trim();
+    if (vault.length < 32) { this.kaminoVaultMetrics.set(null); return; }
+    this.kaminoVaultLoading.set(true);
+    try {
+      this.kaminoVaultMetrics.set(await this.kamino.getVaultMetrics(vault));
+    } catch {
+      this.kaminoVaultMetrics.set(null);
+    } finally {
+      this.kaminoVaultLoading.set(false);
+    }
+  }
+
+  /**
+   * Live K-Vault deposit projection. Depositing `amount` tokens mints
+   * ≈ amount ÷ tokensPerShare vault shares and earns the vault's APY. TVL =
+   * invested + available (USD). All figures come from the vault's live /metrics —
+   * never fabricated.
+   */
+  get kaminoVaultStats(): {
+    apyPct: number; apy30dPct: number; tvlUsd: number; holders: number;
+    tokenPrice: number; depositUsd: number; sharesReceived: number;
+  } | null {
+    const m = this.kaminoVaultMetrics();
+    if (!m) return null;
+    const apyPct = (parseFloat(m.apy) || 0) * 100;
+    const apy30dPct = (parseFloat(m.apy30d) || 0) * 100;
+    const tvlUsd = (parseFloat(m.tokensInvestedUsd) || 0) + (parseFloat(m.tokensAvailableUsd) || 0);
+    const tokenPrice = parseFloat(m.tokenPrice) || 0;
+    const tokensPerShare = parseFloat(m.tokensPerShare) || 0;
+    const amount = parseFloat(this.getEditParam('amount') || '0') || 0;
+    return {
+      apyPct, apy30dPct, tvlUsd, holders: m.numberOfHolders || 0, tokenPrice,
+      depositUsd: amount * tokenPrice,
+      sharesReceived: tokensPerShare > 0 ? amount / tokensPerShare : 0,
+    };
   }
 
   selectCollateral(opt: CollateralOption): void {
