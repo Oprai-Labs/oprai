@@ -176,6 +176,33 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
   // Strip internal API instructions (e.g. "Upload via POST /upload/...") that leak from backend errors.
   let out = msg.replace(/\.\s+(Upload|Call|Use|POST|GET|See|Retry)\s+.*/i, '.').trim();
 
+  // web3.js SendTransactionError stringifies with the FULL program-log array and
+  // a developer-only "call getLogs()" tail. Never surface raw logs to users —
+  // drop the "Logs: [...]" dump and that tail up front, before any classification.
+  out = out
+    .replace(/\.?\s*Logs:\s*\[[\s\S]*?\]\.?/i, '')
+    .replace(/\s*Catch the [`']?SendTransactionError[`']?[\s\S]*$/i, '')
+    .trim();
+
+  // Raw on-chain program error thrown at SUBMIT time (not preflight sim, which
+  // arrives as a `sim:*` machine code below). Classify the custom error code
+  // from hex ("0x1771") or decimal form and reuse the same friendly text, so a
+  // technical program dump never reaches the user. Action-specific hints win,
+  // then well-known Jupiter slippage codes (6001 = 0x1771, 6003).
+  {
+    const raw = out.match(/custom program error:\s*(?:0x([0-9a-f]+)|(\d+))/i);
+    if (raw) {
+      const code = raw[1] ? parseInt(raw[1], 16) : parseInt(raw[2], 10);
+      const actionHint = actionType ? SIM_HINTS_BY_ACTION[actionType]?.[String(code)] : undefined;
+      if (actionHint) return actionHint;
+      if (code === 6001 || code === 6003) return SIM_ERROR_MESSAGES['slippage_exceeded'];
+      if (code === 1) return SIM_ERROR_MESSAGES['insufficient_tokens'];
+      const gh = SIM_GENERIC_HINTS[String(code)];
+      if (gh) return gh;
+      return `The transaction failed on-chain (program error ${code}). This is usually a slippage, minimum-amount, or account-state issue — adjust the amount or slippage and retry.`;
+    }
+  }
+
   // Pre-flight SOL-fee-shortfall thrown by solana-action.service before signing.
   // Format: "insufficient_fee:need=0.000010,have=0.000000"
   // Translate to plain English with concrete numbers and an actionable next step.

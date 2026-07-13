@@ -613,17 +613,26 @@ export class SolanaActionService {
       /* console may be sandboxed */
     }
 
-    // Custom program error code (hex)
-    const hexMatch = errStr.match(/"InstructionError":\s*\[\d+,\s*\{"Custom":\s*(\d+)\}\]/);
-    const errorCode = hexMatch ? parseInt(hexMatch[1]) : null;
+    // Custom program error code. Two wire forms reach us: the structured
+    // `{"InstructionError":[i,{"Custom":N}]}` from preflight sim, and the raw
+    // `custom program error: 0x1771` text thrown by web3.js SendTransactionError
+    // at submit time. Parse both (hex text → decimal) so classification works
+    // regardless of which path surfaced the error.
+    const structMatch = errStr.match(/"InstructionError":\s*\[\d+,\s*\{"Custom":\s*(\d+)\}\]/);
+    let errorCode = structMatch ? parseInt(structMatch[1]) : null;
+    if (errorCode === null) {
+      const hexText = (errStr + ' ' + logsStr).match(/custom program error:\s*0x([0-9a-f]+)/i);
+      if (hexText) errorCode = parseInt(hexText[1], 16);
+    }
 
     // Token account has insufficient balance (SPL token error 0x1 = InsufficientFunds)
     if (errorCode === 1 || logsStr.includes('insufficient funds') || logsStr.includes('insufficient balance')) {
       return 'sim:insufficient_tokens';
     }
 
-    // Jupiter-specific: 6003 = slippage exceeded
-    if (errorCode === 6003) {
+    // Jupiter slippage: 6001 (0x1771) SlippageToleranceExceeded + 6003 (some
+    // routes report the latter). Both mean the realized out fell below min-out.
+    if (errorCode === 6001 || errorCode === 6003) {
       return 'sim:slippage_exceeded';
     }
 
