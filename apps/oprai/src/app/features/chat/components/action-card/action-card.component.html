@@ -1781,6 +1781,10 @@
                     </span>
                   </div>
                   <div class="bc-stat">
+                    <span class="bc-stat-label"><app-jargon term="Liquidation LTV">Liquidation LTV</app-jargon></span>
+                    <span class="bc-stat-value bc-stat-value--warn">{{ kmbStats.liquidationLtvPct | number:'1.0-2' }}%</span>
+                  </div>
+                  <div class="bc-stat">
                     <span class="bc-stat-label">Max borrowable</span>
                     <span class="bc-stat-value bc-stat-value--brand">{{ kmbStats.maxBorrowable | number:'1.0-4' }} {{ kmbStats.symbol }}</span>
                   </div>
@@ -1816,7 +1820,7 @@
               <!-- Reserve market rates (always shown) -->
               <div class="bc-footer-rates">
                 <span>Borrow rate: <strong>{{ kmbStats.borrowApyPct | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
-                <span><app-jargon term="Liquidation LTV">Liquidation</app-jargon>: <strong class="lend-info-value--warn">{{ kmbStats.liquidationLtvPct | number:'1.0-0' }}%</strong></span>
+                <span><app-jargon term="LTV">Max LTV</app-jargon>: <strong>{{ kmbStats.maxLtvPct | number:'1.0-0' }}%</strong></span>
                 <span>Available: <strong>{{ kmbStats.availableToken | number:'1.0-0' }} {{ kmbStats.symbol }}</strong></span>
                 <span>Price: <strong>${{ kmbStats.price | number:'1.2-4' }}</strong></span>
               </div>

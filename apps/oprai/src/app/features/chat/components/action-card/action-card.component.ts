@@ -4273,7 +4273,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *   HF (after) = borrowLiquidationLimit ÷ (borrowedUsd + amount×price)
    */
   get kaminoBorrowStats(): {
-    symbol: string; borrowApyPct: number; liquidationLtvPct: number;
+    symbol: string; borrowApyPct: number; maxLtvPct: number; liquidationLtvPct: number;
     availableToken: number; availableUsd: number; price: number;
     hasPosition: boolean; collateralUsd: number; borrowedUsd: number;
     maxBorrowable: number; ltvCurrentPct: number; ltvAfterPct: number;
@@ -4283,6 +4283,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!r) return null;
     const price = this.kaminoReservePrice(r);
     const borrowApyPct = r.borrowApyNum * 100;
+    // Max (borrow) LTV is the only ratio the public REST metrics expose per
+    // reserve; the per-reserve liquidation threshold isn't in the API (it lives
+    // on-chain / in the SDK), so we never fabricate it. Real liquidation RISK is
+    // shown as the health factor below, derived from the obligation's on-chain
+    // borrowLiquidationLimit once the wallet has collateral.
+    const maxLtvPct = r.ltvNum * 100;
     const availableUsd = Math.max(0, r.totalSupplyUsd - (parseFloat(r.totalBorrowUsd) || 0));
     const availableToken = price > 0 ? availableUsd / price : 0;
 
@@ -4291,7 +4297,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const borrowedUsd = ob ? parseFloat(ob.borrowedValue) || 0 : 0;
     const borrowLimit = ob ? parseFloat(ob.borrowLimit) || 0 : 0;
     const liqLimitUsd = ob ? parseFloat(ob.borrowLiquidationLimit) || 0 : 0;
-    const liquidationLtvPct = (ob ? parseFloat(ob.liquidationLtv) || 0 : 0) * 100;
+    // Effective liquidation LTV for THIS obligation (weighted across its
+    // collateral) = liquidation-limit ÷ collateral. Real, position-specific.
+    const liquidationLtvPct = collateralUsd > 0 ? (liqLimitUsd / collateralUsd) * 100 : 0;
     const hasPosition = collateralUsd > 0;
 
     const amount = parseFloat(this.getEditParam('amount') || '0') || 0;
@@ -4317,7 +4325,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     return {
-      symbol: r.symbol, borrowApyPct, liquidationLtvPct, availableToken, availableUsd, price,
+      symbol: r.symbol, borrowApyPct, maxLtvPct, liquidationLtvPct, availableToken, availableUsd, price,
       hasPosition, collateralUsd, borrowedUsd, maxBorrowable,
       ltvCurrentPct, ltvAfterPct, hf: isFinite(hf) ? hf : 0, hfLabel, hfClass, errorMsg,
     };
