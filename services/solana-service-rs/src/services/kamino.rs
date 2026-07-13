@@ -478,6 +478,93 @@ fn repay_all_requested(amount: &str, flag: &Option<String>) -> bool {
     )
 }
 
+/// Best-effort: does `requested` (token units) already cover ~the whole debt
+/// for this reserve? If so the caller should repay-all so Kamino closes the line
+/// with no dust — a fixed decimal can never match the continuously-accruing debt
+/// exactly, so "pay it all off" as a number would otherwise leave a sub-unit
+/// remainder → NetValueRemainingTooSmall (6092). Any fetch/parse failure returns
+/// false (fall back to the exact requested amount). Compares in USD: debt from
+/// the obligation's refreshed stats, price from the reserve's supply figures.
+async fn kamino_repay_covers_debt(
+    http: &reqwest::Client,
+    market: &str,
+    wallet: &str,
+    reserve: &str,
+    requested: f64,
+) -> bool {
+    let num = |v: &serde_json::Value| -> Option<f64> {
+        v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    };
+
+    // Debt (USD) from the obligation that borrows this reserve.
+    let obligs = match kamino_get(
+        http,
+        &format!("/kamino-market/{market}/users/{wallet}/obligations"),
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let arr = match obligs.as_array() {
+        Some(a) => a,
+        None => return false,
+    };
+    let mut debt_usd = 0.0_f64;
+    for o in arr {
+        let has_line = o
+            .get("state")
+            .and_then(|s| s.get("borrows"))
+            .and_then(|b| b.as_array())
+            .map(|bs| {
+                bs.iter().any(|b| {
+                    b.get("borrowReserve").and_then(|r| r.as_str()) == Some(reserve)
+                })
+            })
+            .unwrap_or(false);
+        if has_line {
+            debt_usd = o
+                .get("refreshedStats")
+                .and_then(|s| s.get("userTotalBorrow"))
+                .and_then(num)
+                .unwrap_or(0.0);
+            break;
+        }
+    }
+    if debt_usd <= 0.0 {
+        return false;
+    }
+
+    // Price (USD per token) for the reserve, from its supply figures.
+    let metrics = match kamino_get(
+        http,
+        &format!("/kamino-market/{market}/reserves/metrics"),
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let price = metrics
+        .as_array()
+        .and_then(|rs| {
+            rs.iter()
+                .find(|r| r.get("reserve").and_then(|v| v.as_str()) == Some(reserve))
+        })
+        .and_then(|r| {
+            let supply = r.get("totalSupply").and_then(num).unwrap_or(0.0);
+            let supply_usd = r.get("totalSupplyUsd").and_then(num).unwrap_or(0.0);
+            (supply > 0.0).then_some(supply_usd / supply)
+        })
+        .unwrap_or(0.0);
+    if price <= 0.0 {
+        return false;
+    }
+
+    // 0.5% tolerance: near-or-over the debt counts as "repay everything".
+    requested * price >= debt_usd * 0.995
+}
+
 /// A large decimal amount used to signal "repay everything". Kamino caps the
 /// actual transfer at ceil(outstanding debt), so this never over-pays; it just
 /// guarantees the borrow line closes with zero dust. Kept well under u64 base-
@@ -867,7 +954,18 @@ pub async fn build_kamino_repay(
     validate_kamino_repay_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
     let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
-    let repay_all = repay_all_requested(&params.amount, &params.repay_all);
+    let mut repay_all = repay_all_requested(&params.amount, &params.repay_all);
+    // Auto-upgrade to a full close when the requested amount already covers ~the
+    // whole debt (stale frontend sending the exact debt, or an LLM "repay <debt>"
+    // as a number). A fixed decimal can't match the accruing debt, so it would
+    // otherwise leave dust → 6092. Best-effort; falls back to the exact amount.
+    if !repay_all {
+        if let Ok(req) = params.amount.trim().parse::<f64>() {
+            if req > 0.0 && kamino_repay_covers_debt(http, market, wallet, &reserve, req).await {
+                repay_all = true;
+            }
+        }
+    }
     // Repay-all: send a large sentinel so Kamino closes the borrow with no dust.
     let send_amount = if repay_all { KAMINO_REPAY_ALL_SENTINEL } else { params.amount.as_str() };
     let body = serde_json::json!({
