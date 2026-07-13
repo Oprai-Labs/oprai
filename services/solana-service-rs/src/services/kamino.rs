@@ -38,8 +38,9 @@ use crate::services::builder::{ActionPreview, BuildResponse};
 /// Kamino REST API base URL (no trailing slash).
 const KAMINO_API: &str = "https://api.kamino.finance";
 
-/// Kamino main K-Lend market — used when the caller omits `market`.
-const KAMINO_MAIN_MARKET: &str = "7u3HeL2w1613C9uTdnK9GkfFfByNTYT1Y5MiUBHTrfip";
+/// Kamino main K-Lend market (the primary `lendingMarket` from
+/// `GET /kamino-market`) — used when the caller omits `market`.
+const KAMINO_MAIN_MARKET: &str = "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF";
 
 /// Resolve a `market` param: blank/None or a symbolic alias ("main", "default",
 /// "primary") → KAMINO_MAIN_MARKET. A base58-looking string (32–44 chars,
@@ -306,12 +307,93 @@ pub struct KaminoUnstakeParams {
 // ──────────────────────────────────────────────────────────────────────────────
 
 fn validate_reserve_address(reserve: &str, field: &str) -> Result<(), AppError> {
-    if reserve.is_empty() || reserve.len() < 32 {
+    // Accepts a token symbol ("USDC"), a token mint, or an already-resolved
+    // KLend reserve account address — `resolve_reserve_address` maps any of
+    // these to the real reserve pubkey at build time. Only reject empty.
+    if reserve.trim().is_empty() {
         return Err(AppError::InvalidParams(format!(
-            "{field} must be a valid KLend reserve account address (base58)"
+            "{field} is required (token symbol, mint, or KLend reserve address)"
         )));
     }
     Ok(())
+}
+
+/// Resolve a K-Lend token reference — a symbol ("USDC"), a token mint, or an
+/// already-resolved reserve account address — to the **reserve account
+/// address** in `market`. Kamino's main market has several reserves per token
+/// (e.g. multiple USDC pools), so when several match we pick the deepest by
+/// supplied TVL: that is the canonical pool a user means by "deposit USDC".
+/// Uses the live `/reserves/metrics` list — no hardcoded reserve addresses.
+async fn resolve_reserve_address(
+    http: &reqwest::Client,
+    market: &str,
+    token: &str,
+) -> Result<String, AppError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(AppError::InvalidParams("reserve/token is required".into()));
+    }
+    let metrics = kamino_get(http, &format!("/kamino-market/{market}/reserves/metrics")).await?;
+    let reserves = metrics.as_array().cloned().unwrap_or_default();
+
+    // Already a reserve account address in this market? Pass through.
+    if reserves
+        .iter()
+        .any(|r| r.get("reserve").and_then(|v| v.as_str()) == Some(token))
+    {
+        return Ok(token.to_string());
+    }
+
+    // Match by mint (exact) or symbol (case-insensitive; WSOL≡SOL).
+    let want_sym = if token.eq_ignore_ascii_case("wsol") {
+        "SOL".to_string()
+    } else {
+        token.to_ascii_uppercase()
+    };
+    let tvl = |r: &serde_json::Value| -> f64 {
+        r.get("totalSupplyUsd")
+            .map(|v| {
+                v.as_f64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    .unwrap_or(0.0)
+            })
+            .unwrap_or(0.0)
+    };
+    let mut matches: Vec<serde_json::Value> = reserves
+        .into_iter()
+        .filter(|r| {
+            let mint = r
+                .get("liquidityTokenMint")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let sym = r
+                .get("liquidityToken")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            mint == token || sym.eq_ignore_ascii_case(&want_sym)
+        })
+        .collect();
+    if matches.is_empty() {
+        return Err(AppError::InvalidParams(format!(
+            "No Kamino K-Lend reserve found for '{token}' in market {}",
+            short_id(market)
+        )));
+    }
+    matches.sort_by(|a, b| {
+        tvl(b)
+            .partial_cmp(&tvl(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let best = matches[0]
+        .get("reserve")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if best.is_empty() {
+        return Err(AppError::InvalidParams(format!(
+            "Kamino reserve for '{token}' has no account address"
+        )));
+    }
+    Ok(best.to_string())
 }
 
 pub fn validate_kamino_deposit_params(p: &KaminoDepositParams) -> Result<(), AppError> {
@@ -611,10 +693,11 @@ pub async fn build_kamino_deposit(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_deposit_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
+    let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
-        "reserve": params.reserve,
+        "reserve": reserve,
         "amount": params.amount,
     });
     let tx_b64 = kamino_post_tx(http, "/ktx/klend/deposit", &body).await?;
@@ -625,7 +708,7 @@ pub async fn build_kamino_deposit(
             description: format!(
                 "Deposit {} into Kamino K-Lend reserve {}",
                 params.amount,
-                short_id(&params.reserve),
+                short_id(&reserve),
             ),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
@@ -650,10 +733,11 @@ pub async fn build_kamino_withdraw(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_withdraw_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
+    let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
-        "reserve": params.reserve,
+        "reserve": reserve,
         "amount": params.amount,
     });
     let tx_b64 = kamino_post_tx(http, "/ktx/klend/withdraw", &body).await?;
@@ -664,7 +748,7 @@ pub async fn build_kamino_withdraw(
             description: format!(
                 "Withdraw {} from Kamino K-Lend reserve {}",
                 params.amount,
-                short_id(&params.reserve),
+                short_id(&reserve),
             ),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
@@ -689,10 +773,11 @@ pub async fn build_kamino_borrow(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_borrow_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
+    let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
-        "reserve": params.reserve,
+        "reserve": reserve,
         "amount": params.amount,
     });
     let tx_b64 = kamino_post_tx(http, "/ktx/klend/borrow", &body).await?;
@@ -703,7 +788,7 @@ pub async fn build_kamino_borrow(
             description: format!(
                 "Borrow {} from Kamino K-Lend reserve {}",
                 params.amount,
-                short_id(&params.reserve),
+                short_id(&reserve),
             ),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
@@ -728,10 +813,11 @@ pub async fn build_kamino_repay(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_repay_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
+    let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
-        "reserve": params.reserve,
+        "reserve": reserve,
         "amount": params.amount,
     });
     let tx_b64 = kamino_post_tx(http, "/ktx/klend/repay", &body).await?;
@@ -742,7 +828,7 @@ pub async fn build_kamino_repay(
             description: format!(
                 "Repay {} to Kamino K-Lend reserve {}",
                 params.amount,
-                short_id(&params.reserve),
+                short_id(&reserve),
             ),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
