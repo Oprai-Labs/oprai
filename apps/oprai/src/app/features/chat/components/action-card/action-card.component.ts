@@ -3570,6 +3570,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         mergedParams['ktokenAmount'] = mergedParams['amount'];
       }
     }
+    // Safety net: the backend rejects a non-numeric share amount ("all"). If the
+    // position lagged behind the click, resolve any word amount to the real full
+    // share figure now so a full withdraw never submits the literal "all".
+    if (dispatchType === 'kamino_vault_withdraw') {
+      const amt = (mergedParams['ktokenAmount'] ?? mergedParams['amount'] ?? '').trim().toLowerCase();
+      const shares = parseFloat(this.kaminoVaultPosition()?.shares ?? '0') || 0;
+      if (shares > 0 && (amt === '' || amt === 'all' || amt === 'max' || amt === 'full')) {
+        mergedParams['ktokenAmount'] = String(shares);
+      }
+    }
     // Merge user-edited slippage and priorityFee for ALL action types that use them
     // (launch, pumpfun_buy/sell, pumpswap_buy/sell, etc.)
     if (this.editSlippage()) mergedParams['slippage'] = this.editSlippage();
@@ -4723,6 +4733,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         const mint = vaults.find(v => v.address === vaultAddr)?.tokenMint ?? pos?.tokenMint ?? '';
         this.kaminoVaultTokenMint.set(mint);
         if (mint) this.tokenRegistry.resolveAsync(mint);
+        // Resolve "all"/empty to the actual share figure up front: the backend
+        // requires a positive number (it rejects "all"), and the user wants to
+        // see the real amount, not the word "all". Uses the full share position.
+        const rawAmt = (this.getEditParam('ktokenAmount') || '').trim().toLowerCase();
+        const shares = parseFloat(pos?.shares ?? '0') || 0;
+        if (shares > 0 && (rawAmt === '' || rawAmt === 'all' || rawAmt === 'max' || rawAmt === 'full')) {
+          this.setEditParam('ktokenAmount', String(shares));
+        }
       } else {
         this.kaminoVaultMetrics.set(null);
       }
@@ -4756,8 +4774,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const tokensPerShare = parseFloat(m?.tokensPerShare ?? '0') || 0;
     const sharesHeld = parseFloat(pos?.shares ?? '0') || 0;
     const raw = (this.getEditParam('ktokenAmount') || '').trim().toLowerCase();
-    const fullWithdraw = raw === '' || raw === 'all' || raw === 'max' || raw === 'full';
-    const withdrawShares = fullWithdraw ? sharesHeld : (parseFloat(raw) || 0);
+    const isWord = raw === '' || raw === 'all' || raw === 'max' || raw === 'full';
+    const withdrawShares = isWord ? sharesHeld : (parseFloat(raw) || 0);
+    // "Full position" wording also applies once "all" is resolved to the exact
+    // share figure (which equals the held balance).
+    const fullWithdraw = isWord || (sharesHeld > 0 && Math.abs(withdrawShares - sharesHeld) < 1e-9);
     // 1 share ≈ tokensPerShare underlying tokens; USD via the vault's tokenPrice.
     // The positions API carries no USD, so derive it from live metrics.
     const receiveTokens = withdrawShares * tokensPerShare;
