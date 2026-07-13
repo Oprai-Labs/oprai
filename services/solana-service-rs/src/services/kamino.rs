@@ -1330,6 +1330,10 @@ pub struct KaminoVaultsParams {
     /// Use it when the user wants to deposit a specific asset (e.g. "SOL vaults").
     #[serde(default)]
     pub token: Option<String>,
+    /// Optional name filter — only vaults whose name contains this (e.g. the user
+    /// asks for the "Steakhouse" or "Allez" vaults). Case-insensitive substring.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// Get the user's Kamino Earn vault positions.
@@ -1538,6 +1542,12 @@ pub async fn build_kamino_vaults(
         let want_mint = crate::solana::tokens::resolve_token_address(tok);
         vaults.retain(|v| v.mint == want_mint);
     }
+    // Optional name filter: only vaults whose name contains the query (e.g. the
+    // user asks for "Steakhouse" / "Allez" vaults). Case-insensitive substring.
+    if let Some(nm) = params.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let needle = nm.to_lowercase();
+        vaults.retain(|v| v.name.to_lowercase().contains(&needle));
+    }
 
     let tvl_usd = |v: &V| -> f64 {
         (v.aum / 10f64.powi(v.decimals)) * prices.get(&v.mint).copied().unwrap_or(0.0)
@@ -1549,11 +1559,55 @@ pub async fn build_kamino_vaults(
     // Default to a compact top-N; the LLM raises `limit` when the user asks for more.
     let limit = params.limit.unwrap_or(8).clamp(1, 50) as usize;
     let total = vaults.len();
-    let out: Vec<serde_json::Value> = vaults
+    let top: Vec<V> = vaults.into_iter().take(limit).collect();
+
+    // Enrich ONLY the shown vaults with live metrics (APY, real TVL, utilization,
+    // holders) — one /metrics call each, fetched concurrently. The cheap prevAum
+    // proxy picked the top-N; these accurate figures drive the final display and a
+    // re-sort. On a per-vault fetch failure we fall back to the proxy TVL.
+    let metrics: Vec<Option<serde_json::Value>> = futures::future::join_all(
+        top.iter().map(|v| {
+            let addr = v.address.clone();
+            async move { kamino_get(http, &format!("/kvaults/vaults/{addr}/metrics")).await.ok() }
+        }),
+    )
+    .await;
+
+    let mf = |m: &serde_json::Value, k: &str| -> f64 {
+        m.get(k)
+            .and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(0.0)
+    };
+    let mut rows: Vec<(V, f64, f64, f64, f64, u64)> = top
+        .into_iter()
+        .zip(metrics)
+        .map(|(v, m)| {
+            let (apy, apy90d, tvl, util, holders) = match &m {
+                Some(mm) => {
+                    let invested = mf(mm, "tokensInvestedUsd");
+                    let available = mf(mm, "tokensAvailableUsd");
+                    let tvl = invested + available;
+                    let util = if tvl > 0.0 { invested / tvl } else { 0.0 };
+                    (
+                        mf(mm, "apy"),
+                        mf(mm, "apy90d"),
+                        tvl,
+                        util,
+                        mm.get("numberOfHolders").and_then(|x| x.as_u64()).unwrap_or(0),
+                    )
+                }
+                None => (0.0, 0.0, tvl_usd(&v), 0.0, 0),
+            };
+            (v, apy, apy90d, tvl, util, holders)
+        })
+        .collect();
+    // Re-rank the shown set by the accurate metric TVL.
+    rows.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+
+    let pct2 = |frac: f64| (frac * 10000.0).round() / 100.0; // 0.019 -> 1.9
+    let out: Vec<serde_json::Value> = rows
         .iter()
-        .take(limit)
-        .map(|v| {
-            let tvl = tvl_usd(v);
+        .map(|(v, apy, apy90d, tvl, util, holders)| {
             let scale = 10f64.powi(v.decimals);
             serde_json::json!({
                 "vault": v.address,
@@ -1562,7 +1616,10 @@ pub async fn build_kamino_vaults(
                 // vault option shows its own token glyph, not the generic Kamino mark.
                 "token": v.mint,
                 "tvlUsd": (tvl * 100.0).round() / 100.0,
-                "tvlToken": (v.aum / scale * 1e6).round() / 1e6,
+                "apyPct": pct2(*apy),
+                "apy90dPct": pct2(*apy90d),
+                "utilizationPct": pct2(*util),
+                "holders": holders,
                 "performanceFeePct": v.perf_bps / 100.0,
                 "managementFeePct": v.mgmt_bps / 100.0,
                 "minDeposit": v.min_deposit / scale,

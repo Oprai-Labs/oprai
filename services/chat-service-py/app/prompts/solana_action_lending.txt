@@ -130,9 +130,17 @@ Examples:
 
 Choosing a vault when the user did NOT name a specific one: call query_onchain
 `kamino_vaults` first — it returns vaults already sorted by TVL (highest first),
-each with `vault` (address), `name`, `token` (the token MINT), `tvlUsd`, and fees.
-When the user is depositing a specific asset, pass `token`=<that symbol> (e.g.
-"SOL") to `kamino_vaults` so only that asset's vaults come back.
+each with `vault` (address), `name`, `token` (the token MINT), `tvlUsd`, `apyPct`,
+`apy90dPct`, `utilizationPct`, `holders`, and fees. Filters (combine as needed):
+- `token`=<symbol> (e.g. "SOL") → only that asset's vaults, when depositing a
+  specific asset.
+- `name`=<text> → only vaults whose name matches (e.g. the user asks for the
+  "Steakhouse" or "Allez" vaults).
+- `limit`=<n> → how many to return; raise it when the user wants to see more.
+Build the clarify options in the returned order; each option's params MUST carry
+`vault`=<address>, `token`=<the result's token mint> (so the card shows the token
+icon), and the parsed `amount`. Put the vault's live stats in each option's
+sublabel — lead with APY then TVL, e.g. "APY 1.90% · TVL $250.4M · perf fee 5%".
 Then request_clarification with the top few as options; each option's params MUST
 carry `vault`=<address>, `token`=<the result's token mint> (so the card shows that
 vault's own token icon), and the parsed `amount`. Present them in the returned
