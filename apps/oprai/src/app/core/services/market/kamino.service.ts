@@ -276,14 +276,20 @@ export class KaminoService {
         loanToValue: String(rs.loanToValue ?? '0'),
         netAccountValue: String(rs.netAccountValue ?? deposited),
         healthFactor: hf,
-        deposits: (o.deposits ?? o.userDeposits ?? []).map((d: any) => ({
+        // The API returns deposits/borrows as an EMPTY OBJECT `{}` (not an array)
+        // when there are no line-item positions — calling `.map` on it throws and
+        // the whole obligation was being dropped (card wrongly showed "no
+        // collateral"). Only map when it's actually an array.
+        deposits: (Array.isArray(o.deposits) ? o.deposits
+                   : Array.isArray(o.userDeposits) ? o.userDeposits : []).map((d: any) => ({
           reserveAddress: d.reserveAddress ?? d.reserve ?? '',
           mintAddress: d.mintAddress ?? d.mint ?? '',
           symbol: d.symbol ?? '',
           amount: d.amount ?? '0',
           valueUsd: d.valueUsd ?? d.marketValueRefreshed ?? '0',
         })),
-        borrows: (o.borrows ?? o.userBorrows ?? []).map((b: any) => ({
+        borrows: (Array.isArray(o.borrows) ? o.borrows
+                  : Array.isArray(o.userBorrows) ? o.userBorrows : []).map((b: any) => ({
           reserveAddress: b.reserveAddress ?? b.reserve ?? '',
           mintAddress: b.mintAddress ?? b.mint ?? '',
           symbol: b.symbol ?? '',
