@@ -1811,10 +1811,28 @@
                   }
                 </div>
               } @else {
-                <div class="lend-hf-explain">
-                  <lucide-icon name="info" [size]="11" />
-                  You have no collateral on Kamino yet — deposit a token first, then borrow against it.
-                </div>
+                @if (kmbStats.borrowUsd > 0) {
+                  <!-- No position yet: give live feedback on the collateral this borrow needs. -->
+                  <div class="bc-stats bc-stats--caution">
+                    <div class="bc-stat">
+                      <span class="bc-stat-label">Borrow value</span>
+                      <span class="bc-stat-value">${{ kmbStats.borrowUsd | number:'1.0-2' }}</span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label">Collateral needed <span style="opacity:.6">(at {{ kmbStats.maxLtvPct | number:'1.0-0' }}% Max LTV)</span></span>
+                      <span class="bc-stat-value bc-stat-value--brand">≈ ${{ kmbStats.requiredCollateralUsd | number:'1.0-2' }}</span>
+                    </div>
+                    <div class="bc-error">
+                      <lucide-icon name="alert-circle" [size]="12" />
+                      No collateral on Kamino yet — deposit ≈ ${{ kmbStats.requiredCollateralUsd | number:'1.0-2' }} first, then borrow. Risk (LTV, health factor, liquidation) goes live once you have collateral.
+                    </div>
+                  </div>
+                } @else {
+                  <div class="lend-hf-explain">
+                    <lucide-icon name="info" [size]="11" />
+                    You have no collateral on Kamino yet — deposit a token first, then borrow against it.
+                  </div>
+                }
               }
 
               <!-- Reserve market rates (always shown) -->

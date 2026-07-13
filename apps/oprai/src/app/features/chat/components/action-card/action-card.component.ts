@@ -4276,7 +4276,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     symbol: string; borrowApyPct: number; maxLtvPct: number; liquidationLtvPct: number;
     availableToken: number; availableUsd: number; price: number;
     hasPosition: boolean; collateralUsd: number; borrowedUsd: number;
-    maxBorrowable: number; ltvCurrentPct: number; ltvAfterPct: number;
+    maxBorrowable: number; borrowUsd: number; requiredCollateralUsd: number;
+    ltvCurrentPct: number; ltvAfterPct: number;
     hf: number; hfLabel: string; hfClass: string; errorMsg?: string;
   } | null {
     const r = this.kaminoReserve();
@@ -4324,9 +4325,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       errorMsg = `Exceeds max borrowable — deposit more collateral or borrow ≤ ${maxBorrowable.toFixed(maxBorrowable < 1 ? 6 : 2)} ${r.symbol}.`;
     }
 
+    // With no position yet, there is no denominator for LTV/HF — but we can
+    // still give live feedback: how much collateral this borrow would require
+    // at the reserve's max LTV. Updates as the amount is typed.
+    const borrowUsd = amount * price;
+    const requiredCollateralUsd = maxLtvPct > 0 ? borrowUsd / (maxLtvPct / 100) : 0;
+
     return {
       symbol: r.symbol, borrowApyPct, maxLtvPct, liquidationLtvPct, availableToken, availableUsd, price,
-      hasPosition, collateralUsd, borrowedUsd, maxBorrowable,
+      hasPosition, collateralUsd, borrowedUsd, maxBorrowable, borrowUsd, requiredCollateralUsd,
       ltvCurrentPct, ltvAfterPct, hf: isFinite(hf) ? hf : 0, hfLabel, hfClass, errorMsg,
     };
   }
