@@ -519,6 +519,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_get_pools':
       case 'raydium_search_pools':
         return 'assets/icons/protocols/raydium.png';
+      case 'kamino_multiply_markets':
+        return 'assets/icons/protocols/kamino.svg';
       default:
         return null;
     }
@@ -2651,6 +2653,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   formatUsd(n: number): string {
+    return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  /** Compact USD for dense table cells: $2.52M, $18.4K, $47.24. */
+  formatCompactUsd(n: number): string {
+    if (!Number.isFinite(n)) return '$0';
+    const abs = Math.abs(n);
+    if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+    if (abs >= 10_000) return `$${(n / 1_000).toFixed(1)}K`;
     return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 

@@ -475,7 +475,7 @@
                 </span>
                 <span class="text-right"><span class="km-lev-badge">{{ m.maxLeverage }}x</span></span>
                 <span class="text-right mono km-apy">{{ m.estMaxApyPct.toFixed(2) }}%</span>
-                <span class="text-right mono">{{ formatUsd(m.tvlUsd) }}</span>
+                <span class="text-right mono" [title]="formatUsd(m.tvlUsd)">{{ formatCompactUsd(m.tvlUsd) }}</span>
                 <span class="text-right">
                   <button
                     type="button"

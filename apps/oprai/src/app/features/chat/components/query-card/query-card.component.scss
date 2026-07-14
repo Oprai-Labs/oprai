@@ -632,12 +632,42 @@
 }
 
 // ── Kamino Multiply pool list ───────────────────────────────────────────────
+// Rendered as swap-style surface cards (one bordered box per pool) rather than
+// a flat divider table, so it matches the action/swap card visual language.
+.km-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+// Shared 5-column grid: pool (icons+name) | max lev | est apy | tvl | action
 .km-table .km-row {
-  // 5-column grid: pool (icons+name) | max lev | est apy | tvl | action
   display: grid;
   grid-template-columns: minmax(150px, 1.7fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 0.9fr) auto;
   gap: 10px;
   align-items: center;
+}
+
+// Column-label strip stays a plain header (no card), aligned to the row padding.
+.km-table .result-table__header.km-row {
+  padding: 2px 12px;
+  border-bottom: none;
+}
+
+// Each data row is a bordered surface box like .proto-token-chip.
+.km-table .result-table__row.km-row {
+  margin-inline: 0;
+  padding: 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-md, 12px);
+  transition: border-color var(--op-fast), background var(--op-fast);
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 34%, var(--op-border-subtle));
+    background: color-mix(in srgb, var(--op-brand, #5b5fc7) 6%, var(--op-bg-surface-2));
+  }
 }
 
 .km-pair {
