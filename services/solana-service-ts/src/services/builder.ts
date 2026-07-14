@@ -10,6 +10,7 @@ import * as jupiter from "./jupiter";
 import * as marginfi from "./marginfi";
 import * as transfer from "./transfer";
 import * as kamino from "./kamino";
+import * as kaminoFarm from "./kamino_farm";
 import * as raydium from "./raydium";
 import * as orca from "./orca";
 import * as marinade from "./marinade";
@@ -126,6 +127,13 @@ export async function buildAction(
       return kamino.getKaminoMarkets(params);
     case "kamino_positions":
       return kamino.getKaminoUserPositions(p(params), userWallet);
+    // Farm staking — SDK-only (klend/farms), delegated here from the Rust service.
+    case "kamino_stake":
+      return kaminoFarm.buildKaminoStake(p(params), userWallet);
+    case "kamino_unstake":
+      return kaminoFarm.buildKaminoUnstake(p(params), userWallet);
+    case "kamino_claim_rewards":
+      return kaminoFarm.buildKaminoClaimRewards(p(params), userWallet);
 
     // ── Raydium ───────────────────────────────────────────────────────────────
     case "raydium_swap":

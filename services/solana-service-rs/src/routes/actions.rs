@@ -237,6 +237,55 @@ pub async fn get_chain_tokens(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Build a transaction (transfer, swap, stake, etc.).
+/// Actions whose transaction is built by the TypeScript solana-service via the
+/// @kamino-finance SDKs (klend/farms). These have no REST endpoint and can't be
+/// built from Rust (no Kamino SDK crate), so the Rust service — the gateway's
+/// upstream — proxies them to the TS service.
+fn is_ts_delegated_action(action_type: &str) -> bool {
+    matches!(
+        action_type,
+        "kamino_stake" | "kamino_unstake" | "kamino_claim_rewards"
+    )
+}
+
+/// Forward a build request to the TypeScript solana-service and return its
+/// response verbatim (same /actions/build JSON contract). The TS service does
+/// its own validation and emits user-safe errors, which we pass through.
+async fn delegate_build_to_ts(
+    http: &reqwest::Client,
+    action_type: &str,
+    wallet: &str,
+    params: &serde_json::Value,
+) -> Result<HttpResponse, AppError> {
+    let base = std::env::var("SOLANA_TS_SERVICE_URL")
+        .unwrap_or_else(|_| "http://localhost:3031".to_string());
+    let key = std::env::var("OPRAI_INTERNAL_API_KEY").unwrap_or_default();
+
+    let resp = http
+        .post(format!("{base}/actions/build"))
+        .header("X-Internal-Api-Key", key)
+        .header("X-User-Wallet", wallet)
+        .json(&serde_json::json!({ "type": action_type, "params": params }))
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, %action_type, "Kamino SDK service (TS) unreachable");
+            AppError::Internal("Kamino staking service is temporarily unavailable".into())
+        })?;
+
+    let status = actix_web::http::StatusCode::from_u16(resp.status().as_u16())
+        .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY);
+    let payload = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::Internal(format!("Kamino SDK service read failed: {e}")))?;
+
+    Ok(HttpResponse::build(status)
+        .content_type("application/json")
+        .body(payload))
+}
+
 #[post("/build")]
 pub async fn post_build(
     req: HttpRequest,
@@ -260,6 +309,15 @@ pub async fn post_build(
                 body.params[key] = serde_json::Value::String(resolved);
             }
         }
+    }
+
+    // Kamino farm staking (and, later, leverage) are built with the
+    // @kamino-finance SDKs, which only the TypeScript solana-service carries.
+    // The gateway's upstream is this Rust service, so we forward those actions
+    // to the TS service and return its response verbatim (identical
+    // /actions/build contract). Everything else builds locally below.
+    if is_ts_delegated_action(&body.action_type) {
+        return delegate_build_to_ts(&state.http, &body.action_type, &wallet, &body.params).await;
     }
 
     // Validate action type.

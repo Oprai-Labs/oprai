@@ -1533,7 +1533,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // connected yet on first render. Reload once it (or the target vault) lands.
   private _lastKaminoVaultWithdrawKey: string | null = null;
   private readonly _kaminoVaultWithdrawEffect = effect(() => {
-    if (this.action?.type !== 'kamino_vault_withdraw' && this.action?.type !== 'kamino_unstake') return;
+    if (this.action?.type !== 'kamino_vault_withdraw') return;
     const wallet = this.walletService.publicKey();
     const vault = this.editParams()['vault'] ?? '';
     if (!wallet) return;
@@ -3444,14 +3444,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action.type === 'kamino_borrow' || this.action.type === 'kamino_repay'
         || this.action.type === 'kamino_withdraw' || this.action.type === 'kamino_withdraw_collateral') this.loadKaminoBorrowInfo();
     if (this.action.type === 'kamino_vault_deposit') this.loadKaminoVaultInfo();
-    if (this.action.type === 'kamino_vault_withdraw' || this.action.type === 'kamino_unstake') {
-      // kamino_unstake carries `amount`; the vault-withdraw card drives off
-      // `ktokenAmount`. Seed it so the input shows the user's share figure.
-      if (this.action.type === 'kamino_unstake' && !this.getEditParam('ktokenAmount') && p['amount']) {
-        this.setEditParam('ktokenAmount', p['amount']);
-      }
-      this.loadKaminoVaultWithdrawInfo();
-    }
+    if (this.action.type === 'kamino_vault_withdraw') this.loadKaminoVaultWithdrawInfo();
     if (this.action.type === 'native_stake') this.loadValidators();
     // Eagerly resolve "all" → actual balance for pumpfun/pumpswap sells so the
     // number input shows a real value instead of appearing blank.
@@ -3556,24 +3549,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const s = this.kaminoRepayStats;
       if (s && s.fullRepay) mergedParams['repayAll'] = 'true';
     }
-    // "Unstake my position" almost always means exiting a Kamino Earn vault, and
-    // native KMNO governance unstaking has no live backend (SDK-only stub that
-    // errors on submit). When a real vault position backs this card, execute it
-    // as a vault withdraw against the pinned vault address. The backend maps our
-    // `amount`/`ktokenAmount` to kToken shares (serde alias), so no field rename
-    // is needed. Falls back to the (non-functional) native action only when the
-    // user genuinely has no vault position.
-    let dispatchType = this.action.type;
-    if (this.action.type === 'kamino_unstake' && this.kaminoVaultPosition()) {
-      dispatchType = 'kamino_vault_withdraw';
-      if (!mergedParams['ktokenAmount'] && mergedParams['amount']) {
-        mergedParams['ktokenAmount'] = mergedParams['amount'];
-      }
-    }
     // Safety net: the backend rejects a non-numeric share amount ("all"). If the
     // position lagged behind the click, resolve any word amount to the real full
     // share figure now so a full withdraw never submits the literal "all".
-    if (dispatchType === 'kamino_vault_withdraw') {
+    if (this.action.type === 'kamino_vault_withdraw') {
       const amt = (mergedParams['ktokenAmount'] ?? mergedParams['amount'] ?? '').trim().toLowerCase();
       const shares = parseFloat(this.kaminoVaultPosition()?.shares ?? '0') || 0;
       if (shares > 0 && (amt === '' || amt === 'all' || amt === 'max' || amt === 'full')) {
@@ -3584,7 +3563,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // (launch, pumpfun_buy/sell, pumpswap_buy/sell, etc.)
     if (this.editSlippage()) mergedParams['slippage'] = this.editSlippage();
     if (this.editPriorityFee()) mergedParams['priorityFee'] = this.editPriorityFee();
-    const mergedAction: ParsedAction = { ...this.action, type: dispatchType, params: mergedParams };
+    const mergedAction: ParsedAction = { ...this.action, params: mergedParams };
     // Remember the EDITED params so the late async confirmations (RPC poll /
     // manual re-check, which run after this method returns) persist what was
     // actually submitted — not the original `this.action.params`. Without this

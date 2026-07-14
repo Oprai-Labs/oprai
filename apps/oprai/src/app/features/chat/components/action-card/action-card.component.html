@@ -2174,10 +2174,8 @@
               </div>
             }
           </div>
-        } @else if (action.type === 'kamino_vault_withdraw' || action.type === 'kamino_unstake') {
-          <!-- ─────── Kamino Earn vault withdraw: redeem shares → underlying ───────
-               kamino_unstake shares this UI: "unstake my position" means exiting an
-               Earn vault, and native KMNO governance unstaking has no live backend. -->
+        } @else if (action.type === 'kamino_vault_withdraw') {
+          <!-- ─────── Kamino Earn vault withdraw: redeem shares → underlying ─────── -->
           @let kmvwStats = kaminoVaultWithdrawStats;
           @let kmvwSym = kmvwStats?.tokenSymbol || 'shares';
           <div class="pump-swap" [class.proto-fields--shake]="shake()">
