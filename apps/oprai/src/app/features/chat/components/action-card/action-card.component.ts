@@ -1158,11 +1158,13 @@ function getActionFields(
     // A Multiply position is keyed by its collateral/debt token pair. The
     // backend loads/creates the obligation from (token, debtToken); debt
     // defaults to USDC but is usually SOL for LST strategies.
+    // Collateral + debt read as the pool PAIR, so pair them on one row (equal
+    // chips); amount and leverage are the editable inputs below, full width.
     fields.push(
-      { key: 'token', label: 'Collateral Token', type: 'token', required: true },
-      { key: 'amount', label: 'Collateral Amount', type: 'number', placeholder: '0', required: true },
-      { key: 'leverage', label: 'Leverage', type: 'number', placeholder: '2', required: true, min: 1, max: 10, step: '0.1', half: true },
+      { key: 'token', label: 'Collateral Token', type: 'token', required: true, half: true },
       { key: 'debtToken', label: 'Debt Token', type: 'token', required: false, half: true, hint: 'Borrowed & looped; defaults to USDC' },
+      { key: 'amount', label: 'Collateral Amount', type: 'number', placeholder: '0', required: true },
+      { key: 'leverage', label: 'Leverage', type: 'number', placeholder: '2', required: true, min: 1, max: 10, step: '0.1' },
     );
   } else if (t === 'kamino_multiply_add') {
     fields.push(
@@ -2457,6 +2459,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Computed (template direct access)
   get protocolConfig(): ProtocolConfig { return PROTOCOL_CONFIGS[getProtocolKey(this.action)] ?? PROTOCOL_CONFIGS['default']; }
   get actionLabel(): string { return getActionLabel(this.action); }
+  /** Adopt the swap widget's visual language (rounded 16px surfaces, taller
+   *  inputs, larger figures) for token+amount forms that render via the generic
+   *  proto-fields layout — Kamino Multiply and long/short. */
+  get useSwaplikeLayout(): boolean {
+    const t = this.action?.type ?? '';
+    return t.startsWith('kamino_multiply_') || t === 'kamino_long_open' || t === 'kamino_short_open';
+  }
   get actionFields(): FieldDef[] {
     // Post-process: stamp protocol-aware MIN/hint on every amount-shaped input
     // so the user sees the floor before submitting (prevents the on-chain

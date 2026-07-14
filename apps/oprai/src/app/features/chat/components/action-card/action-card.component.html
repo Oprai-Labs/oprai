@@ -2267,7 +2267,7 @@
           </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
-               [class.proto-fields--swaplike]="false">
+               [class.proto-fields--swaplike]="useSwaplikeLayout">
 
           @for (field of actionFields; track field.key) {
             <div class="proto-field" [class.proto-field--half]="field.half">
