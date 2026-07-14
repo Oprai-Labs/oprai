@@ -1191,9 +1191,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   /** Pre-fill and emit a kamino_multiply_open action for the chosen pool. */
   useMultiplyMarket(r: KaminoMultiplyMarket): void {
+    // Pass MINT addresses, not symbols — the backend resolves the reserve by
+    // mint, and its static symbol map doesn't know LSTs/newer tokens (cbBTC,
+    // PYUSD…), which would otherwise fail as a non-base58 "address".
     const params: Record<string, string> = {
-      token: r.collToken,
-      debtToken: r.debtToken,
+      token: r.collMint,
+      debtToken: r.debtMint,
       leverage: String(Math.min(r.maxLeverage, 3)),
     };
     this.useAction.emit({

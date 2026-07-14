@@ -131,6 +131,22 @@ async function loadMarket(): Promise<KaminoMarket> {
   return market;
 }
 
+const BASE58_MINT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+/** Resolve a collateral/debt token param (mint OR symbol) to a mint address.
+ *  Tries, in order: an already-valid base58 mint, the static token map
+ *  (SOL/USDC/…), then the market's own reserve list — so LSTs and newer tokens
+ *  that the static map doesn't know (cbBTC, PYUSD, hubSOL…) still resolve
+ *  instead of failing later as an invalid base58 address. */
+function resolveMint(market: KaminoMarket, tokenStr: string): string {
+  if (!tokenStr) return tokenStr;
+  if (BASE58_MINT_RE.test(tokenStr)) return tokenStr;
+  const mapped = resolveToken(tokenStr)?.mint;
+  if (mapped) return mapped;
+  const reserve = market.getReserveBySymbol(tokenStr);
+  return reserve ? reserve.getLiquidityMint().toString() : tokenStr;
+}
+
 function reserveDecimals(market: KaminoMarket): (m: string) => number {
   return (mint: string) => {
     try {
@@ -176,14 +192,14 @@ export interface KaminoMultiplyOpenParams {
 
 /** Open a leveraged Multiply position. */
 export async function buildKaminoMultiplyOpen(params: KaminoMultiplyOpenParams, userWallet: string): Promise<BuildResponse> {
-  const collMintStr = resolveToken(params.token)?.mint ?? params.token;
-  const debtMintStr = resolveToken(params.debtToken ?? "USDC")?.mint ?? (params.debtToken ?? "USDC");
   const leverage = new Decimal(params.leverage || "2");
   const amount = new Decimal(params.amount);
   if (!amount.isFinite() || amount.lte(0)) throw appError("amount must be positive", 400, "INVALID_PARAMS");
   if (leverage.lte(1) || leverage.gt(10)) throw appError("leverage must be between 1 and 10", 400, "INVALID_PARAMS");
 
   const market = await loadMarket();
+  const collMintStr = resolveMint(market, params.token);
+  const debtMintStr = resolveMint(market, params.debtToken ?? "USDC");
   const collReserve = market.getReserveByMint(address(collMintStr));
   const debtReserve = market.getReserveByMint(address(debtMintStr));
   if (!collReserve || !debtReserve) throw appError("Token not supported on the Kamino main market", 400, "UNSUPPORTED");
@@ -243,12 +259,12 @@ export interface KaminoMultiplyAddParams {
 
 /** Add collateral to an existing Multiply position (re-loops to the target leverage). */
 export async function buildKaminoMultiplyAdd(params: KaminoMultiplyAddParams, userWallet: string): Promise<BuildResponse> {
-  const collMintStr = resolveToken(params.token)?.mint ?? params.token;
-  const debtMintStr = resolveToken(params.debtToken ?? "USDC")?.mint ?? (params.debtToken ?? "USDC");
   const amount = new Decimal(params.amount);
   if (!amount.isFinite() || amount.lte(0)) throw appError("amount must be positive", 400, "INVALID_PARAMS");
 
   const market = await loadMarket();
+  const collMintStr = resolveMint(market, params.token);
+  const debtMintStr = resolveMint(market, params.debtToken ?? "USDC");
   const collReserve = market.getReserveByMint(address(collMintStr));
   const debtReserve = market.getReserveByMint(address(debtMintStr));
   if (!collReserve || !debtReserve) throw appError("Token not supported on the Kamino main market", 400, "UNSUPPORTED");
@@ -310,10 +326,9 @@ async function buildMultiplyWithdrawInternal(
   userWallet: string,
   close: boolean,
 ): Promise<BuildResponse> {
-  const collMintStr = resolveToken(params.token)?.mint ?? params.token;
-  const debtMintStr = resolveToken(params.debtToken ?? "USDC")?.mint ?? (params.debtToken ?? "USDC");
-
   const market = await loadMarket();
+  const collMintStr = resolveMint(market, params.token);
+  const debtMintStr = resolveMint(market, params.debtToken ?? "USDC");
   const collReserve = market.getReserveByMint(address(collMintStr));
   const debtReserve = market.getReserveByMint(address(debtMintStr));
   if (!collReserve || !debtReserve) throw appError("Token not supported on the Kamino main market", 400, "UNSUPPORTED");
