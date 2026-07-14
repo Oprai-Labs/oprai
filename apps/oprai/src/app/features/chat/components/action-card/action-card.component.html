@@ -2174,8 +2174,12 @@
               </div>
             }
           </div>
-        } @else if (action.type === 'kamino_vault_withdraw') {
-          <!-- ─────── Kamino Earn vault withdraw: redeem shares → underlying ─────── -->
+        } @else if (action.type === 'kamino_vault_withdraw' || action.type === 'kamino_unstake') {
+          <!-- ─────── Kamino Earn vault withdraw: redeem shares → underlying ───────
+               kamino_unstake shares this card: users say "unstake my position" for
+               a vault exit. It renders + executes as a vault withdraw when a live
+               vault position exists; genuine KMNO-governance unstake (no vault
+               position) still routes to the SDK farm-unstake backend. -->
           @let kmvwStats = kaminoVaultWithdrawStats;
           @let kmvwSym = kmvwStats?.tokenSymbol || 'shares';
           <div class="pump-swap" [class.proto-fields--shake]="shake()">
