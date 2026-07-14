@@ -1179,7 +1179,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   /** Resolve a token logo live from the registry by mint (dual-icon rows). */
   logoForMint(mint: string): string | null {
     void this.tokenRegistry.version(); // signal dependency for re-render
-    return (mint ? this.tokenRegistry.getToken(mint)?.logoURI : null) ?? null;
+    const logo = mint ? this.tokenRegistry.getToken(mint)?.logoURI : null;
+    // Kamino pairs include LSTs/stables (PYUSD, cbBTC, hubSOL, FDUSD…) that
+    // aren't in the strict list — fire-and-forget fetch their logo, which bumps
+    // version() and re-renders this cell with the real icon (no more fallback).
+    if (!logo && mint) this.tokenRegistry.resolveAsync(mint);
+    return logo ?? null;
   }
 
   /** Pre-fill and emit a kamino_multiply_open action for the chosen pool. */
