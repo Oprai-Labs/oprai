@@ -373,7 +373,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     { field: 'tvl', label: 'TVL' },
     { field: 'liquidity', label: 'Liquidity' },
   ];
-  kaminoMultiplyAll: KaminoMultiplyMarket[] = [];
+  // A SIGNAL (not a plain field): the filter/sort/paginate computeds below read
+  // it, and computed() only tracks signal reads — a plain field wouldn't trigger
+  // recompute when the fetch lands, leaving the card stuck empty.
+  readonly kaminoMultiplyAll = signal<KaminoMultiplyMarket[]>([]);
   readonly kaminoMultiplyTotal = signal(0);
   readonly kaminoMultiplyPage = signal(1);
   readonly kaminoMultiplySortField = signal<'apy' | 'leverage' | 'tvl' | 'liquidity'>('apy');
@@ -387,7 +390,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const q = this.kaminoMultiplySearchRaw().trim().toUpperCase();
     const field = this.kaminoMultiplySortField();
     const dir = this.kaminoMultiplySortDir() === 'asc' ? 1 : -1;
-    let rows = this.kaminoMultiplyAll;
+    let rows = this.kaminoMultiplyAll();
     if (q) rows = rows.filter(r => r.collToken.toUpperCase().includes(q) || r.debtToken.toUpperCase().includes(q));
     const key: Record<string, (r: KaminoMultiplyMarket) => number> = {
       apy: r => r.estMaxApyPct, leverage: r => r.maxLeverage, tvl: r => r.tvlUsd, liquidity: r => r.liquidityUsd,
@@ -665,8 +668,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.raydiumSortDir.set((d['raydiumSortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
     }
     if (d['kaminoMultiplyAll']) {
-      this.kaminoMultiplyAll = d['kaminoMultiplyAll'] as KaminoMultiplyMarket[];
-      this.kaminoMultiplyTotal.set((d['kaminoMultiplyTotal'] as number | undefined) ?? this.kaminoMultiplyAll.length);
+      this.kaminoMultiplyAll.set(d['kaminoMultiplyAll'] as KaminoMultiplyMarket[]);
+      this.kaminoMultiplyTotal.set((d['kaminoMultiplyTotal'] as number | undefined) ?? this.kaminoMultiplyAll().length);
       this.kaminoMultiplySortField.set((d['kaminoMultiplySortField'] as 'apy' | 'leverage' | 'tvl' | 'liquidity' | undefined) ?? 'apy');
       this.kaminoMultiplySortDir.set((d['kaminoMultiplySortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
     }
@@ -722,8 +725,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       d['raydiumSortField']   = this.raydiumSortField();
       d['raydiumSortDir']     = this.raydiumSortDir();
     }
-    if (this.kaminoMultiplyAll.length) {
-      d['kaminoMultiplyAll']       = this.kaminoMultiplyAll;
+    if (this.kaminoMultiplyAll().length) {
+      d['kaminoMultiplyAll']       = this.kaminoMultiplyAll();
       d['kaminoMultiplyTotal']     = this.kaminoMultiplyTotal();
       d['kaminoMultiplySortField'] = this.kaminoMultiplySortField();
       d['kaminoMultiplySortDir']   = this.kaminoMultiplySortDir();
@@ -1140,7 +1143,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         ),
       );
       const markets = resp?.data?.markets ?? [];
-      this.kaminoMultiplyAll = markets;
+      this.kaminoMultiplyAll.set(markets);
       this.kaminoMultiplyTotal.set(resp?.data?.total ?? markets.length);
     } catch {
       this.error.set('Failed to load Kamino Multiply pools');

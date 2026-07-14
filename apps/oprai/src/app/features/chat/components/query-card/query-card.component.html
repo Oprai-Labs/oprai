@@ -449,7 +449,7 @@
               <span class="text-right" title="Available deposited value (Multiply TVL)">TVL</span>
               <span class="text-right">Action</span>
             </div>
-            @if (kaminoMultiplyFetching() && kaminoMultiplyAll.length === 0) {
+            @if (kaminoMultiplyFetching() && kaminoMultiplyAll().length === 0) {
               <div class="dlmm-empty">Loading Multiply pools…</div>
             }
             @for (m of kaminoMultiplyPageRows(); track m.collMint + m.debtMint) {
