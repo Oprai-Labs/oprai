@@ -171,6 +171,18 @@ interface AlertItem {
 }
 
 /**
+ * One Kamino Multiply pool from `kamino_multiply_markets`. `estMaxApyPct` is an
+ * ESTIMATE (leverage·collateral-yield − borrow-cost from live on-chain rates),
+ * NOT Kamino's exact displayed figure — the card labels it as such.
+ */
+interface KaminoMultiplyMarket {
+  collToken: string; collMint: string;
+  debtToken: string; debtMint: string;
+  maxLeverage: number; maxLtvPct: number; estMaxApyPct: number; avgLeverage: number;
+  tvlUsd: number; liquidityUsd: number; collSupplyApyPct: number; debtBorrowApyPct: number;
+}
+
+/**
  * Single row from the Raydium V3 `/pools/info/list` API response. Defined
  * inline (vs. lifting into a shared service file) because it's only used by
  * the QueryCard's Raydium pool list mini-app — no other consumer.
@@ -351,6 +363,51 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly dammV2Fetching = signal(false);
   private dammV2SearchDebounce: ReturnType<typeof setTimeout> | null = null;
 
+  // ── Kamino Multiply pools (leveraged looping) ─────────────────────────────
+  // The backend returns the full set (up to ~100); the card sorts, filters and
+  // paginates entirely client-side over that snapshot.
+  readonly KAMINO_MULT_PAGE_SIZE = 8;
+  readonly KAMINO_MULT_SORT_OPTIONS: { field: 'apy' | 'leverage' | 'tvl' | 'liquidity'; label: string }[] = [
+    { field: 'apy', label: 'Est. APY' },
+    { field: 'leverage', label: 'Max Lev' },
+    { field: 'tvl', label: 'TVL' },
+    { field: 'liquidity', label: 'Liquidity' },
+  ];
+  kaminoMultiplyAll: KaminoMultiplyMarket[] = [];
+  readonly kaminoMultiplyTotal = signal(0);
+  readonly kaminoMultiplyPage = signal(1);
+  readonly kaminoMultiplySortField = signal<'apy' | 'leverage' | 'tvl' | 'liquidity'>('apy');
+  readonly kaminoMultiplySortDir = signal<'asc' | 'desc'>('desc');
+  readonly kaminoMultiplySearchRaw = signal('');
+  readonly kaminoMultiplyFetching = signal(false);
+  private kaminoMultiplySearchDebounce: ReturnType<typeof setTimeout> | null = null;
+
+  /** Filter (by coll/debt symbol) + sort the fetched set. */
+  readonly kaminoMultiplyFiltered = computed<KaminoMultiplyMarket[]>(() => {
+    const q = this.kaminoMultiplySearchRaw().trim().toUpperCase();
+    const field = this.kaminoMultiplySortField();
+    const dir = this.kaminoMultiplySortDir() === 'asc' ? 1 : -1;
+    let rows = this.kaminoMultiplyAll;
+    if (q) rows = rows.filter(r => r.collToken.toUpperCase().includes(q) || r.debtToken.toUpperCase().includes(q));
+    const key: Record<string, (r: KaminoMultiplyMarket) => number> = {
+      apy: r => r.estMaxApyPct, leverage: r => r.maxLeverage, tvl: r => r.tvlUsd, liquidity: r => r.liquidityUsd,
+    };
+    const k = key[field] ?? key['apy'];
+    return [...rows].sort((a, b) => (k(a) - k(b)) * dir);
+  });
+  readonly kaminoMultiplyTotalPages = computed(() =>
+    Math.max(1, Math.ceil(this.kaminoMultiplyFiltered().length / this.KAMINO_MULT_PAGE_SIZE)));
+  readonly kaminoMultiplyPageRows = computed<KaminoMultiplyMarket[]>(() => {
+    const start = (this.kaminoMultiplyPage() - 1) * this.KAMINO_MULT_PAGE_SIZE;
+    return this.kaminoMultiplyFiltered().slice(start, start + this.KAMINO_MULT_PAGE_SIZE);
+  });
+  readonly kaminoMultiplyShowingRange = computed(() => {
+    const total = this.kaminoMultiplyFiltered().length;
+    const from = total === 0 ? 0 : (this.kaminoMultiplyPage() - 1) * this.KAMINO_MULT_PAGE_SIZE + 1;
+    const to = Math.min(this.kaminoMultiplyPage() * this.KAMINO_MULT_PAGE_SIZE, total);
+    return { from, to, total };
+  });
+
   // ── Meteora DAMM v1 (legacy AMM, flat array — client-paginated) ───────────
   readonly DAMMV1_PAGE_SIZE = 10;
   readonly DAMMV1_SORT_OPTIONS: { field: 'pool_tvl' | 'weekly_base_apy' | 'weekly_trading_volume'; label: string }[] = [
@@ -491,6 +548,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'meteora_dammv1_get_pools':  void this.fetchDammV1Pools(); break;
       case 'raydium_get_pools':         void this.fetchRaydiumPools(); break;
       case 'raydium_search_pools':      void this.fetchRaydiumPools(); break;
+      case 'kamino_multiply_markets':   void this.fetchKaminoMultiplyMarkets(); break;
     }
   }
 
@@ -606,6 +664,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         (d['raydiumSortField'] as 'liquidity' | 'volume24h' | 'fee24h' | 'apr24h' | undefined) ?? 'liquidity');
       this.raydiumSortDir.set((d['raydiumSortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
     }
+    if (d['kaminoMultiplyAll']) {
+      this.kaminoMultiplyAll = d['kaminoMultiplyAll'] as KaminoMultiplyMarket[];
+      this.kaminoMultiplyTotal.set((d['kaminoMultiplyTotal'] as number | undefined) ?? this.kaminoMultiplyAll.length);
+      this.kaminoMultiplySortField.set((d['kaminoMultiplySortField'] as 'apy' | 'leverage' | 'tvl' | 'liquidity' | undefined) ?? 'apy');
+      this.kaminoMultiplySortDir.set((d['kaminoMultiplySortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
+    }
     this.loading.set(false);
   }
 
@@ -657,6 +721,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       d['raydiumPoolType']    = this.raydiumPoolType();
       d['raydiumSortField']   = this.raydiumSortField();
       d['raydiumSortDir']     = this.raydiumSortDir();
+    }
+    if (this.kaminoMultiplyAll.length) {
+      d['kaminoMultiplyAll']       = this.kaminoMultiplyAll;
+      d['kaminoMultiplyTotal']     = this.kaminoMultiplyTotal();
+      d['kaminoMultiplySortField'] = this.kaminoMultiplySortField();
+      d['kaminoMultiplySortDir']   = this.kaminoMultiplySortDir();
     }
     return d;
   }
@@ -1054,6 +1124,73 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.dammV2Fetching.set(false);
     this.loading.set(false);
     this.persistSnapshot();
+  }
+
+  // ── Kamino Multiply pools ───────────────────────────────────────────────
+  /** Fetch the full Multiply pool set once (client sorts/filters/paginates). */
+  private async fetchKaminoMultiplyMarkets(): Promise<void> {
+    this.kaminoMultiplyFetching.set(true);
+    this.error.set(null);
+    try {
+      const seedToken = (this.query.params['token'] as string | undefined)?.trim();
+      const resp = await firstValueFrom(
+        this.api.post<{ data?: { markets?: KaminoMultiplyMarket[]; total?: number } }>(
+          '/actions/build',
+          { type: 'kamino_multiply_markets', params: { limit: '100', ...(seedToken ? { token: seedToken } : {}) } },
+        ),
+      );
+      const markets = resp?.data?.markets ?? [];
+      this.kaminoMultiplyAll = markets;
+      this.kaminoMultiplyTotal.set(resp?.data?.total ?? markets.length);
+    } catch {
+      this.error.set('Failed to load Kamino Multiply pools');
+    } finally {
+      this.kaminoMultiplyFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    }
+  }
+
+  onKaminoMultiplySearch(e: Event): void {
+    const val = (e.target as HTMLInputElement).value.slice(0, 40);
+    this.kaminoMultiplySearchRaw.set(val);
+    this.kaminoMultiplyPage.set(1);
+  }
+
+  onKaminoMultiplySortChange(field: 'apy' | 'leverage' | 'tvl' | 'liquidity'): void {
+    if (this.kaminoMultiplySortField() === field) {
+      this.kaminoMultiplySortDir.update(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      this.kaminoMultiplySortField.set(field);
+      this.kaminoMultiplySortDir.set('desc');
+    }
+    this.kaminoMultiplyPage.set(1);
+  }
+
+  kaminoMultiplyGoToPage(page: number): void {
+    this.kaminoMultiplyPage.set(Math.max(1, Math.min(page, this.kaminoMultiplyTotalPages())));
+  }
+  kaminoMultiplyPrevPage(): void { this.kaminoMultiplyGoToPage(this.kaminoMultiplyPage() - 1); }
+  kaminoMultiplyNextPage(): void { this.kaminoMultiplyGoToPage(this.kaminoMultiplyPage() + 1); }
+
+  /** Resolve a token logo live from the registry by mint (dual-icon rows). */
+  logoForMint(mint: string): string | null {
+    void this.tokenRegistry.version(); // signal dependency for re-render
+    return (mint ? this.tokenRegistry.getToken(mint)?.logoURI : null) ?? null;
+  }
+
+  /** Pre-fill and emit a kamino_multiply_open action for the chosen pool. */
+  useMultiplyMarket(r: KaminoMultiplyMarket): void {
+    const params: Record<string, string> = {
+      token: r.collToken,
+      debtToken: r.debtToken,
+      leverage: String(Math.min(r.maxLeverage, 3)),
+    };
+    this.useAction.emit({
+      type: 'kamino_multiply_open',
+      params,
+      raw: `[ACTION:kamino_multiply_open] ${JSON.stringify(params)}`,
+    });
   }
 
   onDammV2Search(e: Event): void {
@@ -1722,6 +1859,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_get_pools':
       case 'raydium_search_pools':
         await this.fetchRaydiumPools();
+        return;
+      case 'kamino_multiply_markets':
+        await this.fetchKaminoMultiplyMarkets();
         return;
       case 'analytics':
         await this.fetchAnalytics();

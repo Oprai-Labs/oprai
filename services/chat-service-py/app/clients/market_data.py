@@ -2049,6 +2049,7 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "kamino_vault_transactions", "kamino_vaults",
     "kamino_vaults_rewards", "kamino_vaults_summary",
     "kamino_liquidity_strategies",
+    "kamino_multiply_markets",
     "kamino_yield_history",
     "kamino_airdrop_allocations", "kamino_airdrop_metrics",
     "kamino_farm_transactions",

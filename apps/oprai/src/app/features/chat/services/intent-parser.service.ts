@@ -256,6 +256,8 @@ const KNOWN_QUERY_TYPES = new Set<string>([
   'token_info', 'trending', 'network', 'risk', 'yield',
   'analytics', 'nft_collection', 'airdrops', 'gas',
   'wallet_info', 'tax_report', 'limit_orders', 'dca', 'lend_positions', 'perp_positions',
+  // Kamino Multiply pool list (self-fetching query-card)
+  'kamino_multiply_markets',
   // Simulation & tracking
   'simulate', 'whale', 'smart_money',
   // SNS — Solana Name Service queries
@@ -1208,6 +1210,8 @@ export class IntentParserService {
       // Raydium pool list
       case 'raydium_get_pools':
         return 'layers';
+      case 'kamino_multiply_markets':
+        return 'trending-up';
       default: return 'search';
     }
   }
@@ -1280,6 +1284,11 @@ export class IntentParserService {
           : 'Raydium Pools';
         return label;
       }
+      // ── Kamino Multiply Pool List ─────────────────────────────────────────
+      case 'kamino_multiply_markets':
+        return query.params['token']
+          ? `Kamino Multiply Pools (${query.params['token']})`
+          : 'Kamino Multiply Pools';
       // ── Solend Protocol Queries ─────────────────────────────────────────────
       case 'solend_reserves':
         return 'Solend Reserves';

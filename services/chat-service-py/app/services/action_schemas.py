@@ -738,6 +738,7 @@ class QueryType(str, Enum):
     KAMINO_VAULTS_REWARDS = "kamino_vaults_rewards"
     KAMINO_VAULTS_SUMMARY = "kamino_vaults_summary"
     KAMINO_LIQUIDITY_STRATEGIES = "kamino_liquidity_strategies"
+    KAMINO_MULTIPLY_MARKETS = "kamino_multiply_markets"
     KAMINO_YIELD_HISTORY = "kamino_yield_history"
     KAMINO_AIRDROP_ALLOCATIONS = "kamino_airdrop_allocations"
     KAMINO_AIRDROP_METRICS = "kamino_airdrop_metrics"

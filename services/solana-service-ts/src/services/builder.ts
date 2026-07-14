@@ -152,6 +152,8 @@ export async function buildAction(
       return kaminoMultiply.buildKaminoMultiplyWithdraw(p(params), userWallet);
     case "kamino_multiply_close":
       return kaminoMultiply.buildKaminoMultiplyClose(p(params), userWallet);
+    case "kamino_multiply_markets":
+      return kaminoMultiply.getKaminoMultiplyMarkets(p(params));
 
     // ── Raydium ───────────────────────────────────────────────────────────────
     case "raydium_swap":

@@ -252,6 +252,9 @@ fn is_ts_delegated_action(action_type: &str) -> bool {
             | "kamino_multiply_add"
             | "kamino_multiply_withdraw"
             | "kamino_multiply_close"
+            // Read-only: list Multiply pools with metrics (needs the klend SDK
+            // for exact per-pair max leverage).
+            | "kamino_multiply_markets"
             // Concentrated liquidity (kLiquidity CLMM strategies) — kliquidity-sdk.
             | "kamino_liquidity_deposit"
             | "kamino_liquidity_withdraw"

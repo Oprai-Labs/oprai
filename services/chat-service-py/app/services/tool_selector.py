@@ -219,6 +219,7 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "kamino_multiply_add":        _A({"lending", "kamino"}),
     "kamino_multiply_withdraw":   _A({"lending", "kamino"}),
     "kamino_multiply_close":      _A({"lending", "kamino"}),
+    "kamino_multiply_markets":    _A({"lending", "kamino", "analysis"}),
     "kamino_long_open":           _A({"lending", "kamino", "perp"}),
     "kamino_short_open":          _A({"lending", "kamino", "perp"}),
     "kamino_position_close":      _A({"lending", "kamino"}),

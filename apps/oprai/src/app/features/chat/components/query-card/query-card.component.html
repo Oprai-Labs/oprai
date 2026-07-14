@@ -408,6 +408,144 @@
           </p>
         }
 
+        <!-- ─────────────────── Kamino Multiply pool list ─────────────────── -->
+        @if (isQueryType('kamino_multiply_markets')) {
+          <div class="dlmm-search-wrap">
+            <lucide-icon name="search" [size]="13" class="dlmm-search-icon" />
+            <input
+              class="dlmm-search"
+              type="text"
+              placeholder="Filter by token (e.g. SOL, JITOSOL)…"
+              [value]="kaminoMultiplySearchRaw()"
+              (input)="onKaminoMultiplySearch($event)"
+            />
+            <button
+              type="button"
+              class="dlmm-refresh-btn"
+              (click)="refreshLiveData()"
+              [disabled]="kaminoMultiplyFetching()"
+              title="Refresh Multiply pools">
+              <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="kaminoMultiplyFetching()" />
+            </button>
+          </div>
+          <div class="dlmm-sort-bar">
+            @for (opt of KAMINO_MULT_SORT_OPTIONS; track opt.field) {
+              <button
+                class="sort-btn"
+                [class.sort-active]="kaminoMultiplySortField() === opt.field"
+                (click)="onKaminoMultiplySortChange(opt.field)">
+                {{ opt.label }}
+                <lucide-icon
+                  [name]="kaminoMultiplySortField() === opt.field ? (kaminoMultiplySortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                  [size]="10" />
+              </button>
+            }
+          </div>
+          <div class="result-table km-table">
+            <div class="result-table__header km-row">
+              <span>Pool</span>
+              <span class="text-right" title="Maximum leverage available for this pair">Max Lev</span>
+              <span class="text-right" title="Estimated net APY at max leverage from live on-chain rates">Est. APY</span>
+              <span class="text-right" title="Available deposited value (Multiply TVL)">TVL</span>
+              <span class="text-right">Action</span>
+            </div>
+            @if (kaminoMultiplyFetching() && kaminoMultiplyAll.length === 0) {
+              <div class="dlmm-empty">Loading Multiply pools…</div>
+            }
+            @for (m of kaminoMultiplyPageRows(); track m.collMint + m.debtMint) {
+              <div class="result-table__row km-row">
+                <span class="km-pair">
+                  <span class="km-icons">
+                    @if (logoForMint(m.collMint); as icon) {
+                      <img class="km-icon" [src]="icon" [alt]="m.collToken" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="km-icon km-icon--fallback">{{ m.collToken.charAt(0) }}</span>
+                    }
+                    @if (logoForMint(m.debtMint); as icon) {
+                      <img class="km-icon km-icon--debt" [src]="icon" [alt]="m.debtToken" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="km-icon km-icon--debt km-icon--fallback">{{ m.debtToken.charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="km-pair__text">
+                    <span class="km-pair__name">{{ m.collToken }}/{{ m.debtToken }}</span>
+                    <span class="km-pair__sub">Max LTV {{ m.maxLtvPct }}% · avg {{ m.avgLeverage }}x</span>
+                  </span>
+                </span>
+                <span class="text-right"><span class="km-lev-badge">{{ m.maxLeverage }}x</span></span>
+                <span class="text-right mono km-apy">{{ m.estMaxApyPct.toFixed(2) }}%</span>
+                <span class="text-right mono">{{ formatUsd(m.tvlUsd) }}</span>
+                <span class="text-right">
+                  <button
+                    type="button"
+                    class="dlmm-use-btn"
+                    (click)="useMultiplyMarket(m); $event.stopPropagation()"
+                    title="Open a Multiply position on this pair">
+                    Multiply
+                    <lucide-icon name="arrow-right" [size]="12" />
+                  </button>
+                </span>
+              </div>
+            }
+            @if (!kaminoMultiplyFetching() && kaminoMultiplyFiltered().length === 0) {
+              <div class="dlmm-empty">
+                <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
+                @if (kaminoMultiplySearchRaw()) {
+                  <div>No Multiply pool matches <strong>"{{ kaminoMultiplySearchRaw() }}"</strong>.</div>
+                  <div class="dlmm-empty__hint">Try a different token, or browse on <a href="https://app.kamino.finance/multiply" target="_blank" rel="noopener">app.kamino.finance</a>.</div>
+                } @else {
+                  <div>No Multiply pools available right now.</div>
+                }
+              </div>
+            }
+          </div>
+          @if (kaminoMultiplyShowingRange().total > 0) {
+            <div class="dlmm-footer">
+              <span class="dlmm-footer__count">
+                Showing
+                <strong>{{ kaminoMultiplyShowingRange().from }}–{{ kaminoMultiplyShowingRange().to }}</strong>
+                of <strong>{{ kaminoMultiplyShowingRange().total }}</strong> pools
+              </span>
+              @if (kaminoMultiplyTotalPages() > 1) {
+                <div class="dlmm-pagination">
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="kaminoMultiplyGoToPage(1)"
+                          [disabled]="kaminoMultiplyPage() === 1"
+                          title="First page">
+                    <lucide-icon name="chevrons-left" [size]="13" />
+                  </button>
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="kaminoMultiplyPrevPage()"
+                          [disabled]="kaminoMultiplyPage() === 1"
+                          title="Previous page">
+                    <lucide-icon name="chevron-left" [size]="13" />
+                  </button>
+                  <span class="dlmm-page-current mono">{{ kaminoMultiplyPage() }} / {{ kaminoMultiplyTotalPages() }}</span>
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="kaminoMultiplyNextPage()"
+                          [disabled]="kaminoMultiplyPage() >= kaminoMultiplyTotalPages()"
+                          title="Next page">
+                    <lucide-icon name="chevron-right" [size]="13" />
+                  </button>
+                  <button class="dlmm-page-btn dlmm-page-btn--nav"
+                          (click)="kaminoMultiplyGoToPage(kaminoMultiplyTotalPages())"
+                          [disabled]="kaminoMultiplyPage() >= kaminoMultiplyTotalPages()"
+                          title="Last page">
+                    <lucide-icon name="chevrons-right" [size]="13" />
+                  </button>
+                </div>
+              }
+            </div>
+          }
+          <p class="dlmm-help">
+            Kamino Multiply loops a collateral against a borrowed token to reach a
+            target leverage. <strong>Est. APY</strong> is derived from live on-chain
+            rates (collateral yield × leverage − borrow cost) and excludes reward
+            incentives, fees and slippage — treat it as an estimate, not a guarantee.
+            Picking a pool pre-fills the open form; leverage and amount are editable.
+          </p>
+        }
+
         <!-- ─────────────────── Meteora DAMM v1 (legacy) pool list ────────── -->
         @if (isQueryType('meteora_dammv1_get_pools')) {
           <div class="dlmm-search-wrap">

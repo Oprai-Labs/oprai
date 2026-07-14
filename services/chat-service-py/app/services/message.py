@@ -291,6 +291,12 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # plain text and the model frequently misreads it ("no pools found")
     # even when 1–2 pools exist for the pair.
     "raydium_search_pools",
+    # Kamino Multiply pool list — paginated/sortable table with a per-row
+    # "Multiply" button that opens kamino_multiply_open on the chosen pair.
+    # The card self-fetches from /actions/build (delegated to the TS
+    # solana-service, which uses the klend SDK for exact per-pair max
+    # leverage). Response shape: `{ data: { markets: [<pool>, …], total } }`.
+    "kamino_multiply_markets",
     # Self-fetching cards rendered by the Angular query-card component.
     # The frontend fetches data via its own services (portfolio, helius,
     # birdeye, etc.) so the backend only needs to pass the type through.

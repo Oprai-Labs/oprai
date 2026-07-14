@@ -40,6 +40,9 @@ const MAIN_MARKET = "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF" as Address;
 const RECENT_SLOT_DURATION_MS = 450;
 const JUP_QUOTE = config.jupiterApiKey ? "https://api.jup.ag/swap/v1" : "https://lite-api.jup.ag/swap/v1";
 const JUP_PRICE = "https://api.jup.ag/price/v3";
+const KAMINO_API = "https://api.kamino.finance";
+// api.kamino.finance blocks non-browser User-Agents with a 403.
+const KAMINO_UA = { "User-Agent": "Mozilla/5.0", Accept: "application/json" };
 
 function preview(type: string, description: string, params: Record<string, unknown>): ActionPreview {
   return { id: uuidv4(), type, description, estimatedFee: "~0.00005 SOL", params, warnings: [], requiresApproval: false };
@@ -374,4 +377,133 @@ export async function buildKaminoMultiplyWithdraw(params: KaminoMultiplyWithdraw
 /** Fully unwind (close) a Multiply position — repays the debt and returns the collateral. */
 export async function buildKaminoMultiplyClose(params: KaminoMultiplyWithdrawParams, userWallet: string): Promise<BuildResponse> {
   return buildMultiplyWithdrawInternal(params, userWallet, true);
+}
+
+// ── Multiply market discovery (read-only query) ───────────────────────────────
+
+interface KaminoLeverageMetric {
+  depositReserve: string;
+  borrowReserve: string;
+  tag: string; // "Multiply" | "Leverage"
+  tvl?: string;
+  avgLeverage?: string;
+  totalDepositedUsd?: string;
+  totalBorrowedUsd?: string;
+}
+interface KaminoReserveMetric {
+  reserve: string;
+  liquidityToken: string; // symbol
+  liquidityTokenMint: string;
+  maxLtv?: string;
+  borrowApy?: string;
+  supplyApy?: string;
+  totalSupplyUsd?: string;
+}
+
+async function kaminoGet<T>(path: string): Promise<T> {
+  const r = await fetch(`${KAMINO_API}${path}`, { headers: KAMINO_UA });
+  if (!r.ok) throw appError("Could not load Kamino market data", 502, "KAMINO_ERROR");
+  return (await r.json()) as T;
+}
+
+export interface KaminoMultiplyMarketsParams {
+  token?: string; // filter to pairs whose collateral OR debt symbol matches
+  limit?: string; // default 8, max 30
+  sort?: string; // "apy" (default) | "tvl" | "leverage"
+}
+
+interface MultiplyMarketRow {
+  collToken: string; collMint: string; debtToken: string; debtMint: string;
+  maxLeverage: number; maxLtvPct: number; estMaxApyPct: number; avgLeverage: number;
+  tvlUsd: number; liquidityUsd: number; collSupplyApyPct: number; debtBorrowApyPct: number;
+}
+
+/**
+ * List the Main-Market Kamino Multiply pools with real metrics: exact max
+ * leverage (SDK `getMaxLeverageForPair`, which honours elevation groups), an
+ * estimated net APY at max leverage from live on-chain rates, TVL, average
+ * leverage actually taken, and available debt liquidity. Sorted (default by
+ * estimated APY), filterable by token. Read-only — returns `data`, no tx.
+ */
+export async function getKaminoMultiplyMarkets(params: KaminoMultiplyMarketsParams): Promise<BuildResponse> {
+  const token = params.token?.trim().toUpperCase();
+  // Card fetches the full set (limit≈100) and sorts/filters/paginates
+  // client-side; a text answer uses a small limit. Cap at 100 (>57 pools).
+  const limit = Math.max(1, Math.min(parseInt(params.limit ?? "8", 10) || 8, 100));
+  const sort = (params.sort ?? "apy").trim().toLowerCase();
+
+  // Live REST datasets (parallel): per-market leverage metrics, per-reserve
+  // metrics, and collateral staking yields (LST/yield-bearing tokens).
+  const [levMetrics, reserveMetrics, stakingYields, market] = await Promise.all([
+    kaminoGet<KaminoLeverageMetric[]>(`/kamino-market/${MAIN_MARKET}/leverage/metrics`),
+    kaminoGet<KaminoReserveMetric[]>(`/kamino-market/${MAIN_MARKET}/reserves/metrics`),
+    kaminoGet<{ apy: string; tokenMint: string }[]>(`/v2/staking-yields`),
+    loadMarket(),
+  ]);
+
+  const byReserve = new Map<string, KaminoReserveMetric>();
+  for (const r of reserveMetrics) byReserve.set(r.reserve, r);
+  const stakingByMint = new Map<string, number>();
+  for (const s of stakingYields) stakingByMint.set(s.tokenMint, parseFloat(s.apy ?? "0") || 0);
+
+  const rows: MultiplyMarketRow[] = [];
+  for (const m of levMetrics) {
+    if (m.tag !== "Multiply") continue;
+    const coll = byReserve.get(m.depositReserve);
+    const debt = byReserve.get(m.borrowReserve);
+    if (!coll || !debt) continue; // reserve not on the main market — skip
+
+    // Exact max leverage for the pair (elevation-group aware). maxLtv is the
+    // consistent inverse (maxLev = 1/(1-maxLtv)).
+    let maxLeverage = 0;
+    try {
+      maxLeverage = market.getMaxLeverageForPair(address(coll.liquidityTokenMint), address(debt.liquidityTokenMint));
+    } catch {
+      maxLeverage = 0;
+    }
+    if (!maxLeverage || !isFinite(maxLeverage) || maxLeverage <= 1) continue;
+    const maxLtv = 1 - 1 / maxLeverage;
+
+    // Estimated net APY at max leverage from live rates:
+    //   collYield = collateral supply APY + collateral staking yield
+    //   netApy    = L·collYield − (L−1)·debtBorrowApy
+    // Clearly an ESTIMATE (fees/slippage/rate drift excluded), not Kamino's
+    // exact displayed figure — labelled as such on the card.
+    const collYield = (parseFloat(coll.supplyApy ?? "0") || 0) + (stakingByMint.get(coll.liquidityTokenMint) ?? 0);
+    const debtBorrow = parseFloat(debt.borrowApy ?? "0") || 0;
+    const estMaxApyPct = (maxLeverage * collYield - (maxLeverage - 1) * debtBorrow) * 100;
+
+    rows.push({
+      collToken: coll.liquidityToken,
+      collMint: coll.liquidityTokenMint,
+      debtToken: debt.liquidityToken,
+      debtMint: debt.liquidityTokenMint,
+      maxLeverage: Math.round(maxLeverage * 100) / 100,
+      maxLtvPct: Math.round(maxLtv * 1000) / 10,
+      estMaxApyPct: Math.round(estMaxApyPct * 100) / 100,
+      avgLeverage: Math.round((parseFloat(m.avgLeverage ?? "0") || 0) * 100) / 100,
+      tvlUsd: parseFloat(m.totalDepositedUsd ?? m.tvl ?? "0") || 0,
+      liquidityUsd: parseFloat(debt.totalSupplyUsd ?? "0") || 0,
+      collSupplyApyPct: Math.round(collYield * 10000) / 100,
+      debtBorrowApyPct: Math.round(debtBorrow * 10000) / 100,
+    });
+  }
+
+  let list = rows;
+  if (token) list = list.filter((r) => r.collToken.toUpperCase() === token || r.debtToken.toUpperCase() === token);
+  const cmp: Record<string, (a: MultiplyMarketRow, b: MultiplyMarketRow) => number> = {
+    tvl: (a, b) => b.tvlUsd - a.tvlUsd,
+    leverage: (a, b) => b.maxLeverage - a.maxLeverage,
+    apy: (a, b) => b.estMaxApyPct - a.estMaxApyPct,
+  };
+  list.sort(cmp[sort] ?? cmp.apy);
+  const total = list.length;
+  list = list.slice(0, limit);
+
+  return {
+    preview: preview("kamino_multiply_markets", "Kamino Multiply pools", params as unknown as Record<string, unknown>),
+    additionalSignersRequired: 0,
+    isCrossChain: false,
+    data: { markets: list, total, market: "main", sortedBy: sort in cmp ? sort : "apy" },
+  } as BuildResponse;
 }

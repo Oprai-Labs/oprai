@@ -182,6 +182,27 @@ Format: [ACTION:kamino_add_collateral] token=<symbol_or_mint> amount=<amount>
 #### KAMINO_WITHDRAW_COLLATERAL — Withdraw collateral from a Kamino position
 Format: [ACTION:kamino_withdraw_collateral] token=<symbol_or_mint> amount=<amount>
 
+#### KAMINO_MULTIPLY_MARKETS — List available Kamino Multiply pools (read-only)
+Use this when the user wants to browse/compare Multiply pools, asks which pools
+exist, which has the highest APY/leverage, or says something like "let's deposit
+into Kamino Multiply" WITHOUT naming a specific pair — show the list first so
+they can pick, then open with KAMINO_MULTIPLY_OPEN. Returns real per-pool
+metrics (max leverage, estimated max-leverage APY, max LTV, TVL, average
+leverage, available liquidity), sorted.
+Query type: kamino_multiply_markets
+Parameters (all optional):
+- token: filter to pools whose collateral OR debt token matches (e.g. "SOL", "JITOSOL")
+- sort: "apy" (default) | "tvl" | "leverage"
+- limit: how many to return (default 8, max 30)
+
+Examples:
+- "Let's deposit into Kamino Multiply" / "show me Kamino multiply pools"
+  -> query_onchain("kamino_multiply_markets", {})
+- "Which Kamino multiply pool has the highest APY?"
+  -> query_onchain("kamino_multiply_markets", {"sort": "apy"})
+- "Show all SOL multiply pools"
+  -> query_onchain("kamino_multiply_markets", {"token": "SOL", "limit": "30"})
+
 #### KAMINO_MULTIPLY_OPEN — Open a Kamino Multiply (leveraged yield) position
 A Multiply position is identified by its collateral/debt token PAIR (not a
 strategy name or an address). The user deposits a collateral token; the protocol
