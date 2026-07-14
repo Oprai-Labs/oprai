@@ -154,6 +154,28 @@ Examples:
 - "Withdraw my Kamino vault shares, 50 kTokens"
   -> execute_action("kamino_vault_withdraw", {"vault": "SOL", "ktokenAmount": "50"})
 
+#### KAMINO_LIQUIDITY — Provide/withdraw concentrated liquidity (CLMM strategies)
+Kamino "Liquidity" = automated concentrated-liquidity positions in Orca/Raydium
+CLMM pools (distinct from the Earn lend-vaults above). Deposit two tokens (or one
+side — the pair is auto-computed from the pool ratio) and earn trading fees.
+
+Discover strategies first with query_onchain `kamino_liquidity_strategies` — it
+returns strategies sorted by TVL, each with `strategy` (address), `tokenA`,
+`tokenB`, `tvlUsd`, `apyPct`, `poolLabel`. Filters: `token`=<symbol> (only pairs
+containing it), `limit`=<n>. When the user didn't name a specific strategy,
+call it and request_clarification with the top few; each option's params carry
+`strategy`=<address> and the parsed `amountA`.
+
+Format: [ACTION:kamino_liquidity_deposit] strategy=<address> amountA=<amount> [amountB=<amount>]
+Format: [ACTION:kamino_liquidity_withdraw] strategy=<address> shares=<amount_or_"all">
+
+Examples:
+- "Provide 100 USDC of liquidity to the PYUSD-USDC Kamino pool"
+  -> (call kamino_liquidity_strategies token=USDC, pick the PYUSD-USDC strategy)
+  -> execute_action("kamino_liquidity_deposit", {"strategy": "Hmj8…", "amountA": "100"})
+- "Withdraw all my Kamino liquidity from strategy Hmj8…"
+  -> execute_action("kamino_liquidity_withdraw", {"strategy": "Hmj8…", "shares": "all"})
+
 #### KAMINO_ADD_COLLATERAL — Add more collateral to a Kamino lending position
 Format: [ACTION:kamino_add_collateral] token=<symbol_or_mint> amount=<amount>
 

@@ -244,7 +244,18 @@ pub async fn get_chain_tokens(
 fn is_ts_delegated_action(action_type: &str) -> bool {
     matches!(
         action_type,
-        "kamino_stake" | "kamino_unstake" | "kamino_claim_rewards"
+        "kamino_stake"
+            | "kamino_unstake"
+            | "kamino_claim_rewards"
+            // Multiply (leveraged looping) — klend-sdk leverage ixs + Jupiter swapper.
+            | "kamino_multiply_open"
+            | "kamino_multiply_add"
+            | "kamino_multiply_withdraw"
+            | "kamino_multiply_close"
+            // Concentrated liquidity (kLiquidity CLMM strategies) — kliquidity-sdk.
+            | "kamino_liquidity_deposit"
+            | "kamino_liquidity_withdraw"
+            | "kamino_liquidity_strategies"
     )
 }
 

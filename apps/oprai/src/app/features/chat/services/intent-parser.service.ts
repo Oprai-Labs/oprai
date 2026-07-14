@@ -163,7 +163,9 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'kamino_multiply_open', 'kamino_multiply_add', 'kamino_multiply_withdraw', 'kamino_multiply_close',
   'kamino_long_open', 'kamino_short_open', 'kamino_position_close',
   'kamino_vault_deposit', 'kamino_vault_withdraw', 'kamino_stake', 'kamino_unstake',
+  'kamino_liquidity_deposit', 'kamino_liquidity_withdraw',
   // Kamino — data queries
+  'kamino_liquidity_strategies',
   'kamino_vaults', 'kamino_markets', 'kamino_market_reserves',
   'kamino_user_vault_positions', 'kamino_user_obligations', 'kamino_oracle_prices', 'kamino_usd_benchmark_rates',
   'kamino_market_metrics_history', 'kamino_reserve_borrow_apy_history', 'kamino_reserve_borrow_apy_median',

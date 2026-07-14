@@ -1168,6 +1168,16 @@ function getActionFields(
     // no required params — closes the active position
   } else if (t === 'kamino_claim_rewards') {
     // no required params — claims all pending rewards
+  } else if (t === 'kamino_liquidity_deposit') {
+    fields.push(
+      { key: 'strategy', label: 'Strategy', type: 'text', placeholder: 'strategy address', required: true, hint: 'Kamino CLMM strategy address' },
+      { key: 'amountA', label: 'Amount (token A)', type: 'number', placeholder: '0', required: true, hint: 'The other side is auto-computed from the pool ratio' },
+    );
+  } else if (t === 'kamino_liquidity_withdraw') {
+    fields.push(
+      { key: 'strategy', label: 'Strategy', type: 'text', placeholder: 'strategy address', required: true },
+      { key: 'shares', label: 'Shares', type: 'text', placeholder: 'all', required: true, hint: '"all" withdraws the full position' },
+    );
   // ── MarginFi ──────────────────────────────────────────────────────────────
   } else if (t === 'marginfi_deposit') {
     fields.push(

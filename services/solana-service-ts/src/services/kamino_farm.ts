@@ -11,19 +11,7 @@
  * The Rust solana-service (the gateway's upstream) delegates kamino_stake /
  * kamino_unstake / kamino_claim_rewards here because it has no Kamino SDK crate.
  */
-import {
-  address,
-  pipe,
-  createNoopSigner,
-  createSolanaRpc,
-  createTransactionMessage,
-  setTransactionMessageFeePayerSigner,
-  setTransactionMessageLifetimeUsingBlockhash,
-  appendTransactionMessageInstructions,
-  compileTransaction,
-  getBase64EncodedWireTransaction,
-  type Instruction,
-} from "@solana/kit";
+import { address, createNoopSigner } from "@solana/kit";
 import Decimal from "decimal.js/decimal";
 // These farm helpers aren't re-exported from the klend-sdk root, only from the
 // classes/farm_utils module — import the subpath directly (the package has no
@@ -35,8 +23,8 @@ import {
 } from "@kamino-finance/klend-sdk/dist/classes/farm_utils";
 import { Farms } from "@kamino-finance/farms-sdk";
 import { v4 as uuidv4 } from "uuid";
-import { config } from "../config";
 import { appError, BuildResponse, ActionPreview } from "../types/index";
+import { kitRpc, buildUnsignedV0Tx } from "../utils/kit_tx";
 
 // The single on-chain Kamino Farms farm whose stake token is KMNO — found via
 // getProgramAccounts(memcmp KMNO mint @ token.mint) and verified by decoding the
@@ -57,25 +45,8 @@ function preview(type: string, description: string, params: Record<string, unkno
   };
 }
 
-function rpc() {
-  return createSolanaRpc(config.solanaRpc);
-}
-
-/** Compile kit instructions into an unsigned base64 v0 tx for the wallet to sign. */
-async function toBase64V0(instructions: Instruction[], userWallet: string): Promise<string> {
-  if (instructions.length === 0) {
-    throw appError("Nothing to do for this action", 400, "NO_OP");
-  }
-  const feePayer = createNoopSigner(address(userWallet));
-  const { value: latestBlockhash } = await rpc().getLatestBlockhash().send();
-  const message = pipe(
-    createTransactionMessage({ version: 0 }),
-    (m) => setTransactionMessageFeePayerSigner(feePayer, m),
-    (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
-    (m) => appendTransactionMessageInstructions(instructions, m),
-  );
-  return getBase64EncodedWireTransaction(compileTransaction(message));
-}
+const rpc = kitRpc;
+const toBase64V0 = buildUnsignedV0Tx;
 
 /** UI decimal amount → base-unit Decimal (lamports) the farm SDK expects. */
 function toLamports(amount: string, decimals: number): Decimal {

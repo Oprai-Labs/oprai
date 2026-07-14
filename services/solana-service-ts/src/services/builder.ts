@@ -11,6 +11,7 @@ import * as marginfi from "./marginfi";
 import * as transfer from "./transfer";
 import * as kamino from "./kamino";
 import * as kaminoFarm from "./kamino_farm";
+import * as kaminoLiquidity from "./kamino_liquidity";
 import * as raydium from "./raydium";
 import * as orca from "./orca";
 import * as marinade from "./marinade";
@@ -134,6 +135,13 @@ export async function buildAction(
       return kaminoFarm.buildKaminoUnstake(p(params), userWallet);
     case "kamino_claim_rewards":
       return kaminoFarm.buildKaminoClaimRewards(p(params), userWallet);
+    // Concentrated liquidity (CLMM) strategies — kliquidity-sdk.
+    case "kamino_liquidity_deposit":
+      return kaminoLiquidity.buildKaminoLiquidityDeposit(p(params), userWallet);
+    case "kamino_liquidity_withdraw":
+      return kaminoLiquidity.buildKaminoLiquidityWithdraw(p(params), userWallet);
+    case "kamino_liquidity_strategies":
+      return kaminoLiquidity.getKaminoLiquidityStrategies(p(params));
 
     // ── Raydium ───────────────────────────────────────────────────────────────
     case "raydium_swap":
