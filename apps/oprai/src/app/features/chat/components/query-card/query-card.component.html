@@ -50,13 +50,13 @@
             <button class="sort-btn" (click)="toggleSort('value')" [class.sort-active]="balanceSortField() === 'value'">
               Value
               <lucide-icon
-                [name]="balanceSortField() === 'value' ? (balanceSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                [name]="balanceSortField() === 'value' ? (balanceSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                 [size]="10" />
             </button>
             <button class="sort-btn" (click)="toggleSort('change24h')" [class.sort-active]="balanceSortField() === 'change24h'">
               24h
               <lucide-icon
-                [name]="balanceSortField() === 'change24h' ? (balanceSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                [name]="balanceSortField() === 'change24h' ? (balanceSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                 [size]="10" />
             </button>
           </div>
@@ -143,7 +143,7 @@
               (click)="onDlmmSortChange(opt.field)">
               {{ opt.label }}
               <lucide-icon
-                [name]="dlmmSortField() === opt.field ? (dlmmSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                [name]="dlmmSortField() === opt.field ? (dlmmSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                 [size]="10" />
             </button>
           }
@@ -271,6 +271,7 @@
             and what LPs earn.
           </p>
         }
+      }
 
         <!-- ─────────────────── Meteora DAMM v2 pool list ─────────────────── -->
         @if (isQueryType('meteora_dammv2_get_pools')) {
@@ -300,7 +301,7 @@
                 (click)="onDammV2SortChange(opt.field)">
                 {{ opt.label }}
                 <lucide-icon
-                  [name]="dammV2SortField() === opt.field ? (dammV2SortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                  [name]="dammV2SortField() === opt.field ? (dammV2SortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                   [size]="10" />
               </button>
             }
@@ -436,7 +437,7 @@
                 (click)="onKaminoMultiplySortChange(opt.field)">
                 {{ opt.label }}
                 <lucide-icon
-                  [name]="kaminoMultiplySortField() === opt.field ? (kaminoMultiplySortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                  [name]="kaminoMultiplySortField() === opt.field ? (kaminoMultiplySortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                   [size]="10" />
               </button>
             }
@@ -574,7 +575,7 @@
                 (click)="onDammV1SortChange(opt.field)">
                 {{ opt.label }}
                 <lucide-icon
-                  [name]="dammV1SortField() === opt.field ? (dammV1SortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                  [name]="dammV1SortField() === opt.field ? (dammV1SortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                   [size]="10" />
               </button>
             }
@@ -681,7 +682,6 @@
             the action card; you only enter one amount.
           </p>
         }
-      }
 
       <!-- ─────────────────── Raydium pool list ─────────────────── -->
       <!-- Raydium V3 has no `query` param, so we expose pool-type chips +
@@ -714,7 +714,7 @@
               (click)="onRaydiumSortChange(opt.field)">
               {{ opt.label }}
               <lucide-icon
-                [name]="raydiumSortField() === opt.field ? (raydiumSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrows-up-down'"
+                [name]="raydiumSortField() === opt.field ? (raydiumSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                 [size]="10" />
             </button>
           }

@@ -14,11 +14,13 @@ import {
 } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { importProvidersFrom } from '@angular/core';
+
 import {
   LucideAngularModule,
   LayoutDashboard, SquarePen, MessageSquare, Bot, Briefcase,
   TrendingUp, Eye, Search, Zap, BarChart3, ShoppingBag, Settings,
   ChevronDown, ChevronLeft, ChevronRight, MoreVertical, Pencil,
+  ChevronsLeft, ChevronsRight, PackageX, BookOpen,
   Trash2, Menu, ArrowRight, Paperclip, SendHorizontal, CheckCircle2,
   AlertCircle, Sun, Moon, LogOut, X, CreditCard, Activity, PieChart,
   CircleDollarSign, Clock, Wallet, Copy, RefreshCw, Flame,
@@ -61,6 +63,7 @@ bootstrapApplication(AppComponent, {
       LayoutDashboard, SquarePen, MessageSquare, Bot, Briefcase,
       TrendingUp, Eye, Search, Zap, BarChart3, ShoppingBag, Settings,
       ChevronDown, ChevronLeft, ChevronRight, MoreVertical, Pencil,
+      ChevronsLeft, ChevronsRight, PackageX, BookOpen,
       Trash2, Menu, ArrowRight, Paperclip, SendHorizontal, CheckCircle2,
       AlertCircle, Sun, Moon, LogOut, X, CreditCard, Activity, PieChart,
       CircleDollarSign, Clock, Wallet, Copy, RefreshCw, Flame,
