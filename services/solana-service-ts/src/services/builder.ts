@@ -12,6 +12,7 @@ import * as transfer from "./transfer";
 import * as kamino from "./kamino";
 import * as kaminoFarm from "./kamino_farm";
 import * as kaminoLiquidity from "./kamino_liquidity";
+import * as kaminoMultiply from "./kamino_multiply";
 import * as raydium from "./raydium";
 import * as orca from "./orca";
 import * as marinade from "./marinade";
@@ -142,6 +143,15 @@ export async function buildAction(
       return kaminoLiquidity.buildKaminoLiquidityWithdraw(p(params), userWallet);
     case "kamino_liquidity_strategies":
       return kaminoLiquidity.getKaminoLiquidityStrategies(p(params));
+    // Multiply (leveraged looping) — klend-sdk leverage + Jupiter swapper.
+    case "kamino_multiply_open":
+      return kaminoMultiply.buildKaminoMultiplyOpen(p(params), userWallet);
+    case "kamino_multiply_add":
+      return kaminoMultiply.buildKaminoMultiplyAdd(p(params), userWallet);
+    case "kamino_multiply_withdraw":
+      return kaminoMultiply.buildKaminoMultiplyWithdraw(p(params), userWallet);
+    case "kamino_multiply_close":
+      return kaminoMultiply.buildKaminoMultiplyClose(p(params), userWallet);
 
     // ── Raydium ───────────────────────────────────────────────────────────────
     case "raydium_swap":

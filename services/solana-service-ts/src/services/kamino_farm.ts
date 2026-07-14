@@ -11,7 +11,13 @@
  * The Rust solana-service (the gateway's upstream) delegates kamino_stake /
  * kamino_unstake / kamino_claim_rewards here because it has no Kamino SDK crate.
  */
-import { address, createNoopSigner } from "@solana/kit";
+// Load the klend-sdk ROOT for its side effects BEFORE the farm_utils subpath.
+// klend-sdk has internal circular deps that only resolve when the root index
+// initialises the modules in order; importing a subpath first leaves other
+// modules (e.g. KaminoMarket, used by kamino_multiply) half-initialised →
+// `undefined`. Root-first guarantees a complete module cache for everyone.
+import "@kamino-finance/klend-sdk";
+import { address, createNoopSigner, type Instruction } from "@solana/kit";
 import Decimal from "decimal.js/decimal";
 // These farm helpers aren't re-exported from the klend-sdk root, only from the
 // classes/farm_utils module — import the subpath directly (the package has no

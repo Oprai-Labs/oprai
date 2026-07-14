@@ -1148,24 +1148,42 @@ function getActionFields(
     fields.push({ key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'KMNO', required: true });
   } else if (t === 'kamino_unstake') {
     fields.push({ key: 'amount', label: 'Amount', type: 'text', placeholder: 'all', required: true, hint: '"all" unstakes everything' });
-  } else if (t === 'kamino_multiply_open' || t === 'kamino_long_open' || t === 'kamino_short_open') {
+  } else if (t === 'kamino_long_open' || t === 'kamino_short_open') {
     fields.push(
       { key: 'collateralToken', label: 'Collateral Token', type: 'token', required: true },
       { key: 'collateralAmount', label: 'Collateral Amount', type: 'number', placeholder: '0', required: true },
       { key: 'leverage', label: 'Leverage', type: 'number', placeholder: '2', required: true, min: 1, max: 10, step: '0.1', half: true },
     );
+  } else if (t === 'kamino_multiply_open') {
+    // A Multiply position is keyed by its collateral/debt token pair. The
+    // backend loads/creates the obligation from (token, debtToken); debt
+    // defaults to USDC but is usually SOL for LST strategies.
+    fields.push(
+      { key: 'token', label: 'Collateral Token', type: 'token', required: true },
+      { key: 'amount', label: 'Collateral Amount', type: 'number', placeholder: '0', required: true },
+      { key: 'leverage', label: 'Leverage', type: 'number', placeholder: '2', required: true, min: 1, max: 10, step: '0.1', half: true },
+      { key: 'debtToken', label: 'Debt Token', type: 'token', required: false, half: true, hint: 'Borrowed & looped; defaults to USDC' },
+    );
   } else if (t === 'kamino_multiply_add') {
     fields.push(
-      { key: 'collateralToken', label: 'Collateral Token', type: 'token', required: true },
-      { key: 'collateralAmount', label: 'Additional Amount', type: 'number', placeholder: '0', required: true },
+      { key: 'token', label: 'Collateral Token', type: 'token', required: true },
+      { key: 'amount', label: 'Additional Amount', type: 'number', placeholder: '0', required: true },
+      { key: 'debtToken', label: 'Debt Token', type: 'token', required: false, hint: 'The position\'s debt token; defaults to USDC' },
     );
   } else if (t === 'kamino_multiply_withdraw') {
     fields.push(
-      { key: 'collateralToken', label: 'Collateral Token', type: 'token', required: true },
-      { key: 'percent', label: 'Withdraw %', type: 'number', placeholder: '50', suffix: '%', required: true, min: 1, max: 100 },
+      { key: 'token', label: 'Collateral Token', type: 'token', required: true },
+      { key: 'amount', label: 'Withdraw Amount', type: 'number', placeholder: '0', required: true, hint: 'Collateral to withdraw (partial deleverage)' },
+      { key: 'debtToken', label: 'Debt Token', type: 'token', required: false, hint: 'The position\'s debt token; defaults to USDC' },
     );
   } else if (t === 'kamino_multiply_close' || t === 'kamino_position_close') {
-    // no required params — closes the active position
+    // Close is keyed by the coll/debt pair; token is required, debt optional.
+    if (t === 'kamino_multiply_close') {
+      fields.push(
+        { key: 'token', label: 'Collateral Token', type: 'token', required: true },
+        { key: 'debtToken', label: 'Debt Token', type: 'token', required: false, hint: 'The position\'s debt token; defaults to USDC' },
+      );
+    }
   } else if (t === 'kamino_claim_rewards') {
     // no required params — claims all pending rewards
   } else if (t === 'kamino_liquidity_deposit') {

@@ -183,30 +183,54 @@ Format: [ACTION:kamino_add_collateral] token=<symbol_or_mint> amount=<amount>
 Format: [ACTION:kamino_withdraw_collateral] token=<symbol_or_mint> amount=<amount>
 
 #### KAMINO_MULTIPLY_OPEN — Open a Kamino Multiply (leveraged yield) position
-Format: [ACTION:kamino_multiply_open] strategy=<strategy_name_or_address> token=<collateral_token> amount=<amount> leverage=<1-10>
+A Multiply position is identified by its collateral/debt token PAIR (not a
+strategy name or an address). The user deposits a collateral token; the protocol
+borrows a correlated debt token, swaps it to more collateral, and loops to the
+target leverage. Existing positions are found from the wallet + token pair.
+Format: [ACTION:kamino_multiply_open] token=<collateral_token> amount=<amount> leverage=<1-10> [debtToken=<token>]
 
 Parameters:
-- strategy: Multiply strategy name or address (e.g. "SOL-mSOL", "JitoSOL-SOL")
-- token: Collateral token to deposit (e.g. SOL)
-- amount: Collateral amount
-- leverage: Target leverage multiplier
+- token: Collateral token to deposit (e.g. MSOL, JITOSOL, SOL)
+- amount: Collateral amount to deposit
+- leverage: Target leverage multiplier (1-10)
+- debtToken: Token to borrow and loop against (optional; defaults to USDC). For
+  LST strategies this is usually SOL (e.g. mSOL collateral, SOL debt).
 
 Examples:
-- "Open 3x multiply position with 10 SOL on SOL-mSOL strategy"
-  -> execute_action("kamino_multiply_open", {"strategy": "SOL-mSOL", "token": "SOL", "amount": "10", "leverage": "3"})
+- "Open a 3x multiply position with 10 mSOL borrowing SOL"
+  -> execute_action("kamino_multiply_open", {"token": "MSOL", "amount": "10", "leverage": "3", "debtToken": "SOL"})
 
-#### KAMINO_MULTIPLY_ADD — Add collateral to a Kamino Multiply position
-Format: [ACTION:kamino_multiply_add] position=<position_address> token=<token> amount=<amount>
+#### KAMINO_MULTIPLY_ADD — Add collateral to an existing Multiply position
+Identify the position by the same collateral/debt token pair used to open it.
+Format: [ACTION:kamino_multiply_add] token=<collateral_token> amount=<amount> [debtToken=<token>] [leverage=<1-10>]
 
-#### KAMINO_MULTIPLY_WITHDRAW — Partially withdraw from a Kamino Multiply position
-Format: [ACTION:kamino_multiply_withdraw] position=<position_address> percent=<0-100>
+Parameters:
+- token / debtToken: the position's collateral / debt token pair
+- amount: additional collateral to deposit
+- leverage: optional; keeps the position's current leverage if omitted
 
-Examples:
-- "Withdraw 50% from my multiply position ABC123"
-  -> execute_action("kamino_multiply_withdraw", {"position": "ABC123", "percent": "50"})
+Example:
+- "Add 5 mSOL to my mSOL/SOL multiply position"
+  -> execute_action("kamino_multiply_add", {"token": "MSOL", "amount": "5", "debtToken": "SOL"})
 
-#### KAMINO_MULTIPLY_CLOSE — Close a Kamino Multiply position entirely
-Format: [ACTION:kamino_multiply_close] position=<position_address>
+#### KAMINO_MULTIPLY_WITHDRAW — Partially withdraw collateral from a Multiply position
+Format: [ACTION:kamino_multiply_withdraw] token=<collateral_token> amount=<amount> [debtToken=<token>]
+
+Parameters:
+- token / debtToken: the position's collateral / debt token pair
+- amount: amount of collateral to withdraw (partial deleverage)
+
+Example:
+- "Withdraw 2 mSOL from my mSOL/SOL multiply position"
+  -> execute_action("kamino_multiply_withdraw", {"token": "MSOL", "amount": "2", "debtToken": "SOL"})
+
+#### KAMINO_MULTIPLY_CLOSE — Close a Multiply position entirely
+Fully unwinds the position: repays the borrowed debt and returns all collateral.
+Format: [ACTION:kamino_multiply_close] token=<collateral_token> [debtToken=<token>]
+
+Example:
+- "Close my mSOL/SOL multiply position"
+  -> execute_action("kamino_multiply_close", {"token": "MSOL", "debtToken": "SOL"})
 
 #### KAMINO_LONG_OPEN — Open a Kamino Long leveraged position
 Format: [ACTION:kamino_long_open] collateralToken=<token> collateralAmount=<amount> leverage=<1-10> [debtToken=<token>]

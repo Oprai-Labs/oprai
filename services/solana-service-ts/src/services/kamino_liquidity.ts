@@ -28,7 +28,7 @@ function preview(type: string, description: string, params: Record<string, unkno
 }
 
 function kamino() {
-  // @ts-expect-error kliquidity typings want a narrower Rpc; the full createSolanaRpc satisfies it at runtime.
+  // @ts-ignore kliquidity typings want a narrower Rpc; the full createSolanaRpc satisfies it at runtime.
   return new Kamino("mainnet-beta", kitRpc());
 }
 
