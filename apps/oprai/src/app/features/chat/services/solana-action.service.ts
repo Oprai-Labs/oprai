@@ -484,6 +484,48 @@ export class SolanaActionService {
   }
 
   /**
+   * Sign + submit + confirm the ordered setup transactions that must land BEFORE
+   * the main action tx. Used by Kamino Multiply: opening a leveraged position on
+   * a pair the user hasn't used before needs their per-position address lookup
+   * table created and extended (and warmed up one slot) first, so the leveraged
+   * deposit can compress against it and fit the 1232-byte limit.
+   *
+   * No-op unless the build returned a `transactions[]` with a non-zero
+   * `actionTxIndex`. Each setup tx is a separate wallet approval; we wait for
+   * confirmation between them (the LUT must exist before the next extend/deposit).
+   */
+  private async signAndConfirmSetupTxs(
+    buildResult: BuildResponse,
+    web3: typeof import('@solana/web3.js'),
+    connection: ReturnType<typeof createSolanaConnection>,
+    callbacks: ActionCallbacks,
+  ): Promise<void> {
+    const ordered = (buildResult as { transactions?: string[] }).transactions;
+    const actionTxIndex = (buildResult as { actionTxIndex?: number }).actionTxIndex ?? 0;
+    if (!Array.isArray(ordered) || actionTxIndex <= 0) return;
+
+    const setupTxs = ordered.slice(0, actionTxIndex);
+    for (let i = 0; i < setupTxs.length; i++) {
+      callbacks.onStatus?.(`Setting up position account (${i + 1}/${setupTxs.length})…`);
+      callbacks.onSign?.();
+      const tx = web3.VersionedTransaction.deserialize(this.base64ToUint8Array(setupTxs[i]));
+      const signed = (await Promise.race([
+        this.walletService.signTransaction(tx),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Wallet signing timed out. Please try again.')), 120_000),
+        ),
+      ])) as { serialize(): Uint8Array };
+      const sig = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+      const ok = await this.waitForSignatureConfirmation(connection, sig, 90_000);
+      if (!ok) throw new Error('Position account setup did not confirm — please try again.');
+    }
+    callbacks.onStatus?.('Opening position…');
+  }
+
+  /**
    * Perform a token launch's initial dev-buy as a follow-up, AFTER the create tx
    * confirms (the token/curve must exist on-chain first).
    *
@@ -1447,6 +1489,13 @@ export class SolanaActionService {
     // Step 3b: Deserialize tx + precise fee check — must happen before wallet dialog
     const web3 = await import('@solana/web3.js');
     const connection = createSolanaConnection('confirmed');
+
+    // Some actions return an ordered transactions[] where everything BEFORE
+    // actionTxIndex is one-time setup that must land — and warm up — before the
+    // main tx can reference it (Kamino Multiply's per-user lookup table: create +
+    // extend, then the leveraged deposit compresses against it). Sign + confirm
+    // those first, in order; the main tx (buildResult.transaction) follows below.
+    await this.signAndConfirmSetupTxs(buildResult, web3, connection, callbacks);
 
     const txBuffer = this.base64ToUint8Array(buildResult.transaction!);
     // Detect versioned-vs-legacy from the bytes themselves, not just the static
