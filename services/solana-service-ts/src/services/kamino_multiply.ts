@@ -25,6 +25,9 @@ import {
   getDepositWithLeverageIxs,
   getWithdrawWithLeverageIxs,
   getScopeRefreshIxForObligationAndReserves,
+  getUserLutAddressAndSetupIxs,
+  uniqueAccountsWithProgramIds,
+  extendLookupTableIxs,
   ObligationTypeTag,
   MultiplyObligation,
 } from "@kamino-finance/klend-sdk";
@@ -82,7 +85,11 @@ async function usdPrice(mint: string): Promise<number> {
 function makeQuoter(inDecimals: (m: string) => number) {
   return async (inputs: any, _klendAccounts: Address[]) => {
     const amount = inputs.inputAmountLamports.floor().toString();
-    const url = `${JUP_QUOTE}/quote?inputMint=${inputs.inputMint}&outputMint=${inputs.outputMint}&amount=${amount}&slippageBps=50`;
+    // The leverage tx bundles Kamino flash-loan + deposit + this swap into ONE
+    // v0 transaction that must fit Solana's 1232-byte limit. A default (multi-hop)
+    // Jupiter route adds too many accounts and overflows, so constrain the route:
+    // cap accounts and only hop through major tokens (which sit in shared ALTs).
+    const url = `${JUP_QUOTE}/quote?inputMint=${inputs.inputMint}&outputMint=${inputs.outputMint}&amount=${amount}&slippageBps=50&maxAccounts=20&restrictIntermediateTokens=true`;
     const r = await fetch(url, { headers: jupHeaders() });
     if (!r.ok) throw appError("Jupiter quote failed for leverage swap", 502, "SWAP_ERROR");
     const q: any = await r.json();
@@ -123,6 +130,57 @@ function altMap(lookupTables: any[]): Record<string, string[]> {
     if (addr && addrs.length) map[addr] = addrs;
   }
   return map;
+}
+
+/** A leveraged Kamino deposit references ~50 accounts and can't fit Solana's
+ *  1232-byte tx limit unless the user's per-position lookup table (LUT)
+ *  compresses them. This resolves that LUT for a set of deposit instructions:
+ *   - `lutAddress` / `lutAddresses` — the LUT and the full address set to
+ *     compress against (existing on-chain contents ∪ everything the deposit
+ *     touches that a Jupiter ALT doesn't already cover);
+ *   - `setupIxBatches` — the create/init + extend transactions the user must
+ *     land (and let warm up) BEFORE the deposit. Empty when the LUT already
+ *     holds every needed account (a returning multiply user), giving a 1-tx flow.
+ *
+ *  The Kamino SDK's own extend only adds ~10 position-specific addresses, which
+ *  isn't enough — so we extend with the deposit's complete account set instead. */
+async function resolveUserMultiplyLut(
+  market: KaminoMarket,
+  owner: ReturnType<typeof createNoopSigner>,
+  userWallet: string,
+  depositIxs: Instruction[],
+  jupAltAddresses: string[],
+): Promise<{ lutAddress: string; lutAddresses: string[]; setupIxBatches: Instruction[][] }> {
+  // create + init the user metadata/LUT if needed (no auto-extend — we do our own).
+  const [lutAddr, initBatches] = await getUserLutAddressAndSetupIxs(market, owner, none(), false, []);
+  const lutAddress = String(lutAddr);
+
+  // Every account the deposit touches that a Jupiter ALT doesn't already cover.
+  const jupAlts = jupAltAddresses.map((a) => address(a));
+  const needed = uniqueAccountsWithProgramIds(depositIxs, jupAlts)
+    .map(String)
+    .filter((a) => a !== userWallet); // fee payer can't be compressed
+
+  // What the LUT already holds on-chain, so we only extend with what's missing.
+  const onchain = new Set<string>();
+  try {
+    const [existing] = await fetchAllAddressLookupTable(kitRpc() as any, [lutAddr]);
+    for (const a of ((existing as any)?.data?.addresses ?? [])) onchain.add(String(a));
+  } catch { /* LUT not created yet */ }
+
+  const toAdd = needed.filter((a) => !onchain.has(a));
+  const extendIxs = toAdd.length ? extendLookupTableIxs(owner, lutAddr, toAdd.map((a) => address(a)), owner) : [];
+
+  const setupIxBatches: Instruction[][] = [
+    ...initBatches.filter((b) => b.length > 0), // create + init metadata (if new)
+    ...extendIxs.map((ix) => [ix]),              // one extend chunk per tx
+  ];
+
+  return {
+    lutAddress,
+    lutAddresses: [...new Set([...onchain, ...needed])],
+    setupIxBatches,
+  };
 }
 
 async function loadMarket(): Promise<KaminoMarket> {
@@ -240,13 +298,33 @@ export async function buildKaminoMultiplyOpen(params: KaminoMultiplyOpenParams, 
     throw appError("This Multiply position needs multiple transactions, which isn't supported yet — try a smaller amount or lower leverage", 400, "MULTI_TX");
   }
   const resp = responses[0];
-  const tx = await buildUnsignedV0Tx(resp.ixs as Instruction[], userWallet, altMap(resp.lookupTables));
-  return {
-    preview: preview("kamino_multiply_open", `Open ${leverage}x Multiply on ${params.token}`, params as unknown as Record<string, unknown>),
-    transaction: tx,
-    additionalSignersRequired: 0,
-    isCrossChain: false,
-  };
+
+  // Compress the deposit against the user's per-position LUT so it fits the
+  // 1232-byte limit; a first-time user must land the LUT setup tx(s) first.
+  const alts = altMap(resp.lookupTables);
+  const { lutAddress, lutAddresses, setupIxBatches } = await resolveUserMultiplyLut(
+    market, owner, userWallet, resp.ixs as Instruction[], Object.keys(alts),
+  );
+  if (lutAddresses.length) alts[lutAddress] = lutAddresses;
+  const depositTx = await buildUnsignedV0Tx(resp.ixs as Instruction[], userWallet, alts);
+
+  const pv = preview("kamino_multiply_open", `Open ${leverage}x Multiply on ${params.token}`, params as unknown as Record<string, unknown>);
+  if (setupIxBatches.length > 0) {
+    // New user: create/extend the LUT first (each batch is one tx; the LUT must
+    // confirm + warm up before the deposit can reference it), then deposit.
+    const setupTxs: string[] = [];
+    for (const batch of setupIxBatches) setupTxs.push(await buildUnsignedV0Tx(batch, userWallet, {}));
+    const transactions = [...setupTxs, depositTx];
+    return {
+      preview: pv,
+      transaction: depositTx,
+      transactions,
+      actionTxIndex: transactions.length - 1,
+      additionalSignersRequired: 0,
+      isCrossChain: false,
+    };
+  }
+  return { preview: pv, transaction: depositTx, additionalSignersRequired: 0, isCrossChain: false };
 }
 
 export interface KaminoMultiplyAddParams {
