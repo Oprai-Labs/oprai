@@ -51,6 +51,18 @@ function preview(type: string, description: string, params: Record<string, unkno
   return { id: uuidv4(), type, description, estimatedFee: "~0.00005 SOL", params, warnings: [], requiresApproval: false };
 }
 
+/** Parse a user-entered amount into a positive Decimal, or throw a clean 400.
+ *  `new Decimal("")` / `new Decimal("abc")` throw a raw error that would surface
+ *  as a 500 "internal server error"; guard so the user gets a clear message. */
+function parsePositiveAmount(raw: unknown, label = "amount"): Decimal {
+  const s = String(raw ?? "").trim();
+  if (!s) throw appError(`Enter a ${label} to continue`, 400, "INVALID_PARAMS");
+  let d: Decimal;
+  try { d = new Decimal(s); } catch { throw appError(`The ${label} must be a number`, 400, "INVALID_PARAMS"); }
+  if (!d.isFinite() || d.lte(0)) throw appError(`The ${label} must be a positive number`, 400, "INVALID_PARAMS");
+  return d;
+}
+
 function jupHeaders(): Record<string, string> {
   const h: Record<string, string> = { Accept: "application/json" };
   if (config.jupiterApiKey) h["x-api-key"] = config.jupiterApiKey;
@@ -251,8 +263,7 @@ export interface KaminoMultiplyOpenParams {
 /** Open a leveraged Multiply position. */
 export async function buildKaminoMultiplyOpen(params: KaminoMultiplyOpenParams, userWallet: string): Promise<BuildResponse> {
   const leverage = new Decimal(params.leverage || "2");
-  const amount = new Decimal(params.amount);
-  if (!amount.isFinite() || amount.lte(0)) throw appError("amount must be positive", 400, "INVALID_PARAMS");
+  const amount = parsePositiveAmount(params.amount, "collateral amount");
   if (leverage.lte(1) || leverage.gt(10)) throw appError("leverage must be between 1 and 10", 400, "INVALID_PARAMS");
 
   const market = await loadMarket();
@@ -337,8 +348,7 @@ export interface KaminoMultiplyAddParams {
 
 /** Add collateral to an existing Multiply position (re-loops to the target leverage). */
 export async function buildKaminoMultiplyAdd(params: KaminoMultiplyAddParams, userWallet: string): Promise<BuildResponse> {
-  const amount = new Decimal(params.amount);
-  if (!amount.isFinite() || amount.lte(0)) throw appError("amount must be positive", 400, "INVALID_PARAMS");
+  const amount = parsePositiveAmount(params.amount, "amount");
 
   const market = await loadMarket();
   const collMintStr = resolveMint(market, params.token);
@@ -415,7 +425,7 @@ async function buildMultiplyWithdrawInternal(
 
   const raw = (params.amount ?? "").trim().toLowerCase();
   const isClosingPosition = close || raw === "" || raw === "all" || raw === "max" || raw === "full";
-  const withdrawAmount = isClosingPosition ? deposited : new Decimal(params.amount as string);
+  const withdrawAmount = isClosingPosition ? deposited : parsePositiveAmount(params.amount, "withdraw amount");
   if (!withdrawAmount.isFinite() || withdrawAmount.lte(0)) throw appError("Nothing to withdraw from this position", 400, "NOTHING_TO_WITHDRAW");
 
   const owner = createNoopSigner(address(userWallet));
