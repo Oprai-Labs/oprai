@@ -195,9 +195,42 @@ async function resolveUserMultiplyLut(
   };
 }
 
+const RESERVE_STATUS_ACTIVE = 0; // Kamino ReserveStatus: 0 Active, 1 Obsolete, 2 Hidden
+
+/**
+ * Kamino's main market carries several DEPRECATED reserves that share a mint
+ * with the live one — notably FOUR USDC reserves (three hidden with ~0
+ * liquidity and a 0 borrow cap, one active with the real liquidity).
+ * `getReserveByMint` returns the FIRST match, which is often a dead reserve, and
+ * the leverage SDK resolves reserves by mint internally too — so a Multiply
+ * position that borrows USDC would be built against the dead reserve and revert
+ * on-chain (error 6089, borrow cap 0). Drop the non-active duplicates so every
+ * mint→reserve lookup (ours AND the SDK's) resolves the live reserve. Only
+ * de-dupes mints that still have an active reserve; a mint whose sole reserve is
+ * obsolete is left untouched.
+ */
+function pruneStaleReserves(market: KaminoMarket): void {
+  const byMint = new Map<string, Address[]>();
+  for (const [addr, r] of market.reserves) {
+    const mint = r.getLiquidityMint().toString();
+    const list = byMint.get(mint);
+    if (list) list.push(addr);
+    else byMint.set(mint, [addr]);
+  }
+  const statusOf = (a: Address): number => Number((market.reserves.get(a)?.state as any)?.config?.status);
+  for (const addrs of byMint.values()) {
+    if (addrs.length < 2) continue;
+    if (!addrs.some((a) => statusOf(a) === RESERVE_STATUS_ACTIVE)) continue;
+    for (const a of addrs) {
+      if (statusOf(a) !== RESERVE_STATUS_ACTIVE) market.reserves.delete(a);
+    }
+  }
+}
+
 async function loadMarket(): Promise<KaminoMarket> {
   const market = await KaminoMarket.load(kitRpc() as any, MAIN_MARKET, RECENT_SLOT_DURATION_MS);
   if (!market) throw appError("Could not load Kamino market", 502, "KAMINO_ERROR");
+  pruneStaleReserves(market);
   return market;
 }
 
@@ -246,7 +279,10 @@ function multiplyBorrowCapacity(
 ): Decimal | null {
   try {
     const debtReserve = market.getReserveByMint(address(debtMintStr));
-    if (!debtReserve) return null;
+    const collReserve = market.getReserveByMint(address(collMintStr));
+    if (!debtReserve || !collReserve) return null;
+    // The pair's elevation group (eMode). If the pair has no eMode group it's a
+    // cross-mode (group 0) leveraged position — check that group's caps instead.
     const eg = market
       .getMarketElevationGroupDescriptions()
       .find(
@@ -254,11 +290,16 @@ function multiplyBorrowCapacity(
           g.debtLiquidityMint === debtMintStr &&
           [...g.collateralLiquidityMints].some((m) => m.toString() === collMintStr),
       );
-    if (!eg) return null; // base-market leverage (no elevation group) — skip
+    const egIndex = eg ? eg.elevationGroup : 0;
+    // IMPORTANT: scope the against-collateral cap to the user's OWN collateral
+    // reserve. `getLiquidityAvailableForDebtReserveGivenCaps` takes the MIN of
+    // the per-collateral caps, so passing every collateral in the group would
+    // return 0 whenever ANY other (unrelated) collateral in a shared group is
+    // maxed — falsely flagging healthy pools (e.g. JupSOL→SOL) as capped.
     const avail = debtReserve.getLiquidityAvailableForDebtReserveGivenCaps(
       market,
-      [eg.elevationGroup],
-      [...eg.collateralReserves],
+      [egIndex],
+      [collReserve.address],
     );
     return avail.reduce((min, d) => (d.lt(min) ? d : min), avail[0] ?? new Decimal(0));
   } catch {
