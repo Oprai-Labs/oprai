@@ -180,6 +180,9 @@ interface KaminoMultiplyMarket {
   debtToken: string; debtMint: string;
   maxLeverage: number; maxLtvPct: number; estMaxApyPct: number; avgLeverage: number;
   tvlUsd: number; liquidityUsd: number; collSupplyApyPct: number; debtBorrowApyPct: number;
+  // false when Kamino's borrow cap for this pair is full — pool can't be opened.
+  // Optional for backwards-compat with older cached payloads (treated as true).
+  borrowable?: boolean;
 }
 
 /**
@@ -1191,6 +1194,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   /** Pre-fill and emit a kamino_multiply_open action for the chosen pool. */
   useMultiplyMarket(r: KaminoMultiplyMarket): void {
+    // Capped pool — opening would revert on-chain (6089). Don't emit a doomed
+    // action; the row is already visually marked and its button disabled.
+    if (r.borrowable === false) return;
     // Pass MINT addresses, not symbols — the backend resolves the reserve by
     // mint, and its static symbol map doesn't know LSTs/newer tokens (cbBTC,
     // PYUSD…), which would otherwise fail as a non-base58 "address".

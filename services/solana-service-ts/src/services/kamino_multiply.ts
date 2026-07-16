@@ -229,6 +229,56 @@ function reserveDecimals(market: KaminoMarket): (m: string) => number {
 }
 
 /**
+ * Multiply positions borrow the DEBT token inside a Kamino elevation group.
+ * Kamino caps how much of a debt reserve can be borrowed against a given
+ * collateral in that group — and that cap is frequently set to 0 (borrowing
+ * that token in leverage is effectively paused). When it's 0 the deposit
+ * transaction always fails on-chain with error 6089 ("Cannot borrow above
+ * borrow limit"), no matter how small the amount. Detect that state up front so
+ * the user gets a clear "pick a different pool" message instead of a cryptic
+ * simulation failure. Returns the available borrow (debt token units), or null
+ * when this pair isn't an elevation-group Multiply (nothing to pre-check).
+ */
+function multiplyBorrowCapacity(
+  market: KaminoMarket,
+  collMintStr: string,
+  debtMintStr: string,
+): Decimal | null {
+  try {
+    const debtReserve = market.getReserveByMint(address(debtMintStr));
+    if (!debtReserve) return null;
+    const eg = market
+      .getMarketElevationGroupDescriptions()
+      .find(
+        (g) =>
+          g.debtLiquidityMint === debtMintStr &&
+          [...g.collateralLiquidityMints].some((m) => m.toString() === collMintStr),
+      );
+    if (!eg) return null; // base-market leverage (no elevation group) — skip
+    const avail = debtReserve.getLiquidityAvailableForDebtReserveGivenCaps(
+      market,
+      [eg.elevationGroup],
+      [...eg.collateralReserves],
+    );
+    return avail.reduce((min, d) => (d.lt(min) ? d : min), avail[0] ?? new Decimal(0));
+  } catch {
+    return null; // never let a capacity probe block a build on its own error
+  }
+}
+
+/** Throw a clean 400 when a Multiply pool can't take any new leveraged borrow. */
+function assertMultiplyBorrowCapacity(market: KaminoMarket, collMintStr: string, debtMintStr: string): void {
+  const avail = multiplyBorrowCapacity(market, collMintStr, debtMintStr);
+  if (avail !== null && avail.lte(0)) {
+    throw appError(
+      "This Kamino Multiply pool isn't accepting new leveraged borrows right now — its borrow cap is full. Pick a different pool.",
+      400,
+      "POOL_BORROW_CAP",
+    );
+  }
+}
+
+/**
  * Load the user's existing Multiply obligation for a coll/debt pair, plus the
  * coll/debt reserves and their current deposited/borrowed lamport amounts.
  * Throws a clean error if the position doesn't exist.
@@ -272,6 +322,9 @@ export async function buildKaminoMultiplyOpen(params: KaminoMultiplyOpenParams, 
   const collReserve = market.getReserveByMint(address(collMintStr));
   const debtReserve = market.getReserveByMint(address(debtMintStr));
   if (!collReserve || !debtReserve) throw appError("Token not supported on the Kamino main market", 400, "UNSUPPORTED");
+  // Fail fast with a clear message when the pool's borrow cap is full (else the
+  // deposit would just revert on-chain with a cryptic error 6089).
+  assertMultiplyBorrowCapacity(market, collMintStr, debtMintStr);
 
   const owner = createNoopSigner(address(userWallet));
   const decOf = reserveDecimals(market);
@@ -356,6 +409,8 @@ export async function buildKaminoMultiplyAdd(params: KaminoMultiplyAddParams, us
   const collReserve = market.getReserveByMint(address(collMintStr));
   const debtReserve = market.getReserveByMint(address(debtMintStr));
   if (!collReserve || !debtReserve) throw appError("Token not supported on the Kamino main market", 400, "UNSUPPORTED");
+  // Adding re-loops to target leverage, which borrows more — same cap applies.
+  assertMultiplyBorrowCapacity(market, collMintStr, debtMintStr);
 
   const { obligation } = await loadMultiplyPosition(market, userWallet, collMintStr, debtMintStr);
   const targetLeverage = params.leverage ? new Decimal(params.leverage) : obligation.refreshedStats.leverage;
@@ -519,6 +574,9 @@ interface MultiplyMarketRow {
   collToken: string; collMint: string; debtToken: string; debtMint: string;
   maxLeverage: number; maxLtvPct: number; estMaxApyPct: number; avgLeverage: number;
   tvlUsd: number; liquidityUsd: number; collSupplyApyPct: number; debtBorrowApyPct: number;
+  // false when Kamino's borrow cap for this pair is full — the pool can be
+  // viewed but a new leveraged position can't be opened (would revert 6089).
+  borrowable: boolean;
 }
 
 /**
@@ -589,6 +647,11 @@ export async function getKaminoMultiplyMarkets(params: KaminoMultiplyMarketsPara
       liquidityUsd: parseFloat(debt.totalSupplyUsd ?? "0") || 0,
       collSupplyApyPct: Math.round(collYield * 10000) / 100,
       debtBorrowApyPct: Math.round(debtBorrow * 10000) / 100,
+      // A capped pair (avail <= 0) can't open — surfaced so the browser marks it.
+      borrowable: (() => {
+        const cap = multiplyBorrowCapacity(market, coll.liquidityTokenMint, debt.liquidityTokenMint);
+        return cap === null ? true : cap.gt(0);
+      })(),
     });
   }
 

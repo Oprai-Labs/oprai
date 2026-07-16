@@ -454,7 +454,7 @@
               <div class="dlmm-empty">Loading Multiply pools…</div>
             }
             @for (m of kaminoMultiplyPageRows(); track m.collMint + m.debtMint) {
-              <div class="result-table__row km-row">
+              <div class="result-table__row km-row" [class.km-row--capped]="m.borrowable === false">
                 <span class="km-pair">
                   <span class="km-icons">
                     @if (logoForMint(m.collMint); as icon) {
@@ -477,14 +477,18 @@
                 <span class="text-right mono km-apy">{{ m.estMaxApyPct.toFixed(2) }}%</span>
                 <span class="text-right mono" [title]="formatUsd(m.tvlUsd)">{{ formatCompactUsd(m.tvlUsd) }}</span>
                 <span class="text-right">
-                  <button
-                    type="button"
-                    class="dlmm-use-btn"
-                    (click)="useMultiplyMarket(m); $event.stopPropagation()"
-                    title="Open a Multiply position on this pair">
-                    Multiply
-                    <lucide-icon name="arrow-right" [size]="12" />
-                  </button>
+                  @if (m.borrowable === false) {
+                    <span class="km-cap-badge" title="Kamino's borrow cap for this pair is full — a new leveraged position can't be opened right now.">Cap full</span>
+                  } @else {
+                    <button
+                      type="button"
+                      class="dlmm-use-btn"
+                      (click)="useMultiplyMarket(m); $event.stopPropagation()"
+                      title="Open a Multiply position on this pair">
+                      Multiply
+                      <lucide-icon name="arrow-right" [size]="12" />
+                    </button>
+                  }
                 </span>
               </div>
             }

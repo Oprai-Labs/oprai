@@ -758,6 +758,22 @@
   font-variant-numeric: tabular-nums;
 }
 
+// A pool whose Kamino borrow cap is full — visible but not openable.
+.km-table .result-table__row.km-row--capped {
+  opacity: 0.62;
+}
+
+.km-cap-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--op-radius-sm, 6px);
+  background: color-mix(in srgb, var(--op-warning, #f59e0b) 15%, transparent);
+  color: var(--op-warning, #f59e0b);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .dlmm-pool-config {
   display: flex;
   flex-direction: column;
