@@ -170,19 +170,21 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
     // of the repaid token, never a SOL-fee issue.
     '1': "Your wallet is just short of the full debt — Kamino rounds up to close it completely, and you don't quite have enough of the token. Add a tiny amount of it and repay all.",
   },
-  // Kamino Multiply (leveraged looping). 6089 = BorrowingAboveMaxBorrowLimit:
-  // the requested leverage borrows MORE than the pair's cap allows — the fix is
-  // to lower leverage or reduce collateral, NOT to increase the amount. 6091 is
-  // the borrow-limit variant, 6011 an LTV/health cap on the resulting position.
+  // Kamino Multiply (leveraged looping). Exact KLend codes:
+  //   6089 = Cannot borrow above borrow limit (the debt reserve's borrow cap)
+  //   6091 = Reserve does not accept new borrows outside its elevation group
+  //   6011 = borrow exceeds the position's allowed value (LTV/health)
+  // 6089 can mean EITHER the user borrows too much (lower leverage helps) OR the
+  // reserve is globally maxed (no amount helps → different pool), so say both.
   kamino_multiply_open: {
-    '6089': "This leverage borrows more than the pool's limit allows. Lower the leverage or reduce the collateral amount, then try again.",
-    '6091': "The pool doesn't have enough liquidity to borrow at this leverage right now. Lower the leverage, or try a smaller collateral amount.",
-    '6011': "At this leverage the resulting position would be under its required health. Lower the leverage or add more collateral.",
+    '6089': "Kamino won't let this position borrow more from the pool's debt reserve. Lower the leverage or reduce the collateral amount. If it still fails, this pool's debt reserve is at its borrow cap — pick a different pool.",
+    '6091': "This pool's debt reserve only accepts borrows inside its elevation group, which this pair can't use for a leveraged position. Pick a different collateral/debt pool.",
+    '6011': "At this leverage the position would exceed its allowed loan-to-value. Lower the leverage or increase the collateral amount.",
   },
   kamino_multiply_add: {
-    '6089': "Adding this much at the current leverage would borrow past the pool's limit. Add a smaller amount, or reduce leverage first.",
-    '6091': "The pool doesn't have enough liquidity to borrow this amount right now. Try a smaller amount.",
-    '6011': "This addition would push the position under its required health. Add a smaller amount, or add more collateral.",
+    '6089': "Kamino won't let this position borrow more from the pool's debt reserve. Add a smaller amount, or reduce leverage first. If it still fails, the reserve is at its borrow cap.",
+    '6091': "This pool's debt reserve only accepts borrows inside its elevation group, which this position can't use. You can't add leverage to this pool.",
+    '6011': "This addition would push the position past its allowed loan-to-value. Add a smaller amount.",
   },
 };
 
