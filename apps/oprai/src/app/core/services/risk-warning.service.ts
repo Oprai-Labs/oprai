@@ -41,7 +41,6 @@ export interface RiskWarningPayload {
 // so it shouldn't trigger the "opens a leveraged position" gate.
 const LEVERAGED_TYPES = new Set([
   'perp_open',
-  'kamino_multiply_open', 'kamino_multiply_add', 'kamino_long_open', 'kamino_short_open',
 ]);
 
 // JLP liquidity (add/remove) — NOT leveraged. You can't be liquidated and can't
