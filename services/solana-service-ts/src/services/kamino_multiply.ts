@@ -111,14 +111,29 @@ function makeQuoter(inDecimals: (m: string) => number) {
   };
 }
 
-/** Jupiter-backed swapper — returns the swap ixs + Jupiter ALTs for the leverage tx. */
+/** Jupiter-backed swapper — returns the swap ixs + Jupiter ALTs for the leverage tx.
+ *
+ *  CRITICAL: build the swap for the ACTUAL amount the SDK is about to swap
+ *  (`inputs.inputAmountLamports`), NOT the quoter's `quoteResponse`. The quoter
+ *  applies `quoteBufferBps` (~1% larger input) purely to get a CONSERVATIVE
+ *  price for the leverage math — but Kamino only borrows the un-buffered debt
+ *  amount. If we build the swap from the buffered quote it tries to pull ~1%
+ *  more of the debt token than was borrowed and the tx reverts on-chain with
+ *  Jupiter error 6024 (InsufficientFunds). So re-quote for the real input amount
+ *  and build swap-instructions from THAT, keeping swap input == borrowed amount. */
 function makeSwapper(owner: string) {
-  return async (_inputs: any, _klendAccounts: Address[], quote: any) => {
+  return async (inputs: any, _klendAccounts: Address[], quote: any) => {
+    const amount = inputs.inputAmountLamports.floor().toString();
+    const quoteUrl = `${JUP_QUOTE}/quote?inputMint=${inputs.inputMint}&outputMint=${inputs.outputMint}&amount=${amount}&slippageBps=50&maxAccounts=20&restrictIntermediateTokens=true`;
+    const qr = await fetch(quoteUrl, { headers: jupHeaders() });
+    if (!qr.ok) throw appError("Jupiter quote failed for leverage swap", 502, "SWAP_ERROR");
+    const freshQuote: any = await qr.json();
+
     const r = await fetch(`${JUP_QUOTE}/swap-instructions`, {
       method: "POST",
       headers: { ...jupHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({
-        quoteResponse: quote.quoteResponse,
+        quoteResponse: freshQuote,
         userPublicKey: owner,
         wrapAndUnwrapSol: true,
       }),
@@ -129,7 +144,8 @@ function makeSwapper(owner: string) {
     const swapIx = jupIxToKit(j.swapInstruction);
     const altAddrs: Address[] = (j.addressLookupTableAddresses ?? []).map((a: string) => address(a));
     const lookupTables = altAddrs.length ? await fetchAllAddressLookupTable(kitRpc() as any, altAddrs) : [];
-    return [{ preActionIxs: setup, swapIxs: [swapIx], lookupTables, quote }];
+    // Keep the quoter's priceAInB (still valid) but carry the fresh quoteResponse.
+    return [{ preActionIxs: setup, swapIxs: [swapIx], lookupTables, quote: { ...quote, quoteResponse: freshQuote } }];
   };
 }
 
