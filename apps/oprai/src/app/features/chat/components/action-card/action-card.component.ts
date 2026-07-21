@@ -2480,7 +2480,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  proto-fields layout — Kamino Multiply and long/short. */
   get useSwaplikeLayout(): boolean {
     const t = this.action?.type ?? '';
-    return t.startsWith('kamino_multiply_') || t === 'kamino_long_open' || t === 'kamino_short_open';
+    return t.startsWith('kamino_multiply_')
+      || t === 'kamino_long_open' || t === 'kamino_short_open'
+      // Raydium token-amount forms (deposit/withdraw/positions/swap) use the
+      // same bigger, rounded swap-card input styling.
+      || t === 'raydium_swap'
+      || t === 'raydium_add_liquidity' || t === 'raydium_remove_liquidity'
+      || t === 'raydium_open_position' || t === 'raydium_increase_position'
+      || t === 'raydium_decrease_position';
   }
   get actionFields(): FieldDef[] {
     // Post-process: stamp protocol-aware MIN/hint on every amount-shaped input
