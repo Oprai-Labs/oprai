@@ -266,6 +266,11 @@ services:
       OPRAI_RESPONDER_MODEL_OPENAI: ${OPRAI_RESPONDER_MODEL_OPENAI:-gpt-4o-mini}
       OPRAI_RESPONDER_MODEL_ANTHROPIC: ${OPRAI_RESPONDER_MODEL_ANTHROPIC:-claude-haiku-4-5}
       OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI: ${OPRAI_RESPONDER_FALLBACK_MODEL_OPENAI:-gpt-4o-mini}
+      # Cost caps stay at code defaults (per-chat 500k). When a chat hits the
+      # cap it emits a chat_limit event and the composer shows "start a new
+      # chat" — tunable via .env if ever needed.
+      OPRAI_LLM_CHAT_TOKEN_CAP: ${OPRAI_LLM_CHAT_TOKEN_CAP:-500000}
+      OPRAI_LLM_DAILY_TOKEN_CAP: ${OPRAI_LLM_DAILY_TOKEN_CAP:-1500000}
       MEMORY_SERVICE_URL: http://memory-service-py:3040
       MEMORY_SERVICE_GRPC: memory-service-py:50054
       GATEWAY_URL: http://gateway-go:3001
@@ -348,6 +353,11 @@ services:
       HELIUS_API_KEY: ${HELIUS_API_KEY:-}
       BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:-}
       AUTH_SERVICE_HTTP: http://auth-service-go:3010
+      # SDK-only actions (Kamino Multiply/Liquidity, farms, Streamflow, …) and
+      # some read queries are delegated to the TS sidecar. Read path uses
+      # STREAMFLOW_SDK_URL; action-build path uses SOLANA_TS_SERVICE_URL.
+      STREAMFLOW_SDK_URL: http://solana-service-ts:3031
+      SOLANA_TS_SERVICE_URL: http://solana-service-ts:3031
     healthcheck:
       # solana-service-rs runtime is debian-slim without wget/curl; bash /dev/tcp probe.
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3030"]
@@ -357,6 +367,37 @@ services:
       start_period: 20s
     depends_on:
       pgbouncer:
+        condition: service_healthy
+      solana-service-ts:
+        condition: service_started
+
+  # ============== TypeScript Sidecar (SDK-only protocol actions) ==============
+  solana-service-ts:
+    build:
+      context: ..
+      dockerfile: services/solana-service-ts/Dockerfile
+    container_name: oprai-solana-service-ts
+    restart: unless-stopped
+    expose:
+      - "3031"
+    environment:
+      PORT: 3031
+      NODE_ENV: production
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
+      SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
+      JUPITER_API_KEY: ${JUPITER_API_KEY:-}
+      HELIUS_API_KEY: ${HELIUS_API_KEY:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://app.oprai.xyz}
+    healthcheck:
+      # node:20-slim has no wget/curl — probe /health with an inline node http get.
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3031/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      postgres:
         condition: service_healthy
 
   # ============== Frontend (Angular SPA served by nginx) ==============

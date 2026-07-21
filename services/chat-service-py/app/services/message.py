@@ -1188,7 +1188,11 @@ async def stream_chat_response(
     )
 
     if already_locked:
-        yield f"data: {json.dumps({'errorType': 'chat_limit', 'scope': 'chat', 'reason': locked_reason or 'cap_reached', 'message': 'This conversation is locked. Start a new chat to continue.'})}\n\n"
+        _locked_msg = 'This conversation has reached its limit. Start a new chat to continue.'
+        # `error` is REQUIRED — the frontend only handles chat_limit inside
+        # `if (parsed.error)`; without it the composer shows the generic
+        # "couldn't generate a response" instead of the start-a-new-chat banner.
+        yield f"data: {json.dumps({'error': _locked_msg, 'errorType': 'chat_limit', 'scope': 'chat', 'reason': locked_reason or 'cap_reached', 'message': _locked_msg})}\n\n"
         yield "data: [DONE]\n\n"
         return
 
