@@ -648,8 +648,14 @@ class LLMService:
         """Non-streaming completion via Anthropic Messages API."""
         system_blocks, non_system = _anthropic_split_system(messages)
         resp = await self._anthropic.messages.create(
+            # Non-streaming path (titles, block summaries) — short outputs. Cap
+            # max_tokens well below the streaming responder's 24000: the SDK
+            # rejects a NON-streaming request whose max_tokens implies a >10min
+            # run (true for Sonnet 5 at 24000), raising
+            # "Streaming is required for operations that may take longer than 10
+            # minutes". 4096 is ample for a title/summary and safely under it.
             model=self._model,
-            max_tokens=settings.OPRAI_GPT_MAX_TOKENS,
+            max_tokens=min(settings.OPRAI_GPT_MAX_TOKENS, 4096),
             system=system_blocks,
             messages=non_system,
             **_anthropic_thinking_kwargs(self._model),
