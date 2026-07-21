@@ -132,7 +132,7 @@ Single entry point. JWT validation, `X-User-Wallet` + `X-Internal-Api-Key` heade
 ### Chat-service LLM configuration
 - Provider toggle: `OPRAI_LLM_PROVIDER=openai` (default) | `anthropic`
 - OpenAI responder: `gpt-5.4-mini` (Responses API), fallback `gpt-4o-mini` (Chat Completions). Tool-call leakage from Harmony channels is filtered in `_strip_tool_call_leakage`. Bumped from nano on 2026-05-17 — nano hedged on ambiguous turns and lost tool-chain context.
-- Anthropic responder: `claude-haiku-4-5`. Prompt caching is wired (`cache_control: ephemeral` on the system block in `services/llm.py`); repeat turns inside the 5-min TTL drop input cost ~90%.
+- Anthropic responder: `claude-sonnet-5` (bumped from Haiku 4.5 on 2026-07-21 for far better prose/world-knowledge — Haiku answers read like literal English→Turkish translations). Thinking is disabled per-call for the chat responder (`_anthropic_thinking_kwargs` in `services/llm.py`) since Sonnet 5 defaults adaptive thinking ON. Prompt caching is wired (`cache_control: ephemeral` on the system block); repeat turns inside the 5-min TTL drop input cost ~90%.
 - Intent classifier (`gpt-5.4-nano`) runs before the main responder to narrow the tool list — see `services/intent_router.py`.
 
 ### Chat-service tool registry — 4-place rule
