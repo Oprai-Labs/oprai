@@ -327,6 +327,10 @@ services:
       SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
       SOLANA_NETWORK: ${SOLANA_NETWORK:-mainnet-beta}
       STREAMFLOW_SDK_URL: http://solana-service-ts:3031
+      # Action-build delegation (Kamino Multiply/Liquidity, farms, etc.) reads
+      # this var specifically; without it the Rust service defaults to
+      # localhost:3031 and can't reach the TS sidecar inside the compose network.
+      SOLANA_TS_SERVICE_URL: http://solana-service-ts:3031
     depends_on:
       pgbouncer:
         condition: service_healthy
