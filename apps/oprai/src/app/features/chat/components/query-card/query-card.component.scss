@@ -758,6 +758,28 @@
   font-variant-numeric: tabular-nums;
 }
 
+// Raydium pool table reuses the km (swap-card) aesthetic — carded rows, paired
+// token icons, weight-700 symbol — with a 6-column layout:
+// pool (icons+name) | TVL | 24h vol | 24h APR | type | action.
+.km-table--ray .km-row {
+  grid-template-columns:
+    minmax(150px, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.62fr) auto;
+}
+
+// The pool-address copy control sits as the pair's sub-line (like km-pair__sub):
+// no button chrome, compact, tertiary — matches the swap card's muted subtext.
+.km-pair__text .dlmm-copy-btn.km-pair__sub {
+  padding: 0;
+  margin-top: 2px;
+  background: none;
+  border: none;
+  min-height: 0;
+  font-size: 0.72rem;
+  color: var(--op-text-tertiary);
+
+  &:hover { color: var(--op-text-secondary); }
+}
+
 // A pool whose Kamino borrow cap is full — visible but not openable.
 .km-table .result-table__row.km-row--capped {
   opacity: 0.62;

@@ -723,8 +723,8 @@
             </button>
           }
         </div>
-        <div class="result-table dlmm-table">
-          <div class="result-table__header dlmm-row">
+        <div class="result-table km-table km-table--ray">
+          <div class="result-table__header km-row">
             <span>Pool</span>
             <span class="text-right">TVL</span>
             <span class="text-right">24h Vol</span>
@@ -736,26 +736,40 @@
             <div class="dlmm-empty">Loading pools…</div>
           }
           @for (p of raydiumResults; track p.id) {
-            <div class="result-table__row dlmm-row">
-              <span class="dlmm-pair">
-                <span class="dlmm-pair__name">{{ p.mintA.symbol }} / {{ p.mintB.symbol }}</span>
-                <button
-                  type="button"
-                  class="dlmm-pair__addr mono dlmm-copy-btn"
-                  [class.dlmm-copy-btn--copied]="copiedAddress() === p.id"
-                  (click)="copyPoolAddress(p.id); $event.stopPropagation()"
-                  [attr.title]="copiedAddress() === p.id ? 'Copied' : 'Copy pool address: ' + p.id">
-                  <span class="dlmm-pair__addr-text">{{ p.id.slice(0, 4) }}…{{ p.id.slice(-4) }}</span>
-                  @if (copiedAddress() === p.id) {
-                    <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
+            <div class="result-table__row km-row">
+              <span class="km-pair">
+                <span class="km-icons">
+                  @if (p.mintA.logoURI) {
+                    <img class="km-icon" [src]="p.mintA.logoURI" [alt]="p.mintA.symbol" (error)="$any($event.target).style.display='none'" />
                   } @else {
-                    <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
+                    <span class="km-icon km-icon--fallback">{{ p.mintA.symbol.charAt(0) }}</span>
                   }
-                </button>
+                  @if (p.mintB.logoURI) {
+                    <img class="km-icon km-icon--debt" [src]="p.mintB.logoURI" [alt]="p.mintB.symbol" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="km-icon km-icon--debt km-icon--fallback">{{ p.mintB.symbol.charAt(0) }}</span>
+                  }
+                </span>
+                <span class="km-pair__text">
+                  <span class="km-pair__name">{{ p.mintA.symbol }} / {{ p.mintB.symbol }}</span>
+                  <button
+                    type="button"
+                    class="dlmm-pair__addr mono dlmm-copy-btn km-pair__sub"
+                    [class.dlmm-copy-btn--copied]="copiedAddress() === p.id"
+                    (click)="copyPoolAddress(p.id); $event.stopPropagation()"
+                    [attr.title]="copiedAddress() === p.id ? 'Copied' : 'Copy pool address: ' + p.id">
+                    <span class="dlmm-pair__addr-text">{{ p.id.slice(0, 4) }}…{{ p.id.slice(-4) }}</span>
+                    @if (copiedAddress() === p.id) {
+                      <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
+                    } @else {
+                      <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
+                    }
+                  </button>
+                </span>
               </span>
               <span class="text-right mono">{{ formatUsd(p.tvl) }}</span>
               <span class="text-right mono">{{ formatUsd(raydiumVolume24h(p)) }}</span>
-              <span class="text-right mono change-up">{{ raydiumApr24h(p).toFixed(2) }}%</span>
+              <span class="text-right mono km-apy">{{ raydiumApr24h(p).toFixed(2) }}%</span>
               <span class="text-right">
                 <span class="type-badge">{{ p.type === 'Concentrated' ? 'CLMM' : 'AMM' }}</span>
               </span>
