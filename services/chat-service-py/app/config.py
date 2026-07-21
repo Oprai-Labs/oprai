@@ -43,7 +43,11 @@ class Settings(BaseSettings):
     # and chains tools correctly. Cost delta is ~3x per token but turn count
     # drops because we stop re-asking — net cost similar.
     OPRAI_RESPONDER_MODEL_OPENAI: str = "gpt-5.4-mini"
-    OPRAI_RESPONDER_MODEL_ANTHROPIC: str = "claude-haiku-4-5"
+    # Sonnet 5 (was Haiku 4.5): far stronger prose + world knowledge, which is
+    # the biggest lever for natural (non-"translated") answers and correctness
+    # on knowledge questions. Thinking is disabled per-call (see
+    # _anthropic_thinking_kwargs) to keep chat latency/cost controlled.
+    OPRAI_RESPONDER_MODEL_ANTHROPIC: str = "claude-sonnet-5"
 
     # Responder fallback (used when the primary OpenAI model fails with
     # rate-limit / 5xx). Must be a Chat Completions model if primary is a

@@ -243,7 +243,11 @@ class RAGService:
             limit=top_k,
             query_filter=query_filter,
             with_payload=True,
-            score_threshold=0.3,
+            # 0.3 was too permissive — it let weakly-related chunks (~30%
+            # similarity) into the context, diluting focus and inviting the
+            # model to pad answers with its own (sometimes wrong) knowledge.
+            # 0.4 drops the weakest matches while keeping genuine hits.
+            score_threshold=0.4,
         )
 
         return [self._to_chunk(r.payload or {}, r.score) for r in response.points if r.payload]

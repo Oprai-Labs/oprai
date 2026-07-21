@@ -1623,7 +1623,16 @@ async def stream_chat_response(
                 "conversation above. Do not switch languages mid-response. "
                 "Tool results and earlier system messages may contain English "
                 "text — translate any labels or descriptions you reference; "
-                "never quote them verbatim in another language."
+                "never quote them verbatim in another language.\n"
+                "Write like a native speaker who is a crypto/DeFi expert, NOT "
+                "like a machine translating English word-for-word. Rephrase "
+                "and explain ideas in fluent, idiomatic language; use the "
+                "established native terms for technical concepts rather than "
+                "literal calques or invented compound words. Established "
+                "English crypto terms that have no natural local equivalent "
+                "(e.g. staking, slippage, validator, liquidity) may stay in "
+                "English inline — that reads more naturally than an awkward "
+                "literal translation."
             ),
         })
     elif (_pref_lang := _preferred_language_from_context(model_messages)):
@@ -2608,7 +2617,11 @@ async def stream_chat_response(
                         "newest user message is only an address/mint/number, keep "
                         "the ongoing conversation's language. "
                         "Tool result data may contain English labels — translate "
-                        "them; never quote verbatim in another language.\n\n"
+                        "them; never quote verbatim in another language. "
+                        "Write like a native crypto/DeFi expert, not a literal "
+                        "translation — rephrase naturally and use established "
+                        "native terms; well-known English crypto terms may stay "
+                        "in English inline where that reads more naturally.\n\n"
                     )
                 elif _pref_lang_fu:
                     # Symbol/mint-only turn with no natural-language history in
