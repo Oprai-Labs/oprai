@@ -4668,11 +4668,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 11px;
+  padding: 14px 16px;
   background: var(--op-bg-surface-2);
   border: 1px solid var(--op-border-subtle);
-  border-radius: var(--op-radius-sm);
-  font-size: 0.75rem;
+  border-radius: 16px;
+  font-size: 0.8125rem;
 
   &__label {
     color: var(--op-text-tertiary);
@@ -4687,18 +4687,16 @@
 .clmm-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 11px 11px;
+  gap: 10px;
+  padding: 14px 16px;
   background: var(--op-bg-surface-2);
   border: 1px solid var(--op-border-subtle);
-  border-radius: var(--op-radius-sm);
+  border-radius: 16px;
 
   &__title {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--op-text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    color: var(--op-text-primary);
   }
 }
 
@@ -4733,10 +4731,10 @@
   input {
     background: var(--op-bg-surface-1);
     border: 1px solid var(--op-border-subtle);
-    border-radius: var(--op-radius-sm);
-    padding: 8px 11px;
+    border-radius: 12px;
+    padding: 12px 14px;
     color: var(--op-text-primary);
-    font-size: 0.8125rem;
+    font-size: 0.9375rem;
     font-variant-numeric: tabular-nums;
     width: 100%;
     outline: none;
@@ -4752,8 +4750,8 @@
 
   &__suffix {
     position: absolute;
-    right: 10px;
-    bottom: 9px;
+    right: 12px;
+    bottom: 13px;
     font-size: 0.625rem;
     color: var(--op-text-tertiary);
     pointer-events: none;
@@ -4789,36 +4787,42 @@
 // Single-line amount row — same vertical density as a `proto-input`.
 // Layout: [icon symbol] · [amount input] · [Max btn], with the balance
 // hint folded into the left side instead of a separate row underneath.
+// Deposit-amount panel — same big rounded surface-2 box as the Jupiter swap
+// "You pay" panel (.pump-panel): 28px token icon, hero-sized amount on the right.
 .clmm-amount-row {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: var(--op-bg-surface-1);
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--op-bg-surface-2);
   border: 1px solid var(--op-border-subtle);
-  border-radius: var(--op-radius-sm);
+  border-radius: 16px;
+  transition: border-color 0.12s;
+
+  &:focus-within { border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle)); }
 
   &__token {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     min-width: 0;
   }
 
   &__icon {
-    width: 18px;
-    height: 18px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     object-fit: cover;
-    background: var(--op-bg-surface-2);
+    background: var(--op-bg-surface-1);
+    border: 2px solid var(--op-bg-surface-1);
 
     &--letter {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.625rem;
-      font-weight: 600;
+      font-size: 0.75rem;
+      font-weight: 700;
       color: var(--op-text-secondary);
     }
   }
@@ -4826,19 +4830,20 @@
   &__symbol-block {
     display: flex;
     flex-direction: column;
-    line-height: 1.15;
+    line-height: 1.2;
   }
 
   &__symbol {
-    font-weight: 600;
+    font-weight: 700;
     color: var(--op-text-primary);
-    font-size: 0.75rem;
+    font-size: 0.9375rem;
   }
 
   &__balance-inline {
-    font-size: 0.5625rem;
+    font-size: 0.6875rem;
     color: var(--op-text-tertiary);
     font-variant-numeric: tabular-nums;
+    margin-top: 1px;
   }
 
   &__input {
@@ -4852,33 +4857,36 @@
       border: none;
       outline: none;
       color: var(--op-text-primary);
-      font-size: 0.8125rem;
-      font-weight: 500;
+      font-size: 1.375rem;
+      font-weight: 600;
       font-variant-numeric: tabular-nums;
       text-align: right;
       width: 100%;
       min-width: 0;
+      letter-spacing: -0.01em;
 
+      &::placeholder { color: var(--op-text-tertiary); }
       &::-webkit-inner-spin-button, &::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     }
   }
 }
 
+// Matches the swap panel's .pump-panel__max pill.
 .clmm-max-btn {
-  background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 14%, transparent);
-  color: var(--proto-accent, var(--op-brand));
-  border: 1px solid color-mix(in srgb, var(--proto-accent, var(--op-brand)) 30%, transparent);
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-size: 0.5625rem;
-  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  padding: 2px 7px;
+  background: color-mix(in srgb, var(--op-brand) 16%, transparent);
+  color: var(--op-brand);
+  font-size: 0.625rem;
+  font-weight: 700;
   cursor: pointer;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
-  line-height: 1.4;
+  line-height: 1.5;
 
-  &:hover { background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 22%, transparent); }
+  &:hover { background: color-mix(in srgb, var(--op-brand) 26%, transparent); }
 }
 
 .clmm-amount-plus {
