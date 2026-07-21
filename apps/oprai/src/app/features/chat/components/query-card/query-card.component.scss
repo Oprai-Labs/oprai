@@ -650,8 +650,12 @@
 }
 
 // Column-label strip stays a plain header (no card), aligned to the row padding.
+// margin-inline:0 is REQUIRED — the base .result-table__header applies
+// margin-inline:-8px, but the km data rows reset it to 0, so without this the
+// header is shifted 8px left of the data columns (misaligned header labels).
 .km-table .result-table__header.km-row {
   padding: 2px 12px;
+  margin-inline: 0;
   border-bottom: none;
 }
 
@@ -693,9 +697,10 @@
     white-space: nowrap;
   }
 
+  // Matches the swap card's .proto-token-chip__name (0.6875rem).
   &__sub {
     color: var(--op-text-tertiary);
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     margin-top: 2px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -709,18 +714,17 @@
   flex-shrink: 0;
 }
 
-// Sized/shaped to the swap card's .proto-token-chip__icon-wrap (28px circle),
-// slightly tighter for the denser table row.
+// Exactly the swap card's .proto-token-chip__icon-wrap (28px circle).
 .km-icon {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.06));
   border: 2px solid var(--op-bg-surface-1, #14151a);
 
   &--debt {
-    margin-left: -9px;
+    margin-left: -10px;
   }
 
   // Solid brand-gradient chip with a white glyph — the same fallback treatment
@@ -735,7 +739,7 @@
       var(--op-brand-accent, #06b6d4)
     );
     color: #fff;
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     font-weight: 700;
     text-transform: uppercase;
   }
@@ -774,7 +778,7 @@
   background: none;
   border: none;
   min-height: 0;
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   color: var(--op-text-tertiary);
 
   &:hover { color: var(--op-text-secondary); }
