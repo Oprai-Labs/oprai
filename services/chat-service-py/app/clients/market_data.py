@@ -103,7 +103,17 @@ GATEWAY_URL   = os.environ.get("GATEWAY_URL", "http://localhost:3001")
 # headers from a backend service is wrong (no real CSRF risk on internal
 # calls, no JWT to forward — chat-service authenticates with the shared
 # `x-internal-api-key` instead).
-SOLANA_SERVICE_URL = os.environ.get("SOLANA_SERVICE_URL", "http://localhost:3030")
+# Server-side /actions/build reads must hit the Solana service DIRECTLY, not the
+# gateway: the gateway's /actions/* is browser-facing (CSRF X-Requested-With +
+# user JWT), so an internal service-to-service call there is rejected 403/401 —
+# which surfaced as "couldn't reach Raydium data, try again". The compose sets
+# SOLANA_SERVICE_HTTP to the direct address (solana-service-rs:3030); prefer it,
+# then any explicit SOLANA_SERVICE_URL, then the local default.
+SOLANA_SERVICE_URL = (
+    os.environ.get("SOLANA_SERVICE_HTTP")
+    or os.environ.get("SOLANA_SERVICE_URL")
+    or "http://localhost:3030"
+)
 INTERNAL_KEY  = os.environ.get("OPRAI_INTERNAL_API_KEY", "")
 TIMEOUT       = 12.0
 _MAX_CHARS    = 16_000  # raised from 6_000 so server-ranked wallet PnL payload (~7.5 KB) and token deep-dive composite (multiple ranked arrays) fit; LLM-side cap in message.py was also bumped to 16_000 to match
