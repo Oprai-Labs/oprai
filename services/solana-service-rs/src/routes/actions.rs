@@ -268,6 +268,10 @@ fn is_ts_delegated_action(action_type: &str) -> bool {
             | "raydium_decrease_position"
             | "raydium_close_position"
             | "raydium_create_pool"
+            // Read: the user's CLMM positions straight from chain via the SDK
+            // (raydium.clmm.getOwnerPositionInfo), not the owner-v1 farm API.
+            | "raydium_get_user_positions"
+            | "raydium_get_clmm_positions"
     )
 }
 

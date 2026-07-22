@@ -523,3 +523,51 @@ export async function buildRaydiumCreatePoolSdk(params: any, userWallet: string)
   );
  } catch (e) { mapRaydiumSdkError(e); }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Read: the user's Raydium CLMM positions — straight from chain via the SDK
+// (raydium.clmm.getOwnerPositionInfo), NOT a cross-protocol portfolio aggregator.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function getRaydiumUserPositionsSdk(_params: any, userWallet: string): Promise<BuildResponse> {
+ try {
+  const { sdk, raydium } = await loadRaydium(userWallet);
+  const raw: any[] = (await raydium.clmm.getOwnerPositionInfo({ programId: sdk.CLMM_PROGRAM_ID })) ?? [];
+
+  const poolCache: Record<string, any> = {};
+  const positions: any[] = [];
+  for (const p of raw) {
+    const poolId = p.poolId?.toBase58 ? p.poolId.toBase58() : String(p.poolId);
+    let pair = "";
+    try {
+      if (!poolCache[poolId]) {
+        const info = await raydium.api.fetchPoolById({ ids: poolId });
+        poolCache[poolId] = Array.isArray(info) ? info[0] : info;
+      }
+      const pi = poolCache[poolId];
+      if (pi?.mintA) pair = `${pi.mintA.symbol || symOf(pi.mintA.address)}/${pi.mintB.symbol || symOf(pi.mintB.address)}`;
+    } catch { /* best-effort enrichment */ }
+    const liqStr = p.liquidity?.toString ? p.liquidity.toString() : String(p.liquidity ?? "0");
+    positions.push({
+      positionId: p.nftMint?.toBase58 ? p.nftMint.toBase58() : String(p.nftMint),
+      poolId,
+      pair,
+      tickLower: p.tickLower,
+      tickUpper: p.tickUpper,
+      liquidity: liqStr,
+      empty: liqStr === "0",
+    });
+  }
+
+  return {
+    preview: preview(
+      "raydium_get_user_positions",
+      positions.length ? `Raydium CLMM positions (${positions.length})` : "No active Raydium CLMM positions",
+      {}, [],
+    ),
+    data: { source: "raydium-clmm-sdk", count: positions.length, positions },
+    additionalSignersRequired: 0,
+    isCrossChain: false,
+  };
+ } catch (e) { mapRaydiumSdkError(e); }
+}

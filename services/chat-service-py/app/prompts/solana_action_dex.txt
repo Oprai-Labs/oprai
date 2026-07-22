@@ -208,7 +208,7 @@ Format: [ACTION:raydium_remove_liquidity] poolId=<pool_address> lpAmount=<lp_tok
 Required: poolId, lpAmount (alias: liquidity)
 Optional: slippageBps (default 100)
 
-**CLARIFICATION RULE**: If user says "remove my Raydium liquidity" without specifying pool or amount, first call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to find their positions.
+**CLARIFICATION RULE**: If user says "remove my Raydium liquidity" without specifying pool or amount, first call query_onchain("raydium_get_user_positions", {"wallet": "self"}) to find their positions.
 
 Examples:
 - "Remove 10.5 LP tokens from my Raydium SOL-USDC pool"
@@ -284,11 +284,11 @@ Format: [ACTION:raydium_close_position] positionId=<nft_mint_address>
 
 Required: positionId (NFT mint of the position)
 
-**CLARIFICATION RULE**: If user says "close my Raydium position" without specifying which one, first call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to find position IDs.
+**CLARIFICATION RULE**: If user says "close my Raydium position" without specifying which one, first call query_onchain("raydium_get_user_positions", {"wallet": "self"}) to find position IDs.
 
 Examples:
 - "Close my Raydium CLMM position"
-  -> First call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}), then execute_action("raydium_close_position", {"positionId": "<nft_mint>"})
+  -> First call query_onchain("raydium_get_user_positions", {"wallet": "self"}), then execute_action("raydium_close_position", {"positionId": "<nft_mint>"})
 
 ---
 
@@ -301,7 +301,7 @@ Optional: slippageBps (default 100)
 
 Examples:
 - "Add 2 SOL to my Raydium position"
-  -> If positionId unknown, first call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}), then execute_action("raydium_increase_position", {"positionId": "<nft_mint>", "inputMint": "SOL", "inputAmount": "2"})
+  -> If positionId unknown, first call query_onchain("raydium_get_user_positions", {"wallet": "self"}), then execute_action("raydium_increase_position", {"positionId": "<nft_mint>", "inputMint": "SOL", "inputAmount": "2"})
 
 ---
 
@@ -316,7 +316,7 @@ Optional: slippageBps (default 100)
 
 Examples:
 - "Withdraw 50% of my Raydium position"
-  -> First call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to get liquidity amount, then execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "<half_of_liquidity>"})
+  -> First call query_onchain("raydium_get_user_positions", {"wallet": "self"}) to get liquidity amount, then execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "<half_of_liquidity>"})
 
 ---
 

@@ -174,6 +174,10 @@ export async function buildAction(
       return raydiumSdk.buildRaydiumClosePositionSdk(p(params) as any, userWallet);
     case "raydium_create_pool":
       return raydiumSdk.buildRaydiumCreatePoolSdk(p(params) as any, userWallet);
+    case "raydium_get_user_positions":
+    case "raydium_get_clmm_positions":
+      // Read the user's CLMM positions straight from chain via the SDK.
+      return raydiumSdk.getRaydiumUserPositionsSdk(p(params) as any, userWallet);
     case "raydium_get_pools":
     case "raydium_get_pools_v2":
       return raydium.getRaydiumPools(p(params));
