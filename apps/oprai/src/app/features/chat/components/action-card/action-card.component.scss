@@ -2880,6 +2880,12 @@
     height: 100%;
     border-radius: 50%;
     object-fit: cover;
+    // A neutral surface behind the image so a token logo with a TRANSPARENT
+    // background (e.g. RAY's hexagon PNG) sits on a clean circle instead of
+    // letting the coloured `__letter` fallback bleed through its transparent
+    // areas — which read as a "wrong / different" icon. Opaque logos (USDC,
+    // USDT circles) cover this entirely, so they're unaffected.
+    background: var(--op-bg-surface-2);
   }
 
   &__letter {
