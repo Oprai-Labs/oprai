@@ -175,6 +175,10 @@ export class AuthService {
     // /auth/logout on every 401 revokes the user's own jti and creates a loop.
     this.api.post('/auth/logout', {}).subscribe({ error: () => {} });
     this.clearLocalAuth();
+    // Genuine sign-out (and wallet change, which routes through logout()): drop
+    // the in-memory session list so the previous wallet's conversations aren't
+    // shown. Per-wallet on-disk storage is retained for the next sign-in.
+    this.sessionStorage.setWallet(null);
   }
 
   /**
@@ -191,10 +195,14 @@ export class AuthService {
 
     this._token.set(null);
     this._user.set(null);
-    // Unbind storage instead of wiping it — sessions for this wallet are kept on disk
-    // for the next login. setWallet(null) clears the in-memory state so the sidebar
-    // is empty until a wallet reconnects.
-    this.sessionStorage.setWallet(null);
+    // Intentionally does NOT touch session-storage. This runs on TRANSIENT 401
+    // recovery (error interceptor / re-opening a conversation) where the wallet
+    // has NOT changed and the HttpOnly cookie is usually still valid. Wiping the
+    // in-memory session list here made the sidebar flash "No conversations yet"
+    // right after visiting a page that fires an authenticated call whose stale
+    // in-memory Bearer 401s (e.g. Portfolio's cost-basis fetch), even though the
+    // cookie could still restore the session. A genuine sign-out / wallet change
+    // clears the list explicitly in logout().
   }
 
   getToken(): string | null {

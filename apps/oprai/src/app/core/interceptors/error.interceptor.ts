@@ -34,9 +34,10 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
           // Redirect to login; the guard will re-validate on next navigation.
           router.navigate(['/admin/login']);
         } else {
-          // Drop local state silently. Calling logout() here would POST /auth/logout
-          // with the (already-rejected) token, which the gateway responds to by
-          // adding the jti to its blocklist — creating a 401-loop self-DOS.
+          // Drop the (already-rejected) in-memory token/user silently. Calling
+          // logout() here would POST /auth/logout with that token, which the
+          // gateway blocklists — a 401-loop self-DOS. clearLocalAuth() no longer
+          // wipes the sidebar session list, so a transient 401 can't blank it.
           authService.clearLocalAuth();
 
           // Re-authenticate silently if the wallet is still connected.
@@ -46,12 +47,22 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
           const isAuthEndpoint =
             req.url.includes('/auth/nonce') ||
             req.url.includes('/auth/verify') ||
+            req.url.includes('/auth/session') ||
             req.url.includes('/auth/logout');
 
           if (!isAuthEndpoint && walletService.connected()) {
-            authService.authenticate().subscribe({
-              error: (authErr) =>
-                console.warn('[Auth] Re-authentication after 401 failed:', authErr),
+            // Prefer a SILENT cookie-based recovery: the HttpOnly cookie usually
+            // outlives the in-memory Bearer, so a stale-token 401 (e.g. the
+            // Portfolio cost-basis fetch) can be healed via GET /auth/session
+            // with NO wallet-signature popup and NO lost state. Only if the
+            // cookie is also gone do we fall back to a fresh SIWS signature.
+            authService.restoreSession().then(() => {
+              if (!authService.isAuthenticated() && walletService.connected()) {
+                authService.authenticate().subscribe({
+                  error: (authErr) =>
+                    console.warn('[Auth] Re-authentication after 401 failed:', authErr),
+                });
+              }
             });
           }
         }
