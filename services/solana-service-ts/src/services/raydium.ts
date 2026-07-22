@@ -52,9 +52,11 @@ export async function buildRaydiumSwap(params: RaydiumSwapParams, userWallet: st
   const decimals = inToken?.decimals ?? 9;
   const amount = Math.round(parseFloat(params.amount) * 10 ** decimals).toString();
 
-  // Get quote from Raydium
+  // Get quote from Raydium. NOTE: the compute + transaction endpoints both
+  // live on transaction-v1 (RAYDIUM_TX); api-v3 (RAYDIUM_API) has no /compute
+  // route and 404s — so this must use RAYDIUM_TX.
   const quoteRes = await fetch(
-    `${RAYDIUM_API}/compute/swap-base-in?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${params.slippageBps ?? 50}&txVersion=V0`
+    `${RAYDIUM_TX}/compute/swap-base-in?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${params.slippageBps ?? 50}&txVersion=V0`
   );
   if (!quoteRes.ok) throw appError(`Raydium quote failed: ${await quoteRes.text()}`, 502, "RAYDIUM_ERROR");
   const quote = (await quoteRes.json()) as { data: { swapType: string; inputMint: string; outputMint: string; inputAmount: string; outputAmount: string; otherAmountThreshold: string } };
@@ -109,8 +111,9 @@ export async function getRaydiumQuote(params: RaydiumSwapParams): Promise<Raydiu
   const slippageBps = params.slippageBps ?? 50;
   const path = isExactOut ? "compute/swap-base-out" : "compute/swap-base-in";
 
+  // compute lives on transaction-v1 (RAYDIUM_TX), not api-v3.
   const res = await fetch(
-    `${RAYDIUM_API}/${path}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}&txVersion=V0`
+    `${RAYDIUM_TX}/${path}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}&txVersion=V0`
   );
   if (!res.ok) throw appError(`Raydium quote failed: ${await res.text()}`, 502, "RAYDIUM_ERROR");
   const body = (await res.json()) as {
