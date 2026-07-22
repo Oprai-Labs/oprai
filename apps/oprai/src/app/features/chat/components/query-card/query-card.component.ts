@@ -548,6 +548,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return 'assets/icons/protocols/meteora.webp';
       case 'raydium_get_pools':
       case 'raydium_search_pools':
+      case 'raydium_get_user_positions':
+      case 'raydium_get_clmm_positions':
         return 'assets/icons/protocols/raydium.png';
       case 'kamino_multiply_markets':
         return 'assets/icons/protocols/kamino.svg';

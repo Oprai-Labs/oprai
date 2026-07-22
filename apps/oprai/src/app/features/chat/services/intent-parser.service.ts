@@ -1277,6 +1277,9 @@ export class IntentParserService {
           ? `Meteora DAMM v1 Pools (${query.params['query']})`
           : 'Meteora DAMM v1 Pools';
       // ── Raydium Pool List ─────────────────────────────────────────────────
+      case 'raydium_get_user_positions':
+      case 'raydium_get_clmm_positions':
+        return 'Raydium Positions';
       case 'raydium_get_pools': {
         const t = query.params['poolType'];
         const label = t === 'concentrated' ? 'Raydium CLMM Pools'
