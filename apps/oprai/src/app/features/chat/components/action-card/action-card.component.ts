@@ -2819,7 +2819,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * fills these in directly from the row data, so the fetch is a no-op there.
    */
   async maybeEnrichRaydiumPool(): Promise<void> {
-    if (this.action?.type !== 'raydium_open_position') return;
+    if (this.action?.type !== 'raydium_open_position' && this.action?.type !== 'raydium_add_liquidity') return;
     const p = this.editParams();
     const poolId = (p['poolId'] ?? '').trim();
     if (!poolId) return;
@@ -2884,17 +2884,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const price = typeof pool.price === 'number' ? pool.price : parseFloat(pool.price ?? '');
       if (!patched['currentPrice'] && Number.isFinite(price) && price > 0) {
         patched['currentPrice'] = String(price);
-        // Stable-stable pairs trade in a ~1% band; ±20% creates a position
-        // whose ticks fall outside the pool's observation arrays and the open
-        // call reverts with a constraint error. Default to ±1% for stables.
-        // Pair detection is driven by TokenRegistry (Jupiter tags + symbol/name
-        // heuristics) so any future USD-stable works without code changes.
-        const symA = patched['tokenASymbol'] ?? mintA.address ?? '';
-        const symB = patched['tokenBSymbol'] ?? mintB.address ?? '';
-        const isStablePair = this.tokenRegistry.isStable(symA) && this.tokenRegistry.isStable(symB);
-        const factor = isStablePair ? 0.01 : 0.2;
-        if (!patched['minPrice']) patched['minPrice'] = (price * (1 - factor)).toPrecision(6);
-        if (!patched['maxPrice']) patched['maxPrice'] = (price * (1 + factor)).toPrecision(6);
+        if (this.action.type === 'raydium_add_liquidity') {
+          // Standard AMM: no range — the deposit ratio is simply the pool price
+          // (mintB per mintA). Feed it as amountRatio so the auto-balance fills
+          // the paired side on Max / single-side entry.
+          if (!patched['amountRatio']) patched['amountRatio'] = String(price);
+        } else {
+          // CLMM: stable-stable pairs trade in a ~1% band; ±20% creates a
+          // position whose ticks fall outside the pool's observation arrays and
+          // the open call reverts. Default to ±1% for stables. Pair detection is
+          // driven by TokenRegistry so any future USD-stable works unchanged.
+          const symA = patched['tokenASymbol'] ?? mintA.address ?? '';
+          const symB = patched['tokenBSymbol'] ?? mintB.address ?? '';
+          const isStablePair = this.tokenRegistry.isStable(symA) && this.tokenRegistry.isStable(symB);
+          const factor = isStablePair ? 0.01 : 0.2;
+          if (!patched['minPrice']) patched['minPrice'] = (price * (1 - factor)).toPrecision(6);
+          if (!patched['maxPrice']) patched['maxPrice'] = (price * (1 + factor)).toPrecision(6);
+        }
       }
       // Single-sided input from the LLM ("4 USDC") → drop the user-supplied
       // amount into whichever side `inputMint` resolves to, then DELETE the
