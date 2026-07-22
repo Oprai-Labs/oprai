@@ -78,13 +78,17 @@ function resp(type: string, tx: VersionedTransaction, params: Record<string, unk
  */
 function mapRaydiumSdkError(e: any): never {
   if (e && typeof e.statusCode === "number") throw e; // already a clean appError
+  // Log the raw SDK error server-side for diagnosis; the user only ever sees the
+  // clean mapped message below (never the raw token-account dumps / internals).
+  try { console.error("[raydium-sdk-raw]", e?.stack || e?.message || e); } catch { /* noop */ }
   const msg = String(e?.message ?? e ?? "");
   const low = msg.toLowerCase();
   if (low.includes("lptokenaccount") || (low.includes("lp") && low.includes("cannot found"))) {
     throw appError("You don't have a liquidity position in this pool.", 400, "RAYDIUM_NO_POSITION");
   }
-  if (low.includes("cannot found") && low.includes("tokenaccount")) {
-    throw appError("Your wallet doesn't hold the token this action needs. Fund it first.", 400, "RAYDIUM_NO_TOKEN");
+  if ((low.includes("cannot found") && low.includes("tokenaccount")) ||
+      (low.includes("token account") && (low.includes("don't has") || low.includes("dont has") || low.includes("some")))) {
+    throw appError("Your wallet doesn't hold the tokens this action needs. Fund it first.", 400, "RAYDIUM_NO_TOKEN");
   }
   if (low.includes("insufficient")) {
     throw appError("Insufficient balance for this action.", 400, "RAYDIUM_INSUFFICIENT");
@@ -121,6 +125,12 @@ async function fetchApiPool(raydium: any, poolId: string): Promise<any> {
   const info = Array.isArray(list) ? list[0] : list;
   if (!info) throw appError("Raydium pool not found for that ID", 404, "RAYDIUM_ERROR");
   return info;
+}
+
+/** Human symbol for a mint (getPoolInfoFromRpc leaves symbols blank with
+ *  disableLoadToken:true, so resolve from our registry, else a short address). */
+function symOf(mint: string): string {
+  return resolveToken(mint)?.name ?? (mint ? mint.slice(0, 4) + "…" : "?");
 }
 
 function toBaseUnits(amountUi: string, decimals: number): BN {
@@ -358,7 +368,7 @@ export async function buildRaydiumOpenPositionSdk(params: any, userWallet: strin
   });
   return resp(
     "raydium_open_position", transaction, params,
-    `Open Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position`,
+    `Open Raydium CLMM ${symOf(poolInfo.mintA.address)}/${symOf(poolInfo.mintB.address)} position`,
     ["Concentrated liquidity — out-of-range positions stop earning fees"],
   );
  } catch (e) { mapRaydiumSdkError(e); }
@@ -395,7 +405,7 @@ export async function buildRaydiumIncreasePositionSdk(params: any, userWallet: s
     base: isA ? "MintA" : "MintB", baseAmount, otherAmountMax,
     txVersion: sdk.TxVersion.V0,
   });
-  return resp("raydium_increase_position", transaction, params, `Increase Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position`);
+  return resp("raydium_increase_position", transaction, params, `Increase Raydium CLMM ${symOf(poolInfo.mintA.address)}/${symOf(poolInfo.mintB.address)} position`);
  } catch (e) { mapRaydiumSdkError(e); }
 }
 
@@ -437,7 +447,7 @@ export async function buildRaydiumDecreasePositionSdk(params: any, userWallet: s
   });
   return resp(
     "raydium_decrease_position", transaction, params,
-    closePosition ? `Close Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position` : `Reduce Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position`,
+    closePosition ? `Close Raydium CLMM ${symOf(poolInfo.mintA.address)}/${symOf(poolInfo.mintB.address)} position` : `Reduce Raydium CLMM ${symOf(poolInfo.mintA.address)}/${symOf(poolInfo.mintB.address)} position`,
   );
  } catch (e) { mapRaydiumSdkError(e); }
 }
@@ -455,7 +465,7 @@ export async function buildRaydiumClosePositionSdk(params: any, userWallet: stri
   const poolId = pos.poolId?.toBase58 ? pos.poolId.toBase58() : String(pos.poolId);
   const { poolInfo, poolKeys } = await raydium.clmm.getPoolInfoFromRpc(poolId);
   const total: BN = pos.liquidity;
-  const desc = `Close Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position`;
+  const desc = `Close Raydium CLMM ${symOf(poolInfo.mintA.address)}/${symOf(poolInfo.mintB.address)} position`;
 
   if (total && total.gtn(0)) {
     const { transaction } = await raydium.clmm.decreaseLiquidity({
