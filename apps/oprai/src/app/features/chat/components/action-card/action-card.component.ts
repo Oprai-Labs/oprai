@@ -4014,8 +4014,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   perpMarketMint(m: string = this.perpMarket()): string {
     return this.PERP_MARKET_MINTS[m] ?? this.PERP_MARKET_MINTS['SOL'];
   }
-  /** Long collateral = market base token; short collateral = USDC (backend default). */
+  /**
+   * Collateral token mint. Jupiter Perps lets the user pay collateral in any
+   * supported token (USDC / SOL / wETH / wBTC) and swaps it into the position,
+   * so an explicit `collateralToken` (e.g. "10 USDC" on a SOL long) wins over
+   * the side default. Falls back to the protocol default: short → USDC,
+   * long → the market's base token.
+   */
   perpCollateralMint(): string {
+    const ct = (this.editParams()['collateralToken'] ?? '').trim();
+    if (ct) {
+      const t = this.tokenRegistry.getBySymbol(ct) ?? this.tokenRegistry.getToken(ct);
+      if (t) return t.address;
+    }
     return this.perpSide() === 'short'
       ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
       : this.perpMarketMint();
