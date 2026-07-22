@@ -259,6 +259,10 @@ fn is_ts_delegated_action(action_type: &str) -> bool {
             | "kamino_liquidity_deposit"
             | "kamino_liquidity_withdraw"
             | "kamino_liquidity_strategies"
+            // Raydium liquidity + positions — Raydium's REST API is swap-only, so
+            // these must be built with @raydium-io/raydium-sdk-v2 in the TS service.
+            | "raydium_add_liquidity"
+            | "raydium_remove_liquidity"
     )
 }
 

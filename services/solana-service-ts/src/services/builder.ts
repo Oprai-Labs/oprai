@@ -14,6 +14,7 @@ import * as kaminoFarm from "./kamino_farm";
 import * as kaminoLiquidity from "./kamino_liquidity";
 import * as kaminoMultiply from "./kamino_multiply";
 import * as raydium from "./raydium";
+import * as raydiumSdk from "./raydium_sdk";
 import * as orca from "./orca";
 import * as marinade from "./marinade";
 import * as meteora from "./meteora";
@@ -159,9 +160,10 @@ export async function buildAction(
     case "raydium_swap":
       return raydium.buildRaydiumSwap(p(params), userWallet);
     case "raydium_add_liquidity":
-      return raydium.buildRaydiumAddLiquidity(p(params), userWallet);
+      // SDK-built: Raydium's REST API has no liquidity endpoint (swap-only).
+      return raydiumSdk.buildRaydiumAddLiquiditySdk(p(params) as any, userWallet);
     case "raydium_remove_liquidity":
-      return raydium.buildRaydiumRemoveLiquidity(p(params), userWallet);
+      return raydiumSdk.buildRaydiumRemoveLiquiditySdk(p(params) as any, userWallet);
     case "raydium_get_pools":
     case "raydium_get_pools_v2":
       return raydium.getRaydiumPools(p(params));
