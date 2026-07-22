@@ -71,6 +71,30 @@ function resp(type: string, tx: VersionedTransaction, params: Record<string, unk
   };
 }
 
+/**
+ * Map a raw SDK/RPC error to a clean, user-safe message. Never leak the raw SDK
+ * body (token-account dumps, internal strings). Our own appErrors (they carry a
+ * statusCode) pass through untouched.
+ */
+function mapRaydiumSdkError(e: any): never {
+  if (e && typeof e.statusCode === "number") throw e; // already a clean appError
+  const msg = String(e?.message ?? e ?? "");
+  const low = msg.toLowerCase();
+  if (low.includes("lptokenaccount") || (low.includes("lp") && low.includes("cannot found"))) {
+    throw appError("You don't have a liquidity position in this pool.", 400, "RAYDIUM_NO_POSITION");
+  }
+  if (low.includes("cannot found") && low.includes("tokenaccount")) {
+    throw appError("Your wallet doesn't hold the token this action needs. Fund it first.", 400, "RAYDIUM_NO_TOKEN");
+  }
+  if (low.includes("insufficient")) {
+    throw appError("Insufficient balance for this action.", 400, "RAYDIUM_INSUFFICIENT");
+  }
+  if ((low.includes("position") || low.includes("nft")) && (low.includes("not found") || low.includes("cannot found"))) {
+    throw appError("That position wasn't found for your wallet.", 404, "RAYDIUM_NO_POSITION");
+  }
+  throw appError("Couldn't build the Raydium transaction. Please try again in a moment.", 502, "RAYDIUM_ERROR");
+}
+
 type PoolKind = "cpmm" | "ammv4" | "clmm" | "unknown";
 
 /** Classify a Standard/Concentrated pool by its owning program. */
@@ -125,6 +149,7 @@ export async function buildRaydiumAddLiquiditySdk(
   params: RaydiumSdkAddLiquidityParams,
   userWallet: string,
 ): Promise<BuildResponse> {
+ try {
   if (!params.poolId) throw appError("poolId is required", 400, "RAYDIUM_ERROR");
   const { sdk, raydium } = await loadRaydium(userWallet);
   const slippageBps = params.slippageBps ?? 100;
@@ -192,6 +217,7 @@ export async function buildRaydiumAddLiquiditySdk(
     );
   }
   throw appError("Unsupported Raydium pool type for add-liquidity", 400, "RAYDIUM_ERROR");
+ } catch (e) { mapRaydiumSdkError(e); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,6 +235,7 @@ export async function buildRaydiumRemoveLiquiditySdk(
   params: RaydiumSdkRemoveLiquidityParams,
   userWallet: string,
 ): Promise<BuildResponse> {
+ try {
   if (!params.poolId) throw appError("poolId is required", 400, "RAYDIUM_ERROR");
   const { sdk, raydium } = await loadRaydium(userWallet);
   const slippageBps = params.slippageBps ?? 100;
@@ -260,4 +287,229 @@ export async function buildRaydiumRemoveLiquiditySdk(
     );
   }
   throw appError("Unsupported Raydium pool type for remove-liquidity", 400, "RAYDIUM_ERROR");
+ } catch (e) { mapRaydiumSdkError(e); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLMM helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Extract a BN from the {amount, fee} slippage shape the CLMM utils return. */
+function pickAmount(x: any): BN {
+  return (x && x.amount !== undefined) ? x.amount : x;
+}
+
+/** Find a user's CLMM position by its NFT mint (positionId). */
+async function findClmmPosition(sdk: any, raydium: any, positionId: string): Promise<any> {
+  const positions: any[] = await raydium.clmm.getOwnerPositionInfo({ programId: sdk.CLMM_PROGRAM_ID });
+  const match = (positions ?? []).find((p) => {
+    const nft = p?.nftMint?.toBase58 ? p.nftMint.toBase58() : String(p?.nftMint ?? "");
+    return nft === positionId;
+  });
+  if (!match) throw appError("That CLMM position wasn't found for your wallet.", 404, "RAYDIUM_NO_POSITION");
+  return match;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLMM — open position
+// Frontend params: { poolId, inputMint, inputAmount (UI), minPrice?, maxPrice?, tickLower?, tickUpper?, slippageBps }
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function buildRaydiumOpenPositionSdk(params: any, userWallet: string): Promise<BuildResponse> {
+ try {
+  if (!params.poolId) throw appError("poolId is required to open a CLMM position", 400, "RAYDIUM_ERROR");
+  const { sdk, raydium } = await loadRaydium(userWallet);
+  const Decimal = (await import("decimal.js")).default;
+  const { poolInfo, poolKeys } = await raydium.clmm.getPoolInfoFromRpc(params.poolId);
+
+  let tickLower: number, tickUpper: number;
+  if (params.tickLower != null && params.tickUpper != null) {
+    tickLower = Math.min(Number(params.tickLower), Number(params.tickUpper));
+    tickUpper = Math.max(Number(params.tickLower), Number(params.tickUpper));
+  } else {
+    if (params.minPrice == null || params.maxPrice == null) {
+      throw appError("Provide a price range (minPrice / maxPrice) for the position.", 400, "RAYDIUM_ERROR");
+    }
+    const t1 = sdk.TickUtils.getPriceAndTick({ poolInfo, price: new Decimal(params.minPrice), baseIn: true }).tick;
+    const t2 = sdk.TickUtils.getPriceAndTick({ poolInfo, price: new Decimal(params.maxPrice), baseIn: true }).tick;
+    tickLower = Math.min(t1, t2);
+    tickUpper = Math.max(t1, t2);
+  }
+
+  const inputMint = resolveToken(params.inputMint)?.mint ?? params.inputMint;
+  const isA = inputMint === poolInfo.mintA.address;
+  const inDecimals = isA ? poolInfo.mintA.decimals : poolInfo.mintB.decimals;
+  const baseAmount = toBaseUnits(String(params.inputAmount), inDecimals);
+
+  const epochInfo = await raydium.fetchEpochInfo();
+  const out = await sdk.PoolUtils.getLiquidityAmountOutFromAmountIn({
+    poolInfo, slippage: (params.slippageBps ?? 100) / 10000, inputA: isA,
+    tickUpper, tickLower, amount: baseAmount, add: true, amountHasFee: true, epochInfo,
+  });
+  const otherAmountMax = pickAmount(isA ? out.amountSlippageB : out.amountSlippageA);
+
+  const { transaction } = await raydium.clmm.openPositionFromBase({
+    poolInfo, poolKeys, tickLower, tickUpper,
+    base: isA ? "MintA" : "MintB",
+    baseAmount, otherAmountMax,
+    ownerInfo: { useSOLBalance: true },
+    withMetadata: "create",
+    txVersion: sdk.TxVersion.V0,
+  });
+  return resp(
+    "raydium_open_position", transaction, params,
+    `Open Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position`,
+    ["Concentrated liquidity — out-of-range positions stop earning fees"],
+  );
+ } catch (e) { mapRaydiumSdkError(e); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLMM — increase position
+// Frontend params: { positionId, inputMint, inputAmount (UI), slippageBps }
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function buildRaydiumIncreasePositionSdk(params: any, userWallet: string): Promise<BuildResponse> {
+ try {
+  if (!params.positionId) throw appError("positionId is required", 400, "RAYDIUM_ERROR");
+  const { sdk, raydium } = await loadRaydium(userWallet);
+  const pos = await findClmmPosition(sdk, raydium, params.positionId);
+  const poolId = pos.poolId?.toBase58 ? pos.poolId.toBase58() : String(pos.poolId);
+  const { poolInfo, poolKeys } = await raydium.clmm.getPoolInfoFromRpc(poolId);
+
+  const inputMint = resolveToken(params.inputMint)?.mint ?? params.inputMint;
+  const isA = inputMint === poolInfo.mintA.address;
+  const inDecimals = isA ? poolInfo.mintA.decimals : poolInfo.mintB.decimals;
+  const baseAmount = toBaseUnits(String(params.inputAmount), inDecimals);
+
+  const epochInfo = await raydium.fetchEpochInfo();
+  const out = await sdk.PoolUtils.getLiquidityAmountOutFromAmountIn({
+    poolInfo, slippage: (params.slippageBps ?? 100) / 10000, inputA: isA,
+    tickUpper: pos.tickUpper, tickLower: pos.tickLower,
+    amount: baseAmount, add: true, amountHasFee: true, epochInfo,
+  });
+  const otherAmountMax = pickAmount(isA ? out.amountSlippageB : out.amountSlippageA);
+
+  const { transaction } = await raydium.clmm.increasePositionFromBase({
+    poolInfo, poolKeys, ownerPosition: pos, ownerInfo: { useSOLBalance: true },
+    base: isA ? "MintA" : "MintB", baseAmount, otherAmountMax,
+    txVersion: sdk.TxVersion.V0,
+  });
+  return resp("raydium_increase_position", transaction, params, `Increase Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position`);
+ } catch (e) { mapRaydiumSdkError(e); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLMM — decrease position
+// Frontend params: { positionId, liquidity ("all" | "N%" | raw BN), slippageBps }
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function buildRaydiumDecreasePositionSdk(params: any, userWallet: string): Promise<BuildResponse> {
+ try {
+  if (!params.positionId) throw appError("positionId is required", 400, "RAYDIUM_ERROR");
+  const { sdk, raydium } = await loadRaydium(userWallet);
+  const pos = await findClmmPosition(sdk, raydium, params.positionId);
+  const poolId = pos.poolId?.toBase58 ? pos.poolId.toBase58() : String(pos.poolId);
+  const { poolInfo, poolKeys } = await raydium.clmm.getPoolInfoFromRpc(poolId);
+
+  const total: BN = pos.liquidity;
+  const raw = String(params.liquidity ?? "").trim().toLowerCase();
+  let liquidity: BN;
+  const pctMatch = raw.match(/^(\d+(?:\.\d+)?)\s*%$/);
+  if (raw === "all" || raw === "max" || raw === "100%") {
+    liquidity = total;
+  } else if (pctMatch) {
+    const pct = parseFloat(pctMatch[1]);
+    liquidity = total.muln(Math.round(pct)).divn(100);
+  } else if (raw) {
+    liquidity = new BN(raw);
+  } else {
+    throw appError("Specify how much liquidity to remove (e.g. \"all\" or \"50%\").", 400, "RAYDIUM_ERROR");
+  }
+  if (!liquidity || liquidity.lten(0)) throw appError("Nothing to remove from this position.", 400, "RAYDIUM_ERROR");
+  const closePosition = liquidity.gte(total);
+
+  const { transaction } = await raydium.clmm.decreaseLiquidity({
+    poolInfo, poolKeys, ownerPosition: pos,
+    ownerInfo: { useSOLBalance: true, closePosition },
+    liquidity, amountMinA: new BN(0), amountMinB: new BN(0),
+    txVersion: sdk.TxVersion.V0,
+  });
+  return resp(
+    "raydium_decrease_position", transaction, params,
+    closePosition ? `Close Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position` : `Reduce Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position`,
+  );
+ } catch (e) { mapRaydiumSdkError(e); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLMM — close position (decrease all + close in one tx; plain close if empty)
+// Frontend params: { positionId }
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function buildRaydiumClosePositionSdk(params: any, userWallet: string): Promise<BuildResponse> {
+ try {
+  if (!params.positionId) throw appError("positionId is required", 400, "RAYDIUM_ERROR");
+  const { sdk, raydium } = await loadRaydium(userWallet);
+  const pos = await findClmmPosition(sdk, raydium, params.positionId);
+  const poolId = pos.poolId?.toBase58 ? pos.poolId.toBase58() : String(pos.poolId);
+  const { poolInfo, poolKeys } = await raydium.clmm.getPoolInfoFromRpc(poolId);
+  const total: BN = pos.liquidity;
+  const desc = `Close Raydium CLMM ${poolInfo.mintA.symbol}/${poolInfo.mintB.symbol} position`;
+
+  if (total && total.gtn(0)) {
+    const { transaction } = await raydium.clmm.decreaseLiquidity({
+      poolInfo, poolKeys, ownerPosition: pos,
+      ownerInfo: { useSOLBalance: true, closePosition: true },
+      liquidity: total, amountMinA: new BN(0), amountMinB: new BN(0),
+      txVersion: sdk.TxVersion.V0,
+    });
+    return resp("raydium_close_position", transaction, params, desc, ["Withdraws all liquidity + fees and closes the position NFT"]);
+  }
+  const { transaction } = await raydium.clmm.closePosition({
+    poolInfo, poolKeys, ownerPosition: pos, txVersion: sdk.TxVersion.V0,
+  });
+  return resp("raydium_close_position", transaction, params, desc);
+ } catch (e) { mapRaydiumSdkError(e); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Create CPMM pool
+// Frontend params: { mintA, mintB, amountA (UI), amountB (UI), startTime }
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function buildRaydiumCreatePoolSdk(params: any, userWallet: string): Promise<BuildResponse> {
+ try {
+  const { sdk, raydium } = await loadRaydium(userWallet);
+  const mintAAddr = resolveToken(params.mintA)?.mint ?? params.mintA;
+  const mintBAddr = resolveToken(params.mintB)?.mint ?? params.mintB;
+  if (!mintAAddr || !mintBAddr) throw appError("Both tokens are required to create a pool.", 400, "RAYDIUM_ERROR");
+
+  const mintAInfo = await raydium.token.getTokenInfo(mintAAddr);
+  const mintBInfo = await raydium.token.getTokenInfo(mintBAddr);
+  const feeConfigs = await raydium.api.getCpmmConfigs();
+  if (!feeConfigs || !feeConfigs.length) throw appError("Couldn't load Raydium pool fee configs.", 502, "RAYDIUM_ERROR");
+
+  const mintAAmount = toBaseUnits(String(params.amountA), mintAInfo.decimals);
+  const mintBAmount = toBaseUnits(String(params.amountB), mintBInfo.decimals);
+
+  const { transaction } = await raydium.cpmm.createPool({
+    programId: sdk.CREATE_CPMM_POOL_PROGRAM,
+    poolFeeAccount: sdk.CREATE_CPMM_POOL_FEE_ACC,
+    mintA: mintAInfo,
+    mintB: mintBInfo,
+    mintAAmount,
+    mintBAmount,
+    startTime: new BN(Number(params.startTime ?? 0)),
+    feeConfig: feeConfigs[0],
+    associatedOnly: false,
+    ownerInfo: { useSOLBalance: true },
+    txVersion: sdk.TxVersion.V0,
+  });
+  return resp(
+    "raydium_create_pool", transaction, params,
+    `Create Raydium CPMM pool ${mintAInfo.symbol ?? "A"}/${mintBInfo.symbol ?? "B"}`,
+    ["Creating a pool locks the initial deposit as the starting price"],
+  );
+ } catch (e) { mapRaydiumSdkError(e); }
 }

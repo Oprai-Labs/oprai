@@ -164,6 +164,16 @@ export async function buildAction(
       return raydiumSdk.buildRaydiumAddLiquiditySdk(p(params) as any, userWallet);
     case "raydium_remove_liquidity":
       return raydiumSdk.buildRaydiumRemoveLiquiditySdk(p(params) as any, userWallet);
+    case "raydium_open_position":
+      return raydiumSdk.buildRaydiumOpenPositionSdk(p(params) as any, userWallet);
+    case "raydium_increase_position":
+      return raydiumSdk.buildRaydiumIncreasePositionSdk(p(params) as any, userWallet);
+    case "raydium_decrease_position":
+      return raydiumSdk.buildRaydiumDecreasePositionSdk(p(params) as any, userWallet);
+    case "raydium_close_position":
+      return raydiumSdk.buildRaydiumClosePositionSdk(p(params) as any, userWallet);
+    case "raydium_create_pool":
+      return raydiumSdk.buildRaydiumCreatePoolSdk(p(params) as any, userWallet);
     case "raydium_get_pools":
     case "raydium_get_pools_v2":
       return raydium.getRaydiumPools(p(params));

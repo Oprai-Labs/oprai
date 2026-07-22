@@ -263,6 +263,11 @@ fn is_ts_delegated_action(action_type: &str) -> bool {
             // these must be built with @raydium-io/raydium-sdk-v2 in the TS service.
             | "raydium_add_liquidity"
             | "raydium_remove_liquidity"
+            | "raydium_open_position"
+            | "raydium_increase_position"
+            | "raydium_decrease_position"
+            | "raydium_close_position"
+            | "raydium_create_pool"
     )
 }
 
