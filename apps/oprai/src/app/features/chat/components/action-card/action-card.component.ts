@@ -1470,6 +1470,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly editSymbol = signal('');
   readonly editDescription = signal('');
   readonly editInitialBuy = signal('');
+  /** Set when the initial buy was specified in USD ("$10"): drives the "≈ $N"
+   *  hint next to the SOL-denominated field after live conversion. */
+  readonly initialBuyUsd = signal<number | null>(null);
+  /** SOL logo for the Initial buy (SOL) field icon. */
+  get solLogoURI(): string | null { return this.resolveTokenDisplay(this.SOL_MINT).logoURI ?? null; }
   readonly editTwitter = signal('');
   readonly editTelegram = signal('');
   readonly editWebsite = signal('');
@@ -3451,8 +3456,27 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.editName.set(p['name'] ?? p['tokenName'] ?? '');
     this.editSymbol.set(p['symbol'] ?? p['ticker'] ?? '');
     this.editDescription.set(p['description'] ?? '');
-    // initialBuyAmount comes from LLM as 'initialBuyAmount'; legacy UI uses 'initialBuy'
-    this.editInitialBuy.set(p['initialBuyAmount'] ?? p['initial_buy_amount'] ?? p['initialBuy'] ?? '');
+    // initialBuyAmount comes from LLM as 'initialBuyAmount'; legacy UI uses 'initialBuy'.
+    // pump.fun buys are denominated in SOL. If the user gave a DOLLAR amount
+    // ("$10 / 10 dolar initial buy") the LLM emits initialBuyAmountUsd — convert
+    // it to the live SOL equivalent so the field shows the SOL actually spent,
+    // not the raw dollar figure treated as SOL (10 SOL ≈ $770, not $10).
+    const initBuySol = p['initialBuyAmount'] ?? p['initial_buy_amount'] ?? p['initialBuy'] ?? '';
+    const initBuyUsdRaw = p['initialBuyAmountUsd'] ?? p['initial_buy_amount_usd'];
+    const initBuyUsd = parseFloat(initBuyUsdRaw ?? '');
+    if (!initBuySol && Number.isFinite(initBuyUsd) && initBuyUsd > 0) {
+      this.initialBuyUsd.set(initBuyUsd);
+      this.editInitialBuy.set(''); // hold until the live SOL price resolves
+      void this.priceFeed.getPrice(this.SOL_MINT).then(solPrice => {
+        if (solPrice && solPrice > 0) {
+          // 4 dp keeps small USD buys readable ($10 ≈ 0.13 SOL) without noise.
+          this.editInitialBuy.set((initBuyUsd / solPrice).toFixed(4));
+        }
+      });
+    } else {
+      this.initialBuyUsd.set(null);
+      this.editInitialBuy.set(initBuySol);
+    }
     this.editTwitter.set(p['twitter'] ?? '');
     this.editTelegram.set(p['telegram'] ?? '');
     this.editWebsite.set(p['website'] ?? '');
@@ -3574,8 +3598,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       mergedParams['name'] = this.editName();
       mergedParams['symbol'] = this.editSymbol().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
       mergedParams['description'] = this.editDescription();
-      // Normalise to the key expected by solana-action.service.ts extract
+      // Normalise to the key expected by solana-action.service.ts extract.
+      // editInitialBuy already holds the SOL amount (USD inputs were converted
+      // to the live SOL equivalent), so drop the USD-only hint keys — the
+      // backend deals purely in SOL.
       mergedParams['initialBuyAmount'] = this.editInitialBuy();
+      delete mergedParams['initialBuyAmountUsd'];
+      delete mergedParams['initial_buy_amount_usd'];
       mergedParams['twitter'] = this.editTwitter();
       mergedParams['telegram'] = this.editTelegram();
       mergedParams['website'] = this.editWebsite();

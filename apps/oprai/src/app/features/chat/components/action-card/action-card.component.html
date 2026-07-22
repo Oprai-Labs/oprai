@@ -127,13 +127,23 @@
 
         <!-- 5. Initial buy -->
         <div class="pf-field pf-field--half">
-          <label class="pf-field-label">Initial buy (SOL)</label>
+          <label class="pf-field-label">
+            Initial buy (SOL)
+            @if (initialBuyUsd(); as usd) {
+              <span class="pf-field-hint">≈ ${{ usd | number:'1.0-2' }}</span>
+            }
+          </label>
           <div class="pf-input-wrap">
             <input class="pf-input" type="number" min="0" step="0.01" placeholder="0.0"
               [value]="editInitialBuy()"
-              (input)="editInitialBuy.set($any($event.target).value)"
+              (input)="editInitialBuy.set($any($event.target).value); initialBuyUsd.set(null)"
               [disabled]="!isEditable()" />
-            <span class="pf-input-suffix">SOL</span>
+            <span class="pf-input-suffix pf-input-suffix--token">
+              @if (solLogoURI) {
+                <img [src]="solLogoURI" class="pf-suffix-icon" alt="" />
+              }
+              SOL
+            </span>
           </div>
         </div>
 
