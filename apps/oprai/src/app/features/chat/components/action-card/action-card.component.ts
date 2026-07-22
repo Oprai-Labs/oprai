@@ -3813,6 +3813,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
     const key = this.actionResultKey();
+    // Client-generated cards (query-card Deposit/Withdraw/Multiply, clarify picks)
+    // aren't server messages, so updateMessageMeta can't persist their result —
+    // the tx/confirmed state would vanish on reload. Mirror it to localStorage;
+    // chat-shell's restoreClientActions folds it back into the card's metadata.
+    if (/^(use-action-|clarify-action-|cancel-)/.test(this.messageId)) {
+      try {
+        const lsKey = `client-action-results:${this.sessionId}`;
+        const map = JSON.parse(localStorage.getItem(lsKey) ?? '{}');
+        map[`${this.messageId}::${key}`] = result;
+        localStorage.setItem(lsKey, JSON.stringify(map));
+      } catch { /* storage disabled — non-fatal */ }
+      return; // no server message to PATCH
+    }
     console.log('[persistResult] saving', { sessionId: this.sessionId, messageId: this.messageId, key, result });
     this.chatApi.updateMessageMeta(this.sessionId, this.messageId, {
       action_results: { [key]: result },

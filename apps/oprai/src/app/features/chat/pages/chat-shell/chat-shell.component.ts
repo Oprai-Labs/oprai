@@ -885,6 +885,14 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       const list: any[] = JSON.parse(localStorage.getItem(key) ?? '[]');
       const next = list.filter(x => x.msgId !== msgId);
       if (next.length !== list.length) localStorage.setItem(key, JSON.stringify(next));
+      // Drop any persisted results for this card too.
+      const rKey = `client-action-results:${sessionId}`;
+      const rMap: Record<string, any> = JSON.parse(localStorage.getItem(rKey) ?? '{}');
+      let changed = false;
+      for (const k of Object.keys(rMap)) {
+        if (k.startsWith(`${msgId}::`)) { delete rMap[k]; changed = true; }
+      }
+      if (changed) localStorage.setItem(rKey, JSON.stringify(rMap));
     } catch { /* non-fatal */ }
   }
 
@@ -892,16 +900,28 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     try {
       const list: any[] = JSON.parse(localStorage.getItem(this.clientActionsKey(sessionId)) ?? '[]');
       if (!list.length) return;
+      // Results the cards persisted (tx signature / confirmed status) live in a
+      // sibling store keyed by `${msgId}::${resultKey}` — fold them back into
+      // each restored message's metadata so the card shows its completed state.
+      const resultsMap: Record<string, any> = JSON.parse(
+        localStorage.getItem(`client-action-results:${sessionId}`) ?? '{}',
+      );
       const existing = this.messageActions();
       const toAdd: ChatMessage[] = [];
       const actionEntries: { id: string; action: ParsedAction }[] = [];
       for (const item of list) {
         if (!item?.msgId || !item?.action || existing.has(item.msgId)) continue;
         actionEntries.push({ id: item.msgId, action: item.action });
+        const prefix = `${item.msgId}::`;
+        const actionResults: Record<string, any> = {};
+        for (const [k, v] of Object.entries(resultsMap)) {
+          if (k.startsWith(prefix)) actionResults[k.slice(prefix.length)] = v;
+        }
         toAdd.push({
           id: item.msgId, sessionId, role: 'assistant', content: '',
           createdAt: item.createdAt ?? new Date(0).toISOString(),
-        });
+          ...(Object.keys(actionResults).length ? { metadata: { action_results: actionResults } } : {}),
+        } as ChatMessage);
       }
       if (!toAdd.length) return;
       this.messageActions.update(map => {
