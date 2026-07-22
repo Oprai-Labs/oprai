@@ -2236,9 +2236,28 @@ async def stream_chat_response(
                             pass
                     except Exception as exc:
                         _log.warning("market_data_error type=%s err=%s", validated.type.value, exc)
-                        market_data_results.append(
-                            (validated.type.value, params_dict, {"error": str(exc)})
-                        )
+                        if validated.type.value in QUERY_CARD_RENDER_TYPES:
+                            # The interactive card was already emitted above and
+                            # fetches its OWN data, so the user sees live results
+                            # regardless of this supplementary server-side fetch.
+                            # Feeding the raw error made the model apologise
+                            # ("couldn't reach the data, try again") right above a
+                            # card that clearly rendered — a self-contradiction.
+                            # Hand the model a neutral note instead so it just
+                            # introduces the card.
+                            market_data_results.append((
+                                validated.type.value, params_dict,
+                                {"_card_rendered": True,
+                                 "note": "The live results are shown in the interactive "
+                                         "card rendered directly below your message. "
+                                         "Introduce them in one short sentence. Do NOT "
+                                         "say you couldn't fetch the data and do NOT ask "
+                                         "the user to try again."},
+                            ))
+                        else:
+                            market_data_results.append(
+                                (validated.type.value, params_dict, {"error": str(exc)})
+                            )
                         # TEMP DEBUG
                         try:
                             with open("/tmp/oprai-debug.log", "a") as _df:

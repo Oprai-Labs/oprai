@@ -15,7 +15,7 @@ import { JupiterLendService, LendPosition, BorrowPosition } from '@core/services
 import { JupiterPerpService, PerpPosition } from '@core/services/market/jupiter-perp.service';
 import { MeteoraService, DlmmPair, DammV2Pool, DammV1Pool } from '@core/services/market/meteora.service';
 import { environment } from '../../../../../environments/environment';
-import { firstValueFrom, debounceTime, distinctUntilChanged } from 'rxjs';
+import { firstValueFrom, debounceTime, distinctUntilChanged, timeout } from 'rxjs';
 
 /** Mock query result types */
 interface BalanceResult {
@@ -1427,7 +1427,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         };
 
     try {
-      const resp = await firstValueFrom(this.api.post<any>('/actions/build', body));
+      // Hard 15s ceiling so a stuck gateway/RPC connection surfaces the error
+      // state (with a Refresh affordance) instead of spinning forever.
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', body).pipe(timeout(15_000)));
       // preview.params holds the unmodified Raydium API envelope:
       //   { id, success, data: { count, hasNextPage, data: RaydiumPool[] } }
       // Raydium V3 quirk: `count` is the page size (10), NOT the total —
