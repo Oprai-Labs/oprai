@@ -22,7 +22,7 @@ import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import BN from "bn.js";
 import { config } from "../config";
 import { appError, BuildResponse, ActionPreview } from "../types/index";
-import { resolveToken } from "./tokens";
+import { resolveToken, symbolForMint } from "./tokens";
 import { v4 as uuidv4 } from "uuid";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ async function fetchApiPool(raydium: any, poolId: string): Promise<any> {
 /** Human symbol for a mint (getPoolInfoFromRpc leaves symbols blank with
  *  disableLoadToken:true, so resolve from our registry, else a short address). */
 function symOf(mint: string): string {
-  return resolveToken(mint)?.name ?? (mint ? mint.slice(0, 4) + "…" : "?");
+  return symbolForMint(mint) ?? resolveToken(mint)?.name ?? (mint ? mint.slice(0, 4) + "…" : "?");
 }
 
 function toBaseUnits(amountUi: string, decimals: number): BN {

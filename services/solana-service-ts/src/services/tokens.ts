@@ -35,6 +35,14 @@ export function resolveToken(symbolOrMint: string): { mint: string; decimals: nu
   return null;
 }
 
+/** Reverse lookup: mint address → well-known ticker (e.g. "SOL"), or null. */
+export function symbolForMint(mint: string): string | null {
+  for (const [symbol, info] of Object.entries(WELL_KNOWN)) {
+    if (info.mint === mint) return symbol;
+  }
+  return null;
+}
+
 /** Fetch token info from Jupiter token list (fallback). */
 export async function fetchTokenInfo(
   mint: string
