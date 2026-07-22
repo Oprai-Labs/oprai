@@ -204,6 +204,26 @@ interface RaydiumPool {
   week?: { volume?: number; fee?: number; apr?: number };
 }
 
+/** A user's own Raydium position — either a CLMM range NFT or a Standard/CPMM
+ *  LP-token holding. Emitted by getRaydiumUserPositionsSdk. */
+interface RaydiumUserPosition {
+  kind: 'clmm' | 'lp';
+  poolId: string;
+  pair: string;
+  mintA: { address: string; symbol: string; logoURI?: string | null } | null;
+  mintB: { address: string; symbol: string; logoURI?: string | null } | null;
+  // CLMM
+  positionId?: string;
+  tickLower?: number;
+  tickUpper?: number;
+  liquidity?: string;
+  empty?: boolean;
+  // LP
+  poolType?: string;
+  lpMint?: string;
+  lpAmount?: number;
+}
+
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const SOL_LOGO = 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png';
 
@@ -456,6 +476,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly raydiumSortDir     = signal<'asc' | 'desc'>('desc');
   readonly raydiumFetching    = signal(false);
 
+  // The user's own Raydium positions (CLMM + Standard/CPMM LP), read straight
+  // from chain via the SDK — rendered in the same km-table design as the pool
+  // list, with a per-row Withdraw button.
+  readonly raydiumPositions = signal<RaydiumUserPosition[]>([]);
+  readonly raydiumPositionsFetching = signal(false);
+
   // Classic numbered pagination (1 2 3 4 5). Each page REPLACES the list with
   // its own 10 rows — no infinite-scroll / auto-append. Raydium V3 doesn't
   // expose a total count, so we drive a windowed page bar off the current page
@@ -661,6 +687,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         ?? 'pool_tvl');
       this.dammV1SortDir.set((d['dammV1SortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
     }
+    if (d['raydiumPositions']) {
+      this.raydiumPositions.set(d['raydiumPositions'] as RaydiumUserPosition[]);
+    }
     if (d['raydiumResults']) {
       this.raydiumResults = d['raydiumResults'] as RaydiumPool[];
       this.raydiumHasNextPage.set((d['raydiumHasNextPage'] as boolean | undefined) ?? false);
@@ -720,6 +749,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       d['dammV1Page']      = this.dammV1Page();
       d['dammV1SortField'] = this.dammV1SortField();
       d['dammV1SortDir']   = this.dammV1SortDir();
+    }
+    if (this.raydiumPositions().length) {
+      d['raydiumPositions'] = this.raydiumPositions();
     }
     if (this.raydiumResults.length) {
       d['raydiumResults']     = this.raydiumResults;
@@ -1471,6 +1503,48 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     void this.fetchRaydiumPools();
   }
 
+  /** Fetch the user's Raydium positions (CLMM + LP) straight from chain. */
+  private async fetchRaydiumPositions(): Promise<void> {
+    this.raydiumPositionsFetching.set(true);
+    this.error.set(null);
+    const wallet = this.walletService.publicKey();
+    if (!wallet) {
+      this.error.set('Connect your wallet to see positions');
+      this.loading.set(false);
+      this.raydiumPositionsFetching.set(false);
+      return;
+    }
+    try {
+      const resp = await firstValueFrom(
+        this.api.post<any>('/actions/build', {
+          type: 'raydium_get_user_positions',
+          params: { wallet },
+        }).pipe(timeout(20_000)),
+      );
+      const data = resp?.data ?? resp?.preview?.params?.data;
+      const positions: RaydiumUserPosition[] = Array.isArray(data?.positions) ? data.positions : [];
+      this.raydiumPositions.set(positions);
+      this.loading.set(false);
+      this.raydiumPositionsFetching.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Raydium positions');
+      this.loading.set(false);
+      this.raydiumPositionsFetching.set(false);
+    }
+  }
+
+  /** Withdraw a position: LP → remove-liquidity; CLMM → close the range. */
+  withdrawRaydiumPosition(pos: RaydiumUserPosition): void {
+    if (pos.kind === 'lp') {
+      const params: Record<string, string> = { poolId: pos.poolId, lpAmount: String(pos.lpAmount ?? '') };
+      this.useAction.emit({ type: 'raydium_remove_liquidity', params, raw: `[ACTION:raydium_remove_liquidity] ${JSON.stringify(params)}` });
+    } else {
+      const params: Record<string, string> = { positionId: pos.positionId ?? '' };
+      this.useAction.emit({ type: 'raydium_close_position', params, raw: `[ACTION:raydium_close_position] ${JSON.stringify(params)}` });
+    }
+  }
+
   raydiumPrevPage(): void {
     if (this.raydiumPage() > 1) this.raydiumGoToPage(this.raydiumPage() - 1);
   }
@@ -1855,6 +1929,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_get_pools':
       case 'raydium_search_pools':
         await this.fetchRaydiumPools();
+        return;
+      case 'raydium_get_user_positions':
+      case 'raydium_get_clmm_positions':
+        await this.fetchRaydiumPositions();
         return;
       case 'kamino_multiply_markets':
         await this.fetchKaminoMultiplyMarkets();

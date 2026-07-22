@@ -770,6 +770,11 @@
     minmax(150px, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.62fr) auto;
 }
 
+// Positions table: Pool | Type | Amount | Action (4 cols).
+.km-table--ray .km-row--pos {
+  grid-template-columns: minmax(150px, 1.8fr) minmax(0, 0.7fr) minmax(0, 1fr) auto;
+}
+
 // The pool-address copy control sits as the pair's sub-line (like km-pair__sub):
 // no button chrome, compact, tertiary — matches the swap card's muted subtext.
 .km-pair__text .dlmm-copy-btn.km-pair__sub {

@@ -291,6 +291,11 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # plain text and the model frequently misreads it ("no pools found")
     # even when 1–2 pools exist for the pair.
     "raydium_search_pools",
+    # The user's own Raydium positions (CLMM + Standard/CPMM LP) — self-fetching
+    # card that reads straight from chain via the SDK, with a per-row Withdraw
+    # button. Response shape: `{ data: { positions: [...], count } }`.
+    "raydium_get_user_positions",
+    "raydium_get_clmm_positions",
     # Kamino Multiply pool list — paginated/sortable table with a per-row
     # "Multiply" button that opens kamino_multiply_open on the chosen pair.
     # The card self-fetches from /actions/build (delegated to the TS

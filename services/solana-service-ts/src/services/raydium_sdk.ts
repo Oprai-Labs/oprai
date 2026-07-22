@@ -548,11 +548,15 @@ export async function getRaydiumUserPositionsSdk(_params: any, userWallet: strin
       if (pi?.mintA) pair = `${pi.mintA.symbol || symOf(pi.mintA.address)}/${pi.mintB.symbol || symOf(pi.mintB.address)}`;
     } catch { /* best-effort enrichment */ }
     const liqStr = p.liquidity?.toString ? p.liquidity.toString() : String(p.liquidity ?? "0");
+    const pcpi = poolCache[poolId];
+    const mintMeta = (m: any) => m ? { address: m.address, symbol: m.symbol || symOf(m.address), logoURI: m.logoURI ?? null } : null;
     positions.push({
       kind: "clmm",
       positionId: p.nftMint?.toBase58 ? p.nftMint.toBase58() : String(p.nftMint),
       poolId,
       pair,
+      mintA: mintMeta(pcpi?.mintA),
+      mintB: mintMeta(pcpi?.mintB),
       tickLower: p.tickLower,
       tickUpper: p.tickUpper,
       liquidity: liqStr,
@@ -588,6 +592,8 @@ export async function getRaydiumUserPositionsSdk(_params: any, userWallet: strin
           kind: "lp",
           poolId: pool.id,
           pair: `${pool.mintA?.symbol || symOf(pool.mintA?.address)}/${pool.mintB?.symbol || symOf(pool.mintB?.address)}`,
+          mintA: pool.mintA ? { address: pool.mintA.address, symbol: pool.mintA.symbol || symOf(pool.mintA.address), logoURI: pool.mintA.logoURI ?? null } : null,
+          mintB: pool.mintB ? { address: pool.mintB.address, symbol: pool.mintB.symbol || symOf(pool.mintB.address), logoURI: pool.mintB.logoURI ?? null } : null,
           poolType: pool.type, // "Standard"
           lpMint,
           lpAmount: bal?.amt ?? 0,
