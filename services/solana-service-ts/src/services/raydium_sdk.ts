@@ -549,6 +549,7 @@ export async function getRaydiumUserPositionsSdk(_params: any, userWallet: strin
     } catch { /* best-effort enrichment */ }
     const liqStr = p.liquidity?.toString ? p.liquidity.toString() : String(p.liquidity ?? "0");
     positions.push({
+      kind: "clmm",
       positionId: p.nftMint?.toBase58 ? p.nftMint.toBase58() : String(p.nftMint),
       poolId,
       pair,
@@ -559,13 +560,51 @@ export async function getRaydiumUserPositionsSdk(_params: any, userWallet: strin
     });
   }
 
+  // Standard AMM / CPMM LP positions: getOwnerPositionInfo only covers CLMM, so
+  // scan the wallet's token accounts for Raydium LP mints (a Standard/CPMM
+  // deposit mints LP tokens, not a position NFT). Raydium's pools/info/lps maps
+  // an LP mint back to its pool.
+  try {
+    const connection = new Connection(config.solanaRpc, "confirmed");
+    const owner = new PublicKey(userWallet);
+    const TOKEN_PROG = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+    const held: { mint: string; amt: number }[] = [];
+    for (const prog of [TOKEN_PROG, TOKEN_2022]) {
+      const r = await connection.getParsedTokenAccountsByOwner(owner, { programId: prog });
+      for (const a of r.value) {
+        const info = (a.account.data as any).parsed?.info;
+        const amt = info?.tokenAmount?.uiAmount;
+        if (info?.mint && amt > 0) held.push({ mint: info.mint, amt });
+      }
+    }
+    if (held.length) {
+      const res = await fetch(`https://api-v3.raydium.io/pools/info/lps?lps=${held.map((h) => h.mint).join(",")}`);
+      const j: any = await res.json();
+      for (const pool of (j?.data ?? []).filter(Boolean)) {
+        const lpMint = pool.lpMint?.address ?? pool.lpMint;
+        const bal = held.find((h) => h.mint === lpMint);
+        positions.push({
+          kind: "lp",
+          poolId: pool.id,
+          pair: `${pool.mintA?.symbol || symOf(pool.mintA?.address)}/${pool.mintB?.symbol || symOf(pool.mintB?.address)}`,
+          poolType: pool.type, // "Standard"
+          lpMint,
+          lpAmount: bal?.amt ?? 0,
+        });
+      }
+    }
+  } catch { /* best-effort LP scan */ }
+
+  const clmmCount = positions.filter((x) => x.kind === "clmm").length;
+  const lpCount = positions.filter((x) => x.kind === "lp").length;
   return {
     preview: preview(
       "raydium_get_user_positions",
-      positions.length ? `Raydium CLMM positions (${positions.length})` : "No active Raydium CLMM positions",
+      positions.length ? `Raydium positions (${clmmCount} CLMM, ${lpCount} LP)` : "No active Raydium positions",
       {}, [],
     ),
-    data: { source: "raydium-clmm-sdk", count: positions.length, positions },
+    data: { source: "raydium-sdk", count: positions.length, clmmCount, lpCount, positions },
     additionalSignersRequired: 0,
     isCrossChain: false,
   };
