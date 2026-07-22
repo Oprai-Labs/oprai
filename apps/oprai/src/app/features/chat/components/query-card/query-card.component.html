@@ -792,44 +792,34 @@
               <div class="dlmm-empty__hint">Try a different sort/filter, or check on <a href="https://raydium.io/liquidity-pools" target="_blank" rel="noopener">raydium.io</a>.</div>
             </div>
           }
-          <!-- Infinite-scroll sentinel: when this enters the viewport (with
-               200px of pre-fetch margin) the IntersectionObserver in the TS
-               class auto-triggers raydiumNextPage(). Only rendered while
-               there's more data to fetch, so it disconnects naturally at
-               the end of the list. -->
-          @if (raydiumHasNextPage() && raydiumResults.length > 0) {
-            <div #raydiumSentinel class="dlmm-sentinel" aria-hidden="true">
-              @if (raydiumFetching()) {
-                <span class="dlmm-sentinel__spinner"></span>
-                <span>Loading more…</span>
-              }
-            </div>
-          }
         </div>
         @if (raydiumResults.length > 0) {
-          <!-- Infinite-scroll footer: the table appends new rows as the user
-               scrolls, so per-page Prev/Next is replaced by a single counter
-               + a manual "Load more" fallback for users who prefer a button
-               (or if the IntersectionObserver hasn't tripped for any reason). -->
-          <div class="dlmm-footer">
+          <!-- Numbered pagination: exactly one page (≤10 rows) is shown at a
+               time and each page number REPLACES the list. Raydium V3 exposes
+               no total, so the number window is derived from the current page +
+               hasNextPage (see raydiumPageNumbers). -->
+          <div class="km-pagination">
             <span class="dlmm-footer__count">
-              Showing <strong>{{ raydiumShowingRange.to }}</strong> pools
-              @if (raydiumHasNextPage()) { <span class="dlmm-footer__more">· more available</span> }
+              {{ raydiumShowingRange.from }}–{{ raydiumShowingRange.to }}
             </span>
-            @if (raydiumHasNextPage()) {
-              <button
-                class="dlmm-page-btn dlmm-page-btn--nav"
-                (click)="raydiumNextPage()"
-                [disabled]="raydiumFetching()"
-                title="Load more">
-                @if (raydiumFetching()) {
-                  <span class="dlmm-sentinel__spinner"></span>
-                } @else {
-                  <lucide-icon name="chevron-down" [size]="13" />
-                }
-                <span>Load more</span>
+            <div class="km-pagination__pages">
+              <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="raydiumPrevPage()"
+                      [disabled]="raydiumPage() <= 1 || raydiumFetching()" title="Previous page"
+                      aria-label="Previous page">
+                <lucide-icon name="chevron-left" [size]="14" />
               </button>
-            }
+              @for (n of raydiumPageNumbers(); track n) {
+                <button class="dlmm-page-btn" [class.dlmm-page-btn--active]="n === raydiumPage()"
+                        [disabled]="raydiumFetching()" (click)="raydiumGoToPage(n)">
+                  {{ n }}
+                </button>
+              }
+              <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="raydiumNextPage()"
+                      [disabled]="!raydiumHasNextPage() || raydiumFetching()" title="Next page"
+                      aria-label="Next page">
+                <lucide-icon name="chevron-right" [size]="14" />
+              </button>
+            </div>
           </div>
           <p class="dlmm-help">
             <strong>CLMM</strong> = Concentrated Liquidity (single-sided range deposit, like Uniswap v3).

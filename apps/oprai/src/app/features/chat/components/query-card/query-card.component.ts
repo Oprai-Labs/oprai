@@ -456,28 +456,29 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly raydiumSortDir     = signal<'asc' | 'desc'>('desc');
   readonly raydiumFetching    = signal(false);
 
-  // Infinite-scroll plumbing. The template parks a `<div #raydiumSentinel>`
-  // just below the last row; when it enters the viewport we auto-page. The
-  // 200px rootMargin pre-fetches before the user hits the actual bottom so
-  // scrolling feels continuous, not staccato. Prev/Next buttons stay in the
-  // footer as a manual fallback (and for going backwards).
-  readonly raydiumSentinel = viewChild<ElementRef<HTMLElement>>('raydiumSentinel');
-  private _raydiumScrollObserver?: IntersectionObserver;
-  private readonly _raydiumScrollEffect = effect(() => {
-    const ref = this.raydiumSentinel();
-    this._raydiumScrollObserver?.disconnect();
-    this._raydiumScrollObserver = undefined;
-    if (!ref || typeof IntersectionObserver === 'undefined') return;
-    this._raydiumScrollObserver = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some(e => e.isIntersecting)) return;
-        if (!this.raydiumHasNextPage() || this.raydiumFetching()) return;
-        this.raydiumNextPage();
-      },
-      { rootMargin: '200px 0px' },
-    );
-    this._raydiumScrollObserver.observe(ref.nativeElement);
+  // Classic numbered pagination (1 2 3 4 5). Each page REPLACES the list with
+  // its own 10 rows — no infinite-scroll / auto-append. Raydium V3 doesn't
+  // expose a total count, so we drive a windowed page bar off the current page
+  // + `hasNextPage`: offer a few pages ahead while more data exists, cap once
+  // the last page is reached.
+  readonly raydiumPageNumbers = computed<number[]>(() => {
+    const cur = this.raydiumPage();
+    const hasNext = this.raydiumHasNextPage();
+    const WINDOW = 5;
+    const maxOffer = cur + (hasNext ? 4 : 0);
+    let start = Math.max(1, cur - Math.floor(WINDOW / 2));
+    let end = Math.min(maxOffer, start + WINDOW - 1);
+    start = Math.max(1, end - WINDOW + 1);
+    const pages: number[] = [];
+    for (let p = start; p <= end; p++) pages.push(p);
+    return pages;
   });
+
+  raydiumGoToPage(n: number): void {
+    if (n < 1 || n === this.raydiumPage() || this.raydiumFetching()) return;
+    this.raydiumPage.set(n);
+    void this.fetchRaydiumPools();
+  }
 
   priceResult: PriceResult | null = null;
   positionResults: PositionResult[] = [];
@@ -606,8 +607,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       clearInterval(this.livePollTimer);
       this.livePollTimer = null;
     }
-    this._raydiumScrollObserver?.disconnect();
-    this._raydiumScrollObserver = undefined;
   }
 
   private restoreSnapshot(snap: QuerySnapshot): void {
@@ -1439,31 +1438,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       const rows: RaydiumPool[] = Array.isArray(apiData?.data) ? apiData.data : [];
       const hasNext: boolean = !!apiData?.hasNextPage;
 
-      // Append vs replace: page == 1 is a fresh load (initial mount, sort or
-      // filter change, manual refresh) — replace. page > 1 is the user (or
-      // the auto-scroll observer) asking for the next slice — append.
-      //
-      // Defense in depth: dedupe by pool id when appending. If the backend
-      // (or upstream Raydium API) returns the same row across pages — a known
-      // failure mode for badly-paginated APIs — silently dropping the dupes
-      // keeps `@for ... track p.id` happy and prevents the table from
-      // visually inflating with phantom rows. If EVERY appended row is a
-      // dup, the page added nothing real → flip `hasNextPage` off so the
-      // observer stops re-firing on an unchanged sentinel position.
-      let effectiveHasNext = hasNext;
-      if (this.raydiumPage() > 1) {
-        const seen = new Set(this.raydiumResults.map(r => r.id));
-        const fresh = rows.filter(r => !seen.has(r.id));
-        if (fresh.length === 0) {
-          // Backend claimed more pages but returned only dupes → stop looping.
-          effectiveHasNext = false;
-        } else {
-          this.raydiumResults = [...this.raydiumResults, ...fresh];
-        }
-      } else {
-        this.raydiumResults = rows;
-      }
-      this.raydiumHasNextPage.set(effectiveHasNext);
+      // Numbered pagination: each page REPLACES the visible list with its own
+      // 10 rows (never append). The table always shows exactly the current
+      // page's slice.
+      this.raydiumResults = rows;
+      this.raydiumHasNextPage.set(hasNext);
       this.raydiumFetching.set(false);
       this.loading.set(false);
       this.persistSnapshot();
@@ -1493,35 +1472,24 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   raydiumPrevPage(): void {
-    if (this.raydiumPage() > 1) {
-      this.raydiumPage.update(p => p - 1);
-      void this.fetchRaydiumPools();
-    }
+    if (this.raydiumPage() > 1) this.raydiumGoToPage(this.raydiumPage() - 1);
   }
 
   raydiumNextPage(): void {
     if (!this.raydiumHasNextPage()) return;
-    // Synchronous race guard — set fetching=true here, BEFORE awaiting the
-    // async fetch, so a second observer firing or rapid scroll burst can't
-    // sneak through the guard in the IntersectionObserver callback. Without
-    // this, the page counter could advance multiple times before the first
-    // fetch resolved, causing pages 2 / 3 / 4 to race and append in arbitrary
-    // order (and on a backend that ignores the `page` param, the same rows
-    // would land 3× as duplicates).
-    if (this.raydiumFetching()) return;
-    this.raydiumFetching.set(true);
-    this.raydiumPage.update(p => p + 1);
-    void this.fetchRaydiumPools();
+    this.raydiumGoToPage(this.raydiumPage() + 1);
   }
 
   /**
-   * Footer counter for infinite scroll. Returns the accumulated row count —
-   * the per-page `from/to` from the old paginated UI no longer applies once
-   * pages append into a single growing list. V3 doesn't expose the total so
-   * we just show what we have plus a "more available" hint when applicable.
+   * Page-based row range for the footer ("11–20 of this page"). Each page holds
+   * up to RAYDIUM_PAGE_SIZE rows and replaces the list, so the range is derived
+   * from the current page index, not an accumulated count.
    */
   get raydiumShowingRange(): { from: number; to: number } {
-    return { from: this.raydiumResults.length > 0 ? 1 : 0, to: this.raydiumResults.length };
+    const n = this.raydiumResults.length;
+    if (n === 0) return { from: 0, to: 0 };
+    const from = (this.raydiumPage() - 1) * this.RAYDIUM_PAGE_SIZE + 1;
+    return { from, to: from + n - 1 };
   }
 
 

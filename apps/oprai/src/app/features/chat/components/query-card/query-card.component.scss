@@ -897,6 +897,22 @@
   flex-wrap: wrap;
 }
 
+.km-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  flex-wrap: wrap;
+
+  &__pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+}
+
 .dlmm-page-btn {
   min-width: 26px;
   height: 26px;
