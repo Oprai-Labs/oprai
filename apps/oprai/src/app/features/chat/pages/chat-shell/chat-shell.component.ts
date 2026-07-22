@@ -830,6 +830,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       next.set(msgId, [action]);
       return next;
     });
+    this.persistClientAction(sessionId, msgId, action, msg.createdAt);
   }
 
   /**
@@ -856,6 +857,64 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       next.set(actionMsgId, [action]);
       return next;
     });
+    this.persistClientAction(sessionId, actionMsgId, action, msg.createdAt);
+  }
+
+  // ── Client-generated action cards persistence ──────────────────────────────
+  // Deposit/Withdraw/Multiply buttons on a query-card (and clarify picks) create
+  // an action card that is NOT a server message. Persist it per-session in
+  // localStorage so a page reload — which reloads messages from the DB — doesn't
+  // drop it (with its cachedResult the card even restores its tx status).
+  private clientActionsKey(sessionId: string): string { return `client-actions:${sessionId}`; }
+
+  private persistClientAction(sessionId: string, msgId: string, action: ParsedAction, createdAt: string): void {
+    try {
+      const key = this.clientActionsKey(sessionId);
+      const list: any[] = JSON.parse(localStorage.getItem(key) ?? '[]');
+      list.push({ msgId, action, createdAt });
+      // Bound the list so it can't grow forever on a long-lived chat.
+      localStorage.setItem(key, JSON.stringify(list.slice(-50)));
+    } catch { /* storage full / disabled — non-fatal */ }
+  }
+
+  private removeClientAction(msgId: string): void {
+    try {
+      const sessionId = this.sessionStorage.activeSessionId();
+      if (!sessionId) return;
+      const key = this.clientActionsKey(sessionId);
+      const list: any[] = JSON.parse(localStorage.getItem(key) ?? '[]');
+      const next = list.filter(x => x.msgId !== msgId);
+      if (next.length !== list.length) localStorage.setItem(key, JSON.stringify(next));
+    } catch { /* non-fatal */ }
+  }
+
+  private restoreClientActions(sessionId: string): void {
+    try {
+      const list: any[] = JSON.parse(localStorage.getItem(this.clientActionsKey(sessionId)) ?? '[]');
+      if (!list.length) return;
+      const existing = this.messageActions();
+      const toAdd: ChatMessage[] = [];
+      const actionEntries: { id: string; action: ParsedAction }[] = [];
+      for (const item of list) {
+        if (!item?.msgId || !item?.action || existing.has(item.msgId)) continue;
+        actionEntries.push({ id: item.msgId, action: item.action });
+        toAdd.push({
+          id: item.msgId, sessionId, role: 'assistant', content: '',
+          createdAt: item.createdAt ?? new Date(0).toISOString(),
+        });
+      }
+      if (!toAdd.length) return;
+      this.messageActions.update(map => {
+        const nx = new Map(map);
+        for (const e of actionEntries) nx.set(e.id, [e.action]);
+        return nx;
+      });
+      // Merge + keep chronological order so restored cards sit after their
+      // originating query-card, not jumbled at the top.
+      this.messages.update(msgs => [...msgs, ...toAdd].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ));
+    } catch { /* non-fatal */ }
   }
 
   /**
@@ -882,6 +941,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       next.set(actionMsgId, [action]);
       return next;
     });
+    this.persistClientAction(sessionId, actionMsgId, action, msg.createdAt);
     this.clarifySelections.update(map => {
       const next = new Map(map);
       next.set(clarifyKey, optionIndex);
@@ -907,8 +967,12 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       next.delete(messageId);
       return next;
     });
-    if (messageId.startsWith('clarify-action-')) {
+    // Client-generated shells (clarify pick, query-card Deposit/Withdraw, cancel)
+    // have no real content — drop the message AND its localStorage record so a
+    // dismissed card doesn't reappear on reload.
+    if (messageId.startsWith('clarify-action-') || messageId.startsWith('use-action-') || messageId.startsWith('cancel-')) {
       this.messages.update(msgs => msgs.filter(m => m.id !== messageId));
+      this.removeClientAction(messageId);
     }
 
     if (clarifyKey) {
@@ -1287,6 +1351,10 @@ export class ChatShellComponent implements OnInit, OnDestroy {
         this.messageActions.set(actionsMap);
         this.messageQueries.set(queriesMap);
         this.messageClarifications.set(clarifyMap);
+        // Client-generated action cards (query-card Deposit/Withdraw/Multiply,
+        // clarify picks) live only in the browser — they aren't server messages,
+        // so restore them from localStorage or they vanish on reload.
+        this.restoreClientActions(resolved);
       },
       error: (err) => {
         clearTimeout(timeout);
