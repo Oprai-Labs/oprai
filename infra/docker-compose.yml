@@ -272,6 +272,10 @@ services:
       OPRAI_LLM_CHAT_TOKEN_CAP: ${OPRAI_LLM_CHAT_TOKEN_CAP:-500000}
       OPRAI_LLM_DAILY_TOKEN_CAP: ${OPRAI_LLM_DAILY_TOKEN_CAP:-1500000}
       MEMORY_SERVICE_URL: http://memory-service-py:3040
+      # Server-side on-chain reads (/actions/build) hit the Solana service
+      # DIRECTLY — the gateway's /actions/* is browser-facing (CSRF + user JWT)
+      # and rejects internal service-to-service calls.
+      SOLANA_SERVICE_URL: http://solana-service-rs:3030
       MEMORY_SERVICE_GRPC: memory-service-py:50054
       GATEWAY_URL: http://gateway-go:3001
       QDRANT_URL: http://qdrant:6333
