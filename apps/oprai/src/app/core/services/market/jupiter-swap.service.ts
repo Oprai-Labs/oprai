@@ -70,7 +70,10 @@ export class JupiterSwapService {
   /**
    * Live price estimate for a Raydium swap, quoted from Raydium's OWN compute
    * endpoint (same venue that executes) so the preview never shows a
-   * foreign-DEX price. Same Jupiter-shaped return as getQuote().
+   * foreign-DEX price. Uses the existing `raydium_swap_quote` build action
+   * (gateway → solana-service → Raydium transaction-v1 /compute), which returns
+   * the raw Raydium compute payload under preview.params.data. We reshape it
+   * into the Jupiter-style SwapQuote the swap widget already consumes.
    */
   async getRaydiumQuote(
     inputMint: string,
@@ -81,15 +84,37 @@ export class JupiterSwapService {
   ): Promise<SwapQuote | null> {
     try {
       const resp = await firstValueFrom(
-        this.http.post<{ quote: SwapQuote }>(`${environment.apiBase}/actions/raydium-quote`, {
-          input_mint: inputMint,
-          output_mint: outputMint,
-          amount,
-          slippage_bps: slippageBps,
-          swap_mode: swapMode,
-        })
+        this.http.post<{ preview?: { params?: { data?: Record<string, unknown> } } }>(
+          `${environment.apiBase}/actions/build`,
+          {
+            type: 'raydium_swap_quote',
+            params: {
+              inputMint,
+              outputMint,
+              amount,
+              slippageBps,
+              swapMode: swapMode === 'ExactOut' ? 'out' : 'in',
+            },
+          },
+        )
       );
-      return resp?.quote ?? null;
+      const d = resp?.preview?.params?.data as Record<string, unknown> | undefined;
+      if (!d || d['outputAmount'] == null || d['inputAmount'] == null) return null;
+      // Raydium returns priceImpactPct as a PERCENT number (0.12 = 0.12%); the
+      // swap widget multiplies by 100 (Jupiter convention: fraction string), so
+      // divide back to a fraction to keep one contract on the consumer side.
+      const impactPct = Number(d['priceImpactPct'] ?? 0);
+      return {
+        inputMint: String(d['inputMint'] ?? inputMint),
+        inAmount: String(d['inputAmount']),
+        outputMint: String(d['outputMint'] ?? outputMint),
+        outAmount: String(d['outputAmount']),
+        otherAmountThreshold: String(d['otherAmountThreshold'] ?? '0'),
+        swapMode: swapMode === 'ExactOut' ? 'ExactOut' : 'ExactIn',
+        slippageBps,
+        priceImpactPct: String((Number.isFinite(impactPct) ? impactPct : 0) / 100),
+        routePlan: [],
+      };
     } catch (err) {
       console.error('Raydium quote error:', err);
       return null;
