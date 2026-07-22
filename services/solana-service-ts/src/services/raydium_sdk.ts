@@ -142,6 +142,18 @@ function toBaseUnits(amountUi: string, decimals: number): BN {
   return new BN((whole || "0") + fracPadded).add(new BN(0));
 }
 
+/** The wallet's live LP-token balance (raw base units) for a mint. */
+async function liveLpBalance(userWallet: string, lpMint: string): Promise<BN> {
+  const connection = new Connection(config.solanaRpc, "confirmed");
+  const owner = new PublicKey(userWallet);
+  const r = await connection.getParsedTokenAccountsByOwner(owner, { mint: new PublicKey(lpMint) });
+  let total = new BN(0);
+  for (const a of r.value) {
+    total = total.add(new BN((a.account.data as any).parsed?.info?.tokenAmount?.amount ?? "0"));
+  }
+  return total;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Add liquidity (Standard AMM v4 + CPMM) — single-sided input
 // Frontend params: { poolId, amount (UI), inputMint, slippageBps, baseIn? }
@@ -254,11 +266,29 @@ export async function buildRaydiumRemoveLiquiditySdk(
   const apiInfo = await fetchApiPool(raydium, params.poolId);
   const kind = classifyPool(sdk, apiInfo);
   const pairDesc = `${apiInfo.mintA.symbol}/${apiInfo.mintB.symbol}`;
+  const lpDecimals = apiInfo.lpMint?.decimals ?? 9;
+  const lpMintAddr = apiInfo.lpMint?.address ?? apiInfo.lpMint;
+
+  // Resolve the LP amount against the LIVE on-chain balance. "all"/"max" (or an
+  // empty amount) removes everything; an explicit amount is CAPPED at the live
+  // balance so a slightly-stale snapshot (e.g. a card that pre-filled the amount
+  // from an earlier read) can't request more LP than the user holds and revert
+  // the whole withdraw with "insufficient" — which is why a "close" appeared to
+  // do nothing and the position kept showing.
+  const requested = String(params.lpAmount ?? "").trim().toLowerCase();
+  const live = lpMintAddr ? await liveLpBalance(userWallet, String(lpMintAddr)) : new BN(0);
+  let lpBase: BN;
+  if (requested === "all" || requested === "max" || requested === "") {
+    lpBase = live;
+  } else {
+    lpBase = toBaseUnits(params.lpAmount, lpDecimals);
+    if (live.gtn(0) && lpBase.gt(live)) lpBase = live;
+  }
+  if (lpBase.lten(0)) throw appError("You have no LP tokens in this pool to withdraw.", 400, "RAYDIUM_NO_POSITION");
 
   if (kind === "cpmm") {
     const { poolInfo, poolKeys } = await raydium.cpmm.getPoolInfoFromRpc(params.poolId);
-    const lpDecimals = poolInfo.lpMint?.decimals ?? apiInfo.lpMint?.decimals ?? 9;
-    const lpAmount = toBaseUnits(params.lpAmount, lpDecimals);
+    const lpAmount = lpBase;
     const { transaction } = await raydium.cpmm.withdrawLiquidity({
       poolInfo,
       poolKeys,
@@ -271,9 +301,7 @@ export async function buildRaydiumRemoveLiquiditySdk(
 
   if (kind === "ammv4") {
     const { poolInfo, poolKeys } = await raydium.liquidity.getPoolInfoFromRpc({ poolId: params.poolId });
-    // AMM v4 LP tokens are 9 decimals on classic pools; use the pool's if present.
-    const lpDecimals = poolInfo.lpMint?.decimals ?? 9;
-    const lpAmount = toBaseUnits(params.lpAmount, lpDecimals);
+    const lpAmount = lpBase;
     void slippage; // AMM v4 removal enforces no per-side minimum here (see warning)
     const { transaction } = await raydium.liquidity.removeLiquidity({
       poolInfo,
