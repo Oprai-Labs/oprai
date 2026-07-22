@@ -2204,11 +2204,19 @@ export class SolanaActionService {
         const hasPoolId = !!p['poolId'];
         const hasTokenPair = !!(p['tokenA'] && p['tokenB']);
         if (hasPoolId) {
-          // Pool ID mode: poolId + amount + inputMint (single-sided)
+          // Pool-ID mode is single-sided: Raydium takes the pool + ONE input
+          // token + its amount and computes the paired side from the pool
+          // ratio. The pool card carries tokenA/amountA (+ auto-balanced
+          // amountB) but no `amount`/`inputMint`, so derive the single input
+          // from side A — falling back to side B — instead of sending the
+          // (empty) `amount`/`inputMint` keys, which tripped the backend's
+          // "provide either (poolId + inputMint + amount) or …" guard.
+          const inputMint = p['inputMint'] ?? (p['amountA'] ? p['tokenA'] : p['amountB'] ? p['tokenB'] : p['tokenA']);
+          const amount = p['amount'] ?? p['amountA'] ?? p['amountB'];
           return {
             poolId: p['poolId'],
-            amount: p['amount'],
-            inputMint: p['inputMint'],
+            amount,
+            inputMint,
             slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
             ...(p['baseIn'] !== undefined ? { baseIn: parseBoolParam(p['baseIn']) } : {}),
           };
