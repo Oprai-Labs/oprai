@@ -1549,16 +1549,23 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       tokenADecimals: String(p.mintA.decimals ?? 9),
       tokenBDecimals: String(p.mintB.decimals ?? 9),
     };
-    // For CLMM pools, pre-fill a balanced ±20% range around the current
-    // pool price so the user has a sane starting range — they can still
-    // tighten or widen it before confirming. AMM v4 (Standard) ignores
-    // these fields, so we only set them on CLMM.
-    if (isCLMM && typeof p.price === 'number' && p.price > 0) {
-      // Pre-fill ±20% range and the current price so the action card's CLMM
-      // ratio engine has a reference price to compute amountB-per-amountA.
+    // Raydium `price` is quote-per-base = mintB per mintA = amountB / amountA
+    // in human units. Carry it so the action card can auto-balance the two
+    // deposit amounts (type one side / hit Max → the other side fills to the
+    // pool ratio).
+    if (typeof p.price === 'number' && p.price > 0) {
       params['currentPrice'] = String(p.price);
-      params['minPrice'] = (p.price * 0.8).toPrecision(6);
-      params['maxPrice'] = (p.price * 1.2).toPrecision(6);
+      if (isCLMM) {
+        // CLMM: pre-fill a balanced ±20% range so the card's Uniswap-v3 ratio
+        // engine has a reference band (user can tighten/widen before confirm).
+        params['minPrice'] = (p.price * 0.8).toPrecision(6);
+        params['maxPrice'] = (p.price * 1.2).toPrecision(6);
+      } else {
+        // Standard AMM v4: full-range only (no min/max). The deposit ratio is
+        // simply the pool price — feed it as `amountRatio` (B per A) so
+        // `ammRatio()` drives the auto-balance on Max / single-side entry.
+        params['amountRatio'] = String(p.price);
+      }
     }
     const type = isCLMM ? 'raydium_open_position' : 'raydium_add_liquidity';
     this.useAction.emit({
