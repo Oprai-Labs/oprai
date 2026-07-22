@@ -5086,7 +5086,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const address = token?.address ?? (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mintOrSymbol) ? mintOrSymbol : null);
     if (address) {
       img.dataset['fallback'] = '1';
-      img.src = `https://img.jup.ag/tokens/${address}.png`;
+      // img.jup.ag is dead (host no longer resolves), so a failed primary logo
+      // used to fall through to a guaranteed-broken URL → letter placeholder.
+      // Raydium's icon CDN is live and covers the major tokens users actually
+      // trade here; an obscure mint that 404s here just re-fires (error) and
+      // hides, landing on the same letter fallback as before.
+      img.src = `https://img-v1.raydium.io/icon/${address}.png`;
     } else {
       img.style.display = 'none';
     }
