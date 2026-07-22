@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { internalAuth, requireWallet } from "../middleware/auth";
 import { buildAction, validateAction } from "../services/builder";
 import { getQuote } from "../services/jupiter";
+import { getRaydiumQuote } from "../services/raydium";
 import { getDcaOrders } from "../services/dca";
 import { getLimitOrders } from "../services/limit_order";
 import { appError } from "../types/index";
@@ -34,6 +35,30 @@ router.post("/quote", requireWallet, async (req: Request, res: Response, next: N
       onlyDirectRoutes,
       swapMode,
       restrictIntermediateTokens,
+    });
+
+    res.json({ quote });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /actions/raydium-quote ─────────────────────────────────────────────
+// Live price estimate for a Raydium swap, quoted from Raydium's own compute
+// endpoint (same venue that executes) so the preview never shows a foreign-DEX
+// price. `amount` is a UI amount; getRaydiumQuote converts to base units.
+router.post("/raydium-quote", requireWallet, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { inputMint, outputMint, amount, slippageBps, swapMode } = req.body;
+    if (!inputMint || !outputMint || !amount)
+      throw appError("inputMint, outputMint, amount are required");
+
+    const quote = await getRaydiumQuote({
+      inputMint,
+      outputMint,
+      amount: String(amount),
+      slippageBps,
+      swapMode,
     });
 
     res.json({ quote });

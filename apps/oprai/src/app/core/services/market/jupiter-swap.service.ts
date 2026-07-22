@@ -67,6 +67,35 @@ export class JupiterSwapService {
     }
   }
 
+  /**
+   * Live price estimate for a Raydium swap, quoted from Raydium's OWN compute
+   * endpoint (same venue that executes) so the preview never shows a
+   * foreign-DEX price. Same Jupiter-shaped return as getQuote().
+   */
+  async getRaydiumQuote(
+    inputMint: string,
+    outputMint: string,
+    amount: string,
+    slippageBps = 50,
+    swapMode: 'ExactIn' | 'ExactOut' = 'ExactIn'
+  ): Promise<SwapQuote | null> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.post<{ quote: SwapQuote }>(`${environment.apiBase}/actions/raydium-quote`, {
+          input_mint: inputMint,
+          output_mint: outputMint,
+          amount,
+          slippage_bps: slippageBps,
+          swap_mode: swapMode,
+        })
+      );
+      return resp?.quote ?? null;
+    } catch (err) {
+      console.error('Raydium quote error:', err);
+      return null;
+    }
+  }
+
   /** Get route labels from a quote for display. */
   getRouteLabels(quote: SwapQuote): string[] {
     if (!quote?.routePlan) return [];

@@ -2482,9 +2482,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const t = this.action?.type ?? '';
     return t.startsWith('kamino_multiply_')
       || t === 'kamino_long_open' || t === 'kamino_short_open'
-      // Raydium token-amount forms (deposit/withdraw/positions/swap) use the
-      // same bigger, rounded swap-card input styling.
-      || t === 'raydium_swap'
+      // Raydium token-amount forms (deposit/withdraw/positions) use the same
+      // bigger, rounded swap-card input styling. (raydium_swap renders its own
+      // bespoke two-panel widget, so it's intentionally not here.)
       || t === 'raydium_add_liquidity' || t === 'raydium_remove_liquidity'
       || t === 'raydium_open_position' || t === 'raydium_increase_position'
       || t === 'raydium_decrease_position';
@@ -3060,7 +3060,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Touch the signals we want to track. Effect re-runs on any change.
     const params = this.editParams();
     const actionType = this.action?.type;
-    if (actionType !== 'swap') {
+    if (actionType !== 'swap' && actionType !== 'raydium_swap') {
       this.swapEstimate.set(null);
       return;
     }
@@ -3092,7 +3092,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Start / stop polling based on action type + card status. Effect re-runs
   // whenever `status()` changes, so submit / cancel / error all stop it.
   private readonly _quotePollLifecycleEffect = effect(() => {
-    const isPollable = this.action?.type === 'swap' || this.pumpActionConfig() !== null;
+    const isPollable = this.action?.type === 'swap' || this.action?.type === 'raydium_swap' || this.pumpActionConfig() !== null;
     const shouldPoll = isPollable && this.status() === 'pending';
     if (shouldPoll) this.startQuotePolling();
     else this.stopQuotePolling();
@@ -3105,7 +3105,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * (not a swap, or status != pending).
    */
   onCardInteract(): void {
-    const eligible = (this.action?.type === 'swap' || this.pumpActionConfig() !== null)
+    const eligible = (this.action?.type === 'swap' || this.action?.type === 'raydium_swap' || this.pumpActionConfig() !== null)
                      && this.status() === 'pending';
     if (!eligible) return;
     this._pollVisibleElapsedMs = 0;
@@ -3207,9 +3207,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const isExactOut = mode === 'exactout' || mode === 'out';
     const swapMode: 'ExactIn' | 'ExactOut' = isExactOut ? 'ExactOut' : 'ExactIn';
     try {
-      const quote = await this.swapService.getQuote(
-        inT.address, outT.address, String(amt), 50, swapMode,
-      );
+      // Raydium swaps quote from Raydium's own venue (same DEX that executes);
+      // everything else uses the Jupiter aggregated quote.
+      const quote = this.action?.type === 'raydium_swap'
+        ? await this.swapService.getRaydiumQuote(
+            inT.address, outT.address, String(amt), 50, swapMode,
+          )
+        : await this.swapService.getQuote(
+            inT.address, outT.address, String(amt), 50, swapMode,
+          );
       if (seq !== this._swapEstimateSeq) return;
       if (!quote) {
         // Jupiter responded but found no route — distinct from "network
@@ -3537,7 +3543,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Freeze the swap's pay/receive as currently displayed so the confirmed
     // card keeps showing what was actually swapped (not the post-swap balance).
     // Persisted in the stored result too, so a re-hydrated card restores it.
-    if (this.action?.type === 'swap') {
+    if (this.action?.type === 'swap' || this.action?.type === 'raydium_swap') {
       this.lastSwapView = {
         pay: this.swapInputValueFor('inputMint'),
         receive: this.swapInputValueFor('outputMint'),
@@ -4203,16 +4209,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * the unit changed under them.
    */
   flipSwapDirection(): void {
-    if (!this.action || this.action.type !== 'swap' || !this.isEditable()) return;
+    if (!this.action || !this.isEditable()) return;
+    const isRaydium = this.action.type === 'raydium_swap';
+    if (this.action.type !== 'swap' && !isRaydium) return;
     this.editParams.update(p => {
       const next = { ...p };
       const inMint = next['inputMint'] ?? '';
       const outMint = next['outputMint'] ?? '';
       next['inputMint'] = outMint;
       next['outputMint'] = inMint;
-      const mode = String(next['swapMode'] ?? '').toLowerCase();
-      const wasExactOut = mode === 'exactout' || mode === 'out';
-      next['swapMode'] = wasExactOut ? 'ExactIn' : 'ExactOut';
+      // Raydium's build path is ExactIn-only, so a flip always lands on
+      // ExactIn (the pay side stays the exact amount). Jupiter toggles.
+      if (isRaydium) {
+        next['swapMode'] = 'ExactIn';
+      } else {
+        const mode = String(next['swapMode'] ?? '').toLowerCase();
+        const wasExactOut = mode === 'exactout' || mode === 'out';
+        next['swapMode'] = wasExactOut ? 'ExactIn' : 'ExactOut';
+      }
       return next;
     });
   }

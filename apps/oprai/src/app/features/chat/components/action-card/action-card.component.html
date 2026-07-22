@@ -489,11 +489,13 @@
               </div>
             </div>
           </div>
-        } @else if (action.type === 'swap') {
-          <!-- ─────── Generic swap (Jupiter / Raydium / …): mini-Uniswap layout ─────── -->
+        } @else if (action.type === 'swap' || action.type === 'raydium_swap') {
+          <!-- ─────── Generic swap (Jupiter / Raydium): mini-Uniswap layout ─────── -->
           <!-- Same "You pay / You receive" two-panel widget as pump.fun, but with
-               clickable token SELECTORS (open the token picker) and a live Jupiter
-               quote on the counter side. All values stay in editParams /
+               clickable token SELECTORS (open the token picker) and a live quote
+               on the counter side. Jupiter swaps quote via the aggregator;
+               raydium_swap quotes from Raydium's own venue and is ExactIn-only
+               (the receive side is display-only). All values stay in editParams /
                swapMode, so save/restore + submit are unchanged. -->
           @let payTd = resolveTokenDisplay(getEditParam('inputMint'));
           @let recvTd = resolveTokenDisplay(getEditParam('outputMint'));
@@ -559,7 +561,7 @@
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
                        [value]="!isEditable() && executedSwapView() ? executedSwapView()!.receive : swapInputValueFor('outputMint')"
                        (input)="onSwapAmountInput('outputMint', $any($event.target).value)"
-                       [disabled]="!isEditable()" />
+                       [disabled]="!isEditable() || action.type === 'raydium_swap'" />
                 <button type="button" class="pump-token pump-token--select"
                         [disabled]="!isEditable()"
                         (click)="openTokenPicker('outputMint', $event)"
@@ -588,18 +590,20 @@
                   <span class="pump-setting__suffix">%</span>
                 </div>
               </div>
-              <div class="pump-setting">
-                <label class="pump-setting__label">Direct routes only</label>
-                <button type="button" class="pump-setting__toggle"
-                        [class.is-on]="getEditParam('onlyDirectRoutes') === 'true'"
-                        [disabled]="!isEditable()"
-                        (click)="isEditable() && toggleEditParam('onlyDirectRoutes')"
-                        role="switch"
-                        [attr.aria-checked]="getEditParam('onlyDirectRoutes') === 'true'">
-                  <span class="pump-setting__switch"><span class="pump-setting__knob"></span></span>
-                  <span class="pump-setting__toggle-text">{{ getEditParam('onlyDirectRoutes') === 'true' ? 'Enabled' : 'Disabled' }}</span>
-                </button>
-              </div>
+              @if (action.type !== 'raydium_swap') {
+                <div class="pump-setting">
+                  <label class="pump-setting__label">Direct routes only</label>
+                  <button type="button" class="pump-setting__toggle"
+                          [class.is-on]="getEditParam('onlyDirectRoutes') === 'true'"
+                          [disabled]="!isEditable()"
+                          (click)="isEditable() && toggleEditParam('onlyDirectRoutes')"
+                          role="switch"
+                          [attr.aria-checked]="getEditParam('onlyDirectRoutes') === 'true'">
+                    <span class="pump-setting__switch"><span class="pump-setting__knob"></span></span>
+                    <span class="pump-setting__toggle-text">{{ getEditParam('onlyDirectRoutes') === 'true' ? 'Enabled' : 'Disabled' }}</span>
+                  </button>
+                </div>
+              }
             </div>
           </div>
         } @else if (action.type === 'limit_order') {

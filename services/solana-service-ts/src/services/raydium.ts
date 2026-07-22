@@ -78,6 +78,69 @@ export async function buildRaydiumSwap(params: RaydiumSwapParams, userWallet: st
   };
 }
 
+export interface RaydiumQuoteResult {
+  inputMint: string;
+  outputMint: string;
+  inAmount: string;
+  outAmount: string;
+  otherAmountThreshold: string;
+  swapMode: string;
+  priceImpactPct: string;
+}
+
+/**
+ * Live price estimate for a Raydium swap — quoted from Raydium's OWN compute
+ * endpoint (the same venue that `buildRaydiumSwap` executes on), NOT Jupiter.
+ * Returns a Jupiter-shaped quote so the frontend swap widget can consume it
+ * through the identical code path. ExactIn → swap-base-in (amount in input
+ * token); ExactOut → swap-base-out (amount in output token).
+ */
+export async function getRaydiumQuote(params: RaydiumSwapParams): Promise<RaydiumQuoteResult> {
+  const inToken = resolveToken(params.inputMint);
+  const outToken = resolveToken(params.outputMint);
+  const inputMint = inToken?.mint ?? params.inputMint;
+  const outputMint = outToken?.mint ?? params.outputMint;
+  const modeStr = String(params.swapMode ?? "").toLowerCase();
+  const isExactOut = modeStr.startsWith("exactout") || modeStr === "out";
+
+  // ExactOut denominates the amount in the OUTPUT token; ExactIn in the input.
+  const amtDecimals = isExactOut ? (outToken?.decimals ?? 9) : (inToken?.decimals ?? 9);
+  const amount = Math.round(parseFloat(params.amount) * 10 ** amtDecimals).toString();
+  const slippageBps = params.slippageBps ?? 50;
+  const path = isExactOut ? "compute/swap-base-out" : "compute/swap-base-in";
+
+  const res = await fetch(
+    `${RAYDIUM_API}/${path}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}&txVersion=V0`
+  );
+  if (!res.ok) throw appError(`Raydium quote failed: ${await res.text()}`, 502, "RAYDIUM_ERROR");
+  const body = (await res.json()) as {
+    success?: boolean;
+    msg?: string;
+    data?: {
+      inputAmount?: string;
+      outputAmount?: string;
+      otherAmountThreshold?: string;
+      priceImpactPct?: number | string;
+    };
+  };
+  if (!body?.data) throw appError(body?.msg || "Raydium found no route for this pair", 404, "RAYDIUM_NO_ROUTE");
+  const d = body.data;
+
+  // Raydium returns priceImpactPct as a PERCENT number (e.g. 0.12 = 0.12%).
+  // The frontend multiplies by 100 (Jupiter convention: fraction string), so
+  // divide back to a fraction here to keep a single contract on the client.
+  const impactPct = Number(d.priceImpactPct ?? 0);
+  return {
+    inputMint,
+    outputMint,
+    inAmount: String(d.inputAmount ?? amount),
+    outAmount: String(d.outputAmount ?? d.otherAmountThreshold ?? "0"),
+    otherAmountThreshold: String(d.otherAmountThreshold ?? "0"),
+    swapMode: isExactOut ? "ExactOut" : "ExactIn",
+    priceImpactPct: String((Number.isFinite(impactPct) ? impactPct : 0) / 100),
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Liquidity
 // ─────────────────────────────────────────────────────────────────────────────
