@@ -3498,7 +3498,22 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           // Tokenized Agent intentionally not restored — backend rejects it.
           if (draft.editSlippage != null) this.editSlippage.set(draft.editSlippage);
           if (draft.editPriorityFee != null) this.editPriorityFee.set(draft.editPriorityFee);
-          if (draft.editParams != null) this.editParams.set({ ...p, ...draft.editParams });
+          if (draft.editParams != null) {
+            // Restore in-progress AMOUNT / slippage / settings edits — but NEVER
+            // resurrect the swap's token IDENTITY from a stale draft. The token
+            // the LLM proposed (in `p`, the authoritative action params) always
+            // wins. Without this, a re-hydrated pending swap card could quote a
+            // DIFFERENT token than the one the user asked for: the token picker
+            // writes a raw mint into editParams, the draft effect persists it,
+            // and on reload that stale mint (potentially an unverified junk
+            // token) shadowed "SOL"/"USDC" — the card then priced a wrong asset.
+            const draftParams = { ...(draft.editParams as Record<string, string>) };
+            for (const k of ['inputMint', 'outputMint']) {
+              if (p[k] != null) draftParams[k] = p[k];
+              else delete draftParams[k];
+            }
+            this.editParams.set({ ...p, ...draftParams });
+          }
         }
       } catch {}
     }
