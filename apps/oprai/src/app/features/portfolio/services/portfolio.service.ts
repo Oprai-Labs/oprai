@@ -550,9 +550,12 @@ export class PortfolioService {
         }
       }
       if (positionMints.size) {
-        this._tokens.update(list => list.map(t =>
-          positionMints.has(t.mint) ? { ...t, isDefiPositionToken: true } : t,
-        ));
+        this._summary.update(s => s ? {
+          ...s,
+          tokens: s.tokens.map(t =>
+            positionMints.has(t.mint) ? { ...t, isDefiPositionToken: true } : t,
+          ),
+        } : s);
       }
 
       // Pricing pass before the single render so APR + claimable columns
