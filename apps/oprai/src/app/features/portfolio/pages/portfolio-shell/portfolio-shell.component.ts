@@ -169,7 +169,7 @@ export class PortfolioShellComponent implements OnDestroy {
   private autoRefresh(): void {
     const key = this.publicKey();
     if (key && !this.isLoading()) {
-      this.portfolioService.refresh(key).catch(() => {});
+      this.portfolioService.refresh(key, { silent: true }).catch(() => {});
     }
   }
 

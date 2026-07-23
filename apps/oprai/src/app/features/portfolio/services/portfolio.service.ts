@@ -122,6 +122,29 @@ export class PortfolioService {
     }
   }
 
+  /**
+   * Run `fn`, retrying once after a short delay on failure. Returns an
+   * outcome flag so callers can tell a real value apart from a fallback —
+   * critical for the wallet balance, where a caught error must NOT be treated
+   * as a genuine $0.
+   */
+  private async fetchWithRetry<T>(
+    fn: () => Promise<T>,
+    fallback: T,
+    delayMs = 400,
+  ): Promise<{ ok: boolean; value: T }> {
+    try {
+      return { ok: true, value: await fn() };
+    } catch {
+      await new Promise((r) => setTimeout(r, delayMs));
+      try {
+        return { ok: true, value: await fn() };
+      } catch {
+        return { ok: false, value: fallback };
+      }
+    }
+  }
+
   async loadPortfolio(walletAddress: string): Promise<void> {
     this._loadingState.set('loading');
     this._error.set(null);
@@ -134,14 +157,29 @@ export class PortfolioService {
     }
 
     try {
-      // Fetch RPC data in parallel, each with its own fallback
-      const [balanceLamports, rawTokens, stakeAccounts, signatures] =
-        await Promise.all([
-          this.solanaRpc.getBalance(walletAddress).catch(() => 0),
-          this.solanaRpc.getTokenAccounts(walletAddress).catch(() => []),
-          this.solanaRpc.getStakeAccounts(walletAddress).catch(() => []),
-          this.solanaRpc.getRecentSignatures(walletAddress).catch(() => []),
-        ]);
+      // Fetch RPC data in parallel. The balance + token-account calls are the
+      // wallet's ground truth, so we track whether they actually *succeeded*
+      // (vs. a caught error that would otherwise masquerade as a genuine zero
+      // balance). getBalance gets one silent retry — a single transient RPC
+      // blip shouldn't wipe the wallet total to $0.
+      const balanceOutcome = await this.fetchWithRetry(
+        () => this.solanaRpc.getBalance(walletAddress),
+        0,
+      );
+      const [tokensOutcome, stakeAccounts, signatures] = await Promise.all([
+        this.solanaRpc
+          .getTokenAccounts(walletAddress)
+          .then((value) => ({ ok: true, value }))
+          .catch(() => ({ ok: false, value: [] as Awaited<ReturnType<typeof this.solanaRpc.getTokenAccounts>> })),
+        this.solanaRpc.getStakeAccounts(walletAddress).catch(() => []),
+        this.solanaRpc.getRecentSignatures(walletAddress).catch(() => []),
+      ]);
+      const balanceLamports = balanceOutcome.value;
+      const rawTokens = tokensOutcome.value;
+      // Both wallet reads failed → this load carries no trustworthy wallet
+      // data. If we already showed good balances (any prior successful load of
+      // this wallet), we keep them rather than overwrite with zeros.
+      const walletFetchFailed = !balanceOutcome.ok && !tokensOutcome.ok;
 
       // Fetch metadata + prices (Birdeye: prices AND 24h change in one call)
       const allMints = [SOL_MINT, ...rawTokens.map((t) => t.mint)];
@@ -420,21 +458,34 @@ export class PortfolioService {
       const solBasis = costBasisByMint.get(SOL_MINT);
       const solPnl = solBasis ? this.analytics.computePnl(solBasis, solBalance, solPrice) : null;
 
-      this._summary.set({
-        walletAddress,
-        solBalance: {
-          lamports: balanceLamports,
-          sol: solBalance,
-          usdPrice: solPrice,
-          usdValue: solUsdValue,
-          priceChange24h: solChange24h,
-          allocationPercent: solAllocationPercent,
-          pnlAllTimeUsd: solPnl?.totalUsd ?? null,
-          pnlAllTimePct: solPnl?.totalPct ?? null,
-        },
-        tokens,
-        totalUsdValue: totalPortfolioValue,
-      });
+      // Guard against a transient RPC failure wiping the wallet to $0: if both
+      // wallet reads failed but we already have good balances on screen for
+      // this wallet, keep them. The protocol fetchers (Jupiter Lend, etc.) run
+      // off separate APIs and still refresh below.
+      const prevSummary = this._summary();
+      const preserveWallet =
+        walletFetchFailed && prevSummary?.walletAddress === walletAddress;
+
+      if (preserveWallet) {
+        // Reuse the last-known-good wallet snapshot verbatim.
+        this._summary.set(prevSummary!);
+      } else {
+        this._summary.set({
+          walletAddress,
+          solBalance: {
+            lamports: balanceLamports,
+            sol: solBalance,
+            usdPrice: solPrice,
+            usdValue: solUsdValue,
+            priceChange24h: solChange24h,
+            allocationPercent: solAllocationPercent,
+            pnlAllTimeUsd: solPnl?.totalUsd ?? null,
+            pnlAllTimePct: solPnl?.totalPct ?? null,
+          },
+          tokens,
+          totalUsdValue: totalPortfolioValue,
+        });
+      }
 
       // ──── Staking ────
       const stakePositions = stakeAccounts.map((sa) => ({
@@ -1359,18 +1410,29 @@ export class PortfolioService {
     return null;
   }
 
-  async refresh(walletAddress: string): Promise<void> {
+  /**
+   * Re-fetch the portfolio.
+   *
+   * @param opts.silent  Background refresh (the 30s auto-refresh). Skips the
+   *   price-cache purge so we don't fan out a fresh Birdeye/DexScreener batch
+   *   every 30s — hammering those upstreams is what starts tripping RPC rate
+   *   limits and blanking the wallet to $0. Manual refresh (default) still
+   *   clears the cache for a guaranteed-fresh read.
+   */
+  async refresh(walletAddress: string, opts?: { silent?: boolean }): Promise<void> {
     this.nftsLoaded = false;
     this.historyLoaded = false;
     this.historyLoadedWallet = null;
     this.historyLoadingPromise = null;
     this._historyCache.delete(walletAddress);
-    // Drop the in-memory price cache so a partial-fetch from the previous
-    // load (where the DexScreener batch dropped some pump tokens) doesn't
-    // get reused. Without this the manual Refresh button surfaced the same
-    // missing-price rows because the 60s TTL kept the empty-resolution
-    // state alive.
-    this.birdeyeService.clearCache();
+    if (!opts?.silent) {
+      // Drop the in-memory price cache so a partial-fetch from the previous
+      // load (where the DexScreener batch dropped some pump tokens) doesn't
+      // get reused. Without this the manual Refresh button surfaced the same
+      // missing-price rows because the 60s TTL kept the empty-resolution
+      // state alive.
+      this.birdeyeService.clearCache();
+    }
     await this.loadPortfolio(walletAddress);
   }
 
