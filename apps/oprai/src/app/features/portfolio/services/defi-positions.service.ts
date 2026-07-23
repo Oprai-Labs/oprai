@@ -85,16 +85,59 @@ export class DefiPositionsService {
 
   async getLpPositions(
     _wallet: string,
-    _tokenAccounts: EnhancedTokenAccount[]
+    tokenAccounts: EnhancedTokenAccount[]
   ): Promise<ProtocolPosition[]> {
-    // The legacy Raydium AMM v2 LP-token detection used `api.raydium.io/v2/main/pairs`
-    // — verified live: that endpoint is **493 MB** and takes ~2 minutes to
-    // download. Even with an 8s AbortController in place, every refresh on
-    // any wallet was burning huge bandwidth + CPU parsing the JSON for what
-    // is now a niche use case (most LPs migrated to CLMM / Meteora DLMM).
-    // Until we wire up a smaller per-mint lookup (Jupiter `/pools/info/lps`
-    // takes a list of LP mints and returns just those), this is a no-op.
-    return [];
+    // Raydium Standard AMM / CPMM LP positions are held as LP tokens (not a
+    // position NFT). The old detection downloaded the 493 MB /main/pairs dump;
+    // instead, map the wallet's token mints against Raydium's per-mint
+    // `pools/info/lps` endpoint (returns only the pools whose lpMint matches).
+    try {
+      const held = (tokenAccounts ?? []).filter(t => t.mint && (t.balance ?? 0) > 0);
+      if (!held.length) return [];
+      const res = await fetch(
+        `https://api-v3.raydium.io/pools/info/lps?lps=${held.map(t => t.mint).join(',')}`,
+      );
+      if (!res.ok) return [];
+      const json = await res.json();
+      const pools = ((json?.data ?? []) as Array<Record<string, unknown>>).filter(Boolean);
+      if (!pools.length) return [];
+      const logo = this.protocolDetection.getProtocolLogo('raydium');
+      const out: ProtocolPosition[] = [];
+      for (const pool of pools) {
+        const lpMintObj = pool['lpMint'] as { address?: string } | string | undefined;
+        const lpMint = typeof lpMintObj === 'string' ? lpMintObj : lpMintObj?.address;
+        const bal = held.find(t => t.mint === lpMint);
+        if (!bal) continue;
+        const mintA = pool['mintA'] as { symbol?: string; address?: string; logoURI?: string } | undefined;
+        const mintB = pool['mintB'] as { symbol?: string; address?: string; logoURI?: string } | undefined;
+        const supply = Number(pool['lpAmount']) || 0;
+        const tvl = Number(pool['tvl']) || 0;
+        // User's share of the pool: (their LP tokens / total LP supply) × pool TVL.
+        const value = supply > 0 ? (bal.balance / supply) * tvl : null;
+        const apr = (pool['day'] as { apr?: number } | undefined)?.apr ?? null;
+        const pair = `${mintA?.symbol ?? '?'}/${mintB?.symbol ?? '?'}`;
+        out.push({
+          protocolId: 'raydium',
+          protocolName: 'Raydium',
+          protocolLogoUri: logo,
+          category: 'liquidity-pool',
+          positions: [{
+            label: pair,
+            tokens: [
+              { symbol: mintA?.symbol ?? '?', amount: 0, logoUri: mintA?.logoURI ?? null, mint: mintA?.address },
+              { symbol: mintB?.symbol ?? '?', amount: 0, logoUri: mintB?.logoURI ?? null, mint: mintB?.address },
+            ],
+            totalUsdValue: value,
+            metadata: { poolId: String(pool['id'] ?? ''), lpMint: lpMint ?? '', lpAmount: bal.balance },
+            apy: apr,
+          }],
+          totalUsdValue: value ?? 0,
+        });
+      }
+      return out;
+    } catch {
+      return [];
+    }
   }
 
   async getLendingPositions(wallet: string): Promise<ProtocolPosition[]> {
