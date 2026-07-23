@@ -25,10 +25,88 @@
 
 .donut-segment {
   transition: opacity 200ms ease;
+  cursor: pointer;
 }
 
 .donut-wrap:hover .donut-segment {
   opacity: 0.88;
+}
+
+// While hovering a specific slice, fade the others so the active one pops.
+.donut-segment--dimmed {
+  opacity: 0.32 !important;
+}
+
+// ──── Hover tooltip ────
+.donut-tooltip {
+  position: absolute;
+  z-index: 30;
+  // Sit just above-right of the cursor and never eat pointer events (so the
+  // underlying segment keeps firing mousemove).
+  transform: translate(-50%, calc(-100% - 12px));
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  white-space: nowrap;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-default);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  animation: donut-tip-in 0.1s ease-out;
+}
+
+.donut-tooltip__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+
+  img {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+}
+
+.donut-tooltip__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.donut-tooltip__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.1;
+}
+
+.donut-tooltip__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--op-text-secondary);
+}
+
+.donut-tooltip__value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+}
+
+.donut-tooltip__pct {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--op-text-secondary);
+}
+
+@keyframes donut-tip-in {
+  from { opacity: 0; transform: translate(-50%, calc(-100% - 8px)); }
+  to   { opacity: 1; transform: translate(-50%, calc(-100% - 12px)); }
 }
 
 .donut-center {

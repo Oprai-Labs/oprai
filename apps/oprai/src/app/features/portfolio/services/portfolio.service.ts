@@ -56,6 +56,13 @@ export class PortfolioService {
   // the cheap LST scan returns but the slower lend/LP/perp calls are still
   // in flight.
   private readonly _protocolPositionsLoading = signal<boolean>(false);
+  // True once the FIRST full load for the current wallet has completed
+  // (wallet balances + every protocol fetcher + pricing). Drives the
+  // "load the whole page together" skeleton: the shell holds a full skeleton
+  // until this flips true, then renders everything at once. It stays true
+  // across silent 30s auto-refreshes so those update values in place without
+  // flashing the page back to a skeleton — only a wallet switch resets it.
+  private readonly _positionsSettled = signal<boolean>(false);
   private readonly _portfolioChange = signal<PortfolioValueChange | null>(null);
   private readonly _nfts = signal<NftAsset[]>([]);
   private readonly _nftCollections = signal<NftCollection[]>([]);
@@ -89,6 +96,7 @@ export class PortfolioService {
   readonly activeTab = this._activeTab.asReadonly();
   readonly protocolPositions = this._protocolPositions.asReadonly();
   readonly protocolPositionsLoading = this._protocolPositionsLoading.asReadonly();
+  readonly positionsSettled = this._positionsSettled.asReadonly();
   readonly portfolioChange = this._portfolioChange.asReadonly();
   readonly nfts = this._nfts.asReadonly();
   readonly nftCollections = this._nftCollections.asReadonly();
@@ -117,6 +125,13 @@ export class PortfolioService {
   async loadPortfolio(walletAddress: string): Promise<void> {
     this._loadingState.set('loading');
     this._error.set(null);
+    // Only reset the "everything is in" gate for a genuinely fresh wallet
+    // (first load or a wallet switch). A refresh of the SAME wallet keeps it
+    // true so the 30s auto-refresh updates values in place rather than
+    // collapsing the page back to a skeleton.
+    if (this._summary()?.walletAddress !== walletAddress) {
+      this._positionsSettled.set(false);
+    }
 
     try {
       // Fetch RPC data in parallel, each with its own fallback
@@ -497,7 +512,12 @@ export class PortfolioService {
       // both the token-list LST badges and the protocol-position APYs).
       const lstPositions = this.defiPositionsService.getLiquidStakingPositions(tokens, solPrice);
       accumulated.push(...lstPositions);
-      emit();
+      // Only push the partial (staking-only) snapshot on a first load — and
+      // even then it's hidden behind the whole-page skeleton. On a silent 30s
+      // refresh (already settled) we keep the previous full set on screen and
+      // swap atomically at the final emit, so the DeFi section never flashes
+      // down to a staking-only list mid-refresh.
+      if (!this._positionsSettled()) emit();
 
       // Per-fetch timeout — 10s caps "indexer slow" without giving up too
       // early on legitimate first-call cold paths. A protocol that misses
@@ -567,6 +587,9 @@ export class PortfolioService {
 
       emit();
       this._protocolPositionsLoading.set(false);
+      // Everything (wallet + all protocols + pricing) is now in — release the
+      // whole-page skeleton and let the content render in one shot.
+      this._positionsSettled.set(true);
 
       this._recentTransactions.set(signatures);
       this._loadingState.set('loaded');
@@ -1356,6 +1379,7 @@ export class PortfolioService {
     this._defiPositions.set(null);
     this._recentTransactions.set([]);
     this._protocolPositions.set([]);
+    this._positionsSettled.set(false);
     this._portfolioChange.set(null);
     this._nfts.set([]);
     this._nftCollections.set([]);

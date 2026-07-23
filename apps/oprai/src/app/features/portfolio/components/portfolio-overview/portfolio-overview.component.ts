@@ -68,6 +68,28 @@ export class PortfolioOverviewComponent implements OnInit {
       });
     }
 
+    // Fold in DeFi position legs so the 7-day line tracks the *whole*
+    // portfolio (Jupiter Lend, Raydium LP, …), not just the ~$14 of loose
+    // wallet tokens. Skip native- and liquid-staking to mirror `totalValue`'s
+    // dedup — staked SOL / LST tokens are already counted in the wallet leg.
+    // Each priced leg fetches its own mint's OHLCV; tokens without history
+    // fall back to a flat baseline via `currentUsdValue`.
+    for (const proto of this.protocolPositions) {
+      if (proto.category === 'native-staking' || proto.category === 'liquid-staking') continue;
+      for (const pos of proto.positions) {
+        const legs = pos.tokens.filter((t) => t.mint && t.amount > 0);
+        if (!legs.length) continue;
+        const perLegUsd = (pos.totalUsdValue ?? 0) / legs.length;
+        for (const leg of legs) {
+          holdings.push({
+            mint: leg.mint as string,
+            balance: leg.amount,
+            currentUsdValue: perLegUsd,
+          });
+        }
+      }
+    }
+
     // Single path: per-token Birdeye OHLCV via the gateway proxy. The
     // previous CoinGecko direct-fetch fallback was unreliable in browsers
     // (CORS blocked on most networks) and silently produced a frozen

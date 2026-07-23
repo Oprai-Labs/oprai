@@ -121,10 +121,49 @@ export class AllocationChartComponent {
 
   readonly svgRadius = RADIUS;
 
+  // ──── Hover tooltip ────
+  // Index into displaySegments() (svgArcs shares its order) of the arc the
+  // pointer is over, plus the cursor position within the donut wrapper so the
+  // floating card can follow it.
+  readonly hoveredIndex = signal<number | null>(null);
+  readonly tooltipPos = signal<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  readonly hoveredSegment = computed(() => {
+    const i = this.hoveredIndex();
+    if (i === null) return null;
+    return this.displaySegments()[i] ?? null;
+  });
+
+  onSegmentEnter(index: number, event: MouseEvent): void {
+    this.hoveredIndex.set(index);
+    this.updateTooltipPos(event);
+  }
+
+  onSegmentMove(event: MouseEvent): void {
+    this.updateTooltipPos(event);
+  }
+
+  // The SVG is rotated -90deg, so `offsetX/Y` on a segment is unreliable.
+  // Derive the cursor position relative to the `.donut-wrap` box instead.
+  private updateTooltipPos(event: MouseEvent): void {
+    const wrap = (event.currentTarget as Element | null)?.closest('.donut-wrap');
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    this.tooltipPos.set({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+  }
+
+  onSegmentLeave(): void {
+    this.hoveredIndex.set(null);
+  }
+
   onImageError(event: Event): void {
-    (event.target as HTMLElement).style.display = 'none';
-    const parent = (event.target as HTMLElement).parentElement;
-    const fallback = parent?.querySelector('.legend-dot-fallback') as HTMLElement;
+    const img = event.target as HTMLElement;
+    img.style.display = 'none';
+    const parent = img.parentElement;
+    // Legend rows use `.legend-dot-fallback`; the hover tooltip uses
+    // `.donut-tooltip__dot`. Show whichever coloured-dot fallback is present.
+    const fallback = (parent?.querySelector('.legend-dot-fallback') ||
+      parent?.querySelector('.donut-tooltip__dot')) as HTMLElement | null;
     if (fallback) fallback.style.display = 'flex';
   }
 }

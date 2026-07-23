@@ -13,6 +13,7 @@
       @for (arc of svgArcs(); track $index) {
         <circle
           class="donut-segment"
+          [class.donut-segment--dimmed]="hoveredIndex() !== null && hoveredIndex() !== $index"
           cx="100" cy="100"
           [attr.r]="svgRadius"
           fill="none"
@@ -21,12 +22,40 @@
           stroke-linecap="butt"
           [attr.stroke-dasharray]="arc.dashArray"
           [attr.stroke-dashoffset]="arc.dashOffset"
+          (mouseenter)="onSegmentEnter($index, $event)"
+          (mousemove)="onSegmentMove($event)"
+          (mouseleave)="onSegmentLeave()"
         />
       }
     </svg>
     <div class="donut-center">
       <span class="center-value">{{ totalValue | currency:'USD':'symbol':'1.0-0' }}</span>
     </div>
+
+    <!-- Floating hover card: protocol icon + name + USD balance + share. -->
+    @if (hoveredSegment(); as seg) {
+      <div
+        class="donut-tooltip"
+        [style.left.px]="tooltipPos().x"
+        [style.top.px]="tooltipPos().y"
+      >
+        <span class="donut-tooltip__icon">
+          @if (seg.logoUri) {
+            <img [src]="seg.logoUri" [alt]="seg.label" width="18" height="18" (error)="onImageError($event)" />
+            <span class="donut-tooltip__dot" [style.background]="seg.color" style="display:none"></span>
+          } @else {
+            <span class="donut-tooltip__dot" [style.background]="seg.color"></span>
+          }
+        </span>
+        <span class="donut-tooltip__text">
+          <span class="donut-tooltip__label">{{ seg.label }}</span>
+          <span class="donut-tooltip__value">
+            {{ seg.value | currency:'USD':'symbol':'1.2-2' }}
+            <span class="donut-tooltip__pct">· {{ seg.percent | number:'1.1-1' }}%</span>
+          </span>
+        </span>
+      </div>
+    }
   </div>
   @if (displaySegments().length > 0) {
     <div class="chart-legend">

@@ -90,6 +90,19 @@ export class PortfolioShellComponent implements OnDestroy {
   readonly activeTab = this.portfolioService.activeTab;
   readonly protocolPositions = this.portfolioService.protocolPositions;
   readonly protocolPositionsLoading = this.portfolioService.protocolPositionsLoading;
+  // True once the first full load (wallet + every protocol + pricing) is in.
+  // Gates the whole-page skeleton so the page renders in one shot instead of
+  // the wallet total popping in ahead of the protocol balances.
+  readonly positionsSettled = this.portfolioService.positionsSettled;
+
+  // ──── Auto-refresh (every 30s) ────
+  // The portfolio silently re-fetches every 30 seconds. A manual refresh is
+  // rate-limited to the same cadence: hovering the button mid-cooldown shows
+  // "Please wait 30 seconds" instead of firing an extra fetch.
+  private static readonly REFRESH_INTERVAL_S = 30;
+  readonly refreshCountdown = signal(PortfolioShellComponent.REFRESH_INTERVAL_S);
+  readonly refreshHover = signal(false);
+  private cooldownTimer: ReturnType<typeof setInterval> | null = null;
   readonly portfolioChange = this.portfolioService.portfolioChange;
   readonly nfts = this.portfolioService.nfts;
   readonly nftCollections = this.portfolioService.nftCollections;
@@ -134,6 +147,43 @@ export class PortfolioShellComponent implements OnDestroy {
     this.benchmarkInterval = setInterval(() => {
       this.loadBenchmarkQuotes();
     }, 60_000);
+
+    // 1s ticker: counts down to the next silent auto-refresh. Only runs the
+    // clock while a wallet is connected and its first load has landed, so the
+    // countdown doesn't tick against an empty page.
+    this.cooldownTimer = setInterval(() => {
+      if (!this.connected() || !this.positionsSettled()) return;
+      const remaining = this.refreshCountdown();
+      if (remaining <= 1) {
+        this.refreshCountdown.set(PortfolioShellComponent.REFRESH_INTERVAL_S);
+        this.autoRefresh();
+      } else {
+        this.refreshCountdown.set(remaining - 1);
+      }
+    }, 1000);
+  }
+
+  /** Silent background re-fetch — updates values in place (no page skeleton
+   *  since positionsSettled stays true for the same wallet). Skipped while a
+   *  load is already in flight so refreshes never stack. */
+  private autoRefresh(): void {
+    const key = this.publicKey();
+    if (key && !this.isLoading()) {
+      this.portfolioService.refresh(key).catch(() => {});
+    }
+  }
+
+  /**
+   * Manual refresh handler. Rate-limited to the 30s cadence: if the cooldown
+   * hasn't elapsed the click is a no-op (the hover tooltip explains why).
+   */
+  onRefreshClick(): void {
+    if (this.refreshCountdown() > 0) return;
+    const key = this.publicKey();
+    if (key) {
+      this.portfolioService.refresh(key);
+      this.refreshCountdown.set(PortfolioShellComponent.REFRESH_INTERVAL_S);
+    }
   }
 
   onTabChange(tab: PortfolioTab): void {
@@ -169,6 +219,10 @@ export class PortfolioShellComponent implements OnDestroy {
     if (this.benchmarkInterval) {
       clearInterval(this.benchmarkInterval);
       this.benchmarkInterval = null;
+    }
+    if (this.cooldownTimer) {
+      clearInterval(this.cooldownTimer);
+      this.cooldownTimer = null;
     }
   }
 

@@ -134,6 +134,41 @@
   }
 }
 
+// Spinner on the refresh glyph itself (the icon carries `.spinning` directly).
+.action-btn lucide-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+// Anchors the "Please wait 30 seconds" tooltip to the refresh button.
+.refresh-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.refresh-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  white-space: nowrap;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--op-text-primary);
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-md);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+  animation: refresh-tip-in 0.12s ease-out;
+}
+
+@keyframes refresh-tip-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
