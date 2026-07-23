@@ -597,12 +597,14 @@ export class PortfolioService {
       // single signal write. Previously each fetcher emitted as it
       // resolved which made the DeFi tab visibly "pop in" piece by piece
       // — user feedback was that they want one consolidated render.
-      const fetchOne = (p: Promise<ProtocolPosition[]>): Promise<ProtocolPosition[]> =>
-        withTimeout(p.catch(() => []), []);
+      const fetchOne = (p: Promise<ProtocolPosition[]>, ms = 10_000): Promise<ProtocolPosition[]> =>
+        withTimeout(p.catch(() => []), [], ms);
 
       const protocolBatches = await Promise.all([
         fetchOne(this.defiPositionsService.getLpPositions(walletAddress, tokens)),
-        fetchOne(this.defiPositionsService.getLendingPositions(walletAddress)),
+        // Lending gets a longer budget — the Jupiter lite-api is flaky and its
+        // fetchers now retry, so give the retries room to land before the cap.
+        fetchOne(this.defiPositionsService.getLendingPositions(walletAddress), 13_000),
         fetchOne(this.defiPositionsService.getKaminoPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getMarginFiPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getOrcaPositions()),

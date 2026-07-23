@@ -59,6 +59,26 @@ async function jupFetch(url: string, timeoutMs = 7000, init?: RequestInit): Prom
   }
 }
 
+/**
+ * Retry `fn` a few times with a short backoff. Jupiter's lite-api hangs a
+ * request then recovers on the next call, so a single attempt drops positions
+ * intermittently — the portfolio kept losing the user's real Lend supply. The
+ * retry turns that transient miss into a reliable read; the final throw lets
+ * the caller decide whether to fall back to the last-known-good position.
+ */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 2, delayMs = 350): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 // ─── Program IDs ────────────────────────────────────────────────────────────
 
 // Supported assets (mainnet)
@@ -319,11 +339,12 @@ export class JupiterLendService {
   /** Fetch all earn (deposit) positions for a wallet. */
   async getAllEarnPositions(walletAddress: string): Promise<LendPosition[]> {
     try {
+      return await withRetry(async () => {
       const [posRes, tokensRes] = await Promise.all([
-        jupFetch(`${LEND_API}/v1/earn/positions?users[]=${walletAddress}`),
-        jupFetch(`${LEND_API}/v1/earn/tokens`),
+        jupFetch(`${LEND_API}/v1/earn/positions?users[]=${walletAddress}`, 4500),
+        jupFetch(`${LEND_API}/v1/earn/tokens`, 4500),
       ]);
-      if (!posRes.ok) return [];
+      if (!posRes.ok) throw new Error(`lend earn/positions HTTP ${posRes.status}`);
       const positions: any[] = await posRes.json();
       const tokens: any[] = tokensRes.ok ? await tokensRes.json() : [];
 
@@ -342,6 +363,7 @@ export class JupiterLendService {
           return { asset, depositedAmount, apy, earnedInterest: 0 } as LendPosition;
         })
         .filter(p => p.depositedAmount > 0);
+      });
     } catch {
       return [];
     }
@@ -350,8 +372,9 @@ export class JupiterLendService {
   /** Fetch all borrow positions for a wallet. */
   async getBorrowPositions(walletAddress: string): Promise<BorrowPosition[]> {
     try {
-      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`);
-      if (!res.ok) return [];
+      return await withRetry(async () => {
+      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`, 4500);
+      if (!res.ok) throw new Error(`lend borrow/positions HTTP ${res.status}`);
       const positions: any[] = await res.json();
 
       // The borrow API shape: each row has `supply` (collateral lamports) and
@@ -387,6 +410,7 @@ export class JupiterLendService {
 
           return { collateralAsset: colAsset, debtAsset, collateralAmount, debtAmount, ltv, liquidationThreshold: liqThresh, healthFactor } as BorrowPosition;
         });
+      });
     } catch {
       return [];
     }
@@ -402,9 +426,14 @@ export class JupiterLendService {
    * product that getAllEarnPositions reads.)
    */
   async getLendSupplyPositions(walletAddress: string): Promise<LendPosition[]> {
-    try {
-      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`);
-      if (!res.ok) return [];
+    // NOTE: this intentionally does NOT swallow a total failure into []. The
+    // portfolio caller distinguishes "no supply position" (empty result) from
+    // "couldn't reach the API" (throw) so it can keep showing the last-known
+    // supply instead of dropping the user's real ~$77 Lend position on a
+    // transient lite-api hiccup. Only the portfolio calls this method.
+    return withRetry(async () => {
+      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`, 4500);
+      if (!res.ok) throw new Error(`lend borrow/positions HTTP ${res.status}`);
       const positions: any[] = await res.json();
       return positions
         .filter(p => parseFloat(p.supply ?? '0') > 0)
@@ -420,9 +449,7 @@ export class JupiterLendService {
           return { asset, depositedAmount, apy, earnedInterest: 0 } as LendPosition;
         })
         .filter(p => p.depositedAmount > 0.00005);
-    } catch {
-      return [];
-    }
+    });
   }
 
   /** Find asset metadata by symbol or mint address. */

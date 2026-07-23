@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ProtocolDetectionService } from './protocol-detection.service';
-import { JupiterLendService } from '@core/services/market/jupiter-lend.service';
+import { JupiterLendService, type LendPosition } from '@core/services/market/jupiter-lend.service';
 import { JupiterPortfolioService } from '@core/services/market/jupiter-portfolio.service';
 import { ApiService } from '@core/services/api.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
@@ -50,6 +50,12 @@ interface OrcaWhirlpoolMeta {
 export class DefiPositionsService {
   private readonly protocolDetection = inject(ProtocolDetectionService);
   private readonly jupiterLend = inject(JupiterLendService);
+
+  // Last-known-good Jupiter Lend supply positions per wallet. Lets a transient
+  // lite-api failure fall back to the previously-fetched supply instead of
+  // dropping the user's real position — a clean (successful) empty result
+  // still overwrites it, so a genuinely closed position clears correctly.
+  private readonly _lastLendSupply = new Map<string, LendPosition[]>();
   private readonly jupiterPortfolio = inject(JupiterPortfolioService);
   private readonly apiService = inject(ApiService);
   private readonly tokenRegistry = inject(TokenRegistryService);
@@ -143,13 +149,30 @@ export class DefiPositionsService {
   async getLendingPositions(wallet: string): Promise<ProtocolPosition[]> {
     if (!wallet) return [];
     try {
-      const [earnPositions, supplyPositions, borrowPositions] = await Promise.all([
-        this.jupiterLend.getAllEarnPositions(wallet),
-        // Borrow-market supply (collateral earning yield, e.g. 1 wSOL supplied
-        // with 0 borrowed) — Jupiter's UI shows it under "Lending". Without this
-        // a pure supply position was completely missing from the portfolio.
-        this.jupiterLend.getLendSupplyPositions(wallet),
-        this.jupiterLend.getBorrowPositions(wallet),
+      // Kick off all three concurrently. Supply is awaited separately (not in
+      // the Promise.all) because it THROWS on a hard API failure — vs. returning
+      // [] for genuinely no position — so we can fall back to the last-known-good
+      // supply through a transient lite-api hiccup instead of dropping the user's
+      // real ~$77 Lend position. A clean (successful) empty still overwrites the
+      // cache, so a genuinely closed position clears.
+      const earnP = this.jupiterLend.getAllEarnPositions(wallet);
+      const borrowP = this.jupiterLend.getBorrowPositions(wallet);
+      // Borrow-market supply (collateral earning yield, e.g. 1 wSOL supplied
+      // with 0 borrowed) — Jupiter's UI shows it under "Lending". The catch is
+      // attached at creation (not a later await) so an early rejection never
+      // surfaces as an unhandled promise rejection.
+      const supplyP = this.jupiterLend
+        .getLendSupplyPositions(wallet)
+        .then((pos) => {
+          this._lastLendSupply.set(wallet, pos);
+          return pos;
+        })
+        .catch(() => this._lastLendSupply.get(wallet) ?? []);
+
+      const [earnPositions, borrowPositions, supplyPositions] = await Promise.all([
+        earnP,
+        borrowP,
+        supplyP,
       ]);
 
       const positions: ProtocolPosition[] = [];
