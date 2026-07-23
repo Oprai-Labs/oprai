@@ -4449,6 +4449,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   private maybeResolveAllSentinel(balance: number): void {
     if (!(balance > 0)) return;
+    // Withdrawals resolve "all"/"max" against the DEPOSITED position, not the
+    // wallet balance — handled by loadLendInfo (Jupiter) / the protocol loader.
+    // Filling the wallet balance here withdrew the wrong amount (e.g. 0.187 SOL
+    // of loose wallet balance instead of the ~1 SOL supplied to Jupiter Lend),
+    // and it clobbered the "all" sentinel before the deposit-based resolver ran.
+    const WITHDRAW_TYPES = ['withdraw_lend', 'kamino_withdraw', 'marginfi_withdraw', 'solend_withdraw'];
+    if (this.action && WITHDRAW_TYPES.includes(this.action.type)) return;
     const params = this.editParams();
     const cur = (params['amount'] ?? '').trim().toLowerCase();
     if (cur === 'all' || cur === 'max' || cur === 'full' || cur === '100%') {

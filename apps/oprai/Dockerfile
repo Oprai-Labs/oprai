@@ -39,9 +39,19 @@ RUN printf 'server {\n\
     try_files $uri =404;\n\
   }\n\
 \n\
-  # SPA fallback: serve index.html for all non-file routes\n\
+  # SPA fallback: serve index.html for all non-file routes. index.html must\n\
+  # never be cached — it references the content-hashed JS/CSS chunks by name,\n\
+  # so a stale index keeps loading old chunks after a deploy (the recurring\n\
+  # "card shows old behaviour until hard-refresh" problem). A location-level\n\
+  # add_header drops the server-level ones, so the security headers are\n\
+  # repeated here.\n\
   location / {\n\
     try_files $uri $uri/ /index.html;\n\
+    add_header Cache-Control "no-cache, no-store, must-revalidate" always;\n\
+    expires -1;\n\
+    add_header X-Frame-Options "SAMEORIGIN" always;\n\
+    add_header X-Content-Type-Options "nosniff" always;\n\
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
   }\n\
 \n\
   # Security headers\n\
