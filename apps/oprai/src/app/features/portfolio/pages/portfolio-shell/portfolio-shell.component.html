@@ -20,23 +20,9 @@
         }
       </div>
       @if (connected()) {
-        <div
-          class="refresh-wrap"
-          (mouseenter)="refreshHover.set(true)"
-          (mouseleave)="refreshHover.set(false)"
-        >
-          <button
-            class="action-btn"
-            (click)="onRefreshClick()"
-            [disabled]="isLoading()"
-            title="Refresh"
-          >
-            <lucide-icon name="refresh-cw" [size]="16" [class.spinning]="isLoading()" />
-          </button>
-          @if (refreshHover() && refreshCountdown() > 0 && positionsSettled()) {
-            <div class="refresh-tooltip" role="status">Please wait 30 seconds</div>
-          }
-        </div>
+        <button class="action-btn" (click)="refresh()" [disabled]="isLoading()" title="Refresh">
+          <lucide-icon name="refresh-cw" [size]="16" [class.spinning]="isLoading()" />
+        </button>
       }
     </div>
   </header>
