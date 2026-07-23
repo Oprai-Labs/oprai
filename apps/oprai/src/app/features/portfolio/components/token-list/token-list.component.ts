@@ -49,7 +49,10 @@ export class TokenListComponent {
   isHidden(t: EnhancedTokenAccount): boolean {
     const wallet = this.walletService.publicKey();
     const overridden = wallet ? this.hiddenTokens.isHidden(wallet, t.mint) : false;
-    return overridden ? !t.isSuspectedSpam : !!t.isSuspectedSpam;
+    // Auto-hidden: spam heuristic OR a DeFi position-receipt token (LP/vault)
+    // that already renders in Active Positions. The user override still flips it.
+    const autoHide = !!t.isSuspectedSpam || !!t.isDefiPositionToken;
+    return overridden ? !autoHide : autoHide;
   }
 
   readonly filteredAndSorted = computed(() => {

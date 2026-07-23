@@ -539,6 +539,22 @@ export class PortfolioService {
         if (batch.length > 0) accumulated.push(...batch);
       }
 
+      // A position-receipt token (Raydium LP mint, etc.) already shows in the
+      // Active Positions panel — flag it so the wallet token list hides it
+      // instead of double-rendering it as an "Unknown Token".
+      const positionMints = new Set<string>();
+      for (const proto of accumulated) {
+        for (const item of proto.positions) {
+          const lp = item.metadata?.['lpMint'];
+          if (typeof lp === 'string' && lp) positionMints.add(lp);
+        }
+      }
+      if (positionMints.size) {
+        this._tokens.update(list => list.map(t =>
+          positionMints.has(t.mint) ? { ...t, isDefiPositionToken: true } : t,
+        ));
+      }
+
       // Pricing pass before the single render so APR + claimable columns
       // all paint on first frame instead of arriving as a delta.
       await Promise.race([

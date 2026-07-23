@@ -23,6 +23,10 @@ export interface EnhancedTokenAccount extends TokenAccount {
   // we) can sanity-check why a token was flagged. Kept short to render
   // inline.
   spamReason?: string;
+  // A DeFi position-receipt token (LP token, vault share) that already appears
+  // in the Active Positions panel. Hidden from the wallet token list so it
+  // doesn't double-render as an "Unknown Token".
+  isDefiPositionToken?: boolean;
   // Native APY when the holding itself yields (LSTs: jitoSOL ~5.6%, jupSOL ~6.1%).
   // Renders as a small green badge next to the symbol — purely informational.
   // Live-fetched from DefiLlama via LiveYieldsService.
