@@ -73,6 +73,11 @@ export class PortfolioService {
   private readonly _historyLoadingMore = signal<boolean>(false);
   private readonly _historyCache = new Map<string, { transactions: EnhancedTransaction[]; hasMore: boolean }>();
 
+  // Wallet address of the most recent loadPortfolio call. Plain field (NOT a
+  // signal) so the wallet-watching effect that calls loadPortfolio never takes
+  // a reactive dependency on it — see the note in loadPortfolio.
+  private loadedWalletAddress: string | null = null;
+
   // Track which tabs have been loaded
   private nftsLoaded = false;
   private historyLoaded = false;
@@ -150,11 +155,18 @@ export class PortfolioService {
     this._error.set(null);
     // Only reset the "everything is in" gate for a genuinely fresh wallet
     // (first load or a wallet switch). A refresh of the SAME wallet keeps it
-    // true so the 30s auto-refresh updates values in place rather than
-    // collapsing the page back to a skeleton.
-    if (this._summary()?.walletAddress !== walletAddress) {
+    // true so the refresh updates values in place rather than collapsing the
+    // page back to a skeleton.
+    //
+    // IMPORTANT: track this with a PLAIN field, not by reading `_summary()`.
+    // loadPortfolio runs synchronously inside the portfolio-shell `effect()`
+    // that watches the wallet key; a synchronous signal *read* here would make
+    // that effect depend on `_summary`, and since we later *write* `_summary`
+    // the effect would re-fire → re-run loadPortfolio → infinite reload loop.
+    if (this.loadedWalletAddress !== walletAddress) {
       this._positionsSettled.set(false);
     }
+    this.loadedWalletAddress = walletAddress;
 
     try {
       // Fetch RPC data in parallel. The balance + token-account calls are the
@@ -1442,6 +1454,7 @@ export class PortfolioService {
     this._recentTransactions.set([]);
     this._protocolPositions.set([]);
     this._positionsSettled.set(false);
+    this.loadedWalletAddress = null;
     this._portfolioChange.set(null);
     this._nfts.set([]);
     this._nftCollections.set([]);
