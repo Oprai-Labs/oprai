@@ -149,6 +149,16 @@ export class AuthService {
    * The browser sends the cookie automatically (credentials: 'include' / withCredentials).
    * Returns true if a valid session was found, false otherwise.
    */
+  /** Memoized promise of the FIRST cookie-based session restore. Route guards
+   *  await this so a deep-link / F5 to a protected page (e.g. /portfolio) waits
+   *  for the session to be known instead of bouncing to home while auth is
+   *  still resolving. Restore runs exactly once. */
+  private _authReady: Promise<void> | null = null;
+  whenAuthReady(): Promise<void> {
+    if (!this._authReady) this._authReady = this.restoreSession();
+    return this._authReady;
+  }
+
   async restoreSession(): Promise<void> {
     try {
       const session = await firstValueFrom(

@@ -22,8 +22,10 @@ export class AppComponent implements OnInit, OnDestroy {
   async ngOnInit(): Promise<void> {
     this.themeService.initialize();
 
-    // Restore session from HttpOnly cookie via GET /auth/session
-    await this.authService.restoreSession();
+    // Restore session from HttpOnly cookie via GET /auth/session. Uses the
+    // memoized whenAuthReady() so route guards awaiting the same restore share
+    // this single call instead of firing a duplicate.
+    await this.authService.whenAuthReady();
 
     // Auto-reconnect wallet if previously trusted (silent, no popup).
     // 3s timeout prevents wallet adapters from hanging on unfamiliar domains (e.g. tunnels).
