@@ -4487,6 +4487,25 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const wallet = this.walletService.publicKey() ?? undefined;
       const info = await this.jupiterLend.getEarnInfo(this.editParams()['token'] ?? 'USDC', wallet);
       if (info) {
+        if (this.action.type === 'withdraw_lend') {
+          // The user's position may be a borrow-market SUPPLY ("Lending") rather
+          // than an Earn deposit — the Earn balance is then just dust. Surface
+          // whichever is the real position so "Deposited", Max, and the
+          // conversion all reflect the money that will actually be withdrawn.
+          const token = this.editParams()['token'] ?? 'USDC';
+          const target = wallet
+            ? await this.jupiterLend.getSupplyWithdrawTarget(wallet, token)
+            : null;
+          const earnDep = info.userDepositedAssets ?? 0;
+          if (target && target.supplyAmount > earnDep) {
+            info.userDepositedAssets = target.supplyAmount;
+            info.userJlBalance = target.supplyAmount;
+            // Borrow-market supply is 1:1 with the underlying (no jlToken share
+            // ratio), so present a 1:1 conversion instead of the Earn vault's.
+            info.assetsPerJlToken = 1;
+            info.jlTokensPerAsset = 1;
+          }
+        }
         this.lendInfo.set({ kind: 'earn', data: info } as LendActionInfo);
         if (this.action.type === 'withdraw_lend') {
           const amt = this.editParams()['amount'];

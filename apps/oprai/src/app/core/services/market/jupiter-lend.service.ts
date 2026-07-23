@@ -452,6 +452,61 @@ export class JupiterLendService {
     });
   }
 
+  /**
+   * The user's Jupiter Lend borrow-market SUPPLY position for a given
+   * collateral mint (supply > 0). This is the "Lending" position shown in
+   * Jupiter's own UI — collateral supplied to a borrow vault (borrow may be 0)
+   * — a DIFFERENT product from Earn/Vault. It is withdrawn via the borrow-vault
+   * operation (`buildBorrowOperateTransaction`, colAmount < 0), NOT the Earn
+   * withdraw SDK. Returns the vault + position ids and the vault's debt asset so
+   * a withdraw tx can be built; null when the user has no supply for this mint.
+   */
+  async getSupplyWithdrawTarget(
+    walletAddress: string,
+    colSymbolOrMint: string,
+  ): Promise<{
+    vaultId: number;
+    positionId: number;
+    supplyAmount: number;
+    colAsset: LendAsset;
+    debtAsset: LendAsset;
+  } | null> {
+    try {
+      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`, 4500);
+      if (!res.ok) return null;
+      const rows: any[] = await res.json();
+      const SOL = NATIVE_MINT.toBase58();
+      const upper = colSymbolOrMint.toUpperCase();
+      const wantSol = colSymbolOrMint === SOL || upper === 'SOL' || upper === 'WSOL';
+      for (const p of rows) {
+        const supplyRaw = parseFloat(p.supply ?? '0');
+        if (supplyRaw <= 0) continue;
+        const v = p.vault ?? {};
+        const st = v.supplyToken ?? {};
+        const bt = v.borrowToken ?? {};
+        const stMint: string = st.address ?? '';
+        const stSym = (st.uiSymbol ?? st.symbol ?? '').toUpperCase();
+        const matches =
+          stMint === colSymbolOrMint ||
+          stSym === upper ||
+          (wantSol && (stMint === SOL || stSym === 'SOL' || stSym === 'WSOL'));
+        if (!matches) continue;
+        const colDec = st.decimals ?? 9;
+        const debtDec = bt.decimals ?? 6;
+        return {
+          vaultId: Number(v.id ?? p.vaultId ?? -1),
+          positionId: Number(p.id ?? 0),
+          supplyAmount: supplyRaw / Math.pow(10, colDec),
+          colAsset: { symbol: st.uiSymbol ?? st.symbol ?? 'SOL', mint: stMint, decimals: colDec },
+          debtAsset: { symbol: bt.uiSymbol ?? bt.symbol ?? 'USDC', mint: bt.address ?? '', decimals: debtDec },
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Find asset metadata by symbol or mint address. */
   findAsset(symbolOrMint: string): LendAsset | undefined {
     const upper = symbolOrMint.toUpperCase();
@@ -722,6 +777,9 @@ export class JupiterLendService {
       ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
     ];
+    // Instructions appended AFTER Jupiter's op — used to unwrap WSOL back to
+    // native SOL when withdrawing SOL collateral.
+    const postIxs: TransactionInstruction[] = [];
     if (colAmount > 0) {
       const colMint = new PublicKey(colAsset.mint);
       const debtMint = new PublicKey(debtAsset.mint);
@@ -747,6 +805,20 @@ export class JupiterLendService {
         }
       }
       setupIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
+    } else if (colAmount < 0) {
+      // WITHDRAW collateral: Jupiter returns the collateral to the user's
+      // collateral ATA and does NOT create it, so ensure it exists first
+      // (idempotent — no-op if present). For native SOL, the collateral comes
+      // back as WSOL; append a close so the wrapped SOL is unwrapped to native
+      // SOL in the same tx (mirrors the Earn withdraw path). Without this the
+      // user's withdrawn SOL would sit stranded as WSOL.
+      const colMint = new PublicKey(colAsset.mint);
+      const colProgram = await this.getTokenProgram(colMint);
+      const supplyAta = getAssociatedTokenAddressSync(colMint, user, true, colProgram);
+      setupIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, colMint, colProgram));
+      if (colAsset.mint === NATIVE_MINT.toBase58()) {
+        postIxs.push(createCloseAccountInstruction(supplyAta, user, user));
+      }
     }
 
     // Resolve Jupiter's address lookup tables and compile ONE v0 tx.
@@ -759,7 +831,7 @@ export class JupiterLendService {
       new TransactionMessage({
         payerKey: user,
         recentBlockhash: blockhash,
-        instructions: [...setupIxs, ...jupIxs],
+        instructions: [...setupIxs, ...jupIxs, ...postIxs],
       }).compileToV0Message(luts),
     );
 

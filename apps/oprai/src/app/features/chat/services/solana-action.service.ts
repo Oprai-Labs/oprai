@@ -1268,7 +1268,14 @@ export class SolanaActionService {
         const sym = p.asset.symbol.toUpperCase();
         return sym === ref || (solAlias && (sym === 'SOL' || sym === 'WSOL'));
       });
-      const deposited = pos?.depositedAmount ?? 0;
+      let deposited = pos?.depositedAmount ?? 0;
+      // Also consider the borrow-market SUPPLY ("Lending") position — often the
+      // real one, with the Earn deposit being leftover dust. Resolve the
+      // sentinel against whichever is larger so "withdraw all" targets the money.
+      if (wallet) {
+        const target = await this.lendService.getSupplyWithdrawTarget(wallet, action.params['token'] ?? '');
+        if (target && target.supplyAmount > deposited) deposited = target.supplyAmount;
+      }
       const adjusted = pctMatch ? deposited * (parseFloat(pctMatch[1]) / 100) : deposited;
       if (deposited <= 0) {
         throw new Error(`No ${action.params['token'] ?? 'that asset'} deposit found in Jupiter Lend to withdraw.`);
@@ -1933,10 +1940,30 @@ export class SolanaActionService {
       case 'withdraw_lend': {
         const asset = await this.lendService.resolveAsset(action.params['token'] ?? 'USDC');
         if (!asset) throw new Error(`Unsupported lend asset: ${action.params['token']}`);
-        const result = await this.lendService.buildWithdrawTransaction(
-          asset,
-          parseFloat(action.params['amount'] ?? '0')
-        );
+        const amount = parseFloat(action.params['amount'] ?? '0');
+        // The user's Jupiter Lend position may live in the borrow-market SUPPLY
+        // (Jupiter's "Lending" — collateral supplied to a borrow vault, borrow
+        // may be 0), NOT the Earn/Vault product. Those are withdrawn via the
+        // borrow-vault op, not the Earn SDK — routing an Earn withdraw against a
+        // supply position drains the wrong (usually empty) balance. Prefer the
+        // supply position whenever one exists for this asset.
+        const wallet = this.walletService.publicKey();
+        const supplyTarget = wallet
+          ? await this.lendService.getSupplyWithdrawTarget(wallet, action.params['token'] ?? asset.mint)
+          : null;
+        if (supplyTarget && supplyTarget.supplyAmount > 0) {
+          const result = await this.lendService.buildBorrowOperateTransaction(
+            supplyTarget.vaultId,
+            supplyTarget.positionId,
+            -Math.abs(amount), // negative = withdraw collateral; snaps to MAX_WITHDRAW at ≥99% of supply
+            0,                 // no debt change
+            supplyTarget.colAsset,
+            supplyTarget.debtAsset,
+          );
+          transaction = result.transaction;
+          break;
+        }
+        const result = await this.lendService.buildWithdrawTransaction(asset, amount);
         transaction = result.transaction;
         break;
       }
