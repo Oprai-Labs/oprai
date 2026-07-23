@@ -21,6 +21,13 @@ export class PortfolioOverviewComponent implements OnInit {
   @Input() defiPositions: DefiPositions | null = null;
   @Input() protocolPositions: ProtocolPosition[] = [];
   @Input() portfolioChange: PortfolioValueChange | null = null;
+  // True while the cross-protocol position fetchers are still running. The
+  // wallet-token total (SOL + SPL) resolves first (~$14 here) but the DeFi
+  // legs (Jupiter Lend, Raydium LP, …) arrive seconds later. Showing the
+  // partial wallet-only figure and then jumping to the full total reads as a
+  // glitch, so the header total, sparkline, chart and protocol cards all hold
+  // a skeleton until every platform balance is in.
+  @Input() positionsLoading = false;
 
   /**
    * 7-day historical portfolio value series for the inline sparkline.

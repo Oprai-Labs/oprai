@@ -15,18 +15,25 @@
         <lucide-icon class="copy-icon" name="copy" [size]="14" />
       </button>
     </div>
-    <div class="total-value">{{ totalValue | currency:'USD':'symbol':'1.2-2' }}</div>
+    <!-- Hold a skeleton until every platform balance is in. The wallet-only
+         figure resolves first but jumping from ~$14 to the full total once the
+         DeFi legs land reads as a glitch, so we wait for all positions. -->
+    @if (positionsLoading) {
+      <div class="total-value-skeleton" aria-label="Calculating total balance"></div>
+    } @else {
+      <div class="total-value">{{ totalValue | currency:'USD':'symbol':'1.2-2' }}</div>
+    }
 
     <!-- 7-day approximate portfolio sparkline. Sits flush on the page (no
          card background) so it reads as part of the heading rather than a
          standalone widget. Only renders once the history fetch has either
          delivered points or completed empty — avoids an indefinite shimmer
          when the Birdeye OHLCV proxy isn't returning data. -->
-    @if (!historyReady() || history7d().length > 1) {
+    @if (!positionsLoading && (!historyReady() || history7d().length > 1)) {
       <app-balance-sparkline class="hero-sparkline" [points]="history7d()" />
     }
 
-    @if (portfolioChange) {
+    @if (!positionsLoading && portfolioChange) {
       <div class="value-change" [class]="portfolioChange.change24hUsd >= 0 ? 'change-positive' : 'change-negative'">
         {{ portfolioChange.change24hUsd >= 0 ? '+' : '' }}{{ portfolioChange.change24hUsd | currency:'USD':'symbol':'1.2-2' }}
         ({{ portfolioChange.change24hPercent >= 0 ? '+' : '' }}{{ portfolioChange.change24hPercent | number:'1.2-2' }}%)
@@ -34,7 +41,7 @@
       </div>
     }
   </div>
-  @if (allocationSegments.length > 0) {
+  @if (!positionsLoading && allocationSegments.length > 0) {
     <div class="hero-right">
       <app-allocation-chart
         [segments]="allocationSegments"
@@ -45,6 +52,13 @@
 </div>
 
 <!-- Protocol Summary Cards -->
+@if (positionsLoading) {
+  <div class="protocol-cards-row">
+    <div class="protocol-card-skeleton"></div>
+    <div class="protocol-card-skeleton"></div>
+    <div class="protocol-card-skeleton"></div>
+  </div>
+} @else {
 <div class="protocol-cards-row">
   @for (card of protocolCards; track card.id) {
     <div class="protocol-card">
@@ -64,3 +78,4 @@
     </div>
   }
 </div>
+}
