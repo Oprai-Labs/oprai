@@ -151,8 +151,13 @@ export class DefiPositionsService {
       const positions: ProtocolPosition[] = [];
       const logo = this.protocolDetection.getProtocolLogo('jupiter');
 
-      if (earnPositions.length > 0) {
-        const items: PositionItem[] = earnPositions.map(p => ({
+      // Drop empty/dust earn accounts — a fully-withdrawn Jupiter Lend position
+      // leaves a 0-balance account behind, which rendered as a phantom
+      // "$0.00 / 0.0000" row. Anything that rounds to 0 at display precision is
+      // not a real position.
+      const liveEarn = earnPositions.filter(p => (p.depositedAmount ?? 0) >= 0.00005);
+      if (liveEarn.length > 0) {
+        const items: PositionItem[] = liveEarn.map(p => ({
           label: p.asset.symbol,
           tokens: [{
             symbol: p.asset.symbol,

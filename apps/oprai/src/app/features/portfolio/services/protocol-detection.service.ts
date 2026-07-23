@@ -32,7 +32,7 @@ const PROTOCOL_LOGOS: Record<string, string> = {
   'lido': 'https://lido.fi/favicon.ico',
   'helius': 'https://www.helius.dev/favicon.ico',
   'jupiter': 'https://jup.ag/favicon.ico',
-  'raydium': 'https://img.raydium.io/icon/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R/logo.png',
+  'raydium': 'assets/icons/protocols/raydium.png',
   'kamino': 'https://app.kamino.finance/favicon.ico',
   'marginfi': 'https://app.marginfi.com/favicon.ico',
   'orca': 'https://www.orca.so/favicon.ico',
