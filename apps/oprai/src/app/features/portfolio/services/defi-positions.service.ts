@@ -143,8 +143,12 @@ export class DefiPositionsService {
   async getLendingPositions(wallet: string): Promise<ProtocolPosition[]> {
     if (!wallet) return [];
     try {
-      const [earnPositions, borrowPositions] = await Promise.all([
+      const [earnPositions, supplyPositions, borrowPositions] = await Promise.all([
         this.jupiterLend.getAllEarnPositions(wallet),
+        // Borrow-market supply (collateral earning yield, e.g. 1 wSOL supplied
+        // with 0 borrowed) — Jupiter's UI shows it under "Lending". Without this
+        // a pure supply position was completely missing from the portfolio.
+        this.jupiterLend.getLendSupplyPositions(wallet),
         this.jupiterLend.getBorrowPositions(wallet),
       ]);
 
@@ -154,8 +158,12 @@ export class DefiPositionsService {
       // Drop empty/dust earn accounts — a fully-withdrawn Jupiter Lend position
       // leaves a 0-balance account behind, which rendered as a phantom
       // "$0.00 / 0.0000" row. Anything that rounds to 0 at display precision is
-      // not a real position.
-      const liveEarn = earnPositions.filter(p => (p.depositedAmount ?? 0) >= 0.00005);
+      // not a real position. Merge the Earn/Vault balances with the borrow-market
+      // supply into one "Jupiter Lend" grouping.
+      const liveEarn = [
+        ...earnPositions.filter(p => (p.depositedAmount ?? 0) >= 0.00005),
+        ...supplyPositions,
+      ];
       if (liveEarn.length > 0) {
         const items: PositionItem[] = liveEarn.map(p => ({
           label: p.asset.symbol,

@@ -392,6 +392,39 @@ export class JupiterLendService {
     }
   }
 
+  /**
+   * Supply-only positions on the Jupiter borrow/lend market — collateral
+   * supplied and earning yield, with or without a borrow against it. These live
+   * under `supply` in /v1/borrow/positions; getBorrowPositions only surfaces
+   * rows WITH debt, so a pure supply (e.g. 1 wSOL collateral, 0 borrowed) was
+   * invisible in the portfolio even though Jupiter's own UI shows it under
+   * "Lending". (This is the borrow-market supply, distinct from the Earn/Vault
+   * product that getAllEarnPositions reads.)
+   */
+  async getLendSupplyPositions(walletAddress: string): Promise<LendPosition[]> {
+    try {
+      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`);
+      if (!res.ok) return [];
+      const positions: any[] = await res.json();
+      return positions
+        .filter(p => parseFloat(p.supply ?? '0') > 0)
+        .map(p => {
+          const vault = p.vault ?? {};
+          const st = vault.supplyToken ?? {};
+          const mint: string = st.address ?? '';
+          const decimals = st.decimals ?? 9;
+          const asset: LendAsset = LEND_SUPPORTED_ASSETS.find(a => a.mint === mint)
+            ?? { symbol: st.uiSymbol ?? st.symbol ?? '?', mint, decimals };
+          const depositedAmount = parseFloat(p.supply ?? '0') / Math.pow(10, decimals);
+          const apy = (Number(vault.supplyRate) || 0) / 100; // 388 → 3.88%
+          return { asset, depositedAmount, apy, earnedInterest: 0 } as LendPosition;
+        })
+        .filter(p => p.depositedAmount > 0.00005);
+    } catch {
+      return [];
+    }
+  }
+
   /** Find asset metadata by symbol or mint address. */
   findAsset(symbolOrMint: string): LendAsset | undefined {
     const upper = symbolOrMint.toUpperCase();
