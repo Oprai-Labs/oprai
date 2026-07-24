@@ -1460,6 +1460,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
             ...(tokenB ? { tokenB } : {}),
             poolType: this.raydiumPoolType(),
             sortField: this.raydiumSortField(),
+            page: this.raydiumPage(),
             pageSize: this.RAYDIUM_PAGE_SIZE,
           },
         }

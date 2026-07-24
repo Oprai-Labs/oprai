@@ -656,7 +656,10 @@
 .km-table .result-table__header.km-row {
   padding: 2px 12px;
   margin-inline: 0;
-  border-bottom: none;
+  // Match the data rows' 1px border (transparent here) so the header's grid
+  // box has the SAME inner geometry as the bordered rows — otherwise every
+  // column is offset by ~1px between the header and the data.
+  border: 1px solid transparent;
 }
 
 // Each data row is a bordered surface box like .proto-token-chip.
@@ -766,8 +769,13 @@
 // token icons, weight-700 symbol — with a 6-column layout:
 // pool (icons+name) | TVL | 24h vol | 24h APR | type | action.
 .km-table--ray .km-row {
+  // Action is a FIXED width, not `auto`: an auto column sizes to its content,
+  // and the header ("Action" text ~45px) is narrower than a data row's
+  // "Deposit →" button (~85px). That made every fr column ahead of it land at a
+  // different x in the header vs the rows — the misaligned columns. A fixed
+  // width makes the track identical in the header and every row.
   grid-template-columns:
-    minmax(150px, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.62fr) auto;
+    minmax(150px, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.62fr) 92px;
 }
 
 // Positions table: Pool | Type | Amount | Action (4 cols).
