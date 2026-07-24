@@ -280,6 +280,15 @@
     color: var(--op-text-secondary);
     border: 1px solid var(--op-border-subtle);
   }
+
+  // A DeFi action labelled from the raw Helius type (Add Liquidity, Create
+  // Pool, Deposit, …) — teal/emerald so it reads as a real protocol action,
+  // not a generic unknown.
+  &.pill-defi {
+    background: rgba(16, 185, 129, 0.15);
+    color: #059669;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+  }
 }
 
 .platform-icon-inline {

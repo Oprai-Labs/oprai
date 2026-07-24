@@ -442,8 +442,10 @@
                       </div>
                     }
                   </div>
+                } @else if (tx.platform) {
+                  <span class="detail-value">{{ tx.platform | titlecase }}</span>
                 } @else {
-                  <span class="detail-value no-platform">Unknown</span>
+                  <span class="detail-value no-platform">—</span>
                 }
               </div>
 
@@ -534,7 +536,7 @@
             rel="noopener noreferrer"
           >
             <lucide-icon name="external-link" [size]="16" />
-            View Full Transaction
+            View on Solscan
           </a>
         </div>
       </div>

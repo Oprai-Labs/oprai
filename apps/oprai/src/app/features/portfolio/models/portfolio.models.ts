@@ -149,6 +149,11 @@ export interface EnhancedTransaction {
   description: string;
   details: TransactionDetail | null;
   platform: string | null;  // Helius source field (Jupiter, Raydium, Orca, etc.)
+  // Raw Helius transaction type (e.g. "ADD_LIQUIDITY", "CREATE_POOL",
+  // "DEPOSIT"). Our `type` enum collapses everything it doesn't model to
+  // 'unknown'; keeping the raw string lets the UI label a DeFi action
+  // ("Add Liquidity") instead of a meaningless "ACTION".
+  heliusType?: string | null;
 }
 
 // ──── Protocol Positions ────

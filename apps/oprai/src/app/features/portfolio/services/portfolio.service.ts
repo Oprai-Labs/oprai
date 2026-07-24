@@ -1165,6 +1165,7 @@ export class PortfolioService {
       description: tx.description || this.buildDescription(tx),
       details,
       platform,
+      heliusType: tx.type || null,
     };
   }
 
@@ -1218,12 +1219,25 @@ export class PortfolioService {
     return map[heliusType] ?? 'unknown';
   }
 
+  /** "RAYDIUM" → "Raydium", "ADD_LIQUIDITY" → "Add Liquidity". */
+  private humanizeLabel(s: string): string {
+    return s
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
   private buildDescription(tx: HeliusParsedTransaction): string {
+    // Only attribute a protocol when we actually know it — never render the
+    // literal "via unknown" (Helius sends source:"UNKNOWN" for un-attributed txs).
+    const src = (tx.source || '').trim();
+    const protocol =
+      src && src.toUpperCase() !== 'UNKNOWN' ? ` via ${this.humanizeLabel(src)}` : '';
+
     const swap = tx.events?.swap;
     if (swap) {
       const fromAmt = this.formatSwapAmount(swap.nativeInput, swap.tokenInputs);
       const toAmt = this.formatSwapAmount(swap.nativeOutput, swap.tokenOutputs);
-      const protocol = tx.source ? ` via ${tx.source}` : '';
       if (fromAmt && toAmt) {
         return `Swapped ${fromAmt} → ${toAmt}${protocol}`;
       }
@@ -1239,7 +1253,12 @@ export class PortfolioService {
       const amt = t.tokenAmount ? t.tokenAmount.toFixed(4) : '';
       return `Transferred ${amt} tokens`;
     }
-    return tx.type || 'Transaction';
+    // Fall back to a readable version of the Helius type ("ADD_LIQUIDITY" →
+    // "Add Liquidity") + protocol, instead of a raw enum or "unknown".
+    const label = tx.type && tx.type.toUpperCase() !== 'UNKNOWN'
+      ? this.humanizeLabel(tx.type)
+      : 'Transaction';
+    return `${label}${protocol}`;
   }
 
   private formatSwapAmount(

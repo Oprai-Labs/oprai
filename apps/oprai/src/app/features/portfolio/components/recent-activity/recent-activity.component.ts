@@ -571,7 +571,23 @@ export class RecentActivityComponent {
       vote: 'VOTE',
       unknown: 'ACTION',
     };
-    return map[tx.type] ?? 'ACTION';
+    if (tx.type !== 'unknown') return map[tx.type] ?? 'ACTION';
+    // Our enum collapses every DeFi action to 'unknown'. Surface the RAW Helius
+    // type ("ADD_LIQUIDITY" → "ADD LIQUIDITY", "CREATE_POOL" → "CREATE POOL")
+    // so the user sees what actually happened instead of a generic "ACTION".
+    const raw = (tx.heliusType ?? '').trim();
+    if (raw && raw.toUpperCase() !== 'UNKNOWN') {
+      return raw.replace(/_/g, ' ').toUpperCase();
+    }
+    return 'ACTION';
+  }
+
+  /** True for a DeFi action we've labelled from the raw Helius type (so the
+   *  template can style it distinctly from a truly-unknown row). */
+  isDefiAction(tx: EnhancedTransaction): boolean {
+    return tx.type === 'unknown'
+      && !!tx.heliusType
+      && tx.heliusType.toUpperCase() !== 'UNKNOWN';
   }
 
   getActionPillClass(tx: EnhancedTransaction): string {
@@ -588,6 +604,7 @@ export class RecentActivityComponent {
       vote: 'pill-vote',
       unknown: 'pill-default',
     };
+    if (tx.type === 'unknown' && this.isDefiAction(tx)) return 'pill-defi';
     return map[tx.type] ?? 'pill-default';
   }
 

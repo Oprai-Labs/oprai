@@ -51,13 +51,6 @@ const ETH_LOGO_URI =
 export class PortfolioShellComponent implements OnDestroy {
   readonly benchmarkQuotes = signal<HeaderMetric[]>([
     {
-      id: 'sol',
-      label: 'SOL',
-      valueText: '--',
-      change24h: 0,
-      iconUrl: SOL_LOGO_URI,
-    },
-    {
       id: 'btc',
       label: 'BTC',
       valueText: '--',
@@ -70,6 +63,13 @@ export class PortfolioShellComponent implements OnDestroy {
       valueText: '--',
       change24h: 0,
       iconUrl: ETH_LOGO_URI,
+    },
+    {
+      id: 'sol',
+      label: 'SOL',
+      valueText: '--',
+      change24h: 0,
+      iconUrl: SOL_LOGO_URI,
     },
   ]);
 
@@ -182,13 +182,6 @@ export class PortfolioShellComponent implements OnDestroy {
 
       this.benchmarkQuotes.set([
         {
-          id: 'sol',
-          label: 'SOL',
-          valueText: this.formatUsd(data.solana.usd),
-          change24h: data.solana.change24h,
-          iconUrl: SOL_LOGO_URI,
-        },
-        {
           id: 'btc',
           label: 'BTC',
           valueText: this.formatUsd(data.bitcoin.usd),
@@ -201,6 +194,13 @@ export class PortfolioShellComponent implements OnDestroy {
           valueText: this.formatUsd(data.ethereum.usd),
           change24h: data.ethereum.change24h,
           iconUrl: ETH_LOGO_URI,
+        },
+        {
+          id: 'sol',
+          label: 'SOL',
+          valueText: this.formatUsd(data.solana.usd),
+          change24h: data.solana.change24h,
+          iconUrl: SOL_LOGO_URI,
         },
       ]);
     } catch {
