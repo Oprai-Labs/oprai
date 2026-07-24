@@ -321,6 +321,12 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// server-side.
 	r.With(defaultTimeout).Post("/rpc", marketProxy.PostRpc)
 
+	// Server-side token metadata resolver (name/symbol/logo via Helius getAsset,
+	// batched + cached). Root-level + NOT wallet-gated (the /market group is
+	// RequireWallet, which is exactly why client metadata resolution was flaky).
+	// Same rationale as /rpc: public on-chain metadata, Helius key stays server-side.
+	r.With(defaultTimeout).Post("/token-meta", marketProxy.PostTokenMeta)
+
 	// Upload handler — stores files locally, serves via /uploads/*
 	uploadHandler := handlers.NewUploadHandler(cfg.UploadDir, cfg.PublicBaseURL)
 	r.Route("/upload", func(r chi.Router) {

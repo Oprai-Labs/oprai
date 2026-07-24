@@ -66,63 +66,39 @@ export class HeliusService {
     const out = new Map<string, { name: string; symbol: string; logoUri: string | null }>();
     if (!mints.length) return out;
 
-    // NOTE: the gateway's Helius RPC upstream returns `[null]` for the DAS
-    // `getAssetBatch` method even though single `getAsset` works fine — so
-    // metadata (names + logos) never resolved for pump.fun memecoins and
-    // position-receipt NFTs, which then showed as "Unknown Token" with a
-    // placeholder icon. Resolve each mint individually via `getAsset` instead
-    // (capped concurrency). The auth cookie rides along via credentials:'include';
-    // the old empty `Authorization: Bearer` header was a no-op (the JWT lives in
-    // memory, not localStorage) and /rpc reads aren't wallet-gated.
+    // Resolve on-chain metadata (name / symbol / logo) SERVER-SIDE via the
+    // gateway's `/token-meta` endpoint, which fans out to Helius getAsset with
+    // parallel goroutines and a 30m cache. Doing this client-side was the source
+    // of the "logos never load" bug: the browser's ~6-connection-per-host cap
+    // made per-mint getAsset calls queue behind the portfolio's other reads and
+    // time out, and the fallback source (jup.ag) was intermittently
+    // unresolvable via DNS. One round-trip here dodges the connection cap
+    // entirely. Not wallet-gated (root-level route), but send the CSRF header +
+    // cookie like every other gateway POST.
     const ids = mints.slice(0, 100);
-    // Store the RAW metadata image URL (twimg/IPFS/arweave). The <img> tries it
-    // directly, and the component's onImageError retries through an image proxy
-    // (weserv) if the browser blocks/hotlink-rejects it — so we don't
-    // double-proxy and a failed proxy URL can still fall back to a placeholder.
-    const extract = (it: any): { name: string; symbol: string; logoUri: string | null } | null => {
-      if (!it?.id) return null;
-      const meta = it.content?.metadata ?? {};
-      const links = it.content?.links ?? {};
-      const files = it.content?.files ?? [];
-      const logoUri =
-        links.image ??
-        files.find((f: any) => f?.uri && /image|png|jpg|webp|svg/i.test(f?.mime ?? f?.uri))?.uri ??
-        files[0]?.uri ??
-        null;
-      return { name: meta.name ?? '', symbol: meta.symbol ?? '', logoUri };
-    };
-
-    const fetchOne = async (mint: string): Promise<void> => {
-      // Two attempts with a hard timeout each: a hung/transient getAsset must
-      // never stall the awaited enrichment nor leave the logo unresolved.
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 8000);
-        try {
-          const res = await fetch(environment.solanaRpc, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            credentials: 'include',
-            signal: ctrl.signal,
-            body: JSON.stringify({ jsonrpc: '2.0', id: 'asset', method: 'getAsset', params: { id: mint } }),
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      const res = await fetch(`${environment.apiBase}/token-meta`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'include',
+        signal: ctrl.signal,
+        body: JSON.stringify({ mints: ids }),
+      }).finally(() => clearTimeout(timer));
+      if (res.ok) {
+        const json = await res.json() as Record<string, { name?: string; symbol?: string; image?: string }>;
+        for (const [mint, meta] of Object.entries(json ?? {})) {
+          if (!meta) continue;
+          out.set(mint, {
+            name: meta.name ?? '',
+            symbol: meta.symbol ?? '',
+            logoUri: meta.image || null,
           });
-          if (res.ok) {
-            const json = await res.json() as { result?: any };
-            const parsed = extract(json.result);
-            if (parsed) { out.set(mint, parsed); return; }
-          }
-        } catch {
-          // fall through to retry
-        } finally {
-          clearTimeout(timer);
         }
-        if (attempt === 0) await new Promise(r => setTimeout(r, 300));
       }
-    };
-
-    const CONCURRENCY = 6;
-    for (let i = 0; i < ids.length; i += CONCURRENCY) {
-      await Promise.all(ids.slice(i, i + CONCURRENCY).map(fetchOne));
+    } catch {
+      // Graceful fallback — enrichment leaves the placeholder icon in place.
     }
 
     return out;
