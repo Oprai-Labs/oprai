@@ -159,7 +159,17 @@ export class AuthService {
     return this._authReady;
   }
 
-  async restoreSession(): Promise<void> {
+  /**
+   * Restore the wallet session from the HttpOnly cookie.
+   *
+   * @param opts.preserveSessionsOnFail  When true (401-recovery from the error
+   *   interceptor), a failed/negative restore does NOT clear the sidebar's
+   *   session list. A portfolio page fires many requests; a single transient
+   *   401 must not wipe the chat history and make the sidebar visibly reload.
+   *   The initial app-load restore leaves this false so a genuinely
+   *   unauthenticated boot still clears any stale wallet's sessions.
+   */
+  async restoreSession(opts?: { preserveSessionsOnFail?: boolean }): Promise<void> {
     try {
       const session = await firstValueFrom(
         this.api.get<SessionResponse>('/auth/session')
@@ -168,14 +178,15 @@ export class AuthService {
         this._user.set({ wallet: session.wallet });
         this.sessionStorage.setWallet(session.wallet);
         // _token stays null — we use the cookie for requests; isAuthenticated() checks _user
-      } else {
+      } else if (!opts?.preserveSessionsOnFail) {
         // Server says not authenticated — make sure no stale wallet's sessions stay visible.
         this.sessionStorage.setWallet(null);
       }
     } catch {
       // Network error or 4xx — session is not restored; user will need to re-auth.
-      // Clear the sidebar so the UI matches the unauthenticated state.
-      this.sessionStorage.setWallet(null);
+      if (!opts?.preserveSessionsOnFail) {
+        this.sessionStorage.setWallet(null);
+      }
     }
   }
 

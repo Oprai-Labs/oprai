@@ -56,7 +56,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
             // Portfolio cost-basis fetch) can be healed via GET /auth/session
             // with NO wallet-signature popup and NO lost state. Only if the
             // cookie is also gone do we fall back to a fresh SIWS signature.
-            authService.restoreSession().then(() => {
+            authService.restoreSession({ preserveSessionsOnFail: true }).then(() => {
               if (!authService.isAuthenticated() && walletService.connected()) {
                 authService.authenticate().subscribe({
                   error: (authErr) =>
