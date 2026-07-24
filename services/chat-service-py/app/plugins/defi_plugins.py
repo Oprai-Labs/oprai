@@ -3705,6 +3705,11 @@ class RaydiumSearchPoolsAction(BuildableAction):
         return {
             "tokenA": {"type": "string", "required": True, "description": "Token A mint address or symbol"},
             "tokenB": {"type": "string", "required": False, "description": "Token B mint address or symbol"},
+            # REQUIRED for the CLMM vs AMM distinction: without this the card
+            # defaults to "all" and lists AMM pools even when the user asked for
+            # a CLMM position. Pass "concentrated" for CLMM, "standard" for AMM.
+            "poolType": {"type": "string", "required": False, "description": "Pool type filter: all | concentrated (CLMM only) | standard (AMM v4 only). Use 'concentrated' when the user wants a CLMM position."},
+            "sortField": {"type": "string", "required": False, "description": "Sort field: liquidity | volume24h | fee24h | apr24h"},
         }
 
 
