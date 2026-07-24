@@ -146,8 +146,15 @@ export class HeliusService {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${localStorage.getItem('oprai-auth-token') ?? ''}`,
+              // The gateway 403s without X-Requested-With (CSRF) and 401s without
+              // the auth cookie. The old empty Bearer from localStorage (the JWT
+              // is in memory, not localStorage) meant this call ALWAYS 403'd, so
+              // Helius never parsed a single tx — every row fell back to a bare
+              // 'ACTION' stub. Send the CSRF header + cookie like every other
+              // gateway call.
+              'X-Requested-With': 'XMLHttpRequest',
             },
+            credentials: 'include',
             body: JSON.stringify({ transactions: batch }),
           });
           if (!response.ok) return [] as HeliusParsedTransaction[];
