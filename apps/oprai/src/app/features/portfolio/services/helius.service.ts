@@ -75,17 +75,35 @@ export class HeliusService {
     // the old empty `Authorization: Bearer` header was a no-op (the JWT lives in
     // memory, not localStorage) and /rpc reads aren't wallet-gated.
     const ids = mints.slice(0, 100);
+    // Route memecoin / NFT logos through a caching image proxy. Their metadata
+    // images are often hosted on twimg.com / IPFS / arweave, which fail to
+    // render in the browser via hotlink-referrer checks, missing CORS, or —
+    // most commonly — because pbs.twimg.com is on tracker/ad blocklists, so the
+    // token showed a placeholder even though the metadata resolved fine. weserv
+    // fetches server-side and serves from a neutral CDN, so it renders reliably.
+    const proxyImage = (url: string | null): string | null => {
+      if (!url || url.startsWith('data:')) return url;
+      // Already a well-known reliable CDN → leave as-is.
+      if (/(^https?:\/\/)?(coin-images\.coingecko|raw\.githubusercontent|jup\.ag|img[-.]|cloudfront|imagedelivery)/i.test(url)) {
+        return url;
+      }
+      try {
+        return `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=64&h=64&fit=cover`;
+      } catch {
+        return url;
+      }
+    };
     const extract = (it: any): { name: string; symbol: string; logoUri: string | null } | null => {
       if (!it?.id) return null;
       const meta = it.content?.metadata ?? {};
       const links = it.content?.links ?? {};
       const files = it.content?.files ?? [];
-      const logoUri =
+      const rawLogo =
         links.image ??
         files.find((f: any) => f?.uri && /image|png|jpg|webp|svg/i.test(f?.mime ?? f?.uri))?.uri ??
         files[0]?.uri ??
         null;
-      return { name: meta.name ?? '', symbol: meta.symbol ?? '', logoUri };
+      return { name: meta.name ?? '', symbol: meta.symbol ?? '', logoUri: proxyImage(rawLogo) };
     };
 
     const CONCURRENCY = 8;
