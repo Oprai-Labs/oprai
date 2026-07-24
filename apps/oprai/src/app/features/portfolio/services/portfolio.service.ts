@@ -654,10 +654,22 @@ export class PortfolioService {
           /^jv\d+$/.test(s)                     // jv1, jv2 (Jupiter Lend vault NFT)
         );
       };
+      // A token that NO source could identify (name still "Unknown Token" after
+      // Jupiter + DexScreener + Helius DAS) AND that carries no USD price is
+      // either a scam/dust airdrop or a position-receipt NFT whose metadata
+      // didn't resolve (jv1, RCL). Either way it has no realizable value and no
+      // identity — showing "Unknown Token · 1.0000 · —" is pure noise. Hide it
+      // (the user can still reveal it via "show hidden"). This is the robust
+      // catch for receipts the name-based rule misses when DAS enrichment fails.
+      const isUnresolvedWorthless = (t: EnhancedTokenAccount): boolean =>
+        (t.name === 'Unknown Token' || !t.name) &&
+        (t.usdValue == null || t.usdValue === 0) &&
+        !t.isLiquidStaking;
+
       this._summary.update(s => s ? {
         ...s,
         tokens: s.tokens.map(t =>
-          positionMints.has(t.mint) || isReceiptToken(t.name, t.symbol)
+          positionMints.has(t.mint) || isReceiptToken(t.name, t.symbol) || isUnresolvedWorthless(t)
             ? { ...t, isDefiPositionToken: true }
             : t,
         ),
