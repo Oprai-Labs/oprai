@@ -3549,6 +3549,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     this.tokenRegistry.ensureLoaded();
+
+    // A completed card — restored from chat history with a cached result — is a
+    // RECEIPT of an action that already succeeded. Its final state (executed
+    // amount, tx signature, success) is already applied above. Never re-run the
+    // live loaders for it: they'd flash "Loading protocol data...", re-fetch
+    // balances/rates, and re-resolve "all", making a done transaction look like
+    // it's about to run again. Only a still-pending card needs live data. This
+    // applies to every mini-app (lend, kamino, staking, …).
+    if (this.cachedResult) return;
+
     if (this.inputBalanceMint()) this.loadInputBalance();
     if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
     if (['lend','withdraw_lend'].includes(this.action.type)) this.loadLendInfo();
