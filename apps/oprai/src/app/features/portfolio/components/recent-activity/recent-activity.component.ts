@@ -499,6 +499,38 @@ export class RecentActivityComponent {
     return protocols.length ? protocols[0] : null;
   }
 
+  /** All protocol labels joined — used as the Platform cell tooltip when a tx
+   *  touched more than one program (e.g. Jupiter routing through Raydium). */
+  getTxProtocolsLabel(tx: EnhancedTransaction): string {
+    return this.getTxProtocols(tx).map((p) => p.label).join(' · ');
+  }
+
+  /** Letter-avatar data URI for a token symbol — the guaranteed fallback so a
+   *  token row/leg never renders a broken image when the logo URL 404s or is
+   *  missing. Mirrors the platform letter fallback but keyed on the symbol. */
+  tokenLetterFallback(symbol: string): string {
+    const letter = (symbol || '?').charAt(0).toUpperCase();
+    return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#2a2d3a"/><text x="16" y="21" text-anchor="middle" fill="#9aa0b4" font-family="system-ui,sans-serif" font-size="14" font-weight="700">${letter}</text></svg>`)}`;
+  }
+
+  onTokenIconError(event: Event, symbol: string): void {
+    const target = event.target as HTMLImageElement | null;
+    if (!target) return;
+    const fallback = this.tokenLetterFallback(symbol);
+    // Guard against an infinite error loop if the fallback itself is the src.
+    if (target.src === fallback) return;
+    // The logo may be a tracker-blocked/hotlink-rejected remote URL (twimg,
+    // IPFS). Retry ONCE through the first-party image proxy before giving up
+    // to the letter avatar.
+    if (!target.dataset['proxied'] && /^https?:\/\//.test(target.src) && !target.src.includes('/api/img')) {
+      target.dataset['proxied'] = '1';
+      target.src = `/api/img?url=${encodeURIComponent(target.src)}`;
+      return;
+    }
+    target.src = fallback;
+    target.classList.add('token-icon-fallback');
+  }
+
   getProtocolIconForKey(protocolKey: string): string {
     return this.getPlatformIconSafe(protocolKey);
   }

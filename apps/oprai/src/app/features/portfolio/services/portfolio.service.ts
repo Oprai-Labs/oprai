@@ -83,7 +83,13 @@ export class PortfolioService {
   private historyLoaded = false;
   private historyLoadedWallet: string | null = null;
   private historyLoadingPromise: Promise<void> | null = null;
-  private static readonly HISTORY_PAGE_SIZE = 15;
+  // Load a full window of recent transactions upfront (not a tiny 15-row
+  // slice) so the transactions table shows a COMPLETE, stable pager on first
+  // paint — all page numbers present at once — instead of revealing pages
+  // one 1.5-page increment at a time as the user clicks "next". 100 is one
+  // Helius enhanced-tx batch call, so it stays a single round-trip. Older txs
+  // beyond the window are still reachable via loadMore (the "+" in the count).
+  private static readonly HISTORY_PAGE_SIZE = 100;
   // Cache token symbols for swap descriptions
   private readonly _tokenSymbolCache = new Map<string, string>();
   // Mints encountered while parsing history rows that weren't in the
@@ -184,7 +190,9 @@ export class PortfolioService {
           .then((value) => ({ ok: true, value }))
           .catch(() => ({ ok: false, value: [] as Awaited<ReturnType<typeof this.solanaRpc.getTokenAccounts>> })),
         this.solanaRpc.getStakeAccounts(walletAddress).catch(() => []),
-        this.solanaRpc.getRecentSignatures(walletAddress).catch(() => []),
+        this.solanaRpc
+          .getRecentSignatures(walletAddress, PortfolioService.HISTORY_PAGE_SIZE)
+          .catch(() => []),
       ]);
       const balanceLamports = balanceOutcome.value;
       const rawTokens = tokensOutcome.value;

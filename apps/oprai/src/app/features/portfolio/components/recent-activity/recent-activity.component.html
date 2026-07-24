@@ -25,6 +25,9 @@
               <th class="col-action">
                 <div class="sk sk-header short"></div>
               </th>
+              <th class="col-platform">
+                <div class="sk sk-header short"></div>
+              </th>
               <th class="col-from">
                 <div class="sk sk-header"></div>
               </th>
@@ -52,9 +55,12 @@
                   <div class="sk sk-text medium"></div>
                 </td>
                 <td class="col-action">
-                  <div class="sk-action-group">
-                    <div class="sk sk-pill-cell"></div>
+                  <div class="sk sk-pill-cell"></div>
+                </td>
+                <td class="col-platform">
+                  <div class="sk-token-group">
                     <div class="sk sk-circle"></div>
+                    <div class="sk sk-text short"></div>
                   </div>
                 </td>
                 <td class="col-from">
@@ -126,6 +132,7 @@
               <th class="col-sig">Signature</th>
               <th class="col-time">Date</th>
               <th class="col-action">Action</th>
+              <th class="col-platform">Platform</th>
               <th class="col-from">From</th>
               <th class="col-to">To</th>
               <th class="col-amount">Amount</th>
@@ -167,27 +174,31 @@
                     <span class="action-pill" [ngClass]="getActionPillClass(tx)">
                       {{ getActionText(tx) }}
                     </span>
-                    @if (getTxProtocols(tx).length > 0) {
-                      <div class="platform-icons-cluster">
-                        @for (protocol of getTxProtocols(tx).slice(0, 3); track protocol.key) {
-                          <img
-                            class="platform-icon-inline"
-                            [src]="getProtocolIconForKey(protocol.key)"
-                            [alt]="protocol.label"
-                            [title]="protocol.label"
-                            (error)="onPlatformIconError($event, protocol.key)"
-                            loading="lazy"
-                          />
-                        }
-                        @if (getTxProtocols(tx).length > 3) {
-                          <span class="more-protocols">+{{ getTxProtocols(tx).length - 3 }}</span>
-                        }
-                      </div>
-                    }
                     @if (!tx.success) {
                       <lucide-icon name="x-circle" [size]="14" class="failed-icon" />
                     }
                   </div>
+                </td>
+
+                <!-- Platform (which protocol the tx ran through) -->
+                <td class="col-platform">
+                  @if (getTxPrimaryProtocol(tx); as proto) {
+                    <div class="platform-cell" [title]="getTxProtocolsLabel(tx)">
+                      <img
+                        class="platform-icon-inline"
+                        [src]="getProtocolIconForKey(proto.key)"
+                        [alt]="proto.label"
+                        (error)="onPlatformIconError($event, proto.key)"
+                        loading="lazy"
+                      />
+                      <span class="platform-name">{{ proto.label }}</span>
+                      @if (getTxProtocols(tx).length > 1) {
+                        <span class="more-protocols">+{{ getTxProtocols(tx).length - 1 }}</span>
+                      }
+                    </div>
+                  } @else {
+                    <span class="no-data">--</span>
+                  }
                 </td>
 
                 <!-- From -->
@@ -213,17 +224,25 @@
                   <td class="col-amount" colspan="3">
                     <div class="swap-legs">
                       <div class="swap-leg swap-leg--out">
-                        @if (legs.out.logo) {
-                          <img class="swap-leg-icon" [src]="legs.out.logo" [alt]="legs.out.symbol" loading="lazy" />
-                        }
+                        <img
+                          class="swap-leg-icon"
+                          [src]="legs.out.logo || tokenLetterFallback(legs.out.symbol)"
+                          [alt]="legs.out.symbol"
+                          (error)="onTokenIconError($event, legs.out.symbol)"
+                          loading="lazy"
+                        />
                         <span class="amount-value amount-negative">{{ legs.out.amount }} {{ legs.out.symbol }}</span>
                         @if (legs.out.usd) { <span class="swap-leg-usd">({{ legs.out.usd }})</span> }
                       </div>
                       <lucide-icon class="swap-arrow" name="arrow-right" [size]="14" />
                       <div class="swap-leg swap-leg--in">
-                        @if (legs.in.logo) {
-                          <img class="swap-leg-icon" [src]="legs.in.logo" [alt]="legs.in.symbol" loading="lazy" />
-                        }
+                        <img
+                          class="swap-leg-icon"
+                          [src]="legs.in.logo || tokenLetterFallback(legs.in.symbol)"
+                          [alt]="legs.in.symbol"
+                          (error)="onTokenIconError($event, legs.in.symbol)"
+                          loading="lazy"
+                        />
                         <span class="amount-value amount-positive">{{ legs.in.amount }} {{ legs.in.symbol }}</span>
                         @if (legs.in.usd) { <span class="swap-leg-usd">({{ legs.in.usd }})</span> }
                       </div>
@@ -253,20 +272,17 @@
                   <!-- Token -->
                   <td class="col-token">
                     <div class="token-cell">
-                      @if (getTokenIcon(tx)) {
+                      @if (getTokenSymbol(tx)) {
                         <img
                           class="token-icon"
-                          [src]="getTokenIcon(tx)"
+                          [src]="getTokenIcon(tx) || tokenLetterFallback(getTokenSymbol(tx))"
                           [alt]="getTokenSymbol(tx)"
+                          (error)="onTokenIconError($event, getTokenSymbol(tx))"
                           loading="lazy"
                         />
-                      } @else if (getTokenSymbol(tx)) {
-                        <div class="token-icon-placeholder">
-                          {{ getTokenSymbol(tx).charAt(0) }}
-                        </div>
-                      }
-                      @if (getTokenSymbol(tx)) {
                         <span class="token-symbol">{{ getTokenSymbol(tx) }}</span>
+                      } @else {
+                        <span class="no-data">--</span>
                       }
                     </div>
                   </td>
@@ -280,6 +296,7 @@
                   <td class="col-sig"><div class="sk sk-text wide"></div></td>
                   <td class="col-time"><div class="sk sk-text medium"></div></td>
                   <td class="col-action"><div class="sk sk-pill-cell"></div></td>
+                  <td class="col-platform"><div class="sk sk-text short"></div></td>
                   <td class="col-from"><div class="sk sk-text"></div></td>
                   <td class="col-to"><div class="sk sk-text"></div></td>
                   <td class="col-amount"><div class="sk sk-text short right"></div></td>

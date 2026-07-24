@@ -168,14 +168,19 @@
 }
 
 .col-action {
-  width: 16%;
-  min-width: 140px;
+  width: 11%;
+  min-width: 108px;
+}
+
+.col-platform {
+  width: 12%;
+  min-width: 116px;
 }
 
 .col-from,
 .col-to {
-  width: 12%;
-  min-width: 110px;
+  width: 11%;
+  min-width: 104px;
 }
 
 .col-amount {
@@ -220,6 +225,24 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+// Dedicated Platform column: protocol logo + name so every row plainly shows
+// which protocol the transaction ran through.
+.platform-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+
+  .platform-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .action-pill {
