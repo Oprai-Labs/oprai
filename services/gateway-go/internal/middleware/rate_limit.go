@@ -131,16 +131,25 @@ func AuthRateLimit(store *rateLimiterStore, trustProxy bool) func(http.Handler) 
 	}
 }
 
-// NewGlobalRateLimiterStore creates the per-IP store for the global (100/min) limiter.
+// NewGlobalRateLimiterStore creates the per-IP store for the global limiter.
+// 600/min (10/s) with a 200 burst: the Portfolio page legitimately fans out
+// 40-50+ reads in one load (per-mint getAsset metadata, per-token OHLCV,
+// per-protocol position builds, balances, sessions, auth), and a couple of
+// refreshes at the old 100/min-burst-30 tripped a 429 cascade that broke logos,
+// transaction parsing AND re-auth. These are cheap cached reads; abuse is still
+// bounded (a bot can't sustain 10/s), and auth stays separately throttled.
 // Pass the application root context so the background cleanup goroutine stops on shutdown.
 func NewGlobalRateLimiterStore(ctx context.Context) *rateLimiterStore {
-	return newRateLimiterStore(ctx, rate.Limit(100.0/60.0), 30)
+	return newRateLimiterStore(ctx, rate.Limit(600.0/60.0), 200)
 }
 
-// NewAuthRateLimiterStore creates the per-IP store for the auth (20/min) limiter.
-// Pass the application root context so the background cleanup goroutine stops on shutdown.
+// NewAuthRateLimiterStore creates the per-IP store for the auth limiter.
+// 40/min burst 12: /auth/session + /auth/nonce are hit on restore, wallet
+// (re)connect, and the sidebar load; the old 20/min-burst-5 429'd during a
+// reconnect and starved the very re-auth that would recover it. Still strict
+// enough to blunt SIWS-nonce brute force.
 func NewAuthRateLimiterStore(ctx context.Context) *rateLimiterStore {
-	return newRateLimiterStore(ctx, rate.Limit(20.0/60.0), 5)
+	return newRateLimiterStore(ctx, rate.Limit(40.0/60.0), 12)
 }
 
 // NewWalletRateLimiterStore creates the per-wallet store for the wallet (200/min) limiter.
