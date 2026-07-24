@@ -607,6 +607,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         void this.reconcilePerpPositions();
       }
     } else {
+      // Seed the Raydium pool-type filter (and sort) from the incoming query
+      // params BEFORE the first fetch, so an explicit "CLMM" / "concentrated"
+      // request defaults the card to that filter instead of ALL — otherwise
+      // "open a CLMM position" listed AMM pools too. Only on a fresh query; a
+      // restored snapshot keeps the user's last chosen filter.
+      if (this.query.type === 'raydium_search_pools' || this.query.type === 'raydium_get_pools') {
+        const pt = (this.query.params?.['poolType'] as string | undefined)?.toLowerCase();
+        if (pt === 'concentrated' || pt === 'clmm') this.raydiumPoolType.set('concentrated');
+        else if (pt === 'standard' || pt === 'amm') this.raydiumPoolType.set('standard');
+        else if (pt === 'all') this.raydiumPoolType.set('all');
+        const sf = this.query.params?.['sortField'] as string | undefined;
+        if (sf === 'liquidity' || sf === 'volume24h' || sf === 'fee24h' || sf === 'apr24h') {
+          this.raydiumSortField.set(sf);
+        }
+      }
       this.simulateQuery();
     }
 
