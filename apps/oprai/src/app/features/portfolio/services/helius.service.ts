@@ -97,7 +97,7 @@ export class HeliusService {
       // never stall the awaited enrichment nor leave the logo unresolved.
       for (let attempt = 0; attempt < 2; attempt++) {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 5000);
+        const timer = setTimeout(() => ctrl.abort(), 8000);
         try {
           const res = await fetch(environment.solanaRpc, {
             method: 'POST',

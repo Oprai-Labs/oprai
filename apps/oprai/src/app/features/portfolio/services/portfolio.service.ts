@@ -435,7 +435,14 @@ export class PortfolioService {
         for (const token of rawEnhanced) {
           const meta = assetMeta.get(token.mint);
           if (!meta) continue;
-          if (!token.logoUri && meta.logoUri) token.logoUri = meta.logoUri;
+          // Serve Helius-resolved (memecoin/NFT) logos through our first-party
+          // image proxy from the START — their twimg/IPFS/arweave hosts are
+          // blocked by browser tracker filters, so a direct <img> never loads.
+          if (!token.logoUri && meta.logoUri) {
+            token.logoUri = meta.logoUri.startsWith('data:')
+              ? meta.logoUri
+              : `/api/img?url=${encodeURIComponent(meta.logoUri)}`;
+          }
           if ((token.name === 'Unknown Token' || !token.name) && meta.name) token.name = meta.name;
           const cleanedSym = cleanSymbol(meta.symbol);
           if ((token.symbol.endsWith('...') || !token.symbol) && cleanedSym) {
