@@ -491,7 +491,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const cur = this.raydiumPage();
     const hasNext = this.raydiumHasNextPage();
     const WINDOW = 5;
-    const maxOffer = cur + (hasNext ? 4 : 0);
+    // `hasNext` only proves ONE more page exists — NOT four. Offering cur+4
+    // whenever hasNext was true is what surfaced dead page buttons (2 3 4 5 6
+    // for a pair with only 2 pages), each fetching an empty page. Offer exactly
+    // one page ahead; more numbers appear as the user actually advances.
+    const maxOffer = cur + (hasNext ? 1 : 0);
     let start = Math.max(1, cur - Math.floor(WINDOW / 2));
     let end = Math.min(maxOffer, start + WINDOW - 1);
     start = Math.max(1, end - WINDOW + 1);
