@@ -12,6 +12,11 @@ export interface StoredActionResult {
   /** Frozen "You pay / You receive" amounts for a swap, captured at submit so a
    *  re-hydrated card shows exactly what was swapped (not a live/blank quote). */
   swapView?: { pay: string; receive: string };
+  /** Frozen Jupiter Lend info panel (APY, conversion, deposit) captured at
+   *  submit so a completed lend/withdraw card keeps showing WHAT was withdrawn
+   *  and from where — rendered statically, without re-running the live loader
+   *  (which would flash "Loading protocol data..." for a done transaction). */
+  lendSnapshot?: { kind: 'earn' | 'borrow'; data: Record<string, unknown> };
 }
 
 export interface QuerySnapshot {

@@ -3383,6 +3383,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       // Restore the frozen swap pay/receive so a re-hydrated card shows exactly
       // what was swapped (the edited amount), not a live/blank re-quote.
       if (this.cachedResult.swapView) this.executedSwapView.set(this.cachedResult.swapView);
+      // Restore the frozen Jupiter Lend detail panel so a completed lend/withdraw
+      // card still shows what was withdrawn + the rate/deposit — statically, with
+      // no live re-fetch (the loaders are skipped below when cachedResult exists).
+      if (this.cachedResult.lendSnapshot) {
+        this.lendInfo.set(this.cachedResult.lendSnapshot as unknown as LendActionInfo);
+      }
       // Restored "submitted" — start the elapsed ticker + auto re-check once,
       // so a page refresh after a network blip surfaces a recovery path.
       if (this.cachedResult.status === 'submitted' && this.cachedResult.txSignature) {
@@ -3827,6 +3833,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!this.sessionId || !this.messageId) {
       console.warn('[persistResult] skipped — missing sessionId or messageId', { sessionId: this.sessionId, messageId: this.messageId });
       return;
+    }
+    // Freeze the Jupiter Lend detail panel into the result so a reloaded
+    // completed card renders WHAT was withdrawn + the rate/deposit statically,
+    // instead of an empty card (the live loader is skipped for completed cards).
+    if (!result.lendSnapshot && ['lend', 'withdraw_lend'].includes(this.action?.type ?? '')) {
+      const li = this.lendInfo();
+      if (li) result = { ...result, lendSnapshot: li as unknown as StoredActionResult['lendSnapshot'] };
     }
     const key = this.actionResultKey();
     // Client-generated cards (query-card Deposit/Withdraw/Multiply, clarify picks)
