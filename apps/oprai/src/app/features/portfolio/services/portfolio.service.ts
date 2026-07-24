@@ -647,9 +647,11 @@ export class PortfolioService {
         return (
           n.includes('jupiter lend') ||
           n.includes('jupiter vault') ||
-          n.includes('lp token') ||        // "Raydium LP Token V4 (SOL-USDC)"
-          /^jl[a-z]/.test(s) ||            // jlWSOL, jlUSDC
-          /^jv\d+$/.test(s)                // jv1, jv2 (Jupiter Lend vault NFT)
+          n.includes('lp token') ||             // "Raydium LP Token V4 (SOL-USDC)"
+          n.includes('concentrated liquidity') || // "Raydium Concentrated Liquidity" (CLMM position NFT)
+          s === 'rcl' ||                        // Raydium CLMM position NFT symbol
+          /^jl[a-z]/.test(s) ||                 // jlWSOL, jlUSDC
+          /^jv\d+$/.test(s)                     // jv1, jv2 (Jupiter Lend vault NFT)
         );
       };
       this._summary.update(s => s ? {

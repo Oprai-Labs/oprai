@@ -378,11 +378,24 @@ export class MainLayoutComponent implements OnDestroy {
   chatHistoryEnabled = true;
 
   private sessionsLoaded = false;
+  // True once the sidebar list has held ≥1 session — gates the self-heal reload
+  // so a genuinely-empty account never triggers a reload loop.
+  private everHadSessions = false;
 
   constructor() {
     effect(() => {
       const authenticated = this.authService.isAuthenticated();
-      if (authenticated && !this.sessionsLoaded) {
+      // Self-heal: the sidebar list has been observed going empty after
+      // navigating to /portfolio (a transient setWallet(null) somewhere in the
+      // auth/wallet plumbing wipes the in-memory list). Rather than chase every
+      // path that could clear it, reload whenever we're authenticated but the
+      // list is empty AFTER it was once populated. A genuinely-new wallet with
+      // zero chats never trips this (everHadSessions stays false), so there's no
+      // reload loop.
+      const count = this.sessionStorage.sessions().length;
+      if (count > 0) this.everHadSessions = true;
+      const clearedUnexpectedly = this.everHadSessions && count === 0;
+      if (authenticated && (!this.sessionsLoaded || clearedUnexpectedly) && !this.sessionsLoading()) {
         this.sessionsLoaded = true;
         untracked(() => this.loadSessions());
       }
