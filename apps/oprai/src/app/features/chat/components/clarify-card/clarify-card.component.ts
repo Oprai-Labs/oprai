@@ -138,13 +138,20 @@ export class ClarifyCardComponent implements OnInit {
       p['outputMint'] ?? p['outputToken'] ?? p['toToken'] ?? p['to'] ?? p['token'] ?? p['reserve'] ?? p['tokenB'] ?? p['mintB'],
     );
     if (!from || !to) {
-      // Also split "FROM/TO" and "FROM-TO" pair labels (SOL/USDC, SOL-USDC),
-      // not just "FROM → TO" route arrows.
-      const m = option.label.match(/([A-Za-z0-9$]{2,12})\s*(?:→|->|➜|=>|➔|➙|➛|\/|·|–|—|-)\s*([A-Za-z0-9$]{2,12})/);
-      if (m) {
-        from ??= this.resolveToken(m[1]);
-        to ??= this.resolveToken(m[2]);
+      // Separator-agnostic label parse: pull every symbol-shaped word out of
+      // the label and keep the first two that resolve to a real token. This
+      // handles "SOL/USDC", "SOL - USDC", "SOL → USDC" AND unicode separator
+      // variants (／ ⁄ ∕) the LLM sometimes emits — where a fixed separator
+      // regex silently failed and the option fell back to the protocol logo.
+      const candidates = option.label.match(/[A-Za-z][A-Za-z0-9$]{1,11}/g) ?? [];
+      const resolved: OptionToken[] = [];
+      for (const c of candidates) {
+        const t = this.resolveToken(c);
+        if (t) resolved.push(t);
+        if (resolved.length === 2) break;
       }
+      from ??= resolved[0] ?? null;
+      to ??= resolved[1] ?? null;
     }
     if (!from && !to) return null;
     return { from, to };
