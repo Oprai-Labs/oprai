@@ -1114,7 +1114,7 @@
                     (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
                 </div>
                 @if (balA !== null && balA > 0) {
-                  <button type="button" class="clmm-max-btn" (click)="setMaxAmount('amountA')">Max</button>
+                  <button type="button" class="clmm-max-btn" (click)="setMaxClmm()">Max</button>
                 }
               </div>
 
@@ -1148,7 +1148,7 @@
                     (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
                 </div>
                 @if (balB !== null && balB > 0) {
-                  <button type="button" class="clmm-max-btn" (click)="setMaxAmount('amountB')">Max</button>
+                  <button type="button" class="clmm-max-btn" (click)="setMaxClmm()">Max</button>
                 }
               </div>
             </div>

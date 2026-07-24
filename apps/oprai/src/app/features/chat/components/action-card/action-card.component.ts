@@ -4352,6 +4352,56 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     else if (fieldKey === 'amountB') this.dlmmLastEdited.set('B');
   }
 
+  /**
+   * Smart Max for the CLMM dual-amount card. A plain per-side Max fills the
+   * WHOLE balance of one token, but the two sides are locked to the pool ratio
+   * for the chosen range — so maxing SOL could demand far more USDC than the
+   * user holds (the "insufficient balance" the user hit at ±20%). Instead,
+   * deposit the LARGEST position that fits BOTH balances at the current ratio,
+   * leaving a small SOL rent/fee buffer for the position NFT + tick arrays.
+   * This is the "just do it for me" behaviour: it can never produce a position
+   * the wallet can't fund.
+   */
+  setMaxClmm(): void {
+    const clmm = this.clmmRatio();
+    const p = this.editParams();
+    const balA = this.inputBalance() ?? 0;      // token A (e.g. WSOL)
+    const balB = this.secondaryBalance() ?? 0;  // token B (e.g. USDC)
+    const symA = (p['tokenASymbol'] ?? p['tokenA'] ?? '').toUpperCase();
+    const symB = (p['tokenBSymbol'] ?? p['tokenB'] ?? '').toUpperCase();
+    const isSol = (s: string) => s === 'SOL' || s === 'WSOL';
+    // Opening a CLMM position costs ~0.02–0.05 SOL in rent (position NFT + tick
+    // arrays + ATAs) + fees; keep a buffer so the native-SOL side never uses it all.
+    const RENT_BUFFER = 0.03;
+    const availA = Math.max(0, balA - (isSol(symA) ? RENT_BUFFER : 0));
+    const availB = Math.max(0, balB - (isSol(symB) ? RENT_BUFFER : 0));
+
+    // Single-sided ranges (price outside the range): only one token is used.
+    if (clmm?.singleSided === 'A') {
+      this.editParams.update(ep => ({ ...ep, amountA: formatDlmmAmount(availA), amountB: '0' }));
+      this.dlmmLastEdited.set('A');
+      return;
+    }
+    if (clmm?.singleSided === 'B') {
+      this.editParams.update(ep => ({ ...ep, amountB: formatDlmmAmount(availB), amountA: '0' }));
+      this.dlmmLastEdited.set('B');
+      return;
+    }
+
+    const yPerX = clmm?.yPerX; // amount B per 1 amount A
+    if (!yPerX || !Number.isFinite(yPerX) || yPerX <= 0) {
+      // No usable ratio yet (range not set) — fall back to a plain full-balance
+      // fill; the auto-balance effect will still keep the sides in sync.
+      this.setMaxAmount('amountA');
+      return;
+    }
+    // Largest A that satisfies BOTH: A ≤ availA AND A×yPerX ≤ availB.
+    const maxA = Math.min(availA, availB / yPerX);
+    if (!(maxA > 0)) return;
+    this.setEditParam('amountA', formatDlmmAmount(maxA));
+    this.dlmmLastEdited.set('A'); // auto-balance effect fills amountB = maxA×yPerX (≤ availB)
+  }
+
   async copyValue(value: string): Promise<void> { try { await navigator.clipboard.writeText(value); this.copiedField.set(value); setTimeout(() => this.copiedField.set(null), 2000); } catch {} }
 
   private balanceCacheKey(wallet: string, mint: string): string {
