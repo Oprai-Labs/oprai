@@ -634,14 +634,17 @@ export class PortfolioService {
       // single signal write. Previously each fetcher emitted as it
       // resolved which made the DeFi tab visibly "pop in" piece by piece
       // — user feedback was that they want one consolidated render.
-      const fetchOne = (p: Promise<ProtocolPosition[]>, ms = 10_000): Promise<ProtocolPosition[]> =>
+      const fetchOne = (p: Promise<ProtocolPosition[]>, ms = 8_000): Promise<ProtocolPosition[]> =>
         withTimeout(p.catch(() => []), [], ms);
 
       const protocolBatches = await Promise.all([
-        fetchOne(this.defiPositionsService.getLpPositions(walletAddress, tokens)),
+        fetchOne(this.defiPositionsService.getLpPositions(walletAddress, tokens), 8_000),
         // Lending gets a longer budget — the Jupiter lite-api is flaky and its
         // fetchers now retry, so give the retries room to land before the cap.
-        fetchOne(this.defiPositionsService.getLendingPositions(walletAddress), 13_000),
+        // 9s (was 13s): this fetch is the SLOWEST in the fan-out, so its cap
+        // directly gates the whole-page skeleton on first load. 9s still clears
+        // one retry; trimming 4s off shaves that straight off first-paint time.
+        fetchOne(this.defiPositionsService.getLendingPositions(walletAddress), 9_000),
         fetchOne(this.defiPositionsService.getKaminoPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getMarginFiPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getOrcaPositions()),
@@ -711,7 +714,7 @@ export class PortfolioService {
       // all paint on first frame instead of arriving as a delta.
       await Promise.race([
         this.defiPositionsService.priceAllPositions(accumulated),
-        new Promise<void>(resolve => setTimeout(resolve, 6_000)),
+        new Promise<void>(resolve => setTimeout(resolve, 4_500)),
       ]);
 
       emit();
@@ -967,28 +970,28 @@ export class PortfolioService {
     if (signatures.length === 0) return [];
 
     const sigs = signatures.map((s) => s.signature);
-    const parsed = await this.heliusService.parseTransactions(sigs);
+    // Helius's enhanced-tx REST API is the richest source, but api.helius.xyz
+    // Cloudflare-blocks our datacenter IP in prod, so it usually returns
+    // NOTHING. Try it (still works in other environments), then parse
+    // everything it missed straight from the RPC node's getTransaction
+    // (jsonParsed) — which IS reachable — via a single batched round-trip.
+    // No per-tx cap: leaving 90 of 100 rows as blank "ACTION" was the bug.
+    const parsed = await this.heliusService.parseTransactions(sigs).catch(() => []);
     const heliusByID = new Map(parsed.map(p => [p.signature, p]));
 
-    // For any signature Helius didn't return (most common cause: tx is
-    // newer than Helius's indexer cursor), fall back to a per-tx RPC
-    // `getTransaction(jsonParsed)` call so the row at least carries the
-    // protocol name + token amount + USD instead of all-blank "ACTION".
-    // Capped to avoid hammering the RPC on a freshly-active wallet.
     const missingSigs = sigs.filter(s => !heliusByID.has(s));
-    const RPC_FALLBACK_CAP = 10;
     const rpcParsed = new Map<string, EnhancedTransaction>();
     if (missingSigs.length > 0) {
-      const slice = missingSigs.slice(0, RPC_FALLBACK_CAP);
+      const rawMap = await this.solanaRpc.getParsedTransactionsBatch(missingSigs);
       const meta = new Map(signatures.map(s => [s.signature, s]));
-      const results = await Promise.all(
-        slice.map(async sig => {
-          const raw = await this.solanaRpc.getParsedTransaction(sig);
-          if (!raw) return null;
-          return this.mapRpcTx(sig, meta.get(sig) ?? null, raw);
-        }),
-      );
-      for (const r of results) if (r) rpcParsed.set(r.signature, r);
+      for (const [sig, raw] of rawMap) {
+        if (!raw) continue;
+        try {
+          rpcParsed.set(sig, this.mapRpcTx(sig, meta.get(sig) ?? null, raw));
+        } catch {
+          // leave as a blank stub below
+        }
+      }
     }
 
     const out = signatures.map(sig => {
@@ -1091,32 +1094,55 @@ export class PortfolioService {
     raw: any,
   ): EnhancedTransaction {
     const message = raw?.transaction?.message ?? {};
-    const accountKeys: string[] = (message.accountKeys ?? []).map((k: any) =>
+    const staticKeys: string[] = (message.accountKeys ?? []).map((k: any) =>
       typeof k === 'string' ? k : k?.pubkey ?? '',
     );
-    const feePayer = accountKeys[0] ?? null;
+    const feePayer = staticKeys[0] ?? null;
+    // v0 (versioned) transactions carry most program IDs in Address Lookup
+    // Tables, NOT in message.accountKeys — so a Jupiter/Raydium swap looked
+    // like a program-less "unknown" and the Platform column showed "--". The
+    // ALT-loaded keys surface under meta.loadedAddresses; include them (and any
+    // top-level instruction programIds) so protocol detection actually works.
+    const loaded = raw?.meta?.loadedAddresses ?? {};
+    const instrPrograms: string[] = (message.instructions ?? [])
+      .map((ix: any) => ix?.programId)
+      .filter(Boolean);
+    const keySet = new Set<string>([
+      ...staticKeys,
+      ...(loaded.writable ?? []),
+      ...(loaded.readonly ?? []),
+      ...instrPrograms,
+    ]);
 
-    // Program-id → friendly platform name. Order matters: more specific
-    // routers (Jupiter/MagicEden) before generic AMMs (Raydium/Orca).
+    // Program-id → friendly platform name. Iterated in THIS order, so specific
+    // routers (Jupiter) win over the AMMs they route through (Raydium/Orca).
     const KNOWN_PROGRAMS: Record<string, { platform: string; type: TransactionType }> = {
       JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4: { platform: 'jupiter', type: 'swap' },
       JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB: { platform: 'jupiter', type: 'swap' },
-      '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P': { platform: 'pump.fun', type: 'swap' },
-      '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': { platform: 'raydium', type: 'swap' },
-      whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc: { platform: 'orca', type: 'swap' },
-      LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo: { platform: 'meteora', type: 'swap' },
+      JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN: { platform: 'jupiter', type: 'swap' },
       M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K: { platform: 'magic eden', type: 'nft-sale' },
       TSWAPaqyCSx2KABk68Shruf4rp7CxcNi8hAsbdwmHbN: { platform: 'tensor', type: 'nft-sale' },
+      '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P': { platform: 'pump.fun', type: 'swap' },
+      pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA: { platform: 'pump.fun', type: 'swap' },
+      '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': { platform: 'raydium', type: 'swap' },
+      CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: { platform: 'raydium', type: 'swap' },
+      CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C: { platform: 'raydium', type: 'swap' },
+      routeUGWgWzqBWFcrCfv8tritsqukccJPu3q5GPP3xS: { platform: 'raydium', type: 'swap' },
+      whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc: { platform: 'orca', type: 'swap' },
+      LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo: { platform: 'meteora', type: 'swap' },
+      Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB: { platform: 'meteora', type: 'swap' },
+      dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN: { platform: 'meteora', type: 'swap' },
+      obriQD1zbpyLz95G5n7nJe6a4DPjpFwa5XYPoNm113y: { platform: 'lifinity', type: 'swap' },
+      PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY: { platform: 'phoenix', type: 'swap' },
       CRoSSzVxmtLn4VEkyVrQYcjC1JoYWaELxiD3wwQYzLNd: { platform: 'streamflow', type: 'transfer' },
     };
 
     let platform: string | null = null;
     let type: TransactionType = 'unknown';
-    for (const key of accountKeys) {
-      const known = KNOWN_PROGRAMS[key];
-      if (known) {
-        platform = known.platform;
-        type = known.type;
+    for (const [prog, info] of Object.entries(KNOWN_PROGRAMS)) {
+      if (keySet.has(prog)) {
+        platform = info.platform;
+        type = info.type;
         break;
       }
     }

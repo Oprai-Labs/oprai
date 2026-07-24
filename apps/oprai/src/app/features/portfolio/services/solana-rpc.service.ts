@@ -382,4 +382,65 @@ export class SolanaRpcService {
       return null;
     }
   }
+
+  /**
+   * Fetch parsed transactions for many signatures using JSON-RPC BATCH
+   * requests — an array of getTransaction calls in a single POST, chunked so
+   * each round-trip stays a reasonable size. This is how the Transactions tab
+   * parses its full window without either (a) hitting the browser's ~6
+   * connections-per-host cap with 100 individual getTransaction fetches or (b)
+   * depending on Helius's enhanced-tx REST API, which Cloudflare-blocks our
+   * datacenter IP. Returns a map keyed by signature (batch responses can come
+   * back out of order, so we re-associate via the per-request id).
+   */
+  async getParsedTransactionsBatch(
+    signatures: string[],
+    chunkSize = 25,
+  ): Promise<Map<string, any>> {
+    const out = new Map<string, any>();
+    if (!signatures.length) return out;
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < signatures.length; i += chunkSize) {
+      chunks.push(signatures.slice(i, i + chunkSize));
+    }
+
+    await Promise.all(
+      chunks.map(async (chunk) => {
+        const idToSig = new Map<number, string>();
+        const batch = chunk.map((sig) => {
+          const id = ++this.id;
+          idToSig.set(id, sig);
+          return {
+            jsonrpc: '2.0',
+            id,
+            method: 'getTransaction',
+            params: [
+              sig,
+              { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' },
+            ],
+          };
+        });
+        try {
+          const res = await fetch(this.rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'include',
+            body: JSON.stringify(batch),
+          });
+          if (!res.ok) return;
+          const json = await res.json();
+          const arr = Array.isArray(json) ? json : [json];
+          for (const entry of arr) {
+            const sig = idToSig.get(entry?.id);
+            if (sig && entry?.result) out.set(sig, entry.result);
+          }
+        } catch {
+          // Skip this chunk — the rows it covered stay as blank stubs.
+        }
+      }),
+    );
+
+    return out;
+  }
 }
