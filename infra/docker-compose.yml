@@ -166,6 +166,14 @@ services:
       MEMORY_SERVICE_HTTP: http://memory-service-py:3040
       MEMORY_SERVICE_GRPC: memory-service-py:50054
       REDIS_URL: redis://redis:6379
+      # Market-data upstream keys. Without these the gateway's MarketProxy runs
+      # keyless: Helius getAsset silently falls through to the public RPC (which
+      # doesn't index fresh pump.fun mints, so their names/logos never resolve),
+      # and Birdeye/Jupiter calls are unauthenticated/rate-limited.
+      HELIUS_API_KEY: ${HELIUS_API_KEY:-}
+      BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:-}
+      JUPITER_API_KEY: ${JUPITER_API_KEY:-}
+      OPRAI_RPC_FALLBACKS: ${OPRAI_RPC_FALLBACKS:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3001/health || exit 1"]
       interval: 15s
