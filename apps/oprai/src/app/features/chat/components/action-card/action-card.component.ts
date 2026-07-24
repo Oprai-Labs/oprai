@@ -2877,7 +2877,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // enrichment (current price, symbols, ratio-aware Max) can run.
     if (!poolId) {
       poolId = await this.resolveRaydiumPoolFromPair();
-      if (!poolId) return;
+      if (!poolId) {
+        // No pool for this pair — surface it so the pair chooser shows a clean
+        // message instead of an infinite "resolving" state.
+        if (this.clmmBothTokensPicked()) {
+          this.clmmPairError.set('No Raydium CLMM pool exists for this pair yet. Pick a different pair.');
+        }
+        return;
+      }
     }
     const p = this.editParams();
     // ALWAYS strip the LLM's raw `inputMint`/`inputAmount` before anything
@@ -4283,10 +4290,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Opened when the user clicks a swap-row token chip (FROM / TO). Holds the
   // field key being edited so the picked mint goes to the right side of the
   // trade. `null` means modal is closed.
-  readonly tokenPickerField = signal<'inputMint' | 'outputMint' | null>(null);
+  readonly tokenPickerField = signal<string | null>(null);
 
-  openTokenPicker(fieldKey: 'inputMint' | 'outputMint', ev: Event): void {
-    if (!this.isEditable() || this.action?.type !== 'swap') return;
+  openTokenPicker(fieldKey: string, ev: Event): void {
+    // Swap uses inputMint/outputMint; the Raydium CLMM "custom pair" path uses
+    // tokenA/tokenB so the user can pick any two tokens before we resolve a
+    // pool. Both are editable token pickers.
+    const allowed = this.action?.type === 'swap' || this.action?.type === 'raydium_open_position';
+    if (!this.isEditable() || !allowed) return;
     // Stop the click from bubbling to the card root and triggering the
     // poll-lifetime reset twice / the card's own click handlers.
     ev.stopPropagation();
@@ -4297,26 +4308,98 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.tokenPickerField.set(null);
   }
 
+  pickerTitle(fieldKey: string): string {
+    switch (fieldKey) {
+      case 'inputMint': return 'From token';
+      case 'outputMint': return 'To token';
+      case 'tokenA': return 'First token';
+      case 'tokenB': return 'Second token';
+      default: return 'Select token';
+    }
+  }
+
   /**
    * User selected a token from the picker. Write the mint into the right side
    * of the swap, close the modal — the existing edit-effect will auto-fire a
    * fresh quote, so the counterparty estimate updates without extra wiring.
    */
+  private static readonly TOKEN_PICKER_SIBLING: Record<string, string> = {
+    inputMint: 'outputMint',
+    outputMint: 'inputMint',
+    tokenA: 'tokenB',
+    tokenB: 'tokenA',
+  };
+
   onTokenPicked(mint: string): void {
     const fieldKey = this.tokenPickerField();
     if (!fieldKey) return;
+    const otherKey = ActionCardComponent.TOKEN_PICKER_SIBLING[fieldKey];
     this.editParams.update(prev => {
       const next = { ...prev };
       // If the user picks the SAME token on the other side, swap them so we
-      // never end up with input == output (Jupiter would reject the quote).
-      const otherKey = fieldKey === 'inputMint' ? 'outputMint' : 'inputMint';
-      if ((next[otherKey] ?? '') === mint) {
+      // never end up with input == output (a self-pair the pool/quote rejects).
+      if (otherKey && this.resolveToMint(next[otherKey] ?? '') === mint) {
         next[otherKey] = next[fieldKey] ?? '';
       }
       next[fieldKey] = mint;
       return next;
     });
     this.closeTokenPicker();
+
+    // CLMM custom-pair path: once BOTH tokens are chosen, resolve the pool
+    // (highest-liquidity) and enrich the form (price / symbols / range).
+    if (this.action?.type === 'raydium_open_position') {
+      const p = this.editParams();
+      if (this.resolveToMint(p['tokenA'] ?? '') && this.resolveToMint(p['tokenB'] ?? '')) {
+        void this.resolveClmmPair();
+      }
+    }
+  }
+
+  readonly clmmResolving = signal(false);
+  readonly clmmPairError = signal<string | null>(null);
+
+  /** True once both custom-pair tokens are chosen (mint-resolvable). */
+  readonly clmmBothTokensPicked = computed(() => {
+    const p = this.editParams();
+    return !!this.resolveToMint(p['tokenA'] ?? '') && !!this.resolveToMint(p['tokenB'] ?? '');
+  });
+
+  /**
+   * Resolve the currently-chosen tokenA/tokenB pair to a Raydium CLMM pool and
+   * enrich the form. Drives the "Select Token Pair" state on the custom-pair
+   * path: sets a resolving flag, clears any prior pool so a re-pick re-resolves,
+   * and surfaces a clean message when no pool exists for the pair.
+   */
+  async resolveClmmPair(): Promise<void> {
+    this.clmmPairError.set(null);
+    this.clmmResolving.set(true);
+    try {
+      // Clear the previous pool so enrichment re-runs for the newly-picked pair.
+      this._enrichedRaydiumPool = null;
+      this.editParams.update(ep => {
+        const n = { ...ep };
+        for (const k of ['poolId', 'currentPrice', 'tokenASymbol', 'tokenBSymbol', 'minPrice', 'maxPrice', 'amountA', 'amountB']) {
+          delete n[k];
+        }
+        return n;
+      });
+      const poolId = await this.resolveRaydiumPoolFromPair();
+      if (!poolId) {
+        this.clmmPairError.set('No Raydium CLMM pool exists for this pair yet. Pick a different pair.');
+        return;
+      }
+      await this.maybeEnrichRaydiumPool();
+      // The mints changed — reload both balance lines for the new pair.
+      this.inputBalance.set(null);
+      this.secondaryBalance.set(null);
+      if (this.inputBalanceMint()) this.loadInputBalance();
+      if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
+    } catch {
+      this.clmmPairError.set('Could not load a pool for this pair. Try again.');
+    } finally {
+      this.clmmResolving.set(false);
+    }
   }
 
   /**
@@ -4340,11 +4423,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return this.resolveToMint(this.editParams()[k] ?? '');
   }
 
-  /** Mint to HIDE in the picker (the other side of the swap — no self-swap). */
+  /** Mint to HIDE in the picker (the other side of the pair — no self-pair). */
   excludedPickerMint(): string {
     const k = this.tokenPickerField();
     if (!k) return '';
-    const otherKey = k === 'inputMint' ? 'outputMint' : 'inputMint';
+    const otherKey = ActionCardComponent.TOKEN_PICKER_SIBLING[k];
+    if (!otherKey) return '';
     return this.resolveToMint(this.editParams()[otherKey] ?? '');
   }
 

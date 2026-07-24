@@ -1018,6 +1018,8 @@
           @let cp = clmmCurrentPriceDisplay();
           <div class="clmm-form" [class.proto-fields--shake]="shake()">
 
+          @if (editParams()['currentPrice']) {
+
             <!-- Current price line -->
             @if (cp) {
               <div class="clmm-current-price">
@@ -1170,6 +1172,62 @@
                 </div>
               </div>
             </details>
+
+          } @else {
+            <!-- Custom-pair path ("Başka bir çift"): no pool resolved yet.
+                 Let the user pick BOTH tokens, then resolve the deepest pool. -->
+            <div class="clmm-section">
+              <div class="clmm-section__title">Select Token Pair</div>
+              <div class="clmm-pair-pickers">
+                @let tdPairA = resolveTokenDisplay(getEditParam('tokenA') || '');
+                @let tdPairB = resolveTokenDisplay(getEditParam('tokenB') || '');
+                <button type="button" class="clmm-pair-token"
+                        [disabled]="!isEditable() || clmmResolving()"
+                        (click)="openTokenPicker('tokenA', $event)">
+                  @if (getEditParam('tokenA')) {
+                    @if (tdPairA.logoURI) {
+                      <img [src]="tdPairA.logoURI" class="clmm-pair-token__icon" alt=""
+                           (error)="onTokenImgError($event, getEditParam('tokenA'))" />
+                    } @else {
+                      <span class="clmm-pair-token__icon clmm-pair-token__icon--ph">{{ (tdPairA.symbol || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-pair-token__sym">{{ tdPairA.symbol }}</span>
+                  } @else {
+                    <span class="clmm-pair-token__sym clmm-pair-token__sym--empty">Select token</span>
+                  }
+                  <lucide-icon name="chevron-down" [size]="14" />
+                </button>
+                <span class="clmm-pair-sep">/</span>
+                <button type="button" class="clmm-pair-token"
+                        [disabled]="!isEditable() || clmmResolving()"
+                        (click)="openTokenPicker('tokenB', $event)">
+                  @if (getEditParam('tokenB')) {
+                    @if (tdPairB.logoURI) {
+                      <img [src]="tdPairB.logoURI" class="clmm-pair-token__icon" alt=""
+                           (error)="onTokenImgError($event, getEditParam('tokenB'))" />
+                    } @else {
+                      <span class="clmm-pair-token__icon clmm-pair-token__icon--ph">{{ (tdPairB.symbol || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-pair-token__sym">{{ tdPairB.symbol }}</span>
+                  } @else {
+                    <span class="clmm-pair-token__sym clmm-pair-token__sym--empty">Select token</span>
+                  }
+                  <lucide-icon name="chevron-down" [size]="14" />
+                </button>
+              </div>
+              @if (clmmPairError()) {
+                <div class="clmm-pair-msg clmm-pair-msg--error">{{ clmmPairError() }}</div>
+              } @else if (clmmResolving() || clmmBothTokensPicked()) {
+                <div class="clmm-pair-msg">
+                  <span class="clmm-pair-spinner"></span>
+                  Finding the deepest pool…
+                </div>
+              } @else {
+                <div class="clmm-pair-msg">Pick both tokens to load a pool.</div>
+              }
+            </div>
+          }
+
           </div>
         } @else if (action.type === 'perp_close') {
           <!-- ─────── Close perp: same header language as the open card ─────── -->
@@ -3074,7 +3132,7 @@
      scroll container inside the proto-body. -->
 @if (tokenPickerField(); as fieldKey) {
   <op-token-picker
-    [title]="fieldKey === 'inputMint' ? 'From token' : 'To token'"
+    [title]="pickerTitle(fieldKey)"
     [currentMint]="currentPickerMint()"
     [excludeMint]="excludedPickerMint()"
     initialCategory="all"
