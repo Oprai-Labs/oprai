@@ -106,15 +106,20 @@ export class HeliusService {
       return { name: meta.name ?? '', symbol: meta.symbol ?? '', logoUri: proxyImage(rawLogo) };
     };
 
-    const CONCURRENCY = 8;
+    const CONCURRENCY = 6;
     for (let i = 0; i < ids.length; i += CONCURRENCY) {
       const slice = ids.slice(i, i + CONCURRENCY);
       await Promise.all(slice.map(async (mint) => {
+        // Hard per-call timeout: a hung getAsset must never stall the portfolio
+        // load (this enrichment is awaited before the wallet summary renders).
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 5000);
         try {
           const res = await fetch(environment.solanaRpc, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             credentials: 'include',
+            signal: ctrl.signal,
             body: JSON.stringify({ jsonrpc: '2.0', id: 'asset', method: 'getAsset', params: { id: mint } }),
           });
           if (!res.ok) return;
@@ -122,7 +127,9 @@ export class HeliusService {
           const parsed = extract(json.result);
           if (parsed) out.set(mint, parsed);
         } catch {
-          // Per-mint blip — caller falls back to existing partial metadata.
+          // Per-mint blip / timeout — caller falls back to existing metadata.
+        } finally {
+          clearTimeout(timer);
         }
       }));
     }

@@ -654,22 +654,17 @@ export class PortfolioService {
           /^jv\d+$/.test(s)                     // jv1, jv2 (Jupiter Lend vault NFT)
         );
       };
-      // A token that NO source could identify (name still "Unknown Token" after
-      // Jupiter + DexScreener + Helius DAS) AND that carries no USD price is
-      // either a scam/dust airdrop or a position-receipt NFT whose metadata
-      // didn't resolve (jv1, RCL). Either way it has no realizable value and no
-      // identity — showing "Unknown Token · 1.0000 · —" is pure noise. Hide it
-      // (the user can still reveal it via "show hidden"). This is the robust
-      // catch for receipts the name-based rule misses when DAS enrichment fails.
-      const isUnresolvedWorthless = (t: EnhancedTokenAccount): boolean =>
-        (t.name === 'Unknown Token' || !t.name) &&
-        (t.usdValue == null || t.usdValue === 0) &&
-        !t.isLiquidStaking;
-
+      // NOTE: an earlier rule here hid ANY "Unknown Token" with no USD value.
+      // That was far too broad — on a load where the metadata/price fetches
+      // transiently fail, EVERY token becomes an unnamed/un-priced row and the
+      // rule wiped the entire token list (leaving only SOL). Rely on real
+      // identity instead: name-based receipt detection (jv1/RCL now resolve via
+      // getAsset) + the existing spam heuristic. Never hide a token just because
+      // this one load couldn't price/name it.
       this._summary.update(s => s ? {
         ...s,
         tokens: s.tokens.map(t =>
-          positionMints.has(t.mint) || isReceiptToken(t.name, t.symbol) || isUnresolvedWorthless(t)
+          positionMints.has(t.mint) || isReceiptToken(t.name, t.symbol)
             ? { ...t, isDefiPositionToken: true }
             : t,
         ),
