@@ -461,11 +461,33 @@ export class PortfolioService {
         .reduce((sum, t) => sum + (t.usdValue ?? 0), 0);
       const totalPortfolioValue = (solUsdValue ?? 0) + tokensUsdTotal;
 
+      // DeFi position-RECEIPT tokens (Jupiter Lend earn shares jlWSOL/jlUSDC,
+      // borrow-vault NFTs jv1, Raydium LP tokens, Raydium CLMM position NFTs
+      // RCL) are not spendable balances — they represent a position shown in
+      // Active Positions. Flag them HERE (before the first render) so they never
+      // flash into the wallet list and then vanish once a later post-hoc pass
+      // hides them ("coins come and go"). Name-based so it works as soon as the
+      // getAsset enrichment above resolves the name.
+      const isReceiptTokenName = (name: string, symbol: string): boolean => {
+        const n = (name || '').toLowerCase();
+        const s = (symbol || '').toLowerCase();
+        return (
+          n.includes('jupiter lend') ||
+          n.includes('jupiter vault') ||
+          n.includes('lp token') ||
+          n.includes('concentrated liquidity') ||
+          s === 'rcl' ||
+          /^jl[a-z]/.test(s) ||
+          /^jv\d+$/.test(s)
+        );
+      };
+
       const tokens = rawEnhanced
         .map((t) => ({
           ...t,
           allocationPercent:
             totalPortfolioValue > 0 ? ((t.usdValue ?? 0) / totalPortfolioValue) * 100 : 0,
+          isDefiPositionToken: t.isDefiPositionToken || isReceiptTokenName(t.name, t.symbol),
         }))
         .sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
 
