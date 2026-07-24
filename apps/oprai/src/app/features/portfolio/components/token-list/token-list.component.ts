@@ -170,6 +170,16 @@ export class TokenListComponent {
 
   onImageError(event: Event): void {
     const img = event.target as HTMLImageElement;
+    // Retry once through an image proxy before giving up: memecoin/NFT logos on
+    // twimg.com / IPFS / arweave are frequently blocked by tracker/ad filters or
+    // fail hotlink checks in the browser, so the raw <img> errors even though
+    // the URL is valid. weserv fetches server-side from a neutral CDN.
+    const src = img.getAttribute('src') ?? '';
+    if (src && !img.dataset['proxied'] && !src.includes('images.weserv.nl')) {
+      img.dataset['proxied'] = '1';
+      img.src = `https://images.weserv.nl/?url=${encodeURIComponent(src)}&w=64&h=64&fit=cover`;
+      return;
+    }
     img.style.display = 'none';
     const fallback = img.nextElementSibling;
     if (fallback) (fallback as HTMLElement).style.display = 'flex';

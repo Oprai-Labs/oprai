@@ -75,43 +75,27 @@ export class HeliusService {
     // the old empty `Authorization: Bearer` header was a no-op (the JWT lives in
     // memory, not localStorage) and /rpc reads aren't wallet-gated.
     const ids = mints.slice(0, 100);
-    // Route memecoin / NFT logos through a caching image proxy. Their metadata
-    // images are often hosted on twimg.com / IPFS / arweave, which fail to
-    // render in the browser via hotlink-referrer checks, missing CORS, or —
-    // most commonly — because pbs.twimg.com is on tracker/ad blocklists, so the
-    // token showed a placeholder even though the metadata resolved fine. weserv
-    // fetches server-side and serves from a neutral CDN, so it renders reliably.
-    const proxyImage = (url: string | null): string | null => {
-      if (!url || url.startsWith('data:')) return url;
-      // Already a well-known reliable CDN → leave as-is.
-      if (/(^https?:\/\/)?(coin-images\.coingecko|raw\.githubusercontent|jup\.ag|img[-.]|cloudfront|imagedelivery)/i.test(url)) {
-        return url;
-      }
-      try {
-        return `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=64&h=64&fit=cover`;
-      } catch {
-        return url;
-      }
-    };
+    // Store the RAW metadata image URL (twimg/IPFS/arweave). The <img> tries it
+    // directly, and the component's onImageError retries through an image proxy
+    // (weserv) if the browser blocks/hotlink-rejects it — so we don't
+    // double-proxy and a failed proxy URL can still fall back to a placeholder.
     const extract = (it: any): { name: string; symbol: string; logoUri: string | null } | null => {
       if (!it?.id) return null;
       const meta = it.content?.metadata ?? {};
       const links = it.content?.links ?? {};
       const files = it.content?.files ?? [];
-      const rawLogo =
+      const logoUri =
         links.image ??
         files.find((f: any) => f?.uri && /image|png|jpg|webp|svg/i.test(f?.mime ?? f?.uri))?.uri ??
         files[0]?.uri ??
         null;
-      return { name: meta.name ?? '', symbol: meta.symbol ?? '', logoUri: proxyImage(rawLogo) };
+      return { name: meta.name ?? '', symbol: meta.symbol ?? '', logoUri };
     };
 
-    const CONCURRENCY = 6;
-    for (let i = 0; i < ids.length; i += CONCURRENCY) {
-      const slice = ids.slice(i, i + CONCURRENCY);
-      await Promise.all(slice.map(async (mint) => {
-        // Hard per-call timeout: a hung getAsset must never stall the portfolio
-        // load (this enrichment is awaited before the wallet summary renders).
+    const fetchOne = async (mint: string): Promise<void> => {
+      // Two attempts with a hard timeout each: a hung/transient getAsset must
+      // never stall the awaited enrichment nor leave the logo unresolved.
+      for (let attempt = 0; attempt < 2; attempt++) {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 5000);
         try {
@@ -122,16 +106,23 @@ export class HeliusService {
             signal: ctrl.signal,
             body: JSON.stringify({ jsonrpc: '2.0', id: 'asset', method: 'getAsset', params: { id: mint } }),
           });
-          if (!res.ok) return;
-          const json = await res.json() as { result?: any };
-          const parsed = extract(json.result);
-          if (parsed) out.set(mint, parsed);
+          if (res.ok) {
+            const json = await res.json() as { result?: any };
+            const parsed = extract(json.result);
+            if (parsed) { out.set(mint, parsed); return; }
+          }
         } catch {
-          // Per-mint blip / timeout — caller falls back to existing metadata.
+          // fall through to retry
         } finally {
           clearTimeout(timer);
         }
-      }));
+        if (attempt === 0) await new Promise(r => setTimeout(r, 300));
+      }
+    };
+
+    const CONCURRENCY = 6;
+    for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      await Promise.all(ids.slice(i, i + CONCURRENCY).map(fetchOne));
     }
 
     return out;
