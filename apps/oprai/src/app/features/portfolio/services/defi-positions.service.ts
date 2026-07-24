@@ -118,8 +118,16 @@ export class DefiPositionsService {
         const mintB = pool['mintB'] as { symbol?: string; address?: string; logoURI?: string } | undefined;
         const supply = Number(pool['lpAmount']) || 0;
         const tvl = Number(pool['tvl']) || 0;
-        // User's share of the pool: (their LP tokens / total LP supply) × pool TVL.
-        const value = supply > 0 ? (bal.balance / supply) * tvl : null;
+        // User's share of the pool: their LP tokens / total LP supply.
+        const share = supply > 0 ? bal.balance / supply : 0;
+        const value = share * tvl || null;
+        // Underlying token breakdown = share × the pool's live reserves
+        // (mintAmountA/B are already in UI units). Without this the position card
+        // showed "0.0000 WSOL / 0.0000 USDC" even though the USD value resolved.
+        const reserveA = Number(pool['mintAmountA']) || 0;
+        const reserveB = Number(pool['mintAmountB']) || 0;
+        const amountA = share * reserveA;
+        const amountB = share * reserveB;
         const apr = (pool['day'] as { apr?: number } | undefined)?.apr ?? null;
         const pair = `${mintA?.symbol ?? '?'}/${mintB?.symbol ?? '?'}`;
         out.push({
@@ -130,8 +138,8 @@ export class DefiPositionsService {
           positions: [{
             label: pair,
             tokens: [
-              { symbol: mintA?.symbol ?? '?', amount: 0, logoUri: mintA?.logoURI ?? null, mint: mintA?.address },
-              { symbol: mintB?.symbol ?? '?', amount: 0, logoUri: mintB?.logoURI ?? null, mint: mintB?.address },
+              { symbol: mintA?.symbol ?? '?', amount: amountA, logoUri: mintA?.logoURI ?? null, mint: mintA?.address },
+              { symbol: mintB?.symbol ?? '?', amount: amountB, logoUri: mintB?.logoURI ?? null, mint: mintB?.address },
             ],
             totalUsdValue: value,
             metadata: { poolId: String(pool['id'] ?? ''), lpMint: lpMint ?? '', lpAmount: bal.balance },
