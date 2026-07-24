@@ -634,14 +634,32 @@ export class PortfolioService {
           if (typeof lp === 'string' && lp) positionMints.add(lp);
         }
       }
-      if (positionMints.size) {
-        this._summary.update(s => s ? {
-          ...s,
-          tokens: s.tokens.map(t =>
-            positionMints.has(t.mint) ? { ...t, isDefiPositionToken: true } : t,
-          ),
-        } : s);
-      }
+      // Also flag DeFi position RECEIPT tokens by their (Helius-enriched) name/
+      // symbol: Jupiter Lend earn shares (jlWSOL/jlUSDC…), Jupiter Lend borrow
+      // vault NFTs (jv1 "jupiter vault 1"), and AMM LP tokens ("Raydium LP
+      // Token …"). These are not spendable balances — they represent a position
+      // that renders in Active Positions — so a "1 jv1" row in the wallet token
+      // list is misleading. This catches receipts the protocol fetchers don't
+      // expose via metadata.lpMint.
+      const isReceiptToken = (name: string, symbol: string): boolean => {
+        const n = (name || '').toLowerCase();
+        const s = (symbol || '').toLowerCase();
+        return (
+          n.includes('jupiter lend') ||
+          n.includes('jupiter vault') ||
+          n.includes('lp token') ||        // "Raydium LP Token V4 (SOL-USDC)"
+          /^jl[a-z]/.test(s) ||            // jlWSOL, jlUSDC
+          /^jv\d+$/.test(s)                // jv1, jv2 (Jupiter Lend vault NFT)
+        );
+      };
+      this._summary.update(s => s ? {
+        ...s,
+        tokens: s.tokens.map(t =>
+          positionMints.has(t.mint) || isReceiptToken(t.name, t.symbol)
+            ? { ...t, isDefiPositionToken: true }
+            : t,
+        ),
+      } : s);
 
       // Pricing pass before the single render so APR + claimable columns
       // all paint on first frame instead of arriving as a delta.
