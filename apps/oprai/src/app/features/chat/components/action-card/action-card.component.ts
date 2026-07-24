@@ -28,7 +28,7 @@ import { JupSolService } from '@core/services/market/jupsol.service';
 import { MeteoraService } from '@core/services/market/meteora.service';
 import { ApiService } from '@core/services/api.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, timeout } from 'rxjs';
 import { createSolanaConnection } from '@core/utils/solana-connection';
 
 const ACTION_RESULTS_KEY = 'oprai-action-results';
@@ -2810,6 +2810,54 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   /**
+   * Resolve a token PAIR (from the CLARIFY "pick a pair" path) to a concrete
+   * Raydium pool when no poolId was supplied. Uses the same
+   * `raydium_search_pools` endpoint the pool-list QueryCard uses, takes the
+   * highest-liquidity match, and seeds `poolId` + the token mints into
+   * editParams. Returns the resolved poolId (or '' if it can't resolve), after
+   * which `maybeEnrichRaydiumPool` fetches the pool's price/symbols by id.
+   */
+  private async resolveRaydiumPoolFromPair(): Promise<string> {
+    const p = this.editParams();
+    const mintA = this.toMintAddress(p['tokenA'] ?? p['tokenASymbol'] ?? '');
+    const mintB = this.toMintAddress(p['tokenB'] ?? p['tokenBSymbol'] ?? '');
+    if (!mintA || !mintB) return '';
+    const poolType = this.action.type === 'raydium_add_liquidity' ? 'standard' : 'concentrated';
+    try {
+      const resp = await firstValueFrom(
+        this.apiService
+          .post<any>('/actions/build', {
+            type: 'raydium_search_pools',
+            params: { tokenA: mintA, tokenB: mintB, poolType, sortField: 'liquidity', page: 1, pageSize: 1 },
+          })
+          .pipe(timeout(12_000)),
+      );
+      const rows = resp?.preview?.params?.data?.data;
+      const pool = Array.isArray(rows) ? rows[0] : null;
+      if (!pool?.id) return '';
+      this.editParams.update(ep => ({
+        ...ep,
+        poolId: pool.id,
+        tokenA: pool.mintA?.address ?? mintA,
+        tokenB: pool.mintB?.address ?? mintB,
+      }));
+      return String(pool.id);
+    } catch {
+      return '';
+    }
+  }
+
+  /** Resolve a raw token identifier (mint address OR symbol) to a mint
+   *  address via the token registry. Returns '' when it can't be resolved. */
+  private toMintAddress(raw: string): string {
+    const v = (raw ?? '').trim();
+    if (!v) return '';
+    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v)) return v; // already a mint
+    const tok = this.tokenRegistry.getBySymbol(v);
+    return tok?.address ?? '';
+  }
+
+  /**
    * Fetch Raydium CLMM pool details when the LLM emitted only `poolId` +
    * `inputMint` + `inputAmount` (no `tokenASymbol` / `tokenBSymbol` /
    * `currentPrice`). Without these, the form shows generic "Token A" / "Token B"
@@ -2820,9 +2868,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   async maybeEnrichRaydiumPool(): Promise<void> {
     if (this.action?.type !== 'raydium_open_position' && this.action?.type !== 'raydium_add_liquidity') return;
+    let poolId = (this.editParams()['poolId'] ?? '').trim();
+    // The CLARIFY "pick a pair" path (SOL/USDC …) spawns this card with only
+    // tokenA/tokenB and NO poolId — so historically enrichment early-returned
+    // here, leaving the form with generic "Token A/B" labels, no current price,
+    // dead range presets, and a Max that dumped the full SOL balance. Resolve
+    // the pair to its highest-liquidity CLMM pool first so the rest of the
+    // enrichment (current price, symbols, ratio-aware Max) can run.
+    if (!poolId) {
+      poolId = await this.resolveRaydiumPoolFromPair();
+      if (!poolId) return;
+    }
     const p = this.editParams();
-    const poolId = (p['poolId'] ?? '').trim();
-    if (!poolId) return;
     // ALWAYS strip the LLM's raw `inputMint`/`inputAmount` before anything
     // else — they have no business in the CLMM form's editParams. Leaving
     // `inputMint='USDC'` (a literal symbol) in place makes the form's
@@ -4362,7 +4419,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * This is the "just do it for me" behaviour: it can never produce a position
    * the wallet can't fund.
    */
-  setMaxClmm(): void {
+  /**
+   * MAX for a CLMM deposit side. `side` is which token's MAX button was
+   * clicked. Previously BOTH buttons ran the A-side logic, so clicking Token B
+   * (USDC) MAX filled Token A (SOL) — the bug Berra hit. Now each side maxes
+   * itself and the auto-balance effect fills the other at the pool ratio,
+   * clamped so neither side exceeds its balance.
+   */
+  setMaxClmm(side: 'A' | 'B' = 'A'): void {
     const clmm = this.clmmRatio();
     const p = this.editParams();
     const balA = this.inputBalance() ?? 0;      // token A (e.g. WSOL)
@@ -4376,7 +4440,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const availA = Math.max(0, balA - (isSol(symA) ? RENT_BUFFER : 0));
     const availB = Math.max(0, balB - (isSol(symB) ? RENT_BUFFER : 0));
 
-    // Single-sided ranges (price outside the range): only one token is used.
+    // Single-sided ranges (price outside the range): only one token is used,
+    // regardless of which MAX was clicked.
     if (clmm?.singleSided === 'A') {
       this.editParams.update(ep => ({ ...ep, amountA: formatDlmmAmount(availA), amountB: '0' }));
       this.dlmmLastEdited.set('A');
@@ -4390,9 +4455,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
     const yPerX = clmm?.yPerX; // amount B per 1 amount A
     if (!yPerX || !Number.isFinite(yPerX) || yPerX <= 0) {
-      // No usable ratio yet (range not set) — fall back to a plain full-balance
-      // fill; the auto-balance effect will still keep the sides in sync.
-      this.setMaxAmount('amountA');
+      // No usable ratio yet (range not set) — max ONLY the clicked side; the
+      // auto-balance effect fills the other once a range exists.
+      this.setMaxAmount(side === 'A' ? 'amountA' : 'amountB');
+      return;
+    }
+
+    if (side === 'B') {
+      // Largest B that satisfies BOTH: B ≤ availB AND B/yPerX ≤ availA.
+      const maxB = Math.min(availB, availA * yPerX);
+      if (!(maxB > 0)) return;
+      this.setEditParam('amountB', formatDlmmAmount(maxB));
+      this.dlmmLastEdited.set('B'); // auto-balance fills amountA = maxB / yPerX (≤ availA)
       return;
     }
     // Largest A that satisfies BOTH: A ≤ availA AND A×yPerX ≤ availB.

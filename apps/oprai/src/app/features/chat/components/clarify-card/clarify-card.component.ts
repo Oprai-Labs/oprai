@@ -126,11 +126,21 @@ export class ClarifyCardComponent implements OnInit {
    */
   optionTokens(option: ClarifyOption): { from: OptionToken | null; to: OptionToken | null } | null {
     const p = option.params ?? {};
-    let from = this.resolveToken(p['inputMint'] ?? p['inputToken'] ?? p['fromToken'] ?? p['from']);
+    // `tokenA`/`tokenB` (+ mintA/mintB) are how LP / pool-pair options name
+    // their two sides — a Raydium/Orca/Meteora "SOL/USDC" pool-pick carries
+    // these, not inputMint/outputMint. Without them the pair fell back to the
+    // generic protocol logo instead of the two token coins.
+    let from = this.resolveToken(
+      p['inputMint'] ?? p['inputToken'] ?? p['fromToken'] ?? p['from'] ?? p['tokenA'] ?? p['mintA'],
+    );
     // `reserve` is how Kamino lend/borrow options name the subject token.
-    let to = this.resolveToken(p['outputMint'] ?? p['outputToken'] ?? p['toToken'] ?? p['to'] ?? p['token'] ?? p['reserve']);
+    let to = this.resolveToken(
+      p['outputMint'] ?? p['outputToken'] ?? p['toToken'] ?? p['to'] ?? p['token'] ?? p['reserve'] ?? p['tokenB'] ?? p['mintB'],
+    );
     if (!from || !to) {
-      const m = option.label.match(/([A-Za-z0-9$]{2,12})\s*(?:→|->|➜|=>|➔|➙|➛)\s*([A-Za-z0-9$]{2,12})/);
+      // Also split "FROM/TO" and "FROM-TO" pair labels (SOL/USDC, SOL-USDC),
+      // not just "FROM → TO" route arrows.
+      const m = option.label.match(/([A-Za-z0-9$]{2,12})\s*(?:→|->|➜|=>|➔|➙|➛|\/|·|–|—|-)\s*([A-Za-z0-9$]{2,12})/);
       if (m) {
         from ??= this.resolveToken(m[1]);
         to ??= this.resolveToken(m[2]);
@@ -142,6 +152,13 @@ export class ClarifyCardComponent implements OnInit {
 
   hasTokenPair(option: ClarifyOption): boolean {
     return !!this.optionTokens(option);
+  }
+
+  /** Both sides of a pool/pair option resolved — render the two coins side by
+   *  side (SOL + USDC) rather than a single token or the protocol logo. */
+  optionFullPair(option: ClarifyOption): { from: OptionToken; to: OptionToken } | null {
+    const t = this.optionTokens(option);
+    return t && t.from && t.to ? { from: t.from, to: t.to } : null;
   }
 
   /**

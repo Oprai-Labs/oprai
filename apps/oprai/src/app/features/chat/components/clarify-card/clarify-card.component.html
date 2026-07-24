@@ -29,12 +29,31 @@
         [disabled]="selectedIndex !== null"
         (click)="select(option, i)"
       >
-        @if (mode === 'token' && optionSingleToken(option); as tok) {
-          <div class="clarify-option__token-icon">
-            @if (tok.logoURI) {
-              <img [src]="tok.logoURI" [alt]="tok.symbol" />
+        <!-- Angular 19: `; as x` aliases only bind on a PRIMARY @if, never on
+             an @else if — so precompute the branch values with @let. -->
+        @let fullPair = optionFullPair(option);
+        @let singleTok = mode === 'token' ? optionSingleToken(option) : null;
+        @if (fullPair) {
+          <!-- Pool/pair option (SOL/USDC): show BOTH token coins, not the
+               protocol logo or just one side. -->
+          <div class="clarify-option__pair">
+            @if (fullPair.from.logoURI) {
+              <img class="clarify-option__pair-coin" [src]="fullPair.from.logoURI" [alt]="fullPair.from.symbol" />
             } @else {
-              <span class="clarify-option__token-letter">{{ tok.symbol.charAt(0) }}</span>
+              <span class="clarify-option__pair-coin clarify-option__pair-coin--letter">{{ fullPair.from.symbol.charAt(0) }}</span>
+            }
+            @if (fullPair.to.logoURI) {
+              <img class="clarify-option__pair-coin clarify-option__pair-coin--to" [src]="fullPair.to.logoURI" [alt]="fullPair.to.symbol" />
+            } @else {
+              <span class="clarify-option__pair-coin clarify-option__pair-coin--to clarify-option__pair-coin--letter">{{ fullPair.to.symbol.charAt(0) }}</span>
+            }
+          </div>
+        } @else if (singleTok) {
+          <div class="clarify-option__token-icon">
+            @if (singleTok.logoURI) {
+              <img [src]="singleTok.logoURI" [alt]="singleTok.symbol" />
+            } @else {
+              <span class="clarify-option__token-letter">{{ singleTok.symbol.charAt(0) }}</span>
             }
           </div>
         } @else if (hasProtocolInfo(option)) {
