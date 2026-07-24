@@ -175,9 +175,11 @@ export class TokenListComponent {
     // fail hotlink checks in the browser, so the raw <img> errors even though
     // the URL is valid. weserv fetches server-side from a neutral CDN.
     const src = img.getAttribute('src') ?? '';
-    if (src && !img.dataset['proxied'] && !src.includes('images.weserv.nl')) {
+    if (src && !img.dataset['proxied'] && !src.startsWith('/api/img')) {
+      // Retry through our OWN gateway proxy (first-party — never tracker/ad
+      // blocked, unlike twimg/IPFS or third-party proxies like weserv).
       img.dataset['proxied'] = '1';
-      img.src = `https://images.weserv.nl/?url=${encodeURIComponent(src)}&w=64&h=64&fit=cover`;
+      img.src = `/api/img?url=${encodeURIComponent(src)}`;
       return;
     }
     img.style.display = 'none';
