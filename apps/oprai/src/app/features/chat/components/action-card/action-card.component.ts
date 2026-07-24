@@ -4308,6 +4308,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.tokenPickerField.set(null);
   }
 
+  /** Short "AbCd…WxYz" form of a mint, used as a symbol fallback for tokens
+   *  the registry doesn't name. */
+  shortMint(m: string): string {
+    const v = (m ?? '').trim();
+    if (v.length <= 10) return v;
+    return `${v.slice(0, 4)}…${v.slice(-4)}`;
+  }
+
   pickerTitle(fieldKey: string): string {
     switch (fieldKey) {
       case 'inputMint': return 'From token';
@@ -4364,6 +4372,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const p = this.editParams();
     return !!this.resolveToMint(p['tokenA'] ?? '') && !!this.resolveToMint(p['tokenB'] ?? '');
   });
+
+  /** CLMM open-position with no pool resolved yet (no current price) — the
+   *  deposit form isn't ready, so Confirm must stay disabled. */
+  readonly clmmUnresolved = computed(
+    () => this.isRaydiumOpenPosition() && !this.editParams()['currentPrice'],
+  );
 
   /**
    * Resolve the currently-chosen tokenA/tokenB pair to a Raydium CLMM pool and

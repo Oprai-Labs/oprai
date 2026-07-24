@@ -1191,7 +1191,7 @@
                     } @else {
                       <span class="clmm-pair-token__icon clmm-pair-token__icon--ph">{{ (tdPairA.symbol || '?').charAt(0) }}</span>
                     }
-                    <span class="clmm-pair-token__sym">{{ tdPairA.symbol }}</span>
+                    <span class="clmm-pair-token__sym">{{ tdPairA.symbol || shortMint(getEditParam('tokenA')) }}</span>
                   } @else {
                     <span class="clmm-pair-token__sym clmm-pair-token__sym--empty">Select token</span>
                   }
@@ -1208,7 +1208,7 @@
                     } @else {
                       <span class="clmm-pair-token__icon clmm-pair-token__icon--ph">{{ (tdPairB.symbol || '?').charAt(0) }}</span>
                     }
-                    <span class="clmm-pair-token__sym">{{ tdPairB.symbol }}</span>
+                    <span class="clmm-pair-token__sym">{{ tdPairB.symbol || shortMint(getEditParam('tokenB')) }}</span>
                   } @else {
                     <span class="clmm-pair-token__sym clmm-pair-token__sym--empty">Select token</span>
                   }
@@ -3015,10 +3015,13 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="clmmUnresolved() || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
-            @if (insufficientFunds()) {
+            @if (clmmUnresolved()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Select a token pair
+            } @else if (insufficientFunds()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Insufficient balance
             } @else if (swapBlockedByImpact()) {

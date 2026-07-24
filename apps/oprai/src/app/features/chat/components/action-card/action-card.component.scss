@@ -4750,6 +4750,8 @@
 .clmm-pair-token {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
+  text-align: left;
   gap: 8px;
   flex: 1;
   min-width: 0;
