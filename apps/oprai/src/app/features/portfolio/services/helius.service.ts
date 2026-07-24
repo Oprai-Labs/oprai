@@ -66,47 +66,47 @@ export class HeliusService {
     const out = new Map<string, { name: string; symbol: string; logoUri: string | null }>();
     if (!mints.length) return out;
 
-    try {
-      // Helius caps batch size at 1000 — slice defensively for callers.
-      const ids = mints.slice(0, 1000);
-      const response = await fetch(environment.solanaRpc, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          Authorization: `Bearer ${localStorage.getItem('oprai-auth-token') ?? ''}`,
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'asset-batch',
-          method: 'getAssetBatch',
-          params: { ids, displayOptions: { showCollectionMetadata: false } },
-        }),
-      });
+    // NOTE: the gateway's Helius RPC upstream returns `[null]` for the DAS
+    // `getAssetBatch` method even though single `getAsset` works fine — so
+    // metadata (names + logos) never resolved for pump.fun memecoins and
+    // position-receipt NFTs, which then showed as "Unknown Token" with a
+    // placeholder icon. Resolve each mint individually via `getAsset` instead
+    // (capped concurrency). The auth cookie rides along via credentials:'include';
+    // the old empty `Authorization: Bearer` header was a no-op (the JWT lives in
+    // memory, not localStorage) and /rpc reads aren't wallet-gated.
+    const ids = mints.slice(0, 100);
+    const extract = (it: any): { name: string; symbol: string; logoUri: string | null } | null => {
+      if (!it?.id) return null;
+      const meta = it.content?.metadata ?? {};
+      const links = it.content?.links ?? {};
+      const files = it.content?.files ?? [];
+      const logoUri =
+        links.image ??
+        files.find((f: any) => f?.uri && /image|png|jpg|webp|svg/i.test(f?.mime ?? f?.uri))?.uri ??
+        files[0]?.uri ??
+        null;
+      return { name: meta.name ?? '', symbol: meta.symbol ?? '', logoUri };
+    };
 
-      if (!response.ok) return out;
-      const json = await response.json() as { result?: any[] };
-      const items = json.result ?? [];
-
-      for (const it of items) {
-        if (!it?.id) continue;
-        const meta = it.content?.metadata ?? {};
-        const links = it.content?.links ?? {};
-        const files = it.content?.files ?? [];
-        const logoUri =
-          links.image ??
-          files.find((f: any) => f?.uri && /image|png|jpg|webp|svg/i.test(f?.mime ?? f?.uri))?.uri ??
-          files[0]?.uri ??
-          null;
-        out.set(it.id, {
-          name: meta.name ?? '',
-          symbol: meta.symbol ?? '',
-          logoUri,
-        });
-      }
-    } catch {
-      // Network blip — caller falls back to existing partial metadata.
+    const CONCURRENCY = 8;
+    for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      const slice = ids.slice(i, i + CONCURRENCY);
+      await Promise.all(slice.map(async (mint) => {
+        try {
+          const res = await fetch(environment.solanaRpc, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'include',
+            body: JSON.stringify({ jsonrpc: '2.0', id: 'asset', method: 'getAsset', params: { id: mint } }),
+          });
+          if (!res.ok) return;
+          const json = await res.json() as { result?: any };
+          const parsed = extract(json.result);
+          if (parsed) out.set(mint, parsed);
+        } catch {
+          // Per-mint blip — caller falls back to existing partial metadata.
+        }
+      }));
     }
 
     return out;
