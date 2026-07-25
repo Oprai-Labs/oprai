@@ -691,6 +691,24 @@
       <!-- Raydium V3 has no `query` param, so we expose pool-type chips +
            sort buttons only (no search input). Otherwise mirrors DLMM. -->
       @if (query.type === 'raydium_get_pools' || query.type === 'raydium_search_pools') {
+        <!-- Token search: type a symbol/mint to filter pools to that token -->
+        <div class="ray-search">
+          <lucide-icon name="search" [size]="14" class="ray-search__icon" />
+          <input
+            class="ray-search__input"
+            type="text"
+            placeholder="Search pools by token — e.g. SOL, JUP, RAY…"
+            [value]="raydiumSearchInput()"
+            (input)="onRaydiumSearchInput($any($event.target).value)"
+            (keydown.enter)="onRaydiumSearchSubmit()" />
+          @if (raydiumSearchTokenA()) {
+            <button type="button" class="ray-search__btn ray-search__btn--clear" (click)="clearRaydiumSearch()" title="Clear search">
+              <lucide-icon name="x" [size]="14" />
+            </button>
+          } @else {
+            <button type="button" class="ray-search__btn" (click)="onRaydiumSearchSubmit()">Search</button>
+          }
+        </div>
         <div class="dlmm-sort-bar">
           @for (opt of RAYDIUM_POOL_TYPES; track opt.value) {
             <button

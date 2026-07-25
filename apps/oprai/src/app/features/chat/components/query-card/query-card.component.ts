@@ -475,6 +475,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly raydiumSortField   = signal<'liquidity' | 'volume24h' | 'fee24h' | 'apr24h'>('liquidity');
   readonly raydiumSortDir     = signal<'asc' | 'desc'>('desc');
   readonly raydiumFetching    = signal(false);
+  // Token search: filter the pool list to pools containing a given token
+  // (server-side search-by-mint). Empty → full list. Lets the "pick another
+  // pair" flow find a pool by typing a symbol instead of browsing every pool.
+  readonly raydiumSearchInput  = signal('');
+  readonly raydiumSearchTokenA = signal<string | null>(null);
 
   // The user's own Raydium positions (CLMM + Standard/CPMM LP), read straight
   // from chain via the SDK — rendered in the same km-table design as the pool
@@ -1454,9 +1459,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     // the same pair. Same response shape as `/pools/info/list`, so the rest of
     // the render path is unchanged.
     const isSearch = this.query.type === 'raydium_search_pools';
-    const tokenA = isSearch ? (this.query.params?.['tokenA'] as string | undefined) : undefined;
+    // The typed search box takes precedence over any tokenA the query was
+    // seeded with; tokenB only ever comes from the original query params.
+    const tokenA = this.raydiumSearchTokenA()
+      ?? (isSearch ? (this.query.params?.['tokenA'] as string | undefined) : undefined);
     const tokenB = isSearch ? (this.query.params?.['tokenB'] as string | undefined) : undefined;
-    const body = isSearch && tokenA
+    const body = tokenA
       ? {
           type: 'raydium_search_pools',
           params: {
@@ -1510,6 +1518,33 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   onRaydiumPoolTypeChange(t: 'all' | 'concentrated' | 'standard'): void {
     if (this.raydiumPoolType() === t) return;
     this.raydiumPoolType.set(t);
+    this.raydiumPage.set(1);
+    void this.fetchRaydiumPools();
+  }
+
+  onRaydiumSearchInput(v: string): void {
+    this.raydiumSearchInput.set(v);
+  }
+
+  /** Resolve the typed symbol/mint and refetch the pool list filtered to pools
+   *  containing that token. Empty input clears the filter. */
+  onRaydiumSearchSubmit(): void {
+    const raw = this.raydiumSearchInput().trim();
+    if (!raw) { this.clearRaydiumSearch(); return; }
+    const mint = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw)
+      ? raw
+      : this.tokenRegistry.getBySymbol(raw)?.address ?? null;
+    if (!mint) { this.error.set(`No token found for "${raw}"`); return; }
+    this.error.set(null);
+    this.raydiumSearchTokenA.set(mint);
+    this.raydiumPage.set(1);
+    void this.fetchRaydiumPools();
+  }
+
+  clearRaydiumSearch(): void {
+    if (!this.raydiumSearchInput() && !this.raydiumSearchTokenA()) return;
+    this.raydiumSearchInput.set('');
+    this.raydiumSearchTokenA.set(null);
     this.raydiumPage.set(1);
     void this.fetchRaydiumPools();
   }

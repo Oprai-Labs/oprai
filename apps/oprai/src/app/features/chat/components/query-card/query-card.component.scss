@@ -529,6 +529,57 @@
   margin-bottom: 8px;
 }
 
+.ray-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 12px;
+
+  &:focus-within { border-color: var(--op-brand); }
+
+  &__icon { color: var(--op-text-tertiary); flex-shrink: 0; }
+
+  &__input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--op-text-primary);
+    font-size: 0.85rem;
+
+    &::placeholder { color: var(--op-text-tertiary); }
+  }
+
+  &__btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--op-brand);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity var(--op-fast);
+
+    &:hover { opacity: 0.9; }
+
+    &--clear {
+      padding: 5px;
+      background: var(--op-bg-surface-3);
+      color: var(--op-text-secondary);
+    }
+  }
+}
+
 .dlmm-table .dlmm-row {
   // 6-column grid: pool name | TVL | volume | APY | bin/fee | action
   display: grid;

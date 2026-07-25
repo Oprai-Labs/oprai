@@ -947,6 +947,45 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     const { messageId: clarifyMsgId, clarifyIndex, optionIndex, action } = payload;
     const clarifyKey = `${clarifyMsgId}:${clarifyIndex}`;
     const sessionId = this.sessionStorage.activeSessionId() ?? `local:${Date.now()}`;
+
+    // "Başka bir çift" (specify another pair) on a Raydium CLMM add-liquidity
+    // clarify: the option spawns raydium_open_position with NO pool and NO
+    // token pair. Rather than make the user pick two tokens blind — where any
+    // combo can turn out to have no pool — route straight to the pool SEARCH
+    // list (all CLMM pools, TVL-sorted, each row a real pool with a Deposit
+    // CTA). Preset pairs (SOL/USDC …) carry tokenA/tokenB and are unaffected.
+    if (
+      action.type === 'raydium_open_position' &&
+      !action.params?.['poolId'] &&
+      !(action.params?.['tokenA'] && action.params?.['tokenB'])
+    ) {
+      const query: ParsedQuery = {
+        type: 'raydium_search_pools',
+        params: { poolType: 'concentrated' },
+        raw: '[QUERY:raydium_search_pools]',
+      };
+      const queryMsgId = `clarify-query-${Date.now()}`;
+      const qmsg: ChatMessage = {
+        id: queryMsgId,
+        sessionId,
+        role: 'assistant',
+        content: '',
+        createdAt: new Date().toISOString(),
+      };
+      this.messages.update(msgs => [...msgs, qmsg]);
+      this.messageQueries.update(map => {
+        const next = new Map(map);
+        next.set(queryMsgId, [query]);
+        return next;
+      });
+      this.clarifySelections.update(map => {
+        const next = new Map(map);
+        next.set(clarifyKey, optionIndex);
+        return next;
+      });
+      return;
+    }
+
     const actionMsgId = `clarify-action-${Date.now()}`;
     const msg: ChatMessage = {
       id: actionMsgId,
