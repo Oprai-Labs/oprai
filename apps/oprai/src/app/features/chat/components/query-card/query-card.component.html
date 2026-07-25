@@ -936,12 +936,23 @@
                     <span class="ray-pos__amount-label">{{ pos.kind === 'lp' ? 'LP tokens' : 'Liquidity' }}</span>
                   }
                 </span>
-                <button type="button" class="dlmm-use-btn"
-                        (click)="withdrawRaydiumPosition(pos); $event.stopPropagation()"
-                        title="Withdraw this position">
-                  Withdraw
-                  <lucide-icon name="arrow-right" [size]="12" />
-                </button>
+                <span class="ray-pos__actions">
+                  <!-- Add liquidity to the EXISTING position. Without this the
+                       row's only affordance was Withdraw, so "increase my
+                       position" had nowhere to land. -->
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          (click)="addToRaydiumPosition(pos); $event.stopPropagation()"
+                          title="Add liquidity to this position">
+                    <lucide-icon name="plus" [size]="12" />
+                    Add
+                  </button>
+                  <button type="button" class="dlmm-use-btn"
+                          (click)="withdrawRaydiumPosition(pos); $event.stopPropagation()"
+                          title="Withdraw this position">
+                    Withdraw
+                    <lucide-icon name="arrow-right" [size]="12" />
+                  </button>
+                </span>
               </div>
             </div>
           }

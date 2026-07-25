@@ -1229,6 +1229,103 @@
           }
 
           </div>
+        } @else if (raydiumIncreaseView() !== null) {
+          <!-- Add liquidity to an existing CLMM position: which side + how
+               much. The paired amount is derived on-chain at the pool ratio. -->
+          @let iv = raydiumIncreaseView()!;
+          @let side = clmmIncreaseSide();
+          @let curBal = inputBalance();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Add to Position</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (iv.logoA) {
+                      <img class="ray-wd__icon" [src]="iv.logoA" [alt]="iv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (iv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (iv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="iv.logoB" [alt]="iv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (iv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ iv.pair }}</span>
+                  <span class="ray-wd__kind">CLMM</span>
+                </div>
+                @if (iv.current) {
+                  <div class="ray-wd__body">
+                    <span class="ray-wd__amount">{{ iv.current }}</span>
+                    <span class="ray-wd__amount-label">Current position</span>
+                  </div>
+                }
+              </div>
+            </div>
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">Deposit</div>
+              <!-- Which side the amount denominates -->
+              <div class="clmm-presets">
+                <button type="button" class="clmm-preset"
+                        [class.clmm-preset--active]="side === 'A'"
+                        (click)="setClmmIncreaseSide('A')">{{ iv.symA }}</button>
+                <button type="button" class="clmm-preset"
+                        [class.clmm-preset--active]="side === 'B'"
+                        (click)="setClmmIncreaseSide('B')">{{ iv.symB }}</button>
+              </div>
+
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ side === 'A' ? iv.symA : iv.symB }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (curBal !== null) { Balance: {{ curBal | number:'1.0-6' }} }
+                    @if (curBal !== null && curBal > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmount('inputAmount')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="editParams()['inputAmount'] ?? ''"
+                    (input)="setEditParam('inputAmount', normalizeDecimal($any($event.target).value))" />
+                  <div class="clmm-token-pill">
+                    @let incLogo = side === 'A' ? iv.logoA : iv.logoB;
+                    @let incSym = side === 'A' ? iv.symA : iv.symB;
+                    @if (incLogo) {
+                      <img [src]="incLogo" [alt]="incSym" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (incSym || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ incSym }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="clmm-min-hint">
+                The paired {{ side === 'A' ? iv.symB : iv.symA }} amount is added automatically at the pool's current ratio, within your slippage tolerance.
+              </div>
+            </div>
+
+            <details class="clmm-advanced">
+              <summary>Advanced</summary>
+              <div class="clmm-advanced__row">
+                <label>Slippage tolerance</label>
+                <div class="clmm-advanced__input">
+                  <input type="number" step="0.1" min="0" max="100"
+                         [value]="((+(editParams()['slippageBps'] ?? '50')) / 100)"
+                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))" />
+                  <span>%</span>
+                </div>
+              </div>
+            </details>
+          </div>
         } @else if (raydiumWithdrawView() !== null) {
           <!-- Raydium withdraw (CLMM close / LP remove) — position summary in
                the same panel language as the deposit + swap cards, instead of

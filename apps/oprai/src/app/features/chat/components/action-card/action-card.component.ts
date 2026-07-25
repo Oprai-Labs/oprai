@@ -845,8 +845,12 @@ function getActionFields(
       { key: 'positionId', label: 'Position ID', type: 'address', placeholder: 'Position address...', required: true },
     );
   } else if (t === 'raydium_increase_position') {
+    // `inputMint` decides WHICH side the deposit amount denominates (the SDK
+    // derives the paired amount from it). It was missing from this list, so the
+    // builder received no side at all and silently assumed token B.
     fields.push(
       { key: 'positionId', label: 'Position ID', type: 'address', placeholder: 'Position address...', required: true },
+      { key: 'inputMint', label: 'Deposit Token', type: 'token', required: true },
       { key: 'inputAmount', label: 'Deposit Amount', type: 'number', placeholder: '0', required: true },
       { key: 'slippageBps', label: 'Slippage', type: 'number', placeholder: '0.5', suffix: '%', half: true, min: 0, max: 100, step: '0.1', divisor: 100 },
     );
@@ -1971,6 +1975,59 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     () => this.action.type === 'raydium_close_position' || this.action.type === 'raydium_remove_liquidity',
   );
 
+  /** Adding liquidity to an EXISTING CLMM position. */
+  readonly isRaydiumIncrease = computed(() => this.action.type === 'raydium_increase_position');
+
+  /** Which side of the pair the deposit amount denominates ('A' | 'B'). */
+  readonly clmmIncreaseSide = computed<'A' | 'B'>(() => {
+    const p = this.editParams();
+    const mint = this.resolveToMint(p['inputMint'] ?? '');
+    const mintB = this.resolveToMint(p['tokenB'] ?? p['tokenBSymbol'] ?? '');
+    return mint && mintB && mint === mintB ? 'B' : 'A';
+  });
+
+  /** Switch the deposit side; the SDK derives the paired amount from it. */
+  setClmmIncreaseSide(side: 'A' | 'B'): void {
+    const p = this.editParams();
+    const mint = side === 'A'
+      ? this.resolveToMint(p['tokenA'] ?? p['tokenASymbol'] ?? '')
+      : this.resolveToMint(p['tokenB'] ?? p['tokenBSymbol'] ?? '');
+    if (!mint) return;
+    this.setEditParam('inputMint', mint);
+    // The amount now denominates a different token — clear it rather than
+    // silently reinterpreting "1 SOL" as "1 USDC".
+    this.setEditParam('inputAmount', '');
+    this.inputBalance.set(null);
+    if (this.inputBalanceMint()) this.loadInputBalance();
+  }
+
+  /** Summary for the increase panel: the position being topped up. */
+  readonly raydiumIncreaseView = computed<{
+    pair: string; symA: string; symB: string;
+    logoA: string | null; logoB: string | null;
+    current: string | null; positionId: string;
+  } | null>(() => {
+    if (!this.isRaydiumIncrease()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
+    const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
+    if (!pair) return null;
+    const fmt = (v: string | undefined): string | null => {
+      const n = parseFloat(v ?? '');
+      return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 6 }) : null;
+    };
+    const a = fmt(p['amountA']);
+    const b = fmt(p['amountB']);
+    return {
+      pair, symA, symB,
+      logoA: p['tokenALogo'] || this.resolveTokenDisplay(symA).logoURI || null,
+      logoB: p['tokenBLogo'] || this.resolveTokenDisplay(symB).logoURI || null,
+      current: a !== null || b !== null ? `${a ?? '0'} ${symA} + ${b ?? '0'} ${symB}` : null,
+      positionId: p['positionId'] ?? '',
+    };
+  });
+
   /** Position summary for the withdraw panel; null when the card wasn't
    *  spawned from the positions list (no pair context) — then the generic
    *  field list still renders so the action stays usable. */
@@ -2882,7 +2939,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * long-lived chat card honest about what it's about to withdraw.
    */
   async maybeEnrichRaydiumWithdraw(): Promise<void> {
-    if (!this.isRaydiumWithdraw()) return;
+    if (!this.isRaydiumWithdraw() && !this.isRaydiumIncrease()) return;
     const p = this.editParams();
     const positionId = (p['positionId'] ?? '').trim();
     const poolId = (p['poolId'] ?? '').trim();
@@ -2905,6 +2962,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.editParams.update(ep => ({
         ...ep,
         pair: ep['pair'] || match.pair || '',
+        tokenA: ep['tokenA'] || match.mintA?.address || '',
+        tokenB: ep['tokenB'] || match.mintB?.address || '',
+        // Increase needs a deposit side; default to token A once we know it.
+        ...(this.isRaydiumIncrease() && !ep['inputMint'] && match.mintA?.address
+          ? { inputMint: match.mintA.address } : {}),
         tokenASymbol: ep['tokenASymbol'] || match.mintA?.symbol || '',
         tokenBSymbol: ep['tokenBSymbol'] || match.mintB?.symbol || '',
         ...(match.mintA?.logoURI && !ep['tokenALogo'] ? { tokenALogo: match.mintA.logoURI } : {}),

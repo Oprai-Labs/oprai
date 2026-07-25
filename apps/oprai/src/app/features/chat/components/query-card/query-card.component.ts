@@ -1645,6 +1645,37 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** Add liquidity to an EXISTING position: CLMM → increase the range's
+   *  liquidity; LP → deposit more into the same standard pool. Carries the same
+   *  display context as withdraw so the action card renders a real summary. */
+  addToRaydiumPosition(pos: RaydiumUserPosition): void {
+    const display: Record<string, string> = {
+      pair: pos.pair ?? '',
+      poolId: pos.poolId,
+      tokenASymbol: pos.mintA?.symbol ?? '',
+      tokenBSymbol: pos.mintB?.symbol ?? '',
+      ...(pos.mintA?.address ? { tokenA: pos.mintA.address } : {}),
+      ...(pos.mintB?.address ? { tokenB: pos.mintB.address } : {}),
+      ...(pos.mintA?.logoURI ? { tokenALogo: pos.mintA.logoURI } : {}),
+      ...(pos.mintB?.logoURI ? { tokenBLogo: pos.mintB.logoURI } : {}),
+    };
+    if (pos.kind === 'lp') {
+      const params: Record<string, string> = { ...display, poolId: pos.poolId };
+      this.useAction.emit({ type: 'raydium_add_liquidity', params, raw: `[ACTION:raydium_add_liquidity] ${JSON.stringify(params)}` });
+      return;
+    }
+    const params: Record<string, string> = {
+      ...display,
+      positionId: pos.positionId ?? '',
+      positionKind: 'clmm',
+      // Default the deposit side to token A; the card lets the user switch.
+      ...(pos.mintA?.address ? { inputMint: pos.mintA.address } : {}),
+      ...(pos.amountA !== undefined ? { amountA: String(pos.amountA) } : {}),
+      ...(pos.amountB !== undefined ? { amountB: String(pos.amountB) } : {}),
+    };
+    this.useAction.emit({ type: 'raydium_increase_position', params, raw: `[ACTION:raydium_increase_position] ${JSON.stringify(params)}` });
+  }
+
   /** Withdraw a position: LP → remove-liquidity; CLMM → close the range.
    *  Carries DISPLAY context (pair, token symbols/logos, amount) alongside the
    *  functional ids so the action card can render a real position summary

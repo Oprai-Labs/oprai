@@ -609,6 +609,25 @@
     color: var(--op-text-tertiary);
     margin-top: 2px;
   }
+
+  &__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+}
+
+// Secondary row action (Add) — same shape as the primary Use/Withdraw button
+// but visually subordinate to it.
+.dlmm-use-btn--ghost {
+  background: var(--op-bg-surface-3);
+  color: var(--op-text-secondary);
+
+  &:hover {
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-primary);
+  }
 }
 
 .ray-search {
