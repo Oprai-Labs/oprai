@@ -647,6 +647,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.query.type === 'perp_positions') {
         void this.reconcilePerpPositions();
       }
+      // Raydium positions are LIVE state, not a receipt: a snapshot restored
+      // from an older chat turn can show closed positions, stale amounts, or
+      // (before the amounts existed) a raw liquidity constant. Refetch so the
+      // list — and any Withdraw spawned from it — reflects the chain.
+      if (this.query.type === 'raydium_get_user_positions' || this.query.type === 'raydium_get_clmm_positions') {
+        void this.fetchRaydiumPositions();
+      }
     } else {
       // Seed the Raydium pool-type filter (and sort) from the incoming query
       // params BEFORE the first fetch, so an explicit "CLMM" / "concentrated"

@@ -2771,6 +2771,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action) this.initFromAction();
     this.maybeLoadLstRate();
     this.maybeEnrichRaydiumPool();
+    void this.maybeEnrichRaydiumWithdraw();
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
@@ -2868,6 +2869,53 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         if (secs % 3600 === 0) return `every ${secs / 3600} hours`;
         return `every ${secs}s`;
       }
+    }
+  }
+
+  /**
+   * Fill in a Raydium withdraw card's display context (token amounts, pair,
+   * symbols, logos) by reading the live positions when the spawning card
+   * didn't supply them — e.g. a positions card restored from an older chat
+   * snapshot, or an LLM-emitted close/remove that carries only an id.
+   *
+   * Positions are LIVE state, so reading them fresh here also keeps a
+   * long-lived chat card honest about what it's about to withdraw.
+   */
+  async maybeEnrichRaydiumWithdraw(): Promise<void> {
+    if (!this.isRaydiumWithdraw()) return;
+    const p = this.editParams();
+    const positionId = (p['positionId'] ?? '').trim();
+    const poolId = (p['poolId'] ?? '').trim();
+    if (!positionId && !poolId) return;
+    // Already has what the panel needs.
+    const isLp = this.action.type === 'raydium_remove_liquidity';
+    if (p['pair'] && (isLp ? p['lpAmount'] : p['amountA'] !== undefined)) return;
+    try {
+      const resp = await firstValueFrom(
+        this.apiService
+          .post<any>('/actions/build', { type: 'raydium_get_user_positions', params: {} })
+          .pipe(timeout(20_000)),
+      );
+      const data = resp?.data ?? resp?.preview?.params?.data;
+      const positions: any[] = Array.isArray(data?.positions) ? data.positions : [];
+      const match = positions.find(x =>
+        positionId ? x?.positionId === positionId : (x?.kind === 'lp' && x?.poolId === poolId),
+      );
+      if (!match) return;
+      this.editParams.update(ep => ({
+        ...ep,
+        pair: ep['pair'] || match.pair || '',
+        tokenASymbol: ep['tokenASymbol'] || match.mintA?.symbol || '',
+        tokenBSymbol: ep['tokenBSymbol'] || match.mintB?.symbol || '',
+        ...(match.mintA?.logoURI && !ep['tokenALogo'] ? { tokenALogo: match.mintA.logoURI } : {}),
+        ...(match.mintB?.logoURI && !ep['tokenBLogo'] ? { tokenBLogo: match.mintB.logoURI } : {}),
+        ...(match.amountA !== undefined ? { amountA: String(match.amountA) } : {}),
+        ...(match.amountB !== undefined ? { amountB: String(match.amountB) } : {}),
+        ...(match.liquidity ? { liquidity: String(match.liquidity) } : {}),
+        ...(match.lpAmount !== undefined ? { lpAmount: String(match.lpAmount) } : {}),
+      }));
+    } catch {
+      // Leave the card as-is — it still submits fine on the id alone.
     }
   }
 
