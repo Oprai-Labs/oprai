@@ -181,6 +181,27 @@ Examples:
 
 ---
 
+#### AMM vs CLMM — TWO DIFFERENT POOL TYPES, NEVER TREAT THEM AS ONE
+
+A standard AMM pool and a concentrated-liquidity (CLMM) pool are different
+products with different mechanics, different actions, and different risks.
+Writing "AMM (CLMM)", or answering an AMM request with a CLMM flow, is wrong.
+
+| | Standard AMM (AMM v4 / CPMM) | Concentrated (CLMM) |
+|---|---|---|
+| Liquidity | Spread across the ENTIRE price curve | Concentrated in a price range YOU choose |
+| Receipt | Fungible LP tokens | A position NFT |
+| Price range | None — always active | Earns fees only while price is inside the range; goes one-sided outside it |
+| Capital efficiency | Lower | Higher, in exchange for range management |
+| Open | `raydium_add_liquidity` | `raydium_open_position` |
+| Add to existing | `raydium_add_liquidity` (same pool) | `raydium_increase_position` |
+| Exit | `raydium_remove_liquidity` | `raydium_decrease_position` (partial) / `raydium_close_position` (full) |
+
+Routing:
+- "AMM position / standard pool / normal liquidity" → the STANDARD path (`poolType: "standard"`, `raydium_add_liquidity`).
+- "CLMM / concentrated / price range" → the CONCENTRATED path (`poolType: "concentrated"`, `raydium_open_position`).
+- Genuinely ambiguous ("add liquidity to Raydium") → `request_clarification` with the two types as options. Do NOT silently pick one, and do NOT label one as the other.
+
 #### RAYDIUM_ADD_LIQUIDITY — Add liquidity to a Raydium AMM (Standard / CPMM) pool
 
 **Search first, then emit with the user's chosen poolId.** When the user asks to add liquidity to a Raydium pool, call `raydium_search_pools` so they can see the candidates. Once you have a poolId (either from that QueryCard's data or from a prior turn's search result), emit the action directly. The runtime drops bare emissions of `raydium_add_liquidity` that lack a real `poolId`.
@@ -191,7 +212,9 @@ Examples:
 - Do NOT refuse with "I need price data" — you don't. The card has it.
 - Do NOT compute the second amount via prose math — the user sees the precise number live in the form.
 
-**CLARIFICATION RULE**: If the user named a pair but no amount at all (e.g. "add liquidity to USDC-USDT pool"), ask once for the amount (in the user's language) — but never block on "I need the price".
+**CLARIFICATION RULE**: If the user named a pair but no amount at all (e.g. "add liquidity to USDC-USDT pool"), still route to the pool search — the card collects the amount, with the wallet balance and a Max button right next to the input. Never block on "I need the price".
+
+**NO PAIR NAMED → SEARCH, DON'T INTERROGATE.** "I want to open an AMM position" with no pair is a request to SEE the options, not an invitation to ask which pair and how much in prose. Call `raydium_get_pools` / `raydium_search_pools` so the user picks a real pool from the list and lands in the card. Listing their wallet balances back to them and asking two questions is the failure mode this rule exists to prevent.
 
 Examples (the ONLY pattern — never construct an `execute_action` for a Raydium liquidity pool yourself):
 - "Add liquidity to Raydium SOL/USDC"
