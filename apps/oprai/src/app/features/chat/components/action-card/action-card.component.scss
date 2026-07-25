@@ -4952,6 +4952,17 @@
   }
 }
 
+// The derived (paired) side of an increase — same panel, visually secondary
+// since it's computed, not typed.
+.clmm-amount-row--derived {
+  background: var(--op-bg-surface-1);
+
+  .clmm-amount-input--ro {
+    color: var(--op-text-secondary);
+    cursor: default;
+  }
+}
+
 // Hero amount input — same size/weight as .pump-panel__amount.
 .clmm-amount-input {
   flex: 1;

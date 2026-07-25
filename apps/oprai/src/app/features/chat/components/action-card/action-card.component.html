@@ -1282,7 +1282,7 @@
                   <span class="clmm-amount-row__bal">
                     @if (curBal !== null) { Balance: {{ curBal | number:'1.0-6' }} }
                     @if (curBal !== null && curBal > 0) {
-                      <button type="button" class="clmm-max-btn" (click)="setMaxAmount('inputAmount')">Max</button>
+                      <button type="button" class="clmm-max-btn" (click)="setMaxClmmIncrease()">Max</button>
                     }
                   </span>
                 </div>
@@ -1308,8 +1308,37 @@
                   </div>
                 </div>
               </div>
+              <!-- The pool takes BOTH tokens; show exactly how much of the
+                   other one this deposit implies, with its balance. -->
+              @let paired = clmmIncreasePaired();
+              @if (paired) {
+                <div class="clmm-amount-plus">+</div>
+                <div class="clmm-amount-row clmm-amount-row--derived">
+                  <div class="clmm-amount-row__top">
+                    <span class="clmm-amount-row__label">{{ paired.symbol }}</span>
+                    <span class="clmm-amount-row__bal">
+                      @if (secondaryBalance() !== null) { Balance: {{ secondaryBalance() | number:'1.0-6' }} }
+                    </span>
+                  </div>
+                  <div class="clmm-amount-row__body">
+                    <span class="clmm-amount-input clmm-amount-input--ro">{{ paired.amount | number:'1.0-6' }}</span>
+                    <div class="clmm-token-pill">
+                      @let pairedLogo = paired.side === 'A' ? iv.logoA : iv.logoB;
+                      @if (pairedLogo) {
+                        <img [src]="pairedLogo" [alt]="paired.symbol" class="clmm-token-pill__icon"
+                             (error)="$any($event.target).style.display='none'" />
+                      } @else {
+                        <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (paired.symbol || '?').charAt(0) }}</span>
+                      }
+                      <span class="clmm-token-pill__sym">{{ paired.symbol }}</span>
+                    </div>
+                  </div>
+                </div>
+              }
               <div class="clmm-min-hint">
-                The paired {{ side === 'A' ? iv.symB : iv.symA }} amount is added automatically at the pool's current ratio, within your slippage tolerance.
+                A CLMM deposit always takes BOTH tokens — you enter one and the paired
+                {{ side === 'A' ? iv.symB : iv.symA }} amount is derived from the position's current ratio,
+                within your slippage tolerance.
               </div>
             </div>
 
@@ -3161,8 +3190,8 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || clmmInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="clmmUnresolved() || clmmInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
             @if (clmmUnresolved()) {
               <lucide-icon name="alert-circle" [size]="14" />
@@ -3170,6 +3199,9 @@
             } @else if (clmmInsufficient() !== null) {
               <lucide-icon name="alert-circle" [size]="14" />
               {{ clmmInsufficient() }}
+            } @else if (clmmIncreaseInsufficient() !== null) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              {{ clmmIncreaseInsufficient() }}
             } @else if (insufficientFunds()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Insufficient balance
