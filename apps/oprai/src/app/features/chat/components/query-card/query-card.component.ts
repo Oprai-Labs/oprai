@@ -487,6 +487,34 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly raydiumPositions = signal<RaydiumUserPosition[]>([]);
   readonly raydiumPositionsFetching = signal(false);
 
+  // Which position kind the list shows. A "list my CLMM positions" request must
+  // NOT dump the standard/CPMM LP holdings too — seeded from the query type /
+  // params on a fresh query, and flippable via the chips.
+  readonly raydiumPositionKind = signal<'all' | 'clmm' | 'lp'>('all');
+
+  readonly RAYDIUM_POSITION_KINDS: { value: 'all' | 'clmm' | 'lp'; label: string }[] = [
+    { value: 'all',  label: 'All' },
+    { value: 'clmm', label: 'CLMM' },
+    { value: 'lp',   label: 'LP' },
+  ];
+
+  readonly visibleRaydiumPositions = computed(() => {
+    const kind = this.raydiumPositionKind();
+    const all = this.raydiumPositions();
+    return kind === 'all' ? all : all.filter(p => p.kind === kind);
+  });
+
+  /** Count per kind — drives the chip badges so a filter that would show an
+   *  empty list is visible before it's clicked. */
+  raydiumPositionCount(kind: 'all' | 'clmm' | 'lp'): number {
+    const all = this.raydiumPositions();
+    return kind === 'all' ? all.length : all.filter(p => p.kind === kind).length;
+  }
+
+  setRaydiumPositionKind(kind: 'all' | 'clmm' | 'lp'): void {
+    this.raydiumPositionKind.set(kind);
+  }
+
   // Classic numbered pagination (1 2 3 4 5). Each page REPLACES the list with
   // its own 10 rows — no infinite-scroll / auto-append. Raydium V3 doesn't
   // expose a total count, so we drive a windowed page bar off the current page
@@ -630,6 +658,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         if (sf === 'liquidity' || sf === 'volume24h' || sf === 'fee24h' || sf === 'apr24h') {
           this.raydiumSortField.set(sf);
         }
+      }
+      // Same idea for the POSITIONS list: "list my CLMM positions" must not also
+      // dump standard LP holdings. The dedicated query type implies CLMM; a
+      // generic positions query can still carry a kind/poolType hint.
+      if (this.query.type === 'raydium_get_clmm_positions') {
+        this.raydiumPositionKind.set('clmm');
+      } else if (this.query.type === 'raydium_get_user_positions') {
+        const k = (
+          (this.query.params?.['kind'] as string | undefined) ??
+          (this.query.params?.['poolType'] as string | undefined) ??
+          (this.query.params?.['positionType'] as string | undefined) ??
+          ''
+        ).toLowerCase();
+        if (k === 'clmm' || k === 'concentrated') this.raydiumPositionKind.set('clmm');
+        else if (k === 'lp' || k === 'standard' || k === 'amm') this.raydiumPositionKind.set('lp');
       }
       this.simulateQuery();
     }

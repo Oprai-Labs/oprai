@@ -529,6 +529,75 @@
   margin-bottom: 8px;
 }
 
+// ── Raydium positions, styled like the Jupiter swap panel (.pump-panel) ──
+.ray-pos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ray-pos {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 16px;
+  transition: border-color 0.12s;
+
+  &:hover { border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle)); }
+
+  &__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  &__pair {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--op-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__addr { margin-left: auto; flex-shrink: 0; }
+
+  &__body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  &__amount-block {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.15;
+  }
+
+  &__amount {
+    font-size: 1.625rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__amount-label {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    margin-top: 2px;
+  }
+}
+
 .ray-search {
   display: flex;
   align-items: center;

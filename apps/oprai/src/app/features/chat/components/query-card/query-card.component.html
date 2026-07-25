@@ -872,19 +872,28 @@
 
       <!-- Raydium positions (self-fetched, on-chain via SDK) -->
       @if (query.type === 'raydium_get_user_positions' || query.type === 'raydium_get_clmm_positions') {
-        <div class="result-table km-table km-table--ray">
-          <div class="result-table__header km-row km-row--pos">
-            <span>Pool</span>
-            <span class="text-right">Type</span>
-            <span class="text-right">Amount</span>
-            <span class="text-right">Action</span>
-          </div>
+        <!-- Kind filter: a "CLMM positions" request seeds CLMM so standard LP
+             holdings aren't dumped in alongside them. -->
+        <div class="dlmm-sort-bar">
+          @for (opt of RAYDIUM_POSITION_KINDS; track opt.value) {
+            <button
+              class="sort-btn"
+              [class.sort-active]="raydiumPositionKind() === opt.value"
+              (click)="setRaydiumPositionKind(opt.value)">
+              {{ opt.label }} ({{ raydiumPositionCount(opt.value) }})
+            </button>
+          }
+        </div>
+
+        <div class="ray-pos-list">
           @if (raydiumPositionsFetching() && raydiumPositions().length === 0) {
             <div class="dlmm-empty">Loading positions…</div>
           }
-          @for (pos of raydiumPositions(); track pos.poolId + (pos.positionId || pos.lpMint || '')) {
-            <div class="result-table__row km-row km-row--pos">
-              <span class="km-pair">
+          @for (pos of visibleRaydiumPositions(); track pos.poolId + (pos.positionId || pos.lpMint || '')) {
+            <!-- Panel styled like the Jupiter swap panel: header row (pair +
+                 type) over a body row with the hero amount and the action. -->
+            <div class="ray-pos">
+              <div class="ray-pos__top">
                 <span class="km-icons">
                   @if (pos.mintA?.logoURI) {
                     <img class="km-icon" [src]="pos.mintA!.logoURI" [alt]="pos.mintA!.symbol" (error)="$any($event.target).style.display='none'" />
@@ -897,42 +906,45 @@
                     <span class="km-icon km-icon--debt km-icon--fallback">{{ (pos.mintB?.symbol || '?').charAt(0) }}</span>
                   }
                 </span>
-                <span class="km-pair__text">
-                  <span class="km-pair__name">{{ pos.pair }}</span>
-                  <button type="button"
-                          class="dlmm-pair__addr mono dlmm-copy-btn km-pair__sub"
-                          [class.dlmm-copy-btn--copied]="copiedAddress() === pos.poolId"
-                          (click)="copyPoolAddress(pos.poolId); $event.stopPropagation()"
-                          [attr.title]="copiedAddress() === pos.poolId ? 'Copied' : 'Copy pool address: ' + pos.poolId">
-                    <span class="dlmm-pair__addr-text">{{ pos.poolId.slice(0, 4) }}…{{ pos.poolId.slice(-4) }}</span>
-                    @if (copiedAddress() === pos.poolId) {
-                      <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
-                    } @else {
-                      <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
-                    }
-                  </button>
-                </span>
-              </span>
-              <span class="text-right">
+                <span class="ray-pos__pair">{{ pos.pair }}</span>
                 <span class="type-badge">{{ pos.kind === 'clmm' ? 'CLMM' : 'LP' }}</span>
-              </span>
-              <span class="text-right mono">
-                {{ pos.kind === 'lp' ? (pos.lpAmount | number:'1.0-6') : (pos.liquidity || '0') }}
-              </span>
-              <span class="text-right">
+                <button type="button"
+                        class="dlmm-pair__addr mono dlmm-copy-btn ray-pos__addr"
+                        [class.dlmm-copy-btn--copied]="copiedAddress() === pos.poolId"
+                        (click)="copyPoolAddress(pos.poolId); $event.stopPropagation()"
+                        [attr.title]="copiedAddress() === pos.poolId ? 'Copied' : 'Copy pool address: ' + pos.poolId">
+                  <span class="dlmm-pair__addr-text">{{ pos.poolId.slice(0, 4) }}…{{ pos.poolId.slice(-4) }}</span>
+                  @if (copiedAddress() === pos.poolId) {
+                    <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
+                  } @else {
+                    <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
+                  }
+                </button>
+              </div>
+              <div class="ray-pos__body">
+                <span class="ray-pos__amount-block">
+                  <span class="ray-pos__amount">{{ pos.kind === 'lp' ? (pos.lpAmount | number:'1.0-6') : (pos.liquidity || '0') }}</span>
+                  <span class="ray-pos__amount-label">{{ pos.kind === 'lp' ? 'LP tokens' : 'Liquidity' }}</span>
+                </span>
                 <button type="button" class="dlmm-use-btn"
                         (click)="withdrawRaydiumPosition(pos); $event.stopPropagation()"
                         title="Withdraw this position">
                   Withdraw
                   <lucide-icon name="arrow-right" [size]="12" />
                 </button>
-              </span>
+              </div>
             </div>
           }
-          @if (!raydiumPositionsFetching() && raydiumPositions().length === 0) {
+          @if (!raydiumPositionsFetching() && visibleRaydiumPositions().length === 0) {
             <div class="dlmm-empty">
               <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
-              <div>No active Raydium positions.</div>
+              <div>
+                @if (raydiumPositions().length > 0) {
+                  No {{ raydiumPositionKind() === 'clmm' ? 'CLMM' : 'LP' }} positions.
+                } @else {
+                  No active Raydium positions.
+                }
+              </div>
               <div class="dlmm-empty__hint">Add liquidity from a pool to open one.</div>
             </div>
           }

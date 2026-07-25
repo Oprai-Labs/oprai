@@ -210,9 +210,19 @@ Optional: slippageBps (default 100)
 
 **CLARIFICATION RULE**: If user says "remove my Raydium liquidity" without specifying pool or amount, first call query_onchain("raydium_get_user_positions", {"wallet": "self"}) to find their positions.
 
+**POSITION-LIST SCOPE**: Match the query to what the user asked for. When they
+name a specific position kind (concentrated / CLMM), use the kind-specific query
+`raydium_get_clmm_positions` so the answer contains only that kind. Use the
+general `raydium_get_user_positions` only when they ask for ALL their positions.
+Listing every position when the user asked for one kind is a wrong answer.
+
 Examples:
 - "Remove 10.5 LP tokens from my Raydium SOL-USDC pool"
   -> execute_action("raydium_remove_liquidity", {"poolId": "<pool_address>", "lpAmount": "10.5"})
+- "List my CLMM positions"
+  -> query_onchain("raydium_get_clmm_positions", {"wallet": "self"})
+- "Show all my Raydium positions"
+  -> query_onchain("raydium_get_user_positions", {"wallet": "self"})
 
 ---
 
