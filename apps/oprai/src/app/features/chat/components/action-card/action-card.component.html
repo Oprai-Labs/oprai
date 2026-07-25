@@ -1229,6 +1229,131 @@
           }
 
           </div>
+        } @else if (raydiumAmmView() !== null) {
+          <!-- Standard AMM (v4 / CPMM) deposit: full range, so no price band —
+               just the pool header and the two auto-balancing amount panels,
+               in the same language as the swap / CLMM cards. -->
+          @let av = raydiumAmmView()!;
+          @let ammBalA = inputBalance();
+          @let ammBalB = secondaryBalance();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Pool</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (av.logoA) {
+                      <img class="ray-wd__icon" [src]="av.logoA" [alt]="av.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (av.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (av.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="av.logoB" [alt]="av.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (av.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ av.pair }}</span>
+                  <span class="ray-wd__kind">STANDARD</span>
+                </div>
+                @if (av.poolId) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">Pool</span>
+                    <code class="ray-wd__ref-value">{{ av.poolId.slice(0, 6) }}…{{ av.poolId.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(av.poolId)" title="Copy pool address">
+                      <lucide-icon [name]="copiedField() === av.poolId ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">Add Deposit Amount</div>
+              <div class="clmm-min-hint">
+                Full-range pool — both tokens go in at the pool's current ratio; type either amount and the other follows.
+              </div>
+
+              <!-- Token A -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ av.symA }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (ammBalA !== null) { Balance: {{ ammBalA | number:'1.0-6' }} }
+                    @if (ammBalA !== null && ammBalA > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmm('A')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="editParams()['amountA'] ?? ''"
+                    (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
+                  <div class="clmm-token-pill">
+                    @if (av.logoA) {
+                      <img [src]="av.logoA" [alt]="av.symA" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (av.symA || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ av.symA }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="clmm-amount-plus">+</div>
+
+              <!-- Token B -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ av.symB }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (ammBalB !== null) { Balance: {{ ammBalB | number:'1.0-6' }} }
+                    @if (ammBalB !== null && ammBalB > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmm('B')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="editParams()['amountB'] ?? ''"
+                    (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
+                  <div class="clmm-token-pill">
+                    @if (av.logoB) {
+                      <img [src]="av.logoB" [alt]="av.symB" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (av.symB || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ av.symB }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <details class="clmm-advanced">
+              <summary>Advanced</summary>
+              <div class="clmm-advanced__row">
+                <label>Slippage tolerance</label>
+                <div class="clmm-advanced__input">
+                  <input type="number" step="0.1" min="0" max="100"
+                         [value]="((+(editParams()['slippageBps'] ?? '100')) / 100)"
+                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))" />
+                  <span>%</span>
+                </div>
+              </div>
+            </details>
+          </div>
         } @else if (raydiumIncreaseView() !== null) {
           <!-- Add liquidity to an existing CLMM position: which side + how
                much. The paired amount is derived on-chain at the pool ratio. -->
@@ -3184,8 +3309,8 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
             @if (clmmUnresolved()) {
               <lucide-icon name="alert-circle" [size]="14" />
@@ -3196,6 +3321,9 @@
             } @else if (clmmIncreaseInsufficient() !== null) {
               <lucide-icon name="alert-circle" [size]="14" />
               {{ clmmIncreaseInsufficient() }}
+            } @else if (ammInsufficient() !== null) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              {{ ammInsufficient() }}
             } @else if (insufficientFunds()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Insufficient balance

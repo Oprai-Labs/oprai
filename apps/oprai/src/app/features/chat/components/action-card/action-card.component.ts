@@ -1978,6 +1978,79 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Adding liquidity to an EXISTING CLMM position. */
   readonly isRaydiumIncrease = computed(() => this.action.type === 'raydium_increase_position');
 
+  /** Standard AMM (v4 / CPMM) add-liquidity — full range, no price band. */
+  readonly isRaydiumAddLiquidity = computed(() => this.action.type === 'raydium_add_liquidity');
+
+  /** Header context for the AMM deposit panel; null until the pool resolves. */
+  readonly raydiumAmmView = computed<{
+    pair: string; symA: string; symB: string;
+    logoA: string | null; logoB: string | null; poolId: string;
+  } | null>(() => {
+    if (!this.isRaydiumAddLiquidity()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] || this.resolveTokenDisplay(p['tokenA'] ?? '').symbol || '';
+    const symB = p['tokenBSymbol'] || this.resolveTokenDisplay(p['tokenB'] ?? '').symbol || '';
+    if (!symA || !symB) return null;
+    return {
+      pair: p['pair'] || `${symA}/${symB}`,
+      symA, symB,
+      logoA: p['tokenALogo'] || this.resolveTokenDisplay(p['tokenA'] ?? symA).logoURI || null,
+      logoB: p['tokenBLogo'] || this.resolveTokenDisplay(p['tokenB'] ?? symB).logoURI || null,
+      poolId: p['poolId'] ?? '',
+    };
+  });
+
+  /** Max on one AMM deposit side, capped so BOTH sides stay within balance
+   *  at the pool's constant-product ratio. */
+  setMaxAmm(side: 'A' | 'B'): void {
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
+    const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const RENT = 0.02;
+    const SAFETY = 0.99;
+    const availA = Math.max(0, (this.inputBalance() ?? 0) - (isSol(symA) ? RENT : 0)) * SAFETY;
+    const availB = Math.max(0, (this.secondaryBalance() ?? 0) - (isSol(symB) ? RENT : 0)) * SAFETY;
+    const amm = this.ammRatio(); // yPerX = B per A
+    const yPerX = amm?.yPerX;
+
+    if (!yPerX || !Number.isFinite(yPerX) || yPerX <= 0) {
+      this.setMaxAmount(side === 'A' ? 'amountA' : 'amountB');
+      return;
+    }
+    if (side === 'B') {
+      const maxB = Math.min(availB, availA * yPerX);
+      if (!(maxB > 0)) return;
+      this.setEditParam('amountB', formatDlmmAmount(maxB));
+      this.dlmmLastEdited.set('B');
+      return;
+    }
+    const maxA = Math.min(availA, availB / yPerX);
+    if (!(maxA > 0)) return;
+    this.setEditParam('amountA', formatDlmmAmount(maxA));
+    this.dlmmLastEdited.set('A');
+  }
+
+  /** Pre-Confirm balance guard for the AMM deposit (both sides). */
+  readonly ammInsufficient = computed<string | null>(() => {
+    if (!this.isRaydiumAddLiquidity()) return null;
+    const p = this.editParams();
+    const amtA = parseFloat(p['amountA'] ?? '');
+    const amtB = parseFloat(p['amountB'] ?? '');
+    const symA = p['tokenASymbol'] ?? 'A';
+    const symB = p['tokenBSymbol'] ?? 'B';
+    const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const RENT = 0.02;
+    const EPS = 1e-9;
+    const balA = this.inputBalance();
+    const balB = this.secondaryBalance();
+    if (Number.isFinite(amtA) && amtA > 0 && balA !== null &&
+        amtA > balA - (isSol(symA) ? RENT : 0) + EPS) return `Not enough ${symA}`;
+    if (Number.isFinite(amtB) && amtB > 0 && balB !== null &&
+        amtB > balB - (isSol(symB) ? RENT : 0) + EPS) return `Not enough ${symB}`;
+    return null;
+  });
+
   /** Which side of the pair the user typed into ('A' | 'B'). The transaction
    *  carries ONE side (inputMint + inputAmount); the other is derived. */
   readonly clmmIncreaseSide = computed<'A' | 'B'>(() => {
