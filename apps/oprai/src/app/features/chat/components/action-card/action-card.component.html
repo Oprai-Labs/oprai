@@ -1229,6 +1229,74 @@
           }
 
           </div>
+        } @else if (raydiumDecreaseView() !== null) {
+          <!-- Partial CLMM withdrawal: choose a percentage and see exactly what
+               comes back, instead of typing a raw liquidity constant. -->
+          @let dv = raydiumDecreaseView()!;
+          @let dpct = clmmDecreasePct();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Reduce Position</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (dv.logoA) {
+                      <img class="ray-wd__icon" [src]="dv.logoA" [alt]="dv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (dv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (dv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="dv.logoB" [alt]="dv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (dv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ dv.pair }}</span>
+                  <span class="ray-wd__kind">CLMM</span>
+                </div>
+                <div class="ray-wd__body">
+                  <span class="ray-wd__amount">{{ dv.outA }} {{ dv.symA }} + {{ dv.outB }} {{ dv.symB }}</span>
+                  <span class="ray-wd__amount-label">You receive (plus earned fees)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">Amount to withdraw</div>
+              <div class="clmm-presets">
+                @for (preset of CLMM_DECREASE_PRESETS; track preset) {
+                  <button type="button"
+                          class="clmm-preset"
+                          [class.clmm-preset--active]="dpct === preset"
+                          (click)="setClmmDecreasePct(preset)">
+                    {{ preset === 100 ? 'All' : preset + '%' }}
+                  </button>
+                }
+              </div>
+              @if (dv.closes) {
+                <div class="clmm-min-hint">
+                  Withdrawing everything also closes the position and refunds its rent.
+                </div>
+              } @else {
+                <div class="clmm-min-hint">
+                  The position stays open with the remaining {{ 100 - dpct }}% and keeps earning fees.
+                </div>
+              }
+            </div>
+
+            <details class="clmm-advanced">
+              <summary>Advanced</summary>
+              <div class="clmm-advanced__row">
+                <label>Slippage tolerance</label>
+                <div class="clmm-advanced__input">
+                  <input type="number" step="0.1" min="0" max="100"
+                         [value]="((+(editParams()['slippageBps'] ?? '50')) / 100)"
+                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))" />
+                  <span>%</span>
+                </div>
+              </div>
+            </details>
+          </div>
         } @else if (raydiumAmmView() !== null) {
           <!-- Standard AMM (v4 / CPMM) deposit: full range, so no price band —
                just the pool header and the two auto-balancing amount panels,

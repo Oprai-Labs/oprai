@@ -1978,6 +1978,65 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Adding liquidity to an EXISTING CLMM position. */
   readonly isRaydiumIncrease = computed(() => this.action.type === 'raydium_increase_position');
 
+  /** Partial withdrawal from a CLMM position. */
+  readonly isRaydiumDecrease = computed(() => this.action.type === 'raydium_decrease_position');
+
+  readonly CLMM_DECREASE_PRESETS: ReadonlyArray<number> = [25, 50, 75, 100];
+
+  /**
+   * How much of the position the user is withdrawing, as a percentage. The
+   * builder accepts "50%" / "all" / a raw liquidity value; we keep the param
+   * in percent form because a raw liquidity constant ("22160774") tells the
+   * user nothing about how much they're taking out.
+   */
+  readonly clmmDecreasePct = computed<number>(() => {
+    const p = this.editParams();
+    const raw = (p['liquidity'] ?? '').trim().toLowerCase();
+    if (!raw) return 50;
+    if (raw === 'all' || raw === 'max') return 100;
+    const pct = raw.match(/^(\d+(?:\.\d+)?)\s*%$/);
+    if (pct) return Math.min(100, Math.max(0, parseFloat(pct[1])));
+    // A raw liquidity amount → express it against the position's total.
+    const total = parseFloat(p['positionLiquidity'] ?? '');
+    const asked = parseFloat(raw);
+    if (Number.isFinite(total) && total > 0 && Number.isFinite(asked) && asked > 0) {
+      return Math.min(100, Math.round((asked / total) * 100));
+    }
+    return 50;
+  });
+
+  setClmmDecreasePct(pct: number): void {
+    this.setEditParam('liquidity', pct >= 100 ? 'all' : `${pct}%`);
+  }
+
+  /** Position summary + what this withdrawal returns. */
+  readonly raydiumDecreaseView = computed<{
+    pair: string; symA: string; symB: string;
+    logoA: string | null; logoB: string | null;
+    outA: string; outB: string; positionId: string; closes: boolean;
+  } | null>(() => {
+    if (!this.isRaydiumDecrease()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
+    const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
+    if (!pair) return null;
+    const pct = this.clmmDecreasePct();
+    const posA = parseFloat(p['amountA'] ?? '');
+    const posB = parseFloat(p['amountB'] ?? '');
+    const fmt = (v: number): string =>
+      Number.isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—';
+    return {
+      pair, symA, symB,
+      logoA: p['tokenALogo'] || this.resolveTokenDisplay(symA).logoURI || null,
+      logoB: p['tokenBLogo'] || this.resolveTokenDisplay(symB).logoURI || null,
+      outA: fmt(posA * pct / 100),
+      outB: fmt(posB * pct / 100),
+      positionId: p['positionId'] ?? '',
+      closes: pct >= 100,
+    };
+  });
+
   /** Standard AMM (v4 / CPMM) add-liquidity — full range, no price band. */
   readonly isRaydiumAddLiquidity = computed(() => this.action.type === 'raydium_add_liquidity');
 
@@ -2214,7 +2273,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       amount = fmt(p['lpAmount']) ?? '—';
       amountLabel = 'LP tokens to burn';
     } else {
-      amount = p['liquidity'] || '—';
+      amount = p['positionLiquidity'] || p['liquidity'] || '—';
       amountLabel = 'Liquidity to withdraw';
     }
 
@@ -3090,7 +3149,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * long-lived chat card honest about what it's about to withdraw.
    */
   async maybeEnrichRaydiumWithdraw(): Promise<void> {
-    if (!this.isRaydiumWithdraw() && !this.isRaydiumIncrease()) return;
+    if (!this.isRaydiumWithdraw() && !this.isRaydiumIncrease() && !this.isRaydiumDecrease()) return;
     const p = this.editParams();
     const positionId = (p['positionId'] ?? '').trim();
     const poolId = (p['poolId'] ?? '').trim();
@@ -3124,7 +3183,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         ...(match.mintB?.logoURI && !ep['tokenBLogo'] ? { tokenBLogo: match.mintB.logoURI } : {}),
         ...(match.amountA !== undefined ? { amountA: String(match.amountA) } : {}),
         ...(match.amountB !== undefined ? { amountB: String(match.amountB) } : {}),
-        ...(match.liquidity ? { liquidity: String(match.liquidity) } : {}),
+        // The position's TOTAL liquidity goes in its own key: on a decrease,
+        // `liquidity` is the user's requested withdrawal amount and must not be
+        // overwritten with the position's full size.
+        ...(match.liquidity ? { positionLiquidity: String(match.liquidity) } : {}),
         ...(match.lpAmount !== undefined ? { lpAmount: String(match.lpAmount) } : {}),
       }));
       // The mints only became known just now, so the balance lines (and the
