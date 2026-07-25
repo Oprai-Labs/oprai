@@ -1986,12 +1986,35 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
     if (!pair) return null;
     const isLp = this.action.type === 'raydium_remove_liquidity';
-    const amount = isLp ? (p['lpAmount'] ?? '') : (p['liquidity'] ?? '');
+
+    // Prefer the real token amounts ("0.0123 SOL + 4.56 USDC"). Raw CLMM
+    // liquidity is an internal constant and means nothing to the user — it's
+    // only the last-resort fallback when the amounts couldn't be derived.
+    const fmt = (v: string | undefined): string | null => {
+      const n = parseFloat(v ?? '');
+      if (!Number.isFinite(n)) return null;
+      return n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+    };
+    const amtA = fmt(p['amountA']);
+    const amtB = fmt(p['amountB']);
+    let amount: string;
+    let amountLabel: string;
+    if (!isLp && (amtA !== null || amtB !== null)) {
+      amount = `${amtA ?? '0'} ${symA} + ${amtB ?? '0'} ${symB}`;
+      amountLabel = 'You receive (plus earned fees)';
+    } else if (isLp) {
+      amount = fmt(p['lpAmount']) ?? '—';
+      amountLabel = 'LP tokens to burn';
+    } else {
+      amount = p['liquidity'] || '—';
+      amountLabel = 'Liquidity to withdraw';
+    }
+
     return {
       pair,
       kind: isLp ? 'LP' : 'CLMM',
-      amount: amount || '—',
-      amountLabel: isLp ? 'LP tokens to burn' : 'Liquidity to withdraw',
+      amount,
+      amountLabel,
       logoA: p['tokenALogo'] || this.resolveTokenDisplay(symA).logoURI || null,
       logoB: p['tokenBLogo'] || this.resolveTokenDisplay(symB).logoURI || null,
       symA, symB,

@@ -591,6 +591,19 @@
     text-overflow: ellipsis;
   }
 
+  // Two token amounts + symbols need more room than a single figure, so this
+  // variant trades a little size for a full, unclipped line.
+  &__amount--pair {
+    font-size: 1.125rem;
+    white-space: normal;
+  }
+
+  &__amount-sep {
+    color: var(--op-text-tertiary);
+    font-weight: 500;
+    margin: 0 2px;
+  }
+
   &__amount-label {
     font-size: 0.6875rem;
     color: var(--op-text-tertiary);

@@ -217,6 +217,10 @@ interface RaydiumUserPosition {
   tickLower?: number;
   tickUpper?: number;
   liquidity?: string;
+  /** Token amounts the position holds, derived server-side from liquidity +
+   *  tick range. Raw `liquidity` is meaningless to a user — show these. */
+  amountA?: number;
+  amountB?: number;
   empty?: boolean;
   // LP
   poolType?: string;
@@ -1661,6 +1665,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         positionId: pos.positionId ?? '',
         positionKind: 'clmm',
         ...(pos.liquidity ? { liquidity: pos.liquidity } : {}),
+        // Token amounts for display — the card shows "you get back X + Y"
+        // instead of the raw liquidity constant.
+        ...(pos.amountA !== undefined ? { amountA: String(pos.amountA) } : {}),
+        ...(pos.amountB !== undefined ? { amountB: String(pos.amountB) } : {}),
       };
       this.useAction.emit({ type: 'raydium_close_position', params, raw: `[ACTION:raydium_close_position] ${JSON.stringify(params)}` });
     }

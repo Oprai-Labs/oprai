@@ -923,8 +923,18 @@
               </div>
               <div class="ray-pos__body">
                 <span class="ray-pos__amount-block">
-                  <span class="ray-pos__amount">{{ pos.kind === 'lp' ? (pos.lpAmount | number:'1.0-6') : (pos.liquidity || '0') }}</span>
-                  <span class="ray-pos__amount-label">{{ pos.kind === 'lp' ? 'LP tokens' : 'Liquidity' }}</span>
+                  @if (pos.kind === 'clmm' && (pos.amountA !== undefined || pos.amountB !== undefined)) {
+                    <!-- Real token amounts, not the opaque raw liquidity constant. -->
+                    <span class="ray-pos__amount ray-pos__amount--pair">
+                      {{ pos.amountA ?? 0 | number:'1.0-6' }} {{ pos.mintA?.symbol }}
+                      <span class="ray-pos__amount-sep">+</span>
+                      {{ pos.amountB ?? 0 | number:'1.0-6' }} {{ pos.mintB?.symbol }}
+                    </span>
+                    <span class="ray-pos__amount-label">Position value</span>
+                  } @else {
+                    <span class="ray-pos__amount">{{ pos.kind === 'lp' ? (pos.lpAmount | number:'1.0-6') : (pos.liquidity || '0') }}</span>
+                    <span class="ray-pos__amount-label">{{ pos.kind === 'lp' ? 'LP tokens' : 'Liquidity' }}</span>
+                  }
                 </span>
                 <button type="button" class="dlmm-use-btn"
                         (click)="withdrawRaydiumPosition(pos); $event.stopPropagation()"

@@ -5085,14 +5085,14 @@
   }
 
   &__amount {
-    font-size: 1.625rem;
+    // Holds "0.0123 SOL + 4.56 USDC" — sized to fit both legs on one line
+    // without clipping, still clearly the panel's headline figure.
+    font-size: 1.125rem;
     font-weight: 600;
     color: var(--op-text-primary);
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.01em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.3;
   }
 
   &__amount-label {

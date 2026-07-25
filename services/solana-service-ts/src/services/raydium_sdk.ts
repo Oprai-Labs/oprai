@@ -557,6 +557,54 @@ export async function buildRaydiumCreatePoolSdk(params: any, userWallet: string)
 // (raydium.clmm.getOwnerPositionInfo), NOT a cross-protocol portfolio aggregator.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Token amounts a CLMM position currently holds, derived from its liquidity L
+ * and tick range. Raw `liquidity` is an internal constant — meaningless to a
+ * user — so we surface the actual "you'd get back X A + Y B" figures instead.
+ *
+ * Standard concentrated-liquidity math: the price at a tick, 1.0001^tick, is a
+ * ratio of RAW (integer) token units, so the pool's UI price has to be scaled
+ * by the decimal difference before taking square roots.
+ *
+ * These are display estimates (float math, fees excluded); the exact payout is
+ * computed on-chain at withdrawal.
+ */
+function clmmPositionAmounts(
+  liquidity: string,
+  tickLower: number,
+  tickUpper: number,
+  uiPrice: number, // mintB per mintA, as Raydium reports `price`
+  decA: number,
+  decB: number,
+): { amountA: number; amountB: number } | null {
+  const L = Number(liquidity);
+  if (!Number.isFinite(L) || L <= 0) return null;
+  if (!Number.isFinite(uiPrice) || uiPrice <= 0) return null;
+  if (!Number.isFinite(tickLower) || !Number.isFinite(tickUpper)) return null;
+
+  const sqrtP = Math.sqrt(uiPrice * Math.pow(10, decB - decA));
+  const sqrtPa = Math.pow(1.0001, tickLower / 2);
+  const sqrtPb = Math.pow(1.0001, tickUpper / 2);
+  if (!(sqrtPa > 0) || !(sqrtPb > sqrtPa)) return null;
+
+  let raw0 = 0;
+  let raw1 = 0;
+  if (sqrtP <= sqrtPa) {
+    // Price below the range → the position sits entirely in token A.
+    raw0 = L * (1 / sqrtPa - 1 / sqrtPb);
+  } else if (sqrtP >= sqrtPb) {
+    // Price above the range → entirely token B.
+    raw1 = L * (sqrtPb - sqrtPa);
+  } else {
+    raw0 = L * (1 / sqrtP - 1 / sqrtPb);
+    raw1 = L * (sqrtP - sqrtPa);
+  }
+  const amountA = raw0 / Math.pow(10, decA);
+  const amountB = raw1 / Math.pow(10, decB);
+  if (!Number.isFinite(amountA) || !Number.isFinite(amountB)) return null;
+  return { amountA, amountB };
+}
+
 export async function getRaydiumUserPositionsSdk(_params: any, userWallet: string): Promise<BuildResponse> {
  try {
   const { sdk, raydium } = await loadRaydium(userWallet);
@@ -578,6 +626,17 @@ export async function getRaydiumUserPositionsSdk(_params: any, userWallet: strin
     const liqStr = p.liquidity?.toString ? p.liquidity.toString() : String(p.liquidity ?? "0");
     const pcpi = poolCache[poolId];
     const mintMeta = (m: any) => m ? { address: m.address, symbol: m.symbol || symOf(m.address), logoURI: m.logoURI ?? null } : null;
+    // Convert the raw liquidity constant into the token amounts the position
+    // actually holds, so the UI can show "0.0123 SOL + 4.56 USDC" instead of
+    // an opaque "106903912".
+    const amounts = clmmPositionAmounts(
+      liqStr,
+      Number(p.tickLower),
+      Number(p.tickUpper),
+      Number(pcpi?.price),
+      Number(pcpi?.mintA?.decimals ?? 9),
+      Number(pcpi?.mintB?.decimals ?? 6),
+    );
     positions.push({
       kind: "clmm",
       positionId: p.nftMint?.toBase58 ? p.nftMint.toBase58() : String(p.nftMint),
@@ -588,6 +647,7 @@ export async function getRaydiumUserPositionsSdk(_params: any, userWallet: strin
       tickLower: p.tickLower,
       tickUpper: p.tickUpper,
       liquidity: liqStr,
+      ...(amounts ? { amountA: amounts.amountA, amountB: amounts.amountB } : {}),
       empty: liqStr === "0",
     });
   }
