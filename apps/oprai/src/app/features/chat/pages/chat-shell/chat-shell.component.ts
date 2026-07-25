@@ -309,6 +309,11 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     this.messageActions.update(m => evict(m) as typeof m);
     this.messageQueries.update(m => evict(m) as typeof m);
     this.messageClarifications.update(m => evict(m) as typeof m);
+    // Also purge the LOCALSTORAGE-persisted client action cards for these ids —
+    // otherwise a regenerate/edit clears them from view but `restoreClientActions`
+    // re-adds them on the next message reload (the bug: regenerating an earlier
+    // turn left the Raydium mini-apps from a later, discarded turn on screen).
+    for (const id of ids) this.removeClientAction(id);
   }
 
   /** Human-readable copy for an llm_daily_cap event. Rendered inside the
@@ -491,6 +496,10 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     const editIdx = all.findIndex(m => m.id === payload.messageId);
     if (editIdx === -1) return;
     const truncated = all.slice(0, editIdx);
+    // Purge persisted client action cards (Deposit/clarify-pick mini-apps) that
+    // belonged to the discarded tail, so `restoreClientActions` can't resurrect
+    // them after the edited turn re-streams.
+    for (const m of all.slice(editIdx)) this.removeClientAction(m.id);
 
     // Reuse the same protocols the user originally tagged on this message
     // (if any) — the backend won't re-derive them and the chip metadata
