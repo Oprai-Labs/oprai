@@ -3015,12 +3015,15 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="clmmUnresolved() || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || clmmInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="clmmUnresolved() || clmmInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
             @if (clmmUnresolved()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Select a token pair
+            } @else if (clmmInsufficient() !== null) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              {{ clmmInsufficient() }}
             } @else if (insufficientFunds()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Insufficient balance

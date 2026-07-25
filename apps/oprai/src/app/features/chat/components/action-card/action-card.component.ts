@@ -4380,6 +4380,34 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   );
 
   /**
+   * Pre-Confirm balance guard for the CLMM deposit — returns a short "Not
+   * enough X" message when either side's amount exceeds its spendable balance
+   * (SOL keeps a rent buffer). Catches the shortfall BEFORE the user hits
+   * Confirm and eats a failed simulation ("guide me, don't dump a failing
+   * card"). The 1% Max headroom keeps a full-balance Max from tripping this.
+   */
+  readonly clmmInsufficient = computed<string | null>(() => {
+    if (!this.isRaydiumOpenPosition() || !this.editParams()['currentPrice']) return null;
+    const p = this.editParams();
+    const amtA = parseFloat(p['amountA'] ?? '0');
+    const amtB = parseFloat(p['amountB'] ?? '0');
+    const balA = this.inputBalance();
+    const balB = this.secondaryBalance();
+    const symA = (p['tokenASymbol'] ?? 'token A');
+    const symB = (p['tokenBSymbol'] ?? 'token B');
+    const isSol = (s: string) => { const u = s.toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const RENT_BUFFER = 0.03;
+    const EPS = 1e-9;
+    if (amtA > 0 && balA !== null && amtA > balA - (isSol(symA) ? RENT_BUFFER : 0) + EPS) {
+      return `Not enough ${symA}`;
+    }
+    if (amtB > 0 && balB !== null && amtB > balB - (isSol(symB) ? RENT_BUFFER : 0) + EPS) {
+      return `Not enough ${symB}`;
+    }
+    return null;
+  });
+
+  /**
    * Resolve the currently-chosen tokenA/tokenB pair to a Raydium CLMM pool and
    * enrich the form. Drives the "Select Token Pair" state on the custom-pair
    * path: sets a resolving flag, clears any prior pool so a re-pick re-resolves,
@@ -4535,8 +4563,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Opening a CLMM position costs ~0.02–0.05 SOL in rent (position NFT + tick
     // arrays + ATAs) + fees; keep a buffer so the native-SOL side never uses it all.
     const RENT_BUFFER = 0.03;
-    const availA = Math.max(0, balA - (isSol(symA) ? RENT_BUFFER : 0));
-    const availB = Math.max(0, balB - (isSol(symB) ? RENT_BUFFER : 0));
+    // Leave 1% headroom on BOTH sides: a Max that fills the EXACT balance fails
+    // simulation because the on-chain deposit needs a hair more than quoted
+    // (tick rounding + slippage) — "Max then Not enough balance". The headroom
+    // absorbs that so Max produces a value that actually clears.
+    const SAFETY = 0.99;
+    const availA = Math.max(0, balA - (isSol(symA) ? RENT_BUFFER : 0)) * SAFETY;
+    const availB = Math.max(0, balB - (isSol(symB) ? RENT_BUFFER : 0)) * SAFETY;
 
     // Single-sided ranges (price outside the range): only one token is used,
     // regardless of which MAX was clicked.
