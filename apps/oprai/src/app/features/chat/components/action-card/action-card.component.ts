@@ -1960,6 +1960,45 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     () => this.action.type === 'raydium_open_position',
   );
 
+  /**
+   * Raydium position withdrawal (CLMM close / standard LP remove). The generic
+   * field list renders these as a bare "POSITION ID: <base58>" text box, which
+   * tells the user nothing about what they're about to close. When the card was
+   * spawned from the positions list it carries display context (pair, symbols,
+   * logos, amount) — the template uses it to render a real position summary.
+   */
+  readonly isRaydiumWithdraw = computed(
+    () => this.action.type === 'raydium_close_position' || this.action.type === 'raydium_remove_liquidity',
+  );
+
+  /** Position summary for the withdraw panel; null when the card wasn't
+   *  spawned from the positions list (no pair context) — then the generic
+   *  field list still renders so the action stays usable. */
+  readonly raydiumWithdrawView = computed<{
+    pair: string; kind: string; amount: string; amountLabel: string;
+    logoA: string | null; logoB: string | null; symA: string; symB: string;
+    ref: string;
+  } | null>(() => {
+    if (!this.isRaydiumWithdraw()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
+    const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
+    if (!pair) return null;
+    const isLp = this.action.type === 'raydium_remove_liquidity';
+    const amount = isLp ? (p['lpAmount'] ?? '') : (p['liquidity'] ?? '');
+    return {
+      pair,
+      kind: isLp ? 'LP' : 'CLMM',
+      amount: amount || '—',
+      amountLabel: isLp ? 'LP tokens to burn' : 'Liquidity to withdraw',
+      logoA: p['tokenALogo'] || this.resolveTokenDisplay(symA).logoURI || null,
+      logoB: p['tokenBLogo'] || this.resolveTokenDisplay(symB).logoURI || null,
+      symA, symB,
+      ref: isLp ? (p['poolId'] ?? '') : (p['positionId'] ?? ''),
+    };
+  });
+
   /** "1 OSRUB ≈ 0.010002 USDT" line shown above the inputs. Derived purely
    *  from `currentPrice` carried in editParams, so it survives draft restore. */
   readonly clmmCurrentPriceDisplay = computed(() => {

@@ -1634,13 +1634,34 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Withdraw a position: LP → remove-liquidity; CLMM → close the range. */
+  /** Withdraw a position: LP → remove-liquidity; CLMM → close the range.
+   *  Carries DISPLAY context (pair, token symbols/logos, amount) alongside the
+   *  functional ids so the action card can render a real position summary
+   *  instead of a bare "POSITION ID: <base58>" text field. */
   withdrawRaydiumPosition(pos: RaydiumUserPosition): void {
+    const display: Record<string, string> = {
+      pair: pos.pair ?? '',
+      poolId: pos.poolId,
+      tokenASymbol: pos.mintA?.symbol ?? '',
+      tokenBSymbol: pos.mintB?.symbol ?? '',
+      ...(pos.mintA?.logoURI ? { tokenALogo: pos.mintA.logoURI } : {}),
+      ...(pos.mintB?.logoURI ? { tokenBLogo: pos.mintB.logoURI } : {}),
+    };
     if (pos.kind === 'lp') {
-      const params: Record<string, string> = { poolId: pos.poolId, lpAmount: String(pos.lpAmount ?? '') };
+      const params: Record<string, string> = {
+        ...display,
+        poolId: pos.poolId,
+        lpAmount: String(pos.lpAmount ?? ''),
+        positionKind: 'lp',
+      };
       this.useAction.emit({ type: 'raydium_remove_liquidity', params, raw: `[ACTION:raydium_remove_liquidity] ${JSON.stringify(params)}` });
     } else {
-      const params: Record<string, string> = { positionId: pos.positionId ?? '' };
+      const params: Record<string, string> = {
+        ...display,
+        positionId: pos.positionId ?? '',
+        positionKind: 'clmm',
+        ...(pos.liquidity ? { liquidity: pos.liquidity } : {}),
+      };
       this.useAction.emit({ type: 'raydium_close_position', params, raw: `[ACTION:raydium_close_position] ${JSON.stringify(params)}` });
     }
   }

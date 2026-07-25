@@ -1229,6 +1229,55 @@
           }
 
           </div>
+        } @else if (raydiumWithdrawView() !== null) {
+          <!-- Raydium withdraw (CLMM close / LP remove) — position summary in
+               the same panel language as the deposit + swap cards, instead of
+               a raw "POSITION ID" text field.
+               NOTE: Angular 19 only binds `; as x` on a PRIMARY @if, never on an
+               @else if — hence the @let (the computed is memoized, so the second
+               read is free). -->
+          @let wv = raydiumWithdrawView()!;
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Withdraw Position</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (wv.logoA) {
+                      <img class="ray-wd__icon" [src]="wv.logoA" [alt]="wv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (wv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (wv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="wv.logoB" [alt]="wv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (wv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ wv.pair }}</span>
+                  <span class="ray-wd__kind">{{ wv.kind }}</span>
+                </div>
+                <div class="ray-wd__body">
+                  <span class="ray-wd__amount">{{ wv.amount }}</span>
+                  <span class="ray-wd__amount-label">{{ wv.amountLabel }}</span>
+                </div>
+                @if (wv.ref) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ wv.kind === 'LP' ? 'Pool' : 'Position' }}</span>
+                    <code class="ray-wd__ref-value">{{ wv.ref.slice(0, 6) }}…{{ wv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(wv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === wv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+              <div class="clmm-min-hint">
+                {{ wv.kind === 'LP'
+                   ? 'Burns your LP tokens and returns both sides of the pool to your wallet.'
+                   : 'Withdraws all liquidity + earned fees, closes the position, and refunds its rent.' }}
+              </div>
+            </div>
+          </div>
         } @else if (action.type === 'perp_close') {
           <!-- ─────── Close perp: same header language as the open card ─────── -->
           @let perpCloseMkt = perpMarketTd();
