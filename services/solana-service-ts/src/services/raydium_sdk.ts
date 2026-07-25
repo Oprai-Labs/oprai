@@ -338,6 +338,32 @@ function pickAmount(x: any): BN {
 }
 
 /** Find a user's CLMM position by its NFT mint (positionId). */
+/**
+ * Load a CLMM pool for a liquidity operation.
+ *
+ * `clmm.getPoolInfoFromRpc` alone is NOT enough: the SDK derives the reward
+ * token accounts it appends to decrease/increase-liquidity from
+ * `poolInfo.rewardDefaultInfos`, and the RPC-built poolInfo doesn't carry them.
+ * On a pool that emits rewards (e.g. WSOL/USDC pays RAY) the instruction then
+ * arrives with fewer reward accounts than the program expects and fails with
+ * `InvalidRewardInputAccountNumber` (custom error 6030) — which is what made
+ * every CLMM close fail. Raydium's own SDK demo reads poolInfo from the API on
+ * mainnet for exactly this reason; we do the same and keep the RPC poolKeys.
+ */
+async function loadClmmPool(raydium: any, poolId: string): Promise<{ poolInfo: any; poolKeys: any }> {
+  const rpc = await raydium.clmm.getPoolInfoFromRpc(poolId);
+  try {
+    const api = await raydium.api.fetchPoolById({ ids: poolId });
+    const apiInfo = Array.isArray(api) ? api[0] : api;
+    if (apiInfo?.rewardDefaultInfos?.length) {
+      // Keep the RPC pool state (live tick/price) but take the reward
+      // definitions from the API so the SDK builds every reward account.
+      return { poolInfo: { ...rpc.poolInfo, rewardDefaultInfos: apiInfo.rewardDefaultInfos }, poolKeys: rpc.poolKeys };
+    }
+  } catch { /* API unreachable — fall back to the RPC-only view */ }
+  return rpc;
+}
+
 async function findClmmPosition(sdk: any, raydium: any, positionId: string): Promise<any> {
   const positions: any[] = await raydium.clmm.getOwnerPositionInfo({ programId: sdk.CLMM_PROGRAM_ID });
   const match = (positions ?? []).find((p) => {
@@ -413,7 +439,7 @@ export async function buildRaydiumIncreasePositionSdk(params: any, userWallet: s
   const { sdk, raydium } = await loadRaydium(userWallet);
   const pos = await findClmmPosition(sdk, raydium, params.positionId);
   const poolId = pos.poolId?.toBase58 ? pos.poolId.toBase58() : String(pos.poolId);
-  const { poolInfo, poolKeys } = await raydium.clmm.getPoolInfoFromRpc(poolId);
+  const { poolInfo, poolKeys } = await loadClmmPool(raydium, poolId);
 
   const inputMint = resolveToken(params.inputMint)?.mint ?? params.inputMint;
   const isA = inputMint === poolInfo.mintA.address;
@@ -448,7 +474,7 @@ export async function buildRaydiumDecreasePositionSdk(params: any, userWallet: s
   const { sdk, raydium } = await loadRaydium(userWallet);
   const pos = await findClmmPosition(sdk, raydium, params.positionId);
   const poolId = pos.poolId?.toBase58 ? pos.poolId.toBase58() : String(pos.poolId);
-  const { poolInfo, poolKeys } = await raydium.clmm.getPoolInfoFromRpc(poolId);
+  const { poolInfo, poolKeys } = await loadClmmPool(raydium, poolId);
 
   const total: BN = pos.liquidity;
   const raw = String(params.liquidity ?? "").trim().toLowerCase();
@@ -491,7 +517,7 @@ export async function buildRaydiumClosePositionSdk(params: any, userWallet: stri
   const { sdk, raydium } = await loadRaydium(userWallet);
   const pos = await findClmmPosition(sdk, raydium, params.positionId);
   const poolId = pos.poolId?.toBase58 ? pos.poolId.toBase58() : String(pos.poolId);
-  const { poolInfo, poolKeys } = await raydium.clmm.getPoolInfoFromRpc(poolId);
+  const { poolInfo, poolKeys } = await loadClmmPool(raydium, poolId);
   const total: BN = pos.liquidity;
   const desc = `Close Raydium CLMM ${symOf(poolInfo.mintA.address)}/${symOf(poolInfo.mintB.address)} position`;
 
