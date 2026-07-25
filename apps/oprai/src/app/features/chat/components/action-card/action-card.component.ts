@@ -1808,12 +1808,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     const tokenA = p['tokenA'] ?? p['tokenXMint'];
     const tokenB = p['tokenB'] ?? p['tokenYMint'];
-    // Increase-position has ONE amount whose token the user picks, so the
-    // balance line must follow that choice — the tokenA-wins rule below (meant
-    // for dual-amount forms) would pin it to token A and show the wrong balance.
-    if (this.action?.type === 'raydium_increase_position') {
-      return p['inputMint'] ?? tokenA ?? '';
-    }
     if (tokenA && tokenB) return tokenA;
     return p['inputMint']
       ?? p['inputToken']
@@ -1984,7 +1978,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Adding liquidity to an EXISTING CLMM position. */
   readonly isRaydiumIncrease = computed(() => this.action.type === 'raydium_increase_position');
 
-  /** Which side of the pair the deposit amount denominates ('A' | 'B'). */
+  /** Which side of the pair the user typed into ('A' | 'B'). The transaction
+   *  carries ONE side (inputMint + inputAmount); the other is derived. */
   readonly clmmIncreaseSide = computed<'A' | 'B'>(() => {
     const p = this.editParams();
     const mint = this.resolveToMint(p['inputMint'] ?? '');
@@ -1992,50 +1987,48 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return mint && mintB && mint === mintB ? 'B' : 'A';
   });
 
-  /** Switch the deposit side; the SDK derives the paired amount from it. */
-  setClmmIncreaseSide(side: 'A' | 'B'): void {
+  /** paired-per-typed ratio from the position's own composition, or null. */
+  private clmmIncreaseRatio(from: 'A' | 'B'): number | null {
+    const p = this.editParams();
+    const posA = parseFloat(p['amountA'] ?? '');
+    const posB = parseFloat(p['amountB'] ?? '');
+    if (!Number.isFinite(posA) || !Number.isFinite(posB)) return null;
+    if (from === 'A') return posA > 0 ? posB / posA : 0;
+    return posB > 0 ? posA / posB : 0;
+  }
+
+  /**
+   * Display value for one of the two increase inputs. The side the user typed
+   * shows their raw text; the other shows the amount derived at the position's
+   * ratio — so both tokens are visible and either box can be edited, exactly
+   * like the open-position form.
+   */
+  clmmIncreaseRowValue(side: 'A' | 'B'): string {
+    const p = this.editParams();
+    const typed = this.clmmIncreaseSide();
+    const raw = p['inputAmount'] ?? '';
+    if (side === typed) return raw;
+    const entered = parseFloat(raw);
+    if (!Number.isFinite(entered) || entered <= 0) return '';
+    const ratio = this.clmmIncreaseRatio(typed);
+    if (ratio === null) return '';
+    return formatDlmmAmount(entered * ratio);
+  }
+
+  /** User typed into one of the two boxes → that side becomes the canonical
+   *  input and the other becomes derived. */
+  onClmmIncreaseInput(side: 'A' | 'B', value: string): void {
     const p = this.editParams();
     const mint = side === 'A'
       ? this.resolveToMint(p['tokenA'] ?? p['tokenASymbol'] ?? '')
       : this.resolveToMint(p['tokenB'] ?? p['tokenBSymbol'] ?? '');
-    if (!mint) return;
-    this.setEditParam('inputMint', mint);
-    // The amount now denominates a different token — clear it rather than
-    // silently reinterpreting "1 SOL" as "1 USDC".
-    this.setEditParam('inputAmount', '');
-    this.inputBalance.set(null);
-    if (this.inputBalanceMint()) this.loadInputBalance();
+    this.editParams.update(ep => ({
+      ...ep,
+      ...(mint ? { inputMint: mint } : {}),
+      inputAmount: this.normalizeDecimal(value),
+    }));
   }
 
-  /**
-   * The OTHER side's amount for an increase. Adding to a CLMM position is NOT
-   * one-sided: you type one number and the pool takes both tokens at the
-   * position's current ratio. That ratio is exactly the position's own
-   * composition (amountB / amountA), because both are governed by the same
-   * price + tick range. Surfacing it is what stops "0.02 WSOL" quietly
-   * implying ~1.8 USDC the wallet doesn't have.
-   *
-   * Returns null when the ratio is unknown, or 0 when the position sits fully
-   * on one side (price outside the range) so only that token is taken.
-   */
-  readonly clmmIncreasePaired = computed<{ amount: number; symbol: string; side: 'A' | 'B' } | null>(() => {
-    if (!this.isRaydiumIncrease()) return null;
-    const p = this.editParams();
-    const posA = parseFloat(p['amountA'] ?? '');
-    const posB = parseFloat(p['amountB'] ?? '');
-    const entered = parseFloat(p['inputAmount'] ?? '');
-    if (!Number.isFinite(entered) || entered <= 0) return null;
-    if (!Number.isFinite(posA) || !Number.isFinite(posB)) return null;
-    const side = this.clmmIncreaseSide();
-    const symA = p['tokenASymbol'] ?? 'A';
-    const symB = p['tokenBSymbol'] ?? 'B';
-    if (side === 'A') {
-      if (!(posA > 0)) return { amount: 0, symbol: symB, side: 'B' };
-      return { amount: entered * (posB / posA), symbol: symB, side: 'B' };
-    }
-    if (!(posB > 0)) return { amount: 0, symbol: symA, side: 'A' };
-    return { amount: entered * (posA / posB), symbol: symA, side: 'A' };
-  });
 
   /**
    * Pre-Confirm balance guard for an increase: checks the typed side AND the
@@ -2047,51 +2040,43 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const p = this.editParams();
     const entered = parseFloat(p['inputAmount'] ?? '');
     if (!Number.isFinite(entered) || entered <= 0) return null;
-    const side = this.clmmIncreaseSide();
-    const symIn = side === 'A' ? (p['tokenASymbol'] ?? 'A') : (p['tokenBSymbol'] ?? 'B');
+    const symA = p['tokenASymbol'] ?? 'A';
+    const symB = p['tokenBSymbol'] ?? 'B';
+    // Row A always reads the tokenA balance, row B the tokenB balance.
+    const amtA = parseFloat(this.clmmIncreaseRowValue('A'));
+    const amtB = parseFloat(this.clmmIncreaseRowValue('B'));
     const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
     const RENT = 0.02; // position update + ATA rent headroom
     const EPS = 1e-9;
-
-    const balIn = this.inputBalance();
-    if (balIn !== null && entered > balIn - (isSol(symIn) ? RENT : 0) + EPS) return `Not enough ${symIn}`;
-
-    const paired = this.clmmIncreasePaired();
-    if (paired && paired.amount > 0) {
-      const balOther = this.secondaryBalance();
-      if (balOther !== null && paired.amount > balOther - (isSol(paired.symbol) ? RENT : 0) + EPS) {
-        return `Not enough ${paired.symbol}`;
-      }
-    }
+    const balA = this.inputBalance();
+    const balB = this.secondaryBalance();
+    if (Number.isFinite(amtA) && amtA > 0 && balA !== null &&
+        amtA > balA - (isSol(symA) ? RENT : 0) + EPS) return `Not enough ${symA}`;
+    if (Number.isFinite(amtB) && amtB > 0 && balB !== null &&
+        amtB > balB - (isSol(symB) ? RENT : 0) + EPS) return `Not enough ${symB}`;
     return null;
   });
 
-  /** Max for an increase that fits BOTH sides: capped by the typed token's
-   *  balance AND by what the paired token's balance can cover at the ratio. */
-  setMaxClmmIncrease(): void {
+  /** Max on one increase row, capped so BOTH sides stay within balance. */
+  setMaxClmmIncrease(side: 'A' | 'B'): void {
     const p = this.editParams();
-    const side = this.clmmIncreaseSide();
-    const symIn = side === 'A' ? (p['tokenASymbol'] ?? '') : (p['tokenBSymbol'] ?? '');
-    const symOther = side === 'A' ? (p['tokenBSymbol'] ?? '') : (p['tokenASymbol'] ?? '');
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
     const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
     const RENT = 0.02;
     const SAFETY = 0.99; // headroom so rounding doesn't trip the on-chain check
-    const balIn = Math.max(0, (this.inputBalance() ?? 0) - (isSol(symIn) ? RENT : 0)) * SAFETY;
-    const balOther = Math.max(0, (this.secondaryBalance() ?? 0) - (isSol(symOther) ? RENT : 0)) * SAFETY;
+    const availA = Math.max(0, (this.inputBalance() ?? 0) - (isSol(symA) ? RENT : 0)) * SAFETY;
+    const availB = Math.max(0, (this.secondaryBalance() ?? 0) - (isSol(symB) ? RENT : 0)) * SAFETY;
 
-    const posA = parseFloat(p['amountA'] ?? '');
-    const posB = parseFloat(p['amountB'] ?? '');
-    // ratio = paired-per-typed
-    let ratio = NaN;
-    if (Number.isFinite(posA) && Number.isFinite(posB)) {
-      ratio = side === 'A' ? (posA > 0 ? posB / posA : 0) : (posB > 0 ? posA / posB : 0);
-    }
-    let max = balIn;
-    if (Number.isFinite(ratio) && ratio > 0 && this.secondaryBalance() !== null) {
-      max = Math.min(max, balOther / ratio);
-    }
+    const ratio = this.clmmIncreaseRatio(side); // paired-per-typed
+    const ownAvail = side === 'A' ? availA : availB;
+    const otherAvail = side === 'A' ? availB : availA;
+    const otherKnown = (side === 'A' ? this.secondaryBalance() : this.inputBalance()) !== null;
+
+    let max = ownAvail;
+    if (ratio !== null && ratio > 0 && otherKnown) max = Math.min(max, otherAvail / ratio);
     if (!(max > 0)) return;
-    this.setEditParam('inputAmount', formatDlmmAmount(max));
+    this.onClmmIncreaseInput(side, formatDlmmAmount(max));
   }
 
   /** Summary for the increase panel: the position being topped up. */
