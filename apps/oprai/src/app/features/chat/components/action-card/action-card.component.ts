@@ -3247,7 +3247,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (this.inputBalanceMint()) this.loadInputBalance();
       if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
     }
-    if (this.editParams()['tokenASymbol'] && this.editParams()['tokenBSymbol']) return; // already enriched
+    // "Already enriched" needs the RATIO ANCHOR too, not just the symbols. When
+    // the emitter supplied tokenASymbol/tokenBSymbol but no price, returning
+    // here left `amountRatio`/`currentPrice` unset — so the ratio engine was
+    // dead and Max on one side filled the full balance while the other stayed 0.
+    const _ep = this.editParams();
+    if (_ep['tokenASymbol'] && _ep['tokenBSymbol'] && (_ep['currentPrice'] || _ep['amountRatio'])) return;
     if (this._enrichedRaydiumPool === poolId) return; // tried once
     this._enrichedRaydiumPool = poolId;
     try {
