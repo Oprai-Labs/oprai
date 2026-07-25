@@ -4906,11 +4906,12 @@
 // Layout: [icon symbol] · [amount input] · [Max btn], with the balance
 // hint folded into the left side instead of a separate row underneath.
 // Deposit-amount panel — same big rounded surface-2 box as the Jupiter swap
-// "You pay" panel (.pump-panel): 28px token icon, hero-sized amount on the right.
+// Deposit panels — visually identical to the Jupiter swap "You pay" panel
+// (.pump-panel): label + balance/Max on top, hero-sized amount on the body row
+// with a token pill on the right.
 .clmm-amount-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   padding: 14px 16px;
   background: var(--op-bg-surface-2);
@@ -4920,72 +4921,93 @@
 
   &:focus-within { border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle)); }
 
-  &__token {
+  &__top {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 8px;
-    min-width: 0;
+    min-height: 16px;
   }
 
+  &__label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+  }
+
+  &__bal {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+}
+
+// Hero amount input — same size/weight as .pump-panel__amount.
+.clmm-amount-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--op-text-primary);
+  font-size: 1.625rem;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  padding: 0;
+  letter-spacing: -0.01em;
+
+  &::placeholder { color: var(--op-text-tertiary); }
+  &::-webkit-outer-spin-button, &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+// Static token pill (icon + symbol) — same shape as the swap .pump-token pill,
+// minus the caret (the CLMM deposit token is fixed by the pool).
+.clmm-token-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 6px 12px 6px 6px;
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 999px;
+
   &__icon {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
     object-fit: cover;
-    background: var(--op-bg-surface-1);
-    border: 2px solid var(--op-bg-surface-1);
+    flex-shrink: 0;
 
     &--letter {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.75rem;
+      background: var(--op-bg-surface-3);
+      font-size: 0.7rem;
       font-weight: 700;
       color: var(--op-text-secondary);
     }
   }
 
-  &__symbol-block {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.2;
-  }
-
-  &__symbol {
+  &__sym {
     font-weight: 700;
-    color: var(--op-text-primary);
     font-size: 0.9375rem;
-  }
-
-  &__balance-inline {
-    font-size: 0.6875rem;
-    color: var(--op-text-tertiary);
-    font-variant-numeric: tabular-nums;
-    margin-top: 1px;
-  }
-
-  &__input {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-
-    input {
-      background: transparent;
-      border: none;
-      outline: none;
-      color: var(--op-text-primary);
-      font-size: 1.375rem;
-      font-weight: 600;
-      font-variant-numeric: tabular-nums;
-      text-align: right;
-      width: 100%;
-      min-width: 0;
-      letter-spacing: -0.01em;
-
-      &::placeholder { color: var(--op-text-tertiary); }
-      &::-webkit-inner-spin-button, &::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-    }
+    color: var(--op-text-primary);
+    white-space: nowrap;
   }
 }
 

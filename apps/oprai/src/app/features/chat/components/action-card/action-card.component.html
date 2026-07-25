@@ -1086,72 +1086,72 @@
               @let tdA = mintA ? resolveTokenDisplay(mintA) : null;
               @let tdB = mintB ? resolveTokenDisplay(mintB) : null;
 
-              <!-- Token A row — single line: icon + symbol/balance stack on
-                   left, amount input + Max on right. Same vertical density
-                   as a `proto-input` for visual consistency with DLMM. -->
+              <!-- Token A panel — same layout as the Jupiter swap "You pay"
+                   panel (.pump-panel): label + balance/Max on top, hero-sized
+                   amount on the left of the body with a token pill on the right. -->
               <div class="clmm-amount-row">
-                <div class="clmm-amount-row__token">
-                  @if (tdA?.logoURI) {
-                    <img [src]="tdA?.logoURI ?? ''" [alt]="symA" class="clmm-amount-row__icon"
-                         (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="clmm-amount-row__icon clmm-amount-row__icon--letter">{{ symA.charAt(0) }}</span>
-                  }
-                  <div class="clmm-amount-row__symbol-block">
-                    <span class="clmm-amount-row__symbol">{{ symA }}</span>
-                    @if (balA !== null) {
-                      <span class="clmm-amount-row__balance-inline">
-                        Balance: {{ balA | number:'1.0-6' }}
-                      </span>
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ symA }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (balA !== null) { Balance: {{ balA | number:'1.0-6' }} }
+                    @if (balA !== null && balA > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxClmm()">Max</button>
                     }
-                  </div>
+                  </span>
                 </div>
-                <div class="clmm-amount-row__input">
+                <div class="clmm-amount-row__body">
                   <input
+                    class="clmm-amount-input"
                     type="text"
                     inputmode="decimal"
                     pattern="[0-9]*[.,]?[0-9]*"
                     placeholder="0"
                     [value]="editParams()['amountA'] ?? ''"
                     (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
+                  <div class="clmm-token-pill">
+                    @if (tdA?.logoURI) {
+                      <img [src]="tdA?.logoURI ?? ''" [alt]="symA" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ symA.charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ symA }}</span>
+                  </div>
                 </div>
-                @if (balA !== null && balA > 0) {
-                  <button type="button" class="clmm-max-btn" (click)="setMaxClmm()">Max</button>
-                }
               </div>
 
               <div class="clmm-amount-plus">+</div>
 
-              <!-- Token B row -->
+              <!-- Token B panel -->
               <div class="clmm-amount-row">
-                <div class="clmm-amount-row__token">
-                  @if (tdB?.logoURI) {
-                    <img [src]="tdB?.logoURI ?? ''" [alt]="symB" class="clmm-amount-row__icon"
-                         (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="clmm-amount-row__icon clmm-amount-row__icon--letter">{{ symB.charAt(0) }}</span>
-                  }
-                  <div class="clmm-amount-row__symbol-block">
-                    <span class="clmm-amount-row__symbol">{{ symB }}</span>
-                    @if (balB !== null) {
-                      <span class="clmm-amount-row__balance-inline">
-                        Balance: {{ balB | number:'1.0-6' }}
-                      </span>
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ symB }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (balB !== null) { Balance: {{ balB | number:'1.0-6' }} }
+                    @if (balB !== null && balB > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxClmm('B')">Max</button>
                     }
-                  </div>
+                  </span>
                 </div>
-                <div class="clmm-amount-row__input">
+                <div class="clmm-amount-row__body">
                   <input
+                    class="clmm-amount-input"
                     type="text"
                     inputmode="decimal"
                     pattern="[0-9]*[.,]?[0-9]*"
                     placeholder="0"
                     [value]="editParams()['amountB'] ?? ''"
                     (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
+                  <div class="clmm-token-pill">
+                    @if (tdB?.logoURI) {
+                      <img [src]="tdB?.logoURI ?? ''" [alt]="symB" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ symB.charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ symB }}</span>
+                  </div>
                 </div>
-                @if (balB !== null && balB > 0) {
-                  <button type="button" class="clmm-max-btn" (click)="setMaxClmm('B')">Max</button>
-                }
               </div>
             </div>
 
