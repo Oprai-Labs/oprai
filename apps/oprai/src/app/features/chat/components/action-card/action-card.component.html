@@ -1323,6 +1323,15 @@
                 @if (isMeteoraDlmm()) {
                   Opening the position also locks ~{{ METEORA_POSITION_RENT }} SOL of rent, refunded when you close it.
                 }
+                @if (dlmmSingleSidedX()) {
+                  <br />The range sits entirely above the current price, so the pool only takes
+                  {{ editParams()['tokenASymbol'] || 'token A' }} here — it converts to
+                  {{ editParams()['tokenBSymbol'] || 'token B' }} as the price rises through your bins.
+                } @else if (dlmmSingleSidedY()) {
+                  <br />The range sits entirely below the current price, so the pool only takes
+                  {{ editParams()['tokenBSymbol'] || 'token B' }} here — it converts to
+                  {{ editParams()['tokenASymbol'] || 'token A' }} as the price falls through your bins.
+                }
               </div>
 
               <div class="clmm-amount-row">
@@ -1330,15 +1339,17 @@
                   <span class="clmm-amount-row__label">{{ mv.symA }}</span>
                   <span class="clmm-amount-row__bal">
                     @if (mBalA !== null) { Balance: {{ mBalA | number:'1.0-6' }} }
-                    @if (mBalA !== null && mBalA > 0) {
+                    @if (mBalA !== null && mBalA > 0 && !dlmmSingleSidedY()) {
                       <button type="button" class="clmm-max-btn" (click)="setMaxAmm('A')">Max</button>
                     }
                   </span>
                 </div>
                 <div class="clmm-amount-row__body">
                   <input class="clmm-amount-input" type="text" inputmode="decimal"
-                         pattern="[0-9]*[.,]?[0-9]*" placeholder="0"
-                         [value]="editParams()['amountA'] ?? ''"
+                         pattern="[0-9]*[.,]?[0-9]*"
+                         [placeholder]="dlmmSingleSidedY() ? 'Not used at this range' : '0'"
+                         [disabled]="dlmmSingleSidedY()"
+                         [value]="dlmmSingleSidedY() ? '' : (editParams()['amountA'] ?? '')"
                          (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
                   <div class="clmm-token-pill">
                     @if (mv.logoA) {
@@ -1358,15 +1369,17 @@
                   <span class="clmm-amount-row__label">{{ mv.symB }}</span>
                   <span class="clmm-amount-row__bal">
                     @if (mBalB !== null) { Balance: {{ mBalB | number:'1.0-6' }} }
-                    @if (mBalB !== null && mBalB > 0) {
+                    @if (mBalB !== null && mBalB > 0 && !dlmmSingleSidedX()) {
                       <button type="button" class="clmm-max-btn" (click)="setMaxAmm('B')">Max</button>
                     }
                   </span>
                 </div>
                 <div class="clmm-amount-row__body">
                   <input class="clmm-amount-input" type="text" inputmode="decimal"
-                         pattern="[0-9]*[.,]?[0-9]*" placeholder="0"
-                         [value]="editParams()['amountB'] ?? ''"
+                         pattern="[0-9]*[.,]?[0-9]*"
+                         [placeholder]="dlmmSingleSidedX() ? 'Not used at this range' : '0'"
+                         [disabled]="dlmmSingleSidedX()"
+                         [value]="dlmmSingleSidedX() ? '' : (editParams()['amountB'] ?? '')"
                          (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
                   <div class="clmm-token-pill">
                     @if (mv.logoB) {

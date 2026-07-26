@@ -4970,6 +4970,15 @@
 // Hero amount input — same size/weight as .pump-panel__amount.
 .clmm-amount-input {
   flex: 1;
+
+  // A side the pool won't take at this range: still readable, clearly inert.
+  &:disabled {
+    color: var(--op-text-tertiary);
+    cursor: not-allowed;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
   min-width: 0;
   border: none;
   background: transparent;
