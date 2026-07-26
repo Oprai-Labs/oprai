@@ -732,73 +732,73 @@ account is required (must be a specific marginfi account address).
 ---
 
 #### MARGINFI_ACCOUNT_INFO — Get full account info (deposits, borrows, health)
-Format: [ACTION:marginfi_account_info]
+Format: [QUERY:marginfi_account_info]
 
-Optional: [ACTION:marginfi_account_info] wallet=<address> (for another wallet)
+Optional: [QUERY:marginfi_account_info] wallet=<address> (for another wallet)
 
 (Data query — no transaction. Defaults to connected wallet.)
 
 Examples:
 - "Show my marginfi account"
-  -> execute_action("marginfi_account_info", {})
+  -> query_onchain("marginfi_account_info", {})
 - "Check marginfi account for wallet HwM..."
-  -> execute_action("marginfi_account_info", {"wallet": "HwM..."})
+  -> query_onchain("marginfi_account_info", {"wallet": "HwM..."})
 
 #### MARGINFI_BANKS — List all marginfi lending banks
-Format: [ACTION:marginfi_banks]
+Format: [QUERY:marginfi_banks]
 
-Optional: [ACTION:marginfi_banks] limit=10 (limit number returned)
+Optional: [QUERY:marginfi_banks] limit=10 (limit number returned)
 
 (Data query — no transaction. Returns symbol, mint, token program for each bank.)
 
 Examples:
 - "What tokens can I lend on marginfi?"
-  -> execute_action("marginfi_banks", {})
+  -> query_onchain("marginfi_banks", {})
 
 #### MARGINFI_BANK_DETAIL — Get details for a specific marginfi bank
-Format: [ACTION:marginfi_bank_detail] token=<symbol_or_mint>
+Format: [QUERY:marginfi_bank_detail] token=<symbol_or_mint>
 
 (Data query — no transaction. Returns address, mint, symbol, decimals, token program.)
 
 Examples:
 - "Show me the USDC bank on marginfi"
-  -> execute_action("marginfi_bank_detail", {"token": "USDC"})
+  -> query_onchain("marginfi_bank_detail", {"token": "USDC"})
 
 #### MARGINFI_HEALTH — Get health factor and risk summary
-Format: [ACTION:marginfi_health]
+Format: [QUERY:marginfi_health]
 
-Optional: [ACTION:marginfi_health] wallet=<address>
+Optional: [QUERY:marginfi_health] wallet=<address>
 
 (Data query — no transaction. Returns health factor, total collateral USD, total borrow USD,
 liquidation threshold, and whether the account is healthy.)
 
 Examples:
 - "What's my marginfi health factor?"
-  -> execute_action("marginfi_health", {})
+  -> query_onchain("marginfi_health", {})
 - "Am I at risk of liquidation on marginfi?"
-  -> execute_action("marginfi_health", {})
+  -> query_onchain("marginfi_health", {})
 
 #### MARGINFI_POINTS — Get marginfi points balance and rank
-Format: [ACTION:marginfi_points]
+Format: [QUERY:marginfi_points]
 
-Optional: [ACTION:marginfi_points] wallet=<address>
+Optional: [QUERY:marginfi_points] wallet=<address>
 
 (Data query — no transaction. Returns total points, rank, deposit points, borrow points.)
 
 Examples:
 - "How many marginfi points do I have?"
-  -> execute_action("marginfi_points", {})
+  -> query_onchain("marginfi_points", {})
 
 #### MARGINFI_USER_ACCOUNTS — List all PDA marginfi accounts for a wallet
-Format: [ACTION:marginfi_user_accounts]
+Format: [QUERY:marginfi_user_accounts]
 
-Optional: [ACTION:marginfi_user_accounts] maxIndex=5
+Optional: [QUERY:marginfi_user_accounts] maxIndex=5
 
 (Data query — no transaction. Returns derived PDA addresses for account indices 0–maxIndex.)
 
 Examples:
 - "Show all my marginfi accounts"
-  -> execute_action("marginfi_user_accounts", {})
+  -> query_onchain("marginfi_user_accounts", {})
 
 ---
 
