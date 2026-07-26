@@ -2009,11 +2009,46 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.setEditParam('liquidity', pct >= 100 ? 'all' : `${pct}%`);
   }
 
+  /** Withdrawal amount for one side, derived from the chosen share. */
+  clmmDecreaseRowValue(side: 'A' | 'B'): string {
+    const p = this.editParams();
+    const pos = parseFloat((side === 'A' ? p['amountA'] : p['amountB']) ?? '');
+    if (!Number.isFinite(pos)) return '';
+    const v = pos * this.clmmDecreasePct() / 100;
+    return v > 0 ? formatDlmmAmount(v) : '';
+  }
+
+  /**
+   * User typed an exact token amount to withdraw → convert it to a share of
+   * the position. Sent as RAW liquidity units when we know the position's
+   * total, because the builder rounds percentages to whole numbers (a 1%
+   * step is far coarser than the amount the user just typed).
+   */
+  onClmmDecreaseInput(side: 'A' | 'B', value: string): void {
+    const p = this.editParams();
+    const pos = parseFloat((side === 'A' ? p['amountA'] : p['amountB']) ?? '');
+    const asked = parseFloat(this.normalizeDecimal(value));
+    if (!Number.isFinite(pos) || pos <= 0) return;
+    if (!Number.isFinite(asked) || asked <= 0) {
+      this.setEditParam('liquidity', '0%');
+      return;
+    }
+    const fraction = Math.min(1, asked / pos);
+    const total = parseFloat(p['positionLiquidity'] ?? '');
+    if (fraction >= 0.9999) { this.setEditParam('liquidity', 'all'); return; }
+    if (Number.isFinite(total) && total > 0) {
+      this.setEditParam('liquidity', String(Math.max(1, Math.floor(total * fraction))));
+      return;
+    }
+    this.setEditParam('liquidity', `${(fraction * 100).toFixed(2)}%`);
+  }
+
   /** Position summary + what this withdrawal returns. */
   readonly raydiumDecreaseView = computed<{
     pair: string; symA: string; symB: string;
     logoA: string | null; logoB: string | null;
-    outA: string; outB: string; positionId: string; closes: boolean;
+    outA: string; outB: string; currentA: string; currentB: string;
+    positionId: string; closes: boolean;
   } | null>(() => {
     if (!this.isRaydiumDecrease()) return null;
     const p = this.editParams();
@@ -2032,6 +2067,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       logoB: p['tokenBLogo'] || this.resolveTokenDisplay(symB).logoURI || null,
       outA: fmt(posA * pct / 100),
       outB: fmt(posB * pct / 100),
+      currentA: fmt(posA),
+      currentB: fmt(posB),
       positionId: p['positionId'] ?? '',
       closes: pct >= 100,
     };

@@ -1255,8 +1255,8 @@
                   <span class="ray-wd__kind">CLMM</span>
                 </div>
                 <div class="ray-wd__body">
-                  <span class="ray-wd__amount">{{ dv.outA }} {{ dv.symA }} + {{ dv.outB }} {{ dv.symB }}</span>
-                  <span class="ray-wd__amount-label">You receive (plus earned fees)</span>
+                  <span class="ray-wd__amount">{{ dv.currentA }} {{ dv.symA }} + {{ dv.currentB }} {{ dv.symB }}</span>
+                  <span class="ray-wd__amount-label">Current position</span>
                 </div>
               </div>
             </div>
@@ -1272,6 +1272,62 @@
                     {{ preset === 100 ? 'All' : preset + '%' }}
                   </button>
                 }
+              </div>
+
+              <!-- Or type an exact amount on either side — the other follows,
+                   since a CLMM withdrawal takes both tokens proportionally. -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ dv.symA }}</span>
+                  <span class="clmm-amount-row__bal">In position: {{ dv.currentA }}</span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="clmmDecreaseRowValue('A')"
+                    (input)="onClmmDecreaseInput('A', $any($event.target).value)" />
+                  <div class="clmm-token-pill">
+                    @if (dv.logoA) {
+                      <img [src]="dv.logoA" [alt]="dv.symA" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (dv.symA || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ dv.symA }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="clmm-amount-plus">+</div>
+
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ dv.symB }}</span>
+                  <span class="clmm-amount-row__bal">In position: {{ dv.currentB }}</span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="clmmDecreaseRowValue('B')"
+                    (input)="onClmmDecreaseInput('B', $any($event.target).value)" />
+                  <div class="clmm-token-pill">
+                    @if (dv.logoB) {
+                      <img [src]="dv.logoB" [alt]="dv.symB" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (dv.symB || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ dv.symB }}</span>
+                  </div>
+                </div>
               </div>
               @if (dv.closes) {
                 <div class="clmm-min-hint">
