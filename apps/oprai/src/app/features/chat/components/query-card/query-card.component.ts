@@ -192,8 +192,12 @@ interface KaminoMultiplyMarket {
  */
 interface RaydiumPool {
   id: string;
-  /** "Concentrated" (CLMM) | "Standard" (AMM v4) — drives Deposit routing. */
+  /** "Concentrated" (CLMM) | "Standard" — drives Deposit routing. NOTE:
+   *  "Standard" covers BOTH the newer CPMM and the legacy AMM v4; only
+   *  `programId` tells them apart. */
   type: string;
+  /** Owning program — the only way to distinguish CPMM from legacy AMM v4. */
+  programId?: string;
   mintA: { address: string; symbol: string; decimals: number; logoURI?: string };
   mintB: { address: string; symbol: string; decimals: number; logoURI?: string };
   tvl: number;
@@ -1576,6 +1580,24 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     void this.fetchRaydiumPools();
   }
 
+  /**
+   * Precise pool-program label. Raydium's API lumps the newer CPMM and the
+   * legacy AMM v4 together as "Standard", but they are different programs with
+   * different costs and mechanics — showing both as "AMM" hides which one a
+   * deposit actually lands in. Falls back to the API's coarse type.
+   */
+  private static readonly RAY_PROGRAMS: Record<string, string> = {
+    CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C: 'CPMM',
+    '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': 'AMM v4',
+    CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: 'CLMM',
+  };
+
+  raydiumPoolKind(p: { type?: string; programId?: string }): string {
+    const known = p.programId ? QueryCardComponent.RAY_PROGRAMS[p.programId] : undefined;
+    if (known) return known;
+    return (p.type ?? '').toLowerCase() === 'concentrated' ? 'CLMM' : 'AMM';
+  }
+
   onRaydiumSearchInput(v: string): void {
     this.raydiumSearchInput.set(v);
   }
@@ -1764,6 +1786,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       tokenBSymbol: p.mintB.symbol,
       tokenADecimals: String(p.mintA.decimals ?? 9),
       tokenBDecimals: String(p.mintB.decimals ?? 9),
+      // Lets the action card name the exact program (CPMM vs legacy AMM v4)
+      // rather than the API's coarse "Standard".
+      ...(p.programId ? { programId: p.programId } : {}),
     };
     // Raydium `price` is quote-per-base = mintB per mintA = amountB / amountA
     // in human units. Carry it so the action card can auto-balance the two

@@ -789,7 +789,7 @@
               <span class="text-right mono">{{ formatUsd(raydiumVolume24h(p)) }}</span>
               <span class="text-right mono km-apy">{{ raydiumApr24h(p).toFixed(2) }}%</span>
               <span class="text-right">
-                <span class="type-badge">{{ p.type === 'Concentrated' ? 'CLMM' : 'AMM' }}</span>
+                <span class="type-badge">{{ raydiumPoolKind(p) }}</span>
               </span>
               <span class="text-right">
                 <button
@@ -840,8 +840,10 @@
             </div>
           </div>
           <p class="dlmm-help">
-            <strong>CLMM</strong> = Concentrated Liquidity (single-sided range deposit, like Uniswap v3).
-            <strong>AMM</strong> = constant-product pool (deposit both tokens at the current ratio).
+            <strong>CLMM</strong> = Concentrated Liquidity (range deposit, like Uniswap v3).
+            <strong>CPMM</strong> = the newer constant-product pool (cheaper, Token-2022 support).
+            <strong>AMM v4</strong> = the legacy constant-product program (orderbook-linked).
+            CPMM and AMM v4 both deposit both tokens at the current ratio.
             Picking Deposit pre-fills the action card with the pool ID and token mints.
           </p>
         }

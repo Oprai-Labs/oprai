@@ -2107,19 +2107,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Header context for the AMM deposit panel; null until the pool resolves. */
   readonly raydiumAmmView = computed<{
     pair: string; symA: string; symB: string;
-    logoA: string | null; logoB: string | null; poolId: string;
+    logoA: string | null; logoB: string | null; poolId: string; kind: string;
   } | null>(() => {
     if (!this.isRaydiumAddLiquidity()) return null;
     const p = this.editParams();
     const symA = p['tokenASymbol'] || this.resolveTokenDisplay(p['tokenA'] ?? '').symbol || '';
     const symB = p['tokenBSymbol'] || this.resolveTokenDisplay(p['tokenB'] ?? '').symbol || '';
     if (!symA || !symB) return null;
+    // "Standard" spans two different programs (newer CPMM vs legacy AMM v4);
+    // name the one the deposit actually lands in.
+    const PROGRAMS: Record<string, string> = {
+      CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C: 'CPMM',
+      '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': 'AMM V4',
+    };
     return {
       pair: p['pair'] || `${symA}/${symB}`,
       symA, symB,
       logoA: p['tokenALogo'] || this.resolveTokenDisplay(p['tokenA'] ?? symA).logoURI || null,
       logoB: p['tokenBLogo'] || this.resolveTokenDisplay(p['tokenB'] ?? symB).logoURI || null,
       poolId: p['poolId'] ?? '',
+      kind: PROGRAMS[p['programId'] ?? ''] ?? 'STANDARD',
     };
   });
 
