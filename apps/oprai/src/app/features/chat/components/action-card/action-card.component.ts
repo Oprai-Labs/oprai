@@ -1849,12 +1849,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       strategy,
     });
   });
-  /** Decimals scale factor (Y per X has units `10^(decY - decX)` baked in). */
+  /**
+   * Raw -> human scale for a DLMM price (Y per X).
+   *
+   *   human = (y_raw / 10^decY) / (x_raw / 10^decX) = raw * 10^(decX - decY)
+   *
+   * This was inverted, which is a factor of 10^6 on SOL/USDC (9 vs 6
+   * decimals): the form offered 4,469 SOL against 0.33 USDC. It feeds both the
+   * displayed active price and the amount ratio, so one sign error moved every
+   * number on the card.
+   */
   private readonly dlmmDecimalScale = computed(() => {
     const p = this.editParams();
     const decX = parseInt(p['tokenADecimals'] ?? '9', 10);
     const decY = parseInt(p['tokenBDecimals'] ?? '9', 10);
-    return Math.pow(10, decY - decX);
+    return Math.pow(10, decX - decY);
   });
   /** True when the chosen range only collects token Y (range below active). */
   readonly dlmmSingleSidedY = computed(() => {
