@@ -1913,10 +1913,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const decY = p.token_y?.decimals ?? 9;
     let activeBinId = 0;
     if (binStep > 0 && currentPrice > 0) {
-      // current_price is human-units; the bin formula speaks in raw units,
-      // so scale by 10^(decX-decY) before solving for the bin id.
+      // current_price is human-units; the bin formula speaks in RAW units
+      // (y_raw per x_raw), so convert with 10^(decY-decX) before solving for
+      // the bin id — 1 SOL = 74.97 USDC is 74.97e6/1e9 = 0.07497 raw.
+      // Checked against the chain: the SOL/USDC pool's active_id is -6479 and
+      // only this direction reproduces it. The bin ids derived here are what
+      // the deposit submits, so the wrong sign puts the whole range tens of
+      // thousands of bins from the pool.
       activeBinId = Math.round(
-        Math.log(currentPrice * Math.pow(10, decX - decY)) /
+        Math.log(currentPrice * Math.pow(10, decY - decX)) /
           Math.log(1 + binStep / 10_000),
       );
     }

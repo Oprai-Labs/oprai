@@ -186,14 +186,16 @@ impl DlmmPairInfo {
         if bin_step == 0 || price <= 0.0 {
             return None;
         }
-        // Bin prices are quoted in RAW token units, so the human-readable
-        // price must be scaled by the decimal difference before solving for
-        // the id. Without this the id lands thousands of bins away from the
-        // pool's real active bin — the program then rejects the deposit with
-        // ExceededBinSlippageTolerance (6004), and the liquidity shape is
-        // centred on the wrong bin too. For SOL/USDC (9 vs 6 decimals) the
-        // missing 10^3 shifted the id by ~17,000.
-        let scale = 10f64.powi(i32::from(self.token_x_decimals()) - i32::from(self.token_y_decimals()));
+        // Bin prices are quoted in RAW token units (y_raw per x_raw), so the
+        // human-readable price must be converted before solving for the id:
+        //   raw = human x 10^(decY - decX)
+        // e.g. 1 SOL = 74.97 USDC -> 74.97e6 / 1e9 = 0.07497.
+        // Verified against the chain: for SOL/USDC (bin step 4) the pool's
+        // active_id is -6479, and only this direction lands on it. Getting it
+        // wrong puts the id tens of thousands of bins away, which the program
+        // rejects with ExceededBinSlippageTolerance (6004) and which would
+        // also centre the liquidity shape on the wrong bin.
+        let scale = 10f64.powi(i32::from(self.token_y_decimals()) - i32::from(self.token_x_decimals()));
         let factor = 1.0 + (bin_step as f64) / 10_000.0;
         let id = (price * scale).ln() / factor.ln();
         if !id.is_finite() {
