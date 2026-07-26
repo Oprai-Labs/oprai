@@ -990,6 +990,9 @@ struct LbPairFields {
     /// 6004). The account is already being fetched here, so reading the field
     /// costs nothing and cannot drift.
     active_id: i32,
+    /// The pool's bin step, from the same account — the range guard needs it
+    /// and not every caller has it in scope.
+    bin_step: u16,
 }
 
 async fn fetch_reserves(rpc_url: &str, lb_pair: &Pubkey) -> Result<LbPairFields, AppError> {
@@ -1013,10 +1016,12 @@ async fn fetch_reserves(rpc_url: &str, lb_pair: &Pubkey) -> Result<LbPairFields,
     // active_id sits after the discriminator (8) + StaticParameters (32) +
     // VariableParameters (32) + bump_seed (1) + bin_step_seed (2) + pair_type (1).
     let active_id = i32::from_le_bytes([data[76], data[77], data[78], data[79]]);
+    let bin_step_onchain = u16::from_le_bytes([data[80], data[81]]);
     Ok(LbPairFields {
         reserve_x: read_pubkey(152),
         reserve_y: read_pubkey(184),
         active_id,
+        bin_step: bin_step_onchain,
     })
 }
 
@@ -1144,6 +1149,40 @@ fn empty_remaining_accounts() -> RemainingAccountsInfo {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Build bin liquidity distribution weights.
+/// Guard against a bin range that cannot plausibly belong to this pool.
+///
+/// The bound is expressed in price, not bins, because a bin's width depends on
+/// the pool's bin step: 100x away is ~11,500 bins on a 4 bp pool but only ~460
+/// on a 100 bp one. Anything beyond that is a broken conversion upstream
+/// rather than a position anyone meant to open.
+fn reject_range_far_from_pool(
+    lower_bin_id: i32,
+    upper_bin_id: i32,
+    active_id: i32,
+    bin_step: u16,
+) -> Result<(), AppError> {
+    if bin_step == 0 {
+        return Ok(());
+    }
+    let factor = 1.0 + f64::from(bin_step) / 10_000.0;
+    // 100x in either direction, converted to bins for this pool.
+    let max_distance = (100f64.ln() / factor.ln()).ceil() as i32;
+    let nearest = if upper_bin_id < active_id {
+        active_id - upper_bin_id
+    } else if lower_bin_id > active_id {
+        lower_bin_id - active_id
+    } else {
+        0 // range straddles the active bin
+    };
+    if nearest > max_distance {
+        return Err(AppError::InvalidParams(format!(
+            "Price range is {nearest} bins from the pool's current price (limit {max_distance}). \
+             Refresh the pool and set the range again."
+        )));
+    }
+    Ok(())
+}
+
 /// Liquidity shape across the bin range, using METEORA'S OWN names so what the
 /// user picks is what they get:
 ///   - "spot"   → equal weight per bin (a flat spread)
@@ -1533,6 +1572,13 @@ pub async fn build_meteora_open_position(
     // wrong in two places at once and put the range far from the pool, which
     // the program rejects with ExceededBinSlippageTolerance (6004).
     let active_id = lb_fields.active_id;
+    // Refuse a range that sits absurdly far from the pool's price. A position
+    // entirely above or below the active bin is legitimate (single-sided), but
+    // one hundreds of times away is a caller bug, not an intent — and it does
+    // NOT fail on-chain: the program happily creates a dead position holding
+    // one token at a price that will never trade, which is how a deposit once
+    // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
+    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step)?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
@@ -1726,6 +1772,13 @@ pub async fn build_meteora_add_liquidity(
     // wrong in two places at once and put the range far from the pool, which
     // the program rejects with ExceededBinSlippageTolerance (6004).
     let active_id = lb_fields.active_id;
+    // Refuse a range that sits absurdly far from the pool's price. A position
+    // entirely above or below the active bin is legitimate (single-sided), but
+    // one hundreds of times away is a caller bug, not an intent — and it does
+    // NOT fail on-chain: the program happily creates a dead position holding
+    // one token at a price that will never trade, which is how a deposit once
+    // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
+    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step)?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
@@ -2230,6 +2283,13 @@ pub async fn build_meteora_add_to_position(
     // wrong in two places at once and put the range far from the pool, which
     // the program rejects with ExceededBinSlippageTolerance (6004).
     let active_id = lb_fields.active_id;
+    // Refuse a range that sits absurdly far from the pool's price. A position
+    // entirely above or below the active bin is legitimate (single-sided), but
+    // one hundreds of times away is a caller bug, not an intent — and it does
+    // NOT fail on-chain: the program happily creates a dead position holding
+    // one token at a price that will never trade, which is how a deposit once
+    // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
+    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step)?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
