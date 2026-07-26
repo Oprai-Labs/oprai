@@ -1270,14 +1270,35 @@
 
             @if (isMeteoraDlmm()) {
               <div class="clmm-section">
-                <div class="clmm-section__title">Range &amp; Shape</div>
+                <div class="clmm-section__title">Price Range</div>
+                <!-- Price is the input and the bin count follows, the way
+                     Meteora's own range control works. -->
+                @let mr = meteoraRange();
                 <div class="clmm-range-inputs">
                   <div class="clmm-range-input">
-                    <label>Range (± bins)</label>
-                    <input type="number" min="1" max="200" step="1" placeholder="15"
-                           [value]="meteoraSpread()"
-                           (input)="setMeteoraSpread($any($event.target).value)" />
+                    <label>Min Price</label>
+                    <input type="text" inputmode="decimal" placeholder="0"
+                           [value]="mr?.minPrice !== null && mr ? (mr.minPrice | number:'1.0-6') : ''"
+                           (change)="setMeteoraMinPrice($any($event.target).value)" />
+                    @if (mr?.minPct !== null && mr) {
+                      <span class="clmm-range-input__suffix">{{ mr.minPct | number:'1.0-2' }}%</span>
+                    }
                   </div>
+                  <div class="clmm-range-input">
+                    <label>Max Price</label>
+                    <input type="text" inputmode="decimal" placeholder="0"
+                           [value]="mr?.maxPrice !== null && mr ? (mr.maxPrice | number:'1.0-6') : ''"
+                           (change)="setMeteoraMaxPrice($any($event.target).value)" />
+                    @if (mr?.maxPct !== null && mr) {
+                      <span class="clmm-range-input__suffix">+{{ mr.maxPct | number:'1.0-2' }}%</span>
+                    }
+                  </div>
+                </div>
+                <div class="clmm-presets">
+                  <button type="button" class="clmm-preset" (click)="nudgeMeteoraBound('min', -1)">− Min</button>
+                  <button type="button" class="clmm-preset" (click)="nudgeMeteoraBound('min', 1)">+ Min</button>
+                  <button type="button" class="clmm-preset" (click)="nudgeMeteoraBound('max', -1)">− Max</button>
+                  <button type="button" class="clmm-preset" (click)="nudgeMeteoraBound('max', 1)">+ Max</button>
                 </div>
                 <div class="clmm-presets">
                   @for (s of METEORA_STRATEGIES; track s.value) {
@@ -1287,26 +1308,9 @@
                             (click)="setMeteoraStrategy(s.value)">{{ s.label }}</button>
                   }
                 </div>
-                <!-- Same figures Meteora shows beside its range slider: the
-                     price bounds the bin spread implies, and the bin count. -->
-                @let mpr = meteoraPriceRange();
-                @if (mpr) {
-                  <div class="clmm-range-inputs">
-                    <div class="clmm-range-input">
-                      <label>Min Price</label>
-                      <input type="text" readonly [value]="mpr.min | number:'1.0-6'" />
-                      <span class="clmm-range-input__suffix">−{{ mpr.pct | number:'1.0-2' }}%</span>
-                    </div>
-                    <div class="clmm-range-input">
-                      <label>Max Price</label>
-                      <input type="text" readonly [value]="mpr.max | number:'1.0-6'" />
-                      <span class="clmm-range-input__suffix">+{{ mpr.pct | number:'1.0-2' }}%</span>
-                    </div>
-                  </div>
-                }
-                <div class="clmm-min-hint">
-                  Total bins: {{ meteoraTotalBins() }} — liquidity spreads across ± {{ meteoraSpread() }} bins
-                  around the active price, shaped
+                <div class="clmm-min-hint" [class.clmm-min-hint--warn]="meteoraBinsOverflow()">
+                  Total bins: {{ meteoraTotalBins() }}{{ meteoraBinsOverflow() ? ' — over the ~' + METEORA_MAX_BINS + '-bin limit for one position; narrow the range' : '' }}.
+                  Liquidity is shaped
                   {{ meteoraStrategy() === 'curve' ? 'toward the current price' : meteoraStrategy() === 'bidask' ? 'toward the range edges' : 'evenly across the range' }}.
                 </div>
               </div>

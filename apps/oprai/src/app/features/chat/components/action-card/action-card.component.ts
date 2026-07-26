@@ -2005,31 +2005,154 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
   setMeteoraStrategy(v: string): void { this.setEditParam('strategy', v); }
 
+  // ── DLMM range: PRICE is the input, bins are the result ───────────────────
+  // Meteora's own UI works this way — you move the price bounds and the bin
+  // count follows. A bin is a fixed geometric step, so relative to the active
+  // bin: price(bin) = currentPrice x (1 + binStep/10000)^(bin - activeBin).
+  // Working relative to the active bin keeps token decimals out of the math.
+  //
+  // `minBinId`/`maxBinId` are the single source of truth (the submit path
+  // already prefers them), which also allows the asymmetric ranges Meteora
+  // permits — its own default sits at roughly -1.23% / +1.17%.
+
+  /** Solana caps a DLMM position at ~70 bins (tx size). Meteora's UI shows the
+   *  same ceiling — its default range lands at 69 bins. */
+  readonly METEORA_MAX_BINS = 70;
+
+  private meteoraStep(): number | null {
+    const bs = parseFloat(this.editParams()['binStep'] ?? '');
+    return bs > 0 ? bs / 10_000 : null;
+  }
+  private meteoraActiveBin(): number | null {
+    const v = parseInt(this.editParams()['activeBinId'] ?? '', 10);
+    return Number.isFinite(v) ? v : null;
+  }
+  private meteoraCurrentPrice(): number | null {
+    const v = parseFloat(this.editParams()['currentPrice'] ?? '');
+    return v > 0 ? v : null;
+  }
+
+  /** Price at a bin id, relative to the active bin. */
+  private meteoraPriceAtBin(bin: number): number | null {
+    const step = this.meteoraStep();
+    const active = this.meteoraActiveBin();
+    const price = this.meteoraCurrentPrice();
+    if (step === null || active === null || price === null) return null;
+    return price * Math.pow(1 + step, bin - active);
+  }
+
+  /** Nearest bin id for a price, relative to the active bin. */
+  private meteoraBinAtPrice(target: number): number | null {
+    const step = this.meteoraStep();
+    const active = this.meteoraActiveBin();
+    const price = this.meteoraCurrentPrice();
+    if (step === null || active === null || price === null || !(target > 0)) return null;
+    return active + Math.round(Math.log(target / price) / Math.log(1 + step));
+  }
+
   /** Bin spread (± bins around the active bin) with the backend's default. */
   meteoraSpread(): string { return this.editParams()['binSpread'] ?? '15'; }
-  setMeteoraSpread(v: string): void { this.setEditParam('binSpread', this.normalizeDecimal(v)); }
 
-  /** Bins the position will span — Meteora shows this as "Total Bins". */
-  readonly meteoraTotalBins = computed<number>(() => {
-    const spread = parseInt(this.meteoraSpread(), 10);
-    return Number.isFinite(spread) && spread > 0 ? spread * 2 + 1 : 0;
+  /** The resolved range: explicit bin ids when set, else the ± spread. */
+  readonly meteoraRange = computed<{
+    minBin: number; maxBin: number; bins: number;
+    minPrice: number | null; maxPrice: number | null;
+    minPct: number | null; maxPct: number | null;
+  } | null>(() => {
+    const p = this.editParams();
+    const active = this.meteoraActiveBin();
+    if (active === null) return null;
+    let minBin = parseInt(p['minBinId'] ?? '', 10);
+    let maxBin = parseInt(p['maxBinId'] ?? '', 10);
+    if (!Number.isFinite(minBin) || !Number.isFinite(maxBin)) {
+      const spread = parseInt(this.meteoraSpread(), 10);
+      if (!Number.isFinite(spread) || spread <= 0) return null;
+      minBin = active - spread;
+      maxBin = active + spread;
+    }
+    if (maxBin < minBin) [minBin, maxBin] = [maxBin, minBin];
+    const minPrice = this.meteoraPriceAtBin(minBin);
+    const maxPrice = this.meteoraPriceAtBin(maxBin);
+    const cur = this.meteoraCurrentPrice();
+    return {
+      minBin, maxBin,
+      bins: maxBin - minBin + 1,
+      minPrice, maxPrice,
+      minPct: minPrice !== null && cur ? (minPrice / cur - 1) * 100 : null,
+      maxPct: maxPrice !== null && cur ? (maxPrice / cur - 1) * 100 : null,
+    };
   });
+
+  readonly meteoraTotalBins = computed<number>(() => this.meteoraRange()?.bins ?? 0);
+
+  /** True when the range exceeds what one position can hold. */
+  readonly meteoraBinsOverflow = computed(() => this.meteoraTotalBins() > this.METEORA_MAX_BINS);
+
+  private writeMeteoraBins(minBin: number, maxBin: number): void {
+    const active = this.meteoraActiveBin();
+    this.editParams.update(ep => ({
+      ...ep,
+      minBinId: String(minBin),
+      maxBinId: String(maxBin),
+      // Keep the ± control meaningful for symmetric ranges.
+      ...(active !== null ? { binSpread: String(Math.max(active - minBin, maxBin - active)) } : {}),
+    }));
+  }
+
+  setMeteoraSpread(v: string): void {
+    const spread = parseInt(this.normalizeDecimal(v), 10);
+    const active = this.meteoraActiveBin();
+    if (!Number.isFinite(spread) || spread <= 0 || active === null) {
+      this.setEditParam('binSpread', this.normalizeDecimal(v));
+      return;
+    }
+    this.writeMeteoraBins(active - spread, active + spread);
+  }
+
+  /** User typed a price bound — convert it to a bin id, Meteora-style. */
+  setMeteoraMinPrice(v: string): void {
+    const bin = this.meteoraBinAtPrice(parseFloat(this.normalizeDecimal(v)));
+    const r = this.meteoraRange();
+    if (bin === null || !r) return;
+    this.writeMeteoraBins(Math.min(bin, r.maxBin), r.maxBin);
+  }
+  setMeteoraMaxPrice(v: string): void {
+    const bin = this.meteoraBinAtPrice(parseFloat(this.normalizeDecimal(v)));
+    const r = this.meteoraRange();
+    if (bin === null || !r) return;
+    this.writeMeteoraBins(r.minBin, Math.max(bin, r.minBin));
+  }
+  /** +/- steppers on each bound, one bin at a time (Meteora has these too). */
+  nudgeMeteoraBound(which: 'min' | 'max', delta: number): void {
+    const r = this.meteoraRange();
+    if (!r) return;
+    if (which === 'min') this.writeMeteoraBins(Math.min(r.minBin + delta, r.maxBin), r.maxBin);
+    else this.writeMeteoraBins(r.minBin, Math.max(r.maxBin + delta, r.minBin));
+  }
 
   /**
-   * Price bounds implied by the ± bin spread. A DLMM bin is a fixed
-   * geometric step, so bin n sits at price × (1 + binStep/10000)^n — the same
-   * relationship Meteora's Min/Max Price boxes show next to the range slider.
-   * Null when the pool's price or bin step isn't known yet.
+   * Seed a range that actually suits the pool. The old default was a flat
+   * "15 bins" regardless of bin step — which is +/-0.6% on a 4 bp pool but
+   * +/-16% on a 100 bp one, so the same number meant wildly different
+   * positions. Target a price band instead and clamp to the per-position bin
+   * ceiling.
    */
-  readonly meteoraPriceRange = computed<{ min: number; max: number; pct: number } | null>(() => {
+  private seedMeteoraRange(): void {
     const p = this.editParams();
-    const price = parseFloat(p['currentPrice'] ?? p['activeBinPrice'] ?? '');
-    const binStep = parseFloat(p['binStep'] ?? '');
-    const spread = parseInt(this.meteoraSpread(), 10);
-    if (!(price > 0) || !(binStep > 0) || !(spread > 0)) return null;
-    const factor = Math.pow(1 + binStep / 10_000, spread);
-    return { min: price / factor, max: price * factor, pct: (factor - 1) * 100 };
-  });
+    if (p['minBinId'] || p['maxBinId']) return;   // explicit range already given
+    const step = this.meteoraStep();
+    const active = this.meteoraActiveBin();
+    if (step === null || active === null) return;
+    const TARGET_BAND = 0.05; // +/-5% around the active price
+    const perSide = Math.max(
+      1,
+      Math.min(
+        Math.floor((this.METEORA_MAX_BINS - 1) / 2),
+        Math.round(Math.log(1 + TARGET_BAND) / Math.log(1 + step)),
+      ),
+    );
+    this.writeMeteoraBins(active - perSide, active + perSide);
+  }
 
   /**
    * Pool / position header for any Meteora panel: the pair, its logos and the
@@ -3266,6 +3389,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   ngOnInit(): void {
     if (this.action) this.initFromAction();
     this.maybeLoadLstRate();
+    if (this.isMeteoraDlmm()) this.seedMeteoraRange();
     this.maybeEnrichRaydiumPool();
     void this.maybeEnrichRaydiumWithdraw();
     this.maybeNormalizeExactOutToExactIn();

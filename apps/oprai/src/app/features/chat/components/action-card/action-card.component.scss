@@ -4733,6 +4733,10 @@
   line-height: 1.4;
   margin-top: -2px;
   margin-bottom: 2px;
+
+  // The range exceeds what one position can hold — this stops being a hint
+  // and becomes something the user has to act on.
+  &--warn { color: var(--op-warn, #e8a13a); }
 }
 
 // ── Custom-pair token chooser ("Başka bir çift" path) ──
