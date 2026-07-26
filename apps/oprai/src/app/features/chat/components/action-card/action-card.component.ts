@@ -2015,9 +2015,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // already prefers them), which also allows the asymmetric ranges Meteora
   // permits — its own default sits at roughly -1.23% / +1.17%.
 
-  /** Solana caps a DLMM position at ~70 bins (tx size). Meteora's UI shows the
-   *  same ceiling — its default range lands at 69 bins. */
-  readonly METEORA_MAX_BINS = 70;
+  /**
+   * Bin ceiling for ONE add-liquidity transaction.
+   *
+   * Our builder uses add_liquidity_by_weight, which serialises the shape as a
+   * per-bin vector — 6 bytes each (bin_id i32 + weight u16). Measured against
+   * a real pool: 69 bins produced a 1235-byte transaction, 3 over Solana's
+   * 1232 limit, which puts the base transaction near 821 bytes and the hard
+   * ceiling at 68 bins. 60 keeps roughly 50 bytes of headroom for pools that
+   * need an extra bin-array or ATA account.
+   *
+   * Meteora's own UI reaches 69 because it sends add_liquidity_by_strategy,
+   * where the shape is a parameter rather than a list. Switching to that
+   * instruction is what would buy back the range.
+   */
+  readonly METEORA_MAX_BINS = 60;
 
   private meteoraStep(): number | null {
     const bs = parseFloat(this.editParams()['binStep'] ?? '');

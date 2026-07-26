@@ -1309,7 +1309,7 @@
                   }
                 </div>
                 <div class="clmm-min-hint" [class.clmm-min-hint--warn]="meteoraBinsOverflow()">
-                  Total bins: {{ meteoraTotalBins() }}{{ meteoraBinsOverflow() ? ' — over the ~' + METEORA_MAX_BINS + '-bin limit for one position; narrow the range' : '' }}.
+                  Total bins: {{ meteoraTotalBins() }}{{ meteoraBinsOverflow() ? ' — past the ' + METEORA_MAX_BINS + ' bins one transaction can carry; narrow the range' : '' }}.
                   Liquidity is shaped
                   {{ meteoraStrategy() === 'curve' ? 'toward the current price' : meteoraStrategy() === 'bidask' ? 'toward the range edges' : 'evenly across the range' }}.
                 </div>
@@ -3744,10 +3744,13 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="meteoraBinsOverflow() || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="meteoraBinsOverflow() || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
-            @if (clmmUnresolved()) {
+            @if (meteoraBinsOverflow()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Range too wide ({{ meteoraTotalBins() }} bins)
+            } @else if (clmmUnresolved()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Select a token pair
             } @else if (clmmInsufficient() !== null) {
