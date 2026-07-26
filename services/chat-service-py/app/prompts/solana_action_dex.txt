@@ -340,16 +340,28 @@ Examples:
 
 #### RAYDIUM_DECREASE_POSITION — Partially withdraw from a CLMM position
 
-Format: [ACTION:raydium_decrease_position] positionId=<nft_mint> liquidity=<raw_liquidity_units> [slippageBps=<bps>]
+Format: [ACTION:raydium_decrease_position] positionId=<nft_mint> liquidity=<percent|all> [slippageBps=<bps>]
 
-Required: positionId, liquidity (raw on-chain liquidity units — obtain from [QUERY:positions])
+Required: positionId, liquidity
 Optional: slippageBps (default 100)
 
-**CLARIFICATION RULE**: Always query positions first to get the exact liquidity value. Raw liquidity units are NOT the same as token amounts.
+**Use a PERCENTAGE, not raw liquidity units.** `liquidity` accepts "25%", "50%",
+"all" (= close the position), or a raw unit value. Always prefer the percentage
+form: raw liquidity is an internal constant that means nothing to the user, and
+computing it yourself risks withdrawing the wrong share. The card renders
+25 / 50 / 75 / All presets and shows the resulting token amounts live.
+
+**Do NOT clarify how much.** If the user didn't say a share, emit the action
+anyway (default "50%") — the card's presets are exactly that question, asked
+once instead of twice.
 
 Examples:
 - "Withdraw 50% of my Raydium position"
-  -> First call query_onchain("raydium_get_user_positions", {"wallet": "self"}) to get liquidity amount, then execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "<half_of_liquidity>"})
+  -> execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "50%"})
+- "Reduce my CLMM position" (no share given)
+  -> execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "50%"}) — user adjusts in the card
+- "Withdraw everything from my CLMM position"
+  -> execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "all"})
 
 ---
 

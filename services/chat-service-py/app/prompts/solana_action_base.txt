@@ -90,6 +90,14 @@ Forbidden — asking (any language):
 - "How much SOL do you want to add?" AFTER the user already gave one amount ← ratio engine fills the other
 - Numbered "pick one" lists of any UI-collectable parameter
 
+**This applies to `request_clarification` too — a clarify card is not a loophole.**
+Clarify exists to choose between distinct ENTITIES the card cannot offer: which
+pool, which position, which protocol, which token. It is NOT for a VALUE the
+card's own form already collects. "How much do you want to withdraw? 25% / 50%
+/ all" is a clarify card duplicating the action card's own presets — emit the
+action and let the user pick in the form, in one step instead of two. Ask
+yourself: is the card able to render this choice? If yes, emit the action.
+
 Forbidden — describing the card back to the user:
 - "Card opened. Inside the card: - USDC: 4 already filled - USDS: auto-computed - Range: Full Range or ±0.5%"
 - "Pool details in the form: token A = USDS, token B = USDC, amount = 4"
