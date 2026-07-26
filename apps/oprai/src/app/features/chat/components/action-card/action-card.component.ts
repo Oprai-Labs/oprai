@@ -1838,9 +1838,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const binStep = parseFloat(p['binStep'] ?? '0');
     const activeBinId = parseFloat(p['activeBinId'] ?? '0');
     if (!(binStep > 0)) return null;
-    const spread = Math.max(1, Math.floor(parseFloat(p['binSpread'] ?? '15')));
     const strategy = (p['strategy'] ?? 'spot') as DlmmStrategy;
-    const range = rangeFromSpread(activeBinId, spread);
+    // Prefer the explicit bin ids — they are what the deposit submits and they
+    // can be ASYMMETRIC (Meteora's own default is). Deriving a symmetric range
+    // from binSpread instead meant moving one bound alone changed nothing: the
+    // ratio stayed put, so the amounts never responded to the range. Fall back
+    // to the spread only when no explicit range exists yet.
+    const explicitMin = parseInt(p['minBinId'] ?? '', 10);
+    const explicitMax = parseInt(p['maxBinId'] ?? '', 10);
+    const range = Number.isFinite(explicitMin) && Number.isFinite(explicitMax)
+      ? { minBinId: Math.min(explicitMin, explicitMax), maxBinId: Math.max(explicitMin, explicitMax) }
+      : rangeFromSpread(activeBinId, Math.max(1, Math.floor(parseFloat(p['binSpread'] ?? '15'))));
     return computeDlmmRatio({
       activeBinId,
       minBinId: range.minBinId,
@@ -2118,6 +2126,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       // Keep the ± control meaningful for symmetric ranges.
       ...(active !== null ? { binSpread: String(Math.max(active - minBin, maxBin - active)) } : {}),
     }));
+    // The range decides how the deposit splits between the two tokens, so the
+    // amounts have to follow it. The auto-balance effect only recomputes the
+    // side opposite the last edit, so point it at whichever side has a value
+    // when the user has moved the range without typing an amount first.
+    if (this.dlmmLastEdited() === null) {
+      const p = this.editParams();
+      if (parseFloat(p['amountA'] ?? '') > 0) this.dlmmLastEdited.set('A');
+      else if (parseFloat(p['amountB'] ?? '') > 0) this.dlmmLastEdited.set('B');
+    }
   }
 
   setMeteoraSpread(v: string): void {
