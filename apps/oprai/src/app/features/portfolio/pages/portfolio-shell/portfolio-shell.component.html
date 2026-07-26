@@ -52,7 +52,10 @@
         <h2>Connect your wallet</h2>
         <p>Connect a Solana wallet to view your portfolio, token holdings, staking positions, and recent activity.</p>
       </div>
-    } @else if (isLoading() && !summary()) {
+    } @else if (!positionsSettled() && !error()) {
+      <!-- Whole-page skeleton: held until the first full load (wallet + every
+           protocol + pricing) is in, so the page renders in one shot instead
+           of the wallet total popping in ahead of the DeFi balances. -->
       <!-- Skeleton: Portfolio Overview -->
       <div class="skeleton-overview">
         <div class="sk-row stagger-1" style="padding: 32px 0 12px; gap: 12px; border: none;">
@@ -91,6 +94,7 @@
           [defiPositions]="defiPositions()"
           [protocolPositions]="protocolPositions()"
           [portfolioChange]="portfolioChange()"
+          [positionsLoading]="!positionsSettled()"
         />
 
         <!-- Cross-protocol claimable rewards summary — hidden when nothing

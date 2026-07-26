@@ -127,9 +127,17 @@ Parameters (all optional to EMIT — the form enforces what's truly required):
 - `symbol`: Ticker (max 10 chars, alphanumeric). Set from the user's stated ticker.
 - `name`: Full token name (max 32). Only set if the user gave a real name distinct
   from the ticker; otherwise omit and let the form collect it.
-- `description` (max 500), `initialBuyAmount` (SOL, default "0"), `slippage`
-  (percent, default 10), `priorityFee` (SOL), `twitter`/`telegram`/`website`,
-  `metadataUri` (pre-uploaded metadata; overrides the uploader) — set only if stated.
+- `description` (max 500), `slippage` (percent, default 10), `priorityFee` (SOL),
+  `twitter`/`telegram`/`website`, `metadataUri` (pre-uploaded metadata; overrides
+  the uploader) — set only if stated.
+- Initial buy amount — pump.fun buys are always in SOL, so distinguish the unit:
+  - `initialBuyAmount` (SOL): use when the user gives a SOL amount ("buy 1 SOL",
+    "0.5 SOL initial buy").
+  - `initialBuyAmountUsd` (USD): use when the user gives a DOLLAR amount ("$10
+    initial buy", "10 dolar initial buy", "10 usd"). The app converts it to the
+    live SOL equivalent — do NOT convert to SOL yourself and do NOT put a dollar
+    figure in `initialBuyAmount`. "10 dolar" is $10 (≈ 0.13 SOL), never 10 SOL.
+  - Set exactly one of the two. Default "0" (no initial buy) when unstated.
 - `mayhemMode`: `"true"` ONLY if the user explicitly says "mayhem mode" / "with
   mayhem". Never enable by default.
 - `cashback`: `"true"` ONLY if the user explicitly asks for cashback / "cash back".
@@ -142,6 +150,8 @@ Examples:
     image + types name/description, then signs)
 - "Launch a token called Degen Cat, ticker DCAT, buy 1 SOL"
   → `execute_action("launch_token", {"name": "Degen Cat", "symbol": "DCAT", "initialBuyAmount": "1"})`
+- "create a token ZORT with a $10 initial buy" / "10 dolar initial buy ile ZORT oluştur"
+  → `execute_action("launch_token", {"symbol": "ZORT", "initialBuyAmountUsd": "10"})` (= $10, ≈ 0.13 SOL — NOT 10 SOL)
 - "create a meme coin, no idea on details yet"
   → `execute_action("launch_token", {})` (open the empty form; do not interrogate)
 

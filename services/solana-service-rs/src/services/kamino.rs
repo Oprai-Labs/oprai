@@ -38,8 +38,9 @@ use crate::services::builder::{ActionPreview, BuildResponse};
 /// Kamino REST API base URL (no trailing slash).
 const KAMINO_API: &str = "https://api.kamino.finance";
 
-/// Kamino main K-Lend market — used when the caller omits `market`.
-const KAMINO_MAIN_MARKET: &str = "7u3HeL2w1613C9uTdnK9GkfFfByNTYT1Y5MiUBHTrfip";
+/// Kamino main K-Lend market (the primary `lendingMarket` from
+/// `GET /kamino-market`) — used when the caller omits `market`.
+const KAMINO_MAIN_MARKET: &str = "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF";
 
 /// Resolve a `market` param: blank/None or a symbolic alias ("main", "default",
 /// "primary") → KAMINO_MAIN_MARKET. A base58-looking string (32–44 chars,
@@ -64,6 +65,25 @@ fn resolve_kamino_market<'a>(market: Option<&'a str>) -> &'a str {
                 KAMINO_MAIN_MARKET
             }
         }
+    }
+}
+
+/// Resolve a user-scoped `wallet` param to a real base58 address. The LLM often
+/// passes `wallet: "self"` (or omits it) to mean "the connected user" — sending
+/// that literal to Kamino's API 400s ("Must be a base58-encoded valid address").
+/// None/blank or any self-reference alias → the authenticated caller's wallet.
+fn resolve_target_wallet<'a>(param: Option<&'a str>, caller: &'a str) -> &'a str {
+    let w = match param.map(str::trim) {
+        None | Some("") => return caller,
+        Some(w) => w,
+    };
+    if matches!(
+        w.to_ascii_lowercase().as_str(),
+        "self" | "me" | "mine" | "myself" | "my" | "my wallet" | "connected" | "current" | "user"
+    ) {
+        caller
+    } else {
+        w
     }
 }
 
@@ -118,11 +138,21 @@ pub struct KaminoBorrowParams {
 pub struct KaminoRepayParams {
     /// KLend reserve account address for the token to repay. Required.
     pub reserve: String,
-    /// Amount to repay (decimal). Required.
+    /// Amount to repay (decimal). Required — or the sentinel "all"/"max"/"full"
+    /// to close the whole debt (see `repay_all`).
     pub amount: String,
     /// K-Lend market address. Defaults to Kamino main market.
     #[serde(default)]
     pub market: Option<String>,
+    /// Repay the ENTIRE debt (principal + accrued interest), fully closing the
+    /// borrow. A fixed decimal amount can never match the debt exactly — it
+    /// grows continuously and Kamino tracks it as a scaled fraction — so a
+    /// partial repay always leaves sub-unit dust that trips NetValueRemaining-
+    /// TooSmall (6092). When set, we send a large sentinel amount; Kamino caps
+    /// the actual transfer at ceil(debt) and closes the line cleanly.
+    /// Accepts a stringly-typed flag ("true"/"1") from the frontend.
+    #[serde(default)]
+    pub repay_all: Option<String>,
 }
 
 /// Add collateral to a K-Lend obligation (alias for deposit — all deposits are collateral).
@@ -306,12 +336,200 @@ pub struct KaminoUnstakeParams {
 // ──────────────────────────────────────────────────────────────────────────────
 
 fn validate_reserve_address(reserve: &str, field: &str) -> Result<(), AppError> {
-    if reserve.is_empty() || reserve.len() < 32 {
+    // Accepts a token symbol ("USDC"), a token mint, or an already-resolved
+    // KLend reserve account address — `resolve_reserve_address` maps any of
+    // these to the real reserve pubkey at build time. Only reject empty.
+    if reserve.trim().is_empty() {
         return Err(AppError::InvalidParams(format!(
-            "{field} must be a valid KLend reserve account address (base58)"
+            "{field} is required (token symbol, mint, or KLend reserve address)"
         )));
     }
     Ok(())
+}
+
+/// Resolve a K-Lend token reference — a symbol ("USDC"), a token mint, or an
+/// already-resolved reserve account address — to the **reserve account
+/// address** in `market`. Kamino's main market has several reserves per token
+/// (e.g. multiple USDC pools), so when several match we pick the deepest by
+/// supplied TVL: that is the canonical pool a user means by "deposit USDC".
+/// Uses the live `/reserves/metrics` list — no hardcoded reserve addresses.
+async fn resolve_reserve_address(
+    http: &reqwest::Client,
+    market: &str,
+    token: &str,
+) -> Result<String, AppError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(AppError::InvalidParams("reserve/token is required".into()));
+    }
+    let metrics = kamino_get(http, &format!("/kamino-market/{market}/reserves/metrics")).await?;
+    let reserves = metrics.as_array().cloned().unwrap_or_default();
+
+    // Already a reserve account address in this market? Pass through.
+    if reserves
+        .iter()
+        .any(|r| r.get("reserve").and_then(|v| v.as_str()) == Some(token))
+    {
+        return Ok(token.to_string());
+    }
+
+    // Match by mint (exact) or symbol (case-insensitive; WSOL≡SOL).
+    let want_sym = if token.eq_ignore_ascii_case("wsol") {
+        "SOL".to_string()
+    } else {
+        token.to_ascii_uppercase()
+    };
+    let tvl = |r: &serde_json::Value| -> f64 {
+        r.get("totalSupplyUsd")
+            .map(|v| {
+                v.as_f64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    .unwrap_or(0.0)
+            })
+            .unwrap_or(0.0)
+    };
+    let mut matches: Vec<serde_json::Value> = reserves
+        .into_iter()
+        .filter(|r| {
+            let mint = r
+                .get("liquidityTokenMint")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let sym = r
+                .get("liquidityToken")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            mint == token || sym.eq_ignore_ascii_case(&want_sym)
+        })
+        .collect();
+    if matches.is_empty() {
+        return Err(AppError::InvalidParams(format!(
+            "No Kamino K-Lend reserve found for '{token}' in market {}",
+            short_id(market)
+        )));
+    }
+    matches.sort_by(|a, b| {
+        tvl(b)
+            .partial_cmp(&tvl(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let best = matches[0]
+        .get("reserve")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if best.is_empty() {
+        return Err(AppError::InvalidParams(format!(
+            "Kamino reserve for '{token}' has no account address"
+        )));
+    }
+    Ok(best.to_string())
+}
+
+/// Which side of an obligation a position-closing action targets.
+#[derive(Clone, Copy)]
+enum PositionSide {
+    Deposit,
+    Borrow,
+}
+
+/// For CLOSING actions (withdraw / repay), resolve the reserve to the one the
+/// user ACTUALLY holds in their obligation for `token` — NOT the deepest-TVL
+/// reserve `resolve_reserve_address` would pick. A token can have several
+/// reserves on one market (Kamino main has 4 USDC reserves); the deposit/borrow
+/// lives in a specific one, and closing against the wrong reserve errors (the
+/// user has nothing there). Returns None when there's no matching live position
+/// (or `token` is already a reserve address), so the caller falls back to the
+/// TVL heuristic — correct for OPENING a fresh position.
+async fn resolve_position_reserve(
+    http: &reqwest::Client,
+    market: &str,
+    wallet: &str,
+    token: &str,
+    side: PositionSide,
+) -> Option<String> {
+    let token = token.trim();
+    if token.is_empty() {
+        return None;
+    }
+
+    // Reserves whose token matches the request (by mint or symbol; WSOL≡SOL).
+    let metrics = kamino_get(http, &format!("/kamino-market/{market}/reserves/metrics"))
+        .await
+        .ok()?;
+    let reserves = metrics.as_array()?;
+    let want_sym = if token.eq_ignore_ascii_case("wsol") {
+        "SOL".to_string()
+    } else {
+        token.to_ascii_uppercase()
+    };
+    let candidates: std::collections::HashSet<String> = reserves
+        .iter()
+        .filter_map(|r| {
+            let addr = r.get("reserve").and_then(|v| v.as_str())?;
+            let mint = r
+                .get("liquidityTokenMint")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let sym = r
+                .get("liquidityToken")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            (mint == token || sym.eq_ignore_ascii_case(&want_sym)).then(|| addr.to_string())
+        })
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let (field, reserve_key, amount_key) = match side {
+        PositionSide::Deposit => ("deposits", "depositReserve", "depositedAmount"),
+        PositionSide::Borrow => ("borrows", "borrowReserve", "borrowedAmountSf"),
+    };
+    let obligs = kamino_get(
+        http,
+        &format!("/kamino-market/{market}/users/{wallet}/obligations"),
+    )
+    .await
+    .ok()?;
+    for o in obligs.as_array()? {
+        let lines = o
+            .get("state")
+            .and_then(|s| s.get(field))
+            .and_then(|v| v.as_array());
+        let Some(lines) = lines else { continue };
+        for line in lines {
+            // Skip empty (already-closed) lines.
+            let amt = line
+                .get(amount_key)
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<u128>().ok())
+                .unwrap_or(0);
+            if amt == 0 {
+                continue;
+            }
+            if let Some(res) = line.get(reserve_key).and_then(|v| v.as_str()) {
+                if candidates.contains(res) {
+                    return Some(res.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Resolve the reserve for a close action: the user's held reserve first, then
+/// the TVL heuristic (which also passes through an explicit reserve address).
+async fn resolve_close_reserve(
+    http: &reqwest::Client,
+    market: &str,
+    wallet: &str,
+    token: &str,
+    side: PositionSide,
+) -> Result<String, AppError> {
+    if let Some(r) = resolve_position_reserve(http, market, wallet, token, side).await {
+        return Ok(r);
+    }
+    resolve_reserve_address(http, market, token).await
 }
 
 pub fn validate_kamino_deposit_params(p: &KaminoDepositParams) -> Result<(), AppError> {
@@ -353,9 +571,120 @@ pub fn validate_kamino_borrow_params(p: &KaminoBorrowParams) -> Result<(), AppEr
     Ok(())
 }
 
+/// True when the caller wants to close the whole debt — either the explicit
+/// `repayAll` flag, or an `amount` sentinel ("all"/"max"/"full"/"-1") that the
+/// LLM emits for "repay all my X". Case/whitespace-insensitive.
+fn repay_all_requested(amount: &str, flag: &Option<String>) -> bool {
+    let a = amount.trim().to_ascii_lowercase();
+    if matches!(a.as_str(), "all" | "max" | "full" | "-1") {
+        return true;
+    }
+    matches!(
+        flag.as_deref().map(|s| s.trim().to_ascii_lowercase()).as_deref(),
+        Some("true" | "1" | "yes" | "all")
+    )
+}
+
+/// Best-effort: does `requested` (token units) already cover ~the whole debt
+/// for this reserve? If so the caller should repay-all so Kamino closes the line
+/// with no dust — a fixed decimal can never match the continuously-accruing debt
+/// exactly, so "pay it all off" as a number would otherwise leave a sub-unit
+/// remainder → NetValueRemainingTooSmall (6092). Any fetch/parse failure returns
+/// false (fall back to the exact requested amount). Compares in USD: debt from
+/// the obligation's refreshed stats, price from the reserve's supply figures.
+async fn kamino_repay_covers_debt(
+    http: &reqwest::Client,
+    market: &str,
+    wallet: &str,
+    reserve: &str,
+    requested: f64,
+) -> bool {
+    let num = |v: &serde_json::Value| -> Option<f64> {
+        v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    };
+
+    // Debt (USD) from the obligation that borrows this reserve.
+    let obligs = match kamino_get(
+        http,
+        &format!("/kamino-market/{market}/users/{wallet}/obligations"),
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let arr = match obligs.as_array() {
+        Some(a) => a,
+        None => return false,
+    };
+    let mut debt_usd = 0.0_f64;
+    for o in arr {
+        let has_line = o
+            .get("state")
+            .and_then(|s| s.get("borrows"))
+            .and_then(|b| b.as_array())
+            .map(|bs| {
+                bs.iter().any(|b| {
+                    b.get("borrowReserve").and_then(|r| r.as_str()) == Some(reserve)
+                })
+            })
+            .unwrap_or(false);
+        if has_line {
+            debt_usd = o
+                .get("refreshedStats")
+                .and_then(|s| s.get("userTotalBorrow"))
+                .and_then(num)
+                .unwrap_or(0.0);
+            break;
+        }
+    }
+    if debt_usd <= 0.0 {
+        return false;
+    }
+
+    // Price (USD per token) for the reserve, from its supply figures.
+    let metrics = match kamino_get(
+        http,
+        &format!("/kamino-market/{market}/reserves/metrics"),
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let price = metrics
+        .as_array()
+        .and_then(|rs| {
+            rs.iter()
+                .find(|r| r.get("reserve").and_then(|v| v.as_str()) == Some(reserve))
+        })
+        .and_then(|r| {
+            let supply = r.get("totalSupply").and_then(num).unwrap_or(0.0);
+            let supply_usd = r.get("totalSupplyUsd").and_then(num).unwrap_or(0.0);
+            (supply > 0.0).then_some(supply_usd / supply)
+        })
+        .unwrap_or(0.0);
+    if price <= 0.0 {
+        return false;
+    }
+
+    // 0.5% tolerance: near-or-over the debt counts as "repay everything".
+    requested * price >= debt_usd * 0.995
+}
+
+/// A large decimal amount used to signal "repay everything". Kamino caps the
+/// actual transfer at ceil(outstanding debt), so this never over-pays; it just
+/// guarantees the borrow line closes with zero dust. Kept well under u64 base-
+/// unit overflow even for 9-decimal tokens (1e9 × 1e9 = 1e18 < u64::MAX).
+const KAMINO_REPAY_ALL_SENTINEL: &str = "1000000000";
+
 pub fn validate_kamino_repay_params(p: &KaminoRepayParams) -> Result<(), AppError> {
     validate_reserve_address(&p.reserve, "reserve")?;
-    validate_positive_amount(&p.amount, "amount")?;
+    // Skip the positive-amount check for repay-all: the amount may be a sentinel
+    // ("all") rather than a number.
+    if !repay_all_requested(&p.amount, &p.repay_all) {
+        validate_positive_amount(&p.amount, "amount")?;
+    }
     if let Some(ref m) = p.market {
         if m.len() < 32 {
             return Err(AppError::InvalidParams(format!(
@@ -611,10 +940,11 @@ pub async fn build_kamino_deposit(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_deposit_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
+    let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
-        "reserve": params.reserve,
+        "reserve": reserve,
         "amount": params.amount,
     });
     let tx_b64 = kamino_post_tx(http, "/ktx/klend/deposit", &body).await?;
@@ -625,7 +955,7 @@ pub async fn build_kamino_deposit(
             description: format!(
                 "Deposit {} into Kamino K-Lend reserve {}",
                 params.amount,
-                short_id(&params.reserve),
+                short_id(&reserve),
             ),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
@@ -650,10 +980,12 @@ pub async fn build_kamino_withdraw(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_withdraw_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
+    let reserve =
+        resolve_close_reserve(http, market, wallet, &params.reserve, PositionSide::Deposit).await?;
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
-        "reserve": params.reserve,
+        "reserve": reserve,
         "amount": params.amount,
     });
     let tx_b64 = kamino_post_tx(http, "/ktx/klend/withdraw", &body).await?;
@@ -664,7 +996,7 @@ pub async fn build_kamino_withdraw(
             description: format!(
                 "Withdraw {} from Kamino K-Lend reserve {}",
                 params.amount,
-                short_id(&params.reserve),
+                short_id(&reserve),
             ),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
@@ -689,10 +1021,11 @@ pub async fn build_kamino_borrow(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_borrow_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
+    let reserve = resolve_reserve_address(http, market, &params.reserve).await?;
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
-        "reserve": params.reserve,
+        "reserve": reserve,
         "amount": params.amount,
     });
     let tx_b64 = kamino_post_tx(http, "/ktx/klend/borrow", &body).await?;
@@ -703,7 +1036,7 @@ pub async fn build_kamino_borrow(
             description: format!(
                 "Borrow {} from Kamino K-Lend reserve {}",
                 params.amount,
-                short_id(&params.reserve),
+                short_id(&reserve),
             ),
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
@@ -728,22 +1061,38 @@ pub async fn build_kamino_repay(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_repay_params(params)?;
     let market = resolve_kamino_market(params.market.as_deref());
+    let reserve =
+        resolve_close_reserve(http, market, wallet, &params.reserve, PositionSide::Borrow).await?;
+    let mut repay_all = repay_all_requested(&params.amount, &params.repay_all);
+    // Auto-upgrade to a full close when the requested amount already covers ~the
+    // whole debt (stale frontend sending the exact debt, or an LLM "repay <debt>"
+    // as a number). A fixed decimal can't match the accruing debt, so it would
+    // otherwise leave dust → 6092. Best-effort; falls back to the exact amount.
+    if !repay_all {
+        if let Ok(req) = params.amount.trim().parse::<f64>() {
+            if req > 0.0 && kamino_repay_covers_debt(http, market, wallet, &reserve, req).await {
+                repay_all = true;
+            }
+        }
+    }
+    // Repay-all: send a large sentinel so Kamino closes the borrow with no dust.
+    let send_amount = if repay_all { KAMINO_REPAY_ALL_SENTINEL } else { params.amount.as_str() };
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
-        "reserve": params.reserve,
-        "amount": params.amount,
+        "reserve": reserve,
+        "amount": send_amount,
     });
     let tx_b64 = kamino_post_tx(http, "/ktx/klend/repay", &body).await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_repay".into(),
-            description: format!(
-                "Repay {} to Kamino K-Lend reserve {}",
-                params.amount,
-                short_id(&params.reserve),
-            ),
+            description: if repay_all {
+                format!("Repay full debt to Kamino K-Lend reserve {}", short_id(&reserve))
+            } else {
+                format!("Repay {} to Kamino K-Lend reserve {}", params.amount, short_id(&reserve))
+            },
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
@@ -974,9 +1323,17 @@ pub async fn build_kamino_unstake(
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct KaminoVaultsParams {
-    /// Max number of vaults to return.
+    /// Max number of vaults to return (default 8, top by TVL).
     #[serde(default)]
     pub limit: Option<u32>,
+    /// Optional token filter (symbol or mint) — only vaults for that token.
+    /// Use it when the user wants to deposit a specific asset (e.g. "SOL vaults").
+    #[serde(default)]
+    pub token: Option<String>,
+    /// Optional name filter — only vaults whose name contains this (e.g. the user
+    /// asks for the "Steakhouse" or "Allez" vaults). Case-insensitive substring.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// Get the user's Kamino Earn vault positions.
@@ -1113,19 +1470,172 @@ pub async fn build_kamino_vaults(
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_vaults_params(params)?;
     let data = kamino_get(http, "/kvaults/vaults").await?;
-    let mut vaults = data.as_array().cloned().unwrap_or_default();
-    if let Some(limit) = params.limit {
-        vaults.truncate(limit as usize);
+    let raw = data.as_array().cloned().unwrap_or_default();
+
+    // Lean per-vault fields pulled from the on-chain `state` blob.
+    struct V {
+        address: String,
+        name: String,
+        mint: String,
+        decimals: i32,
+        aum: f64,
+        perf_bps: f64,
+        mgmt_bps: f64,
+        min_deposit: f64,
     }
-    let count = vaults.len();
+    let mut vaults: Vec<V> = raw
+        .iter()
+        .filter_map(|v| {
+            let address = v.get("address")?.as_str()?.to_string();
+            let st = v.get("state")?;
+            let num = |k: &str| -> f64 {
+                st.get(k)
+                    .and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0.0)
+            };
+            Some(V {
+                address,
+                name: st.get("name").and_then(|x| x.as_str()).unwrap_or("").trim().to_string(),
+                mint: st.get("tokenMint").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                decimals: st.get("tokenMintDecimals").and_then(|x| x.as_u64()).unwrap_or(0) as i32,
+                aum: num("prevAum"),
+                perf_bps: num("performanceFeeBps"),
+                mgmt_bps: num("managementFeeBps"),
+                min_deposit: num("minDepositAmount"),
+            })
+        })
+        .collect();
+
+    // Batch USD prices for the distinct token mints so we can rank by real TVL.
+    // Jupiter price v3 is public (no key needed); on failure TVL falls back to 0
+    // (that vault sinks to the bottom rather than erroring the whole list).
+    let mints: std::collections::HashSet<&str> =
+        vaults.iter().map(|v| v.mint.as_str()).filter(|m| !m.is_empty()).collect();
+    let ids = mints.into_iter().collect::<Vec<_>>().join(",");
+    let prices: std::collections::HashMap<String, f64> = if ids.is_empty() {
+        Default::default()
+    } else {
+        // Jupiter Price v3 is a FLAT object keyed by mint; the price field is
+        // `usdPrice` (not v2's `data[mint].price`).
+        match http.get(format!("https://api.jup.ag/price/v3?ids={ids}")).send().await {
+            Ok(r) => {
+                let j: serde_json::Value = r.json().await.unwrap_or(serde_json::Value::Null);
+                j.as_object()
+                    .map(|obj| {
+                        obj.iter()
+                            .filter_map(|(k, val)| {
+                                let p = val
+                                    .get("usdPrice")
+                                    .and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))?;
+                                Some((k.clone(), p))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+            Err(_) => Default::default(),
+        }
+    };
+
+    // Optional token filter: only vaults for the requested asset (symbol or mint).
+    if let Some(tok) = params.token.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let want_mint = crate::solana::tokens::resolve_token_address(tok);
+        vaults.retain(|v| v.mint == want_mint);
+    }
+    // Optional name filter: only vaults whose name contains the query (e.g. the
+    // user asks for "Steakhouse" / "Allez" vaults). Case-insensitive substring.
+    if let Some(nm) = params.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let needle = nm.to_lowercase();
+        vaults.retain(|v| v.name.to_lowercase().contains(&needle));
+    }
+
+    let tvl_usd = |v: &V| -> f64 {
+        (v.aum / 10f64.powi(v.decimals)) * prices.get(&v.mint).copied().unwrap_or(0.0)
+    };
+    vaults.sort_by(|a, b| {
+        tvl_usd(b).partial_cmp(&tvl_usd(a)).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Default to a compact top-N; the LLM raises `limit` when the user asks for more.
+    let limit = params.limit.unwrap_or(8).clamp(1, 50) as usize;
+    let total = vaults.len();
+    let top: Vec<V> = vaults.into_iter().take(limit).collect();
+
+    // Enrich ONLY the shown vaults with live metrics (APY, real TVL, utilization,
+    // holders) — one /metrics call each, fetched concurrently. The cheap prevAum
+    // proxy picked the top-N; these accurate figures drive the final display and a
+    // re-sort. On a per-vault fetch failure we fall back to the proxy TVL.
+    let metrics: Vec<Option<serde_json::Value>> = futures::future::join_all(
+        top.iter().map(|v| {
+            let addr = v.address.clone();
+            async move { kamino_get(http, &format!("/kvaults/vaults/{addr}/metrics")).await.ok() }
+        }),
+    )
+    .await;
+
+    let mf = |m: &serde_json::Value, k: &str| -> f64 {
+        m.get(k)
+            .and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(0.0)
+    };
+    let mut rows: Vec<(V, f64, f64, f64, f64, u64)> = top
+        .into_iter()
+        .zip(metrics)
+        .map(|(v, m)| {
+            let (apy, apy90d, tvl, util, holders) = match &m {
+                Some(mm) => {
+                    let invested = mf(mm, "tokensInvestedUsd");
+                    let available = mf(mm, "tokensAvailableUsd");
+                    let tvl = invested + available;
+                    let util = if tvl > 0.0 { invested / tvl } else { 0.0 };
+                    (
+                        mf(mm, "apy"),
+                        mf(mm, "apy90d"),
+                        tvl,
+                        util,
+                        mm.get("numberOfHolders").and_then(|x| x.as_u64()).unwrap_or(0),
+                    )
+                }
+                None => (0.0, 0.0, tvl_usd(&v), 0.0, 0),
+            };
+            (v, apy, apy90d, tvl, util, holders)
+        })
+        .collect();
+    // Re-rank the shown set by the accurate metric TVL.
+    rows.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+
+    let pct2 = |frac: f64| (frac * 10000.0).round() / 100.0; // 0.019 -> 1.9
+    let out: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|(v, apy, apy90d, tvl, util, holders)| {
+            let scale = 10f64.powi(v.decimals);
+            serde_json::json!({
+                "vault": v.address,
+                "name": if v.name.is_empty() { serde_json::Value::Null } else { serde_json::json!(v.name) },
+                // Token MINT — the frontend resolves it to the symbol + icon so each
+                // vault option shows its own token glyph, not the generic Kamino mark.
+                "token": v.mint,
+                "tvlUsd": (tvl * 100.0).round() / 100.0,
+                "apyPct": pct2(*apy),
+                "apy90dPct": pct2(*apy90d),
+                "utilizationPct": pct2(*util),
+                "holders": holders,
+                "performanceFeePct": v.perf_bps / 100.0,
+                "managementFeePct": v.mgmt_bps / 100.0,
+                "minDeposit": v.min_deposit / scale,
+            })
+        })
+        .collect();
+    let shown = out.len();
+
     Ok(BuildResponse {
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_vaults".into(),
-            description: format!("{count} Kamino Earn vaults available"),
+            description: format!("Top {shown} of {total} Kamino Earn vaults by TVL"),
             estimated_fee: "0".into(),
             estimated_refund: None,
-            params: serde_json::Value::Array(vaults),
+            params: serde_json::Value::Array(out),
             warnings: vec![],
             requires_approval: false,
         },
@@ -1145,7 +1655,7 @@ pub async fn build_kamino_user_vault_positions(
     params: &KaminoUserVaultPositionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_positions_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let data = kamino_get(http, &format!("/kvaults/users/{target}/positions")).await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
     Ok(BuildResponse {
@@ -1250,7 +1760,7 @@ pub async fn build_kamino_user_obligations(
     params: &KaminoUserObligationsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_obligations_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let market = resolve_kamino_market(params.market.as_deref());
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env {
@@ -1262,11 +1772,76 @@ pub async fn build_kamino_user_obligations(
         &query,
     )
     .await?;
-    let count = data.as_array().map(|a| a.len()).unwrap_or(0);
-    let warnings = if count == 0 {
-        vec![]
-    } else {
+    let raw = data.as_array().cloned().unwrap_or_default();
+    let count = raw.len();
+
+    // Map reserve pubkey -> token symbol so the summary names the collateral /
+    // debt tokens instead of dumping raw reserve addresses.
+    let mut reserve_symbol: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Ok(metrics) =
+        kamino_get(http, &format!("/kamino-market/{market}/reserves/metrics")).await
+    {
+        for r in metrics.as_array().into_iter().flatten() {
+            if let (Some(res), Some(sym)) = (
+                r.get("reserve").and_then(|v| v.as_str()),
+                r.get("liquidityToken").and_then(|v| v.as_str()),
+            ) {
+                reserve_symbol.insert(res.to_string(), sym.to_string());
+            }
+        }
+    }
+    let sym_of = |reserve: &str| -> String {
+        reserve_symbol.get(reserve).cloned().unwrap_or_else(|| short_id(reserve))
+    };
+    // The raw obligation is huge (full on-chain state + market config) and gets
+    // truncated downstream — return a lean, USD-valued summary instead.
+    let lean: Vec<serde_json::Value> = raw
+        .iter()
+        .map(|o| {
+            let rs = o.get("refreshedStats").cloned().unwrap_or_default();
+            let g = |k: &str| rs.get(k).and_then(|v| v.as_str()).unwrap_or("0").to_string();
+            let state = o.get("state");
+            let active_tokens = |arr_key: &str, res_key: &str, amt_key: &str| -> Vec<String> {
+                state
+                    .and_then(|s| s.get(arr_key))
+                    .and_then(|v| v.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter(|it| {
+                                it.get(amt_key).and_then(|v| v.as_str()).map(|a| a != "0").unwrap_or(false)
+                            })
+                            .filter_map(|it| it.get(res_key).and_then(|v| v.as_str()))
+                            .filter(|r| *r != "11111111111111111111111111111111")
+                            .map(|r| sym_of(r))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let debt_usd: f64 = g("userTotalBorrow").parse().unwrap_or(0.0);
+            serde_json::json!({
+                "obligation": o.get("obligationAddress").and_then(|v| v.as_str()).unwrap_or(""),
+                "collateralUsd": g("userTotalDeposit"),
+                "debtUsd": g("userTotalBorrow"),
+                "netValueUsd": g("netAccountValue"),
+                "ltvPct": (g("loanToValue").parse::<f64>().unwrap_or(0.0) * 100.0),
+                "liquidationLtvPct": (g("liquidationLtv").parse::<f64>().unwrap_or(0.0) * 100.0),
+                "borrowLimitUsd": g("borrowLimit"),
+                "collateralTokens": active_tokens("deposits", "depositReserve", "depositedAmount"),
+                "debtTokens": active_tokens("borrows", "borrowReserve", "borrowedAmountSf"),
+                "hasDebt": debt_usd > 0.0,
+            })
+        })
+        .collect();
+    let total_debt: f64 = lean
+        .iter()
+        .filter_map(|o| o.get("debtUsd").and_then(|v| v.as_str()))
+        .filter_map(|s| s.parse::<f64>().ok())
+        .sum();
+    let warnings = if total_debt > 0.0 {
         vec!["Review your health factor to avoid liquidation.".into()]
+    } else {
+        vec![]
     };
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -1279,7 +1854,7 @@ pub async fn build_kamino_user_obligations(
             ),
             estimated_fee: "0".into(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::Value::Array(lean),
             warnings,
             requires_approval: false,
         },
@@ -2133,7 +2708,7 @@ pub async fn build_kamino_user_metrics_history(
     params: &KaminoUserMetricsHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_metrics_history_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(s) = params.start {
         query.push(("start", s.to_string()));
@@ -2178,7 +2753,7 @@ pub async fn build_kamino_user_transactions(
     params: &KaminoUserTransactionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_transactions_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(l) = params.limit {
         query.push(("limit", l.to_string()));
@@ -2223,7 +2798,7 @@ pub async fn build_kamino_user_vault_position(
     params: &KaminoUserVaultPositionParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_position_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let data = kamino_get(
         http,
         &format!("/kvaults/users/{target}/positions/{}", params.vault), // correct: /positions/{vault}
@@ -2260,7 +2835,7 @@ pub async fn build_kamino_user_vault_metrics_history(
     params: &KaminoUserVaultMetricsHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_metrics_history_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(s) = params.start {
         query.push(("start", s.to_string()));
@@ -2309,7 +2884,7 @@ pub async fn build_kamino_user_vault_pnl(
     params: &KaminoUserVaultPnlParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_pnl_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let data = kamino_get(
         http,
         &format!("/kvaults/users/{target}/vaults/{}/pnl", params.vault),
@@ -2346,7 +2921,7 @@ pub async fn build_kamino_user_vault_pnl_history(
     params: &KaminoUserVaultPnlHistoryParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_vault_pnl_history_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(s) = params.start {
         query.push(("start", s.to_string()));
@@ -3001,7 +3576,7 @@ pub async fn build_kamino_user_rewards(
     params: &KaminoUserRewardsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_rewards_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -4099,7 +4674,7 @@ pub async fn build_kamino_user_klend_transactions_all(
     params: &KaminoUserKlendTransactionsAllParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_klend_transactions_all_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env {
         query.push(("env", e.clone()));
@@ -4167,7 +4742,7 @@ pub async fn build_kamino_user_klend_transactions(
     params: &KaminoUserKlendTransactionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_klend_transactions_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref e) = params.env {
         query.push(("env", e.clone()));
@@ -4465,7 +5040,7 @@ pub async fn build_kamino_airdrop_allocations(
     params: &KaminoAirdropAllocationsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_airdrop_allocations_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -4683,7 +5258,7 @@ pub async fn build_kamino_user_kvault_rewards(
     params: &KaminoUserKvaultRewardsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_kvault_rewards_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -4840,7 +5415,7 @@ pub async fn build_kamino_user_staking_boosts(
     params: &KaminoUserStakingBoostsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_staking_boosts_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -4891,7 +5466,7 @@ pub async fn build_kamino_season_rewards_user(
     params: &KaminoSeasonRewardsUserParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_season_rewards_user_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(ref s) = params.source {
         query.push(("source", s.clone()));
@@ -5085,7 +5660,7 @@ pub async fn build_kamino_user_farm_transactions(
     params: &KaminoUserFarmTransactionsParams,
 ) -> Result<BuildResponse, AppError> {
     validate_kamino_user_farm_transactions_params(params)?;
-    let target = params.wallet.as_deref().unwrap_or(wallet);
+    let target = resolve_target_wallet(params.wallet.as_deref(), wallet);
     let mut query: Vec<(&str, String)> = vec![];
     if let Some(l) = params.limit {
         query.push(("limit", l.to_string()));

@@ -78,6 +78,12 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	healthHandler := handlers.NewHealthHandler(grpcClients)
 	r.Get("/health", healthHandler.AggregatedHealth)
 
+	// First-party image proxy for token/NFT logos (twimg/IPFS/arweave hosts get
+	// blocked by browser tracker filters). Public GET, loaded via <img>, so no
+	// auth/CSRF; SSRF-guarded inside the handler.
+	imageProxy := handlers.NewImageProxy()
+	r.Get("/img", imageProxy.Proxy)
+
 	// Default 30s timeout for non-streaming routes
 	defaultTimeout := chimiddleware.Timeout(30 * time.Second)
 	// Context-only deadline for SSE streaming routes.
@@ -99,8 +105,8 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Use(middleware.AuthRateLimit(authRLStore, cfg.TrustProxyHeaders)) // 20/min for auth
 		r.Post("/nonce", authProxy.PostNonce)
 		r.Post("/verify", authProxy.PostVerify)
-		r.Get("/session", authProxy.GetSession)   // used by frontend to restore session from cookie
-		r.Post("/logout", authProxy.PostLogout)   // clears HttpOnly cookie
+		r.Get("/session", authProxy.GetSession) // used by frontend to restore session from cookie
+		r.Post("/logout", authProxy.PostLogout) // clears HttpOnly cookie
 		r.Get("/me", authProxy.GetMe)
 	})
 	r.Route("/users", func(r chi.Router) {
@@ -315,6 +321,12 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// server-side.
 	r.With(defaultTimeout).Post("/rpc", marketProxy.PostRpc)
 
+	// Server-side token metadata resolver (name/symbol/logo via Helius getAsset,
+	// batched + cached). Root-level + NOT wallet-gated (the /market group is
+	// RequireWallet, which is exactly why client metadata resolution was flaky).
+	// Same rationale as /rpc: public on-chain metadata, Helius key stays server-side.
+	r.With(defaultTimeout).Post("/token-meta", marketProxy.PostTokenMeta)
+
 	// Upload handler — stores files locally, serves via /uploads/*
 	uploadHandler := handlers.NewUploadHandler(cfg.UploadDir, cfg.PublicBaseURL)
 	r.Route("/upload", func(r chi.Router) {
@@ -368,13 +380,13 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 // During key rotation, OPRAI_INTERNAL_API_KEY_OLD lets the service accept
 // the previous value too. Procedure:
 //
-//	1. Set OPRAI_INTERNAL_API_KEY_OLD = current OPRAI_INTERNAL_API_KEY on
-//	   every service. Restart. Both keys now accepted.
-//	2. Set OPRAI_INTERNAL_API_KEY = new value on every service. Restart. The
-//	   new key is the primary; the old still validates inbound traffic.
-//	3. Update the gateway to send the new key as well. Restart it.
-//	4. After all caller traffic uses the new key, unset OPRAI_INTERNAL_API_KEY_OLD
-//	   and restart services to retire the old key.
+//  1. Set OPRAI_INTERNAL_API_KEY_OLD = current OPRAI_INTERNAL_API_KEY on
+//     every service. Restart. Both keys now accepted.
+//  2. Set OPRAI_INTERNAL_API_KEY = new value on every service. Restart. The
+//     new key is the primary; the old still validates inbound traffic.
+//  3. Update the gateway to send the new key as well. Restart it.
+//  4. After all caller traffic uses the new key, unset OPRAI_INTERNAL_API_KEY_OLD
+//     and restart services to retire the old key.
 func internalKeyGate(key string, h http.Handler) http.Handler {
 	prev := os.Getenv("OPRAI_INTERNAL_API_KEY_OLD")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

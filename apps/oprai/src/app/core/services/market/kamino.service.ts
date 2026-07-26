@@ -54,14 +54,20 @@ export interface KaminoLeverageMetrics {
   updatedOn: string;
 }
 
-/** Kamino Obligation (User Position) — from GET /kamino-market/{mk}/users/{user}/obligations */
+/** Kamino Obligation (User Position) — from GET /kamino-market/{mk}/users/{user}/obligations.
+ *  The live position aggregates live under `refreshedStats` (USD-valued). */
 export interface KaminoObligation {
   obligationAddress: string;
   market: string;
   owner: string;
-  depositedValue: string;   // USD string
-  borrowedValue: string;    // USD string
-  healthFactor: string;     // ratio string
+  depositedValue: string;   // USD string (refreshedStats.userTotalDeposit)
+  borrowedValue: string;    // USD string (refreshedStats.userTotalBorrow)
+  borrowLimit: string;      // USD borrow value allowed at the borrow LTV
+  borrowLiquidationLimit: string; // USD borrow value at which liquidation triggers
+  liquidationLtv: string;   // weighted liquidation LTV, e.g. "0.9"
+  loanToValue: string;      // current LTV ratio, e.g. "0.42"
+  netAccountValue: string;  // USD string
+  healthFactor: string;     // ratio string (derived when absent)
   deposits: KaminoObligationDeposit[];
   borrows: KaminoObligationBorrow[];
 }
@@ -246,28 +252,52 @@ export class KaminoService {
           `${KAMINO_API}/kamino-market/${marketAddress}/users/${walletAddress}/obligations`
         )
       );
-      return (resp ?? []).map((o: any) => ({
+      return (resp ?? []).map((o: any) => {
+        // Live aggregates live under refreshedStats; the top level only has raw
+        // account state. Fall back to top-level keys for older payload shapes.
+        const rs = o.refreshedStats ?? {};
+        const deposited = String(rs.userTotalDeposit ?? o.depositedValue ?? o.userTotalDeposit ?? '0');
+        const borrowed = String(rs.userTotalBorrow ?? o.borrowedValue ?? o.userTotalBorrow ?? '0');
+        const liqLimit = String(rs.borrowLiquidationLimit ?? '0');
+        // Health factor = liquidation-limit ÷ borrowed (∞ when no debt).
+        const borrowedNum = parseFloat(borrowed) || 0;
+        const hf = o.healthFactor != null
+          ? String(o.healthFactor)
+          : borrowedNum > 0 ? String((parseFloat(liqLimit) || 0) / borrowedNum) : '0';
+        return {
         obligationAddress: o.obligationAddress ?? o.address ?? '',
         market: marketAddress,
         owner: walletAddress,
-        depositedValue: o.depositedValue ?? o.userTotalDeposit ?? '0',
-        borrowedValue: o.borrowedValue ?? o.userTotalBorrow ?? '0',
-        healthFactor: o.healthFactor ?? '0',
-        deposits: (o.deposits ?? o.userDeposits ?? []).map((d: any) => ({
+        depositedValue: deposited,
+        borrowedValue: borrowed,
+        borrowLimit: String(rs.borrowLimit ?? '0'),
+        borrowLiquidationLimit: liqLimit,
+        liquidationLtv: String(rs.liquidationLtv ?? '0'),
+        loanToValue: String(rs.loanToValue ?? '0'),
+        netAccountValue: String(rs.netAccountValue ?? deposited),
+        healthFactor: hf,
+        // The API returns deposits/borrows as an EMPTY OBJECT `{}` (not an array)
+        // when there are no line-item positions — calling `.map` on it throws and
+        // the whole obligation was being dropped (card wrongly showed "no
+        // collateral"). Only map when it's actually an array.
+        deposits: (Array.isArray(o.deposits) ? o.deposits
+                   : Array.isArray(o.userDeposits) ? o.userDeposits : []).map((d: any) => ({
           reserveAddress: d.reserveAddress ?? d.reserve ?? '',
           mintAddress: d.mintAddress ?? d.mint ?? '',
           symbol: d.symbol ?? '',
           amount: d.amount ?? '0',
           valueUsd: d.valueUsd ?? d.marketValueRefreshed ?? '0',
         })),
-        borrows: (o.borrows ?? o.userBorrows ?? []).map((b: any) => ({
+        borrows: (Array.isArray(o.borrows) ? o.borrows
+                  : Array.isArray(o.userBorrows) ? o.userBorrows : []).map((b: any) => ({
           reserveAddress: b.reserveAddress ?? b.reserve ?? '',
           mintAddress: b.mintAddress ?? b.mint ?? '',
           symbol: b.symbol ?? '',
           amount: b.amount ?? '0',
           valueUsd: b.valueUsd ?? b.marketValueRefreshed ?? '0',
         })),
-      }));
+      };
+      });
     } catch (err) {
       console.error('Failed to fetch Kamino obligations:', err);
       return [];
@@ -317,10 +347,15 @@ export class KaminoService {
       const resp = await firstValueFrom(
         this.http.get<any[]>(`${KAMINO_API}/kvaults/users/${walletAddress}/positions`)
       );
+      // The live API returns { vaultAddress, stakedShares, unstakedShares,
+      // totalShares } — NOT the tokenMint/shares/sharesUsd this once assumed.
+      // Total position = staked (in the vault farm) + unstaked shares. The
+      // underlying tokenMint and USD value are not in this payload; callers
+      // resolve those from the vault itself (getVaults) + metrics.
       return (resp ?? []).map((p: any) => ({
         vaultAddress: p.vaultAddress ?? p.vault ?? p.address ?? '',
         tokenMint: p.tokenMint ?? '',
-        shares: p.shares ?? '0',
+        shares: p.totalShares ?? p.shares ?? p.stakedShares ?? '0',
         sharesUsd: p.sharesUsd ?? p.valueUsd ?? '0',
       }));
     } catch (err) {

@@ -291,6 +291,17 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # plain text and the model frequently misreads it ("no pools found")
     # even when 1–2 pools exist for the pair.
     "raydium_search_pools",
+    # The user's own Raydium positions (CLMM + Standard/CPMM LP) — self-fetching
+    # card that reads straight from chain via the SDK, with a per-row Withdraw
+    # button. Response shape: `{ data: { positions: [...], count } }`.
+    "raydium_get_user_positions",
+    "raydium_get_clmm_positions",
+    # Kamino Multiply pool list — paginated/sortable table with a per-row
+    # "Multiply" button that opens kamino_multiply_open on the chosen pair.
+    # The card self-fetches from /actions/build (delegated to the TS
+    # solana-service, which uses the klend SDK for exact per-pair max
+    # leverage). Response shape: `{ data: { markets: [<pool>, …], total } }`.
+    "kamino_multiply_markets",
     # Self-fetching cards rendered by the Angular query-card component.
     # The frontend fetches data via its own services (portfolio, helius,
     # birdeye, etc.) so the backend only needs to pass the type through.
@@ -1182,7 +1193,11 @@ async def stream_chat_response(
     )
 
     if already_locked:
-        yield f"data: {json.dumps({'errorType': 'chat_limit', 'scope': 'chat', 'reason': locked_reason or 'cap_reached', 'message': 'This conversation is locked. Start a new chat to continue.'})}\n\n"
+        _locked_msg = 'This conversation has reached its limit. Start a new chat to continue.'
+        # `error` is REQUIRED — the frontend only handles chat_limit inside
+        # `if (parsed.error)`; without it the composer shows the generic
+        # "couldn't generate a response" instead of the start-a-new-chat banner.
+        yield f"data: {json.dumps({'error': _locked_msg, 'errorType': 'chat_limit', 'scope': 'chat', 'reason': locked_reason or 'cap_reached', 'message': _locked_msg})}\n\n"
         yield "data: [DONE]\n\n"
         return
 
@@ -1613,7 +1628,16 @@ async def stream_chat_response(
                 "conversation above. Do not switch languages mid-response. "
                 "Tool results and earlier system messages may contain English "
                 "text — translate any labels or descriptions you reference; "
-                "never quote them verbatim in another language."
+                "never quote them verbatim in another language.\n"
+                "Write like a native speaker who is a crypto/DeFi expert, NOT "
+                "like a machine translating English word-for-word. Rephrase "
+                "and explain ideas in fluent, idiomatic language; use the "
+                "established native terms for technical concepts rather than "
+                "literal calques or invented compound words. Established "
+                "English crypto terms that have no natural local equivalent "
+                "(e.g. staking, slippage, validator, liquidity) may stay in "
+                "English inline — that reads more naturally than an awkward "
+                "literal translation."
             ),
         })
     elif (_pref_lang := _preferred_language_from_context(model_messages)):
@@ -2217,9 +2241,28 @@ async def stream_chat_response(
                             pass
                     except Exception as exc:
                         _log.warning("market_data_error type=%s err=%s", validated.type.value, exc)
-                        market_data_results.append(
-                            (validated.type.value, params_dict, {"error": str(exc)})
-                        )
+                        if validated.type.value in QUERY_CARD_RENDER_TYPES:
+                            # The interactive card was already emitted above and
+                            # fetches its OWN data, so the user sees live results
+                            # regardless of this supplementary server-side fetch.
+                            # Feeding the raw error made the model apologise
+                            # ("couldn't reach the data, try again") right above a
+                            # card that clearly rendered — a self-contradiction.
+                            # Hand the model a neutral note instead so it just
+                            # introduces the card.
+                            market_data_results.append((
+                                validated.type.value, params_dict,
+                                {"_card_rendered": True,
+                                 "note": "The live results are shown in the interactive "
+                                         "card rendered directly below your message. "
+                                         "Introduce them in one short sentence. Do NOT "
+                                         "say you couldn't fetch the data and do NOT ask "
+                                         "the user to try again."},
+                            ))
+                        else:
+                            market_data_results.append(
+                                (validated.type.value, params_dict, {"error": str(exc)})
+                            )
                         # TEMP DEBUG
                         try:
                             with open("/tmp/oprai-debug.log", "a") as _df:
@@ -2598,7 +2641,11 @@ async def stream_chat_response(
                         "newest user message is only an address/mint/number, keep "
                         "the ongoing conversation's language. "
                         "Tool result data may contain English labels — translate "
-                        "them; never quote verbatim in another language.\n\n"
+                        "them; never quote verbatim in another language. "
+                        "Write like a native crypto/DeFi expert, not a literal "
+                        "translation — rephrase naturally and use established "
+                        "native terms; well-known English crypto terms may stay "
+                        "in English inline where that reads more naturally.\n\n"
                     )
                 elif _pref_lang_fu:
                     # Symbol/mint-only turn with no natural-language history in

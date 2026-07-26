@@ -81,22 +81,33 @@ pub async fn post_quote(
     // This is the primary defence against vanity-prefix grinding (an attacker
     // produces an address starting with `J1toso1u…` that the LLM mistakes for
     // JitoSOL). See `services::mint_security`.
+    // Resolve tickers to canonical mint addresses FIRST. The LLM (and third-party
+    // callers) may pass a bare symbol that isn't in our compile-time registry
+    // (e.g. PYUSD, a Token-2022 mint). Without this, the provenance check below
+    // rejects it as "not a valid Solana address", and Jupiter's quote API — which
+    // only speaks mint addresses — would fail too. The resolver is verified-only,
+    // so it can't be used to smuggle in a vanity-prefix impersonator.
+    let input_mint =
+        crate::services::mint_security::resolve_action_mint(&state.http, &body.input_mint).await?;
+    let output_mint =
+        crate::services::mint_security::resolve_action_mint(&state.http, &body.output_mint).await?;
+
     let input_provenance = crate::services::mint_security::require_known_mint(
         &state.mint_security,
         &state.http,
-        &body.input_mint,
+        &input_mint,
     )
     .await?;
     let output_provenance = crate::services::mint_security::require_known_mint(
         &state.mint_security,
         &state.http,
-        &body.output_mint,
+        &output_mint,
     )
     .await?;
 
     let params = swap::SwapParams {
-        input_mint: body.input_mint.clone(),
-        output_mint: body.output_mint.clone(),
+        input_mint: input_mint.clone(),
+        output_mint: output_mint.clone(),
         amount: body.amount.clone(),
         slippage_bps: Some(slippage_bps),
         only_direct_routes: body.only_direct_routes,
@@ -226,6 +237,82 @@ pub async fn get_chain_tokens(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Build a transaction (transfer, swap, stake, etc.).
+/// Actions whose transaction is built by the TypeScript solana-service via the
+/// @kamino-finance SDKs (klend/farms). These have no REST endpoint and can't be
+/// built from Rust (no Kamino SDK crate), so the Rust service — the gateway's
+/// upstream — proxies them to the TS service.
+fn is_ts_delegated_action(action_type: &str) -> bool {
+    matches!(
+        action_type,
+        "kamino_stake"
+            | "kamino_unstake"
+            | "kamino_claim_rewards"
+            // Multiply (leveraged looping) — klend-sdk leverage ixs + Jupiter swapper.
+            | "kamino_multiply_open"
+            | "kamino_multiply_add"
+            | "kamino_multiply_withdraw"
+            | "kamino_multiply_close"
+            // Read-only: list Multiply pools with metrics (needs the klend SDK
+            // for exact per-pair max leverage).
+            | "kamino_multiply_markets"
+            // Concentrated liquidity (kLiquidity CLMM strategies) — kliquidity-sdk.
+            | "kamino_liquidity_deposit"
+            | "kamino_liquidity_withdraw"
+            | "kamino_liquidity_strategies"
+            // Raydium liquidity + positions — Raydium's REST API is swap-only, so
+            // these must be built with @raydium-io/raydium-sdk-v2 in the TS service.
+            | "raydium_add_liquidity"
+            | "raydium_remove_liquidity"
+            | "raydium_open_position"
+            | "raydium_increase_position"
+            | "raydium_decrease_position"
+            | "raydium_close_position"
+            | "raydium_create_pool"
+            // Read: the user's CLMM positions straight from chain via the SDK
+            // (raydium.clmm.getOwnerPositionInfo), not the owner-v1 farm API.
+            | "raydium_get_user_positions"
+            | "raydium_get_clmm_positions"
+    )
+}
+
+/// Forward a build request to the TypeScript solana-service and return its
+/// response verbatim (same /actions/build JSON contract). The TS service does
+/// its own validation and emits user-safe errors, which we pass through.
+async fn delegate_build_to_ts(
+    http: &reqwest::Client,
+    action_type: &str,
+    wallet: &str,
+    params: &serde_json::Value,
+) -> Result<HttpResponse, AppError> {
+    let base = std::env::var("SOLANA_TS_SERVICE_URL")
+        .unwrap_or_else(|_| "http://localhost:3031".to_string());
+    let key = std::env::var("OPRAI_INTERNAL_API_KEY").unwrap_or_default();
+
+    let resp = http
+        .post(format!("{base}/actions/build"))
+        .header("X-Internal-Api-Key", key)
+        .header("X-User-Wallet", wallet)
+        .json(&serde_json::json!({ "type": action_type, "params": params }))
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, %action_type, "Kamino SDK service (TS) unreachable");
+            AppError::Internal("Kamino staking service is temporarily unavailable".into())
+        })?;
+
+    let status = actix_web::http::StatusCode::from_u16(resp.status().as_u16())
+        .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY);
+    let payload = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::Internal(format!("Kamino SDK service read failed: {e}")))?;
+
+    Ok(HttpResponse::build(status)
+        .content_type("application/json")
+        .body(payload))
+}
+
 #[post("/build")]
 pub async fn post_build(
     req: HttpRequest,
@@ -233,6 +320,32 @@ pub async fn post_build(
     body: web::Json<BuildRequest>,
 ) -> Result<HttpResponse, AppError> {
     let wallet = wallet_from_req(&req)?;
+    let mut body = body.into_inner();
+
+    // A swap's token args can be non-registry tickers (e.g. PYUSD). Resolve them
+    // to canonical, Jupiter-verified mint addresses BEFORE validation and the
+    // Jupiter build — otherwise `validate_swap_params` rejects the ticker as an
+    // "Invalid output token" and the quote step never runs. Mirrors the same
+    // resolution done in `post_quote`; verified-only, so no impersonator can slip
+    // through. Cross-chain swaps use chain-specific token fields and are left as-is.
+    if body.action_type == "swap" {
+        for key in ["inputMint", "input_mint", "outputMint", "output_mint"] {
+            if let Some(sym) = body.params.get(key).and_then(|v| v.as_str()) {
+                let resolved =
+                    crate::services::mint_security::resolve_action_mint(&state.http, sym).await?;
+                body.params[key] = serde_json::Value::String(resolved);
+            }
+        }
+    }
+
+    // Kamino farm staking (and, later, leverage) are built with the
+    // @kamino-finance SDKs, which only the TypeScript solana-service carries.
+    // The gateway's upstream is this Rust service, so we forward those actions
+    // to the TS service and return its response verbatim (identical
+    // /actions/build contract). Everything else builds locally below.
+    if is_ts_delegated_action(&body.action_type) {
+        return delegate_build_to_ts(&state.http, &body.action_type, &wallet, &body.params).await;
+    }
 
     // Validate action type.
     builder::validate_action(&body.action_type, &body.params)?;

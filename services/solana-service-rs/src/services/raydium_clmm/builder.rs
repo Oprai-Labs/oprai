@@ -280,8 +280,15 @@ pub async fn build_open_position(
         _ => 600_000,
     };
     let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(cu_limit);
+    // Priority fee (compute-unit PRICE). Without it the open-position tx carries
+    // a zero tip and gets deprioritized/dropped under any congestion — it never
+    // lands and the frontend sits on "Confirming on-chain…" until the blockhash
+    // expires (~60s). 100k microLamports/CU matches the other Raydium paths
+    // (raydium.rs SDK builds); at ≤600k CU that's ≤0.00006 SOL.
+    let cu_price_ix = ComputeBudgetInstruction::set_compute_unit_price(100_000);
 
-    let mut instructions: Vec<Instruction> = Vec::with_capacity(2 + init_ixs.len());
+    let mut instructions: Vec<Instruction> = Vec::with_capacity(3 + init_ixs.len());
+    instructions.push(cu_price_ix);
     instructions.push(cu_ix);
     instructions.extend(init_ixs);
     instructions.push(open_ix);

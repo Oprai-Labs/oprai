@@ -56,6 +56,13 @@ export class PortfolioService {
   // the cheap LST scan returns but the slower lend/LP/perp calls are still
   // in flight.
   private readonly _protocolPositionsLoading = signal<boolean>(false);
+  // True once the FIRST full load for the current wallet has completed
+  // (wallet balances + every protocol fetcher + pricing). Drives the
+  // "load the whole page together" skeleton: the shell holds a full skeleton
+  // until this flips true, then renders everything at once. It stays true
+  // across silent 30s auto-refreshes so those update values in place without
+  // flashing the page back to a skeleton — only a wallet switch resets it.
+  private readonly _positionsSettled = signal<boolean>(false);
   private readonly _portfolioChange = signal<PortfolioValueChange | null>(null);
   private readonly _nfts = signal<NftAsset[]>([]);
   private readonly _nftCollections = signal<NftCollection[]>([]);
@@ -66,12 +73,23 @@ export class PortfolioService {
   private readonly _historyLoadingMore = signal<boolean>(false);
   private readonly _historyCache = new Map<string, { transactions: EnhancedTransaction[]; hasMore: boolean }>();
 
+  // Wallet address of the most recent loadPortfolio call. Plain field (NOT a
+  // signal) so the wallet-watching effect that calls loadPortfolio never takes
+  // a reactive dependency on it — see the note in loadPortfolio.
+  private loadedWalletAddress: string | null = null;
+
   // Track which tabs have been loaded
   private nftsLoaded = false;
   private historyLoaded = false;
   private historyLoadedWallet: string | null = null;
   private historyLoadingPromise: Promise<void> | null = null;
-  private static readonly HISTORY_PAGE_SIZE = 15;
+  // Load a full window of recent transactions upfront (not a tiny 15-row
+  // slice) so the transactions table shows a COMPLETE, stable pager on first
+  // paint — all page numbers present at once — instead of revealing pages
+  // one 1.5-page increment at a time as the user clicks "next". 100 is one
+  // Helius enhanced-tx batch call, so it stays a single round-trip. Older txs
+  // beyond the window are still reachable via loadMore (the "+" in the count).
+  private static readonly HISTORY_PAGE_SIZE = 100;
   // Cache token symbols for swap descriptions
   private readonly _tokenSymbolCache = new Map<string, string>();
   // Mints encountered while parsing history rows that weren't in the
@@ -89,6 +107,7 @@ export class PortfolioService {
   readonly activeTab = this._activeTab.asReadonly();
   readonly protocolPositions = this._protocolPositions.asReadonly();
   readonly protocolPositionsLoading = this._protocolPositionsLoading.asReadonly();
+  readonly positionsSettled = this._positionsSettled.asReadonly();
   readonly portfolioChange = this._portfolioChange.asReadonly();
   readonly nfts = this._nfts.asReadonly();
   readonly nftCollections = this._nftCollections.asReadonly();
@@ -114,19 +133,73 @@ export class PortfolioService {
     }
   }
 
+  /**
+   * Run `fn`, retrying once after a short delay on failure. Returns an
+   * outcome flag so callers can tell a real value apart from a fallback —
+   * critical for the wallet balance, where a caught error must NOT be treated
+   * as a genuine $0.
+   */
+  private async fetchWithRetry<T>(
+    fn: () => Promise<T>,
+    fallback: T,
+    delayMs = 400,
+  ): Promise<{ ok: boolean; value: T }> {
+    try {
+      return { ok: true, value: await fn() };
+    } catch {
+      await new Promise((r) => setTimeout(r, delayMs));
+      try {
+        return { ok: true, value: await fn() };
+      } catch {
+        return { ok: false, value: fallback };
+      }
+    }
+  }
+
   async loadPortfolio(walletAddress: string): Promise<void> {
     this._loadingState.set('loading');
     this._error.set(null);
+    // Only reset the "everything is in" gate for a genuinely fresh wallet
+    // (first load or a wallet switch). A refresh of the SAME wallet keeps it
+    // true so the refresh updates values in place rather than collapsing the
+    // page back to a skeleton.
+    //
+    // IMPORTANT: track this with a PLAIN field, not by reading `_summary()`.
+    // loadPortfolio runs synchronously inside the portfolio-shell `effect()`
+    // that watches the wallet key; a synchronous signal *read* here would make
+    // that effect depend on `_summary`, and since we later *write* `_summary`
+    // the effect would re-fire → re-run loadPortfolio → infinite reload loop.
+    if (this.loadedWalletAddress !== walletAddress) {
+      this._positionsSettled.set(false);
+    }
+    this.loadedWalletAddress = walletAddress;
 
     try {
-      // Fetch RPC data in parallel, each with its own fallback
-      const [balanceLamports, rawTokens, stakeAccounts, signatures] =
-        await Promise.all([
-          this.solanaRpc.getBalance(walletAddress).catch(() => 0),
-          this.solanaRpc.getTokenAccounts(walletAddress).catch(() => []),
-          this.solanaRpc.getStakeAccounts(walletAddress).catch(() => []),
-          this.solanaRpc.getRecentSignatures(walletAddress).catch(() => []),
-        ]);
+      // Fetch RPC data in parallel. The balance + token-account calls are the
+      // wallet's ground truth, so we track whether they actually *succeeded*
+      // (vs. a caught error that would otherwise masquerade as a genuine zero
+      // balance). getBalance gets one silent retry — a single transient RPC
+      // blip shouldn't wipe the wallet total to $0.
+      const balanceOutcome = await this.fetchWithRetry(
+        () => this.solanaRpc.getBalance(walletAddress),
+        0,
+      );
+      const [tokensOutcome, stakeAccounts, signatures] = await Promise.all([
+        this.solanaRpc
+          .getTokenAccounts(walletAddress)
+          .then((value) => ({ ok: true, value }))
+          .catch(() => ({ ok: false, value: [] as Awaited<ReturnType<typeof this.solanaRpc.getTokenAccounts>> })),
+        this.solanaRpc.getStakeAccounts(walletAddress).catch(() => []),
+        this.solanaRpc
+          .getRecentSignatures(walletAddress, PortfolioService.HISTORY_PAGE_SIZE)
+          .catch(() => []),
+      ]);
+      const balanceLamports = balanceOutcome.value;
+      const rawTokens = tokensOutcome.value;
+      // Both wallet reads failed → this load carries no trustworthy wallet
+      // data. If we already showed good balances (any prior successful load of
+      // this wallet), we keep them rather than overwrite with zeros.
+      const walletFetchFailed = !balanceOutcome.ok && !tokensOutcome.ok;
 
       // Fetch metadata + prices (Birdeye: prices AND 24h change in one call)
       const allMints = [SOL_MINT, ...rawTokens.map((t) => t.mint)];
@@ -370,7 +443,14 @@ export class PortfolioService {
         for (const token of rawEnhanced) {
           const meta = assetMeta.get(token.mint);
           if (!meta) continue;
-          if (!token.logoUri && meta.logoUri) token.logoUri = meta.logoUri;
+          // Serve Helius-resolved (memecoin/NFT) logos through our first-party
+          // image proxy from the START — their twimg/IPFS/arweave hosts are
+          // blocked by browser tracker filters, so a direct <img> never loads.
+          if (!token.logoUri && meta.logoUri) {
+            token.logoUri = meta.logoUri.startsWith('data:')
+              ? meta.logoUri
+              : `/api/img?url=${encodeURIComponent(meta.logoUri)}`;
+          }
           if ((token.name === 'Unknown Token' || !token.name) && meta.name) token.name = meta.name;
           const cleanedSym = cleanSymbol(meta.symbol);
           if ((token.symbol.endsWith('...') || !token.symbol) && cleanedSym) {
@@ -389,11 +469,33 @@ export class PortfolioService {
         .reduce((sum, t) => sum + (t.usdValue ?? 0), 0);
       const totalPortfolioValue = (solUsdValue ?? 0) + tokensUsdTotal;
 
+      // DeFi position-RECEIPT tokens (Jupiter Lend earn shares jlWSOL/jlUSDC,
+      // borrow-vault NFTs jv1, Raydium LP tokens, Raydium CLMM position NFTs
+      // RCL) are not spendable balances — they represent a position shown in
+      // Active Positions. Flag them HERE (before the first render) so they never
+      // flash into the wallet list and then vanish once a later post-hoc pass
+      // hides them ("coins come and go"). Name-based so it works as soon as the
+      // getAsset enrichment above resolves the name.
+      const isReceiptTokenName = (name: string, symbol: string): boolean => {
+        const n = (name || '').toLowerCase();
+        const s = (symbol || '').toLowerCase();
+        return (
+          n.includes('jupiter lend') ||
+          n.includes('jupiter vault') ||
+          n.includes('lp token') ||
+          n.includes('concentrated liquidity') ||
+          s === 'rcl' ||
+          /^jl[a-z]/.test(s) ||
+          /^jv\d+$/.test(s)
+        );
+      };
+
       const tokens = rawEnhanced
         .map((t) => ({
           ...t,
           allocationPercent:
             totalPortfolioValue > 0 ? ((t.usdValue ?? 0) / totalPortfolioValue) * 100 : 0,
+          isDefiPositionToken: t.isDefiPositionToken || isReceiptTokenName(t.name, t.symbol),
         }))
         .sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
 
@@ -405,21 +507,34 @@ export class PortfolioService {
       const solBasis = costBasisByMint.get(SOL_MINT);
       const solPnl = solBasis ? this.analytics.computePnl(solBasis, solBalance, solPrice) : null;
 
-      this._summary.set({
-        walletAddress,
-        solBalance: {
-          lamports: balanceLamports,
-          sol: solBalance,
-          usdPrice: solPrice,
-          usdValue: solUsdValue,
-          priceChange24h: solChange24h,
-          allocationPercent: solAllocationPercent,
-          pnlAllTimeUsd: solPnl?.totalUsd ?? null,
-          pnlAllTimePct: solPnl?.totalPct ?? null,
-        },
-        tokens,
-        totalUsdValue: totalPortfolioValue,
-      });
+      // Guard against a transient RPC failure wiping the wallet to $0: if both
+      // wallet reads failed but we already have good balances on screen for
+      // this wallet, keep them. The protocol fetchers (Jupiter Lend, etc.) run
+      // off separate APIs and still refresh below.
+      const prevSummary = this._summary();
+      const preserveWallet =
+        walletFetchFailed && prevSummary?.walletAddress === walletAddress;
+
+      if (preserveWallet) {
+        // Reuse the last-known-good wallet snapshot verbatim.
+        this._summary.set(prevSummary!);
+      } else {
+        this._summary.set({
+          walletAddress,
+          solBalance: {
+            lamports: balanceLamports,
+            sol: solBalance,
+            usdPrice: solPrice,
+            usdValue: solUsdValue,
+            priceChange24h: solChange24h,
+            allocationPercent: solAllocationPercent,
+            pnlAllTimeUsd: solPnl?.totalUsd ?? null,
+            pnlAllTimePct: solPnl?.totalPct ?? null,
+          },
+          tokens,
+          totalUsdValue: totalPortfolioValue,
+        });
+      }
 
       // ──── Staking ────
       const stakePositions = stakeAccounts.map((sa) => ({
@@ -497,7 +612,12 @@ export class PortfolioService {
       // both the token-list LST badges and the protocol-position APYs).
       const lstPositions = this.defiPositionsService.getLiquidStakingPositions(tokens, solPrice);
       accumulated.push(...lstPositions);
-      emit();
+      // Only push the partial (staking-only) snapshot on a first load — and
+      // even then it's hidden behind the whole-page skeleton. On a silent 30s
+      // refresh (already settled) we keep the previous full set on screen and
+      // swap atomically at the final emit, so the DeFi section never flashes
+      // down to a staking-only list mid-refresh.
+      if (!this._positionsSettled()) emit();
 
       // Per-fetch timeout — 10s caps "indexer slow" without giving up too
       // early on legitimate first-call cold paths. A protocol that misses
@@ -514,12 +634,17 @@ export class PortfolioService {
       // single signal write. Previously each fetcher emitted as it
       // resolved which made the DeFi tab visibly "pop in" piece by piece
       // — user feedback was that they want one consolidated render.
-      const fetchOne = (p: Promise<ProtocolPosition[]>): Promise<ProtocolPosition[]> =>
-        withTimeout(p.catch(() => []), []);
+      const fetchOne = (p: Promise<ProtocolPosition[]>, ms = 8_000): Promise<ProtocolPosition[]> =>
+        withTimeout(p.catch(() => []), [], ms);
 
       const protocolBatches = await Promise.all([
-        fetchOne(this.defiPositionsService.getLpPositions(walletAddress, tokens)),
-        fetchOne(this.defiPositionsService.getLendingPositions(walletAddress)),
+        fetchOne(this.defiPositionsService.getLpPositions(walletAddress, tokens), 8_000),
+        // Lending gets a longer budget — the Jupiter lite-api is flaky and its
+        // fetchers now retry, so give the retries room to land before the cap.
+        // 9s (was 13s): this fetch is the SLOWEST in the fan-out, so its cap
+        // directly gates the whole-page skeleton on first load. 9s still clears
+        // one retry; trimming 4s off shaves that straight off first-paint time.
+        fetchOne(this.defiPositionsService.getLendingPositions(walletAddress), 9_000),
         fetchOne(this.defiPositionsService.getKaminoPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getMarginFiPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getOrcaPositions()),
@@ -539,15 +664,64 @@ export class PortfolioService {
         if (batch.length > 0) accumulated.push(...batch);
       }
 
+      // A position-receipt token (Raydium LP mint, etc.) already shows in the
+      // Active Positions panel — flag it so the wallet token list hides it
+      // instead of double-rendering it as an "Unknown Token".
+      const positionMints = new Set<string>();
+      for (const proto of accumulated) {
+        for (const item of proto.positions) {
+          const lp = item.metadata?.['lpMint'];
+          if (typeof lp === 'string' && lp) positionMints.add(lp);
+        }
+      }
+      // Also flag DeFi position RECEIPT tokens by their (Helius-enriched) name/
+      // symbol: Jupiter Lend earn shares (jlWSOL/jlUSDC…), Jupiter Lend borrow
+      // vault NFTs (jv1 "jupiter vault 1"), and AMM LP tokens ("Raydium LP
+      // Token …"). These are not spendable balances — they represent a position
+      // that renders in Active Positions — so a "1 jv1" row in the wallet token
+      // list is misleading. This catches receipts the protocol fetchers don't
+      // expose via metadata.lpMint.
+      const isReceiptToken = (name: string, symbol: string): boolean => {
+        const n = (name || '').toLowerCase();
+        const s = (symbol || '').toLowerCase();
+        return (
+          n.includes('jupiter lend') ||
+          n.includes('jupiter vault') ||
+          n.includes('lp token') ||             // "Raydium LP Token V4 (SOL-USDC)"
+          n.includes('concentrated liquidity') || // "Raydium Concentrated Liquidity" (CLMM position NFT)
+          s === 'rcl' ||                        // Raydium CLMM position NFT symbol
+          /^jl[a-z]/.test(s) ||                 // jlWSOL, jlUSDC
+          /^jv\d+$/.test(s)                     // jv1, jv2 (Jupiter Lend vault NFT)
+        );
+      };
+      // NOTE: an earlier rule here hid ANY "Unknown Token" with no USD value.
+      // That was far too broad — on a load where the metadata/price fetches
+      // transiently fail, EVERY token becomes an unnamed/un-priced row and the
+      // rule wiped the entire token list (leaving only SOL). Rely on real
+      // identity instead: name-based receipt detection (jv1/RCL now resolve via
+      // getAsset) + the existing spam heuristic. Never hide a token just because
+      // this one load couldn't price/name it.
+      this._summary.update(s => s ? {
+        ...s,
+        tokens: s.tokens.map(t =>
+          positionMints.has(t.mint) || isReceiptToken(t.name, t.symbol)
+            ? { ...t, isDefiPositionToken: true }
+            : t,
+        ),
+      } : s);
+
       // Pricing pass before the single render so APR + claimable columns
       // all paint on first frame instead of arriving as a delta.
       await Promise.race([
         this.defiPositionsService.priceAllPositions(accumulated),
-        new Promise<void>(resolve => setTimeout(resolve, 6_000)),
+        new Promise<void>(resolve => setTimeout(resolve, 4_500)),
       ]);
 
       emit();
       this._protocolPositionsLoading.set(false);
+      // Everything (wallet + all protocols + pricing) is now in — release the
+      // whole-page skeleton and let the content render in one shot.
+      this._positionsSettled.set(true);
 
       this._recentTransactions.set(signatures);
       this._loadingState.set('loaded');
@@ -796,28 +970,28 @@ export class PortfolioService {
     if (signatures.length === 0) return [];
 
     const sigs = signatures.map((s) => s.signature);
-    const parsed = await this.heliusService.parseTransactions(sigs);
+    // Helius's enhanced-tx REST API is the richest source, but api.helius.xyz
+    // Cloudflare-blocks our datacenter IP in prod, so it usually returns
+    // NOTHING. Try it (still works in other environments), then parse
+    // everything it missed straight from the RPC node's getTransaction
+    // (jsonParsed) — which IS reachable — via a single batched round-trip.
+    // No per-tx cap: leaving 90 of 100 rows as blank "ACTION" was the bug.
+    const parsed = await this.heliusService.parseTransactions(sigs).catch(() => []);
     const heliusByID = new Map(parsed.map(p => [p.signature, p]));
 
-    // For any signature Helius didn't return (most common cause: tx is
-    // newer than Helius's indexer cursor), fall back to a per-tx RPC
-    // `getTransaction(jsonParsed)` call so the row at least carries the
-    // protocol name + token amount + USD instead of all-blank "ACTION".
-    // Capped to avoid hammering the RPC on a freshly-active wallet.
     const missingSigs = sigs.filter(s => !heliusByID.has(s));
-    const RPC_FALLBACK_CAP = 10;
     const rpcParsed = new Map<string, EnhancedTransaction>();
     if (missingSigs.length > 0) {
-      const slice = missingSigs.slice(0, RPC_FALLBACK_CAP);
+      const rawMap = await this.solanaRpc.getParsedTransactionsBatch(missingSigs);
       const meta = new Map(signatures.map(s => [s.signature, s]));
-      const results = await Promise.all(
-        slice.map(async sig => {
-          const raw = await this.solanaRpc.getParsedTransaction(sig);
-          if (!raw) return null;
-          return this.mapRpcTx(sig, meta.get(sig) ?? null, raw);
-        }),
-      );
-      for (const r of results) if (r) rpcParsed.set(r.signature, r);
+      for (const [sig, raw] of rawMap) {
+        if (!raw) continue;
+        try {
+          rpcParsed.set(sig, this.mapRpcTx(sig, meta.get(sig) ?? null, raw));
+        } catch {
+          // leave as a blank stub below
+        }
+      }
     }
 
     const out = signatures.map(sig => {
@@ -920,32 +1094,55 @@ export class PortfolioService {
     raw: any,
   ): EnhancedTransaction {
     const message = raw?.transaction?.message ?? {};
-    const accountKeys: string[] = (message.accountKeys ?? []).map((k: any) =>
+    const staticKeys: string[] = (message.accountKeys ?? []).map((k: any) =>
       typeof k === 'string' ? k : k?.pubkey ?? '',
     );
-    const feePayer = accountKeys[0] ?? null;
+    const feePayer = staticKeys[0] ?? null;
+    // v0 (versioned) transactions carry most program IDs in Address Lookup
+    // Tables, NOT in message.accountKeys — so a Jupiter/Raydium swap looked
+    // like a program-less "unknown" and the Platform column showed "--". The
+    // ALT-loaded keys surface under meta.loadedAddresses; include them (and any
+    // top-level instruction programIds) so protocol detection actually works.
+    const loaded = raw?.meta?.loadedAddresses ?? {};
+    const instrPrograms: string[] = (message.instructions ?? [])
+      .map((ix: any) => ix?.programId)
+      .filter(Boolean);
+    const keySet = new Set<string>([
+      ...staticKeys,
+      ...(loaded.writable ?? []),
+      ...(loaded.readonly ?? []),
+      ...instrPrograms,
+    ]);
 
-    // Program-id → friendly platform name. Order matters: more specific
-    // routers (Jupiter/MagicEden) before generic AMMs (Raydium/Orca).
+    // Program-id → friendly platform name. Iterated in THIS order, so specific
+    // routers (Jupiter) win over the AMMs they route through (Raydium/Orca).
     const KNOWN_PROGRAMS: Record<string, { platform: string; type: TransactionType }> = {
       JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4: { platform: 'jupiter', type: 'swap' },
       JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB: { platform: 'jupiter', type: 'swap' },
-      '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P': { platform: 'pump.fun', type: 'swap' },
-      '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': { platform: 'raydium', type: 'swap' },
-      whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc: { platform: 'orca', type: 'swap' },
-      LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo: { platform: 'meteora', type: 'swap' },
+      JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN: { platform: 'jupiter', type: 'swap' },
       M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K: { platform: 'magic eden', type: 'nft-sale' },
       TSWAPaqyCSx2KABk68Shruf4rp7CxcNi8hAsbdwmHbN: { platform: 'tensor', type: 'nft-sale' },
+      '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P': { platform: 'pump.fun', type: 'swap' },
+      pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA: { platform: 'pump.fun', type: 'swap' },
+      '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': { platform: 'raydium', type: 'swap' },
+      CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: { platform: 'raydium', type: 'swap' },
+      CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C: { platform: 'raydium', type: 'swap' },
+      routeUGWgWzqBWFcrCfv8tritsqukccJPu3q5GPP3xS: { platform: 'raydium', type: 'swap' },
+      whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc: { platform: 'orca', type: 'swap' },
+      LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo: { platform: 'meteora', type: 'swap' },
+      Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB: { platform: 'meteora', type: 'swap' },
+      dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN: { platform: 'meteora', type: 'swap' },
+      obriQD1zbpyLz95G5n7nJe6a4DPjpFwa5XYPoNm113y: { platform: 'lifinity', type: 'swap' },
+      PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY: { platform: 'phoenix', type: 'swap' },
       CRoSSzVxmtLn4VEkyVrQYcjC1JoYWaELxiD3wwQYzLNd: { platform: 'streamflow', type: 'transfer' },
     };
 
     let platform: string | null = null;
     let type: TransactionType = 'unknown';
-    for (const key of accountKeys) {
-      const known = KNOWN_PROGRAMS[key];
-      if (known) {
-        platform = known.platform;
-        type = known.type;
+    for (const [prog, info] of Object.entries(KNOWN_PROGRAMS)) {
+      if (keySet.has(prog)) {
+        platform = info.platform;
+        type = info.type;
         break;
       }
     }
@@ -1058,6 +1255,7 @@ export class PortfolioService {
       description: tx.description || this.buildDescription(tx),
       details,
       platform,
+      heliusType: tx.type || null,
     };
   }
 
@@ -1111,12 +1309,25 @@ export class PortfolioService {
     return map[heliusType] ?? 'unknown';
   }
 
+  /** "RAYDIUM" → "Raydium", "ADD_LIQUIDITY" → "Add Liquidity". */
+  private humanizeLabel(s: string): string {
+    return s
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
   private buildDescription(tx: HeliusParsedTransaction): string {
+    // Only attribute a protocol when we actually know it — never render the
+    // literal "via unknown" (Helius sends source:"UNKNOWN" for un-attributed txs).
+    const src = (tx.source || '').trim();
+    const protocol =
+      src && src.toUpperCase() !== 'UNKNOWN' ? ` via ${this.humanizeLabel(src)}` : '';
+
     const swap = tx.events?.swap;
     if (swap) {
       const fromAmt = this.formatSwapAmount(swap.nativeInput, swap.tokenInputs);
       const toAmt = this.formatSwapAmount(swap.nativeOutput, swap.tokenOutputs);
-      const protocol = tx.source ? ` via ${tx.source}` : '';
       if (fromAmt && toAmt) {
         return `Swapped ${fromAmt} → ${toAmt}${protocol}`;
       }
@@ -1132,7 +1343,12 @@ export class PortfolioService {
       const amt = t.tokenAmount ? t.tokenAmount.toFixed(4) : '';
       return `Transferred ${amt} tokens`;
     }
-    return tx.type || 'Transaction';
+    // Fall back to a readable version of the Helius type ("ADD_LIQUIDITY" →
+    // "Add Liquidity") + protocol, instead of a raw enum or "unknown".
+    const label = tx.type && tx.type.toUpperCase() !== 'UNKNOWN'
+      ? this.humanizeLabel(tx.type)
+      : 'Transaction';
+    return `${label}${protocol}`;
   }
 
   private formatSwapAmount(
@@ -1317,18 +1533,29 @@ export class PortfolioService {
     return null;
   }
 
-  async refresh(walletAddress: string): Promise<void> {
+  /**
+   * Re-fetch the portfolio.
+   *
+   * @param opts.silent  Background refresh (the 30s auto-refresh). Skips the
+   *   price-cache purge so we don't fan out a fresh Birdeye/DexScreener batch
+   *   every 30s — hammering those upstreams is what starts tripping RPC rate
+   *   limits and blanking the wallet to $0. Manual refresh (default) still
+   *   clears the cache for a guaranteed-fresh read.
+   */
+  async refresh(walletAddress: string, opts?: { silent?: boolean }): Promise<void> {
     this.nftsLoaded = false;
     this.historyLoaded = false;
     this.historyLoadedWallet = null;
     this.historyLoadingPromise = null;
     this._historyCache.delete(walletAddress);
-    // Drop the in-memory price cache so a partial-fetch from the previous
-    // load (where the DexScreener batch dropped some pump tokens) doesn't
-    // get reused. Without this the manual Refresh button surfaced the same
-    // missing-price rows because the 60s TTL kept the empty-resolution
-    // state alive.
-    this.birdeyeService.clearCache();
+    if (!opts?.silent) {
+      // Drop the in-memory price cache so a partial-fetch from the previous
+      // load (where the DexScreener batch dropped some pump tokens) doesn't
+      // get reused. Without this the manual Refresh button surfaced the same
+      // missing-price rows because the 60s TTL kept the empty-resolution
+      // state alive.
+      this.birdeyeService.clearCache();
+    }
     await this.loadPortfolio(walletAddress);
   }
 
@@ -1337,6 +1564,8 @@ export class PortfolioService {
     this._defiPositions.set(null);
     this._recentTransactions.set([]);
     this._protocolPositions.set([]);
+    this._positionsSettled.set(false);
+    this.loadedWalletAddress = null;
     this._portfolioChange.set(null);
     this._nfts.set([]);
     this._nftCollections.set([]);

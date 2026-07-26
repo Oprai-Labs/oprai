@@ -109,8 +109,9 @@ func NewMarketProxy(ctx context.Context, birdeyeAPIKey, jupiterAPIKey, heliusAPI
 }
 
 // jupiterHost picks the right Jupiter base host for the keyed-vs-public split:
-//   * `api.jup.ag`      — paid, requires `x-api-key` header
-//   * `lite-api.jup.ag` — public/free, rate-limited, no key
+//   - `api.jup.ag`      — paid, requires `x-api-key` header
+//   - `lite-api.jup.ag` — public/free, rate-limited, no key
+//
 // Both serve the same paths under `/price`, `/tokens/v2`, `/swap/v1` etc.
 // Per Jupiter docs (https://dev.jup.ag/docs/), keyed traffic must hit the
 // paid host or the request is anonymous and rate-limited even with a key.
@@ -139,6 +140,7 @@ const (
 	pairsCacheTTL       = 60 * time.Second
 	searchCacheTTL      = 5 * time.Minute
 	tradesCacheTTL      = 15 * time.Second
+	tokenMetaCacheTTL   = 30 * time.Minute
 	holdersCacheTTL     = 2 * time.Minute
 	securityCacheTTL    = 5 * time.Minute
 	latestPairsCacheTTL = 30 * time.Second
@@ -2242,9 +2244,11 @@ func (m *MarketProxy) GetJupiterPortfolioPlatforms(w http.ResponseWriter, r *htt
 // frontend-api.pump.fun is offline (CF 1016); frontend-api-v3.pump.fun has no
 // /creator-rewards path (all variants probed → 404). Real implementation
 // requires on-chain decode of the pump.fun `creator-vault` PDA:
-//   seeds   = ["creator-vault", creator_pubkey]
-//   program = 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P
-//   read    = getMultipleAccounts → lamport balance → SOL/USD
+//
+//	seeds   = ["creator-vault", creator_pubkey]
+//	program = 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P
+//	read    = getMultipleAccounts → lamport balance → SOL/USD
+//
 // That lands in PR 3 alongside the rest of the portfolio analytics work.
 // For now we return an empty contract so the frontend can wire the section
 // without conditional rendering churn.
@@ -2256,4 +2260,137 @@ func (m *MarketProxy) GetPumpfunCreatorRewards(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"wallet":"` + wallet + `","claimableLamports":0,"claimableSol":0,"claimableUsd":0,"rewards":[]}`))
+}
+
+type tokenMetaResult struct {
+	Name   string `json:"name"`
+	Symbol string `json:"symbol"`
+	Image  string `json:"image"`
+}
+
+// PostTokenMeta resolves on-chain token metadata (name / symbol / logo) for a
+// batch of mints via Helius getAsset — SERVER-SIDE. Client-side per-mint
+// resolution was unreliable: the browser's ~6-connection-per-host cap made the
+// getAsset calls queue behind the portfolio's other reads and time out, and the
+// alternate source (jup.ag) was intermittently unresolvable. Doing it here
+// (parallel goroutines, no browser cap, cached 30m) is fast and dependable.
+// POST body: {"mints":[...]}. Response: {mint: {name, symbol, image}}.
+func (m *MarketProxy) PostTokenMeta(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+	var reqBody struct {
+		Mints []string `json:"mints"`
+	}
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if m.heliusAPIKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "helius not configured")
+		return
+	}
+	if len(reqBody.Mints) > 100 {
+		reqBody.Mints = reqBody.Mints[:100]
+	}
+
+	out := make(map[string]tokenMetaResult, len(reqBody.Mints))
+	var mu sync.Mutex
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+	for _, mint := range reqBody.Mints {
+		if mint == "" {
+			continue
+		}
+		if data, ok := m.cache.Get("tokenmeta:" + mint); ok {
+			var tm tokenMetaResult
+			if json.Unmarshal(data, &tm) == nil {
+				mu.Lock()
+				out[mint] = tm
+				mu.Unlock()
+				continue
+			}
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(mint string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			tm, ok := m.resolveTokenMeta(r.Context(), mint)
+			if !ok {
+				return
+			}
+			if b, e := json.Marshal(tm); e == nil {
+				m.cache.Set("tokenmeta:"+mint, b, tokenMetaCacheTTL)
+			}
+			mu.Lock()
+			out[mint] = tm
+			mu.Unlock()
+		}(mint)
+	}
+	wg.Wait()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (m *MarketProxy) resolveTokenMeta(ctx context.Context, mint string) (tokenMetaResult, bool) {
+	payload, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "getAsset",
+		"params":  map[string]string{"id": mint},
+	})
+	if err != nil {
+		return tokenMetaResult{}, false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://mainnet.helius-rpc.com", bytes.NewReader(payload))
+	if err != nil {
+		return tokenMetaResult{}, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return tokenMetaResult{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return tokenMetaResult{}, false
+	}
+	var parsed struct {
+		Result struct {
+			Content struct {
+				Metadata struct {
+					Name   string `json:"name"`
+					Symbol string `json:"symbol"`
+				} `json:"metadata"`
+				Links struct {
+					Image string `json:"image"`
+				} `json:"links"`
+				Files []struct {
+					URI string `json:"uri"`
+				} `json:"files"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&parsed) != nil {
+		return tokenMetaResult{}, false
+	}
+	c := parsed.Result.Content
+	image := c.Links.Image
+	if image == "" {
+		for _, f := range c.Files {
+			if f.URI != "" {
+				image = f.URI
+				break
+			}
+		}
+	}
+	if c.Metadata.Name == "" && c.Metadata.Symbol == "" && image == "" {
+		return tokenMetaResult{}, false
+	}
+	return tokenMetaResult{Name: c.Metadata.Name, Symbol: c.Metadata.Symbol, Image: image}, true
 }

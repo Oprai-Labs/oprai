@@ -14,6 +14,7 @@ import { UploadService } from '@core/services/upload.service';
 import { JupiterLendService, LEND_SUPPORTED_ASSETS, LendActionInfo, LendBorrowInfo } from '@core/services/market/jupiter-lend.service';
 import { WalletService } from '@core/services/wallet.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
+import { KaminoService, KaminoReserve, KaminoObligation, KaminoVaultMetrics, KaminoVaultPosition, KAMINO_MAIN_MARKET } from '@core/services/market/kamino.service';
 import { TransactionPreviewService, TransactionPreview, BalanceChange } from '../../services/transaction-preview.service';
 import { JargonTooltipComponent } from '@shared/components/jargon-tooltip/jargon-tooltip.component';
 import { TokenPickerComponent } from '../token-picker/token-picker.component';
@@ -27,7 +28,7 @@ import { JupSolService } from '@core/services/market/jupsol.service';
 import { MeteoraService } from '@core/services/market/meteora.service';
 import { ApiService } from '@core/services/api.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, timeout } from 'rxjs';
 import { createSolanaConnection } from '@core/utils/solana-connection';
 
 const ACTION_RESULTS_KEY = 'oprai-action-results';
@@ -135,11 +136,88 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
     '6011':
       "This borrow would exceed what your collateral supports — the position's LTV is above the vault's limit. Add more collateral or borrow a smaller amount.",
   },
+  // Kamino K-Lend (klend program) error codes. These 60xx codes mean something
+  // DIFFERENT here than in the Jupiter Lend vaults program (e.g. 6018 is
+  // ObligationReserveLimit for KLend but VaultExcessDebtPayback for Jupiter),
+  // so they MUST stay action-scoped and never fall through to a shared map.
+  kamino_borrow: {
+    '6012': "Borrow amount is too small — after Kamino's origination fee you'd receive nothing. Borrow a larger amount.",
+    '6013': "This borrow is too large for your deposited collateral. Borrow a smaller amount, or deposit more collateral on Kamino first.",
+    '6008': "Kamino's reserve doesn't have enough of this token available to borrow right now. Try a smaller amount or a different token.",
+    '6020': "You have no collateral deposited on Kamino yet. Deposit a token first, then borrow against it.",
+  },
+  kamino_deposit: {
+    '6018': "Kamino's deposit cap for this reserve is reached. Try a smaller amount or a different token.",
+  },
+  kamino_withdraw: {
+    '6010': "Withdraw amount is too small. Enter a larger amount.",
+    '6011': "You can't withdraw this much — either it exceeds your deposit or it would drop your collateral below what your Kamino borrows require. Withdraw less, or repay debt first.",
+  },
+  kamino_withdraw_collateral: {
+    '6011': "Withdrawing this much collateral would push your Kamino position under its required health. Withdraw less, or repay some debt first.",
+  },
+  kamino_repay: {
+    '6014': "Repay amount is too small to transfer. Enter a larger amount.",
+    // NetValueRemainingTooSmall. Kamino tracks debt as a continuously-growing
+    // scaled fraction, so a fixed decimal repay always leaves sub-unit dust and
+    // this fires. Use "Max" / "repay all" (it closes the whole line at once). If
+    // that still fails, your token balance is a hair below the accrued debt —
+    // top up a tiny amount of the token, then repay all.
+    '6092': "Kamino won't leave a sub-cent dust balance behind. Use \"Max\" to repay the full debt in one go. If that still fails, your token balance is just under the accrued interest — add a tiny amount of the token and repay all.",
+    // SPL Token InsufficientFunds during a repay-all: the wallet holds slightly
+    // less of the token than the debt + its accrued interest (Kamino rounds the
+    // debt up to fully close). Action-scoped: in a repay, Custom 1 = not enough
+    // of the repaid token, never a SOL-fee issue.
+    '1': "Your wallet is just short of the full debt — Kamino rounds up to close it completely, and you don't quite have enough of the token. Add a tiny amount of it and repay all.",
+  },
+  // Kamino Multiply (leveraged looping). Exact KLend codes:
+  //   6089 = Cannot borrow above borrow limit (the debt reserve's borrow cap)
+  //   6091 = Reserve does not accept new borrows outside its elevation group
+  //   6011 = borrow exceeds the position's allowed value (LTV/health)
+  // 6089 can mean EITHER the user borrows too much (lower leverage helps) OR the
+  // reserve is globally maxed (no amount helps → different pool), so say both.
+  kamino_multiply_open: {
+    '6089': "Kamino won't let this position borrow more from the pool's debt reserve. Lower the leverage or reduce the collateral amount. If it still fails, this pool's debt reserve is at its borrow cap — pick a different pool.",
+    '6091': "This pool's debt reserve only accepts borrows inside its elevation group, which this pair can't use for a leveraged position. Pick a different collateral/debt pool.",
+    '6011': "At this leverage the position would exceed its allowed loan-to-value. Lower the leverage or increase the collateral amount.",
+  },
+  kamino_multiply_add: {
+    '6089': "Kamino won't let this position borrow more from the pool's debt reserve. Add a smaller amount, or reduce leverage first. If it still fails, the reserve is at its borrow cap.",
+    '6091': "This pool's debt reserve only accepts borrows inside its elevation group, which this position can't use. You can't add leverage to this pool.",
+    '6011': "This addition would push the position past its allowed loan-to-value. Add a smaller amount.",
+  },
 };
 
 function sanitizeErrorMessage(msg: string, actionType?: string): string {
   // Strip internal API instructions (e.g. "Upload via POST /upload/...") that leak from backend errors.
   let out = msg.replace(/\.\s+(Upload|Call|Use|POST|GET|See|Retry)\s+.*/i, '.').trim();
+
+  // web3.js SendTransactionError stringifies with the FULL program-log array and
+  // a developer-only "call getLogs()" tail. Never surface raw logs to users —
+  // drop the "Logs: [...]" dump and that tail up front, before any classification.
+  out = out
+    .replace(/\.?\s*Logs:\s*\[[\s\S]*?\]\.?/i, '')
+    .replace(/\s*Catch the [`']?SendTransactionError[`']?[\s\S]*$/i, '')
+    .trim();
+
+  // Raw on-chain program error thrown at SUBMIT time (not preflight sim, which
+  // arrives as a `sim:*` machine code below). Classify the custom error code
+  // from hex ("0x1771") or decimal form and reuse the same friendly text, so a
+  // technical program dump never reaches the user. Action-specific hints win,
+  // then well-known Jupiter slippage codes (6001 = 0x1771, 6003).
+  {
+    const raw = out.match(/custom program error:\s*(?:0x([0-9a-f]+)|(\d+))/i);
+    if (raw) {
+      const code = raw[1] ? parseInt(raw[1], 16) : parseInt(raw[2], 10);
+      const actionHint = actionType ? SIM_HINTS_BY_ACTION[actionType]?.[String(code)] : undefined;
+      if (actionHint) return actionHint;
+      if (code === 6001 || code === 6003) return SIM_ERROR_MESSAGES['slippage_exceeded'];
+      if (code === 1) return SIM_ERROR_MESSAGES['insufficient_tokens'];
+      const gh = SIM_GENERIC_HINTS[String(code)];
+      if (gh) return gh;
+      return `The transaction failed on-chain (program error ${code}). This is usually a slippage, minimum-amount, or account-state issue — adjust the amount or slippage and retry.`;
+    }
+  }
 
   // Pre-flight SOL-fee-shortfall thrown by solana-action.service before signing.
   // Format: "insufficient_fee:need=0.000010,have=0.000000"
@@ -767,8 +845,12 @@ function getActionFields(
       { key: 'positionId', label: 'Position ID', type: 'address', placeholder: 'Position address...', required: true },
     );
   } else if (t === 'raydium_increase_position') {
+    // `inputMint` decides WHICH side the deposit amount denominates (the SDK
+    // derives the paired amount from it). It was missing from this list, so the
+    // builder received no side at all and silently assumed token B.
     fields.push(
       { key: 'positionId', label: 'Position ID', type: 'address', placeholder: 'Position address...', required: true },
+      { key: 'inputMint', label: 'Deposit Token', type: 'token', required: true },
       { key: 'inputAmount', label: 'Deposit Amount', type: 'number', placeholder: '0', required: true },
       { key: 'slippageBps', label: 'Slippage', type: 'number', placeholder: '0.5', suffix: '%', half: true, min: 0, max: 100, step: '0.1', divisor: 100 },
     );
@@ -1086,26 +1168,56 @@ function getActionFields(
     fields.push({ key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'KMNO', required: true });
   } else if (t === 'kamino_unstake') {
     fields.push({ key: 'amount', label: 'Amount', type: 'text', placeholder: 'all', required: true, hint: '"all" unstakes everything' });
-  } else if (t === 'kamino_multiply_open' || t === 'kamino_long_open' || t === 'kamino_short_open') {
+  } else if (t === 'kamino_long_open' || t === 'kamino_short_open') {
     fields.push(
       { key: 'collateralToken', label: 'Collateral Token', type: 'token', required: true },
       { key: 'collateralAmount', label: 'Collateral Amount', type: 'number', placeholder: '0', required: true },
       { key: 'leverage', label: 'Leverage', type: 'number', placeholder: '2', required: true, min: 1, max: 10, step: '0.1', half: true },
     );
+  } else if (t === 'kamino_multiply_open') {
+    // A Multiply position is keyed by its collateral/debt token pair. The
+    // backend loads/creates the obligation from (token, debtToken); debt
+    // defaults to USDC but is usually SOL for LST strategies.
+    // Collateral + debt read as the pool PAIR, so pair them on one row (equal
+    // chips); amount and leverage are the editable inputs below, full width.
+    fields.push(
+      { key: 'token', label: 'Collateral Token', type: 'token', required: true, half: true },
+      { key: 'debtToken', label: 'Debt Token', type: 'token', required: false, half: true, hint: 'Borrowed & looped; defaults to USDC' },
+      { key: 'amount', label: 'Collateral Amount', type: 'number', placeholder: '0', required: true },
+      { key: 'leverage', label: 'Leverage', type: 'number', placeholder: '2', required: true, min: 1, max: 10, step: '0.1' },
+    );
   } else if (t === 'kamino_multiply_add') {
     fields.push(
-      { key: 'collateralToken', label: 'Collateral Token', type: 'token', required: true },
-      { key: 'collateralAmount', label: 'Additional Amount', type: 'number', placeholder: '0', required: true },
+      { key: 'token', label: 'Collateral Token', type: 'token', required: true },
+      { key: 'amount', label: 'Additional Amount', type: 'number', placeholder: '0', required: true },
+      { key: 'debtToken', label: 'Debt Token', type: 'token', required: false, hint: 'The position\'s debt token; defaults to USDC' },
     );
   } else if (t === 'kamino_multiply_withdraw') {
     fields.push(
-      { key: 'collateralToken', label: 'Collateral Token', type: 'token', required: true },
-      { key: 'percent', label: 'Withdraw %', type: 'number', placeholder: '50', suffix: '%', required: true, min: 1, max: 100 },
+      { key: 'token', label: 'Collateral Token', type: 'token', required: true },
+      { key: 'amount', label: 'Withdraw Amount', type: 'number', placeholder: '0', required: true, hint: 'Collateral to withdraw (partial deleverage)' },
+      { key: 'debtToken', label: 'Debt Token', type: 'token', required: false, hint: 'The position\'s debt token; defaults to USDC' },
     );
   } else if (t === 'kamino_multiply_close' || t === 'kamino_position_close') {
-    // no required params — closes the active position
+    // Close is keyed by the coll/debt pair; token is required, debt optional.
+    if (t === 'kamino_multiply_close') {
+      fields.push(
+        { key: 'token', label: 'Collateral Token', type: 'token', required: true },
+        { key: 'debtToken', label: 'Debt Token', type: 'token', required: false, hint: 'The position\'s debt token; defaults to USDC' },
+      );
+    }
   } else if (t === 'kamino_claim_rewards') {
     // no required params — claims all pending rewards
+  } else if (t === 'kamino_liquidity_deposit') {
+    fields.push(
+      { key: 'strategy', label: 'Strategy', type: 'text', placeholder: 'strategy address', required: true, hint: 'Kamino CLMM strategy address' },
+      { key: 'amountA', label: 'Amount (token A)', type: 'number', placeholder: '0', required: true, hint: 'The other side is auto-computed from the pool ratio' },
+    );
+  } else if (t === 'kamino_liquidity_withdraw') {
+    fields.push(
+      { key: 'strategy', label: 'Strategy', type: 'text', placeholder: 'strategy address', required: true },
+      { key: 'shares', label: 'Shares', type: 'text', placeholder: 'all', required: true, hint: '"all" withdraws the full position' },
+    );
   // ── MarginFi ──────────────────────────────────────────────────────────────
   } else if (t === 'marginfi_deposit') {
     fields.push(
@@ -1316,6 +1428,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly chatApi = inject(ChatApiService);
   private readonly uploadService = inject(UploadService);
   private readonly jupiterLend = inject(JupiterLendService);
+  private readonly kamino = inject(KaminoService);
   private readonly walletService = inject(WalletService);
   private readonly tokenRegistry = inject(TokenRegistryService);
   private readonly previewService = inject(TransactionPreviewService);
@@ -1361,6 +1474,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly editSymbol = signal('');
   readonly editDescription = signal('');
   readonly editInitialBuy = signal('');
+  /** Set when the initial buy was specified in USD ("$10"): drives the "≈ $N"
+   *  hint next to the SOL-denominated field after live conversion. */
+  readonly initialBuyUsd = signal<number | null>(null);
+  /** SOL logo for the Initial buy (SOL) field icon. */
+  get solLogoURI(): string | null { return this.resolveTokenDisplay(this.SOL_MINT).logoURI ?? null; }
   readonly editTwitter = signal('');
   readonly editTelegram = signal('');
   readonly editWebsite = signal('');
@@ -1446,6 +1564,38 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (this.inputBalanceMint()) void this.loadInputBalance();
       if (this.secondaryBalanceMint()) void this.loadSecondaryBalance();
     });
+  });
+
+  // Kamino borrow: (re)load the reserve rates + obligation whenever the wallet
+  // or borrow token changes. On a page reload the card can init BEFORE the
+  // wallet reconnects — the initial fetch then runs with no wallet and the
+  // obligation comes back empty (card wrongly shows "no collateral"). Tracking
+  // publicKey() here re-fetches the moment the wallet becomes available, so an
+  // existing on-chain position (even a tiny one) always shows, like Kamino's UI.
+  private _lastKaminoBorrowKey: string | null = null;
+  private readonly _kaminoBorrowEffect = effect(() => {
+    const wallet = this.walletService.publicKey();
+    const token = this.editParams()['token'] ?? this.editParams()['reserve'] ?? '';
+    if (this.action?.type !== 'kamino_borrow' && this.action?.type !== 'kamino_repay'
+        && this.action?.type !== 'kamino_withdraw' && this.action?.type !== 'kamino_withdraw_collateral') return;
+    const key = `${wallet}:${token}`;
+    if (key === this._lastKaminoBorrowKey) return;
+    this._lastKaminoBorrowKey = key;
+    untracked(() => void this.loadKaminoBorrowInfo());
+  });
+
+  // K-Vault withdraw: the position lookup needs the wallet, which often isn't
+  // connected yet on first render. Reload once it (or the target vault) lands.
+  private _lastKaminoVaultWithdrawKey: string | null = null;
+  private readonly _kaminoVaultWithdrawEffect = effect(() => {
+    if (this.action?.type !== 'kamino_vault_withdraw' && this.action?.type !== 'kamino_unstake') return;
+    const wallet = this.walletService.publicKey();
+    const vault = this.editParams()['vault'] ?? '';
+    if (!wallet) return;
+    const key = `${wallet}:${vault}`;
+    if (key === this._lastKaminoVaultWithdrawKey) return;
+    this._lastKaminoVaultWithdrawKey = key;
+    untracked(() => void this.loadKaminoVaultWithdrawInfo());
   });
 
   // Input-token USD price, used to flag Jupiter's minimum order sizes UP FRONT
@@ -1653,7 +1803,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     // Borrow: the `amount` is the DEBT you receive, not something you spend, so
     // no wallet-balance line belongs on it (the collateral is a separate field).
-    if (this.action?.type === 'borrow') {
+    if (this.action?.type === 'borrow' || this.action?.type === 'kamino_borrow') {
       return '';
     }
     const tokenA = p['tokenA'] ?? p['tokenXMint'];
@@ -1813,6 +1963,402 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isRaydiumOpenPosition = computed(
     () => this.action.type === 'raydium_open_position',
   );
+
+  /**
+   * Raydium position withdrawal (CLMM close / standard LP remove). The generic
+   * field list renders these as a bare "POSITION ID: <base58>" text box, which
+   * tells the user nothing about what they're about to close. When the card was
+   * spawned from the positions list it carries display context (pair, symbols,
+   * logos, amount) — the template uses it to render a real position summary.
+   */
+  /** Full CLMM close — nothing to choose, so it keeps the summary-only panel.
+   *  (Standard-LP withdrawals are partial-capable and use the reduce panel.) */
+  readonly isRaydiumWithdraw = computed(() => this.action.type === 'raydium_close_position');
+
+  /** Adding liquidity to an EXISTING CLMM position. */
+  readonly isRaydiumIncrease = computed(() => this.action.type === 'raydium_increase_position');
+
+  /** Partial withdrawal — CLMM range OR standard-LP position. Both let the
+   *  user take out a share, so they share one panel. */
+  readonly isRaydiumDecrease = computed(
+    () => this.action.type === 'raydium_decrease_position' || this.action.type === 'raydium_remove_liquidity',
+  );
+
+  /** LP withdrawals scale `lpAmount` (UI units); CLMM scales `liquidity`. */
+  private decreaseAmountKey(): 'liquidity' | 'lpAmount' {
+    return this.action.type === 'raydium_remove_liquidity' ? 'lpAmount' : 'liquidity';
+  }
+  private decreaseTotalKey(): 'positionLiquidity' | 'positionLpAmount' {
+    return this.action.type === 'raydium_remove_liquidity' ? 'positionLpAmount' : 'positionLiquidity';
+  }
+
+  readonly CLMM_DECREASE_PRESETS: ReadonlyArray<number> = [25, 50, 75, 100];
+
+  /**
+   * How much of the position the user is withdrawing, as a percentage. The
+   * builder accepts "50%" / "all" / a raw liquidity value; we keep the param
+   * in percent form because a raw liquidity constant ("22160774") tells the
+   * user nothing about how much they're taking out.
+   */
+  readonly clmmDecreasePct = computed<number>(() => {
+    const p = this.editParams();
+    const raw = (p[this.decreaseAmountKey()] ?? '').trim().toLowerCase();
+    const total = parseFloat(p[this.decreaseTotalKey()] ?? '');
+    if (!raw) return 100; // no amount given → withdraw everything
+    if (raw === 'all' || raw === 'max') return 100;
+    const pct = raw.match(/^(\d+(?:\.\d+)?)\s*%$/);
+    if (pct) return Math.min(100, Math.max(0, parseFloat(pct[1])));
+    // A concrete amount → express it against the position's total.
+    const asked = parseFloat(raw);
+    if (Number.isFinite(total) && total > 0 && Number.isFinite(asked) && asked > 0) {
+      return Math.min(100, (asked / total) * 100);
+    }
+    return 100;
+  });
+
+  setClmmDecreasePct(pct: number): void {
+    const key = this.decreaseAmountKey();
+    if (pct >= 100) { this.setEditParam(key, 'all'); return; }
+    // LP removal takes a UI token amount, not a percentage string.
+    if (key === 'lpAmount') {
+      const total = parseFloat(this.editParams()['positionLpAmount'] ?? '');
+      if (Number.isFinite(total) && total > 0) {
+        this.setEditParam(key, formatDlmmAmount(total * pct / 100));
+        return;
+      }
+    }
+    this.setEditParam(key, `${pct}%`);
+  }
+
+  /** Withdrawal amount for one side, derived from the chosen share. */
+  clmmDecreaseRowValue(side: 'A' | 'B'): string {
+    const p = this.editParams();
+    const pos = parseFloat((side === 'A' ? p['amountA'] : p['amountB']) ?? '');
+    if (!Number.isFinite(pos)) return '';
+    const v = pos * this.clmmDecreasePct() / 100;
+    return v > 0 ? formatDlmmAmount(v) : '';
+  }
+
+  /**
+   * User typed an exact token amount to withdraw → convert it to a share of
+   * the position. Sent as RAW liquidity units when we know the position's
+   * total, because the builder rounds percentages to whole numbers (a 1%
+   * step is far coarser than the amount the user just typed).
+   */
+  onClmmDecreaseInput(side: 'A' | 'B', value: string): void {
+    const p = this.editParams();
+    const key = this.decreaseAmountKey();
+    const pos = parseFloat((side === 'A' ? p['amountA'] : p['amountB']) ?? '');
+    const asked = parseFloat(this.normalizeDecimal(value));
+    if (!Number.isFinite(pos) || pos <= 0) return;
+    if (!Number.isFinite(asked) || asked <= 0) {
+      this.setEditParam(key, key === 'lpAmount' ? '0' : '0%');
+      return;
+    }
+    const fraction = Math.min(1, asked / pos);
+    const total = parseFloat(p[this.decreaseTotalKey()] ?? '');
+    if (fraction >= 0.9999) { this.setEditParam(key, 'all'); return; }
+    if (Number.isFinite(total) && total > 0) {
+      // LP: a UI token amount. CLMM: raw integer liquidity units — the builder
+      // rounds percentages to whole numbers, which is coarser than a typed amount.
+      this.setEditParam(key, key === 'lpAmount'
+        ? formatDlmmAmount(total * fraction)
+        : String(Math.max(1, Math.floor(total * fraction))));
+      return;
+    }
+    this.setEditParam(key, `${(fraction * 100).toFixed(2)}%`);
+  }
+
+  /** Position summary + what this withdrawal returns. */
+  readonly raydiumDecreaseView = computed<{
+    pair: string; symA: string; symB: string;
+    logoA: string | null; logoB: string | null;
+    outA: string; outB: string; currentA: string; currentB: string;
+    positionId: string; closes: boolean; kind: string;
+  } | null>(() => {
+    if (!this.isRaydiumDecrease()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
+    const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
+    if (!pair) return null;
+    const pct = this.clmmDecreasePct();
+    const posA = parseFloat(p['amountA'] ?? '');
+    const posB = parseFloat(p['amountB'] ?? '');
+    const fmt = (v: number): string =>
+      Number.isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—';
+    return {
+      pair, symA, symB,
+      logoA: p['tokenALogo'] || this.resolveTokenDisplay(symA).logoURI || null,
+      logoB: p['tokenBLogo'] || this.resolveTokenDisplay(symB).logoURI || null,
+      outA: fmt(posA * pct / 100),
+      outB: fmt(posB * pct / 100),
+      currentA: fmt(posA),
+      currentB: fmt(posB),
+      positionId: p['positionId'] ?? '',
+      closes: pct >= 100,
+      kind: this.action.type === 'raydium_remove_liquidity' ? 'LP' : 'CLMM',
+    };
+  });
+
+  /** Standard AMM (v4 / CPMM) add-liquidity — full range, no price band. */
+  readonly isRaydiumAddLiquidity = computed(() => this.action.type === 'raydium_add_liquidity');
+
+  /** Header context for the AMM deposit panel; null until the pool resolves. */
+  readonly raydiumAmmView = computed<{
+    pair: string; symA: string; symB: string;
+    logoA: string | null; logoB: string | null; poolId: string; kind: string;
+  } | null>(() => {
+    if (!this.isRaydiumAddLiquidity()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] || this.resolveTokenDisplay(p['tokenA'] ?? '').symbol || '';
+    const symB = p['tokenBSymbol'] || this.resolveTokenDisplay(p['tokenB'] ?? '').symbol || '';
+    if (!symA || !symB) return null;
+    // "Standard" spans two different programs (newer CPMM vs legacy AMM v4);
+    // name the one the deposit actually lands in.
+    const PROGRAMS: Record<string, string> = {
+      CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C: 'CPMM',
+      '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': 'AMM V4',
+    };
+    return {
+      pair: p['pair'] || `${symA}/${symB}`,
+      symA, symB,
+      logoA: p['tokenALogo'] || this.resolveTokenDisplay(p['tokenA'] ?? symA).logoURI || null,
+      logoB: p['tokenBLogo'] || this.resolveTokenDisplay(p['tokenB'] ?? symB).logoURI || null,
+      poolId: p['poolId'] ?? '',
+      kind: PROGRAMS[p['programId'] ?? ''] ?? 'STANDARD',
+    };
+  });
+
+  /** Max on one AMM deposit side, capped so BOTH sides stay within balance
+   *  at the pool's constant-product ratio. */
+  setMaxAmm(side: 'A' | 'B'): void {
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
+    const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const RENT = 0.02;
+    const SAFETY = 0.99;
+    const availA = Math.max(0, (this.inputBalance() ?? 0) - (isSol(symA) ? RENT : 0)) * SAFETY;
+    const availB = Math.max(0, (this.secondaryBalance() ?? 0) - (isSol(symB) ? RENT : 0)) * SAFETY;
+    const amm = this.ammRatio(); // yPerX = B per A
+    const yPerX = amm?.yPerX;
+
+    if (!yPerX || !Number.isFinite(yPerX) || yPerX <= 0) {
+      this.setMaxAmount(side === 'A' ? 'amountA' : 'amountB');
+      return;
+    }
+    if (side === 'B') {
+      const maxB = Math.min(availB, availA * yPerX);
+      if (!(maxB > 0)) return;
+      this.setEditParam('amountB', formatDlmmAmount(maxB));
+      this.dlmmLastEdited.set('B');
+      return;
+    }
+    const maxA = Math.min(availA, availB / yPerX);
+    if (!(maxA > 0)) return;
+    this.setEditParam('amountA', formatDlmmAmount(maxA));
+    this.dlmmLastEdited.set('A');
+  }
+
+  /** Pre-Confirm balance guard for the AMM deposit (both sides). */
+  readonly ammInsufficient = computed<string | null>(() => {
+    if (!this.isRaydiumAddLiquidity()) return null;
+    const p = this.editParams();
+    const amtA = parseFloat(p['amountA'] ?? '');
+    const amtB = parseFloat(p['amountB'] ?? '');
+    const symA = p['tokenASymbol'] ?? 'A';
+    const symB = p['tokenBSymbol'] ?? 'B';
+    const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const RENT = 0.02;
+    const EPS = 1e-9;
+    const balA = this.inputBalance();
+    const balB = this.secondaryBalance();
+    if (Number.isFinite(amtA) && amtA > 0 && balA !== null &&
+        amtA > balA - (isSol(symA) ? RENT : 0) + EPS) return `Not enough ${symA}`;
+    if (Number.isFinite(amtB) && amtB > 0 && balB !== null &&
+        amtB > balB - (isSol(symB) ? RENT : 0) + EPS) return `Not enough ${symB}`;
+    return null;
+  });
+
+  /** Which side of the pair the user typed into ('A' | 'B'). The transaction
+   *  carries ONE side (inputMint + inputAmount); the other is derived. */
+  readonly clmmIncreaseSide = computed<'A' | 'B'>(() => {
+    const p = this.editParams();
+    const mint = this.resolveToMint(p['inputMint'] ?? '');
+    const mintB = this.resolveToMint(p['tokenB'] ?? p['tokenBSymbol'] ?? '');
+    return mint && mintB && mint === mintB ? 'B' : 'A';
+  });
+
+  /** paired-per-typed ratio from the position's own composition, or null. */
+  private clmmIncreaseRatio(from: 'A' | 'B'): number | null {
+    const p = this.editParams();
+    const posA = parseFloat(p['amountA'] ?? '');
+    const posB = parseFloat(p['amountB'] ?? '');
+    if (!Number.isFinite(posA) || !Number.isFinite(posB)) return null;
+    if (from === 'A') return posA > 0 ? posB / posA : 0;
+    return posB > 0 ? posA / posB : 0;
+  }
+
+  /**
+   * Display value for one of the two increase inputs. The side the user typed
+   * shows their raw text; the other shows the amount derived at the position's
+   * ratio — so both tokens are visible and either box can be edited, exactly
+   * like the open-position form.
+   */
+  clmmIncreaseRowValue(side: 'A' | 'B'): string {
+    const p = this.editParams();
+    const typed = this.clmmIncreaseSide();
+    const raw = p['inputAmount'] ?? '';
+    if (side === typed) return raw;
+    const entered = parseFloat(raw);
+    if (!Number.isFinite(entered) || entered <= 0) return '';
+    const ratio = this.clmmIncreaseRatio(typed);
+    if (ratio === null) return '';
+    return formatDlmmAmount(entered * ratio);
+  }
+
+  /** User typed into one of the two boxes → that side becomes the canonical
+   *  input and the other becomes derived. */
+  onClmmIncreaseInput(side: 'A' | 'B', value: string): void {
+    const p = this.editParams();
+    const mint = side === 'A'
+      ? this.resolveToMint(p['tokenA'] ?? p['tokenASymbol'] ?? '')
+      : this.resolveToMint(p['tokenB'] ?? p['tokenBSymbol'] ?? '');
+    this.editParams.update(ep => ({
+      ...ep,
+      ...(mint ? { inputMint: mint } : {}),
+      inputAmount: this.normalizeDecimal(value),
+    }));
+  }
+
+
+  /**
+   * Pre-Confirm balance guard for an increase: checks the typed side AND the
+   * derived paired side against their balances, so the shortfall surfaces
+   * before the user signs rather than as a failed simulation.
+   */
+  readonly clmmIncreaseInsufficient = computed<string | null>(() => {
+    if (!this.isRaydiumIncrease()) return null;
+    const p = this.editParams();
+    const entered = parseFloat(p['inputAmount'] ?? '');
+    if (!Number.isFinite(entered) || entered <= 0) return null;
+    const symA = p['tokenASymbol'] ?? 'A';
+    const symB = p['tokenBSymbol'] ?? 'B';
+    // Row A always reads the tokenA balance, row B the tokenB balance.
+    const amtA = parseFloat(this.clmmIncreaseRowValue('A'));
+    const amtB = parseFloat(this.clmmIncreaseRowValue('B'));
+    const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const RENT = 0.02; // position update + ATA rent headroom
+    const EPS = 1e-9;
+    const balA = this.inputBalance();
+    const balB = this.secondaryBalance();
+    if (Number.isFinite(amtA) && amtA > 0 && balA !== null &&
+        amtA > balA - (isSol(symA) ? RENT : 0) + EPS) return `Not enough ${symA}`;
+    if (Number.isFinite(amtB) && amtB > 0 && balB !== null &&
+        amtB > balB - (isSol(symB) ? RENT : 0) + EPS) return `Not enough ${symB}`;
+    return null;
+  });
+
+  /** Max on one increase row, capped so BOTH sides stay within balance. */
+  setMaxClmmIncrease(side: 'A' | 'B'): void {
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
+    const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const RENT = 0.02;
+    const SAFETY = 0.99; // headroom so rounding doesn't trip the on-chain check
+    const availA = Math.max(0, (this.inputBalance() ?? 0) - (isSol(symA) ? RENT : 0)) * SAFETY;
+    const availB = Math.max(0, (this.secondaryBalance() ?? 0) - (isSol(symB) ? RENT : 0)) * SAFETY;
+
+    const ratio = this.clmmIncreaseRatio(side); // paired-per-typed
+    const ownAvail = side === 'A' ? availA : availB;
+    const otherAvail = side === 'A' ? availB : availA;
+    const otherKnown = (side === 'A' ? this.secondaryBalance() : this.inputBalance()) !== null;
+
+    let max = ownAvail;
+    if (ratio !== null && ratio > 0 && otherKnown) max = Math.min(max, otherAvail / ratio);
+    if (!(max > 0)) return;
+    this.onClmmIncreaseInput(side, formatDlmmAmount(max));
+  }
+
+  /** Summary for the increase panel: the position being topped up. */
+  readonly raydiumIncreaseView = computed<{
+    pair: string; symA: string; symB: string;
+    logoA: string | null; logoB: string | null;
+    current: string | null; positionId: string;
+  } | null>(() => {
+    if (!this.isRaydiumIncrease()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
+    const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
+    if (!pair) return null;
+    const fmt = (v: string | undefined): string | null => {
+      const n = parseFloat(v ?? '');
+      return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 6 }) : null;
+    };
+    const a = fmt(p['amountA']);
+    const b = fmt(p['amountB']);
+    return {
+      pair, symA, symB,
+      logoA: p['tokenALogo'] || this.resolveTokenDisplay(symA).logoURI || null,
+      logoB: p['tokenBLogo'] || this.resolveTokenDisplay(symB).logoURI || null,
+      current: a !== null || b !== null ? `${a ?? '0'} ${symA} + ${b ?? '0'} ${symB}` : null,
+      positionId: p['positionId'] ?? '',
+    };
+  });
+
+  /** Position summary for the withdraw panel; null when the card wasn't
+   *  spawned from the positions list (no pair context) — then the generic
+   *  field list still renders so the action stays usable. */
+  readonly raydiumWithdrawView = computed<{
+    pair: string; kind: string; amount: string; amountLabel: string;
+    logoA: string | null; logoB: string | null; symA: string; symB: string;
+    ref: string;
+  } | null>(() => {
+    if (!this.isRaydiumWithdraw()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? '';
+    const symB = p['tokenBSymbol'] ?? '';
+    const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
+    if (!pair) return null;
+    const isLp = this.action.type === 'raydium_remove_liquidity';
+
+    // Prefer the real token amounts ("0.0123 SOL + 4.56 USDC"). Raw CLMM
+    // liquidity is an internal constant and means nothing to the user — it's
+    // only the last-resort fallback when the amounts couldn't be derived.
+    const fmt = (v: string | undefined): string | null => {
+      const n = parseFloat(v ?? '');
+      if (!Number.isFinite(n)) return null;
+      return n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+    };
+    const amtA = fmt(p['amountA']);
+    const amtB = fmt(p['amountB']);
+    let amount: string;
+    let amountLabel: string;
+    if (!isLp && (amtA !== null || amtB !== null)) {
+      amount = `${amtA ?? '0'} ${symA} + ${amtB ?? '0'} ${symB}`;
+      amountLabel = 'You receive (plus earned fees)';
+    } else if (isLp) {
+      amount = fmt(p['lpAmount']) ?? '—';
+      amountLabel = 'LP tokens to burn';
+    } else {
+      amount = p['positionLiquidity'] || p['liquidity'] || '—';
+      amountLabel = 'Liquidity to withdraw';
+    }
+
+    return {
+      pair,
+      kind: isLp ? 'LP' : 'CLMM',
+      amount,
+      amountLabel,
+      logoA: p['tokenALogo'] || this.resolveTokenDisplay(symA).logoURI || null,
+      logoB: p['tokenBLogo'] || this.resolveTokenDisplay(symB).logoURI || null,
+      symA, symB,
+      ref: isLp ? (p['poolId'] ?? '') : (p['positionId'] ?? ''),
+    };
+  });
 
   /** "1 OSRUB ≈ 0.010002 USDT" line shown above the inputs. Derived purely
    *  from `currentPrice` carried in editParams, so it survives draft restore. */
@@ -2300,6 +2846,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly lendInfoLoading = signal(false);
   readonly borrowLiquidityMode = signal(false);
 
+  // Kamino K-Lend borrow: live reserve rates + the user's obligation, used to
+  // project LTV / health factor and cap the borrow at what the collateral allows.
+  readonly kaminoReserve = signal<KaminoReserve | null>(null);
+  readonly kaminoObligation = signal<KaminoObligation | null>(null);
+  readonly kaminoBorrowLoading = signal(false);
+  // K-Vault (automated Earn vault) live metrics for the deposit card.
+  readonly kaminoVaultMetrics = signal<KaminoVaultMetrics | null>(null);
+  readonly kaminoVaultLoading = signal(false);
+  // The user's live position in the vault they're withdrawing from (shares +
+  // USD value + underlying tokenMint for the real icon).
+  readonly kaminoVaultPosition = signal<KaminoVaultPosition | null>(null);
+  // The vault's underlying token mint — the positions API doesn't return it, so
+  // we resolve it from the vault list. Drives the card's real token icon/symbol.
+  readonly kaminoVaultTokenMint = signal<string>('');
+
   // Collateral
   readonly collateralOptions = signal<CollateralOption[]>([]);
   readonly selectedCollateral = signal<CollateralOption | null>(null);
@@ -2319,6 +2880,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Computed (template direct access)
   get protocolConfig(): ProtocolConfig { return PROTOCOL_CONFIGS[getProtocolKey(this.action)] ?? PROTOCOL_CONFIGS['default']; }
   get actionLabel(): string { return getActionLabel(this.action); }
+  /** Adopt the swap widget's visual language (rounded 16px surfaces, taller
+   *  inputs, larger figures) for token+amount forms that render via the generic
+   *  proto-fields layout — Kamino Multiply and long/short. */
+  get useSwaplikeLayout(): boolean {
+    const t = this.action?.type ?? '';
+    return t.startsWith('kamino_multiply_')
+      || t === 'kamino_long_open' || t === 'kamino_short_open'
+      // Raydium token-amount forms (deposit/withdraw/positions) use the same
+      // bigger, rounded swap-card input styling. (raydium_swap renders its own
+      // bespoke two-panel widget, so it's intentionally not here.)
+      || t === 'raydium_add_liquidity' || t === 'raydium_remove_liquidity'
+      || t === 'raydium_open_position' || t === 'raydium_increase_position'
+      || t === 'raydium_decrease_position';
+  }
   get actionFields(): FieldDef[] {
     // Post-process: stamp protocol-aware MIN/hint on every amount-shaped input
     // so the user sees the floor before submitting (prevents the on-chain
@@ -2534,6 +3109,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action) this.initFromAction();
     this.maybeLoadLstRate();
     this.maybeEnrichRaydiumPool();
+    void this.maybeEnrichRaydiumWithdraw();
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
@@ -2635,6 +3211,114 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   /**
+   * Fill in a Raydium withdraw card's display context (token amounts, pair,
+   * symbols, logos) by reading the live positions when the spawning card
+   * didn't supply them — e.g. a positions card restored from an older chat
+   * snapshot, or an LLM-emitted close/remove that carries only an id.
+   *
+   * Positions are LIVE state, so reading them fresh here also keeps a
+   * long-lived chat card honest about what it's about to withdraw.
+   */
+  async maybeEnrichRaydiumWithdraw(): Promise<void> {
+    if (!this.isRaydiumWithdraw() && !this.isRaydiumIncrease() && !this.isRaydiumDecrease()) return;
+    const p = this.editParams();
+    const positionId = (p['positionId'] ?? '').trim();
+    const poolId = (p['poolId'] ?? '').trim();
+    if (!positionId && !poolId) return;
+    // Already has what the panel needs.
+    // The reduce panel needs the token amounts + the position total, so a card
+    // carrying only ids/symbols still has to fetch.
+    if (p['pair'] && p['amountA'] !== undefined) return;
+    try {
+      const resp = await firstValueFrom(
+        this.apiService
+          .post<any>('/actions/build', { type: 'raydium_get_user_positions', params: {} })
+          .pipe(timeout(20_000)),
+      );
+      const data = resp?.data ?? resp?.preview?.params?.data;
+      const positions: any[] = Array.isArray(data?.positions) ? data.positions : [];
+      const match = positions.find(x =>
+        positionId ? x?.positionId === positionId : (x?.kind === 'lp' && x?.poolId === poolId),
+      );
+      if (!match) return;
+      this.editParams.update(ep => ({
+        ...ep,
+        pair: ep['pair'] || match.pair || '',
+        tokenA: ep['tokenA'] || match.mintA?.address || '',
+        tokenB: ep['tokenB'] || match.mintB?.address || '',
+        // Increase needs a deposit side; default to token A once we know it.
+        ...(this.isRaydiumIncrease() && !ep['inputMint'] && match.mintA?.address
+          ? { inputMint: match.mintA.address } : {}),
+        tokenASymbol: ep['tokenASymbol'] || match.mintA?.symbol || '',
+        tokenBSymbol: ep['tokenBSymbol'] || match.mintB?.symbol || '',
+        ...(match.mintA?.logoURI && !ep['tokenALogo'] ? { tokenALogo: match.mintA.logoURI } : {}),
+        ...(match.mintB?.logoURI && !ep['tokenBLogo'] ? { tokenBLogo: match.mintB.logoURI } : {}),
+        ...(match.amountA !== undefined ? { amountA: String(match.amountA) } : {}),
+        ...(match.amountB !== undefined ? { amountB: String(match.amountB) } : {}),
+        // The position's TOTAL liquidity goes in its own key: on a decrease,
+        // `liquidity` is the user's requested withdrawal amount and must not be
+        // overwritten with the position's full size.
+        ...(match.liquidity ? { positionLiquidity: String(match.liquidity) } : {}),
+        ...(match.lpAmount !== undefined ? { positionLpAmount: String(match.lpAmount) } : {}),
+      }));
+      // The mints only became known just now, so the balance lines (and the
+      // increase card's paired-side check) need a load.
+      if (this.inputBalanceMint() && this.inputBalance() === null) void this.loadInputBalance();
+      if (this.secondaryBalanceMint() && this.secondaryBalance() === null) void this.loadSecondaryBalance();
+    } catch {
+      // Leave the card as-is — it still submits fine on the id alone.
+    }
+  }
+
+  /**
+   * Resolve a token PAIR (from the CLARIFY "pick a pair" path) to a concrete
+   * Raydium pool when no poolId was supplied. Uses the same
+   * `raydium_search_pools` endpoint the pool-list QueryCard uses, takes the
+   * highest-liquidity match, and seeds `poolId` + the token mints into
+   * editParams. Returns the resolved poolId (or '' if it can't resolve), after
+   * which `maybeEnrichRaydiumPool` fetches the pool's price/symbols by id.
+   */
+  private async resolveRaydiumPoolFromPair(): Promise<string> {
+    const p = this.editParams();
+    const mintA = this.toMintAddress(p['tokenA'] ?? p['tokenASymbol'] ?? '');
+    const mintB = this.toMintAddress(p['tokenB'] ?? p['tokenBSymbol'] ?? '');
+    if (!mintA || !mintB) return '';
+    const poolType = this.action.type === 'raydium_add_liquidity' ? 'standard' : 'concentrated';
+    try {
+      const resp = await firstValueFrom(
+        this.apiService
+          .post<any>('/actions/build', {
+            type: 'raydium_search_pools',
+            params: { tokenA: mintA, tokenB: mintB, poolType, sortField: 'liquidity', page: 1, pageSize: 1 },
+          })
+          .pipe(timeout(12_000)),
+      );
+      const rows = resp?.preview?.params?.data?.data;
+      const pool = Array.isArray(rows) ? rows[0] : null;
+      if (!pool?.id) return '';
+      this.editParams.update(ep => ({
+        ...ep,
+        poolId: pool.id,
+        tokenA: pool.mintA?.address ?? mintA,
+        tokenB: pool.mintB?.address ?? mintB,
+      }));
+      return String(pool.id);
+    } catch {
+      return '';
+    }
+  }
+
+  /** Resolve a raw token identifier (mint address OR symbol) to a mint
+   *  address via the token registry. Returns '' when it can't be resolved. */
+  private toMintAddress(raw: string): string {
+    const v = (raw ?? '').trim();
+    if (!v) return '';
+    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v)) return v; // already a mint
+    const tok = this.tokenRegistry.getBySymbol(v);
+    return tok?.address ?? '';
+  }
+
+  /**
    * Fetch Raydium CLMM pool details when the LLM emitted only `poolId` +
    * `inputMint` + `inputAmount` (no `tokenASymbol` / `tokenBSymbol` /
    * `currentPrice`). Without these, the form shows generic "Token A" / "Token B"
@@ -2644,10 +3328,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * fills these in directly from the row data, so the fetch is a no-op there.
    */
   async maybeEnrichRaydiumPool(): Promise<void> {
-    if (this.action?.type !== 'raydium_open_position') return;
+    if (this.action?.type !== 'raydium_open_position' && this.action?.type !== 'raydium_add_liquidity') return;
+    let poolId = (this.editParams()['poolId'] ?? '').trim();
+    // The CLARIFY "pick a pair" path (SOL/USDC …) spawns this card with only
+    // tokenA/tokenB and NO poolId — so historically enrichment early-returned
+    // here, leaving the form with generic "Token A/B" labels, no current price,
+    // dead range presets, and a Max that dumped the full SOL balance. Resolve
+    // the pair to its highest-liquidity CLMM pool first so the rest of the
+    // enrichment (current price, symbols, ratio-aware Max) can run.
+    if (!poolId) {
+      poolId = await this.resolveRaydiumPoolFromPair();
+      if (!poolId) {
+        // No pool for this pair — surface it so the pair chooser shows a clean
+        // message instead of an infinite "resolving" state.
+        if (this.clmmBothTokensPicked()) {
+          this.clmmPairError.set('No Raydium CLMM pool exists for this pair yet. Pick a different pair.');
+        }
+        return;
+      }
+    }
     const p = this.editParams();
-    const poolId = (p['poolId'] ?? '').trim();
-    if (!poolId) return;
     // ALWAYS strip the LLM's raw `inputMint`/`inputAmount` before anything
     // else — they have no business in the CLMM form's editParams. Leaving
     // `inputMint='USDC'` (a literal symbol) in place makes the form's
@@ -2681,7 +3381,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (this.inputBalanceMint()) this.loadInputBalance();
       if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
     }
-    if (this.editParams()['tokenASymbol'] && this.editParams()['tokenBSymbol']) return; // already enriched
+    // "Already enriched" needs the RATIO ANCHOR too, not just the symbols. When
+    // the emitter supplied tokenASymbol/tokenBSymbol but no price, returning
+    // here left `amountRatio`/`currentPrice` unset — so the ratio engine was
+    // dead and Max on one side filled the full balance while the other stayed 0.
+    const _ep = this.editParams();
+    if (_ep['tokenASymbol'] && _ep['tokenBSymbol'] && (_ep['currentPrice'] || _ep['amountRatio'])) return;
     if (this._enrichedRaydiumPool === poolId) return; // tried once
     this._enrichedRaydiumPool = poolId;
     try {
@@ -2709,17 +3414,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const price = typeof pool.price === 'number' ? pool.price : parseFloat(pool.price ?? '');
       if (!patched['currentPrice'] && Number.isFinite(price) && price > 0) {
         patched['currentPrice'] = String(price);
-        // Stable-stable pairs trade in a ~1% band; ±20% creates a position
-        // whose ticks fall outside the pool's observation arrays and the open
-        // call reverts with a constraint error. Default to ±1% for stables.
-        // Pair detection is driven by TokenRegistry (Jupiter tags + symbol/name
-        // heuristics) so any future USD-stable works without code changes.
-        const symA = patched['tokenASymbol'] ?? mintA.address ?? '';
-        const symB = patched['tokenBSymbol'] ?? mintB.address ?? '';
-        const isStablePair = this.tokenRegistry.isStable(symA) && this.tokenRegistry.isStable(symB);
-        const factor = isStablePair ? 0.01 : 0.2;
-        if (!patched['minPrice']) patched['minPrice'] = (price * (1 - factor)).toPrecision(6);
-        if (!patched['maxPrice']) patched['maxPrice'] = (price * (1 + factor)).toPrecision(6);
+        if (this.action.type === 'raydium_add_liquidity') {
+          // Standard AMM: no range — the deposit ratio is simply the pool price
+          // (mintB per mintA). Feed it as amountRatio so the auto-balance fills
+          // the paired side on Max / single-side entry.
+          if (!patched['amountRatio']) patched['amountRatio'] = String(price);
+        } else {
+          // CLMM: stable-stable pairs trade in a ~1% band; ±20% creates a
+          // position whose ticks fall outside the pool's observation arrays and
+          // the open call reverts. Default to ±1% for stables. Pair detection is
+          // driven by TokenRegistry so any future USD-stable works unchanged.
+          const symA = patched['tokenASymbol'] ?? mintA.address ?? '';
+          const symB = patched['tokenBSymbol'] ?? mintB.address ?? '';
+          const isStablePair = this.tokenRegistry.isStable(symA) && this.tokenRegistry.isStable(symB);
+          const factor = isStablePair ? 0.01 : 0.2;
+          if (!patched['minPrice']) patched['minPrice'] = (price * (1 - factor)).toPrecision(6);
+          if (!patched['maxPrice']) patched['maxPrice'] = (price * (1 + factor)).toPrecision(6);
+        }
       }
       // Single-sided input from the LLM ("4 USDC") → drop the user-supplied
       // amount into whichever side `inputMint` resolves to, then DELETE the
@@ -2890,7 +3601,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Touch the signals we want to track. Effect re-runs on any change.
     const params = this.editParams();
     const actionType = this.action?.type;
-    if (actionType !== 'swap') {
+    if (actionType !== 'swap' && actionType !== 'raydium_swap') {
       this.swapEstimate.set(null);
       return;
     }
@@ -2922,7 +3633,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Start / stop polling based on action type + card status. Effect re-runs
   // whenever `status()` changes, so submit / cancel / error all stop it.
   private readonly _quotePollLifecycleEffect = effect(() => {
-    const isPollable = this.action?.type === 'swap' || this.pumpActionConfig() !== null;
+    const isPollable = this.action?.type === 'swap' || this.action?.type === 'raydium_swap' || this.pumpActionConfig() !== null;
     const shouldPoll = isPollable && this.status() === 'pending';
     if (shouldPoll) this.startQuotePolling();
     else this.stopQuotePolling();
@@ -2935,7 +3646,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * (not a swap, or status != pending).
    */
   onCardInteract(): void {
-    const eligible = (this.action?.type === 'swap' || this.pumpActionConfig() !== null)
+    const eligible = (this.action?.type === 'swap' || this.action?.type === 'raydium_swap' || this.pumpActionConfig() !== null)
                      && this.status() === 'pending';
     if (!eligible) return;
     this._pollVisibleElapsedMs = 0;
@@ -3037,9 +3748,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const isExactOut = mode === 'exactout' || mode === 'out';
     const swapMode: 'ExactIn' | 'ExactOut' = isExactOut ? 'ExactOut' : 'ExactIn';
     try {
-      const quote = await this.swapService.getQuote(
-        inT.address, outT.address, String(amt), 50, swapMode,
-      );
+      // Raydium swaps quote from Raydium's own venue (same DEX that executes);
+      // everything else uses the Jupiter aggregated quote.
+      const quote = this.action?.type === 'raydium_swap'
+        ? await this.swapService.getRaydiumQuote(
+            inT.address, outT.address, String(amt), 50, swapMode,
+          )
+        : await this.swapService.getQuote(
+            inT.address, outT.address, String(amt), 50, swapMode,
+          );
       if (seq !== this._swapEstimateSeq) return;
       if (!quote) {
         // Jupiter responded but found no route — distinct from "network
@@ -3196,6 +3913,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       // Restore the frozen swap pay/receive so a re-hydrated card shows exactly
       // what was swapped (the edited amount), not a live/blank re-quote.
       if (this.cachedResult.swapView) this.executedSwapView.set(this.cachedResult.swapView);
+      // Restore the frozen Jupiter Lend detail panel so a completed lend/withdraw
+      // card still shows what was withdrawn + the rate/deposit — statically, with
+      // no live re-fetch (the loaders are skipped below when cachedResult exists).
+      if (this.cachedResult.lendSnapshot) {
+        this.lendInfo.set(this.cachedResult.lendSnapshot as unknown as LendActionInfo);
+      }
       // Restored "submitted" — start the elapsed ticker + auto re-check once,
       // so a page refresh after a network blip surfaces a recovery path.
       if (this.cachedResult.status === 'submitted' && this.cachedResult.txSignature) {
@@ -3275,8 +3998,27 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.editName.set(p['name'] ?? p['tokenName'] ?? '');
     this.editSymbol.set(p['symbol'] ?? p['ticker'] ?? '');
     this.editDescription.set(p['description'] ?? '');
-    // initialBuyAmount comes from LLM as 'initialBuyAmount'; legacy UI uses 'initialBuy'
-    this.editInitialBuy.set(p['initialBuyAmount'] ?? p['initial_buy_amount'] ?? p['initialBuy'] ?? '');
+    // initialBuyAmount comes from LLM as 'initialBuyAmount'; legacy UI uses 'initialBuy'.
+    // pump.fun buys are denominated in SOL. If the user gave a DOLLAR amount
+    // ("$10 / 10 dolar initial buy") the LLM emits initialBuyAmountUsd — convert
+    // it to the live SOL equivalent so the field shows the SOL actually spent,
+    // not the raw dollar figure treated as SOL (10 SOL ≈ $770, not $10).
+    const initBuySol = p['initialBuyAmount'] ?? p['initial_buy_amount'] ?? p['initialBuy'] ?? '';
+    const initBuyUsdRaw = p['initialBuyAmountUsd'] ?? p['initial_buy_amount_usd'];
+    const initBuyUsd = parseFloat(initBuyUsdRaw ?? '');
+    if (!initBuySol && Number.isFinite(initBuyUsd) && initBuyUsd > 0) {
+      this.initialBuyUsd.set(initBuyUsd);
+      this.editInitialBuy.set(''); // hold until the live SOL price resolves
+      void this.priceFeed.getPrice(this.SOL_MINT).then(solPrice => {
+        if (solPrice && solPrice > 0) {
+          // 4 dp keeps small USD buys readable ($10 ≈ 0.13 SOL) without noise.
+          this.editInitialBuy.set((initBuyUsd / solPrice).toFixed(4));
+        }
+      });
+    } else {
+      this.initialBuyUsd.set(null);
+      this.editInitialBuy.set(initBuySol);
+    }
     this.editTwitter.set(p['twitter'] ?? '');
     this.editTelegram.set(p['telegram'] ?? '');
     this.editWebsite.set(p['website'] ?? '');
@@ -3322,15 +4064,52 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           // Tokenized Agent intentionally not restored — backend rejects it.
           if (draft.editSlippage != null) this.editSlippage.set(draft.editSlippage);
           if (draft.editPriorityFee != null) this.editPriorityFee.set(draft.editPriorityFee);
-          if (draft.editParams != null) this.editParams.set({ ...p, ...draft.editParams });
+          if (draft.editParams != null) {
+            // Restore in-progress AMOUNT / slippage / settings edits — but NEVER
+            // resurrect the swap's token IDENTITY from a stale draft. The token
+            // the LLM proposed (in `p`, the authoritative action params) always
+            // wins. Without this, a re-hydrated pending swap card could quote a
+            // DIFFERENT token than the one the user asked for: the token picker
+            // writes a raw mint into editParams, the draft effect persists it,
+            // and on reload that stale mint (potentially an unverified junk
+            // token) shadowed "SOL"/"USDC" — the card then priced a wrong asset.
+            const draftParams = { ...(draft.editParams as Record<string, string>) };
+            for (const k of ['inputMint', 'outputMint']) {
+              if (p[k] != null) draftParams[k] = p[k];
+              else delete draftParams[k];
+            }
+            this.editParams.set({ ...p, ...draftParams });
+          }
         }
       } catch {}
     }
 
     this.tokenRegistry.ensureLoaded();
+
+    // A completed card — restored from chat history with a cached result — is a
+    // RECEIPT of an action that already succeeded. Its final state (executed
+    // amount, tx signature, success) is already applied above. Never re-run the
+    // live loaders for it: they'd flash "Loading protocol data...", re-fetch
+    // balances/rates, and re-resolve "all", making a done transaction look like
+    // it's about to run again. Only a still-pending card needs live data. This
+    // applies to every mini-app (lend, kamino, staking, …).
+    if (this.cachedResult) return;
+
     if (this.inputBalanceMint()) this.loadInputBalance();
     if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
     if (['lend','withdraw_lend'].includes(this.action.type)) this.loadLendInfo();
+    if (this.action.type === 'kamino_borrow' || this.action.type === 'kamino_repay'
+        || this.action.type === 'kamino_withdraw' || this.action.type === 'kamino_withdraw_collateral') this.loadKaminoBorrowInfo();
+    if (this.action.type === 'kamino_vault_deposit') this.loadKaminoVaultInfo();
+    if (this.action.type === 'kamino_vault_withdraw' || this.action.type === 'kamino_unstake') {
+      // kamino_unstake ("unstake my position") carries `amount`; the vault
+      // withdraw card drives off `ktokenAmount`. Seed it so the input shows the
+      // share figure (loadKaminoVaultWithdrawInfo then resolves "all" → number).
+      if (this.action.type === 'kamino_unstake' && !this.getEditParam('ktokenAmount') && p['amount']) {
+        this.setEditParam('ktokenAmount', p['amount']);
+      }
+      this.loadKaminoVaultWithdrawInfo();
+    }
     if (this.action.type === 'native_stake') this.loadValidators();
     // Eagerly resolve "all" → actual balance for pumpfun/pumpswap sells so the
     // number input shows a real value instead of appearing blank.
@@ -3355,7 +4134,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Freeze the swap's pay/receive as currently displayed so the confirmed
     // card keeps showing what was actually swapped (not the post-swap balance).
     // Persisted in the stored result too, so a re-hydrated card restores it.
-    if (this.action?.type === 'swap') {
+    if (this.action?.type === 'swap' || this.action?.type === 'raydium_swap') {
       this.lastSwapView = {
         pay: this.swapInputValueFor('inputMint'),
         receive: this.swapInputValueFor('outputMint'),
@@ -3371,8 +4150,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       mergedParams['name'] = this.editName();
       mergedParams['symbol'] = this.editSymbol().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
       mergedParams['description'] = this.editDescription();
-      // Normalise to the key expected by solana-action.service.ts extract
+      // Normalise to the key expected by solana-action.service.ts extract.
+      // editInitialBuy already holds the SOL amount (USD inputs were converted
+      // to the live SOL equivalent), so drop the USD-only hint keys — the
+      // backend deals purely in SOL.
       mergedParams['initialBuyAmount'] = this.editInitialBuy();
+      delete mergedParams['initialBuyAmountUsd'];
+      delete mergedParams['initial_buy_amount_usd'];
       mergedParams['twitter'] = this.editTwitter();
       mergedParams['telegram'] = this.editTelegram();
       mergedParams['website'] = this.editWebsite();
@@ -3426,11 +4210,43 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         }
       }
     }
+    // Kamino repay: when the user is clearing the whole debt, flag it so the
+    // backend sends a repay-all sentinel. A fixed decimal can never match the
+    // continuously-accruing debt exactly, so a "full" repay of a static amount
+    // leaves sub-unit dust and trips NetValueRemainingTooSmall (6092). The flag
+    // lets Kamino cap at ceil(debt) and close the line cleanly.
+    if (this.action.type === 'kamino_repay') {
+      const s = this.kaminoRepayStats;
+      if (s && s.fullRepay) mergedParams['repayAll'] = 'true';
+    }
+    // "Unstake my position" means exiting an Earn vault when a live vault
+    // position backs this card — execute it as a vault withdraw against the
+    // pinned vault address (the backend maps amount/ktokenAmount to shares via
+    // serde alias). With NO vault position it stays a genuine KMNO-governance
+    // unstake and reaches the SDK farm-unstake backend.
+    let dispatchType = this.action.type;
+    if (this.action.type === 'kamino_unstake' && this.kaminoVaultPosition()) {
+      dispatchType = 'kamino_vault_withdraw';
+      if (!mergedParams['ktokenAmount'] && mergedParams['amount']) {
+        mergedParams['ktokenAmount'] = mergedParams['amount'];
+      }
+    }
+    // Safety net: the vault-withdraw backend rejects a non-numeric share amount
+    // ("all"). If the position lagged behind the click, resolve any word amount
+    // to the real full share figure so a full withdraw never submits "all" — and
+    // the persisted (executed) params show the real number, not the word.
+    if (dispatchType === 'kamino_vault_withdraw') {
+      const amt = (mergedParams['ktokenAmount'] ?? mergedParams['amount'] ?? '').trim().toLowerCase();
+      const shares = parseFloat(this.kaminoVaultPosition()?.shares ?? '0') || 0;
+      if (shares > 0 && (amt === '' || amt === 'all' || amt === 'max' || amt === 'full')) {
+        mergedParams['ktokenAmount'] = String(shares);
+      }
+    }
     // Merge user-edited slippage and priorityFee for ALL action types that use them
     // (launch, pumpfun_buy/sell, pumpswap_buy/sell, etc.)
     if (this.editSlippage()) mergedParams['slippage'] = this.editSlippage();
     if (this.editPriorityFee()) mergedParams['priorityFee'] = this.editPriorityFee();
-    const mergedAction: ParsedAction = { ...this.action, params: mergedParams };
+    const mergedAction: ParsedAction = { ...this.action, type: dispatchType, params: mergedParams };
     // Remember the EDITED params so the late async confirmations (RPC poll /
     // manual re-check, which run after this method returns) persist what was
     // actually submitted — not the original `this.action.params`. Without this
@@ -3548,7 +4364,27 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       console.warn('[persistResult] skipped — missing sessionId or messageId', { sessionId: this.sessionId, messageId: this.messageId });
       return;
     }
+    // Freeze the Jupiter Lend detail panel into the result so a reloaded
+    // completed card renders WHAT was withdrawn + the rate/deposit statically,
+    // instead of an empty card (the live loader is skipped for completed cards).
+    if (!result.lendSnapshot && ['lend', 'withdraw_lend'].includes(this.action?.type ?? '')) {
+      const li = this.lendInfo();
+      if (li) result = { ...result, lendSnapshot: li as unknown as StoredActionResult['lendSnapshot'] };
+    }
     const key = this.actionResultKey();
+    // Client-generated cards (query-card Deposit/Withdraw/Multiply, clarify picks)
+    // aren't server messages, so updateMessageMeta can't persist their result —
+    // the tx/confirmed state would vanish on reload. Mirror it to localStorage;
+    // chat-shell's restoreClientActions folds it back into the card's metadata.
+    if (/^(use-action-|clarify-action-|cancel-)/.test(this.messageId)) {
+      try {
+        const lsKey = `client-action-results:${this.sessionId}`;
+        const map = JSON.parse(localStorage.getItem(lsKey) ?? '{}');
+        map[`${this.messageId}::${key}`] = result;
+        localStorage.setItem(lsKey, JSON.stringify(map));
+      } catch { /* storage disabled — non-fatal */ }
+      return; // no server message to PATCH
+    }
     console.log('[persistResult] saving', { sessionId: this.sessionId, messageId: this.messageId, key, result });
     this.chatApi.updateMessageMeta(this.sessionId, this.messageId, {
       action_results: { [key]: result },
@@ -3779,8 +4615,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   perpMarketMint(m: string = this.perpMarket()): string {
     return this.PERP_MARKET_MINTS[m] ?? this.PERP_MARKET_MINTS['SOL'];
   }
-  /** Long collateral = market base token; short collateral = USDC (backend default). */
+  /**
+   * Collateral token mint. Jupiter Perps lets the user pay collateral in any
+   * supported token (USDC / SOL / wETH / wBTC) and swaps it into the position,
+   * so an explicit `collateralToken` (e.g. "10 USDC" on a SOL long) wins over
+   * the side default. Falls back to the protocol default: short → USDC,
+   * long → the market's base token.
+   */
   perpCollateralMint(): string {
+    const ct = (this.editParams()['collateralToken'] ?? '').trim();
+    if (ct) {
+      const t = this.tokenRegistry.getBySymbol(ct) ?? this.tokenRegistry.getToken(ct);
+      if (t) return t.address;
+    }
     return this.perpSide() === 'short'
       ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
       : this.perpMarketMint();
@@ -3909,10 +4756,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Opened when the user clicks a swap-row token chip (FROM / TO). Holds the
   // field key being edited so the picked mint goes to the right side of the
   // trade. `null` means modal is closed.
-  readonly tokenPickerField = signal<'inputMint' | 'outputMint' | null>(null);
+  readonly tokenPickerField = signal<string | null>(null);
 
-  openTokenPicker(fieldKey: 'inputMint' | 'outputMint', ev: Event): void {
-    if (!this.isEditable() || this.action?.type !== 'swap') return;
+  openTokenPicker(fieldKey: string, ev: Event): void {
+    // Swap uses inputMint/outputMint; the Raydium CLMM "custom pair" path uses
+    // tokenA/tokenB so the user can pick any two tokens before we resolve a
+    // pool. Both are editable token pickers.
+    const allowed = this.action?.type === 'swap' || this.action?.type === 'raydium_open_position';
+    if (!this.isEditable() || !allowed) return;
     // Stop the click from bubbling to the card root and triggering the
     // poll-lifetime reset twice / the card's own click handlers.
     ev.stopPropagation();
@@ -3923,26 +4774,140 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.tokenPickerField.set(null);
   }
 
+  /** Short "AbCd…WxYz" form of a mint, used as a symbol fallback for tokens
+   *  the registry doesn't name. */
+  shortMint(m: string): string {
+    const v = (m ?? '').trim();
+    if (v.length <= 10) return v;
+    return `${v.slice(0, 4)}…${v.slice(-4)}`;
+  }
+
+  pickerTitle(fieldKey: string): string {
+    switch (fieldKey) {
+      case 'inputMint': return 'From token';
+      case 'outputMint': return 'To token';
+      case 'tokenA': return 'First token';
+      case 'tokenB': return 'Second token';
+      default: return 'Select token';
+    }
+  }
+
   /**
    * User selected a token from the picker. Write the mint into the right side
    * of the swap, close the modal — the existing edit-effect will auto-fire a
    * fresh quote, so the counterparty estimate updates without extra wiring.
    */
+  private static readonly TOKEN_PICKER_SIBLING: Record<string, string> = {
+    inputMint: 'outputMint',
+    outputMint: 'inputMint',
+    tokenA: 'tokenB',
+    tokenB: 'tokenA',
+  };
+
   onTokenPicked(mint: string): void {
     const fieldKey = this.tokenPickerField();
     if (!fieldKey) return;
+    const otherKey = ActionCardComponent.TOKEN_PICKER_SIBLING[fieldKey];
     this.editParams.update(prev => {
       const next = { ...prev };
       // If the user picks the SAME token on the other side, swap them so we
-      // never end up with input == output (Jupiter would reject the quote).
-      const otherKey = fieldKey === 'inputMint' ? 'outputMint' : 'inputMint';
-      if ((next[otherKey] ?? '') === mint) {
+      // never end up with input == output (a self-pair the pool/quote rejects).
+      if (otherKey && this.resolveToMint(next[otherKey] ?? '') === mint) {
         next[otherKey] = next[fieldKey] ?? '';
       }
       next[fieldKey] = mint;
       return next;
     });
     this.closeTokenPicker();
+
+    // CLMM custom-pair path: once BOTH tokens are chosen, resolve the pool
+    // (highest-liquidity) and enrich the form (price / symbols / range).
+    if (this.action?.type === 'raydium_open_position') {
+      const p = this.editParams();
+      if (this.resolveToMint(p['tokenA'] ?? '') && this.resolveToMint(p['tokenB'] ?? '')) {
+        void this.resolveClmmPair();
+      }
+    }
+  }
+
+  readonly clmmResolving = signal(false);
+  readonly clmmPairError = signal<string | null>(null);
+
+  /** True once both custom-pair tokens are chosen (mint-resolvable). */
+  readonly clmmBothTokensPicked = computed(() => {
+    const p = this.editParams();
+    return !!this.resolveToMint(p['tokenA'] ?? '') && !!this.resolveToMint(p['tokenB'] ?? '');
+  });
+
+  /** CLMM open-position with no pool resolved yet (no current price) — the
+   *  deposit form isn't ready, so Confirm must stay disabled. */
+  readonly clmmUnresolved = computed(
+    () => this.isRaydiumOpenPosition() && !this.editParams()['currentPrice'],
+  );
+
+  /**
+   * Pre-Confirm balance guard for the CLMM deposit — returns a short "Not
+   * enough X" message when either side's amount exceeds its spendable balance
+   * (SOL keeps a rent buffer). Catches the shortfall BEFORE the user hits
+   * Confirm and eats a failed simulation ("guide me, don't dump a failing
+   * card"). The 1% Max headroom keeps a full-balance Max from tripping this.
+   */
+  readonly clmmInsufficient = computed<string | null>(() => {
+    if (!this.isRaydiumOpenPosition() || !this.editParams()['currentPrice']) return null;
+    const p = this.editParams();
+    const amtA = parseFloat(p['amountA'] ?? '0');
+    const amtB = parseFloat(p['amountB'] ?? '0');
+    const balA = this.inputBalance();
+    const balB = this.secondaryBalance();
+    const symA = (p['tokenASymbol'] ?? 'token A');
+    const symB = (p['tokenBSymbol'] ?? 'token B');
+    const isSol = (s: string) => { const u = s.toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const RENT_BUFFER = 0.03;
+    const EPS = 1e-9;
+    if (amtA > 0 && balA !== null && amtA > balA - (isSol(symA) ? RENT_BUFFER : 0) + EPS) {
+      return `Not enough ${symA}`;
+    }
+    if (amtB > 0 && balB !== null && amtB > balB - (isSol(symB) ? RENT_BUFFER : 0) + EPS) {
+      return `Not enough ${symB}`;
+    }
+    return null;
+  });
+
+  /**
+   * Resolve the currently-chosen tokenA/tokenB pair to a Raydium CLMM pool and
+   * enrich the form. Drives the "Select Token Pair" state on the custom-pair
+   * path: sets a resolving flag, clears any prior pool so a re-pick re-resolves,
+   * and surfaces a clean message when no pool exists for the pair.
+   */
+  async resolveClmmPair(): Promise<void> {
+    this.clmmPairError.set(null);
+    this.clmmResolving.set(true);
+    try {
+      // Clear the previous pool so enrichment re-runs for the newly-picked pair.
+      this._enrichedRaydiumPool = null;
+      this.editParams.update(ep => {
+        const n = { ...ep };
+        for (const k of ['poolId', 'currentPrice', 'tokenASymbol', 'tokenBSymbol', 'minPrice', 'maxPrice', 'amountA', 'amountB']) {
+          delete n[k];
+        }
+        return n;
+      });
+      const poolId = await this.resolveRaydiumPoolFromPair();
+      if (!poolId) {
+        this.clmmPairError.set('No Raydium CLMM pool exists for this pair yet. Pick a different pair.');
+        return;
+      }
+      await this.maybeEnrichRaydiumPool();
+      // The mints changed — reload both balance lines for the new pair.
+      this.inputBalance.set(null);
+      this.secondaryBalance.set(null);
+      if (this.inputBalanceMint()) this.loadInputBalance();
+      if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
+    } catch {
+      this.clmmPairError.set('Could not load a pool for this pair. Try again.');
+    } finally {
+      this.clmmResolving.set(false);
+    }
   }
 
   /**
@@ -3966,11 +4931,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return this.resolveToMint(this.editParams()[k] ?? '');
   }
 
-  /** Mint to HIDE in the picker (the other side of the swap — no self-swap). */
+  /** Mint to HIDE in the picker (the other side of the pair — no self-pair). */
   excludedPickerMint(): string {
     const k = this.tokenPickerField();
     if (!k) return '';
-    const otherKey = k === 'inputMint' ? 'outputMint' : 'inputMint';
+    const otherKey = ActionCardComponent.TOKEN_PICKER_SIBLING[k];
+    if (!otherKey) return '';
     return this.resolveToMint(this.editParams()[otherKey] ?? '');
   }
 
@@ -3989,16 +4955,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * the unit changed under them.
    */
   flipSwapDirection(): void {
-    if (!this.action || this.action.type !== 'swap' || !this.isEditable()) return;
+    if (!this.action || !this.isEditable()) return;
+    const isRaydium = this.action.type === 'raydium_swap';
+    if (this.action.type !== 'swap' && !isRaydium) return;
     this.editParams.update(p => {
       const next = { ...p };
       const inMint = next['inputMint'] ?? '';
       const outMint = next['outputMint'] ?? '';
       next['inputMint'] = outMint;
       next['outputMint'] = inMint;
-      const mode = String(next['swapMode'] ?? '').toLowerCase();
-      const wasExactOut = mode === 'exactout' || mode === 'out';
-      next['swapMode'] = wasExactOut ? 'ExactIn' : 'ExactOut';
+      // Raydium's build path is ExactIn-only, so a flip always lands on
+      // ExactIn (the pay side stays the exact amount). Jupiter toggles.
+      if (isRaydium) {
+        next['swapMode'] = 'ExactIn';
+      } else {
+        const mode = String(next['swapMode'] ?? '').toLowerCase();
+        const wasExactOut = mode === 'exactout' || mode === 'out';
+        next['swapMode'] = wasExactOut ? 'ExactIn' : 'ExactOut';
+      }
       return next;
     });
   }
@@ -4025,6 +4999,78 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.setEditParam(fieldKey, b.toString());
     if (fieldKey === 'amountA') this.dlmmLastEdited.set('A');
     else if (fieldKey === 'amountB') this.dlmmLastEdited.set('B');
+  }
+
+  /**
+   * Smart Max for the CLMM dual-amount card. A plain per-side Max fills the
+   * WHOLE balance of one token, but the two sides are locked to the pool ratio
+   * for the chosen range — so maxing SOL could demand far more USDC than the
+   * user holds (the "insufficient balance" the user hit at ±20%). Instead,
+   * deposit the LARGEST position that fits BOTH balances at the current ratio,
+   * leaving a small SOL rent/fee buffer for the position NFT + tick arrays.
+   * This is the "just do it for me" behaviour: it can never produce a position
+   * the wallet can't fund.
+   */
+  /**
+   * MAX for a CLMM deposit side. `side` is which token's MAX button was
+   * clicked. Previously BOTH buttons ran the A-side logic, so clicking Token B
+   * (USDC) MAX filled Token A (SOL) — the bug Berra hit. Now each side maxes
+   * itself and the auto-balance effect fills the other at the pool ratio,
+   * clamped so neither side exceeds its balance.
+   */
+  setMaxClmm(side: 'A' | 'B' = 'A'): void {
+    const clmm = this.clmmRatio();
+    const p = this.editParams();
+    const balA = this.inputBalance() ?? 0;      // token A (e.g. WSOL)
+    const balB = this.secondaryBalance() ?? 0;  // token B (e.g. USDC)
+    const symA = (p['tokenASymbol'] ?? p['tokenA'] ?? '').toUpperCase();
+    const symB = (p['tokenBSymbol'] ?? p['tokenB'] ?? '').toUpperCase();
+    const isSol = (s: string) => s === 'SOL' || s === 'WSOL';
+    // Opening a CLMM position costs ~0.02–0.05 SOL in rent (position NFT + tick
+    // arrays + ATAs) + fees; keep a buffer so the native-SOL side never uses it all.
+    const RENT_BUFFER = 0.03;
+    // Leave 1% headroom on BOTH sides: a Max that fills the EXACT balance fails
+    // simulation because the on-chain deposit needs a hair more than quoted
+    // (tick rounding + slippage) — "Max then Not enough balance". The headroom
+    // absorbs that so Max produces a value that actually clears.
+    const SAFETY = 0.99;
+    const availA = Math.max(0, balA - (isSol(symA) ? RENT_BUFFER : 0)) * SAFETY;
+    const availB = Math.max(0, balB - (isSol(symB) ? RENT_BUFFER : 0)) * SAFETY;
+
+    // Single-sided ranges (price outside the range): only one token is used,
+    // regardless of which MAX was clicked.
+    if (clmm?.singleSided === 'A') {
+      this.editParams.update(ep => ({ ...ep, amountA: formatDlmmAmount(availA), amountB: '0' }));
+      this.dlmmLastEdited.set('A');
+      return;
+    }
+    if (clmm?.singleSided === 'B') {
+      this.editParams.update(ep => ({ ...ep, amountB: formatDlmmAmount(availB), amountA: '0' }));
+      this.dlmmLastEdited.set('B');
+      return;
+    }
+
+    const yPerX = clmm?.yPerX; // amount B per 1 amount A
+    if (!yPerX || !Number.isFinite(yPerX) || yPerX <= 0) {
+      // No usable ratio yet (range not set) — max ONLY the clicked side; the
+      // auto-balance effect fills the other once a range exists.
+      this.setMaxAmount(side === 'A' ? 'amountA' : 'amountB');
+      return;
+    }
+
+    if (side === 'B') {
+      // Largest B that satisfies BOTH: B ≤ availB AND B/yPerX ≤ availA.
+      const maxB = Math.min(availB, availA * yPerX);
+      if (!(maxB > 0)) return;
+      this.setEditParam('amountB', formatDlmmAmount(maxB));
+      this.dlmmLastEdited.set('B'); // auto-balance fills amountA = maxB / yPerX (≤ availA)
+      return;
+    }
+    // Largest A that satisfies BOTH: A ≤ availA AND A×yPerX ≤ availB.
+    const maxA = Math.min(availA, availB / yPerX);
+    if (!(maxA > 0)) return;
+    this.setEditParam('amountA', formatDlmmAmount(maxA));
+    this.dlmmLastEdited.set('A'); // auto-balance effect fills amountB = maxA×yPerX (≤ availB)
   }
 
   async copyValue(value: string): Promise<void> { try { await navigator.clipboard.writeText(value); this.copiedField.set(value); setTimeout(() => this.copiedField.set(null), 2000); } catch {} }
@@ -4147,6 +5193,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   private maybeResolveAllSentinel(balance: number): void {
     if (!(balance > 0)) return;
+    // Withdrawals resolve "all"/"max" against the DEPOSITED position, not the
+    // wallet balance — handled by loadLendInfo (Jupiter) / the protocol loader.
+    // Filling the wallet balance here withdrew the wrong amount (e.g. 0.187 SOL
+    // of loose wallet balance instead of the ~1 SOL supplied to Jupiter Lend),
+    // and it clobbered the "all" sentinel before the deposit-based resolver ran.
+    const WITHDRAW_TYPES = ['withdraw_lend', 'kamino_withdraw', 'marginfi_withdraw', 'solend_withdraw'];
+    if (this.action && WITHDRAW_TYPES.includes(this.action.type)) return;
     const params = this.editParams();
     const cur = (params['amount'] ?? '').trim().toLowerCase();
     if (cur === 'all' || cur === 'max' || cur === 'full' || cur === '100%') {
@@ -4185,6 +5238,25 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const wallet = this.walletService.publicKey() ?? undefined;
       const info = await this.jupiterLend.getEarnInfo(this.editParams()['token'] ?? 'USDC', wallet);
       if (info) {
+        if (this.action.type === 'withdraw_lend') {
+          // The user's position may be a borrow-market SUPPLY ("Lending") rather
+          // than an Earn deposit — the Earn balance is then just dust. Surface
+          // whichever is the real position so "Deposited", Max, and the
+          // conversion all reflect the money that will actually be withdrawn.
+          const token = this.editParams()['token'] ?? 'USDC';
+          const target = wallet
+            ? await this.jupiterLend.getSupplyWithdrawTarget(wallet, token)
+            : null;
+          const earnDep = info.userDepositedAssets ?? 0;
+          if (target && target.supplyAmount > earnDep) {
+            info.userDepositedAssets = target.supplyAmount;
+            info.userJlBalance = target.supplyAmount;
+            // Borrow-market supply is 1:1 with the underlying (no jlToken share
+            // ratio), so present a 1:1 conversion instead of the Earn vault's.
+            info.assetsPerJlToken = 1;
+            info.jlTokensPerAsset = 1;
+          }
+        }
         this.lendInfo.set({ kind: 'earn', data: info } as LendActionInfo);
         if (this.action.type === 'withdraw_lend') {
           const amt = this.editParams()['amount'];
@@ -4200,6 +5272,452 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       }
     }
     catch { this.lendInfo.set(null); } finally { this.lendInfoLoading.set(false); }
+  }
+
+  /** Load the borrow token's Kamino reserve rates + the wallet's obligation. */
+  private async loadKaminoBorrowInfo(): Promise<void> {
+    this.kaminoBorrowLoading.set(true);
+    try {
+      const wallet = this.walletService.publicKey() ?? undefined;
+      const token = (this.editParams()['token'] ?? this.editParams()['reserve'] ?? 'USDC');
+      const [reserves, obligations] = await Promise.all([
+        this.kamino.getMainMarketReserves(),
+        wallet ? this.kamino.getObligations(wallet, KAMINO_MAIN_MARKET) : Promise.resolve([] as KaminoObligation[]),
+      ]);
+      const want = token.trim().replace(/^\$/, '');
+      const byMint = want.length >= 32;
+      const norm = (s: string) => (s.toUpperCase() === 'WSOL' ? 'SOL' : s.toUpperCase());
+      // Same "deepest reserve wins" rule the backend uses when a token has several.
+      const matches = reserves.filter(r =>
+        byMint ? r.liquidityTokenMint === want : norm(r.symbol) === norm(want));
+      const reserve = matches.sort((a, b) => b.totalSupplyUsd - a.totalSupplyUsd)[0] ?? null;
+      this.kaminoReserve.set(reserve);
+      this.kaminoObligation.set(obligations[0] ?? null);
+    }
+    catch { this.kaminoReserve.set(null); this.kaminoObligation.set(null); }
+    finally { this.kaminoBorrowLoading.set(false); }
+  }
+
+  /** Force a fresh obligation+reserve fetch — used when the user focuses the
+   *  amount field, so a deposit made after this card opened is picked up. */
+  reloadKaminoBorrowInfo(): void {
+    this._lastKaminoBorrowKey = null;
+    void this.loadKaminoBorrowInfo();
+  }
+
+  /** USD price of one unit of the reserve token (supplyUsd ÷ supply). */
+  private kaminoReservePrice(r: KaminoReserve): number {
+    const supply = parseFloat(r.totalSupply) || 0;
+    return supply > 0 ? r.totalSupplyUsd / supply : 0;
+  }
+
+  /**
+   * Live Kamino borrow projection. Reserve rates always render; the LTV / health
+   * / max-borrowable block appears once the wallet has an obligation. Borrowing
+   * `amount` of the token adds `amount × price` to the obligation's debt.
+   *   ltvAfter   = (borrowedUsd + amount×price) ÷ collateralUsd
+   *   maxBorrow  = (borrowLimit − borrowedUsd) ÷ price           (token units)
+   *   HF (after) = borrowLiquidationLimit ÷ (borrowedUsd + amount×price)
+   */
+  get kaminoBorrowStats(): {
+    symbol: string; borrowApyPct: number; maxLtvPct: number; liquidationLtvPct: number;
+    availableToken: number; availableUsd: number; price: number;
+    hasPosition: boolean; collateralUsd: number; borrowedUsd: number;
+    maxBorrowable: number; borrowUsd: number; requiredCollateralUsd: number;
+    ltvCurrentPct: number; ltvAfterPct: number;
+    hf: number; hfLabel: string; hfClass: string; errorMsg?: string;
+  } | null {
+    const r = this.kaminoReserve();
+    if (!r) return null;
+    const price = this.kaminoReservePrice(r);
+    const borrowApyPct = r.borrowApyNum * 100;
+    // Max (borrow) LTV is the only ratio the public REST metrics expose per
+    // reserve; the per-reserve liquidation threshold isn't in the API (it lives
+    // on-chain / in the SDK), so we never fabricate it. Real liquidation RISK is
+    // shown as the health factor below, derived from the obligation's on-chain
+    // borrowLiquidationLimit once the wallet has collateral.
+    const maxLtvPct = r.ltvNum * 100;
+    const availableUsd = Math.max(0, r.totalSupplyUsd - (parseFloat(r.totalBorrowUsd) || 0));
+    const availableToken = price > 0 ? availableUsd / price : 0;
+
+    const ob = this.kaminoObligation();
+    const collateralUsd = ob ? parseFloat(ob.depositedValue) || 0 : 0;
+    const borrowedUsd = ob ? parseFloat(ob.borrowedValue) || 0 : 0;
+    const borrowLimit = ob ? parseFloat(ob.borrowLimit) || 0 : 0;
+    const liqLimitUsd = ob ? parseFloat(ob.borrowLiquidationLimit) || 0 : 0;
+    // Effective liquidation LTV for THIS obligation (weighted across its
+    // collateral) = liquidation-limit ÷ collateral. Real, position-specific.
+    const liquidationLtvPct = collateralUsd > 0 ? (liqLimitUsd / collateralUsd) * 100 : 0;
+    const hasPosition = collateralUsd > 0;
+
+    const amount = parseFloat(this.getEditParam('amount') || '0') || 0;
+    const addUsd = amount * price;
+    const newBorrowUsd = borrowedUsd + addUsd;
+    const maxBorrowable = price > 0 ? Math.max(0, (borrowLimit - borrowedUsd) / price) : 0;
+    const ltvCurrentPct = collateralUsd > 0 ? (borrowedUsd / collateralUsd) * 100 : 0;
+    const ltvAfterPct = collateralUsd > 0 ? (newBorrowUsd / collateralUsd) * 100 : 0;
+    const hf = newBorrowUsd > 0 ? liqLimitUsd / newBorrowUsd : Infinity;
+
+    const hfApplies = newBorrowUsd > 0 && collateralUsd > 0;
+    const hfClass = !hfApplies || !isFinite(hf) || hf >= 1.6
+      ? 'safe' : hf >= 1.2 ? 'caution' : 'danger';
+    const hfLabel = !hfApplies ? '—' : !isFinite(hf) ? '∞' : hf.toFixed(2);
+
+    let errorMsg: string | undefined;
+    if (amount > 0 && !hasPosition) {
+      errorMsg = 'No collateral deposited on Kamino yet — deposit a token first, then borrow against it.';
+    } else if (amount > 0 && amount > availableToken) {
+      errorMsg = `Only ${availableToken.toFixed(2)} ${r.symbol} available to borrow right now.`;
+    } else if (amount > 0 && maxBorrowable > 0 && amount > maxBorrowable) {
+      errorMsg = `Exceeds max borrowable — deposit more collateral or borrow ≤ ${maxBorrowable.toFixed(maxBorrowable < 1 ? 6 : 2)} ${r.symbol}.`;
+    }
+
+    // With no position yet, there is no denominator for LTV/HF — but we can
+    // still give live feedback: how much collateral this borrow would require
+    // at the reserve's max LTV. Updates as the amount is typed.
+    const borrowUsd = amount * price;
+    const requiredCollateralUsd = maxLtvPct > 0 ? borrowUsd / (maxLtvPct / 100) : 0;
+
+    return {
+      symbol: r.symbol, borrowApyPct, maxLtvPct, liquidationLtvPct, availableToken, availableUsd, price,
+      hasPosition, collateralUsd, borrowedUsd, maxBorrowable, borrowUsd, requiredCollateralUsd,
+      ltvCurrentPct, ltvAfterPct, hf: isFinite(hf) ? hf : 0, hfLabel, hfClass, errorMsg,
+    };
+  }
+
+  /** Fill the borrow amount to the collateral-allowed maximum (× fraction). */
+  setKaminoBorrowMax(fraction = 1): void {
+    const s = this.kaminoBorrowStats;
+    if (!s || s.maxBorrowable <= 0) return;
+    const capped = Math.min(s.maxBorrowable, s.availableToken) * fraction;
+    // Floor to 6 dp so the projected amount never rounds above the on-chain limit.
+    this.setEditParam('amount', String(Math.floor(capped * 1e6) / 1e6));
+  }
+
+  /**
+   * Live Kamino repay projection. Reuses the same reserve + obligation fetched
+   * by loadKaminoBorrowInfo. Repaying `amount` of the token subtracts
+   * `amount × price` from the obligation's debt (capped at the actual debt):
+   *   ltvAfter    = (borrowedUsd − repayUsd) ÷ collateralUsd            (drops)
+   *   HF (after)  = borrowLiquidationLimit ÷ (borrowedUsd − repayUsd)   (rises)
+   * The debt for THIS token comes from the matching borrow line item, or (when
+   * the API returns no line items) from the obligation's total debt — never
+   * fabricated; borrowedValue is the on-chain refreshed figure.
+   */
+  get kaminoRepayStats(): {
+    symbol: string; borrowApyPct: number; price: number;
+    hasDebt: boolean; collateralUsd: number; borrowedUsd: number;
+    debtToken: number; debtUsd: number;
+    repayToken: number; repayUsd: number; remainingUsd: number; remainingToken: number;
+    ltvCurrentPct: number; ltvAfterPct: number; liquidationLtvPct: number;
+    hfCurrent: number; hfAfter: number; hfLabel: string; hfClass: string;
+    fullRepay: boolean; errorMsg?: string;
+  } | null {
+    const r = this.kaminoReserve();
+    if (!r) return null;
+    const price = this.kaminoReservePrice(r);
+    const borrowApyPct = r.borrowApyNum * 100;
+
+    const ob = this.kaminoObligation();
+    const collateralUsd = ob ? parseFloat(ob.depositedValue) || 0 : 0;
+    const borrowedUsd = ob ? parseFloat(ob.borrowedValue) || 0 : 0;
+    const liqLimitUsd = ob ? parseFloat(ob.borrowLiquidationLimit) || 0 : 0;
+    const liquidationLtvPct = collateralUsd > 0 ? (liqLimitUsd / collateralUsd) * 100 : 0;
+
+    // Debt in THIS token: prefer the matching borrow line item; fall back to the
+    // obligation total (accurate for the common single-debt obligation).
+    const norm = (s: string) => (s.toUpperCase() === 'WSOL' ? 'SOL' : s.toUpperCase());
+    const debtLine = (ob?.borrows ?? []).find(
+      b => b.reserveAddress === r.reserve || norm(b.symbol) === norm(r.symbol));
+    const debtUsd = debtLine ? (parseFloat(debtLine.valueUsd) || 0) : borrowedUsd;
+    const debtToken = debtLine ? (parseFloat(debtLine.amount) || 0) : (price > 0 ? borrowedUsd / price : 0);
+    const hasDebt = debtUsd > 0;
+
+    const amount = parseFloat(this.getEditParam('amount') || '0') || 0;
+    const repayToken = Math.min(amount, debtToken);
+    const repayUsd = Math.min(amount * price, debtUsd);
+    const remainingUsd = Math.max(0, borrowedUsd - repayUsd);
+    const remainingToken = Math.max(0, debtToken - repayToken);
+
+    const ltvCurrentPct = collateralUsd > 0 ? (borrowedUsd / collateralUsd) * 100 : 0;
+    const ltvAfterPct = collateralUsd > 0 ? (remainingUsd / collateralUsd) * 100 : 0;
+    const hfCurrent = borrowedUsd > 0 ? liqLimitUsd / borrowedUsd : Infinity;
+    const hfAfter = remainingUsd > 0 ? liqLimitUsd / remainingUsd : Infinity;
+    // Health after repay only improves — class off the AFTER value.
+    const hfApplies = remainingUsd > 0 && collateralUsd > 0;
+    const hfClass = !hfApplies || !isFinite(hfAfter) || hfAfter >= 1.6
+      ? 'safe' : hfAfter >= 1.2 ? 'caution' : 'danger';
+    const hfLabel = !isFinite(hfAfter) ? '∞' : hfAfter.toFixed(2);
+    const fullRepay = hasDebt && amount >= debtToken - 1e-9;
+
+    let errorMsg: string | undefined;
+    if (amount > 0 && !hasDebt) {
+      errorMsg = 'No Kamino debt in this token to repay.';
+    } else if (amount > 0 && amount > debtToken + 1e-9) {
+      errorMsg = `You only owe ${debtToken.toFixed(debtToken < 1 ? 6 : 2)} ${r.symbol} — repaying the full debt clears it.`;
+    }
+
+    return {
+      symbol: r.symbol, borrowApyPct, price,
+      hasDebt, collateralUsd, borrowedUsd, debtToken, debtUsd,
+      repayToken, repayUsd, remainingUsd, remainingToken,
+      ltvCurrentPct, ltvAfterPct, liquidationLtvPct,
+      hfCurrent: isFinite(hfCurrent) ? hfCurrent : 0, hfAfter: isFinite(hfAfter) ? hfAfter : 0,
+      hfLabel, hfClass, fullRepay, errorMsg,
+    };
+  }
+
+  /** Fill the repay amount to the full debt. Rounds UP (ceil), never down — a
+   *  floored amount lands *below* the accruing debt and repays a partial, which
+   *  leaves dust → 6092. Over-shooting is safe: Kamino caps the transfer at
+   *  ceil(debt) and this also trips `fullRepay` so the build sends repay-all. */
+  setKaminoRepayMax(): void {
+    const s = this.kaminoRepayStats;
+    if (!s || s.debtToken <= 0) return;
+    // Ceil to 6 dp so the displayed amount is ≥ the true debt (never a partial).
+    this.setEditParam('amount', String(Math.ceil(s.debtToken * 1e6) / 1e6));
+  }
+
+  /**
+   * Live Kamino withdraw projection. Reuses the reserve + obligation fetched by
+   * loadKaminoBorrowInfo. Withdrawing `amount` removes that much SUPPLIED
+   * collateral, so — when the wallet also has debt — the collateral shrinks and
+   * the position gets RISKIER (LTV up, health down):
+   *   ltvAfter   = borrowedUsd ÷ (suppliedUsd − withdrawUsd)
+   *   HF (after) = (liqLimit × remaining⁄supplied) ÷ borrowedUsd
+   * Max withdraw keeps the remaining collateral able to back the debt
+   *   maxWithdrawUsd = suppliedUsd × (1 − borrowedUsd⁄borrowLimit)
+   * With no debt the whole supply is withdrawable. Supplied balance/price come
+   * from the obligation's refreshed stats — never fabricated.
+   */
+  get kaminoWithdrawStats(): {
+    symbol: string; supplyApyPct: number; price: number;
+    hasSupply: boolean; hasDebt: boolean;
+    suppliedToken: number; suppliedUsd: number; borrowedUsd: number;
+    withdrawToken: number; withdrawUsd: number; remainingToken: number; remainingUsd: number;
+    maxWithdrawable: number; fullWithdraw: boolean;
+    ltvCurrentPct: number; ltvAfterPct: number; liquidationLtvPct: number;
+    hfCurrent: number; hfAfter: number; hfLabel: string; hfClass: string; errorMsg?: string;
+  } | null {
+    const r = this.kaminoReserve();
+    if (!r) return null;
+    const price = this.kaminoReservePrice(r);
+    const supplyApyPct = r.supplyApyNum * 100;
+
+    const ob = this.kaminoObligation();
+    const suppliedUsd = ob ? parseFloat(ob.depositedValue) || 0 : 0;
+    const borrowedUsd = ob ? parseFloat(ob.borrowedValue) || 0 : 0;
+    const borrowLimit = ob ? parseFloat(ob.borrowLimit) || 0 : 0;
+    const liqLimitUsd = ob ? parseFloat(ob.borrowLiquidationLimit) || 0 : 0;
+    const liquidationLtvPct = suppliedUsd > 0 ? (liqLimitUsd / suppliedUsd) * 100 : 0;
+
+    // Supplied amount of THIS token: prefer the matching deposit line item; fall
+    // back to the obligation total (accurate for the common single-supply case).
+    const norm = (s: string) => (s.toUpperCase() === 'WSOL' ? 'SOL' : s.toUpperCase());
+    const depLine = (ob?.deposits ?? []).find(
+      d => d.reserveAddress === r.reserve || norm(d.symbol) === norm(r.symbol));
+    const suppliedToken = depLine ? (parseFloat(depLine.amount) || 0) : (price > 0 ? suppliedUsd / price : 0);
+    const hasSupply = suppliedUsd > 0;
+    const hasDebt = borrowedUsd > 0;
+
+    const amount = parseFloat(this.getEditParam('amount') || '0') || 0;
+    const withdrawToken = Math.min(amount, suppliedToken);
+    const withdrawUsd = Math.min(amount * price, suppliedUsd);
+    const remainingUsd = Math.max(0, suppliedUsd - withdrawUsd);
+    const remainingToken = Math.max(0, suppliedToken - withdrawToken);
+
+    // Max withdrawable: with no debt the whole supply; with debt, leave enough
+    // collateral to still back it (keep borrowed ≤ remaining borrow-limit).
+    const maxWithdrawUsd = !hasDebt
+      ? suppliedUsd
+      : borrowLimit > 0 ? Math.max(0, suppliedUsd * (1 - borrowedUsd / borrowLimit)) : 0;
+    const maxWithdrawable = price > 0 ? maxWithdrawUsd / price : 0;
+    const fullWithdraw = hasSupply && amount >= suppliedToken - 1e-9;
+
+    const ltvCurrentPct = suppliedUsd > 0 ? (borrowedUsd / suppliedUsd) * 100 : 0;
+    const ltvAfterPct = remainingUsd > 0 ? (borrowedUsd / remainingUsd) * 100 : (borrowedUsd > 0 ? Infinity : 0);
+    // Liq-limit scales with the collateral left behind (single-collateral case).
+    const frac = suppliedUsd > 0 ? remainingUsd / suppliedUsd : 0;
+    const liqLimitAfter = liqLimitUsd * frac;
+    const hfCurrent = borrowedUsd > 0 ? liqLimitUsd / borrowedUsd : Infinity;
+    const hfAfter = borrowedUsd > 0 ? liqLimitAfter / borrowedUsd : Infinity;
+    const hfApplies = borrowedUsd > 0;
+    const hfClass = !hfApplies || (isFinite(hfAfter) && hfAfter >= 1.6) || !isFinite(hfAfter)
+      ? 'safe' : hfAfter >= 1.2 ? 'caution' : 'danger';
+    const hfLabel = !hfApplies ? '—' : !isFinite(hfAfter) ? '∞' : hfAfter.toFixed(2);
+
+    let errorMsg: string | undefined;
+    if (amount > 0 && !hasSupply) {
+      errorMsg = 'You have no supplied balance on Kamino for this token.';
+    } else if (amount > 0 && amount > suppliedToken + 1e-9) {
+      errorMsg = `You only have ${suppliedToken.toFixed(suppliedToken < 1 ? 6 : 2)} ${r.symbol} supplied — withdraw that or less.`;
+    } else if (amount > 0 && hasDebt && maxWithdrawable > 0 && amount > maxWithdrawable + 1e-9) {
+      errorMsg = `Withdrawing this much would leave too little collateral for your debt. Withdraw ≤ ${maxWithdrawable.toFixed(maxWithdrawable < 1 ? 6 : 2)} ${r.symbol}, or repay first.`;
+    }
+
+    return {
+      symbol: r.symbol, supplyApyPct, price,
+      hasSupply, hasDebt, suppliedToken, suppliedUsd, borrowedUsd,
+      withdrawToken, withdrawUsd, remainingToken, remainingUsd,
+      maxWithdrawable, fullWithdraw,
+      ltvCurrentPct, ltvAfterPct: isFinite(ltvAfterPct) ? ltvAfterPct : 0, liquidationLtvPct,
+      hfCurrent: isFinite(hfCurrent) ? hfCurrent : 0, hfAfter: isFinite(hfAfter) ? hfAfter : 0,
+      hfLabel, hfClass, errorMsg,
+    };
+  }
+
+  /** Fill the withdraw amount to the max safely-withdrawable supplied balance. */
+  setKaminoWithdrawMax(): void {
+    const s = this.kaminoWithdrawStats;
+    if (!s) return;
+    // No debt → whole supply; with debt → the collateral-safe max.
+    const target = s.hasDebt ? Math.min(s.suppliedToken, s.maxWithdrawable) : s.suppliedToken;
+    if (target <= 0) return;
+    this.setEditParam('amount', String(Math.floor(target * 1e6) / 1e6));
+  }
+
+  /** Fetch the chosen K-Vault's live metrics (APY, TVL, share price, holders). */
+  private async loadKaminoVaultInfo(): Promise<void> {
+    const vault = (this.editParams()['vault'] ?? '').trim();
+    if (vault.length < 32) { this.kaminoVaultMetrics.set(null); return; }
+    this.kaminoVaultLoading.set(true);
+    try {
+      this.kaminoVaultMetrics.set(await this.kamino.getVaultMetrics(vault));
+    } catch {
+      this.kaminoVaultMetrics.set(null);
+    } finally {
+      this.kaminoVaultLoading.set(false);
+    }
+  }
+
+  /**
+   * Live K-Vault deposit projection. Depositing `amount` tokens mints
+   * ≈ amount ÷ tokensPerShare vault shares and earns the vault's APY. TVL =
+   * invested + available (USD). All figures come from the vault's live /metrics —
+   * never fabricated.
+   */
+  get kaminoVaultStats(): {
+    apyPct: number; apy30dPct: number; tvlUsd: number; holders: number;
+    tokenPrice: number; depositUsd: number; sharesReceived: number;
+  } | null {
+    const m = this.kaminoVaultMetrics();
+    if (!m) return null;
+    const apyPct = (parseFloat(m.apy) || 0) * 100;
+    const apy30dPct = (parseFloat(m.apy30d) || 0) * 100;
+    const tvlUsd = (parseFloat(m.tokensInvestedUsd) || 0) + (parseFloat(m.tokensAvailableUsd) || 0);
+    const tokenPrice = parseFloat(m.tokenPrice) || 0;
+    const tokensPerShare = parseFloat(m.tokensPerShare) || 0;
+    const amount = parseFloat(this.getEditParam('amount') || '0') || 0;
+    return {
+      apyPct, apy30dPct, tvlUsd, holders: m.numberOfHolders || 0, tokenPrice,
+      depositUsd: amount * tokenPrice,
+      sharesReceived: tokensPerShare > 0 ? amount / tokensPerShare : 0,
+    };
+  }
+
+  /**
+   * Load everything the K-Vault WITHDRAW card needs: the user's live position
+   * in the vault (shares held + USD value + underlying tokenMint for the real
+   * icon) plus the vault's live metrics (APY, TVL, share price).
+   *
+   * The LLM may pass the vault by NAME ("SOL") or leave it implicit. Positions
+   * come back keyed by vault ADDRESS, so we match by address when we have one,
+   * otherwise fall back to the user's sole vault position (the common "withdraw
+   * my vault position" case). Once matched, we pin the real vault address into
+   * the params so the built withdraw tx targets the exact vault we're pricing.
+   */
+  private async loadKaminoVaultWithdrawInfo(): Promise<void> {
+    const wallet = this.walletService.publicKey();
+    if (!wallet) { this.kaminoVaultPosition.set(null); return; }
+    this.kaminoVaultLoading.set(true);
+    try {
+      const positions = await this.kamino.getVaultPositions(wallet);
+      const want = (this.editParams()['vault'] ?? '').trim();
+      let pos = want.length >= 32 ? positions.find(p => p.vaultAddress === want) : undefined;
+      // Named/implicit vault with a single position → that's unambiguously it.
+      if (!pos && positions.length === 1) pos = positions[0];
+      this.kaminoVaultPosition.set(pos ?? null);
+      const vaultAddr = pos?.vaultAddress || (want.length >= 32 ? want : '');
+      if (pos?.vaultAddress) this.setEditParam('vault', pos.vaultAddress);
+      // The positions payload has no tokenMint — resolve the vault's underlying
+      // token from the vault list so the card shows the real icon/symbol
+      // (e.g. PYUSD for the "Ethena PYUSD Prime" vault) instead of the address.
+      if (vaultAddr) {
+        const [metrics, vaults] = await Promise.all([
+          this.kamino.getVaultMetrics(vaultAddr),
+          this.kamino.getVaults(),
+        ]);
+        this.kaminoVaultMetrics.set(metrics);
+        const mint = vaults.find(v => v.address === vaultAddr)?.tokenMint ?? pos?.tokenMint ?? '';
+        this.kaminoVaultTokenMint.set(mint);
+        if (mint) this.tokenRegistry.resolveAsync(mint);
+        // Resolve "all"/empty to the actual share figure up front: the backend
+        // requires a positive number (it rejects "all"), and the user wants to
+        // see the real amount, not the word "all". Uses the full share position.
+        const rawAmt = (this.getEditParam('ktokenAmount') || '').trim().toLowerCase();
+        const shares = parseFloat(pos?.shares ?? '0') || 0;
+        if (shares > 0 && (rawAmt === '' || rawAmt === 'all' || rawAmt === 'max' || rawAmt === 'full')) {
+          this.setEditParam('ktokenAmount', String(shares));
+        }
+      } else {
+        this.kaminoVaultMetrics.set(null);
+      }
+    } catch {
+      this.kaminoVaultPosition.set(null);
+      this.kaminoVaultMetrics.set(null);
+    } finally {
+      this.kaminoVaultLoading.set(false);
+    }
+  }
+
+  /**
+   * Live K-Vault withdraw projection. Redeeming `ktokenAmount` shares (or "all"
+   * = the full position) returns ≈ shares × tokensPerShare underlying tokens.
+   * USD is prorated from the position's real `sharesUsd` — more accurate than
+   * price × tokens — never fabricated. Null until the position/metrics land.
+   */
+  get kaminoVaultWithdrawStats(): {
+    apyPct: number; apy30dPct: number; tvlUsd: number; holders: number;
+    sharesHeld: number; positionUsd: number; withdrawShares: number;
+    receiveTokens: number; receiveUsd: number; fullWithdraw: boolean;
+    tokenSymbol: string; tokenLogo: string | null;
+  } | null {
+    const m = this.kaminoVaultMetrics();
+    const pos = this.kaminoVaultPosition();
+    if (!m && !pos) return null;
+    const apyPct = (parseFloat(m?.apy ?? '0') || 0) * 100;
+    const apy30dPct = (parseFloat(m?.apy30d ?? '0') || 0) * 100;
+    const tvlUsd = m ? (parseFloat(m.tokensInvestedUsd) || 0) + (parseFloat(m.tokensAvailableUsd) || 0) : 0;
+    const tokenPrice = parseFloat(m?.tokenPrice ?? '0') || 0;
+    const tokensPerShare = parseFloat(m?.tokensPerShare ?? '0') || 0;
+    const sharesHeld = parseFloat(pos?.shares ?? '0') || 0;
+    const raw = (this.getEditParam('ktokenAmount') || '').trim().toLowerCase();
+    const isWord = raw === '' || raw === 'all' || raw === 'max' || raw === 'full';
+    const withdrawShares = isWord ? sharesHeld : (parseFloat(raw) || 0);
+    // "Full position" wording also applies once "all" is resolved to the exact
+    // share figure (which equals the held balance).
+    const fullWithdraw = isWord || (sharesHeld > 0 && Math.abs(withdrawShares - sharesHeld) < 1e-9);
+    // 1 share ≈ tokensPerShare underlying tokens; USD via the vault's tokenPrice.
+    // The positions API carries no USD, so derive it from live metrics.
+    const receiveTokens = withdrawShares * tokensPerShare;
+    const receiveUsd = receiveTokens * tokenPrice;
+    const positionUsd = sharesHeld * tokensPerShare * tokenPrice;
+    const mintForIcon = this.kaminoVaultTokenMint() || pos?.tokenMint || this.getEditParam('token') || '';
+    const td = mintForIcon
+      ? this.resolveTokenDisplay(mintForIcon)
+      : { symbol: '', name: '', logoURI: undefined };
+    return {
+      apyPct, apy30dPct, tvlUsd, holders: m?.numberOfHolders ?? 0,
+      sharesHeld, positionUsd, withdrawShares, receiveTokens, receiveUsd, fullWithdraw,
+      tokenSymbol: td.symbol, tokenLogo: td.logoURI ?? null,
+    };
+  }
+
+  /** Set the withdraw amount to the user's full vault-share position. */
+  setKaminoVaultWithdrawMax(): void {
+    const pos = this.kaminoVaultPosition();
+    const shares = parseFloat(pos?.shares ?? '0') || 0;
+    if (shares > 0) this.setEditParam('ktokenAmount', String(shares));
   }
 
   selectCollateral(opt: CollateralOption): void {
@@ -4357,7 +5875,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const address = token?.address ?? (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mintOrSymbol) ? mintOrSymbol : null);
     if (address) {
       img.dataset['fallback'] = '1';
-      img.src = `https://img.jup.ag/tokens/${address}.png`;
+      // img.jup.ag is dead (host no longer resolves), so a failed primary logo
+      // used to fall through to a guaranteed-broken URL → letter placeholder.
+      // Raydium's icon CDN is live and covers the major tokens users actually
+      // trade here; an obscure mint that 404s here just re-fires (error) and
+      // hides, landing on the same letter fallback as before.
+      img.src = `https://img-v1.raydium.io/icon/${address}.png`;
     } else {
       img.style.display = 'none';
     }

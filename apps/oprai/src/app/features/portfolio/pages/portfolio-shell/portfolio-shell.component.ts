@@ -51,13 +51,6 @@ const ETH_LOGO_URI =
 export class PortfolioShellComponent implements OnDestroy {
   readonly benchmarkQuotes = signal<HeaderMetric[]>([
     {
-      id: 'sol',
-      label: 'SOL',
-      valueText: '--',
-      change24h: 0,
-      iconUrl: SOL_LOGO_URI,
-    },
-    {
       id: 'btc',
       label: 'BTC',
       valueText: '--',
@@ -70,6 +63,13 @@ export class PortfolioShellComponent implements OnDestroy {
       valueText: '--',
       change24h: 0,
       iconUrl: ETH_LOGO_URI,
+    },
+    {
+      id: 'sol',
+      label: 'SOL',
+      valueText: '--',
+      change24h: 0,
+      iconUrl: SOL_LOGO_URI,
     },
   ]);
 
@@ -90,6 +90,10 @@ export class PortfolioShellComponent implements OnDestroy {
   readonly activeTab = this.portfolioService.activeTab;
   readonly protocolPositions = this.portfolioService.protocolPositions;
   readonly protocolPositionsLoading = this.portfolioService.protocolPositionsLoading;
+  // True once the first full load (wallet + every protocol + pricing) is in.
+  // Gates the whole-page skeleton so the page renders in one shot instead of
+  // the wallet total popping in ahead of the protocol balances.
+  readonly positionsSettled = this.portfolioService.positionsSettled;
   readonly portfolioChange = this.portfolioService.portfolioChange;
   readonly nfts = this.portfolioService.nfts;
   readonly nftCollections = this.portfolioService.nftCollections;
@@ -178,13 +182,6 @@ export class PortfolioShellComponent implements OnDestroy {
 
       this.benchmarkQuotes.set([
         {
-          id: 'sol',
-          label: 'SOL',
-          valueText: this.formatUsd(data.solana.usd),
-          change24h: data.solana.change24h,
-          iconUrl: SOL_LOGO_URI,
-        },
-        {
           id: 'btc',
           label: 'BTC',
           valueText: this.formatUsd(data.bitcoin.usd),
@@ -197,6 +194,13 @@ export class PortfolioShellComponent implements OnDestroy {
           valueText: this.formatUsd(data.ethereum.usd),
           change24h: data.ethereum.change24h,
           iconUrl: ETH_LOGO_URI,
+        },
+        {
+          id: 'sol',
+          label: 'SOL',
+          valueText: this.formatUsd(data.solana.usd),
+          change24h: data.solana.change24h,
+          iconUrl: SOL_LOGO_URI,
         },
       ]);
     } catch {

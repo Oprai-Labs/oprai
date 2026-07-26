@@ -15,7 +15,7 @@ import { JupiterLendService, LendPosition, BorrowPosition } from '@core/services
 import { JupiterPerpService, PerpPosition } from '@core/services/market/jupiter-perp.service';
 import { MeteoraService, DlmmPair, DammV2Pool, DammV1Pool } from '@core/services/market/meteora.service';
 import { environment } from '../../../../../environments/environment';
-import { firstValueFrom, debounceTime, distinctUntilChanged } from 'rxjs';
+import { firstValueFrom, debounceTime, distinctUntilChanged, timeout } from 'rxjs';
 
 /** Mock query result types */
 interface BalanceResult {
@@ -171,14 +171,33 @@ interface AlertItem {
 }
 
 /**
+ * One Kamino Multiply pool from `kamino_multiply_markets`. `estMaxApyPct` is an
+ * ESTIMATE (leverage·collateral-yield − borrow-cost from live on-chain rates),
+ * NOT Kamino's exact displayed figure — the card labels it as such.
+ */
+interface KaminoMultiplyMarket {
+  collToken: string; collMint: string;
+  debtToken: string; debtMint: string;
+  maxLeverage: number; maxLtvPct: number; estMaxApyPct: number; avgLeverage: number;
+  tvlUsd: number; liquidityUsd: number; collSupplyApyPct: number; debtBorrowApyPct: number;
+  // false when Kamino's borrow cap for this pair is full — pool can't be opened.
+  // Optional for backwards-compat with older cached payloads (treated as true).
+  borrowable?: boolean;
+}
+
+/**
  * Single row from the Raydium V3 `/pools/info/list` API response. Defined
  * inline (vs. lifting into a shared service file) because it's only used by
  * the QueryCard's Raydium pool list mini-app — no other consumer.
  */
 interface RaydiumPool {
   id: string;
-  /** "Concentrated" (CLMM) | "Standard" (AMM v4) — drives Deposit routing. */
+  /** "Concentrated" (CLMM) | "Standard" — drives Deposit routing. NOTE:
+   *  "Standard" covers BOTH the newer CPMM and the legacy AMM v4; only
+   *  `programId` tells them apart. */
   type: string;
+  /** Owning program — the only way to distinguish CPMM from legacy AMM v4. */
+  programId?: string;
   mintA: { address: string; symbol: string; decimals: number; logoURI?: string };
   mintB: { address: string; symbol: string; decimals: number; logoURI?: string };
   tvl: number;
@@ -187,6 +206,30 @@ interface RaydiumPool {
   /** Time-windowed metrics; only `day` is rendered in the table. */
   day?: { volume?: number; fee?: number; apr?: number };
   week?: { volume?: number; fee?: number; apr?: number };
+}
+
+/** A user's own Raydium position — either a CLMM range NFT or a Standard/CPMM
+ *  LP-token holding. Emitted by getRaydiumUserPositionsSdk. */
+interface RaydiumUserPosition {
+  kind: 'clmm' | 'lp';
+  poolId: string;
+  pair: string;
+  mintA: { address: string; symbol: string; logoURI?: string | null } | null;
+  mintB: { address: string; symbol: string; logoURI?: string | null } | null;
+  // CLMM
+  positionId?: string;
+  tickLower?: number;
+  tickUpper?: number;
+  liquidity?: string;
+  /** Token amounts the position holds, derived server-side from liquidity +
+   *  tick range. Raw `liquidity` is meaningless to a user — show these. */
+  amountA?: number;
+  amountB?: number;
+  empty?: boolean;
+  // LP
+  poolType?: string;
+  lpMint?: string;
+  lpAmount?: number;
 }
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -351,6 +394,54 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly dammV2Fetching = signal(false);
   private dammV2SearchDebounce: ReturnType<typeof setTimeout> | null = null;
 
+  // ── Kamino Multiply pools (leveraged looping) ─────────────────────────────
+  // The backend returns the full set (up to ~100); the card sorts, filters and
+  // paginates entirely client-side over that snapshot.
+  readonly KAMINO_MULT_PAGE_SIZE = 8;
+  readonly KAMINO_MULT_SORT_OPTIONS: { field: 'apy' | 'leverage' | 'tvl' | 'liquidity'; label: string }[] = [
+    { field: 'apy', label: 'Est. APY' },
+    { field: 'leverage', label: 'Max Lev' },
+    { field: 'tvl', label: 'TVL' },
+    { field: 'liquidity', label: 'Liquidity' },
+  ];
+  // A SIGNAL (not a plain field): the filter/sort/paginate computeds below read
+  // it, and computed() only tracks signal reads — a plain field wouldn't trigger
+  // recompute when the fetch lands, leaving the card stuck empty.
+  readonly kaminoMultiplyAll = signal<KaminoMultiplyMarket[]>([]);
+  readonly kaminoMultiplyTotal = signal(0);
+  readonly kaminoMultiplyPage = signal(1);
+  readonly kaminoMultiplySortField = signal<'apy' | 'leverage' | 'tvl' | 'liquidity'>('apy');
+  readonly kaminoMultiplySortDir = signal<'asc' | 'desc'>('desc');
+  readonly kaminoMultiplySearchRaw = signal('');
+  readonly kaminoMultiplyFetching = signal(false);
+  private kaminoMultiplySearchDebounce: ReturnType<typeof setTimeout> | null = null;
+
+  /** Filter (by coll/debt symbol) + sort the fetched set. */
+  readonly kaminoMultiplyFiltered = computed<KaminoMultiplyMarket[]>(() => {
+    const q = this.kaminoMultiplySearchRaw().trim().toUpperCase();
+    const field = this.kaminoMultiplySortField();
+    const dir = this.kaminoMultiplySortDir() === 'asc' ? 1 : -1;
+    let rows = this.kaminoMultiplyAll();
+    if (q) rows = rows.filter(r => r.collToken.toUpperCase().includes(q) || r.debtToken.toUpperCase().includes(q));
+    const key: Record<string, (r: KaminoMultiplyMarket) => number> = {
+      apy: r => r.estMaxApyPct, leverage: r => r.maxLeverage, tvl: r => r.tvlUsd, liquidity: r => r.liquidityUsd,
+    };
+    const k = key[field] ?? key['apy'];
+    return [...rows].sort((a, b) => (k(a) - k(b)) * dir);
+  });
+  readonly kaminoMultiplyTotalPages = computed(() =>
+    Math.max(1, Math.ceil(this.kaminoMultiplyFiltered().length / this.KAMINO_MULT_PAGE_SIZE)));
+  readonly kaminoMultiplyPageRows = computed<KaminoMultiplyMarket[]>(() => {
+    const start = (this.kaminoMultiplyPage() - 1) * this.KAMINO_MULT_PAGE_SIZE;
+    return this.kaminoMultiplyFiltered().slice(start, start + this.KAMINO_MULT_PAGE_SIZE);
+  });
+  readonly kaminoMultiplyShowingRange = computed(() => {
+    const total = this.kaminoMultiplyFiltered().length;
+    const from = total === 0 ? 0 : (this.kaminoMultiplyPage() - 1) * this.KAMINO_MULT_PAGE_SIZE + 1;
+    const to = Math.min(this.kaminoMultiplyPage() * this.KAMINO_MULT_PAGE_SIZE, total);
+    return { from, to, total };
+  });
+
   // ── Meteora DAMM v1 (legacy AMM, flat array — client-paginated) ───────────
   readonly DAMMV1_PAGE_SIZE = 10;
   readonly DAMMV1_SORT_OPTIONS: { field: 'pool_tvl' | 'weekly_base_apy' | 'weekly_trading_volume'; label: string }[] = [
@@ -392,29 +483,73 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly raydiumSortField   = signal<'liquidity' | 'volume24h' | 'fee24h' | 'apr24h'>('liquidity');
   readonly raydiumSortDir     = signal<'asc' | 'desc'>('desc');
   readonly raydiumFetching    = signal(false);
+  // Token search: filter the pool list to pools containing a given token
+  // (server-side search-by-mint). Empty → full list. Lets the "pick another
+  // pair" flow find a pool by typing a symbol instead of browsing every pool.
+  readonly raydiumSearchInput  = signal('');
+  readonly raydiumSearchTokenA = signal<string | null>(null);
 
-  // Infinite-scroll plumbing. The template parks a `<div #raydiumSentinel>`
-  // just below the last row; when it enters the viewport we auto-page. The
-  // 200px rootMargin pre-fetches before the user hits the actual bottom so
-  // scrolling feels continuous, not staccato. Prev/Next buttons stay in the
-  // footer as a manual fallback (and for going backwards).
-  readonly raydiumSentinel = viewChild<ElementRef<HTMLElement>>('raydiumSentinel');
-  private _raydiumScrollObserver?: IntersectionObserver;
-  private readonly _raydiumScrollEffect = effect(() => {
-    const ref = this.raydiumSentinel();
-    this._raydiumScrollObserver?.disconnect();
-    this._raydiumScrollObserver = undefined;
-    if (!ref || typeof IntersectionObserver === 'undefined') return;
-    this._raydiumScrollObserver = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some(e => e.isIntersecting)) return;
-        if (!this.raydiumHasNextPage() || this.raydiumFetching()) return;
-        this.raydiumNextPage();
-      },
-      { rootMargin: '200px 0px' },
-    );
-    this._raydiumScrollObserver.observe(ref.nativeElement);
+  // The user's own Raydium positions (CLMM + Standard/CPMM LP), read straight
+  // from chain via the SDK — rendered in the same km-table design as the pool
+  // list, with a per-row Withdraw button.
+  readonly raydiumPositions = signal<RaydiumUserPosition[]>([]);
+  readonly raydiumPositionsFetching = signal(false);
+
+  // Which position kind the list shows. A "list my CLMM positions" request must
+  // NOT dump the standard/CPMM LP holdings too — seeded from the query type /
+  // params on a fresh query, and flippable via the chips.
+  readonly raydiumPositionKind = signal<'all' | 'clmm' | 'lp'>('all');
+
+  readonly RAYDIUM_POSITION_KINDS: { value: 'all' | 'clmm' | 'lp'; label: string }[] = [
+    { value: 'all',  label: 'All' },
+    { value: 'clmm', label: 'CLMM' },
+    { value: 'lp',   label: 'LP' },
+  ];
+
+  readonly visibleRaydiumPositions = computed(() => {
+    const kind = this.raydiumPositionKind();
+    const all = this.raydiumPositions();
+    return kind === 'all' ? all : all.filter(p => p.kind === kind);
   });
+
+  /** Count per kind — drives the chip badges so a filter that would show an
+   *  empty list is visible before it's clicked. */
+  raydiumPositionCount(kind: 'all' | 'clmm' | 'lp'): number {
+    const all = this.raydiumPositions();
+    return kind === 'all' ? all.length : all.filter(p => p.kind === kind).length;
+  }
+
+  setRaydiumPositionKind(kind: 'all' | 'clmm' | 'lp'): void {
+    this.raydiumPositionKind.set(kind);
+  }
+
+  // Classic numbered pagination (1 2 3 4 5). Each page REPLACES the list with
+  // its own 10 rows — no infinite-scroll / auto-append. Raydium V3 doesn't
+  // expose a total count, so we drive a windowed page bar off the current page
+  // + `hasNextPage`: offer a few pages ahead while more data exists, cap once
+  // the last page is reached.
+  readonly raydiumPageNumbers = computed<number[]>(() => {
+    const cur = this.raydiumPage();
+    const hasNext = this.raydiumHasNextPage();
+    const WINDOW = 5;
+    // `hasNext` only proves ONE more page exists — NOT four. Offering cur+4
+    // whenever hasNext was true is what surfaced dead page buttons (2 3 4 5 6
+    // for a pair with only 2 pages), each fetching an empty page. Offer exactly
+    // one page ahead; more numbers appear as the user actually advances.
+    const maxOffer = cur + (hasNext ? 1 : 0);
+    let start = Math.max(1, cur - Math.floor(WINDOW / 2));
+    let end = Math.min(maxOffer, start + WINDOW - 1);
+    start = Math.max(1, end - WINDOW + 1);
+    const pages: number[] = [];
+    for (let p = start; p <= end; p++) pages.push(p);
+    return pages;
+  });
+
+  raydiumGoToPage(n: number): void {
+    if (n < 1 || n === this.raydiumPage() || this.raydiumFetching()) return;
+    this.raydiumPage.set(n);
+    void this.fetchRaydiumPools();
+  }
 
   priceResult: PriceResult | null = null;
   positionResults: PositionResult[] = [];
@@ -458,7 +593,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return 'assets/icons/protocols/meteora.webp';
       case 'raydium_get_pools':
       case 'raydium_search_pools':
+      case 'raydium_get_user_positions':
+      case 'raydium_get_clmm_positions':
         return 'assets/icons/protocols/raydium.png';
+      case 'kamino_multiply_markets':
+        return 'assets/icons/protocols/kamino.svg';
       default:
         return null;
     }
@@ -491,6 +630,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'meteora_dammv1_get_pools':  void this.fetchDammV1Pools(); break;
       case 'raydium_get_pools':         void this.fetchRaydiumPools(); break;
       case 'raydium_search_pools':      void this.fetchRaydiumPools(); break;
+      case 'kamino_multiply_markets':   void this.fetchKaminoMultiplyMarkets(); break;
     }
   }
 
@@ -511,7 +651,44 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.query.type === 'perp_positions') {
         void this.reconcilePerpPositions();
       }
+      // Raydium positions are LIVE state, not a receipt: a snapshot restored
+      // from an older chat turn can show closed positions, stale amounts, or
+      // (before the amounts existed) a raw liquidity constant. Refetch so the
+      // list — and any Withdraw spawned from it — reflects the chain.
+      if (this.query.type === 'raydium_get_user_positions' || this.query.type === 'raydium_get_clmm_positions') {
+        void this.fetchRaydiumPositions();
+      }
     } else {
+      // Seed the Raydium pool-type filter (and sort) from the incoming query
+      // params BEFORE the first fetch, so an explicit "CLMM" / "concentrated"
+      // request defaults the card to that filter instead of ALL — otherwise
+      // "open a CLMM position" listed AMM pools too. Only on a fresh query; a
+      // restored snapshot keeps the user's last chosen filter.
+      if (this.query.type === 'raydium_search_pools' || this.query.type === 'raydium_get_pools') {
+        const pt = (this.query.params?.['poolType'] as string | undefined)?.toLowerCase();
+        if (pt === 'concentrated' || pt === 'clmm') this.raydiumPoolType.set('concentrated');
+        else if (pt === 'standard' || pt === 'amm') this.raydiumPoolType.set('standard');
+        else if (pt === 'all') this.raydiumPoolType.set('all');
+        const sf = this.query.params?.['sortField'] as string | undefined;
+        if (sf === 'liquidity' || sf === 'volume24h' || sf === 'fee24h' || sf === 'apr24h') {
+          this.raydiumSortField.set(sf);
+        }
+      }
+      // Same idea for the POSITIONS list: "list my CLMM positions" must not also
+      // dump standard LP holdings. The dedicated query type implies CLMM; a
+      // generic positions query can still carry a kind/poolType hint.
+      if (this.query.type === 'raydium_get_clmm_positions') {
+        this.raydiumPositionKind.set('clmm');
+      } else if (this.query.type === 'raydium_get_user_positions') {
+        const k = (
+          (this.query.params?.['kind'] as string | undefined) ??
+          (this.query.params?.['poolType'] as string | undefined) ??
+          (this.query.params?.['positionType'] as string | undefined) ??
+          ''
+        ).toLowerCase();
+        if (k === 'clmm' || k === 'concentrated') this.raydiumPositionKind.set('clmm');
+        else if (k === 'lp' || k === 'standard' || k === 'amm') this.raydiumPositionKind.set('lp');
+      }
       this.simulateQuery();
     }
 
@@ -540,8 +717,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       clearInterval(this.livePollTimer);
       this.livePollTimer = null;
     }
-    this._raydiumScrollObserver?.disconnect();
-    this._raydiumScrollObserver = undefined;
   }
 
   private restoreSnapshot(snap: QuerySnapshot): void {
@@ -596,6 +771,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         ?? 'pool_tvl');
       this.dammV1SortDir.set((d['dammV1SortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
     }
+    if (d['raydiumPositions']) {
+      this.raydiumPositions.set(d['raydiumPositions'] as RaydiumUserPosition[]);
+    }
     if (d['raydiumResults']) {
       this.raydiumResults = d['raydiumResults'] as RaydiumPool[];
       this.raydiumHasNextPage.set((d['raydiumHasNextPage'] as boolean | undefined) ?? false);
@@ -605,6 +783,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.raydiumSortField.set(
         (d['raydiumSortField'] as 'liquidity' | 'volume24h' | 'fee24h' | 'apr24h' | undefined) ?? 'liquidity');
       this.raydiumSortDir.set((d['raydiumSortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
+    }
+    if (d['kaminoMultiplyAll']) {
+      this.kaminoMultiplyAll.set(d['kaminoMultiplyAll'] as KaminoMultiplyMarket[]);
+      this.kaminoMultiplyTotal.set((d['kaminoMultiplyTotal'] as number | undefined) ?? this.kaminoMultiplyAll().length);
+      this.kaminoMultiplySortField.set((d['kaminoMultiplySortField'] as 'apy' | 'leverage' | 'tvl' | 'liquidity' | undefined) ?? 'apy');
+      this.kaminoMultiplySortDir.set((d['kaminoMultiplySortDir'] as 'asc' | 'desc' | undefined) ?? 'desc');
     }
     this.loading.set(false);
   }
@@ -650,6 +834,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       d['dammV1SortField'] = this.dammV1SortField();
       d['dammV1SortDir']   = this.dammV1SortDir();
     }
+    if (this.raydiumPositions().length) {
+      d['raydiumPositions'] = this.raydiumPositions();
+    }
     if (this.raydiumResults.length) {
       d['raydiumResults']     = this.raydiumResults;
       d['raydiumHasNextPage'] = this.raydiumHasNextPage();
@@ -657,6 +844,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       d['raydiumPoolType']    = this.raydiumPoolType();
       d['raydiumSortField']   = this.raydiumSortField();
       d['raydiumSortDir']     = this.raydiumSortDir();
+    }
+    if (this.kaminoMultiplyAll().length) {
+      d['kaminoMultiplyAll']       = this.kaminoMultiplyAll();
+      d['kaminoMultiplyTotal']     = this.kaminoMultiplyTotal();
+      d['kaminoMultiplySortField'] = this.kaminoMultiplySortField();
+      d['kaminoMultiplySortDir']   = this.kaminoMultiplySortDir();
     }
     return d;
   }
@@ -1056,6 +1249,84 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.persistSnapshot();
   }
 
+  // ── Kamino Multiply pools ───────────────────────────────────────────────
+  /** Fetch the full Multiply pool set once (client sorts/filters/paginates). */
+  private async fetchKaminoMultiplyMarkets(): Promise<void> {
+    this.kaminoMultiplyFetching.set(true);
+    this.error.set(null);
+    try {
+      const seedToken = (this.query.params['token'] as string | undefined)?.trim();
+      const resp = await firstValueFrom(
+        this.api.post<{ data?: { markets?: KaminoMultiplyMarket[]; total?: number } }>(
+          '/actions/build',
+          { type: 'kamino_multiply_markets', params: { limit: '100', ...(seedToken ? { token: seedToken } : {}) } },
+        ),
+      );
+      const markets = resp?.data?.markets ?? [];
+      this.kaminoMultiplyAll.set(markets);
+      this.kaminoMultiplyTotal.set(resp?.data?.total ?? markets.length);
+    } catch {
+      this.error.set('Failed to load Kamino Multiply pools');
+    } finally {
+      this.kaminoMultiplyFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    }
+  }
+
+  onKaminoMultiplySearch(e: Event): void {
+    const val = (e.target as HTMLInputElement).value.slice(0, 40);
+    this.kaminoMultiplySearchRaw.set(val);
+    this.kaminoMultiplyPage.set(1);
+  }
+
+  onKaminoMultiplySortChange(field: 'apy' | 'leverage' | 'tvl' | 'liquidity'): void {
+    if (this.kaminoMultiplySortField() === field) {
+      this.kaminoMultiplySortDir.update(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      this.kaminoMultiplySortField.set(field);
+      this.kaminoMultiplySortDir.set('desc');
+    }
+    this.kaminoMultiplyPage.set(1);
+  }
+
+  kaminoMultiplyGoToPage(page: number): void {
+    this.kaminoMultiplyPage.set(Math.max(1, Math.min(page, this.kaminoMultiplyTotalPages())));
+  }
+  kaminoMultiplyPrevPage(): void { this.kaminoMultiplyGoToPage(this.kaminoMultiplyPage() - 1); }
+  kaminoMultiplyNextPage(): void { this.kaminoMultiplyGoToPage(this.kaminoMultiplyPage() + 1); }
+
+  /** Resolve a token logo live from the registry by mint (dual-icon rows). */
+  logoForMint(mint: string): string | null {
+    void this.tokenRegistry.version(); // signal dependency for re-render
+    const logo = mint ? this.tokenRegistry.getToken(mint)?.logoURI : null;
+    // Kamino pairs include LSTs/stables (PYUSD, cbBTC, hubSOL, FDUSD…) that
+    // aren't in the strict list — fire-and-forget fetch their logo, which bumps
+    // version() and re-renders this cell with the real icon (no more fallback).
+    if (!logo && mint) this.tokenRegistry.resolveAsync(mint);
+    return logo ?? null;
+  }
+
+  /** Pre-fill and emit a kamino_multiply_open action for the chosen pool. */
+  useMultiplyMarket(r: KaminoMultiplyMarket): void {
+    // Capped pool — opening would revert on-chain (6089). Don't emit a doomed
+    // action; the row is already visually marked and its button disabled.
+    if (r.borrowable === false) return;
+    // Pass MINT addresses, not symbols — the backend resolves the reserve by
+    // mint, and its static symbol map doesn't know LSTs/newer tokens (cbBTC,
+    // PYUSD…), which would otherwise fail as a non-base58 "address".
+    const params: Record<string, string> = {
+      token: r.collMint,
+      debtToken: r.debtMint,
+      leverage: String(Math.min(r.maxLeverage, 3)),
+    };
+    this.useAction.emit({
+      type: 'kamino_multiply_open',
+      params,
+      raw: `[ACTION:kamino_multiply_open] ${JSON.stringify(params)}`,
+    });
+  }
+
   onDammV2Search(e: Event): void {
     const val = (e.target as HTMLInputElement).value.slice(0, 100);
     this.dammV2SearchRaw.set(val);
@@ -1246,9 +1517,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     // the same pair. Same response shape as `/pools/info/list`, so the rest of
     // the render path is unchanged.
     const isSearch = this.query.type === 'raydium_search_pools';
-    const tokenA = isSearch ? (this.query.params?.['tokenA'] as string | undefined) : undefined;
+    // The typed search box takes precedence over any tokenA the query was
+    // seeded with; tokenB only ever comes from the original query params.
+    const tokenA = this.raydiumSearchTokenA()
+      ?? (isSearch ? (this.query.params?.['tokenA'] as string | undefined) : undefined);
     const tokenB = isSearch ? (this.query.params?.['tokenB'] as string | undefined) : undefined;
-    const body = isSearch && tokenA
+    const body = tokenA
       ? {
           type: 'raydium_search_pools',
           params: {
@@ -1256,6 +1530,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
             ...(tokenB ? { tokenB } : {}),
             poolType: this.raydiumPoolType(),
             sortField: this.raydiumSortField(),
+            page: this.raydiumPage(),
             pageSize: this.RAYDIUM_PAGE_SIZE,
           },
         }
@@ -1271,7 +1546,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         };
 
     try {
-      const resp = await firstValueFrom(this.api.post<any>('/actions/build', body));
+      // Hard 15s ceiling so a stuck gateway/RPC connection surfaces the error
+      // state (with a Refresh affordance) instead of spinning forever.
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', body).pipe(timeout(15_000)));
       // preview.params holds the unmodified Raydium API envelope:
       //   { id, success, data: { count, hasNextPage, data: RaydiumPool[] } }
       // Raydium V3 quirk: `count` is the page size (10), NOT the total —
@@ -1281,31 +1558,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       const rows: RaydiumPool[] = Array.isArray(apiData?.data) ? apiData.data : [];
       const hasNext: boolean = !!apiData?.hasNextPage;
 
-      // Append vs replace: page == 1 is a fresh load (initial mount, sort or
-      // filter change, manual refresh) — replace. page > 1 is the user (or
-      // the auto-scroll observer) asking for the next slice — append.
-      //
-      // Defense in depth: dedupe by pool id when appending. If the backend
-      // (or upstream Raydium API) returns the same row across pages — a known
-      // failure mode for badly-paginated APIs — silently dropping the dupes
-      // keeps `@for ... track p.id` happy and prevents the table from
-      // visually inflating with phantom rows. If EVERY appended row is a
-      // dup, the page added nothing real → flip `hasNextPage` off so the
-      // observer stops re-firing on an unchanged sentinel position.
-      let effectiveHasNext = hasNext;
-      if (this.raydiumPage() > 1) {
-        const seen = new Set(this.raydiumResults.map(r => r.id));
-        const fresh = rows.filter(r => !seen.has(r.id));
-        if (fresh.length === 0) {
-          // Backend claimed more pages but returned only dupes → stop looping.
-          effectiveHasNext = false;
-        } else {
-          this.raydiumResults = [...this.raydiumResults, ...fresh];
-        }
-      } else {
-        this.raydiumResults = rows;
-      }
-      this.raydiumHasNextPage.set(effectiveHasNext);
+      // Numbered pagination: each page REPLACES the visible list with its own
+      // 10 rows (never append). The table always shows exactly the current
+      // page's slice.
+      this.raydiumResults = rows;
+      this.raydiumHasNextPage.set(hasNext);
       this.raydiumFetching.set(false);
       this.loading.set(false);
       this.persistSnapshot();
@@ -1323,6 +1580,51 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     void this.fetchRaydiumPools();
   }
 
+  /**
+   * Precise pool-program label. Raydium's API lumps the newer CPMM and the
+   * legacy AMM v4 together as "Standard", but they are different programs with
+   * different costs and mechanics — showing both as "AMM" hides which one a
+   * deposit actually lands in. Falls back to the API's coarse type.
+   */
+  private static readonly RAY_PROGRAMS: Record<string, string> = {
+    CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C: 'CPMM',
+    '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': 'AMM v4',
+    CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: 'CLMM',
+  };
+
+  raydiumPoolKind(p: { type?: string; programId?: string }): string {
+    const known = p.programId ? QueryCardComponent.RAY_PROGRAMS[p.programId] : undefined;
+    if (known) return known;
+    return (p.type ?? '').toLowerCase() === 'concentrated' ? 'CLMM' : 'AMM';
+  }
+
+  onRaydiumSearchInput(v: string): void {
+    this.raydiumSearchInput.set(v);
+  }
+
+  /** Resolve the typed symbol/mint and refetch the pool list filtered to pools
+   *  containing that token. Empty input clears the filter. */
+  onRaydiumSearchSubmit(): void {
+    const raw = this.raydiumSearchInput().trim();
+    if (!raw) { this.clearRaydiumSearch(); return; }
+    const mint = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw)
+      ? raw
+      : this.tokenRegistry.getBySymbol(raw)?.address ?? null;
+    if (!mint) { this.error.set(`No token found for "${raw}"`); return; }
+    this.error.set(null);
+    this.raydiumSearchTokenA.set(mint);
+    this.raydiumPage.set(1);
+    void this.fetchRaydiumPools();
+  }
+
+  clearRaydiumSearch(): void {
+    if (!this.raydiumSearchInput() && !this.raydiumSearchTokenA()) return;
+    this.raydiumSearchInput.set('');
+    this.raydiumSearchTokenA.set(null);
+    this.raydiumPage.set(1);
+    void this.fetchRaydiumPools();
+  }
+
   onRaydiumSortChange(field: 'liquidity' | 'volume24h' | 'fee24h' | 'apr24h'): void {
     if (this.raydiumSortField() === field) {
       this.raydiumSortDir.update(d => (d === 'desc' ? 'asc' : 'desc'));
@@ -1334,36 +1636,128 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     void this.fetchRaydiumPools();
   }
 
-  raydiumPrevPage(): void {
-    if (this.raydiumPage() > 1) {
-      this.raydiumPage.update(p => p - 1);
-      void this.fetchRaydiumPools();
+  /** Fetch the user's Raydium positions (CLMM + LP) straight from chain. */
+  private async fetchRaydiumPositions(): Promise<void> {
+    this.raydiumPositionsFetching.set(true);
+    this.error.set(null);
+    const wallet = this.walletService.publicKey();
+    if (!wallet) {
+      this.error.set('Connect your wallet to see positions');
+      this.loading.set(false);
+      this.raydiumPositionsFetching.set(false);
+      return;
     }
+    try {
+      const resp = await firstValueFrom(
+        this.api.post<any>('/actions/build', {
+          type: 'raydium_get_user_positions',
+          params: { wallet },
+        }).pipe(timeout(20_000)),
+      );
+      const data = resp?.data ?? resp?.preview?.params?.data;
+      const positions: RaydiumUserPosition[] = Array.isArray(data?.positions) ? data.positions : [];
+      this.raydiumPositions.set(positions);
+      this.loading.set(false);
+      this.raydiumPositionsFetching.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Raydium positions');
+      this.loading.set(false);
+      this.raydiumPositionsFetching.set(false);
+    }
+  }
+
+  /** Add liquidity to an EXISTING position: CLMM → increase the range's
+   *  liquidity; LP → deposit more into the same standard pool. Carries the same
+   *  display context as withdraw so the action card renders a real summary. */
+  addToRaydiumPosition(pos: RaydiumUserPosition): void {
+    const display: Record<string, string> = {
+      pair: pos.pair ?? '',
+      poolId: pos.poolId,
+      tokenASymbol: pos.mintA?.symbol ?? '',
+      tokenBSymbol: pos.mintB?.symbol ?? '',
+      ...(pos.mintA?.address ? { tokenA: pos.mintA.address } : {}),
+      ...(pos.mintB?.address ? { tokenB: pos.mintB.address } : {}),
+      ...(pos.mintA?.logoURI ? { tokenALogo: pos.mintA.logoURI } : {}),
+      ...(pos.mintB?.logoURI ? { tokenBLogo: pos.mintB.logoURI } : {}),
+    };
+    if (pos.kind === 'lp') {
+      const params: Record<string, string> = { ...display, poolId: pos.poolId };
+      this.useAction.emit({ type: 'raydium_add_liquidity', params, raw: `[ACTION:raydium_add_liquidity] ${JSON.stringify(params)}` });
+      return;
+    }
+    const params: Record<string, string> = {
+      ...display,
+      positionId: pos.positionId ?? '',
+      positionKind: 'clmm',
+      // Default the deposit side to token A; the card lets the user switch.
+      ...(pos.mintA?.address ? { inputMint: pos.mintA.address } : {}),
+      ...(pos.amountA !== undefined ? { amountA: String(pos.amountA) } : {}),
+      ...(pos.amountB !== undefined ? { amountB: String(pos.amountB) } : {}),
+    };
+    this.useAction.emit({ type: 'raydium_increase_position', params, raw: `[ACTION:raydium_increase_position] ${JSON.stringify(params)}` });
+  }
+
+  /** Withdraw a position: LP → remove-liquidity; CLMM → close the range.
+   *  Carries DISPLAY context (pair, token symbols/logos, amount) alongside the
+   *  functional ids so the action card can render a real position summary
+   *  instead of a bare "POSITION ID: <base58>" text field. */
+  withdrawRaydiumPosition(pos: RaydiumUserPosition): void {
+    const display: Record<string, string> = {
+      pair: pos.pair ?? '',
+      poolId: pos.poolId,
+      tokenASymbol: pos.mintA?.symbol ?? '',
+      tokenBSymbol: pos.mintB?.symbol ?? '',
+      ...(pos.mintA?.logoURI ? { tokenALogo: pos.mintA.logoURI } : {}),
+      ...(pos.mintB?.logoURI ? { tokenBLogo: pos.mintB.logoURI } : {}),
+    };
+    if (pos.kind === 'lp') {
+      const params: Record<string, string> = {
+        ...display,
+        poolId: pos.poolId,
+        lpAmount: String(pos.lpAmount ?? ''),
+        // The full holding, so the card can scale a partial withdrawal, plus
+        // the token amounts those LP tokens redeem for.
+        positionLpAmount: String(pos.lpAmount ?? ''),
+        ...(pos.amountA !== undefined ? { amountA: String(pos.amountA) } : {}),
+        ...(pos.amountB !== undefined ? { amountB: String(pos.amountB) } : {}),
+        positionKind: 'lp',
+      };
+      this.useAction.emit({ type: 'raydium_remove_liquidity', params, raw: `[ACTION:raydium_remove_liquidity] ${JSON.stringify(params)}` });
+    } else {
+      const params: Record<string, string> = {
+        ...display,
+        positionId: pos.positionId ?? '',
+        positionKind: 'clmm',
+        ...(pos.liquidity ? { liquidity: pos.liquidity } : {}),
+        // Token amounts for display — the card shows "you get back X + Y"
+        // instead of the raw liquidity constant.
+        ...(pos.amountA !== undefined ? { amountA: String(pos.amountA) } : {}),
+        ...(pos.amountB !== undefined ? { amountB: String(pos.amountB) } : {}),
+      };
+      this.useAction.emit({ type: 'raydium_close_position', params, raw: `[ACTION:raydium_close_position] ${JSON.stringify(params)}` });
+    }
+  }
+
+  raydiumPrevPage(): void {
+    if (this.raydiumPage() > 1) this.raydiumGoToPage(this.raydiumPage() - 1);
   }
 
   raydiumNextPage(): void {
     if (!this.raydiumHasNextPage()) return;
-    // Synchronous race guard — set fetching=true here, BEFORE awaiting the
-    // async fetch, so a second observer firing or rapid scroll burst can't
-    // sneak through the guard in the IntersectionObserver callback. Without
-    // this, the page counter could advance multiple times before the first
-    // fetch resolved, causing pages 2 / 3 / 4 to race and append in arbitrary
-    // order (and on a backend that ignores the `page` param, the same rows
-    // would land 3× as duplicates).
-    if (this.raydiumFetching()) return;
-    this.raydiumFetching.set(true);
-    this.raydiumPage.update(p => p + 1);
-    void this.fetchRaydiumPools();
+    this.raydiumGoToPage(this.raydiumPage() + 1);
   }
 
   /**
-   * Footer counter for infinite scroll. Returns the accumulated row count —
-   * the per-page `from/to` from the old paginated UI no longer applies once
-   * pages append into a single growing list. V3 doesn't expose the total so
-   * we just show what we have plus a "more available" hint when applicable.
+   * Page-based row range for the footer ("11–20 of this page"). Each page holds
+   * up to RAYDIUM_PAGE_SIZE rows and replaces the list, so the range is derived
+   * from the current page index, not an accumulated count.
    */
   get raydiumShowingRange(): { from: number; to: number } {
-    return { from: this.raydiumResults.length > 0 ? 1 : 0, to: this.raydiumResults.length };
+    const n = this.raydiumResults.length;
+    if (n === 0) return { from: 0, to: 0 };
+    const from = (this.raydiumPage() - 1) * this.RAYDIUM_PAGE_SIZE + 1;
+    return { from, to: from + n - 1 };
   }
 
 
@@ -1392,17 +1786,27 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       tokenBSymbol: p.mintB.symbol,
       tokenADecimals: String(p.mintA.decimals ?? 9),
       tokenBDecimals: String(p.mintB.decimals ?? 9),
+      // Lets the action card name the exact program (CPMM vs legacy AMM v4)
+      // rather than the API's coarse "Standard".
+      ...(p.programId ? { programId: p.programId } : {}),
     };
-    // For CLMM pools, pre-fill a balanced ±20% range around the current
-    // pool price so the user has a sane starting range — they can still
-    // tighten or widen it before confirming. AMM v4 (Standard) ignores
-    // these fields, so we only set them on CLMM.
-    if (isCLMM && typeof p.price === 'number' && p.price > 0) {
-      // Pre-fill ±20% range and the current price so the action card's CLMM
-      // ratio engine has a reference price to compute amountB-per-amountA.
+    // Raydium `price` is quote-per-base = mintB per mintA = amountB / amountA
+    // in human units. Carry it so the action card can auto-balance the two
+    // deposit amounts (type one side / hit Max → the other side fills to the
+    // pool ratio).
+    if (typeof p.price === 'number' && p.price > 0) {
       params['currentPrice'] = String(p.price);
-      params['minPrice'] = (p.price * 0.8).toPrecision(6);
-      params['maxPrice'] = (p.price * 1.2).toPrecision(6);
+      if (isCLMM) {
+        // CLMM: pre-fill a balanced ±20% range so the card's Uniswap-v3 ratio
+        // engine has a reference band (user can tighten/widen before confirm).
+        params['minPrice'] = (p.price * 0.8).toPrecision(6);
+        params['maxPrice'] = (p.price * 1.2).toPrecision(6);
+      } else {
+        // Standard AMM v4: full-range only (no min/max). The deposit ratio is
+        // simply the pool price — feed it as `amountRatio` (B per A) so
+        // `ammRatio()` drives the auto-balance on Max / single-side entry.
+        params['amountRatio'] = String(p.price);
+      }
     }
     const type = isCLMM ? 'raydium_open_position' : 'raydium_add_liquidity';
     this.useAction.emit({
@@ -1722,6 +2126,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_get_pools':
       case 'raydium_search_pools':
         await this.fetchRaydiumPools();
+        return;
+      case 'raydium_get_user_positions':
+      case 'raydium_get_clmm_positions':
+        await this.fetchRaydiumPositions();
+        return;
+      case 'kamino_multiply_markets':
+        await this.fetchKaminoMultiplyMarkets();
         return;
       case 'analytics':
         await this.fetchAnalytics();
@@ -2503,6 +2914,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   formatUsd(n: number): string {
+    return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  /** Compact USD for dense table cells: $2.52M, $18.4K, $47.24. */
+  formatCompactUsd(n: number): string {
+    if (!Number.isFinite(n)) return '$0';
+    const abs = Math.abs(n);
+    if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+    if (abs >= 10_000) return `$${(n / 1_000).toFixed(1)}K`;
     return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 

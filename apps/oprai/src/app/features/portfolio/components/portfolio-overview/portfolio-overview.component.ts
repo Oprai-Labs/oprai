@@ -21,6 +21,13 @@ export class PortfolioOverviewComponent implements OnInit {
   @Input() defiPositions: DefiPositions | null = null;
   @Input() protocolPositions: ProtocolPosition[] = [];
   @Input() portfolioChange: PortfolioValueChange | null = null;
+  // True while the cross-protocol position fetchers are still running. The
+  // wallet-token total (SOL + SPL) resolves first (~$14 here) but the DeFi
+  // legs (Jupiter Lend, Raydium LP, …) arrive seconds later. Showing the
+  // partial wallet-only figure and then jumping to the full total reads as a
+  // glitch, so the header total, sparkline, chart and protocol cards all hold
+  // a skeleton until every platform balance is in.
+  @Input() positionsLoading = false;
 
   /**
    * 7-day historical portfolio value series for the inline sparkline.
@@ -59,6 +66,28 @@ export class PortfolioOverviewComponent implements OnInit {
         balance: t.balance,
         currentUsdValue: t.usdValue ?? 0,
       });
+    }
+
+    // Fold in DeFi position legs so the 7-day line tracks the *whole*
+    // portfolio (Jupiter Lend, Raydium LP, …), not just the ~$14 of loose
+    // wallet tokens. Skip native- and liquid-staking to mirror `totalValue`'s
+    // dedup — staked SOL / LST tokens are already counted in the wallet leg.
+    // Each priced leg fetches its own mint's OHLCV; tokens without history
+    // fall back to a flat baseline via `currentUsdValue`.
+    for (const proto of this.protocolPositions) {
+      if (proto.category === 'native-staking' || proto.category === 'liquid-staking') continue;
+      for (const pos of proto.positions) {
+        const legs = pos.tokens.filter((t) => t.mint && t.amount > 0);
+        if (!legs.length) continue;
+        const perLegUsd = (pos.totalUsdValue ?? 0) / legs.length;
+        for (const leg of legs) {
+          holdings.push({
+            mint: leg.mint as string,
+            balance: leg.amount,
+            currentUsdValue: perLegUsd,
+          });
+        }
+      }
     }
 
     // Single path: per-token Birdeye OHLCV via the gateway proxy. The

@@ -484,6 +484,48 @@ export class SolanaActionService {
   }
 
   /**
+   * Sign + submit + confirm the ordered setup transactions that must land BEFORE
+   * the main action tx. Used by Kamino Multiply: opening a leveraged position on
+   * a pair the user hasn't used before needs their per-position address lookup
+   * table created and extended (and warmed up one slot) first, so the leveraged
+   * deposit can compress against it and fit the 1232-byte limit.
+   *
+   * No-op unless the build returned a `transactions[]` with a non-zero
+   * `actionTxIndex`. Each setup tx is a separate wallet approval; we wait for
+   * confirmation between them (the LUT must exist before the next extend/deposit).
+   */
+  private async signAndConfirmSetupTxs(
+    buildResult: BuildResponse,
+    web3: typeof import('@solana/web3.js'),
+    connection: ReturnType<typeof createSolanaConnection>,
+    callbacks: ActionCallbacks,
+  ): Promise<void> {
+    const ordered = (buildResult as { transactions?: string[] }).transactions;
+    const actionTxIndex = (buildResult as { actionTxIndex?: number }).actionTxIndex ?? 0;
+    if (!Array.isArray(ordered) || actionTxIndex <= 0) return;
+
+    const setupTxs = ordered.slice(0, actionTxIndex);
+    for (let i = 0; i < setupTxs.length; i++) {
+      callbacks.onStatus?.(`Setting up position account (${i + 1}/${setupTxs.length})…`);
+      callbacks.onSign?.();
+      const tx = web3.VersionedTransaction.deserialize(this.base64ToUint8Array(setupTxs[i]));
+      const signed = (await Promise.race([
+        this.walletService.signTransaction(tx),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Wallet signing timed out. Please try again.')), 120_000),
+        ),
+      ])) as { serialize(): Uint8Array };
+      const sig = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+      const ok = await this.waitForSignatureConfirmation(connection, sig, 90_000);
+      if (!ok) throw new Error('Position account setup did not confirm — please try again.');
+    }
+    callbacks.onStatus?.('Opening position…');
+  }
+
+  /**
    * Perform a token launch's initial dev-buy as a follow-up, AFTER the create tx
    * confirms (the token/curve must exist on-chain first).
    *
@@ -613,17 +655,26 @@ export class SolanaActionService {
       /* console may be sandboxed */
     }
 
-    // Custom program error code (hex)
-    const hexMatch = errStr.match(/"InstructionError":\s*\[\d+,\s*\{"Custom":\s*(\d+)\}\]/);
-    const errorCode = hexMatch ? parseInt(hexMatch[1]) : null;
+    // Custom program error code. Two wire forms reach us: the structured
+    // `{"InstructionError":[i,{"Custom":N}]}` from preflight sim, and the raw
+    // `custom program error: 0x1771` text thrown by web3.js SendTransactionError
+    // at submit time. Parse both (hex text → decimal) so classification works
+    // regardless of which path surfaced the error.
+    const structMatch = errStr.match(/"InstructionError":\s*\[\d+,\s*\{"Custom":\s*(\d+)\}\]/);
+    let errorCode = structMatch ? parseInt(structMatch[1]) : null;
+    if (errorCode === null) {
+      const hexText = (errStr + ' ' + logsStr).match(/custom program error:\s*0x([0-9a-f]+)/i);
+      if (hexText) errorCode = parseInt(hexText[1], 16);
+    }
 
     // Token account has insufficient balance (SPL token error 0x1 = InsufficientFunds)
     if (errorCode === 1 || logsStr.includes('insufficient funds') || logsStr.includes('insufficient balance')) {
       return 'sim:insufficient_tokens';
     }
 
-    // Jupiter-specific: 6003 = slippage exceeded
-    if (errorCode === 6003) {
+    // Jupiter slippage: 6001 (0x1771) SlippageToleranceExceeded + 6003 (some
+    // routes report the latter). Both mean the realized out fell below min-out.
+    if (errorCode === 6001 || errorCode === 6003) {
       return 'sim:slippage_exceeded';
     }
 
@@ -1217,7 +1268,14 @@ export class SolanaActionService {
         const sym = p.asset.symbol.toUpperCase();
         return sym === ref || (solAlias && (sym === 'SOL' || sym === 'WSOL'));
       });
-      const deposited = pos?.depositedAmount ?? 0;
+      let deposited = pos?.depositedAmount ?? 0;
+      // Also consider the borrow-market SUPPLY ("Lending") position — often the
+      // real one, with the Earn deposit being leftover dust. Resolve the
+      // sentinel against whichever is larger so "withdraw all" targets the money.
+      if (wallet) {
+        const target = await this.lendService.getSupplyWithdrawTarget(wallet, action.params['token'] ?? '');
+        if (target && target.supplyAmount > deposited) deposited = target.supplyAmount;
+      }
       const adjusted = pctMatch ? deposited * (parseFloat(pctMatch[1]) / 100) : deposited;
       if (deposited <= 0) {
         throw new Error(`No ${action.params['token'] ?? 'that asset'} deposit found in Jupiter Lend to withdraw.`);
@@ -1438,6 +1496,13 @@ export class SolanaActionService {
     // Step 3b: Deserialize tx + precise fee check — must happen before wallet dialog
     const web3 = await import('@solana/web3.js');
     const connection = createSolanaConnection('confirmed');
+
+    // Some actions return an ordered transactions[] where everything BEFORE
+    // actionTxIndex is one-time setup that must land — and warm up — before the
+    // main tx can reference it (Kamino Multiply's per-user lookup table: create +
+    // extend, then the leveraged deposit compresses against it). Sign + confirm
+    // those first, in order; the main tx (buildResult.transaction) follows below.
+    await this.signAndConfirmSetupTxs(buildResult, web3, connection, callbacks);
 
     const txBuffer = this.base64ToUint8Array(buildResult.transaction!);
     // Detect versioned-vs-legacy from the bytes themselves, not just the static
@@ -1875,10 +1940,30 @@ export class SolanaActionService {
       case 'withdraw_lend': {
         const asset = await this.lendService.resolveAsset(action.params['token'] ?? 'USDC');
         if (!asset) throw new Error(`Unsupported lend asset: ${action.params['token']}`);
-        const result = await this.lendService.buildWithdrawTransaction(
-          asset,
-          parseFloat(action.params['amount'] ?? '0')
-        );
+        const amount = parseFloat(action.params['amount'] ?? '0');
+        // The user's Jupiter Lend position may live in the borrow-market SUPPLY
+        // (Jupiter's "Lending" — collateral supplied to a borrow vault, borrow
+        // may be 0), NOT the Earn/Vault product. Those are withdrawn via the
+        // borrow-vault op, not the Earn SDK — routing an Earn withdraw against a
+        // supply position drains the wrong (usually empty) balance. Prefer the
+        // supply position whenever one exists for this asset.
+        const wallet = this.walletService.publicKey();
+        const supplyTarget = wallet
+          ? await this.lendService.getSupplyWithdrawTarget(wallet, action.params['token'] ?? asset.mint)
+          : null;
+        if (supplyTarget && supplyTarget.supplyAmount > 0) {
+          const result = await this.lendService.buildBorrowOperateTransaction(
+            supplyTarget.vaultId,
+            supplyTarget.positionId,
+            -Math.abs(amount), // negative = withdraw collateral; snaps to MAX_WITHDRAW at ≥99% of supply
+            0,                 // no debt change
+            supplyTarget.colAsset,
+            supplyTarget.debtAsset,
+          );
+          transaction = result.transaction;
+          break;
+        }
+        const result = await this.lendService.buildWithdrawTransaction(asset, amount);
         transaction = result.transaction;
         break;
       }
@@ -2146,11 +2231,19 @@ export class SolanaActionService {
         const hasPoolId = !!p['poolId'];
         const hasTokenPair = !!(p['tokenA'] && p['tokenB']);
         if (hasPoolId) {
-          // Pool ID mode: poolId + amount + inputMint (single-sided)
+          // Pool-ID mode is single-sided: Raydium takes the pool + ONE input
+          // token + its amount and computes the paired side from the pool
+          // ratio. The pool card carries tokenA/amountA (+ auto-balanced
+          // amountB) but no `amount`/`inputMint`, so derive the single input
+          // from side A — falling back to side B — instead of sending the
+          // (empty) `amount`/`inputMint` keys, which tripped the backend's
+          // "provide either (poolId + inputMint + amount) or …" guard.
+          const inputMint = p['inputMint'] ?? (p['amountA'] ? p['tokenA'] : p['amountB'] ? p['tokenB'] : p['tokenA']);
+          const amount = p['amount'] ?? p['amountA'] ?? p['amountB'];
           return {
             poolId: p['poolId'],
-            amount: p['amount'],
-            inputMint: p['inputMint'],
+            amount,
+            inputMint,
             slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
             ...(p['baseIn'] !== undefined ? { baseIn: parseBoolParam(p['baseIn']) } : {}),
           };

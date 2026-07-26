@@ -149,7 +149,27 @@ export class AuthService {
    * The browser sends the cookie automatically (credentials: 'include' / withCredentials).
    * Returns true if a valid session was found, false otherwise.
    */
-  async restoreSession(): Promise<void> {
+  /** Memoized promise of the FIRST cookie-based session restore. Route guards
+   *  await this so a deep-link / F5 to a protected page (e.g. /portfolio) waits
+   *  for the session to be known instead of bouncing to home while auth is
+   *  still resolving. Restore runs exactly once. */
+  private _authReady: Promise<void> | null = null;
+  whenAuthReady(): Promise<void> {
+    if (!this._authReady) this._authReady = this.restoreSession();
+    return this._authReady;
+  }
+
+  /**
+   * Restore the wallet session from the HttpOnly cookie.
+   *
+   * @param opts.preserveSessionsOnFail  When true (401-recovery from the error
+   *   interceptor), a failed/negative restore does NOT clear the sidebar's
+   *   session list. A portfolio page fires many requests; a single transient
+   *   401 must not wipe the chat history and make the sidebar visibly reload.
+   *   The initial app-load restore leaves this false so a genuinely
+   *   unauthenticated boot still clears any stale wallet's sessions.
+   */
+  async restoreSession(opts?: { preserveSessionsOnFail?: boolean }): Promise<void> {
     try {
       const session = await firstValueFrom(
         this.api.get<SessionResponse>('/auth/session')
@@ -158,14 +178,15 @@ export class AuthService {
         this._user.set({ wallet: session.wallet });
         this.sessionStorage.setWallet(session.wallet);
         // _token stays null — we use the cookie for requests; isAuthenticated() checks _user
-      } else {
+      } else if (!opts?.preserveSessionsOnFail) {
         // Server says not authenticated — make sure no stale wallet's sessions stay visible.
         this.sessionStorage.setWallet(null);
       }
     } catch {
       // Network error or 4xx — session is not restored; user will need to re-auth.
-      // Clear the sidebar so the UI matches the unauthenticated state.
-      this.sessionStorage.setWallet(null);
+      if (!opts?.preserveSessionsOnFail) {
+        this.sessionStorage.setWallet(null);
+      }
     }
   }
 
@@ -175,6 +196,10 @@ export class AuthService {
     // /auth/logout on every 401 revokes the user's own jti and creates a loop.
     this.api.post('/auth/logout', {}).subscribe({ error: () => {} });
     this.clearLocalAuth();
+    // Genuine sign-out (and wallet change, which routes through logout()): drop
+    // the in-memory session list so the previous wallet's conversations aren't
+    // shown. Per-wallet on-disk storage is retained for the next sign-in.
+    this.sessionStorage.setWallet(null);
   }
 
   /**
@@ -191,10 +216,14 @@ export class AuthService {
 
     this._token.set(null);
     this._user.set(null);
-    // Unbind storage instead of wiping it — sessions for this wallet are kept on disk
-    // for the next login. setWallet(null) clears the in-memory state so the sidebar
-    // is empty until a wallet reconnects.
-    this.sessionStorage.setWallet(null);
+    // Intentionally does NOT touch session-storage. This runs on TRANSIENT 401
+    // recovery (error interceptor / re-opening a conversation) where the wallet
+    // has NOT changed and the HttpOnly cookie is usually still valid. Wiping the
+    // in-memory session list here made the sidebar flash "No conversations yet"
+    // right after visiting a page that fires an authenticated call whose stale
+    // in-memory Bearer 401s (e.g. Portfolio's cost-basis fetch), even though the
+    // cookie could still restore the session. A genuine sign-out / wallet change
+    // clears the list explicitly in logout().
   }
 
   getToken(): string | null {

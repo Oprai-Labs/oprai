@@ -163,7 +163,9 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'kamino_multiply_open', 'kamino_multiply_add', 'kamino_multiply_withdraw', 'kamino_multiply_close',
   'kamino_long_open', 'kamino_short_open', 'kamino_position_close',
   'kamino_vault_deposit', 'kamino_vault_withdraw', 'kamino_stake', 'kamino_unstake',
+  'kamino_liquidity_deposit', 'kamino_liquidity_withdraw',
   // Kamino — data queries
+  'kamino_liquidity_strategies',
   'kamino_vaults', 'kamino_markets', 'kamino_market_reserves',
   'kamino_user_vault_positions', 'kamino_user_obligations', 'kamino_oracle_prices', 'kamino_usd_benchmark_rates',
   'kamino_market_metrics_history', 'kamino_reserve_borrow_apy_history', 'kamino_reserve_borrow_apy_median',
@@ -254,6 +256,8 @@ const KNOWN_QUERY_TYPES = new Set<string>([
   'token_info', 'trending', 'network', 'risk', 'yield',
   'analytics', 'nft_collection', 'airdrops', 'gas',
   'wallet_info', 'tax_report', 'limit_orders', 'dca', 'lend_positions', 'perp_positions',
+  // Kamino Multiply pool list (self-fetching query-card)
+  'kamino_multiply_markets',
   // Simulation & tracking
   'simulate', 'whale', 'smart_money',
   // SNS — Solana Name Service queries
@@ -1206,6 +1210,8 @@ export class IntentParserService {
       // Raydium pool list
       case 'raydium_get_pools':
         return 'layers';
+      case 'kamino_multiply_markets':
+        return 'trending-up';
       default: return 'search';
     }
   }
@@ -1271,6 +1277,9 @@ export class IntentParserService {
           ? `Meteora DAMM v1 Pools (${query.params['query']})`
           : 'Meteora DAMM v1 Pools';
       // ── Raydium Pool List ─────────────────────────────────────────────────
+      case 'raydium_get_user_positions':
+      case 'raydium_get_clmm_positions':
+        return 'Raydium Positions';
       case 'raydium_get_pools': {
         const t = query.params['poolType'];
         const label = t === 'concentrated' ? 'Raydium CLMM Pools'
@@ -1278,6 +1287,11 @@ export class IntentParserService {
           : 'Raydium Pools';
         return label;
       }
+      // ── Kamino Multiply Pool List ─────────────────────────────────────────
+      case 'kamino_multiply_markets':
+        return query.params['token']
+          ? `Kamino Multiply Pools (${query.params['token']})`
+          : 'Kamino Multiply Pools';
       // ── Solend Protocol Queries ─────────────────────────────────────────────
       case 'solend_reserves':
         return 'Solend Reserves';

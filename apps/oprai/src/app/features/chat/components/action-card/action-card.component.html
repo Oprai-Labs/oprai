@@ -127,13 +127,23 @@
 
         <!-- 5. Initial buy -->
         <div class="pf-field pf-field--half">
-          <label class="pf-field-label">Initial buy (SOL)</label>
+          <label class="pf-field-label">
+            Initial buy (SOL)
+            @if (initialBuyUsd(); as usd) {
+              <span class="pf-field-hint">≈ ${{ usd | number:'1.0-2' }}</span>
+            }
+          </label>
           <div class="pf-input-wrap">
             <input class="pf-input" type="number" min="0" step="0.01" placeholder="0.0"
               [value]="editInitialBuy()"
-              (input)="editInitialBuy.set($any($event.target).value)"
+              (input)="editInitialBuy.set($any($event.target).value); initialBuyUsd.set(null)"
               [disabled]="!isEditable()" />
-            <span class="pf-input-suffix">SOL</span>
+            <span class="pf-input-suffix pf-input-suffix--token">
+              @if (solLogoURI) {
+                <img [src]="solLogoURI" class="pf-suffix-icon" alt="" />
+              }
+              SOL
+            </span>
           </div>
         </div>
 
@@ -489,11 +499,13 @@
               </div>
             </div>
           </div>
-        } @else if (action.type === 'swap') {
-          <!-- ─────── Generic swap (Jupiter / Raydium / …): mini-Uniswap layout ─────── -->
+        } @else if (action.type === 'swap' || action.type === 'raydium_swap') {
+          <!-- ─────── Generic swap (Jupiter / Raydium): mini-Uniswap layout ─────── -->
           <!-- Same "You pay / You receive" two-panel widget as pump.fun, but with
-               clickable token SELECTORS (open the token picker) and a live Jupiter
-               quote on the counter side. All values stay in editParams /
+               clickable token SELECTORS (open the token picker) and a live quote
+               on the counter side. Jupiter swaps quote via the aggregator;
+               raydium_swap quotes from Raydium's own venue and is ExactIn-only
+               (the receive side is display-only). All values stay in editParams /
                swapMode, so save/restore + submit are unchanged. -->
           @let payTd = resolveTokenDisplay(getEditParam('inputMint'));
           @let recvTd = resolveTokenDisplay(getEditParam('outputMint'));
@@ -559,7 +571,7 @@
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
                        [value]="!isEditable() && executedSwapView() ? executedSwapView()!.receive : swapInputValueFor('outputMint')"
                        (input)="onSwapAmountInput('outputMint', $any($event.target).value)"
-                       [disabled]="!isEditable()" />
+                       [disabled]="!isEditable() || action.type === 'raydium_swap'" />
                 <button type="button" class="pump-token pump-token--select"
                         [disabled]="!isEditable()"
                         (click)="openTokenPicker('outputMint', $event)"
@@ -588,18 +600,20 @@
                   <span class="pump-setting__suffix">%</span>
                 </div>
               </div>
-              <div class="pump-setting">
-                <label class="pump-setting__label">Direct routes only</label>
-                <button type="button" class="pump-setting__toggle"
-                        [class.is-on]="getEditParam('onlyDirectRoutes') === 'true'"
-                        [disabled]="!isEditable()"
-                        (click)="isEditable() && toggleEditParam('onlyDirectRoutes')"
-                        role="switch"
-                        [attr.aria-checked]="getEditParam('onlyDirectRoutes') === 'true'">
-                  <span class="pump-setting__switch"><span class="pump-setting__knob"></span></span>
-                  <span class="pump-setting__toggle-text">{{ getEditParam('onlyDirectRoutes') === 'true' ? 'Enabled' : 'Disabled' }}</span>
-                </button>
-              </div>
+              @if (action.type !== 'raydium_swap') {
+                <div class="pump-setting">
+                  <label class="pump-setting__label">Direct routes only</label>
+                  <button type="button" class="pump-setting__toggle"
+                          [class.is-on]="getEditParam('onlyDirectRoutes') === 'true'"
+                          [disabled]="!isEditable()"
+                          (click)="isEditable() && toggleEditParam('onlyDirectRoutes')"
+                          role="switch"
+                          [attr.aria-checked]="getEditParam('onlyDirectRoutes') === 'true'">
+                    <span class="pump-setting__switch"><span class="pump-setting__knob"></span></span>
+                    <span class="pump-setting__toggle-text">{{ getEditParam('onlyDirectRoutes') === 'true' ? 'Enabled' : 'Disabled' }}</span>
+                  </button>
+                </div>
+              }
             </div>
           </div>
         } @else if (action.type === 'limit_order') {
@@ -1004,6 +1018,8 @@
           @let cp = clmmCurrentPriceDisplay();
           <div class="clmm-form" [class.proto-fields--shake]="shake()">
 
+          @if (editParams()['currentPrice']) {
+
             <!-- Current price line -->
             @if (cp) {
               <div class="clmm-current-price">
@@ -1070,72 +1086,72 @@
               @let tdA = mintA ? resolveTokenDisplay(mintA) : null;
               @let tdB = mintB ? resolveTokenDisplay(mintB) : null;
 
-              <!-- Token A row — single line: icon + symbol/balance stack on
-                   left, amount input + Max on right. Same vertical density
-                   as a `proto-input` for visual consistency with DLMM. -->
+              <!-- Token A panel — same layout as the Jupiter swap "You pay"
+                   panel (.pump-panel): label + balance/Max on top, hero-sized
+                   amount on the left of the body with a token pill on the right. -->
               <div class="clmm-amount-row">
-                <div class="clmm-amount-row__token">
-                  @if (tdA?.logoURI) {
-                    <img [src]="tdA?.logoURI ?? ''" [alt]="symA" class="clmm-amount-row__icon"
-                         (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="clmm-amount-row__icon clmm-amount-row__icon--letter">{{ symA.charAt(0) }}</span>
-                  }
-                  <div class="clmm-amount-row__symbol-block">
-                    <span class="clmm-amount-row__symbol">{{ symA }}</span>
-                    @if (balA !== null) {
-                      <span class="clmm-amount-row__balance-inline">
-                        Balance: {{ balA | number:'1.0-6' }}
-                      </span>
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ symA }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (balA !== null) { Balance: {{ balA | number:'1.0-6' }} }
+                    @if (balA !== null && balA > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxClmm()">Max</button>
                     }
-                  </div>
+                  </span>
                 </div>
-                <div class="clmm-amount-row__input">
+                <div class="clmm-amount-row__body">
                   <input
+                    class="clmm-amount-input"
                     type="text"
                     inputmode="decimal"
                     pattern="[0-9]*[.,]?[0-9]*"
                     placeholder="0"
                     [value]="editParams()['amountA'] ?? ''"
                     (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
+                  <div class="clmm-token-pill">
+                    @if (tdA?.logoURI) {
+                      <img [src]="tdA?.logoURI ?? ''" [alt]="symA" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ symA.charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ symA }}</span>
+                  </div>
                 </div>
-                @if (balA !== null && balA > 0) {
-                  <button type="button" class="clmm-max-btn" (click)="setMaxAmount('amountA')">Max</button>
-                }
               </div>
 
               <div class="clmm-amount-plus">+</div>
 
-              <!-- Token B row -->
+              <!-- Token B panel -->
               <div class="clmm-amount-row">
-                <div class="clmm-amount-row__token">
-                  @if (tdB?.logoURI) {
-                    <img [src]="tdB?.logoURI ?? ''" [alt]="symB" class="clmm-amount-row__icon"
-                         (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="clmm-amount-row__icon clmm-amount-row__icon--letter">{{ symB.charAt(0) }}</span>
-                  }
-                  <div class="clmm-amount-row__symbol-block">
-                    <span class="clmm-amount-row__symbol">{{ symB }}</span>
-                    @if (balB !== null) {
-                      <span class="clmm-amount-row__balance-inline">
-                        Balance: {{ balB | number:'1.0-6' }}
-                      </span>
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ symB }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (balB !== null) { Balance: {{ balB | number:'1.0-6' }} }
+                    @if (balB !== null && balB > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxClmm('B')">Max</button>
                     }
-                  </div>
+                  </span>
                 </div>
-                <div class="clmm-amount-row__input">
+                <div class="clmm-amount-row__body">
                   <input
+                    class="clmm-amount-input"
                     type="text"
                     inputmode="decimal"
                     pattern="[0-9]*[.,]?[0-9]*"
                     placeholder="0"
                     [value]="editParams()['amountB'] ?? ''"
                     (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
+                  <div class="clmm-token-pill">
+                    @if (tdB?.logoURI) {
+                      <img [src]="tdB?.logoURI ?? ''" [alt]="symB" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ symB.charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ symB }}</span>
+                  </div>
                 </div>
-                @if (balB !== null && balB > 0) {
-                  <button type="button" class="clmm-max-btn" (click)="setMaxAmount('amountB')">Max</button>
-                }
               </div>
             </div>
 
@@ -1156,6 +1172,484 @@
                 </div>
               </div>
             </details>
+
+          } @else {
+            <!-- Custom-pair path ("Başka bir çift"): no pool resolved yet.
+                 Let the user pick BOTH tokens, then resolve the deepest pool. -->
+            <div class="clmm-section">
+              <div class="clmm-section__title">Select Token Pair</div>
+              <div class="clmm-pair-pickers">
+                @let tdPairA = resolveTokenDisplay(getEditParam('tokenA') || '');
+                @let tdPairB = resolveTokenDisplay(getEditParam('tokenB') || '');
+                <button type="button" class="clmm-pair-token"
+                        [disabled]="!isEditable() || clmmResolving()"
+                        (click)="openTokenPicker('tokenA', $event)">
+                  @if (getEditParam('tokenA')) {
+                    @if (tdPairA.logoURI) {
+                      <img [src]="tdPairA.logoURI" class="clmm-pair-token__icon" alt=""
+                           (error)="onTokenImgError($event, getEditParam('tokenA'))" />
+                    } @else {
+                      <span class="clmm-pair-token__icon clmm-pair-token__icon--ph">{{ (tdPairA.symbol || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-pair-token__sym">{{ tdPairA.symbol || shortMint(getEditParam('tokenA')) }}</span>
+                  } @else {
+                    <span class="clmm-pair-token__sym clmm-pair-token__sym--empty">Select token</span>
+                  }
+                  <lucide-icon name="chevron-down" [size]="14" />
+                </button>
+                <span class="clmm-pair-sep">/</span>
+                <button type="button" class="clmm-pair-token"
+                        [disabled]="!isEditable() || clmmResolving()"
+                        (click)="openTokenPicker('tokenB', $event)">
+                  @if (getEditParam('tokenB')) {
+                    @if (tdPairB.logoURI) {
+                      <img [src]="tdPairB.logoURI" class="clmm-pair-token__icon" alt=""
+                           (error)="onTokenImgError($event, getEditParam('tokenB'))" />
+                    } @else {
+                      <span class="clmm-pair-token__icon clmm-pair-token__icon--ph">{{ (tdPairB.symbol || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-pair-token__sym">{{ tdPairB.symbol || shortMint(getEditParam('tokenB')) }}</span>
+                  } @else {
+                    <span class="clmm-pair-token__sym clmm-pair-token__sym--empty">Select token</span>
+                  }
+                  <lucide-icon name="chevron-down" [size]="14" />
+                </button>
+              </div>
+              @if (clmmPairError()) {
+                <div class="clmm-pair-msg clmm-pair-msg--error">{{ clmmPairError() }}</div>
+              } @else if (clmmResolving() || clmmBothTokensPicked()) {
+                <div class="clmm-pair-msg">
+                  <span class="clmm-pair-spinner"></span>
+                  Finding the deepest pool…
+                </div>
+              } @else {
+                <div class="clmm-pair-msg">Pick both tokens to load a pool.</div>
+              }
+            </div>
+          }
+
+          </div>
+        } @else if (raydiumDecreaseView() !== null) {
+          <!-- Partial CLMM withdrawal: choose a percentage and see exactly what
+               comes back, instead of typing a raw liquidity constant. -->
+          @let dv = raydiumDecreaseView()!;
+          @let dpct = clmmDecreasePct();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Reduce Position</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (dv.logoA) {
+                      <img class="ray-wd__icon" [src]="dv.logoA" [alt]="dv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (dv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (dv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="dv.logoB" [alt]="dv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (dv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ dv.pair }}</span>
+                  <span class="ray-wd__kind">{{ dv.kind }}</span>
+                </div>
+                <div class="ray-wd__body">
+                  <span class="ray-wd__amount">{{ dv.currentA }} {{ dv.symA }} + {{ dv.currentB }} {{ dv.symB }}</span>
+                  <span class="ray-wd__amount-label">Current position</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">Amount to withdraw</div>
+              <div class="clmm-presets">
+                @for (preset of CLMM_DECREASE_PRESETS; track preset) {
+                  <button type="button"
+                          class="clmm-preset"
+                          [class.clmm-preset--active]="dpct === preset"
+                          (click)="setClmmDecreasePct(preset)">
+                    {{ preset === 100 ? 'All' : preset + '%' }}
+                  </button>
+                }
+              </div>
+
+              <!-- Or type an exact amount on either side — the other follows,
+                   since a CLMM withdrawal takes both tokens proportionally. -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ dv.symA }}</span>
+                  <span class="clmm-amount-row__bal">In position: {{ dv.currentA }}</span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="clmmDecreaseRowValue('A')"
+                    (input)="onClmmDecreaseInput('A', $any($event.target).value)" />
+                  <div class="clmm-token-pill">
+                    @if (dv.logoA) {
+                      <img [src]="dv.logoA" [alt]="dv.symA" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (dv.symA || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ dv.symA }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="clmm-amount-plus">+</div>
+
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ dv.symB }}</span>
+                  <span class="clmm-amount-row__bal">In position: {{ dv.currentB }}</span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="clmmDecreaseRowValue('B')"
+                    (input)="onClmmDecreaseInput('B', $any($event.target).value)" />
+                  <div class="clmm-token-pill">
+                    @if (dv.logoB) {
+                      <img [src]="dv.logoB" [alt]="dv.symB" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (dv.symB || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ dv.symB }}</span>
+                  </div>
+                </div>
+              </div>
+              @if (dv.closes) {
+                <div class="clmm-min-hint">
+                  @if (dv.kind === 'LP') {
+                    Burns all your LP tokens and returns both sides of the pool to your wallet.
+                  } @else {
+                    Withdrawing everything also closes the position and refunds its rent.
+                  }
+                </div>
+              } @else {
+                <div class="clmm-min-hint">
+                  The position stays open with the remaining {{ 100 - dpct | number:'1.0-1' }}% and keeps earning fees.
+                </div>
+              }
+            </div>
+
+            <details class="clmm-advanced">
+              <summary>Advanced</summary>
+              <div class="clmm-advanced__row">
+                <label>Slippage tolerance</label>
+                <div class="clmm-advanced__input">
+                  <input type="number" step="0.1" min="0" max="100"
+                         [value]="((+(editParams()['slippageBps'] ?? '50')) / 100)"
+                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))" />
+                  <span>%</span>
+                </div>
+              </div>
+            </details>
+          </div>
+        } @else if (raydiumAmmView() !== null) {
+          <!-- Standard AMM (v4 / CPMM) deposit: full range, so no price band —
+               just the pool header and the two auto-balancing amount panels,
+               in the same language as the swap / CLMM cards. -->
+          @let av = raydiumAmmView()!;
+          @let ammBalA = inputBalance();
+          @let ammBalB = secondaryBalance();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Pool</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (av.logoA) {
+                      <img class="ray-wd__icon" [src]="av.logoA" [alt]="av.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (av.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (av.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="av.logoB" [alt]="av.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (av.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ av.pair }}</span>
+                  <span class="ray-wd__kind">{{ av.kind }}</span>
+                </div>
+                @if (av.poolId) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">Pool</span>
+                    <code class="ray-wd__ref-value">{{ av.poolId.slice(0, 6) }}…{{ av.poolId.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(av.poolId)" title="Copy pool address">
+                      <lucide-icon [name]="copiedField() === av.poolId ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">Add Deposit Amount</div>
+              <div class="clmm-min-hint">
+                Full-range pool — both tokens go in at the pool's current ratio; type either amount and the other follows.
+              </div>
+
+              <!-- Token A -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ av.symA }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (ammBalA !== null) { Balance: {{ ammBalA | number:'1.0-6' }} }
+                    @if (ammBalA !== null && ammBalA > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmm('A')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="editParams()['amountA'] ?? ''"
+                    (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
+                  <div class="clmm-token-pill">
+                    @if (av.logoA) {
+                      <img [src]="av.logoA" [alt]="av.symA" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (av.symA || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ av.symA }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="clmm-amount-plus">+</div>
+
+              <!-- Token B -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ av.symB }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (ammBalB !== null) { Balance: {{ ammBalB | number:'1.0-6' }} }
+                    @if (ammBalB !== null && ammBalB > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmm('B')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="editParams()['amountB'] ?? ''"
+                    (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
+                  <div class="clmm-token-pill">
+                    @if (av.logoB) {
+                      <img [src]="av.logoB" [alt]="av.symB" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (av.symB || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ av.symB }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <details class="clmm-advanced">
+              <summary>Advanced</summary>
+              <div class="clmm-advanced__row">
+                <label>Slippage tolerance</label>
+                <div class="clmm-advanced__input">
+                  <input type="number" step="0.1" min="0" max="100"
+                         [value]="((+(editParams()['slippageBps'] ?? '100')) / 100)"
+                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))" />
+                  <span>%</span>
+                </div>
+              </div>
+            </details>
+          </div>
+        } @else if (raydiumIncreaseView() !== null) {
+          <!-- Add liquidity to an existing CLMM position: which side + how
+               much. The paired amount is derived on-chain at the pool ratio. -->
+          @let iv = raydiumIncreaseView()!;
+          @let curBal = inputBalance();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Add to Position</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (iv.logoA) {
+                      <img class="ray-wd__icon" [src]="iv.logoA" [alt]="iv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (iv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (iv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="iv.logoB" [alt]="iv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (iv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ iv.pair }}</span>
+                  <span class="ray-wd__kind">CLMM</span>
+                </div>
+                @if (iv.current) {
+                  <div class="ray-wd__body">
+                    <span class="ray-wd__amount">{{ iv.current }}</span>
+                    <span class="ray-wd__amount-label">Current position</span>
+                  </div>
+                }
+              </div>
+            </div>
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">Add Deposit Amount</div>
+              <div class="clmm-min-hint">
+                Both tokens go in at the position's current ratio — type either amount and the other follows.
+              </div>
+
+              <!-- Token A row -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ iv.symA }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (curBal !== null) { Balance: {{ curBal | number:'1.0-6' }} }
+                    @if (curBal !== null && curBal > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxClmmIncrease('A')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="clmmIncreaseRowValue('A')"
+                    (input)="onClmmIncreaseInput('A', $any($event.target).value)" />
+                  <div class="clmm-token-pill">
+                    @if (iv.logoA) {
+                      <img [src]="iv.logoA" [alt]="iv.symA" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (iv.symA || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ iv.symA }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="clmm-amount-plus">+</div>
+
+              <!-- Token B row -->
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ iv.symB }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (secondaryBalance() !== null) { Balance: {{ secondaryBalance() | number:'1.0-6' }} }
+                    @if (secondaryBalance() !== null && secondaryBalance()! > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxClmmIncrease('B')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input
+                    class="clmm-amount-input"
+                    type="text"
+                    inputmode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    placeholder="0"
+                    [value]="clmmIncreaseRowValue('B')"
+                    (input)="onClmmIncreaseInput('B', $any($event.target).value)" />
+                  <div class="clmm-token-pill">
+                    @if (iv.logoB) {
+                      <img [src]="iv.logoB" [alt]="iv.symB" class="clmm-token-pill__icon"
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (iv.symB || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ iv.symB }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <details class="clmm-advanced">
+              <summary>Advanced</summary>
+              <div class="clmm-advanced__row">
+                <label>Slippage tolerance</label>
+                <div class="clmm-advanced__input">
+                  <input type="number" step="0.1" min="0" max="100"
+                         [value]="((+(editParams()['slippageBps'] ?? '50')) / 100)"
+                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))" />
+                  <span>%</span>
+                </div>
+              </div>
+            </details>
+          </div>
+        } @else if (raydiumWithdrawView() !== null) {
+          <!-- Raydium withdraw (CLMM close / LP remove) — position summary in
+               the same panel language as the deposit + swap cards, instead of
+               a raw "POSITION ID" text field.
+               NOTE: Angular 19 only binds `; as x` on a PRIMARY @if, never on an
+               @else if — hence the @let (the computed is memoized, so the second
+               read is free). -->
+          @let wv = raydiumWithdrawView()!;
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Withdraw Position</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (wv.logoA) {
+                      <img class="ray-wd__icon" [src]="wv.logoA" [alt]="wv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (wv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (wv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="wv.logoB" [alt]="wv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (wv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ wv.pair }}</span>
+                  <span class="ray-wd__kind">{{ wv.kind }}</span>
+                </div>
+                <div class="ray-wd__body">
+                  <span class="ray-wd__amount">{{ wv.amount }}</span>
+                  <span class="ray-wd__amount-label">{{ wv.amountLabel }}</span>
+                </div>
+                @if (wv.ref) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ wv.kind === 'LP' ? 'Pool' : 'Position' }}</span>
+                    <code class="ray-wd__ref-value">{{ wv.ref.slice(0, 6) }}…{{ wv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(wv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === wv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+              <div class="clmm-min-hint">
+                {{ wv.kind === 'LP'
+                   ? 'Burns your LP tokens and returns both sides of the pool to your wallet.'
+                   : 'Withdraws all liquidity + earned fees, closes the position, and refunds its rent.' }}
+              </div>
+            </div>
           </div>
         } @else if (action.type === 'perp_close') {
           <!-- ─────── Close perp: same header language as the open card ─────── -->
@@ -1685,9 +2179,589 @@
               Repays your outstanding {{ repayTd.symbol }} debt on Jupiter Lend. Use Max to clear it in full.
             </div>
           </div>
+        } @else if (action.type === 'kamino_deposit') {
+          <!-- ─────── Kamino Lend deposit: supply a token to earn + back borrows ─────── -->
+          @let kmDepTd = resolveTokenDisplay(getEditParam('token') || getEditParam('reserve') || 'USDC');
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Deposit</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmDepTd.logoURI) {
+                    <img [src]="kmDepTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmDepTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmDepTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="lend-hf-explain">
+              <lucide-icon name="info" [size]="11" />
+              Supplies {{ kmDepTd.symbol }} to Kamino Lend — earns yield and can back borrows.
+            </div>
+          </div>
+        } @else if (action.type === 'kamino_borrow') {
+          <!-- ─────── Kamino Lend borrow: draw debt against your collateral ─────── -->
+          @let kmBorTd = resolveTokenDisplay(getEditParam('token') || getEditParam('reserve') || 'USDC');
+          @let kmbStats = kaminoBorrowStats;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Borrow</span>
+                @if (kmbStats && kmbStats.hasPosition && kmbStats.maxBorrowable > 0 && isEditable()) {
+                  <span class="pump-panel__bal">
+                    Max: {{ kmbStats.maxBorrowable | number:'1.0-4' }}
+                    <button class="pump-panel__max" type="button" (click)="setKaminoBorrowMax(0.5)">Half</button>
+                    <button class="pump-panel__max" type="button" (click)="setKaminoBorrowMax(1)">Max</button>
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       (focus)="reloadKaminoBorrowInfo()"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmBorTd.logoURI) {
+                    <img [src]="kmBorTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmBorTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmBorTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            @if (kmbStats) {
+              <!-- Position projection (only when the wallet has collateral on Kamino) -->
+              @if (kmbStats.hasPosition) {
+                <div class="bc-stats"
+                     [class.bc-stats--safe]="kmbStats.hfClass === 'safe'"
+                     [class.bc-stats--caution]="kmbStats.hfClass === 'caution'"
+                     [class.bc-stats--danger]="kmbStats.hfClass === 'danger'">
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Collateral value</span>
+                    <span class="bc-stat-value">${{ kmbStats.collateralUsd | number:'1.0-2' }}</span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label"><app-jargon term="LTV">Loan-to-Value</app-jargon></span>
+                    <span class="bc-stat-value">
+                      {{ kmbStats.ltvCurrentPct | number:'1.0-2' }}%
+                      <span style="opacity:.6">→</span>
+                      <strong [class.bc-hf--caution]="kmbStats.hfClass === 'caution'"
+                              [class.bc-hf--danger]="kmbStats.hfClass === 'danger'">{{ kmbStats.ltvAfterPct | number:'1.0-2' }}%</strong>
+                    </span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label"><app-jargon term="Liquidation LTV">Liquidation LTV</app-jargon></span>
+                    <span class="bc-stat-value bc-stat-value--warn">{{ kmbStats.liquidationLtvPct | number:'1.0-2' }}%</span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Max borrowable</span>
+                    <span class="bc-stat-value bc-stat-value--brand">{{ kmbStats.maxBorrowable | number:'1.0-4' }} {{ kmbStats.symbol }}</span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label"><app-jargon term="Health Factor">Health Factor</app-jargon></span>
+                    <span class="bc-stat-value"
+                          [class.bc-hf--safe]="kmbStats.hfClass === 'safe'"
+                          [class.bc-hf--caution]="kmbStats.hfClass === 'caution'"
+                          [class.bc-hf--danger]="kmbStats.hfClass === 'danger'">
+                      {{ kmbStats.hfLabel }}
+                      @if (kmbStats.hfLabel !== '—') {
+                        <span class="bc-hf-label">
+                          {{ kmbStats.hfClass === 'safe' ? '✓ Safe' : kmbStats.hfClass === 'caution' ? '⚠ Caution' : '✗ Risky' }}
+                        </span>
+                      }
+                    </span>
+                  </div>
+
+                  @if (kmbStats.errorMsg) {
+                    <div class="bc-error">
+                      <lucide-icon name="alert-circle" [size]="12" />
+                      {{ kmbStats.errorMsg }}
+                    </div>
+                  }
+                </div>
+              } @else {
+                @if (kmbStats.borrowUsd > 0) {
+                  <!-- No position yet: give live feedback on the collateral this borrow needs. -->
+                  <div class="bc-stats bc-stats--caution">
+                    <div class="bc-stat">
+                      <span class="bc-stat-label">Borrow value</span>
+                      <span class="bc-stat-value">${{ kmbStats.borrowUsd | number:'1.0-2' }}</span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label">Collateral needed <span style="opacity:.6">(at {{ kmbStats.maxLtvPct | number:'1.0-0' }}% Max LTV)</span></span>
+                      <span class="bc-stat-value bc-stat-value--brand">≈ ${{ kmbStats.requiredCollateralUsd | number:'1.0-2' }}</span>
+                    </div>
+                    <div class="bc-error">
+                      <lucide-icon name="alert-circle" [size]="12" />
+                      No collateral on Kamino yet — deposit ≈ ${{ kmbStats.requiredCollateralUsd | number:'1.0-2' }} first, then borrow. Risk (LTV, health factor, liquidation) goes live once you have collateral.
+                    </div>
+                  </div>
+                } @else {
+                  <div class="lend-hf-explain">
+                    <lucide-icon name="info" [size]="11" />
+                    You have no collateral on Kamino yet — deposit a token first, then borrow against it.
+                  </div>
+                }
+              }
+
+              <!-- Reserve market rates (always shown) -->
+              <div class="bc-footer-rates">
+                <span>Borrow rate: <strong>{{ kmbStats.borrowApyPct | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
+                <span><app-jargon term="LTV">Max LTV</app-jargon>: <strong>{{ kmbStats.maxLtvPct | number:'1.0-0' }}%</strong></span>
+                <span>Available: <strong>{{ kmbStats.availableToken | number:'1.0-0' }} {{ kmbStats.symbol }}</strong></span>
+                <span>Price: <strong>${{ kmbStats.price | number:'1.2-4' }}</strong></span>
+              </div>
+            } @else if (kaminoBorrowLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading Kamino rates…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Borrows {{ kmBorTd.symbol }} against your Kamino collateral — keep an eye on your health factor to avoid liquidation.
+              </div>
+            }
+          </div>
+        } @else if (action.type === 'kamino_repay') {
+          <!-- ─────── Kamino Lend repay: pay down debt, improve your health ─────── -->
+          @let kmRepTd = resolveTokenDisplay(getEditParam('token') || getEditParam('reserve') || 'USDC');
+          @let kmrStats = kaminoRepayStats;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Repay</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable() && kmrStats && kmrStats.hasDebt) {
+                        <button class="pump-panel__max" type="button" (click)="setKaminoRepayMax()">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       (focus)="reloadKaminoBorrowInfo()"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmRepTd.logoURI) {
+                    <img [src]="kmRepTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmRepTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmRepTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            @if (kmrStats) {
+              @if (kmrStats.hasDebt) {
+                <div class="bc-stats"
+                     [class.bc-stats--safe]="kmrStats.hfClass === 'safe'"
+                     [class.bc-stats--caution]="kmrStats.hfClass === 'caution'"
+                     [class.bc-stats--danger]="kmrStats.hfClass === 'danger'">
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Current debt</span>
+                    <span class="bc-stat-value">
+                      {{ kmrStats.debtToken | number:'1.0-6' }} {{ kmrStats.symbol }}
+                      <span style="opacity:.6">(${{ kmrStats.debtUsd | number:'1.0-2' }})</span>
+                    </span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Debt after repay</span>
+                    <span class="bc-stat-value bc-stat-value--brand">
+                      @if (kmrStats.fullRepay) {
+                        Cleared ✓
+                      } @else {
+                        {{ kmrStats.remainingToken | number:'1.0-6' }} {{ kmrStats.symbol }}
+                      }
+                    </span>
+                  </div>
+                  @if (kmrStats.collateralUsd > 0) {
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="LTV">Loan-to-Value</app-jargon></span>
+                      <span class="bc-stat-value">
+                        {{ kmrStats.ltvCurrentPct | number:'1.0-2' }}%
+                        <span style="opacity:.6">→</span>
+                        <strong class="bc-hf--safe">{{ kmrStats.ltvAfterPct | number:'1.0-2' }}%</strong>
+                      </span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="Liquidation LTV">Liquidation LTV</app-jargon></span>
+                      <span class="bc-stat-value bc-stat-value--warn">{{ kmrStats.liquidationLtvPct | number:'1.0-2' }}%</span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="Health Factor">Health Factor</app-jargon></span>
+                      <span class="bc-stat-value">
+                        @if (kmrStats.hfCurrent > 0) {
+                          {{ kmrStats.hfCurrent | number:'1.2-2' }}
+                          <span style="opacity:.6">→</span>
+                        }
+                        <strong [class.bc-hf--safe]="kmrStats.hfClass === 'safe'"
+                                [class.bc-hf--caution]="kmrStats.hfClass === 'caution'"
+                                [class.bc-hf--danger]="kmrStats.hfClass === 'danger'">{{ kmrStats.hfLabel }}</strong>
+                      </span>
+                    </div>
+                  }
+
+                  @if (kmrStats.errorMsg) {
+                    <div class="bc-error">
+                      <lucide-icon name="alert-circle" [size]="12" />
+                      {{ kmrStats.errorMsg }}
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="lend-hf-explain">
+                  <lucide-icon name="info" [size]="11" />
+                  No open {{ kmRepTd.symbol }} debt on Kamino for this wallet.
+                </div>
+              }
+
+              <div class="bc-footer-rates">
+                <span>Borrow rate: <strong>{{ kmrStats.borrowApyPct | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
+                <span>Debt: <strong>${{ kmrStats.debtUsd | number:'1.2-2' }}</strong></span>
+                <span>Price: <strong>${{ kmrStats.price | number:'1.2-4' }}</strong></span>
+              </div>
+            } @else if (kaminoBorrowLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading your Kamino loan…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Repays {{ kmRepTd.symbol }} debt on Kamino Lend — lowers your LTV and raises your health factor.
+              </div>
+            }
+          </div>
+        } @else if (action.type === 'kamino_withdraw' || action.type === 'kamino_withdraw_collateral') {
+          <!-- ─────── Kamino Lend withdraw: pull your supplied collateral back out ─────── -->
+          @let kmWTd = resolveTokenDisplay(getEditParam('token') || getEditParam('reserve') || 'USDC');
+          @let kmwStats = kaminoWithdrawStats;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Withdraw</span>
+                @if (kmwStats && kmwStats.hasSupply && isEditable()) {
+                  <span class="pump-panel__bal">
+                    Supplied: {{ kmwStats.suppliedToken | number:'1.0-4' }}
+                    <button class="pump-panel__max" type="button" (click)="setKaminoWithdrawMax()">Max</button>
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       (focus)="reloadKaminoBorrowInfo()"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmWTd.logoURI) {
+                    <img [src]="kmWTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmWTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmWTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            @if (kmwStats) {
+              @if (kmwStats.hasSupply) {
+                <div class="bc-stats"
+                     [class.bc-stats--safe]="!kmwStats.hasDebt || kmwStats.hfClass === 'safe'"
+                     [class.bc-stats--caution]="kmwStats.hasDebt && kmwStats.hfClass === 'caution'"
+                     [class.bc-stats--danger]="kmwStats.hasDebt && kmwStats.hfClass === 'danger'">
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Supplied balance</span>
+                    <span class="bc-stat-value">
+                      {{ kmwStats.suppliedToken | number:'1.0-6' }} {{ kmwStats.symbol }}
+                      <span style="opacity:.6">(${{ kmwStats.suppliedUsd | number:'1.0-2' }})</span>
+                    </span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">After withdraw</span>
+                    <span class="bc-stat-value bc-stat-value--brand">
+                      @if (kmwStats.fullWithdraw) {
+                        Empty ✓
+                      } @else {
+                        {{ kmwStats.remainingToken | number:'1.0-6' }} {{ kmwStats.symbol }}
+                      }
+                    </span>
+                  </div>
+
+                  @if (kmwStats.hasDebt) {
+                    <!-- Withdrawing collateral while you owe debt makes the position riskier -->
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="LTV">Loan-to-Value</app-jargon></span>
+                      <span class="bc-stat-value">
+                        {{ kmwStats.ltvCurrentPct | number:'1.0-2' }}%
+                        <span style="opacity:.6">→</span>
+                        <strong [class.bc-hf--caution]="kmwStats.hfClass === 'caution'"
+                                [class.bc-hf--danger]="kmwStats.hfClass === 'danger'">{{ kmwStats.ltvAfterPct | number:'1.0-2' }}%</strong>
+                      </span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="Liquidation LTV">Liquidation LTV</app-jargon></span>
+                      <span class="bc-stat-value bc-stat-value--warn">{{ kmwStats.liquidationLtvPct | number:'1.0-2' }}%</span>
+                    </div>
+                    <div class="bc-stat">
+                      <span class="bc-stat-label"><app-jargon term="Health Factor">Health Factor</app-jargon></span>
+                      <span class="bc-stat-value">
+                        {{ kmwStats.hfCurrent | number:'1.2-2' }}
+                        <span style="opacity:.6">→</span>
+                        <strong [class.bc-hf--safe]="kmwStats.hfClass === 'safe'"
+                                [class.bc-hf--caution]="kmwStats.hfClass === 'caution'"
+                                [class.bc-hf--danger]="kmwStats.hfClass === 'danger'">{{ kmwStats.hfLabel }}</strong>
+                      </span>
+                    </div>
+                  }
+
+                  @if (kmwStats.errorMsg) {
+                    <div class="bc-error">
+                      <lucide-icon name="alert-circle" [size]="12" />
+                      {{ kmwStats.errorMsg }}
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="lend-hf-explain">
+                  <lucide-icon name="info" [size]="11" />
+                  You have no {{ kmWTd.symbol }} supplied on Kamino to withdraw.
+                </div>
+              }
+
+              <div class="bc-footer-rates">
+                <span>Supply rate: <strong>{{ kmwStats.supplyApyPct | number:'1.2-2' }}%</strong> <app-jargon term="APY">APY</app-jargon></span>
+                <span>Supplied: <strong>${{ kmwStats.suppliedUsd | number:'1.2-2' }}</strong></span>
+                <span>Price: <strong>${{ kmwStats.price | number:'1.2-4' }}</strong></span>
+              </div>
+            } @else if (kaminoBorrowLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading your Kamino supply…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Withdraws {{ kmWTd.symbol }} you supplied to Kamino Lend back to your wallet.
+              </div>
+            }
+          </div>
+        } @else if (action.type === 'kamino_vault_deposit') {
+          <!-- ─────── Kamino Earn vault deposit: auto-managed yield vault ─────── -->
+          @let kmVTd = resolveTokenDisplay(getEditParam('token') || 'USDC');
+          @let kmvStats = kaminoVaultStats;
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Deposit</span>
+                @if (inputBalanceMint() && (inputBalance() !== null || inputBalanceLoading())) {
+                  <span class="pump-panel__bal">
+                    @if (inputBalanceLoading()) {
+                      <span class="proto-balance-dots">···</span>
+                    } @else {
+                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                      }
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')"
+                       (input)="setEditParam('amount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmVTd.logoURI) {
+                    <img [src]="kmVTd.logoURI" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmVTd.symbol || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmVTd.symbol }}</span>
+                </span>
+              </div>
+            </div>
+
+            @if (kmvStats) {
+              <div class="bc-stats bc-stats--safe">
+                <div class="bc-stat">
+                  <span class="bc-stat-label"><app-jargon term="APY">Supply APY</app-jargon></span>
+                  <span class="bc-stat-value bc-stat-value--brand">{{ kmvStats.apyPct | number:'1.2-2' }}%
+                    @if (kmvStats.apy30dPct > 0) {
+                      <span style="opacity:.6">· 30d {{ kmvStats.apy30dPct | number:'1.2-2' }}%</span>
+                    }
+                  </span>
+                </div>
+                <div class="bc-stat">
+                  <span class="bc-stat-label">Vault TVL</span>
+                  <span class="bc-stat-value">${{ kmvStats.tvlUsd | number:'1.0-0' }}</span>
+                </div>
+                @if (kmvStats.depositUsd > 0) {
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">You deposit</span>
+                    <span class="bc-stat-value">≈ ${{ kmvStats.depositUsd | number:'1.2-2' }}</span>
+                  </div>
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">You receive</span>
+                    <span class="bc-stat-value bc-stat-value--brand">≈ {{ kmvStats.sharesReceived | number:'1.0-4' }} shares</span>
+                  </div>
+                }
+                <div class="bc-stat">
+                  <span class="bc-stat-label">Holders</span>
+                  <span class="bc-stat-value">{{ kmvStats.holders | number:'1.0-0' }}</span>
+                </div>
+              </div>
+
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Auto-managed vault — deposits your {{ kmVTd.symbol }} across Kamino Lend markets and rebalances for yield. You receive vault shares that grow in value.
+              </div>
+            } @else if (kaminoVaultLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading vault rates…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Deposits {{ kmVTd.symbol }} into an automated Kamino Earn vault.
+              </div>
+            }
+          </div>
+        } @else if (action.type === 'kamino_vault_withdraw' || action.type === 'kamino_unstake') {
+          <!-- ─────── Kamino Earn vault withdraw: redeem shares → underlying ───────
+               kamino_unstake shares this card: users say "unstake my position" for
+               a vault exit. It renders + executes as a vault withdraw when a live
+               vault position exists; genuine KMNO-governance unstake (no vault
+               position) still routes to the SDK farm-unstake backend. -->
+          @let kmvwStats = kaminoVaultWithdrawStats;
+          @let kmvwSym = kmvwStats?.tokenSymbol || 'shares';
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">Withdraw</span>
+                @if (kmvwStats && kmvwStats.sharesHeld > 0) {
+                  <span class="pump-panel__bal">
+                    Position: {{ kmvwStats.sharesHeld | number:'1.0-4' }}
+                    @if (isEditable()) {
+                      <button class="pump-panel__max" type="button" (click)="setKaminoVaultWithdrawMax()">Max</button>
+                    }
+                  </span>
+                } @else if (kaminoVaultLoading()) {
+                  <span class="pump-panel__bal"><span class="proto-balance-dots">···</span></span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="all"
+                       [value]="getEditParam('ktokenAmount')"
+                       (input)="setEditParam('ktokenAmount', $any($event.target).value.replace(',','.'))"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (kmvwStats?.tokenLogo) {
+                    <img [src]="kmvwStats!.tokenLogo" class="pump-token__icon" alt=""
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (kmvwSym || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ kmvwSym }}</span>
+                </span>
+              </div>
+            </div>
+
+            @if (kmvwStats) {
+              <div class="bc-stats bc-stats--safe">
+                <div class="bc-stat">
+                  <span class="bc-stat-label"><app-jargon term="APY">Supply APY</app-jargon></span>
+                  <span class="bc-stat-value bc-stat-value--brand">{{ kmvwStats.apyPct | number:'1.2-2' }}%
+                    @if (kmvwStats.apy30dPct > 0) {
+                      <span style="opacity:.6">· 30d {{ kmvwStats.apy30dPct | number:'1.2-2' }}%</span>
+                    }
+                  </span>
+                </div>
+                @if (kmvwStats.positionUsd > 0) {
+                  <div class="bc-stat">
+                    <span class="bc-stat-label">Your position</span>
+                    <span class="bc-stat-value">≈ ${{ kmvwStats.positionUsd | number:'1.2-2' }}</span>
+                  </div>
+                }
+                <div class="bc-stat">
+                  <span class="bc-stat-label">You receive</span>
+                  <span class="bc-stat-value bc-stat-value--brand">
+                    ≈ {{ kmvwStats.receiveTokens | number:'1.0-4' }} {{ kmvwSym }}
+                    @if (kmvwStats.receiveUsd > 0) {
+                      <span style="opacity:.6">· ${{ kmvwStats.receiveUsd | number:'1.2-2' }}</span>
+                    }
+                  </span>
+                </div>
+                <div class="bc-stat">
+                  <span class="bc-stat-label">Vault TVL</span>
+                  <span class="bc-stat-value">${{ kmvwStats.tvlUsd | number:'1.0-0' }}</span>
+                </div>
+              </div>
+
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                @if (kmvwStats.fullWithdraw) {
+                  Redeems your full vault position back to {{ kmvwSym }}. Use the amount field for a partial withdraw.
+                } @else {
+                  Redeems {{ kmvwStats.withdrawShares | number:'1.0-4' }} shares back to {{ kmvwSym }}.
+                }
+              </div>
+            } @else if (kaminoVaultLoading()) {
+              <div class="lend-hf-explain">
+                <lucide-icon name="loader-circle" [size]="11" class="spin" />
+                Loading your vault position…
+              </div>
+            } @else {
+              <div class="lend-hf-explain">
+                <lucide-icon name="info" [size]="11" />
+                Redeems your Kamino Earn vault shares back to the underlying token. Enter a share amount or "all".
+              </div>
+            }
+          </div>
         } @else {
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
-               [class.proto-fields--swaplike]="false">
+               [class.proto-fields--swaplike]="useSwaplikeLayout">
 
           @for (field of actionFields; track field.key) {
             <div class="proto-field" [class.proto-field--half]="field.half">
@@ -2363,10 +3437,22 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
-            @if (insufficientFunds()) {
+            @if (clmmUnresolved()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Select a token pair
+            } @else if (clmmInsufficient() !== null) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              {{ clmmInsufficient() }}
+            } @else if (clmmIncreaseInsufficient() !== null) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              {{ clmmIncreaseInsufficient() }}
+            } @else if (ammInsufficient() !== null) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              {{ ammInsufficient() }}
+            } @else if (insufficientFunds()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Insufficient balance
             } @else if (swapBlockedByImpact()) {
@@ -2480,7 +3566,7 @@
      scroll container inside the proto-body. -->
 @if (tokenPickerField(); as fieldKey) {
   <op-token-picker
-    [title]="fieldKey === 'inputMint' ? 'From token' : 'To token'"
+    [title]="pickerTitle(fieldKey)"
     [currentMint]="currentPickerMint()"
     [excludeMint]="excludedPickerMint()"
     initialCategory="all"

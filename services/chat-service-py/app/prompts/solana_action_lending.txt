@@ -128,6 +128,25 @@ Examples:
 - "Deposit 10 SOL to Kamino SOL vault"
   -> execute_action("kamino_vault_deposit", {"vault": "SOL", "amount": "10", "token": "SOL"})
 
+Choosing a vault when the user did NOT name a specific one: call query_onchain
+`kamino_vaults` first — it returns vaults already sorted by TVL (highest first),
+each with `vault` (address), `name`, `token` (the token MINT), `tvlUsd`, `apyPct`,
+`apy90dPct`, `utilizationPct`, `holders`, and fees. Filters (combine as needed):
+- `token`=<symbol> (e.g. "SOL") → only that asset's vaults, when depositing a
+  specific asset.
+- `name`=<text> → only vaults whose name matches (e.g. the user asks for the
+  "Steakhouse" or "Allez" vaults).
+- `limit`=<n> → how many to return; raise it when the user wants to see more.
+Build the clarify options in the returned order; each option's params MUST carry
+`vault`=<address>, `token`=<the result's token mint> (so the card shows the token
+icon), and the parsed `amount`. Put the vault's live stats in each option's
+sublabel — lead with APY then TVL, e.g. "APY 1.90% · TVL $250.4M · perf fee 5%".
+Then request_clarification with the top few as options; each option's params MUST
+carry `vault`=<address>, `token`=<the result's token mint> (so the card shows that
+vault's own token icon), and the parsed `amount`. Present them in the returned
+(TVL-descending) order. If the user asks to see more vaults, re-query `kamino_vaults`
+with a higher `limit` and offer the larger set.
+
 #### KAMINO_VAULT_WITHDRAW — Withdraw from a Kamino liquidity vault by burning kTokens
 Format: [ACTION:kamino_vault_withdraw] vault=<vault_name_or_address> ktokenAmount=<shares_amount>
 
@@ -135,37 +154,104 @@ Examples:
 - "Withdraw my Kamino vault shares, 50 kTokens"
   -> execute_action("kamino_vault_withdraw", {"vault": "SOL", "ktokenAmount": "50"})
 
+#### KAMINO_LIQUIDITY — Provide/withdraw concentrated liquidity (CLMM strategies)
+Kamino "Liquidity" = automated concentrated-liquidity positions in Orca/Raydium
+CLMM pools (distinct from the Earn lend-vaults above). Deposit two tokens (or one
+side — the pair is auto-computed from the pool ratio) and earn trading fees.
+
+Discover strategies first with query_onchain `kamino_liquidity_strategies` — it
+returns strategies sorted by TVL, each with `strategy` (address), `tokenA`,
+`tokenB`, `tvlUsd`, `apyPct`, `poolLabel`. Filters: `token`=<symbol> (only pairs
+containing it), `limit`=<n>. When the user didn't name a specific strategy,
+call it and request_clarification with the top few; each option's params carry
+`strategy`=<address> and the parsed `amountA`.
+
+Format: [ACTION:kamino_liquidity_deposit] strategy=<address> amountA=<amount> [amountB=<amount>]
+Format: [ACTION:kamino_liquidity_withdraw] strategy=<address> shares=<amount_or_"all">
+
+Examples:
+- "Provide 100 USDC of liquidity to the PYUSD-USDC Kamino pool"
+  -> (call kamino_liquidity_strategies token=USDC, pick the PYUSD-USDC strategy)
+  -> execute_action("kamino_liquidity_deposit", {"strategy": "Hmj8…", "amountA": "100"})
+- "Withdraw all my Kamino liquidity from strategy Hmj8…"
+  -> execute_action("kamino_liquidity_withdraw", {"strategy": "Hmj8…", "shares": "all"})
+
 #### KAMINO_ADD_COLLATERAL — Add more collateral to a Kamino lending position
 Format: [ACTION:kamino_add_collateral] token=<symbol_or_mint> amount=<amount>
 
 #### KAMINO_WITHDRAW_COLLATERAL — Withdraw collateral from a Kamino position
 Format: [ACTION:kamino_withdraw_collateral] token=<symbol_or_mint> amount=<amount>
 
+#### KAMINO_MULTIPLY_MARKETS — List available Kamino Multiply pools (read-only)
+Use this when the user wants to browse/compare Multiply pools, asks which pools
+exist, which has the highest APY/leverage, or says something like "let's deposit
+into Kamino Multiply" WITHOUT naming a specific pair — show the list first so
+they can pick, then open with KAMINO_MULTIPLY_OPEN. Returns real per-pool
+metrics (max leverage, estimated max-leverage APY, max LTV, TVL, average
+leverage, available liquidity), sorted.
+Query type: kamino_multiply_markets
+Parameters (all optional):
+- token: filter to pools whose collateral OR debt token matches (e.g. "SOL", "JITOSOL")
+- sort: "apy" (default) | "tvl" | "leverage"
+- limit: how many to return (default 8, max 30)
+
+Examples:
+- "Let's deposit into Kamino Multiply" / "show me Kamino multiply pools"
+  -> query_onchain("kamino_multiply_markets", {})
+- "Which Kamino multiply pool has the highest APY?"
+  -> query_onchain("kamino_multiply_markets", {"sort": "apy"})
+- "Show all SOL multiply pools"
+  -> query_onchain("kamino_multiply_markets", {"token": "SOL", "limit": "30"})
+
 #### KAMINO_MULTIPLY_OPEN — Open a Kamino Multiply (leveraged yield) position
-Format: [ACTION:kamino_multiply_open] strategy=<strategy_name_or_address> token=<collateral_token> amount=<amount> leverage=<1-10>
+A Multiply position is identified by its collateral/debt token PAIR (not a
+strategy name or an address). The user deposits a collateral token; the protocol
+borrows a correlated debt token, swaps it to more collateral, and loops to the
+target leverage. Existing positions are found from the wallet + token pair.
+Format: [ACTION:kamino_multiply_open] token=<collateral_token> amount=<amount> leverage=<1-10> [debtToken=<token>]
 
 Parameters:
-- strategy: Multiply strategy name or address (e.g. "SOL-mSOL", "JitoSOL-SOL")
-- token: Collateral token to deposit (e.g. SOL)
-- amount: Collateral amount
-- leverage: Target leverage multiplier
+- token: Collateral token to deposit (e.g. MSOL, JITOSOL, SOL)
+- amount: Collateral amount to deposit
+- leverage: Target leverage multiplier (1-10)
+- debtToken: Token to borrow and loop against (optional; defaults to USDC). For
+  LST strategies this is usually SOL (e.g. mSOL collateral, SOL debt).
 
 Examples:
-- "Open 3x multiply position with 10 SOL on SOL-mSOL strategy"
-  -> execute_action("kamino_multiply_open", {"strategy": "SOL-mSOL", "token": "SOL", "amount": "10", "leverage": "3"})
+- "Open a 3x multiply position with 10 mSOL borrowing SOL"
+  -> execute_action("kamino_multiply_open", {"token": "MSOL", "amount": "10", "leverage": "3", "debtToken": "SOL"})
 
-#### KAMINO_MULTIPLY_ADD — Add collateral to a Kamino Multiply position
-Format: [ACTION:kamino_multiply_add] position=<position_address> token=<token> amount=<amount>
+#### KAMINO_MULTIPLY_ADD — Add collateral to an existing Multiply position
+Identify the position by the same collateral/debt token pair used to open it.
+Format: [ACTION:kamino_multiply_add] token=<collateral_token> amount=<amount> [debtToken=<token>] [leverage=<1-10>]
 
-#### KAMINO_MULTIPLY_WITHDRAW — Partially withdraw from a Kamino Multiply position
-Format: [ACTION:kamino_multiply_withdraw] position=<position_address> percent=<0-100>
+Parameters:
+- token / debtToken: the position's collateral / debt token pair
+- amount: additional collateral to deposit
+- leverage: optional; keeps the position's current leverage if omitted
 
-Examples:
-- "Withdraw 50% from my multiply position ABC123"
-  -> execute_action("kamino_multiply_withdraw", {"position": "ABC123", "percent": "50"})
+Example:
+- "Add 5 mSOL to my mSOL/SOL multiply position"
+  -> execute_action("kamino_multiply_add", {"token": "MSOL", "amount": "5", "debtToken": "SOL"})
 
-#### KAMINO_MULTIPLY_CLOSE — Close a Kamino Multiply position entirely
-Format: [ACTION:kamino_multiply_close] position=<position_address>
+#### KAMINO_MULTIPLY_WITHDRAW — Partially withdraw collateral from a Multiply position
+Format: [ACTION:kamino_multiply_withdraw] token=<collateral_token> amount=<amount> [debtToken=<token>]
+
+Parameters:
+- token / debtToken: the position's collateral / debt token pair
+- amount: amount of collateral to withdraw (partial deleverage)
+
+Example:
+- "Withdraw 2 mSOL from my mSOL/SOL multiply position"
+  -> execute_action("kamino_multiply_withdraw", {"token": "MSOL", "amount": "2", "debtToken": "SOL"})
+
+#### KAMINO_MULTIPLY_CLOSE — Close a Multiply position entirely
+Fully unwinds the position: repays the borrowed debt and returns all collateral.
+Format: [ACTION:kamino_multiply_close] token=<collateral_token> [debtToken=<token>]
+
+Example:
+- "Close my mSOL/SOL multiply position"
+  -> execute_action("kamino_multiply_close", {"token": "MSOL", "debtToken": "SOL"})
 
 #### KAMINO_LONG_OPEN — Open a Kamino Long leveraged position
 Format: [ACTION:kamino_long_open] collateralToken=<token> collateralAmount=<amount> leverage=<1-10> [debtToken=<token>]
@@ -204,11 +290,15 @@ Examples:
 - "Close 50% of my Kamino short position XYZ789"
   -> execute_action("kamino_position_close", {"position": "XYZ789", "percent": "50"})
 
-#### KAMINO_STAKE — Stake KMNO tokens
+#### KAMINO_STAKE / KAMINO_UNSTAKE — Stake or unstake the KMNO governance token
 Format: [ACTION:kamino_stake] amount=<amount>
-
-#### KAMINO_UNSTAKE — Unstake KMNO tokens
 Format: [ACTION:kamino_unstake] amount=<amount>
+
+These apply ONLY to the KMNO governance token itself. When a user talks about
+"staking"/"unstaking" or entering/exiting a "position" in a lend market or an
+automated Earn vault, they mean supplying or redeeming that deposit — route it
+to the matching deposit/withdraw action (e.g. an Earn-vault position exit is
+kamino_vault_withdraw), NOT to kamino_stake/kamino_unstake.
 
 ---
 

@@ -66,47 +66,39 @@ export class HeliusService {
     const out = new Map<string, { name: string; symbol: string; logoUri: string | null }>();
     if (!mints.length) return out;
 
+    // Resolve on-chain metadata (name / symbol / logo) SERVER-SIDE via the
+    // gateway's `/token-meta` endpoint, which fans out to Helius getAsset with
+    // parallel goroutines and a 30m cache. Doing this client-side was the source
+    // of the "logos never load" bug: the browser's ~6-connection-per-host cap
+    // made per-mint getAsset calls queue behind the portfolio's other reads and
+    // time out, and the fallback source (jup.ag) was intermittently
+    // unresolvable via DNS. One round-trip here dodges the connection cap
+    // entirely. Not wallet-gated (root-level route), but send the CSRF header +
+    // cookie like every other gateway POST.
+    const ids = mints.slice(0, 100);
     try {
-      // Helius caps batch size at 1000 — slice defensively for callers.
-      const ids = mints.slice(0, 1000);
-      const response = await fetch(environment.solanaRpc, {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      const res = await fetch(`${environment.apiBase}/token-meta`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          Authorization: `Bearer ${localStorage.getItem('oprai-auth-token') ?? ''}`,
-        },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         credentials: 'include',
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'asset-batch',
-          method: 'getAssetBatch',
-          params: { ids, displayOptions: { showCollectionMetadata: false } },
-        }),
-      });
-
-      if (!response.ok) return out;
-      const json = await response.json() as { result?: any[] };
-      const items = json.result ?? [];
-
-      for (const it of items) {
-        if (!it?.id) continue;
-        const meta = it.content?.metadata ?? {};
-        const links = it.content?.links ?? {};
-        const files = it.content?.files ?? [];
-        const logoUri =
-          links.image ??
-          files.find((f: any) => f?.uri && /image|png|jpg|webp|svg/i.test(f?.mime ?? f?.uri))?.uri ??
-          files[0]?.uri ??
-          null;
-        out.set(it.id, {
-          name: meta.name ?? '',
-          symbol: meta.symbol ?? '',
-          logoUri,
-        });
+        signal: ctrl.signal,
+        body: JSON.stringify({ mints: ids }),
+      }).finally(() => clearTimeout(timer));
+      if (res.ok) {
+        const json = await res.json() as Record<string, { name?: string; symbol?: string; image?: string }>;
+        for (const [mint, meta] of Object.entries(json ?? {})) {
+          if (!meta) continue;
+          out.set(mint, {
+            name: meta.name ?? '',
+            symbol: meta.symbol ?? '',
+            logoUri: meta.image || null,
+          });
+        }
       }
     } catch {
-      // Network blip — caller falls back to existing partial metadata.
+      // Graceful fallback — enrichment leaves the placeholder icon in place.
     }
 
     return out;
@@ -130,8 +122,15 @@ export class HeliusService {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${localStorage.getItem('oprai-auth-token') ?? ''}`,
+              // The gateway 403s without X-Requested-With (CSRF) and 401s without
+              // the auth cookie. The old empty Bearer from localStorage (the JWT
+              // is in memory, not localStorage) meant this call ALWAYS 403'd, so
+              // Helius never parsed a single tx — every row fell back to a bare
+              // 'ACTION' stub. Send the CSRF header + cookie like every other
+              // gateway call.
+              'X-Requested-With': 'XMLHttpRequest',
             },
+            credentials: 'include',
             body: JSON.stringify({ transactions: batch }),
           });
           if (!response.ok) return [] as HeliusParsedTransaction[];

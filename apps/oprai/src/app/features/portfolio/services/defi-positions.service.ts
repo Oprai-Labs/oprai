@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ProtocolDetectionService } from './protocol-detection.service';
-import { JupiterLendService } from '@core/services/market/jupiter-lend.service';
+import { JupiterLendService, type LendPosition } from '@core/services/market/jupiter-lend.service';
 import { JupiterPortfolioService } from '@core/services/market/jupiter-portfolio.service';
 import { ApiService } from '@core/services/api.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
@@ -50,6 +50,12 @@ interface OrcaWhirlpoolMeta {
 export class DefiPositionsService {
   private readonly protocolDetection = inject(ProtocolDetectionService);
   private readonly jupiterLend = inject(JupiterLendService);
+
+  // Last-known-good Jupiter Lend supply positions per wallet. Lets a transient
+  // lite-api failure fall back to the previously-fetched supply instead of
+  // dropping the user's real position — a clean (successful) empty result
+  // still overwrites it, so a genuinely closed position clears correctly.
+  private readonly _lastLendSupply = new Map<string, LendPosition[]>();
   private readonly jupiterPortfolio = inject(JupiterPortfolioService);
   private readonly apiService = inject(ApiService);
   private readonly tokenRegistry = inject(TokenRegistryService);
@@ -85,31 +91,112 @@ export class DefiPositionsService {
 
   async getLpPositions(
     _wallet: string,
-    _tokenAccounts: EnhancedTokenAccount[]
+    tokenAccounts: EnhancedTokenAccount[]
   ): Promise<ProtocolPosition[]> {
-    // The legacy Raydium AMM v2 LP-token detection used `api.raydium.io/v2/main/pairs`
-    // — verified live: that endpoint is **493 MB** and takes ~2 minutes to
-    // download. Even with an 8s AbortController in place, every refresh on
-    // any wallet was burning huge bandwidth + CPU parsing the JSON for what
-    // is now a niche use case (most LPs migrated to CLMM / Meteora DLMM).
-    // Until we wire up a smaller per-mint lookup (Jupiter `/pools/info/lps`
-    // takes a list of LP mints and returns just those), this is a no-op.
-    return [];
+    // Raydium Standard AMM / CPMM LP positions are held as LP tokens (not a
+    // position NFT). The old detection downloaded the 493 MB /main/pairs dump;
+    // instead, map the wallet's token mints against Raydium's per-mint
+    // `pools/info/lps` endpoint (returns only the pools whose lpMint matches).
+    try {
+      const held = (tokenAccounts ?? []).filter(t => t.mint && (t.balance ?? 0) > 0);
+      if (!held.length) return [];
+      const res = await fetch(
+        `https://api-v3.raydium.io/pools/info/lps?lps=${held.map(t => t.mint).join(',')}`,
+      );
+      if (!res.ok) return [];
+      const json = await res.json();
+      const pools = ((json?.data ?? []) as Array<Record<string, unknown>>).filter(Boolean);
+      if (!pools.length) return [];
+      const logo = this.protocolDetection.getProtocolLogo('raydium');
+      const out: ProtocolPosition[] = [];
+      for (const pool of pools) {
+        const lpMintObj = pool['lpMint'] as { address?: string } | string | undefined;
+        const lpMint = typeof lpMintObj === 'string' ? lpMintObj : lpMintObj?.address;
+        const bal = held.find(t => t.mint === lpMint);
+        if (!bal) continue;
+        const mintA = pool['mintA'] as { symbol?: string; address?: string; logoURI?: string } | undefined;
+        const mintB = pool['mintB'] as { symbol?: string; address?: string; logoURI?: string } | undefined;
+        const supply = Number(pool['lpAmount']) || 0;
+        const tvl = Number(pool['tvl']) || 0;
+        // User's share of the pool: their LP tokens / total LP supply.
+        const share = supply > 0 ? bal.balance / supply : 0;
+        const value = share * tvl || null;
+        // Underlying token breakdown = share × the pool's live reserves
+        // (mintAmountA/B are already in UI units). Without this the position card
+        // showed "0.0000 WSOL / 0.0000 USDC" even though the USD value resolved.
+        const reserveA = Number(pool['mintAmountA']) || 0;
+        const reserveB = Number(pool['mintAmountB']) || 0;
+        const amountA = share * reserveA;
+        const amountB = share * reserveB;
+        const apr = (pool['day'] as { apr?: number } | undefined)?.apr ?? null;
+        const pair = `${mintA?.symbol ?? '?'}/${mintB?.symbol ?? '?'}`;
+        out.push({
+          protocolId: 'raydium',
+          protocolName: 'Raydium',
+          protocolLogoUri: logo,
+          category: 'liquidity-pool',
+          positions: [{
+            label: pair,
+            tokens: [
+              { symbol: mintA?.symbol ?? '?', amount: amountA, logoUri: mintA?.logoURI ?? null, mint: mintA?.address },
+              { symbol: mintB?.symbol ?? '?', amount: amountB, logoUri: mintB?.logoURI ?? null, mint: mintB?.address },
+            ],
+            totalUsdValue: value,
+            metadata: { poolId: String(pool['id'] ?? ''), lpMint: lpMint ?? '', lpAmount: bal.balance },
+            apy: apr,
+          }],
+          totalUsdValue: value ?? 0,
+        });
+      }
+      return out;
+    } catch {
+      return [];
+    }
   }
 
   async getLendingPositions(wallet: string): Promise<ProtocolPosition[]> {
     if (!wallet) return [];
     try {
-      const [earnPositions, borrowPositions] = await Promise.all([
-        this.jupiterLend.getAllEarnPositions(wallet),
-        this.jupiterLend.getBorrowPositions(wallet),
+      // Kick off all three concurrently. Supply is awaited separately (not in
+      // the Promise.all) because it THROWS on a hard API failure — vs. returning
+      // [] for genuinely no position — so we can fall back to the last-known-good
+      // supply through a transient lite-api hiccup instead of dropping the user's
+      // real ~$77 Lend position. A clean (successful) empty still overwrites the
+      // cache, so a genuinely closed position clears.
+      const earnP = this.jupiterLend.getAllEarnPositions(wallet);
+      const borrowP = this.jupiterLend.getBorrowPositions(wallet);
+      // Borrow-market supply (collateral earning yield, e.g. 1 wSOL supplied
+      // with 0 borrowed) — Jupiter's UI shows it under "Lending". The catch is
+      // attached at creation (not a later await) so an early rejection never
+      // surfaces as an unhandled promise rejection.
+      const supplyP = this.jupiterLend
+        .getLendSupplyPositions(wallet)
+        .then((pos) => {
+          this._lastLendSupply.set(wallet, pos);
+          return pos;
+        })
+        .catch(() => this._lastLendSupply.get(wallet) ?? []);
+
+      const [earnPositions, borrowPositions, supplyPositions] = await Promise.all([
+        earnP,
+        borrowP,
+        supplyP,
       ]);
 
       const positions: ProtocolPosition[] = [];
       const logo = this.protocolDetection.getProtocolLogo('jupiter');
 
-      if (earnPositions.length > 0) {
-        const items: PositionItem[] = earnPositions.map(p => ({
+      // Drop empty/dust earn accounts — a fully-withdrawn Jupiter Lend position
+      // leaves a 0-balance account behind, which rendered as a phantom
+      // "$0.00 / 0.0000" row. Anything that rounds to 0 at display precision is
+      // not a real position. Merge the Earn/Vault balances with the borrow-market
+      // supply into one "Jupiter Lend" grouping.
+      const liveEarn = [
+        ...earnPositions.filter(p => (p.depositedAmount ?? 0) >= 0.00005),
+        ...supplyPositions,
+      ];
+      if (liveEarn.length > 0) {
+        const items: PositionItem[] = liveEarn.map(p => ({
           label: p.asset.symbol,
           tokens: [{
             symbol: p.asset.symbol,

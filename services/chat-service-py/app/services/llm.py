@@ -533,6 +533,7 @@ class LLMService:
             max_tokens=settings.OPRAI_GPT_MAX_TOKENS,
             system=system_blocks,
             messages=non_system,
+            **_anthropic_thinking_kwargs(self._model),
         ) as stream:
             async for chunk in stream.text_stream:
                 if not chunk:
@@ -583,6 +584,7 @@ class LLMService:
             "max_tokens": settings.OPRAI_GPT_MAX_TOKENS,
             "system": system_blocks,
             "messages": non_system,
+            **_anthropic_thinking_kwargs(self._model),
         }
         if tool_choice == "none" or not anthropic_tools:
             # No tools at all — Claude can't call anything regardless.
@@ -646,10 +648,17 @@ class LLMService:
         """Non-streaming completion via Anthropic Messages API."""
         system_blocks, non_system = _anthropic_split_system(messages)
         resp = await self._anthropic.messages.create(
+            # Non-streaming path (titles, block summaries) — short outputs. Cap
+            # max_tokens well below the streaming responder's 24000: the SDK
+            # rejects a NON-streaming request whose max_tokens implies a >10min
+            # run (true for Sonnet 5 at 24000), raising
+            # "Streaming is required for operations that may take longer than 10
+            # minutes". 4096 is ample for a title/summary and safely under it.
             model=self._model,
-            max_tokens=settings.OPRAI_GPT_MAX_TOKENS,
+            max_tokens=min(settings.OPRAI_GPT_MAX_TOKENS, 4096),
             system=system_blocks,
             messages=non_system,
+            **_anthropic_thinking_kwargs(self._model),
         )
         # Claude returns content as a list of blocks; concat all text blocks.
         out: list[str] = []
@@ -682,6 +691,25 @@ def _to_langchain(
 # filter that wraps the OpenAI paths is unnecessary here. We still pipe text
 # through `_strip_tool_call_leakage` on the off chance Claude ever writes
 # tool-name vocabulary in prose, but in practice it never does.
+
+def _anthropic_thinking_kwargs(model: str) -> dict:
+    """Thinking config for an Anthropic responder call, keyed off the model.
+
+    Newer Claude models (Sonnet 5, Opus 4.6/4.7/4.8, Sonnet 4.6, Fable 5)
+    enable *adaptive thinking by DEFAULT* when the `thinking` param is omitted.
+    For an interactive chat responder that is pure overhead — it adds latency
+    and burns extra output tokens (which count against the per-chat token cap)
+    for reasoning the streaming path never surfaces. Explicitly disable it on
+    those models. Older models (Haiku 4.5 and earlier) already default to no
+    thinking and may reject an explicit `{"type": "disabled"}`, so send nothing.
+    """
+    m = model.lower()
+    thinks_by_default = any(
+        t in m for t in
+        ("sonnet-5", "opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6", "fable-5", "mythos-5")
+    )
+    return {"thinking": {"type": "disabled"}} if thinks_by_default else {}
+
 
 def _anthropic_split_system(messages: list[dict[str, str]]) -> tuple[list[dict], list[dict]]:
     """Split into Anthropic system blocks and a non-system message list.

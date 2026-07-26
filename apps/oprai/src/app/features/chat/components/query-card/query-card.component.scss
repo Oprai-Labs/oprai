@@ -529,6 +529,158 @@
   margin-bottom: 8px;
 }
 
+// ── Raydium positions, styled like the Jupiter swap panel (.pump-panel) ──
+.ray-pos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ray-pos {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 16px;
+  transition: border-color 0.12s;
+
+  &:hover { border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle)); }
+
+  &__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  &__pair {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--op-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__addr { margin-left: auto; flex-shrink: 0; }
+
+  &__body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  &__amount-block {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.15;
+  }
+
+  &__amount {
+    font-size: 1.625rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  // Two token amounts + symbols need more room than a single figure, so this
+  // variant trades a little size for a full, unclipped line.
+  &__amount--pair {
+    font-size: 1.125rem;
+    white-space: normal;
+  }
+
+  &__amount-sep {
+    color: var(--op-text-tertiary);
+    font-weight: 500;
+    margin: 0 2px;
+  }
+
+  &__amount-label {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    margin-top: 2px;
+  }
+
+  &__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+}
+
+// Secondary row action (Add) — same shape as the primary Use/Withdraw button
+// but visually subordinate to it.
+.dlmm-use-btn--ghost {
+  background: var(--op-bg-surface-3);
+  color: var(--op-text-secondary);
+
+  &:hover {
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-primary);
+  }
+}
+
+.ray-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--op-bg-surface-1);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 12px;
+
+  &:focus-within { border-color: var(--op-brand); }
+
+  &__icon { color: var(--op-text-tertiary); flex-shrink: 0; }
+
+  &__input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--op-text-primary);
+    font-size: 0.85rem;
+
+    &::placeholder { color: var(--op-text-tertiary); }
+  }
+
+  &__btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--op-brand);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity var(--op-fast);
+
+    &:hover { opacity: 0.9; }
+
+    &--clear {
+      padding: 5px;
+      background: var(--op-bg-surface-3);
+      color: var(--op-text-secondary);
+    }
+  }
+}
+
 .dlmm-table .dlmm-row {
   // 6-column grid: pool name | TVL | volume | APY | bin/fee | action
   display: grid;
@@ -631,6 +783,188 @@
   }
 }
 
+// ── Kamino Multiply pool list ───────────────────────────────────────────────
+// Rendered as swap-style surface cards (one bordered box per pool) rather than
+// a flat divider table, so it matches the action/swap card visual language.
+.km-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+// Shared 5-column grid: pool (icons+name) | max lev | est apy | tvl | action
+.km-table .km-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.7fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 0.9fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+// Column-label strip stays a plain header (no card), aligned to the row padding.
+// margin-inline:0 is REQUIRED — the base .result-table__header applies
+// margin-inline:-8px, but the km data rows reset it to 0, so without this the
+// header is shifted 8px left of the data columns (misaligned header labels).
+.km-table .result-table__header.km-row {
+  padding: 2px 12px;
+  margin-inline: 0;
+  // Match the data rows' 1px border (transparent here) so the header's grid
+  // box has the SAME inner geometry as the bordered rows — otherwise every
+  // column is offset by ~1px between the header and the data.
+  border: 1px solid transparent;
+}
+
+// Each data row is a bordered surface box like .proto-token-chip.
+.km-table .result-table__row.km-row {
+  margin-inline: 0;
+  padding: 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-md, 12px);
+  transition: border-color var(--op-fast), background var(--op-fast);
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 34%, var(--op-border-subtle));
+    background: color-mix(in srgb, var(--op-brand, #5b5fc7) 6%, var(--op-bg-surface-2));
+  }
+}
+
+.km-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  // Matches the swap card's token symbol (.proto-token-chip__symbol).
+  &__name {
+    color: var(--op-text-primary);
+    font-weight: 700;
+    font-size: 0.8125rem;
+    line-height: 1.15;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  // Matches the swap card's .proto-token-chip__name (0.6875rem).
+  &__sub {
+    color: var(--op-text-tertiary);
+    font-size: 0.6875rem;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.km-icons {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+// Exactly the swap card's .proto-token-chip__icon-wrap (28px circle).
+.km-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.06));
+  border: 2px solid var(--op-bg-surface-1, #14151a);
+
+  &--debt {
+    margin-left: -10px;
+  }
+
+  // Solid brand-gradient chip with a white glyph — the same fallback treatment
+  // as the swap card's .proto-token-chip__letter (never a faint grey letter).
+  &--fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(
+      135deg,
+      var(--op-brand, #5b5fc7),
+      var(--op-brand-accent, #06b6d4)
+    );
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+}
+
+.km-lev-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--op-radius-sm, 6px);
+  background: color-mix(in srgb, var(--op-brand, #5b5fc7) 18%, transparent);
+  color: var(--op-brand-accent, #06b6d4);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.km-apy {
+  color: var(--op-success, #22c55e);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+// Raydium pool table reuses the km (swap-card) aesthetic — carded rows, paired
+// token icons, weight-700 symbol — with a 6-column layout:
+// pool (icons+name) | TVL | 24h vol | 24h APR | type | action.
+.km-table--ray .km-row {
+  // Action is a FIXED width, not `auto`: an auto column sizes to its content,
+  // and the header ("Action" text ~45px) is narrower than a data row's
+  // "Deposit →" button (~85px). That made every fr column ahead of it land at a
+  // different x in the header vs the rows — the misaligned columns. A fixed
+  // width makes the track identical in the header and every row.
+  grid-template-columns:
+    minmax(150px, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.62fr) 92px;
+}
+
+// Positions table: Pool | Type | Amount | Action (4 cols).
+.km-table--ray .km-row--pos {
+  grid-template-columns: minmax(150px, 1.8fr) minmax(0, 0.7fr) minmax(0, 1fr) auto;
+}
+
+// The pool-address copy control sits as the pair's sub-line (like km-pair__sub):
+// no button chrome, compact, tertiary — matches the swap card's muted subtext.
+.km-pair__text .dlmm-copy-btn.km-pair__sub {
+  padding: 0;
+  margin-top: 2px;
+  background: none;
+  border: none;
+  min-height: 0;
+  font-size: 0.6875rem;
+  color: var(--op-text-tertiary);
+
+  &:hover { color: var(--op-text-secondary); }
+}
+
+// A pool whose Kamino borrow cap is full — visible but not openable.
+.km-table .result-table__row.km-row--capped {
+  opacity: 0.62;
+}
+
+.km-cap-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--op-radius-sm, 6px);
+  background: color-mix(in srgb, var(--op-warning, #f59e0b) 15%, transparent);
+  color: var(--op-warning, #f59e0b);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .dlmm-pool-config {
   display: flex;
   flex-direction: column;
@@ -726,6 +1060,22 @@
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
+}
+
+.km-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  flex-wrap: wrap;
+
+  &__pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
 }
 
 .dlmm-page-btn {

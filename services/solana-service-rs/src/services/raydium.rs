@@ -1575,6 +1575,8 @@ pub struct RaydiumSearchPoolsParams {
     #[serde(default)]
     pub sort_field: Option<String>,
     #[serde(default)]
+    pub page: Option<u32>,
+    #[serde(default)]
     pub page_size: Option<u32>,
 }
 
@@ -1636,10 +1638,11 @@ pub async fn build_raydium_search_pools(
     let mint1 = resolve_token_address(&token_a);
     let pool_type = params.pool_type.as_deref().unwrap_or("all");
     let sort_field = params.sort_field.as_deref().unwrap_or("liquidity");
+    let page = params.page.unwrap_or(1).max(1);
     let page_size = params.page_size.unwrap_or(20).min(1000);
 
     let mut url = format!(
-        "{RAYDIUM_API}/pools/info/mint?mint1={mint1}&poolType={pool_type}&poolSortField={sort_field}&sortType=desc&pageSize={page_size}&page=1"
+        "{RAYDIUM_API}/pools/info/mint?mint1={mint1}&poolType={pool_type}&poolSortField={sort_field}&sortType=desc&pageSize={page_size}&page={page}"
     );
     if let Some(ref b) = token_b {
         let mint2 = resolve_token_address(b);

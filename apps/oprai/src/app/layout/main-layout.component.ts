@@ -382,6 +382,10 @@ export class MainLayoutComponent implements OnDestroy {
   constructor() {
     effect(() => {
       const authenticated = this.authService.isAuthenticated();
+      // Load once per authenticated session. The list is no longer wiped by a
+      // transient 401-recovery (restoreSession preserves it), so there's no
+      // need to reload on navigation — reloading is exactly the visible
+      // "sidebar refreshing" the user did NOT want.
       if (authenticated && !this.sessionsLoaded) {
         this.sessionsLoaded = true;
         untracked(() => this.loadSessions());

@@ -160,14 +160,17 @@ class LLMCapExceeded(Exception):
         )
 
     def to_payload(self) -> dict:
+        msg = str(self)
         return {
+            # See ChatLockedError.to_payload — frontend gates on `error`.
+            "error":     msg,
             "errorType": "llm_daily_cap",   # frontend type tag kept stable for compatibility
             "unit":      self.unit,
             "period":    self.period,
             "used":      self.used,
             "cap":       self.cap,
             "resetsAt":  self.resets_at,
-            "message":   str(self),
+            "message":   msg,
         }
 
 
@@ -189,13 +192,18 @@ class ChatLockedError(Exception):
         )
 
     def to_payload(self) -> dict:
+        msg = str(self)
         return {
+            # `error` is REQUIRED: the frontend only enters its cap/limit
+            # handler inside `if (parsed.error)`. Without it the event falls
+            # through to the generic "couldn't generate a response" fallback.
+            "error":     msg,
             "errorType": "chat_limit",
             "scope":     "chat",
             "unit":      self.unit,
             "used":      self.used,
             "cap":       self.cap,
-            "message":   str(self),
+            "message":   msg,
         }
 
 

@@ -73,6 +73,17 @@
   gap: 4px;
   max-width: 75%;
   min-width: 0;
+
+  // Editing swaps the bubble for a textarea — give it the FULL column width
+  // (not the 75% a chat bubble sits at) so long messages are comfortable to
+  // edit instead of being squeezed into the bubble's narrow footprint.
+  &--editing {
+    max-width: 100%;
+    width: 100%;
+    align-items: stretch;
+
+    .bubble--editing { width: 100%; }
+  }
 }
 
 .bubble-protocols {
@@ -142,6 +153,18 @@
     &:focus-visible {
       outline: 1px solid var(--op-brand);
       outline-offset: 1px;
+    }
+
+    // Disabled while a reply is streaming — resending/editing mid-stream would
+    // race the in-flight turn.
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+
+      &:hover {
+        background: transparent;
+        color: var(--op-text-tertiary);
+      }
     }
   }
 }

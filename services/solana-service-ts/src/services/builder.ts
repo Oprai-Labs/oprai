@@ -10,7 +10,11 @@ import * as jupiter from "./jupiter";
 import * as marginfi from "./marginfi";
 import * as transfer from "./transfer";
 import * as kamino from "./kamino";
+import * as kaminoFarm from "./kamino_farm";
+import * as kaminoLiquidity from "./kamino_liquidity";
+import * as kaminoMultiply from "./kamino_multiply";
 import * as raydium from "./raydium";
+import * as raydiumSdk from "./raydium_sdk";
 import * as orca from "./orca";
 import * as marinade from "./marinade";
 import * as meteora from "./meteora";
@@ -126,14 +130,54 @@ export async function buildAction(
       return kamino.getKaminoMarkets(params);
     case "kamino_positions":
       return kamino.getKaminoUserPositions(p(params), userWallet);
+    // Farm staking — SDK-only (klend/farms), delegated here from the Rust service.
+    case "kamino_stake":
+      return kaminoFarm.buildKaminoStake(p(params), userWallet);
+    case "kamino_unstake":
+      return kaminoFarm.buildKaminoUnstake(p(params), userWallet);
+    case "kamino_claim_rewards":
+      return kaminoFarm.buildKaminoClaimRewards(p(params), userWallet);
+    // Concentrated liquidity (CLMM) strategies — kliquidity-sdk.
+    case "kamino_liquidity_deposit":
+      return kaminoLiquidity.buildKaminoLiquidityDeposit(p(params), userWallet);
+    case "kamino_liquidity_withdraw":
+      return kaminoLiquidity.buildKaminoLiquidityWithdraw(p(params), userWallet);
+    case "kamino_liquidity_strategies":
+      return kaminoLiquidity.getKaminoLiquidityStrategies(p(params));
+    // Multiply (leveraged looping) — klend-sdk leverage + Jupiter swapper.
+    case "kamino_multiply_open":
+      return kaminoMultiply.buildKaminoMultiplyOpen(p(params), userWallet);
+    case "kamino_multiply_add":
+      return kaminoMultiply.buildKaminoMultiplyAdd(p(params), userWallet);
+    case "kamino_multiply_withdraw":
+      return kaminoMultiply.buildKaminoMultiplyWithdraw(p(params), userWallet);
+    case "kamino_multiply_close":
+      return kaminoMultiply.buildKaminoMultiplyClose(p(params), userWallet);
+    case "kamino_multiply_markets":
+      return kaminoMultiply.getKaminoMultiplyMarkets(p(params));
 
     // ── Raydium ───────────────────────────────────────────────────────────────
     case "raydium_swap":
       return raydium.buildRaydiumSwap(p(params), userWallet);
     case "raydium_add_liquidity":
-      return raydium.buildRaydiumAddLiquidity(p(params), userWallet);
+      // SDK-built: Raydium's REST API has no liquidity endpoint (swap-only).
+      return raydiumSdk.buildRaydiumAddLiquiditySdk(p(params) as any, userWallet);
     case "raydium_remove_liquidity":
-      return raydium.buildRaydiumRemoveLiquidity(p(params), userWallet);
+      return raydiumSdk.buildRaydiumRemoveLiquiditySdk(p(params) as any, userWallet);
+    case "raydium_open_position":
+      return raydiumSdk.buildRaydiumOpenPositionSdk(p(params) as any, userWallet);
+    case "raydium_increase_position":
+      return raydiumSdk.buildRaydiumIncreasePositionSdk(p(params) as any, userWallet);
+    case "raydium_decrease_position":
+      return raydiumSdk.buildRaydiumDecreasePositionSdk(p(params) as any, userWallet);
+    case "raydium_close_position":
+      return raydiumSdk.buildRaydiumClosePositionSdk(p(params) as any, userWallet);
+    case "raydium_create_pool":
+      return raydiumSdk.buildRaydiumCreatePoolSdk(p(params) as any, userWallet);
+    case "raydium_get_user_positions":
+    case "raydium_get_clmm_positions":
+      // Read the user's CLMM positions straight from chain via the SDK.
+      return raydiumSdk.getRaydiumUserPositionsSdk(p(params) as any, userWallet);
     case "raydium_get_pools":
     case "raydium_get_pools_v2":
       return raydium.getRaydiumPools(p(params));

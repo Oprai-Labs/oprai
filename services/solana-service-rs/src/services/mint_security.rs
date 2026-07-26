@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::error::AppError;
-use crate::solana::tokens::{get_token_info, COMMON_TOKENS};
+use crate::solana::tokens::{get_token_info, resolve_token_address, COMMON_TOKENS};
 
 /// Provenance of a mint address — what we actually know about a token the LLM
 /// (or a third-party UI) just asked us to swap/transfer.
@@ -144,12 +144,15 @@ pub async fn classify_mint(
 /// We treat any failure (timeout, 404, bad payload) as "unknown" rather than
 /// surfacing the network error — the caller decides whether to reject.
 async fn jupiter_lookup(http: &reqwest::Client, mint: &str) -> Result<MintProvenance, AppError> {
-    // `tokens.jup.ag/token/<mint>` is the canonical token-metadata endpoint.
-    // Use a tight timeout so a slow Jupiter doesn't stall a quote.
-    let url = format!("https://tokens.jup.ag/token/{mint}");
+    // Jupiter RETIRED `tokens.jup.ag/token/<mint>` (it now NXDOMAINs), which made
+    // this classify every non-registry mint as Unknown and reject legitimate,
+    // liquid tokens (e.g. PYUSD — a Token-2022 mint). The current metadata lookup
+    // is the v2 search endpoint, which returns an ARRAY of matches. Tight timeout
+    // so a slow Jupiter doesn't stall a quote.
+    let url = format!("https://api.jup.ag/tokens/v2/search?query={mint}");
     let resp = http
         .get(&url)
-        .timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(3))
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("Jupiter token lookup failed: {e}")))?;
@@ -161,26 +164,107 @@ async fn jupiter_lookup(http: &reqwest::Client, mint: &str) -> Result<MintProven
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct TokenMeta {
+        id: Option<String>,
         symbol: Option<String>,
         name: Option<String>,
         decimals: Option<u8>,
     }
-    let body: TokenMeta = resp
+    let body: Vec<TokenMeta> = resp
         .json()
         .await
         .map_err(|e| AppError::Internal(format!("Jupiter token decode failed: {e}")))?;
 
-    let symbol = body.symbol.unwrap_or_default();
-    let name = body.name.unwrap_or_default();
-    let decimals = body.decimals.unwrap_or(0);
+    // Exact-mint match only — a search query can return near matches by symbol.
+    let Some(hit) = body.into_iter().find(|t| t.id.as_deref() == Some(mint)) else {
+        return Ok(MintProvenance::Unknown);
+    };
+    let symbol = hit.symbol.unwrap_or_default();
     if symbol.is_empty() {
         return Ok(MintProvenance::Unknown);
     }
     Ok(MintProvenance::JupiterKnown {
         symbol,
-        name,
-        decimals,
+        name: hit.name.unwrap_or_default(),
+        decimals: hit.decimals.unwrap_or(0),
     })
+}
+
+/// Resolve a swap/transfer token argument to a canonical mint ADDRESS, accepting
+/// either a raw mint, a compile-time-registry symbol (`SOL`, `USDC`, …), or a
+/// Jupiter-verified symbol (`PYUSD`, …) not in our registry.
+///
+/// The whole difficulty is that symbols collide: a Jupiter search for `PYUSD`
+/// returns ~20 mints, only ONE of which is the real PayPal token — the rest are
+/// `banned`/`unknown` vanity impersonators (some literally ending in `…pump`).
+/// So for the live path we accept only an `isVerified` token whose ticker matches
+/// exactly, preferring the most-liquid one when several verified tokens genuinely
+/// share a symbol. Anything ambiguous is refused rather than guessed — the same
+/// stance [`classify_mint`] takes.
+pub async fn resolve_action_mint(
+    http: &reqwest::Client,
+    mint_or_symbol: &str,
+) -> Result<String, AppError> {
+    // Already a valid mint address — nothing to resolve.
+    if mint_or_symbol
+        .parse::<solana_sdk::pubkey::Pubkey>()
+        .is_ok()
+    {
+        return Ok(mint_or_symbol.to_string());
+    }
+    // Compile-time registry symbol — no network hit.
+    let resolved = resolve_token_address(mint_or_symbol);
+    if resolved != mint_or_symbol {
+        return Ok(resolved);
+    }
+    // Non-registry ticker — resolve against Jupiter's live list, verified-only.
+    if let Some(mint) = resolve_verified_symbol(http, mint_or_symbol).await {
+        return Ok(mint);
+    }
+    Err(AppError::InvalidParams(format!(
+        "'{mint_or_symbol}' is not a valid Solana address, is not in the verified \
+         registry, and no verified token with that symbol was found on Jupiter."
+    )))
+}
+
+/// Jupiter live symbol → mint, verified-only. `None` when there is no single
+/// trustworthy match (nothing verified, or the query wasn't a real ticker).
+async fn resolve_verified_symbol(http: &reqwest::Client, symbol: &str) -> Option<String> {
+    let url = format!("https://api.jup.ag/tokens/v2/search?query={symbol}");
+    let resp = http
+        .get(&url)
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SearchHit {
+        id: Option<String>,
+        symbol: Option<String>,
+        is_verified: Option<bool>,
+        liquidity: Option<f64>,
+    }
+    let hits: Vec<SearchHit> = resp.json().await.ok()?;
+
+    hits.into_iter()
+        .filter(|h| h.is_verified == Some(true))
+        .filter(|h| {
+            h.symbol
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case(symbol))
+        })
+        .filter(|h| h.id.is_some())
+        .max_by(|a, b| {
+            a.liquidity
+                .unwrap_or(0.0)
+                .partial_cmp(&b.liquidity.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .and_then(|h| h.id)
 }
 
 /// Convenience: classify a mint and reject outright if it's `Unknown`.

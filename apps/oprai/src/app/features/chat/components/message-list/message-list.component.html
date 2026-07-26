@@ -8,7 +8,8 @@
         >
           <!-- User bubble -->
           @if (message.role === 'user') {
-            <div class="user-bubble-stack">
+            <div class="user-bubble-stack"
+                 [class.user-bubble-stack--editing]="editingMessageId() === message.id">
               @if (editingMessageId() === message.id) {
                 <!-- Inline edit mode: bubble swaps to a textarea + actions.
                      Esc cancels, Cmd/Ctrl+Enter saves; matches ChatGPT/Claude. -->
@@ -24,7 +25,10 @@
                     <button class="bubble-edit-btn bubble-edit-btn--ghost" (click)="cancelEdit()">
                       Cancel
                     </button>
-                    <button class="bubble-edit-btn bubble-edit-btn--primary" (click)="saveEdit(message)">
+                    <button class="bubble-edit-btn bubble-edit-btn--primary"
+                            [disabled]="streaming"
+                            [title]="streaming ? 'Wait for the current reply to finish' : ''"
+                            (click)="saveEdit(message)">
                       Save &amp; Send
                     </button>
                   </div>
@@ -51,8 +55,9 @@
                   <button
                     type="button"
                     class="user-toolbar__btn"
+                    [disabled]="streaming"
                     (click)="retryUserMessage(message)"
-                    title="Resend this message"
+                    [title]="streaming ? 'Wait for the current reply to finish' : 'Resend this message'"
                     aria-label="Resend">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <polyline points="1 4 1 10 7 10"/>
@@ -62,8 +67,9 @@
                   <button
                     type="button"
                     class="user-toolbar__btn"
+                    [disabled]="streaming"
                     (click)="startEdit(message)"
-                    title="Edit message"
+                    [title]="streaming ? 'Wait for the current reply to finish' : 'Edit message'"
                     aria-label="Edit">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M12 20h9"/>

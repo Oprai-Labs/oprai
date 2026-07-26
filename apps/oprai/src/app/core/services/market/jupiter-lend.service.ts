@@ -59,6 +59,26 @@ async function jupFetch(url: string, timeoutMs = 7000, init?: RequestInit): Prom
   }
 }
 
+/**
+ * Retry `fn` a few times with a short backoff. Jupiter's lite-api hangs a
+ * request then recovers on the next call, so a single attempt drops positions
+ * intermittently — the portfolio kept losing the user's real Lend supply. The
+ * retry turns that transient miss into a reliable read; the final throw lets
+ * the caller decide whether to fall back to the last-known-good position.
+ */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 2, delayMs = 350): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 // ─── Program IDs ────────────────────────────────────────────────────────────
 
 // Supported assets (mainnet)
@@ -319,11 +339,12 @@ export class JupiterLendService {
   /** Fetch all earn (deposit) positions for a wallet. */
   async getAllEarnPositions(walletAddress: string): Promise<LendPosition[]> {
     try {
+      return await withRetry(async () => {
       const [posRes, tokensRes] = await Promise.all([
-        jupFetch(`${LEND_API}/v1/earn/positions?users[]=${walletAddress}`),
-        jupFetch(`${LEND_API}/v1/earn/tokens`),
+        jupFetch(`${LEND_API}/v1/earn/positions?users[]=${walletAddress}`, 4500),
+        jupFetch(`${LEND_API}/v1/earn/tokens`, 4500),
       ]);
-      if (!posRes.ok) return [];
+      if (!posRes.ok) throw new Error(`lend earn/positions HTTP ${posRes.status}`);
       const positions: any[] = await posRes.json();
       const tokens: any[] = tokensRes.ok ? await tokensRes.json() : [];
 
@@ -342,6 +363,7 @@ export class JupiterLendService {
           return { asset, depositedAmount, apy, earnedInterest: 0 } as LendPosition;
         })
         .filter(p => p.depositedAmount > 0);
+      });
     } catch {
       return [];
     }
@@ -350,8 +372,9 @@ export class JupiterLendService {
   /** Fetch all borrow positions for a wallet. */
   async getBorrowPositions(walletAddress: string): Promise<BorrowPosition[]> {
     try {
-      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`);
-      if (!res.ok) return [];
+      return await withRetry(async () => {
+      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`, 4500);
+      if (!res.ok) throw new Error(`lend borrow/positions HTTP ${res.status}`);
       const positions: any[] = await res.json();
 
       // The borrow API shape: each row has `supply` (collateral lamports) and
@@ -387,8 +410,100 @@ export class JupiterLendService {
 
           return { collateralAsset: colAsset, debtAsset, collateralAmount, debtAmount, ltv, liquidationThreshold: liqThresh, healthFactor } as BorrowPosition;
         });
+      });
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Supply-only positions on the Jupiter borrow/lend market — collateral
+   * supplied and earning yield, with or without a borrow against it. These live
+   * under `supply` in /v1/borrow/positions; getBorrowPositions only surfaces
+   * rows WITH debt, so a pure supply (e.g. 1 wSOL collateral, 0 borrowed) was
+   * invisible in the portfolio even though Jupiter's own UI shows it under
+   * "Lending". (This is the borrow-market supply, distinct from the Earn/Vault
+   * product that getAllEarnPositions reads.)
+   */
+  async getLendSupplyPositions(walletAddress: string): Promise<LendPosition[]> {
+    // NOTE: this intentionally does NOT swallow a total failure into []. The
+    // portfolio caller distinguishes "no supply position" (empty result) from
+    // "couldn't reach the API" (throw) so it can keep showing the last-known
+    // supply instead of dropping the user's real ~$77 Lend position on a
+    // transient lite-api hiccup. Only the portfolio calls this method.
+    return withRetry(async () => {
+      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`, 4500);
+      if (!res.ok) throw new Error(`lend borrow/positions HTTP ${res.status}`);
+      const positions: any[] = await res.json();
+      return positions
+        .filter(p => parseFloat(p.supply ?? '0') > 0)
+        .map(p => {
+          const vault = p.vault ?? {};
+          const st = vault.supplyToken ?? {};
+          const mint: string = st.address ?? '';
+          const decimals = st.decimals ?? 9;
+          const asset: LendAsset = LEND_SUPPORTED_ASSETS.find(a => a.mint === mint)
+            ?? { symbol: st.uiSymbol ?? st.symbol ?? '?', mint, decimals };
+          const depositedAmount = parseFloat(p.supply ?? '0') / Math.pow(10, decimals);
+          const apy = (Number(vault.supplyRate) || 0) / 100; // 388 → 3.88%
+          return { asset, depositedAmount, apy, earnedInterest: 0 } as LendPosition;
+        })
+        .filter(p => p.depositedAmount > 0.00005);
+    });
+  }
+
+  /**
+   * The user's Jupiter Lend borrow-market SUPPLY position for a given
+   * collateral mint (supply > 0). This is the "Lending" position shown in
+   * Jupiter's own UI — collateral supplied to a borrow vault (borrow may be 0)
+   * — a DIFFERENT product from Earn/Vault. It is withdrawn via the borrow-vault
+   * operation (`buildBorrowOperateTransaction`, colAmount < 0), NOT the Earn
+   * withdraw SDK. Returns the vault + position ids and the vault's debt asset so
+   * a withdraw tx can be built; null when the user has no supply for this mint.
+   */
+  async getSupplyWithdrawTarget(
+    walletAddress: string,
+    colSymbolOrMint: string,
+  ): Promise<{
+    vaultId: number;
+    positionId: number;
+    supplyAmount: number;
+    colAsset: LendAsset;
+    debtAsset: LendAsset;
+  } | null> {
+    try {
+      const res = await jupFetch(`${LEND_API}/v1/borrow/positions?users[]=${walletAddress}`, 4500);
+      if (!res.ok) return null;
+      const rows: any[] = await res.json();
+      const SOL = NATIVE_MINT.toBase58();
+      const upper = colSymbolOrMint.toUpperCase();
+      const wantSol = colSymbolOrMint === SOL || upper === 'SOL' || upper === 'WSOL';
+      for (const p of rows) {
+        const supplyRaw = parseFloat(p.supply ?? '0');
+        if (supplyRaw <= 0) continue;
+        const v = p.vault ?? {};
+        const st = v.supplyToken ?? {};
+        const bt = v.borrowToken ?? {};
+        const stMint: string = st.address ?? '';
+        const stSym = (st.uiSymbol ?? st.symbol ?? '').toUpperCase();
+        const matches =
+          stMint === colSymbolOrMint ||
+          stSym === upper ||
+          (wantSol && (stMint === SOL || stSym === 'SOL' || stSym === 'WSOL'));
+        if (!matches) continue;
+        const colDec = st.decimals ?? 9;
+        const debtDec = bt.decimals ?? 6;
+        return {
+          vaultId: Number(v.id ?? p.vaultId ?? -1),
+          positionId: Number(p.id ?? 0),
+          supplyAmount: supplyRaw / Math.pow(10, colDec),
+          colAsset: { symbol: st.uiSymbol ?? st.symbol ?? 'SOL', mint: stMint, decimals: colDec },
+          debtAsset: { symbol: bt.uiSymbol ?? bt.symbol ?? 'USDC', mint: bt.address ?? '', decimals: debtDec },
+        };
+      }
+      return null;
+    } catch {
+      return null;
     }
   }
 
@@ -662,6 +777,9 @@ export class JupiterLendService {
       ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
     ];
+    // Instructions appended AFTER Jupiter's op — used to unwrap WSOL back to
+    // native SOL when withdrawing SOL collateral.
+    const postIxs: TransactionInstruction[] = [];
     if (colAmount > 0) {
       const colMint = new PublicKey(colAsset.mint);
       const debtMint = new PublicKey(debtAsset.mint);
@@ -687,6 +805,20 @@ export class JupiterLendService {
         }
       }
       setupIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, debtAta, user, debtMint, debtProgram));
+    } else if (colAmount < 0) {
+      // WITHDRAW collateral: Jupiter returns the collateral to the user's
+      // collateral ATA and does NOT create it, so ensure it exists first
+      // (idempotent — no-op if present). For native SOL, the collateral comes
+      // back as WSOL; append a close so the wrapped SOL is unwrapped to native
+      // SOL in the same tx (mirrors the Earn withdraw path). Without this the
+      // user's withdrawn SOL would sit stranded as WSOL.
+      const colMint = new PublicKey(colAsset.mint);
+      const colProgram = await this.getTokenProgram(colMint);
+      const supplyAta = getAssociatedTokenAddressSync(colMint, user, true, colProgram);
+      setupIxs.push(createAssociatedTokenAccountIdempotentInstruction(user, supplyAta, user, colMint, colProgram));
+      if (colAsset.mint === NATIVE_MINT.toBase58()) {
+        postIxs.push(createCloseAccountInstruction(supplyAta, user, user));
+      }
     }
 
     // Resolve Jupiter's address lookup tables and compile ONE v0 tx.
@@ -699,7 +831,7 @@ export class JupiterLendService {
       new TransactionMessage({
         payerKey: user,
         recentBlockhash: blockhash,
-        instructions: [...setupIxs, ...jupIxs],
+        instructions: [...setupIxs, ...jupIxs, ...postIxs],
       }).compileToV0Message(luts),
     );
 

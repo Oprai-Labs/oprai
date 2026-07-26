@@ -49,7 +49,10 @@ export class TokenListComponent {
   isHidden(t: EnhancedTokenAccount): boolean {
     const wallet = this.walletService.publicKey();
     const overridden = wallet ? this.hiddenTokens.isHidden(wallet, t.mint) : false;
-    return overridden ? !t.isSuspectedSpam : !!t.isSuspectedSpam;
+    // Auto-hidden: spam heuristic OR a DeFi position-receipt token (LP/vault)
+    // that already renders in Active Positions. The user override still flips it.
+    const autoHide = !!t.isSuspectedSpam || !!t.isDefiPositionToken;
+    return overridden ? !autoHide : autoHide;
   }
 
   readonly filteredAndSorted = computed(() => {
@@ -167,6 +170,18 @@ export class TokenListComponent {
 
   onImageError(event: Event): void {
     const img = event.target as HTMLImageElement;
+    // Retry once through an image proxy before giving up: memecoin/NFT logos on
+    // twimg.com / IPFS / arweave are frequently blocked by tracker/ad filters or
+    // fail hotlink checks in the browser, so the raw <img> errors even though
+    // the URL is valid. weserv fetches server-side from a neutral CDN.
+    const src = img.getAttribute('src') ?? '';
+    if (src && !img.dataset['proxied'] && !src.startsWith('/api/img')) {
+      // Retry through our OWN gateway proxy (first-party — never tracker/ad
+      // blocked, unlike twimg/IPFS or third-party proxies like weserv).
+      img.dataset['proxied'] = '1';
+      img.src = `/api/img?url=${encodeURIComponent(src)}`;
+      return;
+    }
     img.style.display = 'none';
     const fallback = img.nextElementSibling;
     if (fallback) (fallback as HTMLElement).style.display = 'flex';

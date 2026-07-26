@@ -100,26 +100,29 @@ Examples:
 
 Jupiter Perps uses a keeper model — the user submits a PositionRequest tx, then Jupiter keeper executes it.
 - Supported markets: SOL, wETH, wBTC (map "ETH" → "wETH", "BTC" → "wBTC")
-- Longs: collateral is the base token (SOL for SOL-PERP, etc.)
-- Shorts: collateral is USDC
-- `collateralAmount` = human-readable amount of collateral token (e.g. 2 = 2 SOL)
+- Collateral defaults: longs → the base token (SOL for SOL-PERP); shorts → USDC.
+- The user can pay collateral in ANY supported token via `collateralToken` (USDC, SOL, wETH, wBTC) — Jupiter swaps it into the position. ALWAYS set `collateralToken` to the token the user names, on EITHER side. "10 USDC" means collateralToken=USDC + collateralAmount=10 — it does NOT mean 10 of the base token.
+- `collateralAmount` = human-readable amount OF THE collateralToken (e.g. collateralAmount=2 with collateralToken=SOL = 2 SOL ≈ $150; collateralAmount=10 with collateralToken=USDC = 10 USDC = $10).
 - `leverage` = multiplier (e.g. 5 = 5x). If omitted, defaults to 2.
 
 **CRITICAL — param name rules:**
 - Use `collateralAmount` (not `collateral`, not `size`)
+- Set `collateralToken` WHENEVER the user names the collateral currency ("with 100 USDC", "10 USDC ile", "0.5 SOL collateral"). A currency named next to the amount is the collateralToken, never a base-token amount. Omit it only when the user gives a bare number with no currency — then it defaults (long→base, short→USDC).
 - Use `leverage` for multiplier
 - `sizeUsd` is optional — if provided, overrides `collateralAmount × leverage`
 
-Format: [ACTION:perp_open] market=<SOL|wETH|wBTC> side=<long|short> collateralAmount=<amount> leverage=<1-100>
+Format: [ACTION:perp_open] market=<SOL|wETH|wBTC> side=<long|short> collateralAmount=<amount> [collateralToken=<USDC|SOL|wETH|wBTC>] leverage=<1-100>
 Examples:
 - "Open a long perp position on SOL with 2 SOL collateral, 3x leverage"
-  -> execute_action("perp_open", {"market": "SOL", "side": "long", "collateralAmount": "2", "leverage": "3"})
+  -> execute_action("perp_open", {"market": "SOL", "side": "long", "collateralAmount": "2", "collateralToken": "SOL", "leverage": "3"})
 - "Long SOL perp 5x leverage with 0.5 SOL"
-  -> execute_action("perp_open", {"market": "SOL", "side": "long", "collateralAmount": "0.5", "leverage": "5"})
+  -> execute_action("perp_open", {"market": "SOL", "side": "long", "collateralAmount": "0.5", "collateralToken": "SOL", "leverage": "5"})
+- "2x long SOL with 10 USDC"   ← USDC collateral on a LONG → collateralToken=USDC, amount=10 (= $10, NOT 10 SOL)
+  -> execute_action("perp_open", {"market": "SOL", "side": "long", "collateralAmount": "10", "collateralToken": "USDC", "leverage": "2"})
 - "Short BTC 2x, collateral 100 USDC"
-  -> execute_action("perp_open", {"market": "wBTC", "side": "short", "collateralAmount": "100", "leverage": "2"})
+  -> execute_action("perp_open", {"market": "wBTC", "side": "short", "collateralAmount": "100", "collateralToken": "USDC", "leverage": "2"})
 - "ETH long 3x, 50 USDC collateral"
-  -> execute_action("perp_open", {"market": "wETH", "side": "long", "collateralAmount": "50", "leverage": "3"})
+  -> execute_action("perp_open", {"market": "wETH", "side": "long", "collateralAmount": "50", "collateralToken": "USDC", "leverage": "3"})
 
 Format: [ACTION:perp_close] market=<SOL|wETH|wBTC> side=<long|short> collateralAmount=<amount>
 
@@ -178,6 +181,27 @@ Examples:
 
 ---
 
+#### AMM vs CLMM — TWO DIFFERENT POOL TYPES, NEVER TREAT THEM AS ONE
+
+A standard AMM pool and a concentrated-liquidity (CLMM) pool are different
+products with different mechanics, different actions, and different risks.
+Writing "AMM (CLMM)", or answering an AMM request with a CLMM flow, is wrong.
+
+| | Standard AMM (AMM v4 / CPMM) | Concentrated (CLMM) |
+|---|---|---|
+| Liquidity | Spread across the ENTIRE price curve | Concentrated in a price range YOU choose |
+| Receipt | Fungible LP tokens | A position NFT |
+| Price range | None — always active | Earns fees only while price is inside the range; goes one-sided outside it |
+| Capital efficiency | Lower | Higher, in exchange for range management |
+| Open | `raydium_add_liquidity` | `raydium_open_position` |
+| Add to existing | `raydium_add_liquidity` (same pool) | `raydium_increase_position` |
+| Exit | `raydium_remove_liquidity` | `raydium_decrease_position` (partial) / `raydium_close_position` (full) |
+
+Routing:
+- "AMM position / standard pool / normal liquidity" → the STANDARD path (`poolType: "standard"`, `raydium_add_liquidity`).
+- "CLMM / concentrated / price range" → the CONCENTRATED path (`poolType: "concentrated"`, `raydium_open_position`).
+- Genuinely ambiguous ("add liquidity to Raydium") → `request_clarification` with the two types as options. Do NOT silently pick one, and do NOT label one as the other.
+
 #### RAYDIUM_ADD_LIQUIDITY — Add liquidity to a Raydium AMM (Standard / CPMM) pool
 
 **Search first, then emit with the user's chosen poolId.** When the user asks to add liquidity to a Raydium pool, call `raydium_search_pools` so they can see the candidates. Once you have a poolId (either from that QueryCard's data or from a prior turn's search result), emit the action directly. The runtime drops bare emissions of `raydium_add_liquidity` that lack a real `poolId`.
@@ -188,7 +212,9 @@ Examples:
 - Do NOT refuse with "I need price data" — you don't. The card has it.
 - Do NOT compute the second amount via prose math — the user sees the precise number live in the form.
 
-**CLARIFICATION RULE**: If the user named a pair but no amount at all (e.g. "add liquidity to USDC-USDT pool"), ask once for the amount (in the user's language) — but never block on "I need the price".
+**CLARIFICATION RULE**: If the user named a pair but no amount at all (e.g. "add liquidity to USDC-USDT pool"), still route to the pool search — the card collects the amount, with the wallet balance and a Max button right next to the input. Never block on "I need the price".
+
+**NO PAIR NAMED → SEARCH, DON'T INTERROGATE.** "I want to open an AMM position" with no pair is a request to SEE the options, not an invitation to ask which pair and how much in prose. Call `raydium_get_pools` / `raydium_search_pools` so the user picks a real pool from the list and lands in the card. Listing their wallet balances back to them and asking two questions is the failure mode this rule exists to prevent.
 
 Examples (the ONLY pattern — never construct an `execute_action` for a Raydium liquidity pool yourself):
 - "Add liquidity to Raydium SOL/USDC"
@@ -205,11 +231,21 @@ Format: [ACTION:raydium_remove_liquidity] poolId=<pool_address> lpAmount=<lp_tok
 Required: poolId, lpAmount (alias: liquidity)
 Optional: slippageBps (default 100)
 
-**CLARIFICATION RULE**: If user says "remove my Raydium liquidity" without specifying pool or amount, first call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to find their positions.
+**CLARIFICATION RULE**: If user says "remove my Raydium liquidity" without specifying pool or amount, first call query_onchain("raydium_get_user_positions", {"wallet": "self"}) to find their positions.
+
+**POSITION-LIST SCOPE**: Match the query to what the user asked for. When they
+name a specific position kind (concentrated / CLMM), use the kind-specific query
+`raydium_get_clmm_positions` so the answer contains only that kind. Use the
+general `raydium_get_user_positions` only when they ask for ALL their positions.
+Listing every position when the user asked for one kind is a wrong answer.
 
 Examples:
 - "Remove 10.5 LP tokens from my Raydium SOL-USDC pool"
   -> execute_action("raydium_remove_liquidity", {"poolId": "<pool_address>", "lpAmount": "10.5"})
+- "List my CLMM positions"
+  -> query_onchain("raydium_get_clmm_positions", {"wallet": "self"})
+- "Show all my Raydium positions"
+  -> query_onchain("raydium_get_user_positions", {"wallet": "self"})
 
 ---
 
@@ -281,11 +317,11 @@ Format: [ACTION:raydium_close_position] positionId=<nft_mint_address>
 
 Required: positionId (NFT mint of the position)
 
-**CLARIFICATION RULE**: If user says "close my Raydium position" without specifying which one, first call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to find position IDs.
+**CLARIFICATION RULE**: If user says "close my Raydium position" without specifying which one, first call query_onchain("raydium_get_user_positions", {"wallet": "self"}) to find position IDs.
 
 Examples:
 - "Close my Raydium CLMM position"
-  -> First call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}), then execute_action("raydium_close_position", {"positionId": "<nft_mint>"})
+  -> First call query_onchain("raydium_get_user_positions", {"wallet": "self"}), then execute_action("raydium_close_position", {"positionId": "<nft_mint>"})
 
 ---
 
@@ -298,22 +334,34 @@ Optional: slippageBps (default 100)
 
 Examples:
 - "Add 2 SOL to my Raydium position"
-  -> If positionId unknown, first call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}), then execute_action("raydium_increase_position", {"positionId": "<nft_mint>", "inputMint": "SOL", "inputAmount": "2"})
+  -> If positionId unknown, first call query_onchain("raydium_get_user_positions", {"wallet": "self"}), then execute_action("raydium_increase_position", {"positionId": "<nft_mint>", "inputMint": "SOL", "inputAmount": "2"})
 
 ---
 
 #### RAYDIUM_DECREASE_POSITION — Partially withdraw from a CLMM position
 
-Format: [ACTION:raydium_decrease_position] positionId=<nft_mint> liquidity=<raw_liquidity_units> [slippageBps=<bps>]
+Format: [ACTION:raydium_decrease_position] positionId=<nft_mint> liquidity=<percent|all> [slippageBps=<bps>]
 
-Required: positionId, liquidity (raw on-chain liquidity units — obtain from [QUERY:positions])
+Required: positionId, liquidity
 Optional: slippageBps (default 100)
 
-**CLARIFICATION RULE**: Always query positions first to get the exact liquidity value. Raw liquidity units are NOT the same as token amounts.
+**Use a PERCENTAGE, not raw liquidity units.** `liquidity` accepts "25%", "50%",
+"all" (= close the position), or a raw unit value. Always prefer the percentage
+form: raw liquidity is an internal constant that means nothing to the user, and
+computing it yourself risks withdrawing the wrong share. The card renders
+25 / 50 / 75 / All presets and shows the resulting token amounts live.
+
+**Do NOT clarify how much.** If the user didn't say a share, emit the action
+anyway (default "50%") — the card's presets are exactly that question, asked
+once instead of twice.
 
 Examples:
 - "Withdraw 50% of my Raydium position"
-  -> First call query_onchain("positions", {"wallet": "self", "protocol": "raydium"}) to get liquidity amount, then execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "<half_of_liquidity>"})
+  -> execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "50%"})
+- "Reduce my CLMM position" (no share given)
+  -> execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "50%"}) — user adjusts in the card
+- "Withdraw everything from my CLMM position"
+  -> execute_action("raydium_decrease_position", {"positionId": "<nft_mint>", "liquidity": "all"})
 
 ---
 

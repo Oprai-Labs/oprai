@@ -176,6 +176,10 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
 
   startEdit(message: ChatMessage): void {
     if (message.role !== 'user') return;
+    // A reply is still streaming — editing/resending now would race the
+    // in-flight turn (two responses for one thread). The buttons are also
+    // disabled in the template; this guards the programmatic path.
+    if (this.streaming) return;
     this.editingMessageId.set(message.id);
     this.editDraft.set(message.content);
   }
@@ -190,6 +194,7 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
    * session/auth/streaming state, so it makes the actual network call.
    */
   saveEdit(message: ChatMessage): void {
+    if (this.streaming) return; // a reply is in flight — don't stack a second turn
     const next = this.editDraft().trim();
     if (!next || next === message.content) {
       this.cancelEdit();
@@ -218,6 +223,7 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   /** Resend the user message verbatim — same supersede semantics as edit. */
   retryUserMessage(message: ChatMessage): void {
     if (message.role !== 'user') return;
+    if (this.streaming) return; // don't resend on top of an in-flight reply
     this.retryMessage.emit({ messageId: message.id, content: message.content });
   }
 

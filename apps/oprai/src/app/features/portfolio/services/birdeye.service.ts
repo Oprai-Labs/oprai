@@ -130,7 +130,18 @@ export class BirdeyeService {
               liquidity?: { usd?: number };
               info?: { imageUrl?: string };
             }> };
-            const solPairs = (j.pairs ?? []).filter(p => p.chainId === 'solana');
+            // CRITICAL: only consider pairs where the QUERIED mint is the BASE
+            // token. DexScreener returns every pair the token appears in —
+            // including ones where it's the QUOTE (e.g. BTC/USDT for the USDT
+            // mint). Without this filter the highest-liquidity pair for a
+            // quote-heavy token like USDT is a BTC/USDT pool, and we'd wrongly
+            // read the BASE token's price + name — that's how 0.1 USDT rendered
+            // as "Bitcoin / BTC" worth $70k. The batch pass already filters this
+            // way; the solo pass must match. If nothing base-matches, the mint
+            // stays missing and the Jupiter Lite Price third pass prices it.
+            const solPairs = (j.pairs ?? []).filter(
+              p => p.chainId === 'solana' && p.baseToken?.address === mint,
+            );
             // Pick highest-liquidity pair for this mint.
             const best = solPairs.reduce<typeof solPairs[number] | null>(
               (acc, p) => (!acc || (p.liquidity?.usd ?? 0) > (acc.liquidity?.usd ?? 0)) ? p : acc,

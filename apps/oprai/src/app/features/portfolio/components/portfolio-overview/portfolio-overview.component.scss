@@ -82,6 +82,43 @@
   line-height: 1.1;
 }
 
+// Shimmer placeholder shown in place of the total while the cross-protocol
+// balances are still being computed. Matches the 42px line-height of
+// `.total-value` so the header doesn't reflow when the real figure lands.
+.total-value-skeleton {
+  width: 240px;
+  height: 46px;
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    var(--op-bg-surface-2) 25%,
+    var(--op-bg-surface-3, var(--op-bg-surface-1)) 37%,
+    var(--op-bg-surface-2) 63%
+  );
+  background-size: 400% 100%;
+  animation: op-shimmer 1.4s ease-in-out infinite;
+}
+
+.protocol-card-skeleton {
+  flex: 1;
+  min-width: 160px;
+  height: 64px;
+  border-radius: 14px;
+  background: linear-gradient(
+    90deg,
+    var(--op-bg-surface-2) 25%,
+    var(--op-bg-surface-3, var(--op-bg-surface-1)) 37%,
+    var(--op-bg-surface-2) 63%
+  );
+  background-size: 400% 100%;
+  animation: op-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes op-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
 // 7-day sparkline — sits between the total value and the 24h change pill.
 // Negative top-margin pulls it tight against the value so the trend line
 // reads as a continuation of the heading rather than a separate block.

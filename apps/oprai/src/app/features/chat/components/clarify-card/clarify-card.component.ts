@@ -4,6 +4,7 @@ import {
   Output,
   EventEmitter,
   ChangeDetectionStrategy,
+  OnInit,
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -24,7 +25,7 @@ interface OptionToken { symbol: string; logoURI: string | null; }
   styleUrls: ['./clarify-card.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ClarifyCardComponent {
+export class ClarifyCardComponent implements OnInit {
   @Input({ required: true }) clarify!: ParsedClarify;
 
   /**
@@ -40,6 +41,16 @@ export class ClarifyCardComponent {
 
   /** Emit which option the user clicked, plus the parsed action to execute. */
   @Output() optionSelected = new EventEmitter<{ index: number; action: ParsedAction }>();
+
+  /**
+   * On a fresh page load the card can re-hydrate from stored chat history BEFORE
+   * the token list is fetched — `resolveToken` then returns null and every option
+   * falls back to the generic protocol mark. Kick the load here; the reactive
+   * `version` signal (read in `resolveToken`) re-renders the icons once it lands.
+   */
+  ngOnInit(): void {
+    void this.tokenRegistry.ensureLoaded();
+  }
 
   readonly categoryIcons: Record<string, string> = {
     stake: 'layers',
@@ -115,14 +126,32 @@ export class ClarifyCardComponent {
    */
   optionTokens(option: ClarifyOption): { from: OptionToken | null; to: OptionToken | null } | null {
     const p = option.params ?? {};
-    let from = this.resolveToken(p['inputMint'] ?? p['inputToken'] ?? p['fromToken'] ?? p['from']);
-    let to = this.resolveToken(p['outputMint'] ?? p['outputToken'] ?? p['toToken'] ?? p['to'] ?? p['token']);
+    // `tokenA`/`tokenB` (+ mintA/mintB) are how LP / pool-pair options name
+    // their two sides — a Raydium/Orca/Meteora "SOL/USDC" pool-pick carries
+    // these, not inputMint/outputMint. Without them the pair fell back to the
+    // generic protocol logo instead of the two token coins.
+    let from = this.resolveToken(
+      p['inputMint'] ?? p['inputToken'] ?? p['fromToken'] ?? p['from'] ?? p['tokenA'] ?? p['mintA'],
+    );
+    // `reserve` is how Kamino lend/borrow options name the subject token.
+    let to = this.resolveToken(
+      p['outputMint'] ?? p['outputToken'] ?? p['toToken'] ?? p['to'] ?? p['token'] ?? p['reserve'] ?? p['tokenB'] ?? p['mintB'],
+    );
     if (!from || !to) {
-      const m = option.label.match(/([A-Za-z0-9$]{2,12})\s*(?:→|->|➜|=>|➔|➙|➛)\s*([A-Za-z0-9$]{2,12})/);
-      if (m) {
-        from ??= this.resolveToken(m[1]);
-        to ??= this.resolveToken(m[2]);
+      // Separator-agnostic label parse: pull every symbol-shaped word out of
+      // the label and keep the first two that resolve to a real token. This
+      // handles "SOL/USDC", "SOL - USDC", "SOL → USDC" AND unicode separator
+      // variants (／ ⁄ ∕) the LLM sometimes emits — where a fixed separator
+      // regex silently failed and the option fell back to the protocol logo.
+      const candidates = option.label.match(/[A-Za-z][A-Za-z0-9$]{1,11}/g) ?? [];
+      const resolved: OptionToken[] = [];
+      for (const c of candidates) {
+        const t = this.resolveToken(c);
+        if (t) resolved.push(t);
+        if (resolved.length === 2) break;
       }
+      from ??= resolved[0] ?? null;
+      to ??= resolved[1] ?? null;
     }
     if (!from && !to) return null;
     return { from, to };
@@ -130,6 +159,13 @@ export class ClarifyCardComponent {
 
   hasTokenPair(option: ClarifyOption): boolean {
     return !!this.optionTokens(option);
+  }
+
+  /** Both sides of a pool/pair option resolved — render the two coins side by
+   *  side (SOL + USDC) rather than a single token or the protocol logo. */
+  optionFullPair(option: ClarifyOption): { from: OptionToken; to: OptionToken } | null {
+    const t = this.optionTokens(option);
+    return t && t.from && t.to ? { from: t.from, to: t.to } : null;
   }
 
   /**
@@ -147,7 +183,14 @@ export class ClarifyCardComponent {
     const tokens = new Set(
       opts.map(o => this.optionSingleToken(o)?.symbol).filter(Boolean),
     );
-    return tokens.size > 1 ? 'token' : 'protocol';
+    // Different tokens → clearly token-distinguished. Same single token across
+    // every option (e.g. "10 / 50 / 100 USDT borrow on Kamino") → the amount is
+    // what differs, but the meaningful icon is still that token, not the
+    // protocol logo already shown in the header. Only fall back to the protocol
+    // glyph when no option resolves a token at all (e.g. validator lists).
+    if (tokens.size > 1) return 'token';
+    if (tokens.size === 1 && opts.every(o => this.optionSingleToken(o))) return 'token';
+    return 'protocol';
   }
 
   /** The single distinguishing token for an option (the `to`/deposited token). */
@@ -172,6 +215,10 @@ export class ClarifyCardComponent {
 
   /** Resolve an address or symbol to display bits; null if unknown/empty. */
   private resolveToken(idOrSymbol?: string): OptionToken | null {
+    // Touch the registry's version signal so this (template-invoked) lookup is
+    // reactive: when the token list finishes loading after a reload, the bump
+    // re-runs OnPush change detection and the real icons replace the fallback.
+    this.tokenRegistry.version();
     const raw = (idOrSymbol ?? '').trim().replace(/^\$/, '');
     if (!raw) return null;
     const meta = raw.length >= 32
