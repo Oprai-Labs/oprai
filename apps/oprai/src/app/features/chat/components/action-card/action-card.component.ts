@@ -2238,6 +2238,49 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       : String(pct));
   }
 
+  /**
+   * SOL held back for opening a DLMM position: the position account plus any
+   * bin arrays the range touches that aren't initialised yet. Meteora quotes
+   * ~0.057 SOL for a 69-bin position and refunds it on close; 0.06 covers
+   * that with a little room for fees. Spending it leaves nothing for rent and
+   * the deposit fails at simulation with an unhelpful "insufficient" error.
+   */
+  readonly METEORA_POSITION_RENT = 0.06;
+
+  /** True when this action opens a NEW DLMM position (rent applies). */
+  private meteoraOpensPosition(): boolean {
+    const t = this.action.type;
+    return this.isMeteoraDlmm() && (t === 'meteora_open_position' || t === 'meteora_add_liquidity');
+  }
+
+  /**
+   * Pre-Confirm guard for a Meteora deposit: each side against its balance,
+   * and native SOL against the position rent on top of whatever is deposited.
+   */
+  readonly meteoraInsufficient = computed<string | null>(() => {
+    if (!this.isMeteoraDual()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? 'A';
+    const symB = p['tokenBSymbol'] ?? 'B';
+    const amtA = parseFloat(p['amountA'] ?? '');
+    const amtB = parseFloat(p['amountB'] ?? '');
+    const balA = this.inputBalance();
+    const balB = this.secondaryBalance();
+    const isSol = (x: string) => { const u = (x ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const rent = this.meteoraOpensPosition() ? this.METEORA_POSITION_RENT : 0.01;
+    const EPS = 1e-9;
+
+    if (Number.isFinite(amtA) && amtA > 0 && balA !== null &&
+        amtA > balA - (isSol(symA) ? rent : 0) + EPS) {
+      return isSol(symA) ? `Keep ~${rent} SOL for position rent` : `Not enough ${symA}`;
+    }
+    if (Number.isFinite(amtB) && amtB > 0 && balB !== null &&
+        amtB > balB - (isSol(symB) ? rent : 0) + EPS) {
+      return isSol(symB) ? `Keep ~${rent} SOL for position rent` : `Not enough ${symB}`;
+    }
+    return null;
+  });
+
   /** The single amount field each one-sided Meteora action actually submits. */
   meteoraSingleKey(): string {
     switch (this.action.type) {
@@ -2430,7 +2473,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const symA = p['tokenASymbol'] ?? '';
     const symB = p['tokenBSymbol'] ?? '';
     const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
-    const RENT = 0.02;
+    // Hold back whatever the guard demands, or Max would always trip it.
+    const RENT = this.meteoraOpensPosition() ? this.METEORA_POSITION_RENT : 0.02;
     const SAFETY = 0.99;
     const availA = Math.max(0, (this.inputBalance() ?? 0) - (isSol(symA) ? RENT : 0)) * SAFETY;
     const availB = Math.max(0, (this.secondaryBalance() ?? 0) - (isSol(symB) ? RENT : 0)) * SAFETY;
