@@ -5,7 +5,7 @@
 //! both services run side-by-side) and returns the SDK's response as a
 //! generic `BuildResponse`.
 //!
-//! New read-only protocols (Drift, MarginFi balances, future ones) should
+//! New read-only protocols (MarginFi balances, future ones) should
 //! be added here rather than reimplementing the proxy pattern per file.
 
 use reqwest::Client;
@@ -108,11 +108,6 @@ async fn ts_proxy_read(
         is_cross_chain: proxy.is_cross_chain,
         data: Some(proxy.data),
     })
-}
-
-/// Drift v2 — list every perp + spot position across all sub-accounts.
-pub async fn drift_list_positions(http: &Client, wallet: &str) -> Result<BuildResponse, AppError> {
-    ts_proxy_read(http, wallet, "drift_list_positions", serde_json::json!({})).await
 }
 
 /// MarginFi v2 — detailed per-bank balance breakdown (deposit/borrow side,

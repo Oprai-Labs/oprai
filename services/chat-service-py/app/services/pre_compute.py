@@ -313,7 +313,7 @@ _LEND_RE = re.compile(
     r"(?P<amount>\d+(?:\.\d+)?|all)\s+"
     r"(?P<token>[A-Za-z][\w.-]{1,20})\s+"
     r"(?:to|on|via|with|into)\s+"
-    r"(?P<protocol>kamino|marginfi|solend|drift)",
+    r"(?P<protocol>kamino|marginfi|solend)",
     re.IGNORECASE,
 )
 
@@ -323,7 +323,7 @@ _BORROW_RE = re.compile(
     r"(?P<amount>\d+(?:\.\d+)?|all)\s+"
     r"(?P<token>[A-Za-z][\w.-]{1,20})\s+"
     r"(?:from|on|via|using)\s+"
-    r"(?P<protocol>kamino|marginfi|solend|drift)",
+    r"(?P<protocol>kamino|marginfi|solend)",
     re.IGNORECASE,
 )
 
@@ -347,13 +347,11 @@ _LEND_PROTOCOL_MAP: dict[str, str] = {
     "kamino": "kamino_deposit",
     "marginfi": "marginfi_deposit",
     "solend": "solend_deposit",
-    "drift": "drift_deposit",
 }
 _BORROW_PROTOCOL_MAP: dict[str, str] = {
     "kamino": "kamino_borrow",
     "marginfi": "marginfi_borrow",
     "solend": "solend_borrow",
-    "drift": "drift_borrow",
 }
 
 

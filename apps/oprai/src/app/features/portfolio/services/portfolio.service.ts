@@ -650,7 +650,6 @@ export class PortfolioService {
         fetchOne(this.defiPositionsService.getOrcaPositions()),
         fetchOne(this.defiPositionsService.getRaydiumClmmPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getMeteoraPositions(walletAddress)),
-        fetchOne(this.defiPositionsService.getDriftPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getStreamflowPositions(walletAddress)),
         // Jupiter Portfolio aggregator — covers Jupiter products (DCA, limit,
         // perp, lend, JUP / JupSOL stake, LP) that none of the per-protocol

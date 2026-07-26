@@ -39,7 +39,6 @@ const PROTOCOL_LOGOS: Record<string, string> = {
   // app.meteora.ag/favicon.ico ships an .ico that browsers crop oddly in our
   // 22px circle. Use their CDN-hosted PNG logo instead.
   'meteora': 'https://www.meteora.ag/icons/logo.svg',
-  'drift': 'https://app.drift.trade/favicon.ico',
   'streamflow': 'https://app.streamflow.finance/favicon.ico',
   'pumpfun': 'https://pump.fun/_next/image?url=%2Flogo.png&w=64&q=75',
   // Jupiter Portfolio API platformIds we know about — keep this lower-cased

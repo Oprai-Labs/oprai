@@ -3222,7 +3222,7 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         | "streamflow_get_one" => Ok(()),
         // Read-only actions proxied wholesale to the TS service. No params
         // validation here — the TS layer reads `wallet` from the auth header.
-        "drift_list_positions" | "marginfi_user_balances" => Ok(()),
+        "marginfi_user_balances" => Ok(()),
         // pumpfun query actions validated in primary validate block above
         "native_stake" => {
             let p: native_stake::NativeStakeParams = serde_json::from_value(params.clone())
@@ -6641,10 +6641,7 @@ pub async fn build_action(
             streamflow_to_build_response(result)
         }
 
-        // ── Read-only protocol queries (Drift / MarginFi balances) ─────────────
-        "drift_list_positions" => {
-            protocol_reads::drift_list_positions(http, &user_pubkey.to_string()).await
-        }
+        // ── Read-only protocol queries (MarginFi balances) ─────────────────────
         "marginfi_user_balances" => {
             protocol_reads::marginfi_user_balances(http, &user_pubkey.to_string()).await
         }

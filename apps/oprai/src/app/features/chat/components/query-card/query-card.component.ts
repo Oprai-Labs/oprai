@@ -2957,7 +2957,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       [/kamino/, 'kamino.webp'],
       [/marginfi/, 'marginfi.webp'],
       [/solend/, 'solend.svg'],
-      [/drift/, 'drift.webp'],
       [/meteora/, 'meteora.webp'],
       [/raydium/, 'raydium.webp'],
       [/orca/, 'orca.webp'],

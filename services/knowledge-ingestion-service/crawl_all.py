@@ -253,10 +253,6 @@ SOURCES: list[Source] = [
         ]}),
 
     # ── Other Protocols ──────────────────────────────────────────────────────
-    Source("drift_docs", "protocols", "sitemap",
-        "https://docs.drift.trade", "drift", "protocol_documentation", "proprietary-fair-use",
-        max_pages=400, crawl_delay=1.5, tags=["drift","perps","trading","defi"]),
-
     Source("pumpfun_docs", "protocols", "sitemap",
         "https://pump-fun.gitbook.io/pump-fun-docs", "pumpfun", "protocol_documentation", "proprietary-fair-use",
         max_pages=100, crawl_delay=2.0, tags=["pumpfun","token-launch","meme"],
@@ -649,21 +645,6 @@ SOURCES: list[Source] = [
         extra={"single_file": True}),
 
     # ── Solana block production & program upgrade deep dives ─────────────────
-    # ── Perps: mark price vs index price, funding rates ───────────────────────
-    Source("drift_perps_concepts", "protocols", "direct_urls",
-        "https://docs.drift.trade", "drift", "protocol_documentation", "proprietary-fair-use",
-        max_pages=20, crawl_delay=1.5,
-        tags=["drift","perps","mark-price","index-price","funding","liquidation","margin","trading"],
-        extra={"urls": [
-            "https://docs.drift.trade/trading/perp-trading",
-            "https://docs.drift.trade/trading/funding-rates",
-            "https://docs.drift.trade/trading/price-types",
-            "https://docs.drift.trade/trading/margin-and-leverage",
-            "https://docs.drift.trade/trading/liquidations",
-            "https://docs.drift.trade/liquidity-provision/jit-liquidity",
-            "https://docs.drift.trade/liquidity-provision/dlob",
-        ]}),
-
     # ── DeFi strategy & portfolio management ─────────────────────────────────
     Source("defi_strategy_finematics", "education", "direct_urls",
         "https://finematics.com", None, "guide", "proprietary-fair-use",

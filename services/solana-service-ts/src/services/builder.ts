@@ -24,7 +24,6 @@ import * as magicEden from "./magic_eden";
 import * as dca from "./dca";
 import * as limitOrder from "./limit_order";
 import * as streamflow from "./streamflow";
-import * as drift from "./drift";
 type Params = Record<string, unknown>;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -400,10 +399,6 @@ export async function buildAction(
       return streamflow.getStreamflowStreams(p(params), userWallet);
     case "streamflow_get_one":
       return streamflow.getStreamflowOne(p(params), userWallet);
-
-    // ── Drift (perpetuals + spot) ────────────────────────────────────────────
-    case "drift_list_positions":
-      return drift.listDriftPositions(params, userWallet);
 
     default:
       throw appError(`Unknown action type: ${type}`, 400, "UNKNOWN_ACTION");

@@ -509,7 +509,7 @@ _TOOL_NAME_PREFIXES = (
     "birdeye_", "helius_", "jup_", "dex_",
     "raydium_", "orca_", "meteora_",
     "kamino_", "marginfi_", "marinade_", "solend_", "save_",
-    "jito_", "tensor_", "pumpfun_", "drift_", "_me_",
+    "jito_", "tensor_", "pumpfun_", "_me_",
     "query_onchain", "execute_action", "request_clarification",
 )
 
