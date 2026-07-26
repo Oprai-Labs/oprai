@@ -905,6 +905,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return mint.slice(0, 4) + '…';
   }
 
+  /**
+   * Token logo for a mint, for the pool-list pair icons. Reads the registry's
+   * version signal so the icons appear once the token list finishes loading
+   * (these rows can render before it does), and kicks off a lookup for mints
+   * the registry hasn't seen yet.
+   */
+  tokenLogo(mint: string): string | null {
+    void this.tokenRegistry.version();
+    if (!mint) return null;
+    const meta = this.tokenRegistry.getToken(mint);
+    if (meta?.logoURI) return meta.logoURI;
+    this.tokenRegistry.resolveAsync(mint);
+    return null;
+  }
+
   private resolveTokenDecimals(mint: string): number {
     if (!mint) return 9;
     const known = KNOWN_TOKENS[mint];

@@ -164,21 +164,39 @@
           }
           @for (p of dlmmResults; track p.address) {
             <div class="result-table__row dlmm-row">
-              <span class="dlmm-pair">
-                <span class="dlmm-pair__name">{{ p.name }}</span>
-                <button
-                  type="button"
-                  class="dlmm-pair__addr mono dlmm-copy-btn"
-                  [class.dlmm-copy-btn--copied]="copiedAddress() === p.address"
-                  (click)="copyPoolAddress(p.address); $event.stopPropagation()"
-                  [attr.title]="copiedAddress() === p.address ? 'Copied' : 'Copy pool address: ' + p.address">
-                  <span class="dlmm-pair__addr-text">{{ p.address.slice(0, 4) }}…{{ p.address.slice(-4) }}</span>
-                  @if (copiedAddress() === p.address) {
-                    <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
+              <!-- Pair cell in the same shape as the Raydium pool list:
+                   overlapping token logos + name over the copyable address. -->
+              @let xLogo = tokenLogo(p.token_x.address);
+              @let yLogo = tokenLogo(p.token_y.address);
+              <span class="km-pair">
+                <span class="km-icons">
+                  @if (xLogo) {
+                    <img class="km-icon" [src]="xLogo" [alt]="p.token_x.symbol" (error)="$any($event.target).style.display='none'" />
                   } @else {
-                    <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
+                    <span class="km-icon km-icon--fallback">{{ (p.token_x.symbol || '?').charAt(0) }}</span>
                   }
-                </button>
+                  @if (yLogo) {
+                    <img class="km-icon km-icon--debt" [src]="yLogo" [alt]="p.token_y.symbol" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (p.token_y.symbol || '?').charAt(0) }}</span>
+                  }
+                </span>
+                <span class="km-pair__text">
+                  <span class="km-pair__name">{{ p.token_x.symbol }} / {{ p.token_y.symbol }}</span>
+                  <button
+                    type="button"
+                    class="dlmm-pair__addr mono dlmm-copy-btn km-pair__sub"
+                    [class.dlmm-copy-btn--copied]="copiedAddress() === p.address"
+                    (click)="copyPoolAddress(p.address); $event.stopPropagation()"
+                    [attr.title]="copiedAddress() === p.address ? 'Copied' : 'Copy pool address: ' + p.address">
+                    <span class="dlmm-pair__addr-text">{{ p.address.slice(0, 4) }}…{{ p.address.slice(-4) }}</span>
+                    @if (copiedAddress() === p.address) {
+                      <lucide-icon name="check" [size]="11" class="dlmm-copy-btn__icon" />
+                    } @else {
+                      <lucide-icon name="copy" [size]="11" class="dlmm-copy-btn__icon" />
+                    }
+                  </button>
+                </span>
               </span>
               <span class="text-right mono">{{ formatUsd(p.tvl) }}</span>
               <span class="text-right mono">{{ formatUsd(dlmmVolume24h(p)) }}</span>
