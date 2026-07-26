@@ -245,6 +245,11 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     this.loadMessages(sessionId);
   }
 
+  /** The conversation hit its length limit — open a fresh one. */
+  onStartNewChat(): void {
+    this.sessionStorage.triggerNewChat();
+  }
+
   onRetry(): void {
     const content = this.lastFailedContent();
     if (!content) return;
@@ -655,6 +660,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
               if (parsed.errorType === 'chat_limit' || parsed.errorType === 'llm_daily_cap') {
                 this.chatLimitReached.set(true);
                 let capMessage: string;
+                let isConversationLimit = false;
                 if (parsed.errorType === 'llm_daily_cap' && parsed.unit && parsed.cap && parsed.resetsAt) {
                   this.capInfo.set({
                     unit:     parsed.unit,
@@ -668,9 +674,13 @@ export class ChatShellComponent implements OnInit, OnDestroy {
                     parsed.cap,
                     parsed.resetsAt,
                   );
+                  isConversationLimit = false;
                 } else {
                   this.capInfo.set(null);
                   capMessage = 'This conversation has reached its limit. Start a new chat to continue.';
+                  // Retrying or editing re-sends into the same full conversation
+                  // and fails identically — the only way forward is a new chat.
+                  isConversationLimit = true;
                 }
                 this.streaming.set(false);
                 // Replace the empty placeholder assistant message with the
@@ -684,6 +694,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
                       ...last,
                       content: capMessage,
                       isError: true,
+                      isConversationLimit,
                     };
                   }
                   return updated;

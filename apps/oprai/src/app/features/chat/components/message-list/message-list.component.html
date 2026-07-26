@@ -247,7 +247,16 @@
               }
 
               <!-- Retry / Edit buttons for error messages (ChatGPT-style recovery) -->
-              @if (message.isError) {
+              @if (message.isConversationLimit) {
+                <!-- Terminal: retrying re-sends into the same full conversation
+                     and fails identically. Offer the only route forward. -->
+                <div class="msg-error-actions">
+                  <button class="msg-retry-btn" (click)="startNewChat.emit()" title="Start a fresh conversation">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    New chat
+                  </button>
+                </div>
+              } @else if (message.isError) {
                 <div class="msg-error-actions">
                   <button class="msg-retry-btn" (click)="retryLast.emit()" title="Resend the same message">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.87"/></svg>

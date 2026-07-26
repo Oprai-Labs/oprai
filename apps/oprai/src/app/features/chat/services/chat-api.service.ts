@@ -80,6 +80,9 @@ export interface ChatMessage {
   metadata?: MessageMetadata;
   /** True when this message represents a stream/LLM error — shows retry UI. */
   isError?: boolean;
+  /** Set when the turn failed for a reason retrying cannot fix — the
+   *  conversation hit its length limit. Offer a new chat, not Retry/Edit. */
+  isConversationLimit?: boolean;
 }
 
 /** Raw shape the backend may return — legacy fields bridged to ChatMessage. */
