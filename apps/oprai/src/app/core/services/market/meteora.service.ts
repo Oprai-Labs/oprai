@@ -240,13 +240,18 @@ export class MeteoraService {
       const binStep = cfg.bin_step ?? resp.bin_step ?? 0;
       const currentPrice = parseFloat(resp.current_price ?? '0');
       // datapi /pools omits active_id, so derive it from the inverse of the
-      // DLMM bin formula:  humanPrice = (1 + binStep/10000)^activeBinId * 10^(decY-decX)
-      // Without this the action card defaults activeBinId to 0 and shows a
-      // bogus "1 X = 1 Y" ratio regardless of true pool price.
+      // DLMM bin formula. Bin prices are RAW (y_raw per x_raw):
+      //   humanPrice = (1 + binStep/10000)^activeBinId * 10^(decX - decY)
+      // so the inverse divides the human price back down:
+      //   activeBinId = ln(humanPrice * 10^(decY - decX)) / ln(1 + binStep/10000)
+      // Checked against the chain: SOL/USDC (bin step 4, ~75 USDC per SOL) has
+      // active_id -6479, and only this direction reproduces it. Getting the sign
+      // wrong lands ~34,500 bins away, which builds a position at a price that
+      // will never trade. Both the comment and the code had it inverted here.
       const activeBinId = resp.active_id ??
         (binStep > 0 && currentPrice > 0
           ? Math.round(
-              Math.log(currentPrice * Math.pow(10, decX - decY)) /
+              Math.log(currentPrice * Math.pow(10, decY - decX)) /
               Math.log(1 + binStep / 10000)
             )
           : 0);
