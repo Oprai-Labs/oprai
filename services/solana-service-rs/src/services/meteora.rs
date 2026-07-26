@@ -983,6 +983,13 @@ const WSOL_MINT_STR: &str = "So11111111111111111111111111111111111111112";
 struct LbPairFields {
     reserve_x: Pubkey,
     reserve_y: Pubkey,
+    /// The pool's CURRENT active bin, straight from the account. Deriving this
+    /// from a quoted price needs the price in raw units and so depends on both
+    /// mints' decimals — a conversion that was wrong in two places at once and
+    /// put the range tens of thousands of bins off (ExceededBinSlippageTolerance,
+    /// 6004). The account is already being fetched here, so reading the field
+    /// costs nothing and cannot drift.
+    active_id: i32,
 }
 
 async fn fetch_reserves(rpc_url: &str, lb_pair: &Pubkey) -> Result<LbPairFields, AppError> {
@@ -1003,9 +1010,13 @@ async fn fetch_reserves(rpc_url: &str, lb_pair: &Pubkey) -> Result<LbPairFields,
         buf.copy_from_slice(&data[off..off + 32]);
         Pubkey::new_from_array(buf)
     };
+    // active_id sits after the discriminator (8) + StaticParameters (32) +
+    // VariableParameters (32) + bump_seed (1) + bin_step_seed (2) + pair_type (1).
+    let active_id = i32::from_le_bytes([data[76], data[77], data[78], data[79]]);
     Ok(LbPairFields {
         reserve_x: read_pubkey(152),
         reserve_y: read_pubkey(184),
+        active_id,
     })
 }
 
@@ -1516,9 +1527,14 @@ pub async fn build_meteora_open_position(
     };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
-    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
-    let reserve_x = _lb_fields.reserve_x;
-    let reserve_y = _lb_fields.reserve_y;
+    let lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    // The pool's real active bin, straight from the account we just read.
+    // Deriving it from a quoted price needs a decimals conversion that was
+    // wrong in two places at once and put the range far from the pool, which
+    // the program rejects with ExceededBinSlippageTolerance (6004).
+    let active_id = lb_fields.active_id;
+    let reserve_x = lb_fields.reserve_x;
+    let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
@@ -1704,9 +1720,14 @@ pub async fn build_meteora_add_liquidity(
     };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
-    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
-    let reserve_x = _lb_fields.reserve_x;
-    let reserve_y = _lb_fields.reserve_y;
+    let lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    // The pool's real active bin, straight from the account we just read.
+    // Deriving it from a quoted price needs a decimals conversion that was
+    // wrong in two places at once and put the range far from the pool, which
+    // the program rejects with ExceededBinSlippageTolerance (6004).
+    let active_id = lb_fields.active_id;
+    let reserve_x = lb_fields.reserve_x;
+    let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
@@ -2203,9 +2224,14 @@ pub async fn build_meteora_add_to_position(
     };
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
-    let _lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
-    let reserve_x = _lb_fields.reserve_x;
-    let reserve_y = _lb_fields.reserve_y;
+    let lb_fields = fetch_reserves(rpc_url, &lb_pair).await?;
+    // The pool's real active bin, straight from the account we just read.
+    // Deriving it from a quoted price needs a decimals conversion that was
+    // wrong in two places at once and put the range far from the pool, which
+    // the program rejects with ExceededBinSlippageTolerance (6004).
+    let active_id = lb_fields.active_id;
+    let reserve_x = lb_fields.reserve_x;
+    let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
