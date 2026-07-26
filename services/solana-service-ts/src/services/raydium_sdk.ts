@@ -702,8 +702,17 @@ export async function getRaydiumUserPositionsSdk(_params: any, userWallet: strin
       for (const pool of (j?.data ?? []).filter(Boolean)) {
         const lpMint = pool.lpMint?.address ?? pool.lpMint;
         const bal = held.find((h) => h.mint === lpMint);
+        // LP tokens are an abstraction — surface the underlying token amounts
+        // they redeem for (share of supply × each reserve), same reasoning as
+        // the CLMM amounts above.
+        const lpSupply = Number(pool.lpAmount);
+        const share = lpSupply > 0 ? (bal?.amt ?? 0) / lpSupply : 0;
+        const lpAmounts = share > 0
+          ? { amountA: share * Number(pool.mintAmountA), amountB: share * Number(pool.mintAmountB) }
+          : null;
         positions.push({
           kind: "lp",
+          ...(lpAmounts && Number.isFinite(lpAmounts.amountA) && Number.isFinite(lpAmounts.amountB) ? lpAmounts : {}),
           poolId: pool.id,
           pair: `${pool.mintA?.symbol || symOf(pool.mintA?.address)}/${pool.mintB?.symbol || symOf(pool.mintB?.address)}`,
           mintA: pool.mintA ? { address: pool.mintA.address, symbol: pool.mintA.symbol || symOf(pool.mintA.address), logoURI: pool.mintA.logoURI ?? null } : null,

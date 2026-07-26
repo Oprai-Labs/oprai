@@ -1694,6 +1694,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         ...display,
         poolId: pos.poolId,
         lpAmount: String(pos.lpAmount ?? ''),
+        // The full holding, so the card can scale a partial withdrawal, plus
+        // the token amounts those LP tokens redeem for.
+        positionLpAmount: String(pos.lpAmount ?? ''),
+        ...(pos.amountA !== undefined ? { amountA: String(pos.amountA) } : {}),
+        ...(pos.amountB !== undefined ? { amountB: String(pos.amountB) } : {}),
         positionKind: 'lp',
       };
       this.useAction.emit({ type: 'raydium_remove_liquidity', params, raw: `[ACTION:raydium_remove_liquidity] ${JSON.stringify(params)}` });

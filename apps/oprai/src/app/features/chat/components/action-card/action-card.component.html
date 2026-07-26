@@ -1252,7 +1252,7 @@
                     }
                   </span>
                   <span class="ray-wd__pair">{{ dv.pair }}</span>
-                  <span class="ray-wd__kind">CLMM</span>
+                  <span class="ray-wd__kind">{{ dv.kind }}</span>
                 </div>
                 <div class="ray-wd__body">
                   <span class="ray-wd__amount">{{ dv.currentA }} {{ dv.symA }} + {{ dv.currentB }} {{ dv.symB }}</span>
@@ -1331,11 +1331,15 @@
               </div>
               @if (dv.closes) {
                 <div class="clmm-min-hint">
-                  Withdrawing everything also closes the position and refunds its rent.
+                  @if (dv.kind === 'LP') {
+                    Burns all your LP tokens and returns both sides of the pool to your wallet.
+                  } @else {
+                    Withdrawing everything also closes the position and refunds its rent.
+                  }
                 </div>
               } @else {
                 <div class="clmm-min-hint">
-                  The position stays open with the remaining {{ 100 - dpct }}% and keeps earning fees.
+                  The position stays open with the remaining {{ 100 - dpct | number:'1.0-1' }}% and keeps earning fees.
                 </div>
               }
             </div>

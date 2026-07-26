@@ -1971,15 +1971,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * spawned from the positions list it carries display context (pair, symbols,
    * logos, amount) — the template uses it to render a real position summary.
    */
-  readonly isRaydiumWithdraw = computed(
-    () => this.action.type === 'raydium_close_position' || this.action.type === 'raydium_remove_liquidity',
-  );
+  /** Full CLMM close — nothing to choose, so it keeps the summary-only panel.
+   *  (Standard-LP withdrawals are partial-capable and use the reduce panel.) */
+  readonly isRaydiumWithdraw = computed(() => this.action.type === 'raydium_close_position');
 
   /** Adding liquidity to an EXISTING CLMM position. */
   readonly isRaydiumIncrease = computed(() => this.action.type === 'raydium_increase_position');
 
-  /** Partial withdrawal from a CLMM position. */
-  readonly isRaydiumDecrease = computed(() => this.action.type === 'raydium_decrease_position');
+  /** Partial withdrawal — CLMM range OR standard-LP position. Both let the
+   *  user take out a share, so they share one panel. */
+  readonly isRaydiumDecrease = computed(
+    () => this.action.type === 'raydium_decrease_position' || this.action.type === 'raydium_remove_liquidity',
+  );
+
+  /** LP withdrawals scale `lpAmount` (UI units); CLMM scales `liquidity`. */
+  private decreaseAmountKey(): 'liquidity' | 'lpAmount' {
+    return this.action.type === 'raydium_remove_liquidity' ? 'lpAmount' : 'liquidity';
+  }
+  private decreaseTotalKey(): 'positionLiquidity' | 'positionLpAmount' {
+    return this.action.type === 'raydium_remove_liquidity' ? 'positionLpAmount' : 'positionLiquidity';
+  }
 
   readonly CLMM_DECREASE_PRESETS: ReadonlyArray<number> = [25, 50, 75, 100];
 
@@ -1991,22 +2002,32 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   readonly clmmDecreasePct = computed<number>(() => {
     const p = this.editParams();
-    const raw = (p['liquidity'] ?? '').trim().toLowerCase();
-    if (!raw) return 50;
+    const raw = (p[this.decreaseAmountKey()] ?? '').trim().toLowerCase();
+    const total = parseFloat(p[this.decreaseTotalKey()] ?? '');
+    if (!raw) return 100; // no amount given → withdraw everything
     if (raw === 'all' || raw === 'max') return 100;
     const pct = raw.match(/^(\d+(?:\.\d+)?)\s*%$/);
     if (pct) return Math.min(100, Math.max(0, parseFloat(pct[1])));
-    // A raw liquidity amount → express it against the position's total.
-    const total = parseFloat(p['positionLiquidity'] ?? '');
+    // A concrete amount → express it against the position's total.
     const asked = parseFloat(raw);
     if (Number.isFinite(total) && total > 0 && Number.isFinite(asked) && asked > 0) {
-      return Math.min(100, Math.round((asked / total) * 100));
+      return Math.min(100, (asked / total) * 100);
     }
-    return 50;
+    return 100;
   });
 
   setClmmDecreasePct(pct: number): void {
-    this.setEditParam('liquidity', pct >= 100 ? 'all' : `${pct}%`);
+    const key = this.decreaseAmountKey();
+    if (pct >= 100) { this.setEditParam(key, 'all'); return; }
+    // LP removal takes a UI token amount, not a percentage string.
+    if (key === 'lpAmount') {
+      const total = parseFloat(this.editParams()['positionLpAmount'] ?? '');
+      if (Number.isFinite(total) && total > 0) {
+        this.setEditParam(key, formatDlmmAmount(total * pct / 100));
+        return;
+      }
+    }
+    this.setEditParam(key, `${pct}%`);
   }
 
   /** Withdrawal amount for one side, derived from the chosen share. */
@@ -2026,21 +2047,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   onClmmDecreaseInput(side: 'A' | 'B', value: string): void {
     const p = this.editParams();
+    const key = this.decreaseAmountKey();
     const pos = parseFloat((side === 'A' ? p['amountA'] : p['amountB']) ?? '');
     const asked = parseFloat(this.normalizeDecimal(value));
     if (!Number.isFinite(pos) || pos <= 0) return;
     if (!Number.isFinite(asked) || asked <= 0) {
-      this.setEditParam('liquidity', '0%');
+      this.setEditParam(key, key === 'lpAmount' ? '0' : '0%');
       return;
     }
     const fraction = Math.min(1, asked / pos);
-    const total = parseFloat(p['positionLiquidity'] ?? '');
-    if (fraction >= 0.9999) { this.setEditParam('liquidity', 'all'); return; }
+    const total = parseFloat(p[this.decreaseTotalKey()] ?? '');
+    if (fraction >= 0.9999) { this.setEditParam(key, 'all'); return; }
     if (Number.isFinite(total) && total > 0) {
-      this.setEditParam('liquidity', String(Math.max(1, Math.floor(total * fraction))));
+      // LP: a UI token amount. CLMM: raw integer liquidity units — the builder
+      // rounds percentages to whole numbers, which is coarser than a typed amount.
+      this.setEditParam(key, key === 'lpAmount'
+        ? formatDlmmAmount(total * fraction)
+        : String(Math.max(1, Math.floor(total * fraction))));
       return;
     }
-    this.setEditParam('liquidity', `${(fraction * 100).toFixed(2)}%`);
+    this.setEditParam(key, `${(fraction * 100).toFixed(2)}%`);
   }
 
   /** Position summary + what this withdrawal returns. */
@@ -2048,7 +2074,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     pair: string; symA: string; symB: string;
     logoA: string | null; logoB: string | null;
     outA: string; outB: string; currentA: string; currentB: string;
-    positionId: string; closes: boolean;
+    positionId: string; closes: boolean; kind: string;
   } | null>(() => {
     if (!this.isRaydiumDecrease()) return null;
     const p = this.editParams();
@@ -2071,6 +2097,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       currentB: fmt(posB),
       positionId: p['positionId'] ?? '',
       closes: pct >= 100,
+      kind: this.action.type === 'raydium_remove_liquidity' ? 'LP' : 'CLMM',
     };
   });
 
@@ -3192,8 +3219,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const poolId = (p['poolId'] ?? '').trim();
     if (!positionId && !poolId) return;
     // Already has what the panel needs.
-    const isLp = this.action.type === 'raydium_remove_liquidity';
-    if (p['pair'] && (isLp ? p['lpAmount'] : p['amountA'] !== undefined)) return;
+    // The reduce panel needs the token amounts + the position total, so a card
+    // carrying only ids/symbols still has to fetch.
+    if (p['pair'] && p['amountA'] !== undefined) return;
     try {
       const resp = await firstValueFrom(
         this.apiService
@@ -3224,7 +3252,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         // `liquidity` is the user's requested withdrawal amount and must not be
         // overwritten with the position's full size.
         ...(match.liquidity ? { positionLiquidity: String(match.liquidity) } : {}),
-        ...(match.lpAmount !== undefined ? { lpAmount: String(match.lpAmount) } : {}),
+        ...(match.lpAmount !== undefined ? { positionLpAmount: String(match.lpAmount) } : {}),
       }));
       // The mints only became known just now, so the balance lines (and the
       // increase card's paired-side check) need a load.
