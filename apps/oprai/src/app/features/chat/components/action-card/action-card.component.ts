@@ -1960,6 +1960,142 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** True when the current action is Raydium CLMM open_position — the
    *  template flips the field-list-based form into the dedicated CLMM layout
    *  (current price + range presets + dual amounts + advanced expander). */
+  // ── Meteora panels ────────────────────────────────────────────────────────
+  // Meteora spans 25 write actions across DLMM, DAMM v1/v2, Dynamic Vaults and
+  // Stake2Earn. Rather than 25 bespoke layouts, they collapse into five
+  // archetypes that reuse the same panel language as the swap / CLMM cards.
+  private static readonly METEORA_DUAL = new Set([
+    'meteora_add_liquidity', 'meteora_dammv2_add_liquidity',
+    'meteora_open_position', 'meteora_add_to_position', 'meteora_dammv1_deposit',
+  ]);
+  private static readonly METEORA_REDUCE = new Set([
+    'meteora_remove_liquidity', 'meteora_dammv2_remove_liquidity', 'meteora_dammv1_withdraw',
+  ]);
+  private static readonly METEORA_SINGLE = new Set([
+    'meteora_stake', 'meteora_unstake', 'meteora_vault_deposit', 'meteora_vault_withdraw',
+    'meteora_s2e_stake', 'meteora_s2e_unstake',
+  ]);
+  private static readonly METEORA_CONFIRM = new Set([
+    'meteora_close_position', 'meteora_claim_fees', 'meteora_claim_rewards',
+    'meteora_harvest', 'meteora_s2e_claim_fee', 'meteora_s2e_cancel_unstake',
+    'meteora_s2e_withdraw',
+  ]);
+
+  readonly isMeteoraDual = computed(() => ActionCardComponent.METEORA_DUAL.has(this.action.type));
+  readonly isMeteoraReduce = computed(() => ActionCardComponent.METEORA_REDUCE.has(this.action.type));
+  readonly isMeteoraSingle = computed(() => ActionCardComponent.METEORA_SINGLE.has(this.action.type));
+  readonly isMeteoraConfirm = computed(() => ActionCardComponent.METEORA_CONFIRM.has(this.action.type));
+
+  /** True for the DLMM variants, which add a bin range + distribution shape
+   *  on top of the plain two-token deposit. */
+  readonly isMeteoraDlmm = computed(() => {
+    const t = this.action.type;
+    if (t === 'meteora_open_position' || t === 'meteora_add_to_position') return true;
+    return t === 'meteora_add_liquidity' && !!this.editParams()['binStep'];
+  });
+
+  readonly METEORA_STRATEGIES: ReadonlyArray<{ value: string; label: string; hint: string }> = [
+    { value: 'spot',   label: 'Spot',    hint: 'Equal weight per bin' },
+    { value: 'curve',  label: 'Curve',   hint: 'Concentrated at the current price' },
+    { value: 'bidask', label: 'Bid-Ask', hint: 'Weighted toward the range edges' },
+  ];
+
+  meteoraStrategy(): string {
+    return (this.editParams()['strategy'] || 'spot').toLowerCase();
+  }
+  setMeteoraStrategy(v: string): void { this.setEditParam('strategy', v); }
+
+  /** Bin spread (± bins around the active bin) with the backend's default. */
+  meteoraSpread(): string { return this.editParams()['binSpread'] ?? '15'; }
+  setMeteoraSpread(v: string): void { this.setEditParam('binSpread', this.normalizeDecimal(v)); }
+
+  /**
+   * Pool / position header for any Meteora panel: the pair, its logos and the
+   * on-chain reference (pool, position or vault) the action targets.
+   */
+  readonly meteoraView = computed<{
+    pair: string; symA: string; symB: string;
+    logoA: string | null; logoB: string | null;
+    refLabel: string; ref: string; kind: string;
+  } | null>(() => {
+    const t = this.action.type;
+    if (!t.startsWith('meteora_')) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] || this.resolveTokenDisplay(p['tokenA'] ?? '').symbol || '';
+    const symB = p['tokenBSymbol'] || this.resolveTokenDisplay(p['tokenB'] ?? '').symbol || '';
+    const single = p['tokenMint'] ?? '';
+    const singleSym = single ? this.resolveTokenDisplay(single).symbol : '';
+
+    const ref = p['position'] || p['positionId'] || p['positionNft'] || p['poolId'] || p['pool'] || p['vault'] || '';
+    const refLabel = (p['position'] || p['positionId'] || p['positionNft']) ? 'Position'
+      : p['vault'] ? 'Vault' : 'Pool';
+    const kind = this.isMeteoraDlmm() ? 'DLMM'
+      : t.includes('dammv2') ? 'DAMM V2'
+      : t.includes('dammv1') ? 'DAMM V1'
+      : t.includes('s2e') ? 'STAKE2EARN'
+      : t.includes('vault') ? 'VAULT'
+      : 'DLMM';
+
+    const pair = symA && symB ? `${symA}/${symB}` : (singleSym || '');
+    if (!pair && !ref) return null;
+    return {
+      pair, symA, symB,
+      logoA: p['tokenALogo'] || (symA ? this.resolveTokenDisplay(p['tokenA'] ?? symA).logoURI ?? null : null),
+      logoB: p['tokenBLogo'] || (symB ? this.resolveTokenDisplay(p['tokenB'] ?? symB).logoURI ?? null : null),
+      refLabel, ref, kind,
+    };
+  });
+
+  /**
+   * Share-to-remove for a Meteora withdrawal. The three reduce actions submit
+   * it differently — DLMM in basis points (10000 = 100%), the DAMM variants as
+   * an LP amount — so the panel drives a percentage and converts on write.
+   */
+  meteoraReduceKey(): 'bpsToRemove' | 'lpAmount' {
+    return this.action.type === 'meteora_remove_liquidity' ? 'bpsToRemove' : 'lpAmount';
+  }
+
+  readonly meteoraReducePct = computed<number>(() => {
+    const p = this.editParams();
+    if (this.meteoraReduceKey() === 'bpsToRemove') {
+      const bps = parseFloat(p['bpsToRemove'] ?? '');
+      return Number.isFinite(bps) && bps > 0 ? Math.min(100, bps / 100) : 100;
+    }
+    const raw = (p['lpAmount'] ?? '').trim().toLowerCase();
+    if (!raw || raw === 'all' || raw === 'max') return 100;
+    const total = parseFloat(p['positionLpAmount'] ?? '');
+    const asked = parseFloat(raw);
+    if (Number.isFinite(total) && total > 0 && Number.isFinite(asked)) {
+      return Math.min(100, (asked / total) * 100);
+    }
+    return 100;
+  });
+
+  setMeteoraReducePct(pct: number): void {
+    const key = this.meteoraReduceKey();
+    if (key === 'bpsToRemove') { this.setEditParam(key, String(Math.round(pct * 100))); return; }
+    if (pct >= 100) { this.setEditParam(key, 'all'); return; }
+    const total = parseFloat(this.editParams()['positionLpAmount'] ?? '');
+    this.setEditParam(key, Number.isFinite(total) && total > 0
+      ? formatDlmmAmount(total * pct / 100)
+      : String(pct));
+  }
+
+  /** The single amount field each one-sided Meteora action actually submits. */
+  meteoraSingleKey(): string {
+    switch (this.action.type) {
+      case 'meteora_vault_withdraw': return 'unmintAmount';
+      default: return 'amount';
+    }
+  }
+
+  /** Token whose balance the one-sided panel shows. */
+  readonly meteoraSingleToken = computed(() => {
+    const p = this.editParams();
+    const raw = p['tokenMint'] || p['tokenA'] || p['tokenASymbol'] || '';
+    return this.resolveTokenDisplay(raw);
+  });
+
   readonly isRaydiumOpenPosition = computed(
     () => this.action.type === 'raydium_open_position',
   );

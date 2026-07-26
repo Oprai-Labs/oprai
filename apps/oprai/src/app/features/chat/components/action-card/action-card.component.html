@@ -1229,6 +1229,291 @@
           }
 
           </div>
+        } @else if (isMeteoraDual() && meteoraView() !== null) {
+          <!-- ─── Meteora deposit (DLMM range / DAMM v1-v2 pool) ───
+               Same panel language as the swap + Raydium cards: pool header,
+               optional DLMM range + shape, then two auto-balancing amounts. -->
+          @let mv = meteoraView()!;
+          @let mBalA = inputBalance();
+          @let mBalB = secondaryBalance();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Pool</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (mv.logoA) {
+                      <img class="ray-wd__icon" [src]="mv.logoA" [alt]="mv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (mv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (mv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="mv.logoB" [alt]="mv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (mv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ mv.pair }}</span>
+                  <span class="ray-wd__kind">{{ mv.kind }}</span>
+                </div>
+                @if (mv.ref) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ mv.refLabel }}</span>
+                    <code class="ray-wd__ref-value">{{ mv.ref.slice(0, 6) }}…{{ mv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(mv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === mv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+
+            @if (isMeteoraDlmm()) {
+              <div class="clmm-section">
+                <div class="clmm-section__title">Range &amp; Shape</div>
+                <div class="clmm-range-inputs">
+                  <div class="clmm-range-input">
+                    <label>Range (± bins)</label>
+                    <input type="number" min="1" max="200" step="1" placeholder="15"
+                           [value]="meteoraSpread()"
+                           (input)="setMeteoraSpread($any($event.target).value)" />
+                  </div>
+                </div>
+                <div class="clmm-presets">
+                  @for (s of METEORA_STRATEGIES; track s.value) {
+                    <button type="button" class="clmm-preset"
+                            [class.clmm-preset--active]="meteoraStrategy() === s.value"
+                            [title]="s.hint"
+                            (click)="setMeteoraStrategy(s.value)">{{ s.label }}</button>
+                  }
+                </div>
+                <div class="clmm-min-hint">
+                  Liquidity spreads across ± {{ meteoraSpread() }} bins around the active price, shaped
+                  {{ meteoraStrategy() === 'curve' ? 'toward the current price' : meteoraStrategy() === 'bidask' ? 'toward the range edges' : 'evenly' }}.
+                </div>
+              </div>
+            }
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">Add Deposit Amount</div>
+              <div class="clmm-min-hint">Type either amount — the other follows at the pool's current ratio.</div>
+
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ mv.symA }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (mBalA !== null) { Balance: {{ mBalA | number:'1.0-6' }} }
+                    @if (mBalA !== null && mBalA > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmm('A')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input class="clmm-amount-input" type="text" inputmode="decimal"
+                         pattern="[0-9]*[.,]?[0-9]*" placeholder="0"
+                         [value]="editParams()['amountA'] ?? ''"
+                         (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
+                  <div class="clmm-token-pill">
+                    @if (mv.logoA) {
+                      <img [src]="mv.logoA" [alt]="mv.symA" class="clmm-token-pill__icon" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (mv.symA || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ mv.symA }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="clmm-amount-plus">+</div>
+
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ mv.symB }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (mBalB !== null) { Balance: {{ mBalB | number:'1.0-6' }} }
+                    @if (mBalB !== null && mBalB > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmm('B')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input class="clmm-amount-input" type="text" inputmode="decimal"
+                         pattern="[0-9]*[.,]?[0-9]*" placeholder="0"
+                         [value]="editParams()['amountB'] ?? ''"
+                         (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
+                  <div class="clmm-token-pill">
+                    @if (mv.logoB) {
+                      <img [src]="mv.logoB" [alt]="mv.symB" class="clmm-token-pill__icon" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (mv.symB || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ mv.symB }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <details class="clmm-advanced">
+              <summary>Advanced</summary>
+              <div class="clmm-advanced__row">
+                <label>Slippage tolerance</label>
+                <div class="clmm-advanced__input">
+                  <input type="number" step="0.1" min="0" max="100"
+                         [value]="((+(editParams()['slippageBps'] ?? '50')) / 100)"
+                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))" />
+                  <span>%</span>
+                </div>
+              </div>
+            </details>
+          </div>
+
+        } @else if (isMeteoraReduce() && meteoraView() !== null) {
+          <!-- ─── Meteora withdrawal: pick a share, not a raw bps/LP number ─── -->
+          @let rv = meteoraView()!;
+          @let rpct = meteoraReducePct();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Withdraw From</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (rv.logoA) {
+                      <img class="ray-wd__icon" [src]="rv.logoA" [alt]="rv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (rv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (rv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="rv.logoB" [alt]="rv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (rv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ rv.pair || 'Position' }}</span>
+                  <span class="ray-wd__kind">{{ rv.kind }}</span>
+                </div>
+                @if (rv.ref) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ rv.refLabel }}</span>
+                    <code class="ray-wd__ref-value">{{ rv.ref.slice(0, 6) }}…{{ rv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(rv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === rv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">Amount to withdraw</div>
+              <div class="clmm-presets">
+                @for (preset of CLMM_DECREASE_PRESETS; track preset) {
+                  <button type="button" class="clmm-preset"
+                          [class.clmm-preset--active]="rpct === preset"
+                          (click)="setMeteoraReducePct(preset)">
+                    {{ preset === 100 ? 'All' : preset + '%' }}
+                  </button>
+                }
+              </div>
+              <div class="clmm-min-hint">
+                @if (rpct >= 100) {
+                  Withdraws the full position and closes it.
+                } @else {
+                  Leaves {{ 100 - rpct | number:'1.0-1' }}% of the position in the pool, still earning fees.
+                }
+              </div>
+            </div>
+          </div>
+
+        } @else if (isMeteoraSingle() && meteoraView() !== null) {
+          <!-- ─── Meteora single-asset action (stake / vault deposit / …) ─── -->
+          @let sv = meteoraView()!;
+          @let sTd = meteoraSingleToken();
+          @let sBal = inputBalance();
+          @let sKey = meteoraSingleKey();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            @if (sv.ref) {
+              <div class="clmm-section">
+                <div class="clmm-section__title">{{ sv.refLabel }}</div>
+                <div class="ray-wd">
+                  <div class="ray-wd__top">
+                    <span class="ray-wd__pair">{{ sv.pair || sv.refLabel }}</span>
+                    <span class="ray-wd__kind">{{ sv.kind }}</span>
+                  </div>
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ sv.refLabel }}</span>
+                    <code class="ray-wd__ref-value">{{ sv.ref.slice(0, 6) }}…{{ sv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(sv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === sv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            }
+            <div class="clmm-section">
+              <div class="clmm-section__title">Amount</div>
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ sTd.symbol || 'Token' }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (sBal !== null) { Balance: {{ sBal | number:'1.0-6' }} }
+                    @if (sBal !== null && sBal > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmount(sKey)">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input class="clmm-amount-input" type="text" inputmode="decimal"
+                         pattern="[0-9]*[.,]?[0-9]*" placeholder="0"
+                         [value]="editParams()[sKey] ?? ''"
+                         (input)="setEditParam(sKey, normalizeDecimal($any($event.target).value))" />
+                  <div class="clmm-token-pill">
+                    @if (sTd.logoURI) {
+                      <img [src]="sTd.logoURI" [alt]="sTd.symbol" class="clmm-token-pill__icon" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (sTd.symbol || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ sTd.symbol || 'Token' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        } @else if (isMeteoraConfirm() && meteoraView() !== null) {
+          <!-- ─── Meteora confirm-only (close / claim / harvest) ─── -->
+          @let cv = meteoraView()!;
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">{{ confirmButtonLabel }}</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (cv.logoA) {
+                      <img class="ray-wd__icon" [src]="cv.logoA" [alt]="cv.symA" (error)="$any($event.target).style.display='none'" />
+                    }
+                    @if (cv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="cv.logoB" [alt]="cv.symB" (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ cv.pair || cv.refLabel }}</span>
+                  <span class="ray-wd__kind">{{ cv.kind }}</span>
+                </div>
+                @if (cv.ref) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ cv.refLabel }}</span>
+                    <code class="ray-wd__ref-value">{{ cv.ref.slice(0, 6) }}…{{ cv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(cv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === cv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+              <div class="clmm-min-hint">
+                Nothing to fill in — confirm to sign this action for the {{ cv.refLabel | lowercase }} above.
+              </div>
+            </div>
+          </div>
+
         } @else if (raydiumDecreaseView() !== null) {
           <!-- Partial CLMM withdrawal: choose a percentage and see exactly what
                comes back, instead of typing a raw liquidity constant. -->
