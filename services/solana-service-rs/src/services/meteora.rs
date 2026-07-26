@@ -277,7 +277,7 @@ pub struct MeteoraAddLiquidityParams {
     /// Max active bin drift tolerance in bins (default: 3).
     #[serde(default)]
     pub slippage_bps: Option<u32>,
-    /// Liquidity distribution: "uniform" (default) | "spot" (active-bin-heavy).
+    /// Liquidity shape: "spot" (flat, default) | "curve" (active-bin-heavy) | "bidask" (edge-heavy).
     #[serde(default)]
     pub strategy: Option<String>,
 }
@@ -340,7 +340,7 @@ pub struct MeteoraOpenPositionParams {
     /// Upper price bound.
     #[serde(default)]
     pub max_price: Option<f64>,
-    /// Liquidity distribution: "uniform" (default) | "spot".
+    /// Liquidity shape: "spot" (flat, default) | "curve" (active-bin-heavy) | "bidask" (edge-heavy).
     #[serde(default)]
     pub strategy: Option<String>,
     /// Max active bin drift in bins (default: 3).
@@ -1123,7 +1123,17 @@ fn empty_remaining_accounts() -> RemainingAccountsInfo {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Build bin liquidity distribution weights.
-/// strategy: "uniform" → equal weight per bin; "spot" → bell-curve centered on active_id.
+/// Liquidity shape across the bin range, using METEORA'S OWN names so what the
+/// user picks is what they get:
+///   - "spot"   → equal weight per bin (a flat spread)
+///   - "curve"  → concentrated around the active bin (bell)
+///   - "bidask" → weighted toward the range edges (the inverse of curve)
+///
+/// These names were previously wired backwards: "spot" produced the bell and
+/// "curve" silently fell through to the flat spread, while "bidask" had no
+/// implementation at all and also came out flat. Anyone picking a shape got a
+/// different one. "uniform" stays accepted as an alias for the flat spread so
+/// older callers keep working.
 fn build_bin_distribution(
     lower_bin_id: i32,
     upper_bin_id: i32,
@@ -1134,10 +1144,13 @@ fn build_bin_distribution(
     if width == 0 {
         return vec![];
     }
+    // Half-width drives the edge weighting; guard against a zero divisor on
+    // a single-bin range.
+    let half = ((upper_bin_id - lower_bin_id) as f64 / 2.0).max(1.0);
 
-    match strategy.unwrap_or("uniform") {
-        "spot" => {
-            // Concentrate most liquidity around the active bin.
+    match strategy.unwrap_or("spot").to_ascii_lowercase().as_str() {
+        "curve" => {
+            // Bell centred on the active bin — most capital at the current price.
             (0..width)
                 .map(|i| {
                     let bin_id = lower_bin_id + i as i32;
@@ -1147,8 +1160,19 @@ fn build_bin_distribution(
                 })
                 .collect()
         }
-        _ /* "uniform" */ => {
-            // Equal weight across all bins.
+        "bidask" | "bid_ask" => {
+            // Inverse of curve: light at the active bin, heavy at the edges.
+            (0..width)
+                .map(|i| {
+                    let bin_id = lower_bin_id + i as i32;
+                    let distance = f64::from((bin_id - active_id).abs());
+                    let weight = (1.0 + (distance / half) * 99.0).round().clamp(1.0, 100.0);
+                    BinLiqDistByWeight { bin_id, weight: weight as u16 }
+                })
+                .collect()
+        }
+        _ /* "spot" | "uniform" */ => {
+            // Flat spread — equal weight across every bin in the range.
             (0..width)
                 .map(|i| BinLiqDistByWeight {
                     bin_id: lower_bin_id + i as i32,

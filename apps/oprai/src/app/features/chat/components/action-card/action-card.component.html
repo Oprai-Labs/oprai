@@ -1287,9 +1287,27 @@
                             (click)="setMeteoraStrategy(s.value)">{{ s.label }}</button>
                   }
                 </div>
+                <!-- Same figures Meteora shows beside its range slider: the
+                     price bounds the bin spread implies, and the bin count. -->
+                @let mpr = meteoraPriceRange();
+                @if (mpr) {
+                  <div class="clmm-range-inputs">
+                    <div class="clmm-range-input">
+                      <label>Min Price</label>
+                      <input type="text" readonly [value]="mpr.min | number:'1.0-6'" />
+                      <span class="clmm-range-input__suffix">−{{ mpr.pct | number:'1.0-2' }}%</span>
+                    </div>
+                    <div class="clmm-range-input">
+                      <label>Max Price</label>
+                      <input type="text" readonly [value]="mpr.max | number:'1.0-6'" />
+                      <span class="clmm-range-input__suffix">+{{ mpr.pct | number:'1.0-2' }}%</span>
+                    </div>
+                  </div>
+                }
                 <div class="clmm-min-hint">
-                  Liquidity spreads across ± {{ meteoraSpread() }} bins around the active price, shaped
-                  {{ meteoraStrategy() === 'curve' ? 'toward the current price' : meteoraStrategy() === 'bidask' ? 'toward the range edges' : 'evenly' }}.
+                  Total bins: {{ meteoraTotalBins() }} — liquidity spreads across ± {{ meteoraSpread() }} bins
+                  around the active price, shaped
+                  {{ meteoraStrategy() === 'curve' ? 'toward the current price' : meteoraStrategy() === 'bidask' ? 'toward the range edges' : 'evenly across the range' }}.
                 </div>
               </div>
             }

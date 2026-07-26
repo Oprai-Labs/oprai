@@ -2009,6 +2009,28 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   meteoraSpread(): string { return this.editParams()['binSpread'] ?? '15'; }
   setMeteoraSpread(v: string): void { this.setEditParam('binSpread', this.normalizeDecimal(v)); }
 
+  /** Bins the position will span — Meteora shows this as "Total Bins". */
+  readonly meteoraTotalBins = computed<number>(() => {
+    const spread = parseInt(this.meteoraSpread(), 10);
+    return Number.isFinite(spread) && spread > 0 ? spread * 2 + 1 : 0;
+  });
+
+  /**
+   * Price bounds implied by the ± bin spread. A DLMM bin is a fixed
+   * geometric step, so bin n sits at price × (1 + binStep/10000)^n — the same
+   * relationship Meteora's Min/Max Price boxes show next to the range slider.
+   * Null when the pool's price or bin step isn't known yet.
+   */
+  readonly meteoraPriceRange = computed<{ min: number; max: number; pct: number } | null>(() => {
+    const p = this.editParams();
+    const price = parseFloat(p['currentPrice'] ?? p['activeBinPrice'] ?? '');
+    const binStep = parseFloat(p['binStep'] ?? '');
+    const spread = parseInt(this.meteoraSpread(), 10);
+    if (!(price > 0) || !(binStep > 0) || !(spread > 0)) return null;
+    const factor = Math.pow(1 + binStep / 10_000, spread);
+    return { min: price / factor, max: price * factor, pct: (factor - 1) * 100 };
+  });
+
   /**
    * Pool / position header for any Meteora panel: the pair, its logos and the
    * on-chain reference (pool, position or vault) the action targets.
