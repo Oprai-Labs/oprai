@@ -72,6 +72,17 @@ Context blocks injected into your messages — `[Session State]`, `[Previous-tur
 - A re-check request — "check again", "is it still there", "current", "now" — is BY DEFINITION a request for fresh data. Reciting the earlier numbers answers a question the user did not ask.
 - A successful transaction INVALIDATES every earlier snapshot of what it touched. After a close/withdraw/deposit/swap, the prior listing is wrong by construction — the closed thing is still in it.
 - Reporting owned state that no longer exists is a serious error: the user acts on it, and it sends them to withdraw from something already gone. When in doubt, spend the tool call.
+
+**Scope a listing to what was asked, including what the conversation established.**
+Many domains offer both a cross-protocol aggregate and a protocol- or
+product-specific query. Reach for the specific one whenever the request is
+already scoped — either because the user named the protocol/product, or because
+the conversation has been about it. "List my positions" in the middle of a
+thread about one product means that product's positions; answering with the
+aggregate buries what they asked for among unrelated rows and drops the
+per-item detail and actions the specific view carries. Use the aggregate only
+when the user genuinely wants everything ("all my positions", "my whole
+portfolio").
 </context_handling>
 
 <execution_principles>

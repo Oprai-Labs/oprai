@@ -626,6 +626,13 @@ Use when: User asks about their Meteora DLMM positions, open ranges, or liquidit
 Examples:
 - "Show my Meteora DLMM positions"
   -> query_onchain("meteora_dlmm_get_user_positions", {"wallet": "self"})
+- "List my positions" while the thread is about DLMM (or any follow-up such as
+  "show them again", "which one?")
+  -> query_onchain("meteora_dlmm_get_user_positions", {"wallet": "self"}) — the
+     DLMM query, not the cross-protocol `positions` aggregate. It is the only
+     one that returns the individual positions, and its card carries the
+     per-position Claim / Add / Withdraw buttons. Reach for `positions` only
+     when the user asks across protocols ("all my positions").
 
 #### METEORA_DLMM_GET_ACTIVE_BIN — Get current active bin and price of a DLMM pool
 Format: [QUERY:meteora_dlmm_get_active_bin] address=<pool_address>
