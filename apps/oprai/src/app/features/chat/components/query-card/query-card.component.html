@@ -116,6 +116,104 @@
       }
 
       <!-- Meteora DLMM pool list -->
+      @if (query.type === 'meteora_dlmm_get_user_positions') {
+        <div class="ray-pos-list">
+          @if (dlmmPositionsFetching() && dlmmUserPools().length === 0) {
+            <div class="dlmm-empty">Loading positions…</div>
+          }
+          @for (pool of dlmmUserPools(); track pool.poolAddress) {
+            <div class="ray-pos">
+              <div class="ray-pos__top">
+                <span class="km-icons">
+                  @if (pool.tokenXIcon) {
+                    <img class="km-icon" [src]="pool.tokenXIcon" [alt]="pool.tokenX" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="km-icon km-icon--fallback">{{ (pool.tokenX || '?').charAt(0) }}</span>
+                  }
+                  @if (pool.tokenYIcon) {
+                    <img class="km-icon km-icon--debt" [src]="pool.tokenYIcon" [alt]="pool.tokenY" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (pool.tokenY || '?').charAt(0) }}</span>
+                  }
+                </span>
+                <span class="ray-pos__pair">{{ pool.tokenX }} / {{ pool.tokenY }}</span>
+                <span class="type-badge">DLMM</span>
+                @if (pool.outOfRange) {
+                  <span class="type-badge dlmm-oor">Out of range</span>
+                }
+                <span class="ray-pos__addr">
+                  <button type="button"
+                          class="dlmm-pair__addr mono dlmm-copy-btn"
+                          [class.dlmm-copy-btn--copied]="copiedAddress() === pool.poolAddress"
+                          (click)="copyPoolAddress(pool.poolAddress); $event.stopPropagation()"
+                          [attr.title]="'Copy pool address: ' + pool.poolAddress">
+                    <span class="dlmm-pair__addr-text">{{ pool.poolAddress.slice(0, 4) }}…{{ pool.poolAddress.slice(-4) }}</span>
+                    <lucide-icon [name]="copiedAddress() === pool.poolAddress ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                  </button>
+                </span>
+              </div>
+
+              <div class="ray-pos__body">
+                <span class="ray-pos__amount-block">
+                  <span class="ray-pos__amount">{{ formatUsd(pool.balances) }}</span>
+                  <span class="ray-pos__amount-label">
+                    {{ pool.openPositionCount }} position{{ pool.openPositionCount === 1 ? '' : 's' }}
+                    · price {{ pool.poolPrice | number:'1.0-4' }} {{ pool.tokenY }}
+                    · {{ pool.binStep }} bin step
+                  </span>
+                </span>
+                <span class="ray-pos__amount-block text-right">
+                  <span class="ray-pos__amount" [class.change-up]="pool.pnl >= 0" [class.change-down]="pool.pnl < 0">
+                    {{ pool.pnl >= 0 ? '+' : '' }}{{ formatUsd(pool.pnl) }}
+                  </span>
+                  <span class="ray-pos__amount-label">
+                    PnL {{ pool.pnlPctChange | number:'1.0-2' }}% · fees {{ formatUsd(pool.unclaimedFees) }}
+                  </span>
+                </span>
+              </div>
+
+              <!-- One row per position: with two in the same pool, prose can
+                   only offer base58 addresses — these are clickable instead. -->
+              @for (pos of pool.listPositions; track pos; let i = $index) {
+                <div class="dlmm-pos-row">
+                  <span class="dlmm-pos-row__label">
+                    Position {{ i + 1 }}
+                    <code class="mono">{{ pos.slice(0, 4) }}…{{ pos.slice(-4) }}</code>
+                    @if (dlmmPositionOutOfRange(pool, pos)) {
+                      <span class="dlmm-pos-row__oor">out of range</span>
+                    }
+                  </span>
+                  <span class="ray-pos__actions">
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                            (click)="claimDlmmFees(pool, pos); $event.stopPropagation()"
+                            title="Claim this position's fees">Claim</button>
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                            (click)="addToDlmmPosition(pool, pos); $event.stopPropagation()"
+                            title="Add liquidity to this position">
+                      <lucide-icon name="plus" [size]="12" />
+                      Add
+                    </button>
+                    <button type="button" class="dlmm-use-btn"
+                            (click)="withdrawDlmmPosition(pool, pos); $event.stopPropagation()"
+                            title="Withdraw this position">
+                      Withdraw
+                      <lucide-icon name="arrow-right" [size]="12" />
+                    </button>
+                  </span>
+                </div>
+              }
+            </div>
+          }
+          @if (!dlmmPositionsFetching() && dlmmUserPools().length === 0) {
+            <div class="dlmm-empty">
+              <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
+              <div>No open Meteora DLMM positions.</div>
+              <div class="dlmm-empty__hint">Add liquidity to a DLMM pool to open one.</div>
+            </div>
+          }
+        </div>
+      }
+
       @if (query.type === 'meteora_dlmm_get_pairs') {
         <div class="dlmm-search-wrap">
           <lucide-icon name="search" [size]="13" class="dlmm-search-icon" />

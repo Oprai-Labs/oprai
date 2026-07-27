@@ -232,6 +232,25 @@ interface RaydiumUserPosition {
   lpAmount?: number;
 }
 
+/** One DLMM pool the wallet has open positions in. The API groups by pool and
+ *  lists the position addresses inside it. */
+interface DlmmUserPool {
+  poolAddress: string;
+  tokenX: string; tokenY: string;
+  tokenXIcon?: string; tokenYIcon?: string;
+  tokenXMint?: string; tokenYMint?: string;
+  binStep: number; baseFee: number;
+  poolPrice: number;
+  balances: number; balancesSol: number;
+  totalDeposit: number;
+  unclaimedFees: number;
+  pnl: number; pnlPctChange: number;
+  openPositionCount: number;
+  outOfRange: boolean;
+  listPositions: string[];
+  positionsOutOfRange?: string[];
+}
+
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const SOL_LOGO = 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png';
 
@@ -492,6 +511,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   // The user's own Raydium positions (CLMM + Standard/CPMM LP), read straight
   // from chain via the SDK — rendered in the same km-table design as the pool
   // list, with a per-row Withdraw button.
+  readonly dlmmUserPools = signal<DlmmUserPool[]>([]);
+  readonly dlmmPositionsFetching = signal(false);
+
   readonly raydiumPositions = signal<RaydiumUserPosition[]>([]);
   readonly raydiumPositionsFetching = signal(false);
 
@@ -588,6 +610,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'perp_positions':
         return 'assets/icons/protocols/jupiter.webp';
       case 'meteora_dlmm_get_pairs':
+      case 'meteora_dlmm_get_user_positions':
       case 'meteora_dammv2_get_pools':
       case 'meteora_dammv1_get_pools':
         return 'assets/icons/protocols/meteora.webp';
@@ -626,6 +649,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   refreshLiveData(): void {
     switch (this.query.type) {
       case 'meteora_dlmm_get_pairs':    void this.fetchDlmmPairs();   break;
+      case 'meteora_dlmm_get_user_positions': void this.fetchDlmmPositions(); break;
       case 'meteora_dammv2_get_pools':  void this.fetchDammV2Pools(); break;
       case 'meteora_dammv1_get_pools':  void this.fetchDammV1Pools(); break;
       case 'raydium_get_pools':         void this.fetchRaydiumPools(); break;
@@ -1682,6 +1706,77 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * The wallet's Meteora DLMM positions, grouped by pool as the API returns
+   * them. Rendering these as a card (rather than letting the model narrate
+   * them) is what lets the user click the position they mean — with two
+   * positions in one pool, prose can only offer a pair of base58 addresses.
+   */
+  private async fetchDlmmPositions(): Promise<void> {
+    this.dlmmPositionsFetching.set(true);
+    this.error.set(null);
+    if (!this.walletService.publicKey()) {
+      this.error.set('Connect your wallet to see positions');
+      this.loading.set(false);
+      this.dlmmPositionsFetching.set(false);
+      return;
+    }
+    try {
+      const resp = await firstValueFrom(
+        this.api.post<any>('/actions/build', {
+          type: 'meteora_dlmm_get_user_positions',
+          params: {},
+        }).pipe(timeout(20_000)),
+      );
+      const data = resp?.data ?? resp?.preview?.params?.data;
+      this.dlmmUserPools.set(Array.isArray(data?.pools) ? data.pools : []);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Meteora DLMM positions');
+    } finally {
+      this.dlmmPositionsFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  /** Shared display context so the action card can render a real summary. */
+  private dlmmActionParams(pool: DlmmUserPool, position: string): Record<string, string> {
+    return {
+      pool: pool.poolAddress,
+      poolId: pool.poolAddress,
+      position,
+      positionId: position,
+      pair: `${pool.tokenX}/${pool.tokenY}`,
+      tokenASymbol: pool.tokenX,
+      tokenBSymbol: pool.tokenY,
+      ...(pool.tokenXMint ? { tokenA: pool.tokenXMint } : {}),
+      ...(pool.tokenYMint ? { tokenB: pool.tokenYMint } : {}),
+      ...(pool.tokenXIcon ? { tokenALogo: pool.tokenXIcon } : {}),
+      ...(pool.tokenYIcon ? { tokenBLogo: pool.tokenYIcon } : {}),
+      binStep: String(pool.binStep ?? ''),
+      currentPrice: String(pool.poolPrice ?? ''),
+    };
+  }
+
+  addToDlmmPosition(pool: DlmmUserPool, position: string): void {
+    const params = this.dlmmActionParams(pool, position);
+    this.useAction.emit({ type: 'meteora_add_to_position', params, raw: `[ACTION:meteora_add_to_position] ${JSON.stringify(params)}` });
+  }
+
+  withdrawDlmmPosition(pool: DlmmUserPool, position: string): void {
+    const params = { ...this.dlmmActionParams(pool, position), bpsToRemove: '10000' };
+    this.useAction.emit({ type: 'meteora_remove_liquidity', params, raw: `[ACTION:meteora_remove_liquidity] ${JSON.stringify(params)}` });
+  }
+
+  claimDlmmFees(pool: DlmmUserPool, position: string): void {
+    const params = this.dlmmActionParams(pool, position);
+    this.useAction.emit({ type: 'meteora_claim_fees', params, raw: `[ACTION:meteora_claim_fees] ${JSON.stringify(params)}` });
+  }
+
+  dlmmPositionOutOfRange(pool: DlmmUserPool, position: string): boolean {
+    return (pool.positionsOutOfRange ?? []).includes(position);
+  }
+
   /** Add liquidity to an EXISTING position: CLMM → increase the range's
    *  liquidity; LP → deposit more into the same standard pool. Carries the same
    *  display context as withdraw so the action card renders a real summary. */
@@ -2136,6 +2231,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'meteora_dlmm_get_pairs':
         await this.fetchDlmmPairs();
+        return;
+      case 'meteora_dlmm_get_user_positions':
+        await this.fetchDlmmPositions();
         return;
       case 'meteora_dammv2_get_pools':
         await this.fetchDammV2Pools();
