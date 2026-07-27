@@ -3529,13 +3529,27 @@ pub fn validate_meteora_dlmm_get_pair_params(p: &MeteoraDlmmGetPairParams) -> Re
     Ok(())
 }
 
+/// True for the self-reference aliases the LLM uses to mean "the connected
+/// wallet". The prompts lean on this convention in ~60 places; Kamino already
+/// resolves it (see `resolve_target_wallet` there), Meteora did not — so
+/// "list my DLMM positions" 400'd on `wallet 'self' is not a valid pubkey`
+/// even though omitting the field works.
+fn is_self_reference(w: &str) -> bool {
+    matches!(
+        w.trim().to_ascii_lowercase().as_str(),
+        "" | "self" | "me" | "mine" | "myself" | "my" | "my wallet" | "connected" | "current" | "user"
+    )
+}
+
 pub fn validate_meteora_dlmm_get_user_positions_params(
     p: &MeteoraDlmmGetUserPositionsParams,
 ) -> Result<(), AppError> {
     if let Some(ref w) = p.wallet {
-        Pubkey::from_str(w).map_err(|_| {
-            AppError::InvalidParams(format!("wallet '{}' is not a valid pubkey", w))
-        })?;
+        if !is_self_reference(w) {
+            Pubkey::from_str(w).map_err(|_| {
+                AppError::InvalidParams(format!("wallet '{}' is not a valid pubkey", w))
+            })?;
+        }
     }
     Ok(())
 }
@@ -4212,7 +4226,11 @@ pub async fn build_meteora_dlmm_get_user_positions(
     user_pubkey_str: &str,
     params: &MeteoraDlmmGetUserPositionsParams,
 ) -> Result<BuildResponse, AppError> {
-    let wallet = params.wallet.as_deref().unwrap_or(user_pubkey_str);
+    // A self-reference alias means the caller, same as omitting the field.
+    let wallet = match params.wallet.as_deref() {
+        Some(w) if !is_self_reference(w) => w,
+        _ => user_pubkey_str,
+    };
     // New API: /portfolio/open?user=... returns the user's open DLMM positions.
     // Legacy /position/user/{wallet} was removed.
     let url = format!("{DLMM_API}/portfolio/open?user={wallet}");
