@@ -188,9 +188,79 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
   },
 };
 
+/**
+ * Raw parameter keys → what the user actually sees on the card. A backend
+ * validation error names the wire field (`amountY`, `poolId`); repeating that
+ * at the user tells them nothing, because no label on screen says "amountY".
+ */
+const PARAM_LABELS: Record<string, string> = {
+  amount: 'amount', amountA: 'first token amount', amountB: 'second token amount',
+  amountX: 'first token amount', amountY: 'second token amount',
+  amountIn: 'amount', amountOut: 'amount', collateralAmount: 'collateral amount',
+  lpAmount: 'LP amount', bpsToRemove: 'withdrawal percentage',
+  pool: 'pool', poolId: 'pool', position: 'position', positionId: 'position',
+  vault: 'vault', market: 'market', reserve: 'reserve', obligation: 'loan',
+  mint: 'token', tokenA: 'first token', tokenB: 'second token',
+  inputMint: 'token you pay', outputMint: 'token you receive',
+  to: 'recipient address', recipient: 'recipient address', wallet: 'wallet',
+  minBinId: 'price range', maxBinId: 'price range',
+  minPrice: 'minimum price', maxPrice: 'maximum price',
+  slippageBps: 'slippage', slippage: 'slippage', leverage: 'leverage',
+  strategy: 'strategy', symbol: 'symbol', name: 'name',
+};
+
+/**
+ * Anchor error NAMES that reach us in a simulation log tail. The numeric codes
+ * are mapped elsewhere; these are the ones that arrive as text.
+ */
+const ANCHOR_NAME_HINTS: Array<[RegExp, string]> = [
+  [/NonEmptyPosition/i, 'This position still holds liquidity. Withdraw it first, then close the position.'],
+  [/AccountNotInitialized/i, 'An account this action needs doesn’t exist yet. It has to be created first — try again in a moment.'],
+  [/NotEnoughAccountKeys|AccountNotEnoughKeys/i, 'This action couldn’t be prepared correctly. Please try again in a moment.'],
+  [/InstructionDidNotDeserialize/i, 'This action couldn’t be prepared correctly. Please try again in a moment.'],
+  [/ConstraintSeeds|ConstraintOwner|ConstraintMut/i, 'The protocol rejected one of the accounts for this action. Please try again in a moment.'],
+  [/InsufficientFunds|insufficient lamports|insufficient funds/i, 'Not enough balance to complete this — check the amount and that the wallet has some SOL for fees.'],
+  [/ExceededBinSlippageTolerance/i, 'The pool price moved past the allowed range while preparing this. Try again, or widen the slippage.'],
+  [/SlippageToleranceExceeded|slippage/i, 'The price moved more than your slippage allows. Raise the slippage or try again.'],
+];
+
+/**
+ * True when a string still reads like machinery rather than a sentence:
+ * identifiers, field names, codes, payloads. Everything genuinely useful is
+ * mapped to prose before this point, so anything tripping these markers is by
+ * definition unmapped — and a user can do nothing with it.
+ */
+function looksTechnical(raw: string): boolean {
+  // Already-shortened addresses ("4jFv…pxcJV") are a deliberate, readable
+  // reference — don't let their mixed case trip the identifier heuristics.
+  const text = raw.replace(/\S*…\S*/g, '');
+  return (
+    /`[^`]+`/.test(text) ||                       // backtick-quoted identifiers
+    /\b[a-z]+(?:_[a-z0-9]+){1,}\b/.test(text) ||  // snake_case: meteora_add_to_position
+    /\b[a-z]+[A-Z][a-zA-Z]*\b/.test(text) ||      // camelCase: amountY, poolId
+    /\b[A-Z][a-z]+[A-Z][a-zA-Z]*\b/.test(text) || // PascalCase error names
+    /error decoding response|failed to parse|reqwest|panicked|unwrap|deserialize/i.test(text) ||
+    /status \d{3}|\bhttp\b|\b\d{3}:\s|\{\s*"|\[\s*\{|https?:\/\/|<[a-z!/]/i.test(text) ||
+    /0x[0-9a-f]+/i.test(text) ||
+    /\bnull\b|\bundefined\b|\bNone\b|context canceled/i.test(text) ||
+    // Implementation vocabulary. A sentence can be perfectly grammatical and
+    // still be written for whoever maintains the service: "position lookup by
+    // id is temporarily unsupported after the datapi migration" tells a user
+    // nothing they can do.
+    /\b(migration|endpoint|upstream|proxy|gateway|discriminator|serializ|deserializ|unsupported|not implemented|datapi|sdk|rpc|payload|schema|struct|enum)\b/i.test(text)
+  );
+}
+
 function sanitizeErrorMessage(msg: string, actionType?: string): string {
-  // Strip internal API instructions (e.g. "Upload via POST /upload/...") that leak from backend errors.
-  let out = msg.replace(/\.\s+(Upload|Call|Use|POST|GET|See|Retry)\s+.*/i, '.').trim();
+  // Strip internal API instructions (e.g. "Upload via POST /upload/...") that
+  // leak from backend errors. "See" is deliberately NOT in this list: "See
+  // explorer for details" is written for the user, and stripping it left the
+  // card saying only "The transaction failed on-chain."
+  let out = msg.replace(/\.\s+(Upload|Call|Use|POST|GET|Retry)\s+.*/i, '.').trim();
+
+  // Base58 addresses are for explorers, not sentences. Shorten rather than
+  // discard: the surrounding message is often the useful part.
+  out = out.replace(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g, m => `${m.slice(0, 4)}…${m.slice(-4)}`);
 
   // web3.js SendTransactionError stringifies with the FULL program-log array and
   // a developer-only "call getLogs()" tail. Never surface raw logs to users —
@@ -277,6 +347,41 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
     return `The transaction simulation failed before signing. Check that your wallet has enough SOL for fees and that the amount meets the protocol's minimum.${floorSuffix}`;
   }
 
+  // Backend parameter validation, e.g.
+  //   "Invalid meteora_add_to_position params: missing field `amountY`"
+  // Name the field the way the CARD names it — nothing on screen says
+  // "amountY", so echoing the wire key tells the user nothing they can act on.
+  {
+    const missing = out.match(/missing field\s*[`'"]?([A-Za-z0-9_]+)/);
+    if (missing) {
+      const label = PARAM_LABELS[missing[1]];
+      return label
+        ? `This action still needs the ${label}. Fill it in and try again.`
+        : 'This action is missing one of its required values. Check the fields above and try again.';
+    }
+    const invalidField = out.match(/invalid (?:value for )?(?:field\s*)?[`'"]([A-Za-z0-9_]+)[`'"]/i);
+    if (invalidField) {
+      const label = PARAM_LABELS[invalidField[1]];
+      return label
+        ? `The ${label} isn’t valid. Check it and try again.`
+        : 'One of the values for this action isn’t valid. Check the fields above and try again.';
+    }
+    if (/^invalid\s+[a-z0-9_]+\s+params/i.test(out)) {
+      return 'Some of the values for this action aren’t valid. Check the fields above and try again.';
+    }
+  }
+
+  // Simulation could not be reached at all. The status/detail tail is for the
+  // console, not the card.
+  if (/sim:unavailable/i.test(out)) {
+    return 'Couldn’t check this transaction before signing. Please try again in a moment.';
+  }
+
+  // Anchor error NAMES surfaced in a log tail.
+  for (const [re, hint] of ANCHOR_NAME_HINTS) {
+    if (re.test(out)) return hint;
+  }
+
   // ── Never surface a raw upstream API response body to the user ────────────
   // Backend errors arrive wrapped in an AppError Display prefix, e.g.
   // "Jupiter API error: <message>" or "Internal error: Jupiter Perps API error
@@ -310,10 +415,13 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
     return 'Pump.fun is temporarily unavailable. Please try again in a moment.';
   }
 
-  // Catch-all: only fires when the message STILL looks like a raw technical
-  // body (JSON, status codes, parse/reqwest errors, HTML, a URL) — clean
-  // sentences from the backend fall through and are shown as-is.
-  if (/error decoding response|failed to parse|reqwest|panicked|status \d{3}|\{\s*"|https?:\/\/|<[a-z!/]/i.test(out)) {
+  // Catch-all. Everything a user can act on has been mapped to prose above, so
+  // whatever is still here is unmapped by definition — and if it still reads
+  // like machinery (identifiers, field names, codes, payloads) it is worse
+  // than useless on a card: it looks like the app broke rather than like
+  // something the user can fix. Keep the original in the console for us.
+  if (looksTechnical(out)) {
+    console.error('[action] unmapped error:', { actionType, raw: msg });
     return 'Something went wrong completing this action. Please try again in a moment.';
   }
 

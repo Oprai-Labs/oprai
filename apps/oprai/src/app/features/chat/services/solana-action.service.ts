@@ -2620,8 +2620,12 @@ export class SolanaActionService {
         const resolvedFromSpread = minBinId !== undefined && maxBinId !== undefined;
         return {
           pool: p['pool'] ?? p['poolId'],
-          amountX: p['amountX'] ?? p['amountA'],
-          amountY: p['amountY'] ?? p['amountB'],
+          // A single-sided range legitimately deposits nothing on one side —
+          // the card disables that input, so the key would otherwise vanish
+          // from the JSON and the backend would reject the whole action for a
+          // missing field. Zero is the answer, not absence.
+          amountX: p['amountX'] ?? p['amountA'] ?? '0',
+          amountY: p['amountY'] ?? p['amountB'] ?? '0',
           minBinId,
           maxBinId,
           ...(resolvedFromSpread ? {} : {
@@ -2683,8 +2687,12 @@ export class SolanaActionService {
         const resolvedFromSpread = minBinId !== undefined && maxBinId !== undefined;
         return {
           pool: p['pool'] ?? p['poolId'],
-          amountX: p['amountX'] ?? p['amountA'],
-          amountY: p['amountY'] ?? p['amountB'],
+          // A single-sided range legitimately deposits nothing on one side —
+          // the card disables that input, so the key would otherwise vanish
+          // from the JSON and the backend would reject the whole action for a
+          // missing field. Zero is the answer, not absence.
+          amountX: p['amountX'] ?? p['amountA'] ?? '0',
+          amountY: p['amountY'] ?? p['amountB'] ?? '0',
           minBinId,
           maxBinId,
           ...(resolvedFromSpread ? {} : {
@@ -2703,8 +2711,12 @@ export class SolanaActionService {
       case 'meteora_add_to_position':
         return {
           position: p['position'],
-          amountX: p['amountX'] ?? p['amountA'],
-          amountY: p['amountY'] ?? p['amountB'],
+          // A single-sided range legitimately deposits nothing on one side —
+          // the card disables that input, so the key would otherwise vanish
+          // from the JSON and the backend would reject the whole action for a
+          // missing field. Zero is the answer, not absence.
+          amountX: p['amountX'] ?? p['amountA'] ?? '0',
+          amountY: p['amountY'] ?? p['amountB'] ?? '0',
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
           strategy: p['strategy'],
         };

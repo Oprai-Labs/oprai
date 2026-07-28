@@ -272,11 +272,14 @@ pub struct MeteoraSwapParams {
 pub struct MeteoraAddLiquidityParams {
     /// DLMM pool (lb_pair) address.
     pub pool: String,
-    /// Token X amount (human-readable). May be "0" for single-sided.
+    /// Token X amount (human-readable). May be "0" for single-sided, and an
+    /// omitted side means zero — see MeteoraAddToPositionParams.
     #[allow(dead_code)]
+    #[serde(default = "zero_amount")]
     pub amount_x: String,
-    /// Token Y amount (human-readable). May be "0" for single-sided.
+    /// Token Y amount (human-readable). See `amount_x`.
     #[allow(dead_code)]
+    #[serde(default = "zero_amount")]
     pub amount_y: String,
     /// Lower bin ID. Required unless min_price is provided.
     #[serde(default)]
@@ -380,9 +383,13 @@ pub struct MeteoraClosePositionParams {
 pub struct MeteoraAddToPositionParams {
     /// Existing position address.
     pub position: String,
-    /// Additional token X (human-readable).
+    /// Additional token X (human-readable). Defaults to "0": a single-sided
+    /// range takes nothing on one side, and an absent amount there means zero,
+    /// not a malformed request.
+    #[serde(default = "zero_amount")]
     pub amount_x: String,
-    /// Additional token Y (human-readable).
+    /// Additional token Y (human-readable). See `amount_x`.
+    #[serde(default = "zero_amount")]
     pub amount_y: String,
     /// Max active bin drift (default: 3).
     #[serde(default)]
@@ -488,6 +495,11 @@ struct InitPosPdaArgs {
 struct InitLbPairArgs {
     active_id: i32,
     bin_step: u16,
+}
+
+/// Serde default for an omitted deposit amount — see MeteoraAddToPositionParams.
+fn zero_amount() -> String {
+    "0".to_string()
 }
 
 /// claim_fee2 args.
