@@ -2453,6 +2453,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  withdrawal, which leaves the account (and its rent) in place. */
   readonly isMeteoraClose = computed(() => this.action?.type === 'meteora_close_position');
 
+  /**
+   * A claim with nothing to claim. The card already says so; leaving the CTA
+   * live invites the user to pay a fee for a transaction that moves nothing.
+   * Only blocks when the position's fees were actually read — an unknown
+   * amount is not the same as zero, and guessing would block a legitimate
+   * claim issued from chat.
+   */
+  readonly nothingToClaim = computed(() => {
+    if (!this.isClaimAction()) return false;
+    const pd = this.meteoraPositionDetail();
+    return pd !== null && !pd.hasFees;
+  });
+
   /** True when this action opens a NEW DLMM position (rent applies). */
   private meteoraOpensPosition(): boolean {
     const t = this.action.type;

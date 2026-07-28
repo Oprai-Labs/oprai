@@ -202,9 +202,14 @@
                   }
                 </span>
                 <span class="ray-pos__actions">
+                  <!-- Disabled when there is nothing to claim: the action would
+                       cost a fee and move nothing. -->
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          [disabled]="!dlmmHasClaimableFees(row)"
                           (click)="claimDlmmFees(row); $event.stopPropagation()"
-                          title="Claim this position's fees">Claim</button>
+                          [attr.title]="dlmmHasClaimableFees(row)
+                            ? 'Claim this position\'s fees'
+                            : 'No unclaimed fees on this position'">Claim</button>
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                           (click)="addToDlmmPosition(row); $event.stopPropagation()"
                           title="Add liquidity to this position">

@@ -889,12 +889,20 @@
   color: var(--op-text-secondary);
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: color-mix(in srgb, var(--op-bg-surface-3) 88%, var(--op-text-primary) 12%);
     border-color: var(--op-border-strong);
     color: var(--op-text-primary);
     filter: none;
   }
+}
+
+// A disabled row action still has to read as a button, just an unavailable
+// one — not as a hole in the panel.
+.dlmm-use-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
 }
 
 // ── Kamino Multiply pool list ───────────────────────────────────────────────

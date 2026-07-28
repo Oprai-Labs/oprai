@@ -1937,6 +1937,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     };
   });
 
+  /**
+   * True when this position has fees worth claiming. Only decidable once the
+   * on-chain detail is in — without it, assume there might be (a claim issued
+   * blind is better than a Claim button that refuses for the wrong reason).
+   */
+  dlmmHasClaimableFees(row: DlmmPositionRow): boolean {
+    const d = row.detail;
+    if (!d) return true;
+    return d.unclaimedFeeX > 0 || d.unclaimedFeeY > 0;
+  }
+
   /** USD value of one position, prorated from the pool total by token amounts
    *  when per-position detail is available. The portfolio API only prices the
    *  pool as a whole, so this is a split, not an independent valuation. */
