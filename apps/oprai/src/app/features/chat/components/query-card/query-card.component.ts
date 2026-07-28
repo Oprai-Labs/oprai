@@ -709,6 +709,19 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.query.type === 'raydium_get_user_positions' || this.query.type === 'raydium_get_clmm_positions') {
         void this.fetchRaydiumPositions();
       }
+      // Same for DLMM: positions are live state, not a receipt. A range that
+      // has drifted out, fees accrued since, or a position closed from another
+      // client must all show on reload — so refetch rather than trust the
+      // snapshot. (Until now the snapshot didn't even carry the pools, so a
+      // reload rendered "No open positions" over a wallet that had two.)
+      if (this.query.type === 'meteora_dlmm_get_user_positions') {
+        void this.fetchDlmmPositions();
+      }
+      // Jupiter Lend positions had the same gap: never snapshotted, never
+      // refetched, so a reload showed an empty card over a real balance.
+      if (this.query.type === 'lend_positions') {
+        void this.fetchLendPositions();
+      }
     } else {
       // Seed the Raydium pool-type filter (and sort) from the incoming query
       // params BEFORE the first fetch, so an explicit "CLMM" / "concentrated"
@@ -825,6 +838,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['raydiumPositions']) {
       this.raydiumPositions.set(d['raydiumPositions'] as RaydiumUserPosition[]);
     }
+    if (d['dlmmUserPools']) {
+      this.dlmmUserPools.set(d['dlmmUserPools'] as DlmmUserPool[]);
+    }
+    if (d['lendEarnPositions'])   this.lendEarnPositions   = d['lendEarnPositions']   as LendPosition[];
+    if (d['lendBorrowPositions']) this.lendBorrowPositions = d['lendBorrowPositions'] as BorrowPosition[];
     if (d['raydiumResults']) {
       this.raydiumResults = d['raydiumResults'] as RaydiumPool[];
       this.raydiumHasNextPage.set((d['raydiumHasNextPage'] as boolean | undefined) ?? false);
@@ -888,6 +906,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.raydiumPositions().length) {
       d['raydiumPositions'] = this.raydiumPositions();
     }
+    if (this.dlmmUserPools().length) {
+      d['dlmmUserPools'] = this.dlmmUserPools();
+    }
+    if (this.lendEarnPositions.length)   d['lendEarnPositions']   = this.lendEarnPositions;
+    if (this.lendBorrowPositions.length) d['lendBorrowPositions'] = this.lendBorrowPositions;
     if (this.raydiumResults.length) {
       d['raydiumResults']     = this.raydiumResults;
       d['raydiumHasNextPage'] = this.raydiumHasNextPage();
