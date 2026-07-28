@@ -3699,6 +3699,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.isMeteoraDlmm()) this.seedMeteoraRange();
     this.maybeEnrichRaydiumPool();
     void this.maybeEnrichRaydiumWithdraw();
+    void this.maybeEnrichMeteoraPosition();
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
@@ -3808,6 +3809,66 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * Positions are LIVE state, so reading them fresh here also keeps a
    * long-lived chat card honest about what it's about to withdraw.
    */
+  /**
+   * A Meteora action spawned from chat (or from a clarify prompt) carries only
+   * the position address — the model has nothing else to give. The card then
+   * rendered "??/??" with no range, no balance and no fees, which is the exact
+   * information needed to decide whether to sign.
+   *
+   * The positions card passes all of it when the action starts from a row, so
+   * this only fills the gap: look the position up in the wallet's DLMM
+   * portfolio and merge the same fields in.
+   */
+  async maybeEnrichMeteoraPosition(): Promise<void> {
+    const type = this.action?.type ?? '';
+    if (!type.startsWith('meteora_')) return;
+    const p = this.editParams();
+    const position = p['position'] || p['positionId'];
+    if (!position || p['tokenASymbol']) return;   // nothing to look up, or already known
+
+    try {
+      const resp = await firstValueFrom(
+        this.apiService.post<{ data?: { pools?: any[] } }>('/actions/build', {
+          type: 'meteora_dlmm_get_user_positions',
+          params: {},
+        }).pipe(timeout(20_000)),
+      );
+      const pools: any[] = resp?.data?.pools ?? [];
+      const pool = pools.find(pl => (pl.listPositions ?? []).includes(position));
+      if (!pool) return;
+      const detail = (pool.positions ?? []).find((d: any) => d.address === position);
+
+      this.editParams.update(ep => ({
+        ...ep,
+        pair: `${pool.tokenX}/${pool.tokenY}`,
+        tokenASymbol: pool.tokenX,
+        tokenBSymbol: pool.tokenY,
+        ...(pool.tokenXMint ? { tokenA: pool.tokenXMint } : {}),
+        ...(pool.tokenYMint ? { tokenB: pool.tokenYMint } : {}),
+        ...(pool.tokenXIcon ? { tokenALogo: pool.tokenXIcon } : {}),
+        ...(pool.tokenYIcon ? { tokenBLogo: pool.tokenYIcon } : {}),
+        pool: pool.poolAddress,
+        poolId: pool.poolAddress,
+        binStep: String(pool.binStep ?? ''),
+        currentPrice: String(pool.poolPrice ?? ''),
+        ...(detail
+          ? {
+              positionMinPrice: String(detail.lowerPrice),
+              positionMaxPrice: String(detail.upperPrice),
+              positionBinCount: String(detail.binCount),
+              positionAmountA: String(detail.amountX),
+              positionAmountB: String(detail.amountY),
+              positionFeeA: String(detail.unclaimedFeeX),
+              positionFeeB: String(detail.unclaimedFeeY),
+              positionOutOfRange: detail.inRange ? 'false' : 'true',
+            }
+          : {}),
+      }));
+    } catch {
+      // Enrichment is cosmetic — the action still builds from the address.
+    }
+  }
+
   async maybeEnrichRaydiumWithdraw(): Promise<void> {
     if (!this.isRaydiumWithdraw() && !this.isRaydiumIncrease() && !this.isRaydiumDecrease()) return;
     const p = this.editParams();

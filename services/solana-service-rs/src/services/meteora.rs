@@ -237,9 +237,18 @@ struct DlmmPositionData {
     #[serde(alias = "upperBinId", alias = "upper_bin_id")]
     upper_bin_id: i32,
     /// Bins that actually hold liquidity, when the on-chain read supplied
-    /// them. Empty = unknown, fall back to the whole range.
+    /// them. Empty = the position is empty (or unknown for callers that don't
+    /// resolve it) — see how close_position uses it.
     #[serde(default)]
     bins_with_liquidity: Vec<i32>,
+    /// Whether the position has fees worth claiming. Claiming nothing is not
+    /// free: it is an instruction the transaction has to carry.
+    #[serde(default)]
+    has_fees: bool,
+    /// True when the on-chain read succeeded, so an empty `bins_with_liquidity`
+    /// can be trusted to mean "empty" rather than "unknown".
+    #[serde(default)]
+    liquidity_known: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1494,6 +1503,10 @@ async fn fetch_pos(
             .and_then(|v| v.as_array())
             .map(|a| a.iter().filter_map(|v| v.as_i64()).map(|v| v as i32).collect())
             .unwrap_or_default(),
+        has_fees: ["unclaimedFeeX", "unclaimedFeeY"]
+            .iter()
+            .any(|k| entry.get(*k).and_then(|v| v.as_f64()).unwrap_or(0.0) > 0.0),
+        liquidity_known: entry.get("binsWithLiquidity").is_some(),
     })
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2268,6 +2281,13 @@ pub async fn build_meteora_close_position(
     // Inclusive — see build_meteora_remove_liquidity. Closing a position that
     // still had liquidity in its top bin would fail outright. Prefer the bins
     // that actually hold something, for the same size reason.
+    //
+    // An ALREADY-EMPTY position gets no removal instruction at all: asking the
+    // program to take 100% out of bins where the position holds no shares
+    // fails with InvalidInput (6002). That made an emptied position
+    // impossible to close — which is exactly the position most likely to be
+    // closed, since withdrawing first is the obvious order.
+    let position_is_empty = pos_data.liquidity_known && pos_data.bins_with_liquidity.is_empty();
     let bin_removals: Vec<BinLiqReduction> = if !pos_data.bins_with_liquidity.is_empty() {
         pos_data
             .bins_with_liquidity
@@ -2277,6 +2297,8 @@ pub async fn build_meteora_close_position(
                 bps_to_remove: 10_000,
             })
             .collect()
+    } else if position_is_empty {
+        Vec::new()
     } else {
         (lower_bin_id..=upper_bin_id)
             .map(|bin_id| BinLiqReduction {
@@ -2308,13 +2330,19 @@ pub async fn build_meteora_close_position(
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
 
-    // TX1: remove_liquidity + claim_fee2. Both pay out to the user's token
-    // accounts, which the program requires to already exist — see
-    // build_meteora_remove_liquidity.
+    // TX1: remove_liquidity + claim_fee2 — each carried only when it has
+    // something to do. Both pay out to the user's token accounts, which the
+    // program requires to already exist (see build_meteora_remove_liquidity).
+    let needs_removal = !bin_removals.is_empty();
+    let needs_claim = pos_data.has_fees || !pos_data.liquidity_known;
     let rpc_for_ata =
         AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
-    let mut ixs_tx1 = ata_ixs_for_missing(&rpc_for_ata, &user, &[mint_x, mint_y]).await;
-    ixs_tx1.extend([
+    let mut ixs_tx1: Vec<Instruction> = if needs_removal || needs_claim {
+        ata_ixs_for_missing(&rpc_for_ata, &user, &[mint_x, mint_y]).await
+    } else {
+        Vec::new()
+    };
+    let removal_and_claim = [
         Instruction {
             program_id: dlmm_program(),
             accounts: vec![
@@ -2376,7 +2404,14 @@ pub async fn build_meteora_close_position(
                 },
             ),
         },
-    ]);
+    ];
+    let [remove_ix, claim_ix] = removal_and_claim;
+    if needs_removal {
+        ixs_tx1.push(remove_ix);
+    }
+    if needs_claim {
+        ixs_tx1.push(claim_ix);
+    }
 
     // TX2: close_position2 (5 accounts only)
     let ixs_tx2 = vec![Instruction {
@@ -2392,7 +2427,39 @@ pub async fn build_meteora_close_position(
     }];
 
     // Both the liquidity and the fees come back wrapped on the SOL side.
-    ixs_tx1.extend(build_wsol_unwrap_ixs(&user, &mint_x, &mint_y));
+    if !ixs_tx1.is_empty() {
+        ixs_tx1.extend(build_wsol_unwrap_ixs(&user, &mint_x, &mint_y));
+    }
+
+    // An already-empty position with no fees needs nothing but the close, so
+    // don't make the user sign a transaction that does nothing.
+    if ixs_tx1.is_empty() {
+        let only_tx = build_vtx_b64(rpc_url, &user, &ixs_tx2).await?;
+        return Ok(BuildResponse {
+            preview: ActionPreview {
+                id: Uuid::new_v4().to_string(),
+                action_type: "meteora_close_position".into(),
+                description: format!(
+                    "Close empty Meteora DLMM position {}… (recover rent)",
+                    &params.position[..8.min(params.position.len())],
+                ),
+                estimated_fee: "~0.000005 SOL".into(),
+                estimated_refund: None,
+                params: serde_json::json!({
+                    "position": params.position,
+                    "pool":     pos_data.lb_pair,
+                }),
+                warnings: vec![],
+                requires_approval: true,
+            },
+            transaction: Some(only_tx),
+            additional_signers_required: 0,
+            execution_steps: None,
+            quote: None,
+            is_cross_chain: false,
+            data: None,
+        });
+    }
 
     let tx1 = build_vtx_b64(rpc_url, &user, &ixs_tx1).await?;
     let tx2 = build_vtx_b64_dependent(rpc_url, &user, &ixs_tx2).await?;

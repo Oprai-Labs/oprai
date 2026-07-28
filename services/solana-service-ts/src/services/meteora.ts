@@ -217,9 +217,15 @@ export async function getMeteoraDlmmPositionDetails(
     // touches (6 bytes apiece in the instruction), and a wide position is
     // mostly empty — naming the empty ones only inflates the transaction, and
     // transaction size is the binding constraint here.
-    const nonEmpty = bins
-      .filter((b: any) => Number(b?.binXAmount ?? 0) > 0 || Number(b?.binYAmount ?? 0) > 0)
-      .map((b: any) => Number(b.binId));
+    // positionXAmount / positionYAmount are THIS position's share of the bin.
+    // binXAmount / binYAmount are the bin's total reserves across every
+    // provider — filtering on those reported 25 "non-empty" bins for a
+    // position holding nothing, and asking the program to remove liquidity
+    // from a bin where the user has no shares fails with InvalidInput (6002).
+    const share = (b: any): number =>
+      Number(b?.positionLiquidity ?? 0) ||
+      Number(b?.positionXAmount ?? 0) + Number(b?.positionYAmount ?? 0);
+    const nonEmpty = bins.filter((b: any) => share(b) > 0).map((b: any) => Number(b.binId));
     return {
       address: p.publicKey?.toBase58?.() ?? String(p.publicKey ?? ""),
       lowerBinId,
