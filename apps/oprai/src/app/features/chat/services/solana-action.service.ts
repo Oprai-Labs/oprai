@@ -494,21 +494,51 @@ export class SolanaActionService {
    * `actionTxIndex`. Each setup tx is a separate wallet approval; we wait for
    * confirmation between them (the LUT must exist before the next extend/deposit).
    */
+  /**
+   * Sign and confirm every step that must land BEFORE the action's own
+   * transaction, in order, and return the transaction the caller should treat
+   * as the action itself (null = use buildResult.transaction unchanged).
+   *
+   * Two shapes arrive here:
+   *   - `transactions[] + actionTxIndex` (Kamino Multiply's lookup-table setup)
+   *   - `executionSteps.type === 'sequential'` (Meteora close: remove+claim,
+   *     then close the account)
+   * The second was never handled: the flow signed buildResult.transaction and
+   * stopped, so closing a position removed its liquidity, left the account
+   * open with its rent locked, and still reported success.
+   */
   private async signAndConfirmSetupTxs(
     buildResult: BuildResponse,
     web3: typeof import('@solana/web3.js'),
     connection: ReturnType<typeof createSolanaConnection>,
     callbacks: ActionCallbacks,
-  ): Promise<void> {
+  ): Promise<string | null> {
+    let steps: Array<{ tx: string; label?: string }> = [];
+
     const ordered = (buildResult as { transactions?: string[] }).transactions;
     const actionTxIndex = (buildResult as { actionTxIndex?: number }).actionTxIndex ?? 0;
-    if (!Array.isArray(ordered) || actionTxIndex <= 0) return;
+    if (Array.isArray(ordered) && actionTxIndex > 0) {
+      steps = ordered.map(tx => ({ tx }));
+    } else {
+      const es = (buildResult as { executionSteps?: any }).executionSteps
+        ?? (buildResult as { execution_steps?: any }).execution_steps;
+      if (es?.type === 'sequential' && Array.isArray(es.transactions)) {
+        steps = es.transactions
+          .map((st: any) => ({ tx: typeof st === 'string' ? st : st?.transaction, label: st?.label }))
+          .filter((st: { tx?: string }) => !!st.tx);
+      }
+    }
+    if (steps.length < 2) return null;
 
-    const setupTxs = ordered.slice(0, actionTxIndex);
-    for (let i = 0; i < setupTxs.length; i++) {
-      callbacks.onStatus?.(`Setting up position account (${i + 1}/${setupTxs.length})…`);
+    // Everything but the last is a prerequisite; the last IS the action.
+    const setup = steps.slice(0, -1);
+    for (let i = 0; i < setup.length; i++) {
+      callbacks.onStatus?.(setup[i].label
+        ? `${setup[i].label} (${i + 1}/${steps.length})…`
+        : `Step ${i + 1} of ${steps.length}…`);
       callbacks.onSign?.();
-      const tx = web3.VersionedTransaction.deserialize(this.base64ToUint8Array(setupTxs[i]));
+      const tx = web3.VersionedTransaction.deserialize(this.base64ToUint8Array(setup[i].tx));
+      await this.refreshBlockhash(tx, connection);
       const signed = (await Promise.race([
         this.walletService.signTransaction(tx),
         new Promise<never>((_, reject) =>
@@ -520,9 +550,31 @@ export class SolanaActionService {
         preflightCommitment: 'confirmed',
       });
       const ok = await this.waitForSignatureConfirmation(connection, sig, 90_000);
-      if (!ok) throw new Error('Position account setup did not confirm — please try again.');
+      if (!ok) throw new Error(`Step ${i + 1} didn\u2019t confirm \u2014 please try again.`);
     }
-    callbacks.onStatus?.('Opening position…');
+    const final = steps[steps.length - 1];
+    callbacks.onStatus?.(final.label ? `${final.label}\u2026` : 'Finishing\u2026');
+    return final.tx;
+  }
+
+  /**
+   * Stamp a fresh blockhash on an unsigned transaction. Every step of a
+   * sequential action is built at the same moment, but the later ones are
+   * signed only after the earlier ones confirm — up to 90s each. By then the
+   * blockhash they were built with can be gone, and the step fails with an
+   * expiry error that has nothing to do with what the user did.
+   */
+  private async refreshBlockhash(
+    tx: VersionedTransaction,
+    connection: ReturnType<typeof createSolanaConnection>,
+  ): Promise<void> {
+    try {
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
+      tx.message.recentBlockhash = blockhash;
+    } catch {
+      // Keep the original blockhash — often still valid, and failing here
+      // would block a step that would otherwise land.
+    }
   }
 
   /**
@@ -1502,9 +1554,9 @@ export class SolanaActionService {
     // main tx can reference it (Kamino Multiply's per-user lookup table: create +
     // extend, then the leveraged deposit compresses against it). Sign + confirm
     // those first, in order; the main tx (buildResult.transaction) follows below.
-    await this.signAndConfirmSetupTxs(buildResult, web3, connection, callbacks);
+    const finalStepTx = await this.signAndConfirmSetupTxs(buildResult, web3, connection, callbacks);
 
-    const txBuffer = this.base64ToUint8Array(buildResult.transaction!);
+    const txBuffer = this.base64ToUint8Array(finalStepTx ?? buildResult.transaction!);
     // Detect versioned-vs-legacy from the bytes themselves, not just the static
     // type list. Some actions (e.g. pumpfun_buy/sell) return a LEGACY bonding-curve
     // tx OR a VERSIONED Jupiter tx (graduated tokens routed through the aggregator)
@@ -1519,6 +1571,13 @@ export class SolanaActionService {
       deserializedTx = web3.VersionedTransaction.deserialize(txBuffer);
     } else {
       deserializedTx = web3.Transaction.from(txBuffer);
+    }
+
+    // The final step of a sequential action was built before the earlier steps
+    // ran, so its blockhash is as old as their confirmations — refresh it here
+    // or the submit fails on expiry after the user has already signed.
+    if (finalStepTx && isVersioned) {
+      await this.refreshBlockhash(deserializedTx as VersionedTransaction, connection);
     }
 
     // Get the wallet's SOL balance and the exact tx fee side-by-side
