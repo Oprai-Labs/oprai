@@ -110,6 +110,24 @@ async fn ts_proxy_read(
     })
 }
 
+/// Meteora DLMM — per-position detail for one pool, read on-chain via the SDK.
+/// Returns the raw `data` payload (not a `BuildResponse`) so callers can merge
+/// it into a larger response.
+pub async fn meteora_dlmm_position_details(
+    http: &Client,
+    wallet: &str,
+    pool_address: &str,
+) -> Result<serde_json::Value, AppError> {
+    let resp = ts_proxy_read(
+        http,
+        wallet,
+        "meteora_dlmm_position_details",
+        serde_json::json!({ "poolAddress": pool_address }),
+    )
+    .await?;
+    Ok(resp.data.unwrap_or(serde_json::Value::Null))
+}
+
 /// MarginFi v2 — detailed per-bank balance breakdown (deposit/borrow side,
 /// USD value, APY). Goes beyond `marginfi_user_accounts` which only returns
 /// PDA addresses + health factor.

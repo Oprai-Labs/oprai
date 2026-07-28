@@ -249,6 +249,33 @@ interface DlmmUserPool {
   outOfRange: boolean;
   listPositions: string[];
   positionsOutOfRange?: string[];
+  /** Per-position detail read on-chain by the backend (SDK), when available. */
+  positions?: DlmmPositionDetail[];
+  activeBinId?: number;
+}
+
+/** One DLMM position inside a pool — its own range, balance and fees. */
+interface DlmmPositionDetail {
+  address: string;
+  lowerBinId: number;
+  upperBinId: number;
+  lowerPrice: number;
+  upperPrice: number;
+  binCount: number;
+  amountX: number;
+  amountY: number;
+  unclaimedFeeX: number;
+  unclaimedFeeY: number;
+  inRange: boolean;
+}
+
+/** A flattened pool×position pair — one rendered panel. */
+interface DlmmPositionRow {
+  pool: DlmmUserPool;
+  address: string;
+  index: number;
+  detail: DlmmPositionDetail | null;
+  outOfRange: boolean;
 }
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -1777,6 +1804,87 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return (pool.positionsOutOfRange ?? []).includes(position);
   }
 
+  /**
+   * One panel per POSITION, not per pool. Re-ranging a DLMM position means
+   * opening a second one in the same pool, so "2 positions" in a single pool
+   * row is the common case — and it hides exactly what differs between them:
+   * each has its own price range, balance and unclaimed fees. Flattening here
+   * mirrors the Raydium CLMM card, where every position is its own panel with
+   * its own actions.
+   *
+   * `detail` is null when the on-chain enrichment failed; the panel then still
+   * renders with the address and the pool-level context, which is enough to
+   * act on.
+   */
+  readonly dlmmPositionRows = computed<DlmmPositionRow[]>(() => {
+    const rows: DlmmPositionRow[] = [];
+    for (const pool of this.dlmmUserPools()) {
+      const byAddress = new Map<string, DlmmPositionDetail>(
+        (pool.positions ?? []).map(p => [p.address, p]),
+      );
+      const addresses = pool.listPositions?.length
+        ? pool.listPositions
+        : (pool.positions ?? []).map(p => p.address);
+      addresses.forEach((address, index) => {
+        const detail = byAddress.get(address) ?? null;
+        rows.push({
+          pool,
+          address,
+          index,
+          detail,
+          // Prefer the chain's answer; fall back to the API's per-pool list.
+          outOfRange: detail ? !detail.inRange : this.dlmmPositionOutOfRange(pool, address),
+        });
+      });
+    }
+    return rows;
+  });
+
+  /** Total open positions across every pool — the card's header count. */
+  readonly dlmmPositionTotal = computed(() => this.dlmmPositionRows().length);
+
+  /** Pool-level value / PnL / fees, rolled up. Splitting the card into
+   *  per-position panels would otherwise drop these — they are only priced
+   *  per pool upstream, so they belong in one summary strip, not repeated on
+   *  every panel where they'd read as that position's own PnL. */
+  readonly dlmmPositionsSummary = computed(() => {
+    const pools = this.dlmmUserPools();
+    if (pools.length === 0) return null;
+    const num = (v: unknown) => {
+      const n = Number(v ?? 0);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const value = pools.reduce((s, p) => s + num(p.balances), 0);
+    const pnl = pools.reduce((s, p) => s + num(p.pnl), 0);
+    const fees = pools.reduce((s, p) => s + num(p.unclaimedFees), 0);
+    const deposited = pools.reduce((s, p) => s + num(p.totalDeposit), 0);
+    return {
+      value,
+      pnl,
+      fees,
+      pnlPct: deposited > 0 ? (pnl / deposited) * 100 : 0,
+      poolCount: pools.length,
+      positionCount: this.dlmmPositionRows().length,
+    };
+  });
+
+  /** USD value of one position, prorated from the pool total by token amounts
+   *  when per-position detail is available. The portfolio API only prices the
+   *  pool as a whole, so this is a split, not an independent valuation. */
+  dlmmPositionValue(row: DlmmPositionRow): number | null {
+    const detail = row.detail;
+    if (!detail) return null;
+    const positions = row.pool.positions ?? [];
+    if (positions.length === 0) return null;
+    const px = row.pool.poolPrice || 0;
+    const weight = (p: DlmmPositionDetail) => p.amountX * px + p.amountY;
+    const total = positions.reduce((sum, p) => sum + weight(p), 0);
+    const poolValue = Number(row.pool.balances ?? 0);
+    if (!Number.isFinite(poolValue)) return null;
+    if (total <= 0) return poolValue / positions.length;
+    return poolValue * (weight(detail) / total);
+  }
+
   /** Add liquidity to an EXISTING position: CLMM → increase the range's
    *  liquidity; LP → deposit more into the same standard pool. Carries the same
    *  display context as withdraw so the action card renders a real summary. */
@@ -2992,8 +3100,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return `$${p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
-  formatUsd(n: number): string {
-    return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  /**
+   * Several protocol APIs (Meteora's portfolio endpoint among them) return
+   * money as JSON *strings*. `String.prototype.toLocaleString` silently
+   * ignores the options object and hands the string straight back, which is
+   * how "$0.6551870858262281" reached the card — so coerce first.
+   *
+   * Sub-cent amounts are real here: unclaimed DLMM fees start in the
+   * thousandths, and rounding them to "$0.00" reads as "nothing to claim".
+   */
+  formatUsd(n: number | string | null | undefined): string {
+    const v = typeof n === 'number' ? n : Number(n ?? 0);
+    if (!Number.isFinite(v)) return '$0.00';
+    const abs = Math.abs(v);
+    const maxDigits = abs > 0 && abs < 0.01 ? 6 : 2;
+    const body = abs.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: maxDigits,
+    });
+    return `${v < 0 ? '-' : ''}$${body}`;
   }
 
   /** Compact USD for dense table cells: $2.52M, $18.4K, $47.24. */

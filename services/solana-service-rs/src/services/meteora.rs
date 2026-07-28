@@ -42,6 +42,7 @@ use spl_associated_token_account::{
 
 use crate::error::AppError;
 use crate::services::builder::{ActionPreview, BuildResponse};
+use crate::services::protocol_reads;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -4234,7 +4235,36 @@ pub async fn build_meteora_dlmm_get_user_positions(
     // New API: /portfolio/open?user=... returns the user's open DLMM positions.
     // Legacy /position/user/{wallet} was removed.
     let url = format!("{DLMM_API}/portfolio/open?user={wallet}");
-    let data = meteora_get(http, &url).await?;
+    let mut data = meteora_get(http, &url).await?;
+
+    // The portfolio API aggregates per POOL: `listPositions` is a bare address
+    // array and value/PnL/fees are pool totals. Re-ranging leaves several
+    // positions in the same pool, each with its own range, balance and fees —
+    // so enrich every pool with per-position detail read from the chain.
+    // Best-effort: an SDK/RPC hiccup must not take down the whole listing, the
+    // pool-level numbers are still useful on their own.
+    if let Some(pools) = data.get_mut("pools").and_then(|p| p.as_array_mut()) {
+        for pool in pools.iter_mut() {
+            let Some(addr) = pool.get("poolAddress").and_then(|a| a.as_str()) else {
+                continue;
+            };
+            let addr = addr.to_string();
+            match protocol_reads::meteora_dlmm_position_details(http, wallet, &addr).await {
+                Ok(detail) => {
+                    if let Some(list) = detail.get("positions").cloned() {
+                        pool["positions"] = list;
+                    }
+                    if let Some(active) = detail.get("activeBinId").cloned() {
+                        pool["activeBinId"] = active;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("DLMM position detail failed for {addr}: {e}");
+                }
+            }
+        }
+    }
+
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),

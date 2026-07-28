@@ -164,6 +164,89 @@ export async function getMeteoraPools(params: { tokenA?: string; tokenB?: string
   };
 }
 
+/**
+ * Per-position detail for ONE DLMM pool, read from the chain.
+ *
+ * Meteora's portfolio API (`/portfolio/open`) only aggregates per POOL — it
+ * returns `listPositions` as bare addresses and rolls value, PnL and fees into
+ * a single pool total. A wallet with several positions in the same pool is the
+ * normal case (that's how you re-range), and each one has its own bin range,
+ * its own balance and its own unclaimed fees. None of that is reachable over
+ * HTTP: there is no per-position endpoint on either datapi or dlmm-api.
+ *
+ * The SDK reads it straight from the position accounts, and its
+ * `positionBinData[].pricePerToken` is already decimal-adjusted — so the
+ * range comes back as a human price without us redoing the bin↔price
+ * conversion that has been wrong in four places before.
+ */
+export async function getMeteoraDlmmPositionDetails(
+  params: { poolAddress: string },
+  userWallet: string,
+): Promise<BuildResponse> {
+  if (!params.poolAddress) {
+    throw appError("poolAddress is required", 400, "INVALID_PARAMS");
+  }
+  const connection = getConnection();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dlmmPool: any = await (DLMM as any).create(connection, new PublicKey(params.poolAddress));
+  const { activeBin, userPositions } = await dlmmPool.getPositionsByUserAndLbPair(
+    new PublicKey(userWallet),
+  );
+
+  const decX: number = dlmmPool.tokenX?.decimal ?? 9;
+  const decY: number = dlmmPool.tokenY?.decimal ?? 6;
+  const toUi = (raw: unknown, dec: number): number => {
+    const n = Number(raw?.toString() ?? "0");
+    return Number.isFinite(n) ? n / Math.pow(10, dec) : 0;
+  };
+
+  const activeBinId: number =
+    activeBin?.binId ?? dlmmPool.lbPair?.activeId ?? 0;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const positions = (userPositions ?? []).map((p: any) => {
+    const d = p.positionData ?? {};
+    const bins = Array.isArray(d.positionBinData) ? d.positionBinData : [];
+    // Bin data is ordered lower -> upper, so the ends are the range ends.
+    const priceOf = (b: unknown): number => Number((b as any)?.pricePerToken ?? 0);
+    const lowerPrice = bins.length ? priceOf(bins[0]) : 0;
+    const upperPrice = bins.length ? priceOf(bins[bins.length - 1]) : 0;
+    const lowerBinId: number = d.lowerBinId ?? 0;
+    const upperBinId: number = d.upperBinId ?? 0;
+    return {
+      address: p.publicKey?.toBase58?.() ?? String(p.publicKey ?? ""),
+      lowerBinId,
+      upperBinId,
+      lowerPrice,
+      upperPrice,
+      binCount: bins.length || Math.max(0, upperBinId - lowerBinId + 1),
+      amountX: toUi(d.totalXAmount, decX),
+      amountY: toUi(d.totalYAmount, decY),
+      unclaimedFeeX: toUi(d.feeX, decX),
+      unclaimedFeeY: toUi(d.feeY, decY),
+      inRange: activeBinId >= lowerBinId && activeBinId <= upperBinId,
+    };
+  });
+
+  return {
+    preview: preview(
+      "meteora_dlmm_position_details",
+      `DLMM position detail for ${params.poolAddress.slice(0, 8)}…`,
+      params as unknown as Record<string, unknown>,
+    ),
+    additionalSignersRequired: 0,
+    isCrossChain: false,
+    data: {
+      poolAddress: params.poolAddress,
+      activeBinId,
+      binStep: dlmmPool.lbPair?.binStep ?? 0,
+      tokenXDecimals: decX,
+      tokenYDecimals: decY,
+      positions,
+    },
+  };
+}
+
 export async function getMeteoraUserPositions(params: { poolAddress?: string }, userWallet: string): Promise<BuildResponse> {
   const res = await fetch(`${METEORA_API}/position/user/${userWallet}`);
   const data = await res.json();

@@ -115,90 +115,133 @@
         }
       }
 
-      <!-- Meteora DLMM pool list -->
+      <!-- Meteora DLMM positions — one panel per POSITION, like Raydium CLMM.
+           Several positions in one pool is the normal shape (that's what
+           re-ranging leaves behind) and each has its own range and fees. -->
       @if (query.type === 'meteora_dlmm_get_user_positions') {
+        @if (dlmmPositionsSummary(); as sum) {
+          <div class="dlmm-pos-summary">
+            <span class="dlmm-pos-summary__seg">
+              <span class="dlmm-pos-summary__label">Total value</span>
+              <span class="dlmm-pos-summary__value mono">{{ formatUsd(sum.value) }}</span>
+            </span>
+            <span class="dlmm-pos-summary__seg">
+              <span class="dlmm-pos-summary__label">PnL</span>
+              <span class="dlmm-pos-summary__value mono"
+                    [class.change-up]="sum.pnl >= 0" [class.change-down]="sum.pnl < 0">
+                {{ sum.pnl >= 0 ? '+' : '' }}{{ formatUsd(sum.pnl) }}
+                ({{ sum.pnlPct | number:'1.0-2' }}%)
+              </span>
+            </span>
+            <span class="dlmm-pos-summary__seg">
+              <span class="dlmm-pos-summary__label">Unclaimed fees</span>
+              <span class="dlmm-pos-summary__value mono">{{ formatUsd(sum.fees) }}</span>
+            </span>
+            <span class="dlmm-pos-summary__seg">
+              <span class="dlmm-pos-summary__label">Positions</span>
+              <span class="dlmm-pos-summary__value mono">
+                {{ sum.positionCount }} in {{ sum.poolCount }} pool{{ sum.poolCount === 1 ? '' : 's' }}
+              </span>
+            </span>
+          </div>
+        }
         <div class="ray-pos-list">
           @if (dlmmPositionsFetching() && dlmmUserPools().length === 0) {
             <div class="dlmm-empty">Loading positions…</div>
           }
-          @for (pool of dlmmUserPools(); track pool.poolAddress) {
+          @for (row of dlmmPositionRows(); track row.address) {
             <div class="ray-pos">
               <div class="ray-pos__top">
                 <span class="km-icons">
-                  @if (pool.tokenXIcon) {
-                    <img class="km-icon" [src]="pool.tokenXIcon" [alt]="pool.tokenX" (error)="$any($event.target).style.display='none'" />
+                  @if (row.pool.tokenXIcon) {
+                    <img class="km-icon" [src]="row.pool.tokenXIcon" [alt]="row.pool.tokenX" (error)="$any($event.target).style.display='none'" />
                   } @else {
-                    <span class="km-icon km-icon--fallback">{{ (pool.tokenX || '?').charAt(0) }}</span>
+                    <span class="km-icon km-icon--fallback">{{ (row.pool.tokenX || '?').charAt(0) }}</span>
                   }
-                  @if (pool.tokenYIcon) {
-                    <img class="km-icon km-icon--debt" [src]="pool.tokenYIcon" [alt]="pool.tokenY" (error)="$any($event.target).style.display='none'" />
+                  @if (row.pool.tokenYIcon) {
+                    <img class="km-icon km-icon--debt" [src]="row.pool.tokenYIcon" [alt]="row.pool.tokenY" (error)="$any($event.target).style.display='none'" />
                   } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (pool.tokenY || '?').charAt(0) }}</span>
+                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (row.pool.tokenY || '?').charAt(0) }}</span>
                   }
                 </span>
-                <span class="ray-pos__pair">{{ pool.tokenX }} / {{ pool.tokenY }}</span>
+                <span class="ray-pos__pair">{{ row.pool.tokenX }} / {{ row.pool.tokenY }}</span>
                 <span class="type-badge">DLMM</span>
-                @if (pool.outOfRange) {
+                @if (row.outOfRange) {
                   <span class="type-badge dlmm-oor">Out of range</span>
                 }
-                <span class="ray-pos__addr">
-                  <button type="button"
-                          class="dlmm-pair__addr mono dlmm-copy-btn"
-                          [class.dlmm-copy-btn--copied]="copiedAddress() === pool.poolAddress"
-                          (click)="copyPoolAddress(pool.poolAddress); $event.stopPropagation()"
-                          [attr.title]="'Copy pool address: ' + pool.poolAddress">
-                    <span class="dlmm-pair__addr-text">{{ pool.poolAddress.slice(0, 4) }}…{{ pool.poolAddress.slice(-4) }}</span>
-                    <lucide-icon [name]="copiedAddress() === pool.poolAddress ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
-                  </button>
-                </span>
+                <button type="button"
+                        class="dlmm-pair__addr mono dlmm-copy-btn ray-pos__addr"
+                        [class.dlmm-copy-btn--copied]="copiedAddress() === row.address"
+                        (click)="copyPoolAddress(row.address); $event.stopPropagation()"
+                        [attr.title]="'Copy position address: ' + row.address">
+                  <span class="dlmm-pair__addr-text">{{ row.address.slice(0, 4) }}…{{ row.address.slice(-4) }}</span>
+                  <lucide-icon [name]="copiedAddress() === row.address ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                </button>
               </div>
 
               <div class="ray-pos__body">
                 <span class="ray-pos__amount-block">
-                  <span class="ray-pos__amount">{{ formatUsd(pool.balances) }}</span>
-                  <span class="ray-pos__amount-label">
-                    {{ pool.openPositionCount }} position{{ pool.openPositionCount === 1 ? '' : 's' }}
-                    · price {{ pool.poolPrice | number:'1.0-4' }} {{ pool.tokenY }}
-                    · {{ pool.binStep }} bin step
-                  </span>
+                  @if (row.detail) {
+                    <span class="ray-pos__amount ray-pos__amount--pair">
+                      {{ row.detail.amountX | number:'1.0-6' }} {{ row.pool.tokenX }}
+                      <span class="ray-pos__amount-sep">+</span>
+                      {{ row.detail.amountY | number:'1.0-6' }} {{ row.pool.tokenY }}
+                    </span>
+                    <span class="ray-pos__amount-label">
+                      Position {{ row.index + 1 }}
+                      @if (dlmmPositionValue(row); as usd) {
+                        · {{ formatUsd(usd) }}
+                      }
+                      · {{ row.detail.binCount }} bins
+                    </span>
+                  } @else {
+                    <span class="ray-pos__amount">{{ formatUsd(row.pool.balances) }}</span>
+                    <span class="ray-pos__amount-label">
+                      Position {{ row.index + 1 }} · pool total · {{ row.pool.binStep }} bin step
+                    </span>
+                  }
                 </span>
-                <span class="ray-pos__amount-block text-right">
-                  <span class="ray-pos__amount" [class.change-up]="pool.pnl >= 0" [class.change-down]="pool.pnl < 0">
-                    {{ pool.pnl >= 0 ? '+' : '' }}{{ formatUsd(pool.pnl) }}
-                  </span>
-                  <span class="ray-pos__amount-label">
-                    PnL {{ pool.pnlPctChange | number:'1.0-2' }}% · fees {{ formatUsd(pool.unclaimedFees) }}
-                  </span>
+                <span class="ray-pos__actions">
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          (click)="claimDlmmFees(row.pool, row.address); $event.stopPropagation()"
+                          title="Claim this position's fees">Claim</button>
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          (click)="addToDlmmPosition(row.pool, row.address); $event.stopPropagation()"
+                          title="Add liquidity to this position">
+                    <lucide-icon name="plus" [size]="12" />
+                    Add
+                  </button>
+                  <button type="button" class="dlmm-use-btn"
+                          (click)="withdrawDlmmPosition(row.pool, row.address); $event.stopPropagation()"
+                          title="Withdraw this position">
+                    Withdraw
+                    <lucide-icon name="arrow-right" [size]="12" />
+                  </button>
                 </span>
               </div>
 
-              <!-- One row per position: with two in the same pool, prose can
-                   only offer base58 addresses — these are clickable instead. -->
-              @for (pos of pool.listPositions; track pos; let i = $index) {
-                <div class="dlmm-pos-row">
-                  <span class="dlmm-pos-row__label">
-                    Position {{ i + 1 }}
-                    <code class="mono">{{ pos.slice(0, 4) }}…{{ pos.slice(-4) }}</code>
-                    @if (dlmmPositionOutOfRange(pool, pos)) {
-                      <span class="dlmm-pos-row__oor">out of range</span>
-                    }
+              <!-- The range is what distinguishes one position from another in
+                   the same pool, so it belongs on the panel, not in prose. -->
+              @if (row.detail) {
+                <div class="dlmm-pos-range">
+                  <span class="dlmm-pos-range__seg">
+                    <span class="dlmm-pos-range__label">Min</span>
+                    <span class="mono">{{ row.detail.lowerPrice | number:'1.0-6' }}</span>
                   </span>
-                  <span class="ray-pos__actions">
-                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
-                            (click)="claimDlmmFees(pool, pos); $event.stopPropagation()"
-                            title="Claim this position's fees">Claim</button>
-                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
-                            (click)="addToDlmmPosition(pool, pos); $event.stopPropagation()"
-                            title="Add liquidity to this position">
-                      <lucide-icon name="plus" [size]="12" />
-                      Add
-                    </button>
-                    <button type="button" class="dlmm-use-btn"
-                            (click)="withdrawDlmmPosition(pool, pos); $event.stopPropagation()"
-                            title="Withdraw this position">
-                      Withdraw
-                      <lucide-icon name="arrow-right" [size]="12" />
-                    </button>
+                  <span class="dlmm-pos-range__seg">
+                    <span class="dlmm-pos-range__label">Now</span>
+                    <span class="mono">{{ row.pool.poolPrice | number:'1.0-6' }}</span>
+                  </span>
+                  <span class="dlmm-pos-range__seg">
+                    <span class="dlmm-pos-range__label">Max</span>
+                    <span class="mono">{{ row.detail.upperPrice | number:'1.0-6' }}</span>
+                  </span>
+                  <span class="dlmm-pos-range__seg dlmm-pos-range__seg--fees">
+                    <span class="dlmm-pos-range__label">Unclaimed</span>
+                    <span class="mono">
+                      {{ row.detail.unclaimedFeeX | number:'1.0-6' }} {{ row.pool.tokenX }}
+                      + {{ row.detail.unclaimedFeeY | number:'1.0-6' }} {{ row.pool.tokenY }}
+                    </span>
                   </span>
                 </div>
               }

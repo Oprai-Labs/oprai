@@ -330,6 +330,8 @@ export async function buildAction(
       return meteora.getMeteoraPools(p(params));
     case "meteora_user_positions":
       return meteora.getMeteoraUserPositions(p(params), userWallet);
+    case "meteora_dlmm_position_details":
+      return meteora.getMeteoraDlmmPositionDetails(p(params), userWallet);
 
     // ── Jito ─────────────────────────────────────────────────────────────────
     case "jito":

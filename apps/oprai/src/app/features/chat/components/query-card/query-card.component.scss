@@ -631,6 +631,71 @@
 }
 
 // One row per DLMM position inside a pool card.
+// Pool-level roll-up above the per-position panels. The upstream API only
+// prices a pool as a whole, so value / PnL / fees live here rather than being
+// repeated on each panel where they would read as that position's own numbers.
+.dlmm-pos-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 12px;
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.02));
+
+  &__seg {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  &__label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--op-text-tertiary);
+  }
+
+  &__value {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+  }
+}
+
+// Per-position range strip: min / current / max price plus the fees that
+// position alone has accrued. This is the only thing that visibly separates
+// two positions in the same pool, so it sits on the panel itself.
+.dlmm-pos-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--op-border-subtle);
+
+  &__seg {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--op-text-secondary);
+
+    &--fees { margin-left: auto; }
+  }
+
+  &__label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--op-text-tertiary);
+  }
+}
+
 .dlmm-pos-row {
   display: flex;
   align-items: center;
