@@ -47,10 +47,23 @@ Examples:
 #### QUERY: positions — Active DeFi positions (staking, lending, LP)
 Format: [QUERY:positions] wallet=<address|self> protocol=<optional>
 
+This is the CROSS-PROTOCOL aggregate: one row per position, with only the
+protocol, the tokens and a USD value. It is the right answer when the user asks
+about their positions in general, or about a protocol that has no positions
+query of its own.
+
+It is the WRONG answer whenever the user named a protocol that DOES have its own
+positions query (look for a `<protocol>_..._get_user_positions` entry in the
+catalogue). Those return the protocol's real position state — price ranges, bin
+ids, per-position ids, unclaimed fees — and their cards carry the per-position
+buttons the user acts on. The aggregate has none of that, so answering with it
+strips exactly the information that was asked for. Use the dedicated query.
+
 Examples:
 - "Show my DeFi positions" → query_onchain("positions", {"wallet": "self"})
 - "What am I staking?" → query_onchain("positions", {"wallet": "self", "protocol": "marinade"})
-- "My liquidity pools" → query_onchain("positions", {"wallet": "self", "protocol": "raydium"})
+- "My DLMM positions" → query_onchain("meteora_dlmm_get_user_positions", {"wallet": "self"})
+  — NOT query_onchain("positions", {"protocol": "meteora"})
 
 #### QUERY: transactions — Transaction history
 Format: [QUERY:transactions] wallet=<address|self> limit=<number> type=<optional_filter>

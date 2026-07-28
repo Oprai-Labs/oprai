@@ -2546,9 +2546,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     try {
       const summary = await this.ensurePortfolio(wallet);
       if (!summary) {
-        this.positionResults = this.getMockPositions();
+        this.error.set('Could not load your positions right now — try again.');
         this.loading.set(false);
-        this.persistSnapshot();
         return;
       }
       const positions = this.portfolioService.protocolPositions();
@@ -2562,15 +2561,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
           apy: 0,
         }))
       );
-      if (this.positionResults.length === 0) {
-        this.positionResults = this.getMockPositions();
-      }
       this.loading.set(false);
       this.persistSnapshot();
     } catch {
-      this.positionResults = this.getMockPositions();
+      this.error.set('Could not load your positions right now — try again.');
       this.loading.set(false);
-      this.persistSnapshot();
     }
   }
 
@@ -2593,9 +2588,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         time: this.formatRelativeTime(tx.blockTime),
         status: tx.success ? 'confirmed' : 'failed',
       }));
-      if (this.transactionResults.length === 0) {
-        this.transactionResults = this.getMockTransactions();
-      }
       this.loading.set(false);
       this.persistSnapshot();
     } catch {
@@ -2790,9 +2782,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     try {
       const summary = await this.ensurePortfolio(wallet);
       if (!summary) {
-        this.walletInfoResult = this.getMockWalletInfo();
+        this.error.set('Could not load wallet info right now — try again.');
         this.loading.set(false);
-        this.persistSnapshot();
         return;
       }
       this.walletInfoResult = {
@@ -2812,25 +2803,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
-
-  private getMockPositions(): PositionResult[] {
-    return [
-      { protocol: 'Marinade', type: 'Staking', token: 'mSOL', amount: 12.5, value: 2225.63, apy: 7.2 },
-      { protocol: 'Raydium', type: 'LP', token: 'SOL-USDC', amount: 1, value: 890.45, apy: 24.5 },
-      { protocol: 'Marginfi', type: 'Lending', token: 'USDC', amount: 500, value: 500.00, apy: 8.3 },
-      { protocol: 'Jito', type: 'Staking', token: 'jitoSOL', amount: 5.0, value: 895.25, apy: 7.8 },
-    ];
-  }
-
-  private getMockTransactions(): TransactionResult[] {
-    return [
-      { type: 'swap', description: 'Swap 2 SOL → 354 USDC', amount: '$354.10', time: '2 min ago', status: 'confirmed' },
-      { type: 'transfer', description: 'Sent 1.5 SOL', amount: '-$267.08', time: '15 min ago', status: 'confirmed' },
-      { type: 'stake', description: 'Stake 10 SOL on Marinade', amount: '$1,780.50', time: '1 hr ago', status: 'confirmed' },
-      { type: 'swap', description: 'Swap 100 USDC → 0.56 SOL', amount: '$100.00', time: '3 hrs ago', status: 'confirmed' },
-      { type: 'receive', description: 'Received 5 SOL', amount: '+$890.25', time: '1 day ago', status: 'confirmed' },
-    ];
-  }
 
   private getMockTrending(): TrendingResult[] {
     return [
@@ -2922,17 +2894,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     };
   }
 
-  private getMockWalletInfo(): WalletInfoResult {
-    return {
-      address: 'HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6',
-      solBalance: 24.56,
-      tokenCount: 12,
-      nftCount: 4,
-      firstTx: '2024-01-15',
-      totalTxs: 1847,
-      label: 'Main Wallet',
-    };
-  }
 
   private async fetchTaxReport(): Promise<void> {
     const currentYear = new Date().getFullYear();

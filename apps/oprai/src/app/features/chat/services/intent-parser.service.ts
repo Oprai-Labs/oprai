@@ -417,13 +417,32 @@ export class IntentParserService {
       const params = this.parseParams(paramsStr);
 
       queries.push({
-        type,
+        type: this.redirectProtocolPositions(type, params),
         params,
         raw: match[0],
       });
     }
 
     return queries;
+  }
+
+  /**
+   * `positions protocol=<x>` is the generic cross-protocol card: it reads the
+   * portfolio aggregate, which knows nothing about DLMM bins, per-position
+   * ranges or unclaimed fees. When the user asked about ONE protocol that has
+   * its own positions card, that dedicated card is always the better answer —
+   * so rewrite the type here rather than trusting the model to pick it. Doing
+   * it at parse time fixes the label, the icon, the fetch and the template
+   * gate in one place, since all four switch on `query.type`.
+   */
+  private redirectProtocolPositions(type: string, params: Record<string, string>): string {
+    if (type !== 'positions') return type;
+    const p = (params['protocol'] ?? '').toLowerCase();
+    if (!p) return type;
+    if (p.includes('dlmm') || p.includes('meteora')) return 'meteora_dlmm_get_user_positions';
+    if (p.includes('raydium')) return 'raydium_get_user_positions';
+    if (p.includes('orca')) return 'orca_get_user_positions';
+    return type;
   }
 
   /**
@@ -1268,6 +1287,8 @@ export class IntentParserService {
         return query.params['query']
           ? `Meteora DLMM Pools (${query.params['query']})`
           : 'Meteora DLMM Pools';
+      case 'meteora_dlmm_get_user_positions':
+        return 'Meteora DLMM Positions';
       case 'meteora_dammv2_get_pools':
         return query.params['query']
           ? `Meteora DAMM v2 Pools (${query.params['query']})`

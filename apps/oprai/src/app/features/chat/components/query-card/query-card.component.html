@@ -1110,11 +1110,17 @@
               <span class="text-right change-up">{{ pos.apy.toFixed(1) }}%</span>
             </div>
           }
+          @if (positionResults.length === 0) {
+            <div class="balance-empty">No open DeFi positions found in this wallet.</div>
+          }
         </div>
       }
 
       <!-- Transaction results -->
       @if (query.type === 'transactions') {
+        @if (transactionResults.length === 0) {
+          <div class="balance-empty">No recent transactions found for this wallet.</div>
+        }
         <div class="tx-list">
           @for (tx of transactionResults; track tx.description) {
             <div class="tx-row">

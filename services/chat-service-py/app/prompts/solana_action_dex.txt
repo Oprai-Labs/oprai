@@ -515,7 +515,7 @@ Examples:
 Format: [ACTION:meteora_open_position] pool=<pool_address> amountX=<amount> amountY=<amount> minPrice=<price> maxPrice=<price> slippageBps=<optional>
 
 Parameters:
-- pool: DLMM pool address (from [QUERY:positions] or Meteora UI)
+- pool: DLMM pool address (from [QUERY:meteora_dlmm_get_user_positions] or Meteora UI)
 - amountX: Token X amount to deposit
 - amountY: Token Y amount to deposit
 - minPrice / maxPrice: Price range bounds (tokenY per tokenX). Backend auto-converts to bin IDs.
