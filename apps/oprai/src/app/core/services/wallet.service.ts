@@ -510,10 +510,24 @@ export class WalletService {
       return err instanceof Error ? err : new Error(msg || 'Rejected in wallet');
     }
     if (e?.code === -32603 || /unexpected error/i.test(msg)) {
+      // Carry the wallet's own code/message through. "Unexpected error" is the
+      // same string for a locked wallet, a stale connection and a transaction
+      // the wallet's guard layer choked on — without the raw pair there is
+      // nothing to tell them apart, and asking the user to open DevTools for
+      // it is a worse trade than one ugly line in the message.
+      const raw = [
+        e?.code !== undefined ? `code=${e.code}` : null,
+        msg ? `"${msg.slice(0, 120)}"` : null,
+        (err as { data?: unknown })?.data !== undefined
+          ? `data=${String(JSON.stringify((err as { data?: unknown }).data)).slice(0, 120)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' ');
       return new Error(
         'Your wallet hit an internal error before signing — the transaction itself was built and simulated fine. ' +
           'Unlock the wallet and try again; if it repeats, reload the page, or remove this site from the wallet’s ' +
-          'connected apps and reconnect.',
+          `connected apps and reconnect. [wallet: ${raw || 'no detail'}]`,
       );
     }
     return err instanceof Error ? err : new Error(msg || 'Wallet error');

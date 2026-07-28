@@ -236,6 +236,10 @@ struct DlmmPositionData {
     lower_bin_id: i32,
     #[serde(alias = "upperBinId", alias = "upper_bin_id")]
     upper_bin_id: i32,
+    /// Bins that actually hold liquidity, when the on-chain read supplied
+    /// them. Empty = unknown, fall back to the whole range.
+    #[serde(default)]
+    bins_with_liquidity: Vec<i32>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1473,6 +1477,11 @@ async fn fetch_pos(
         lb_pair: pool_address,
         lower_bin_id: bin_id("lowerBinId")?,
         upper_bin_id: bin_id("upperBinId")?,
+        bins_with_liquidity: entry
+            .get("binsWithLiquidity")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_i64()).map(|v| v as i32).collect())
+            .unwrap_or_default(),
     })
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2079,6 +2088,18 @@ pub async fn build_meteora_remove_liquidity(
                 bps_to_remove: bps,
             })
             .collect()
+    } else if !pos_data.bins_with_liquidity.is_empty() {
+        // Only the bins that hold something. Each entry costs 6 bytes in the
+        // instruction, and a wide position is mostly empty — removing from an
+        // empty bin is a no-op that buys nothing but transaction size.
+        pos_data
+            .bins_with_liquidity
+            .iter()
+            .map(|&bin_id| BinLiqReduction {
+                bin_id,
+                bps_to_remove: bps,
+            })
+            .collect()
     } else {
         // INCLUSIVE: a position spans lower..=upper — 25 bins for
         // -6470..=-6446, which is what the SDK's positionBinData returns.
@@ -2233,13 +2254,25 @@ pub async fn build_meteora_close_position(
     let upper_bin_id = pos_data.upper_bin_id;
 
     // Inclusive — see build_meteora_remove_liquidity. Closing a position that
-    // still had liquidity in its top bin would fail outright.
-    let bin_removals: Vec<BinLiqReduction> = (lower_bin_id..=upper_bin_id)
-        .map(|bin_id| BinLiqReduction {
-            bin_id,
-            bps_to_remove: 10_000,
-        })
-        .collect();
+    // still had liquidity in its top bin would fail outright. Prefer the bins
+    // that actually hold something, for the same size reason.
+    let bin_removals: Vec<BinLiqReduction> = if !pos_data.bins_with_liquidity.is_empty() {
+        pos_data
+            .bins_with_liquidity
+            .iter()
+            .map(|&bin_id| BinLiqReduction {
+                bin_id,
+                bps_to_remove: 10_000,
+            })
+            .collect()
+    } else {
+        (lower_bin_id..=upper_bin_id)
+            .map(|bin_id| BinLiqReduction {
+                bin_id,
+                bps_to_remove: 10_000,
+            })
+            .collect()
+    };
 
     let lower_arr = bin_id_to_array_index(lower_bin_id);
     // Anchor cannot mutably borrow the same account twice. When the position

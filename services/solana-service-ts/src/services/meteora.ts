@@ -213,12 +213,20 @@ export async function getMeteoraDlmmPositionDetails(
     const upperPrice = bins.length ? priceOf(bins[bins.length - 1]) : 0;
     const lowerBinId: number = d.lowerBinId ?? 0;
     const upperBinId: number = d.upperBinId ?? 0;
+    // Bins that actually hold something. A withdrawal has to name each bin it
+    // touches (6 bytes apiece in the instruction), and a wide position is
+    // mostly empty — naming the empty ones only inflates the transaction, and
+    // transaction size is the binding constraint here.
+    const nonEmpty = bins
+      .filter((b: any) => Number(b?.binXAmount ?? 0) > 0 || Number(b?.binYAmount ?? 0) > 0)
+      .map((b: any) => Number(b.binId));
     return {
       address: p.publicKey?.toBase58?.() ?? String(p.publicKey ?? ""),
       lowerBinId,
       upperBinId,
       lowerPrice,
       upperPrice,
+      binsWithLiquidity: nonEmpty,
       binCount: bins.length || Math.max(0, upperBinId - lowerBinId + 1),
       amountX: toUi(d.totalXAmount, decX),
       amountY: toUi(d.totalYAmount, decY),
