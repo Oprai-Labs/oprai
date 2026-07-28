@@ -1103,6 +1103,39 @@ fn build_wsol_unwrap_ixs(user: &Pubkey, mint_x: &Pubkey, mint_y: &Pubkey) -> Vec
     ]
 }
 
+/// Create-ATA instructions ONLY for the mints whose account is actually
+/// missing.
+///
+/// `create_idempotent` is a no-op when the account exists, but it is not free:
+/// it still carries 6 account references and its own instruction header. That
+/// matters because Phantom appends its own guard instructions to whatever it
+/// signs, and a transaction close to Solana's 1232-byte limit can tip over
+/// inside the wallet — surfacing as an opaque internal error rather than
+/// anything about size. Emitting no-ops is also just wrong: the preview says
+/// the transaction does something it does not.
+async fn ata_ixs_for_missing(
+    rpc: &AsyncRpc,
+    user: &Pubkey,
+    mints: &[Pubkey],
+) -> Vec<Instruction> {
+    let mut ixs = Vec::new();
+    for mint in mints {
+        let ata = get_associated_token_address(user, mint);
+        // On an RPC hiccup assume missing: an extra idempotent create is
+        // harmless, a missing one fails the whole transaction.
+        let exists = matches!(rpc.get_account(&ata).await, Ok(acc) if acc.lamports > 0);
+        if !exists {
+            ixs.push(create_associated_token_account_idempotent(
+                user,
+                user,
+                mint,
+                &token_program(),
+            ));
+        }
+    }
+    ixs
+}
+
 async fn ensure_bin_arrays_initialized(
     rpc: &AsyncRpc,
     lb_pair: &Pubkey,
@@ -2089,10 +2122,10 @@ pub async fn build_meteora_remove_liquidity(
     // requires them to already exist (Anchor 3012 AccountNotInitialized on
     // `user_token_x` otherwise). A wallet that entered the position with
     // native SOL has no wSOL ATA, which is the common case here.
-    let mut ixs: Vec<Instruction> = vec![
-        create_associated_token_account_idempotent(&user, &user, &mint_x, &token_program()),
-        create_associated_token_account_idempotent(&user, &user, &mint_y, &token_program()),
-    ];
+    let rpc_for_ata =
+        AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let mut ixs: Vec<Instruction> =
+        ata_ixs_for_missing(&rpc_for_ata, &user, &[mint_x, mint_y]).await;
     ixs.push(Instruction {
         program_id: dlmm_program(),
         accounts: vec![
@@ -2127,6 +2160,11 @@ pub async fn build_meteora_remove_liquidity(
             },
         ),
     });
+
+    // A SOL-side position pays out WRAPPED SOL. Leaving it there means the
+    // user asked to withdraw SOL and received a token they then have to
+    // unwrap by hand — and the wSOL account keeps its own rent locked.
+    ixs.extend(build_wsol_unwrap_ixs(&user, &mint_x, &mint_y));
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
@@ -2228,9 +2266,10 @@ pub async fn build_meteora_close_position(
     // TX1: remove_liquidity + claim_fee2. Both pay out to the user's token
     // accounts, which the program requires to already exist — see
     // build_meteora_remove_liquidity.
-    let ixs_tx1 = vec![
-        create_associated_token_account_idempotent(&user, &user, &mint_x, &token_program()),
-        create_associated_token_account_idempotent(&user, &user, &mint_y, &token_program()),
+    let rpc_for_ata =
+        AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let mut ixs_tx1 = ata_ixs_for_missing(&rpc_for_ata, &user, &[mint_x, mint_y]).await;
+    ixs_tx1.extend([
         Instruction {
             program_id: dlmm_program(),
             accounts: vec![
@@ -2292,7 +2331,7 @@ pub async fn build_meteora_close_position(
                 },
             ),
         },
-    ];
+    ]);
 
     // TX2: close_position2 (5 accounts only)
     let ixs_tx2 = vec![Instruction {
@@ -2306,6 +2345,9 @@ pub async fn build_meteora_close_position(
         ],
         data: disc("close_position2").to_vec(),
     }];
+
+    // Both the liquidity and the fees come back wrapped on the SOL side.
+    ixs_tx1.extend(build_wsol_unwrap_ixs(&user, &mint_x, &mint_y));
 
     let tx1 = build_vtx_b64(rpc_url, &user, &ixs_tx1).await?;
     let tx2 = build_vtx_b64_dependent(rpc_url, &user, &ixs_tx2).await?;
@@ -2539,21 +2581,12 @@ pub async fn build_meteora_claim_fees(
     let ba_lower = bin_array_pda(&lb_pair, lower_arr);
     let ba_upper = bin_array_pda(&lb_pair, upper_arr);
 
-    let mut ixs: Vec<Instruction> = vec![];
-
-    // Ensure output ATAs exist.
-    ixs.push(create_associated_token_account_idempotent(
-        &user,
-        &user,
-        &mint_x,
-        &token_program(),
-    ));
-    ixs.push(create_associated_token_account_idempotent(
-        &user,
-        &user,
-        &mint_y,
-        &token_program(),
-    ));
+    // Only the payout accounts that are actually missing — see
+    // ata_ixs_for_missing.
+    let rpc_for_ata =
+        AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let mut ixs: Vec<Instruction> =
+        ata_ixs_for_missing(&rpc_for_ata, &user, &[mint_x, mint_y]).await;
 
     ixs.push(Instruction {
         program_id: dlmm_program(),
@@ -2585,6 +2618,9 @@ pub async fn build_meteora_claim_fees(
             },
         ),
     });
+
+    // Fees on the SOL side arrive wrapped — unwrap them, same as a withdrawal.
+    ixs.extend(build_wsol_unwrap_ixs(&user, &mint_x, &mint_y));
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
