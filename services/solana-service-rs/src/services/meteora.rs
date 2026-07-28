@@ -196,7 +196,8 @@ impl DlmmPairInfo {
         // wrong puts the id tens of thousands of bins away, which the program
         // rejects with ExceededBinSlippageTolerance (6004) and which would
         // also centre the liquidity shape on the wrong bin.
-        let scale = 10f64.powi(i32::from(self.token_y_decimals()) - i32::from(self.token_x_decimals()));
+        let scale =
+            10f64.powi(i32::from(self.token_y_decimals()) - i32::from(self.token_x_decimals()));
         let factor = 1.0 + (bin_step as f64) / 10_000.0;
         let id = (price * scale).ln() / factor.ln();
         if !id.is_finite() {
@@ -486,8 +487,15 @@ struct InitLbPairArgs {
 }
 
 /// claim_fee2 args.
+///
+/// The "2" variants take the bin range to claim over — that is the whole point
+/// of the v2 instruction, since a wide position may not fit one transaction.
+/// Omitting them serialised 8 bytes short and the program rejected the whole
+/// instruction with InstructionDidNotDeserialize (Anchor 102).
 #[derive(BorshSerialize)]
 struct ClaimFee2Args {
+    min_bin_id: i32,
+    max_bin_id: i32,
     remaining_accounts_info: RemainingAccountsInfo,
 }
 
@@ -495,6 +503,8 @@ struct ClaimFee2Args {
 #[derive(BorshSerialize)]
 struct ClaimReward2Args {
     reward_index: u64,
+    min_bin_id: i32,
+    max_bin_id: i32,
     remaining_accounts_info: RemainingAccountsInfo,
 }
 
@@ -1255,6 +1265,30 @@ async fn build_vtx_b64(
     user: &Pubkey,
     ixs: &[Instruction],
 ) -> Result<String, AppError> {
+    build_vtx_b64_inner(rpc_url, user, ixs, true).await
+}
+
+/// Same, but WITHOUT the pre-flight simulation.
+///
+/// For step N>1 of a sequential action, simulation is meaningless: it runs
+/// against current chain state, where step N-1 has not happened yet. Closing a
+/// position simulated fine only if the position were already empty — which is
+/// exactly what the preceding transaction is for — so the honest build failed
+/// on 6030 NonEmptyPosition every time.
+async fn build_vtx_b64_dependent(
+    rpc_url: &str,
+    user: &Pubkey,
+    ixs: &[Instruction],
+) -> Result<String, AppError> {
+    build_vtx_b64_inner(rpc_url, user, ixs, false).await
+}
+
+async fn build_vtx_b64_inner(
+    rpc_url: &str,
+    user: &Pubkey,
+    ixs: &[Instruction],
+    simulate: bool,
+) -> Result<String, AppError> {
     let rpc = AsyncRpc::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
     let blockhash = rpc
         .get_latest_blockhash()
@@ -1272,30 +1306,32 @@ async fn build_vtx_b64(
     // the real failing account / log line back to the chat error message
     // instead of the wallet's opaque "program error 3012". sig_verify=false
     // and replace_recent_blockhash skip the unsigned-tx checks.
-    if let Ok(sim) = rpc
-        .simulate_transaction_with_config(
-            &vtx,
-            solana_client::rpc_config::RpcSimulateTransactionConfig {
-                sig_verify: false,
-                replace_recent_blockhash: true,
-                commitment: Some(CommitmentConfig::confirmed()),
-                // VersionedTransaction needs base64; default base58 trips
-                // -32602 on the RPC and silently swallows the simulation.
-                encoding: Some(solana_transaction_status::UiTransactionEncoding::Base64),
-                accounts: None,
-                min_context_slot: None,
-                inner_instructions: false,
-            },
-        )
-        .await
-    {
-        if let Some(err) = sim.value.err {
-            let logs = sim.value.logs.unwrap_or_default();
-            let tail: Vec<String> = logs.iter().rev().take(8).rev().cloned().collect();
-            return Err(AppError::ProtocolError(format!(
-                "Simulation failed: {err:?}. Logs (last 8): {}",
-                tail.join(" | ")
-            )));
+    if simulate {
+        if let Ok(sim) = rpc
+            .simulate_transaction_with_config(
+                &vtx,
+                solana_client::rpc_config::RpcSimulateTransactionConfig {
+                    sig_verify: false,
+                    replace_recent_blockhash: true,
+                    commitment: Some(CommitmentConfig::confirmed()),
+                    // VersionedTransaction needs base64; default base58 trips
+                    // -32602 on the RPC and silently swallows the simulation.
+                    encoding: Some(solana_transaction_status::UiTransactionEncoding::Base64),
+                    accounts: None,
+                    min_context_slot: None,
+                    inner_instructions: false,
+                },
+            )
+            .await
+        {
+            if let Some(err) = sim.value.err {
+                let logs = sim.value.logs.unwrap_or_default();
+                let tail: Vec<String> = logs.iter().rev().take(8).rev().cloned().collect();
+                return Err(AppError::ProtocolError(format!(
+                    "Simulation failed: {err:?}. Logs (last 8): {}",
+                    tail.join(" | ")
+                )));
+            }
         }
     }
 
@@ -1334,12 +1370,77 @@ async fn fetch_pair(http: &reqwest::Client, pool: &str) -> Result<DlmmPairInfo, 
 /// position's owner wallet first. Until the dependent flows are reworked to
 /// fetch the user list and pick by id, return a clear error so the action
 /// fails with a useful message instead of a 404.
-async fn fetch_pos(_http: &reqwest::Client, position: &str) -> Result<DlmmPositionData, AppError> {
-    Err(AppError::ProtocolError(format!(
-        "Meteora DLMM position lookup by id is temporarily unsupported \
-         after the datapi migration; pass the position via the user's \
-         portfolio (position '{position}')."
-    )))
+/// Resolve a position address to its pool and bin range.
+///
+/// The datapi migration removed the by-id lookup (`/position/{addr}` 404s on
+/// both datapi and dlmm-api), which left this a hard-error stub — and with it
+/// every position-scoped write: claim_fees, claim_rewards, remove_liquidity,
+/// add_to_position and close_position.
+///
+/// There are still two ways in, and together they cover it:
+///   1. the owner's portfolio says which POOL holds the position, and
+///   2. the SDK read (via the TS service) gives that position's bin range
+///      straight from the account.
+///
+/// Both are keyed on the owner, which every caller has, so the position no
+/// longer has to be resolvable in isolation.
+async fn fetch_pos(
+    http: &reqwest::Client,
+    wallet: &str,
+    position: &str,
+) -> Result<DlmmPositionData, AppError> {
+    let portfolio = meteora_get(http, &format!("{DLMM_API}/portfolio/open?user={wallet}")).await?;
+
+    let pools = portfolio
+        .get("pools")
+        .and_then(|p| p.as_array())
+        .ok_or_else(|| {
+            AppError::ProtocolError("Meteora portfolio returned no pools".to_string())
+        })?;
+
+    let pool_address = pools
+        .iter()
+        .find(|pool| {
+            pool.get("listPositions")
+                .and_then(|l| l.as_array())
+                .is_some_and(|list| list.iter().any(|p| p.as_str() == Some(position)))
+        })
+        .and_then(|pool| pool.get("poolAddress").and_then(|a| a.as_str()))
+        .ok_or_else(|| {
+            AppError::InvalidParams(format!(
+                "Position '{position}' is not an open DLMM position for this wallet."
+            ))
+        })?
+        .to_string();
+
+    let detail = protocol_reads::meteora_dlmm_position_details(http, wallet, &pool_address).await?;
+
+    let entry = detail
+        .get("positions")
+        .and_then(|p| p.as_array())
+        .and_then(|list| {
+            list.iter()
+                .find(|p| p.get("address").and_then(|a| a.as_str()) == Some(position))
+        })
+        .ok_or_else(|| {
+            AppError::ProtocolError(format!(
+                "Position '{position}' was not readable on-chain in pool {pool_address}."
+            ))
+        })?;
+
+    let bin_id = |key: &str| -> Result<i32, AppError> {
+        entry
+            .get(key)
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32)
+            .ok_or_else(|| AppError::ProtocolError(format!("Position detail missing {key}")))
+    };
+
+    Ok(DlmmPositionData {
+        lb_pair: pool_address,
+        lower_bin_id: bin_id("lowerBinId")?,
+        upper_bin_id: bin_id("upperBinId")?,
+    })
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // Build: Swap
@@ -1923,7 +2024,7 @@ pub async fn build_meteora_remove_liquidity(
     let position = Pubkey::from_str(&params.position)
         .map_err(|e| AppError::InvalidParams(format!("Invalid position: {e}")))?;
 
-    let pos_data = fetch_pos(http, &params.position).await?;
+    let pos_data = fetch_pos(http, user_pubkey_str, &params.position).await?;
     let lb_pair = Pubkey::from_str(&pos_data.lb_pair)
         .map_err(|e| AppError::ProtocolError(format!("Invalid lb_pair from API: {e}")))?;
 
@@ -1946,7 +2047,11 @@ pub async fn build_meteora_remove_liquidity(
             })
             .collect()
     } else {
-        (lower_bin_id..upper_bin_id)
+        // INCLUSIVE: a position spans lower..=upper — 25 bins for
+        // -6470..=-6446, which is what the SDK's positionBinData returns.
+        // An exclusive range silently skipped the top bin, so "withdraw
+        // 100%" left that bin's liquidity in the pool.
+        (lower_bin_id..=upper_bin_id)
             .map(|bin_id| BinLiqReduction {
                 bin_id,
                 bps_to_remove: bps,
@@ -1980,7 +2085,15 @@ pub async fn build_meteora_remove_liquidity(
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
 
-    let ixs = vec![Instruction {
+    // The withdrawal pays out to the user's token accounts, and the program
+    // requires them to already exist (Anchor 3012 AccountNotInitialized on
+    // `user_token_x` otherwise). A wallet that entered the position with
+    // native SOL has no wSOL ATA, which is the common case here.
+    let mut ixs: Vec<Instruction> = vec![
+        create_associated_token_account_idempotent(&user, &user, &mint_x, &token_program()),
+        create_associated_token_account_idempotent(&user, &user, &mint_y, &token_program()),
+    ];
+    ixs.push(Instruction {
         program_id: dlmm_program(),
         accounts: vec![
             AccountMeta::new(position, false),
@@ -2013,7 +2126,7 @@ pub async fn build_meteora_remove_liquidity(
                 amount_y_min,
             },
         ),
-    }];
+    });
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
@@ -2068,7 +2181,7 @@ pub async fn build_meteora_close_position(
     let position = Pubkey::from_str(&params.position)
         .map_err(|e| AppError::InvalidParams(format!("Invalid position: {e}")))?;
 
-    let pos_data = fetch_pos(http, &params.position).await?;
+    let pos_data = fetch_pos(http, user_pubkey_str, &params.position).await?;
     let lb_pair = Pubkey::from_str(&pos_data.lb_pair)
         .map_err(|e| AppError::ProtocolError(format!("Invalid lb_pair from API: {e}")))?;
 
@@ -2081,7 +2194,9 @@ pub async fn build_meteora_close_position(
     let lower_bin_id = pos_data.lower_bin_id;
     let upper_bin_id = pos_data.upper_bin_id;
 
-    let bin_removals: Vec<BinLiqReduction> = (lower_bin_id..upper_bin_id)
+    // Inclusive — see build_meteora_remove_liquidity. Closing a position that
+    // still had liquidity in its top bin would fail outright.
+    let bin_removals: Vec<BinLiqReduction> = (lower_bin_id..=upper_bin_id)
         .map(|bin_id| BinLiqReduction {
             bin_id,
             bps_to_remove: 10_000,
@@ -2110,8 +2225,12 @@ pub async fn build_meteora_close_position(
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
 
-    // TX1: remove_liquidity + claim_fee2
+    // TX1: remove_liquidity + claim_fee2. Both pay out to the user's token
+    // accounts, which the program requires to already exist — see
+    // build_meteora_remove_liquidity.
     let ixs_tx1 = vec![
+        create_associated_token_account_idempotent(&user, &user, &mint_x, &token_program()),
+        create_associated_token_account_idempotent(&user, &user, &mint_y, &token_program()),
         Instruction {
             program_id: dlmm_program(),
             accounts: vec![
@@ -2160,10 +2279,15 @@ pub async fn build_meteora_close_position(
                 AccountMeta::new_readonly(memo_program(), false),
                 AccountMeta::new_readonly(event_auth, false),
                 AccountMeta::new_readonly(dlmm_program(), false),
+                // remaining accounts: bin arrays spanning the claimed range
+                AccountMeta::new(ba_lower, false),
+                AccountMeta::new(ba_upper, false),
             ],
             data: ix_data(
                 disc("claim_fee2"),
                 &ClaimFee2Args {
+                    min_bin_id: lower_bin_id,
+                    max_bin_id: upper_bin_id,
                     remaining_accounts_info: empty_remaining_accounts(),
                 },
             ),
@@ -2184,7 +2308,7 @@ pub async fn build_meteora_close_position(
     }];
 
     let tx1 = build_vtx_b64(rpc_url, &user, &ixs_tx1).await?;
-    let tx2 = build_vtx_b64(rpc_url, &user, &ixs_tx2).await?;
+    let tx2 = build_vtx_b64_dependent(rpc_url, &user, &ixs_tx2).await?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -2238,7 +2362,7 @@ pub async fn build_meteora_add_to_position(
     let position = Pubkey::from_str(&params.position)
         .map_err(|e| AppError::InvalidParams(format!("Invalid position: {e}")))?;
 
-    let pos_data = fetch_pos(http, &params.position).await?;
+    let pos_data = fetch_pos(http, user_pubkey_str, &params.position).await?;
     let lb_pair = Pubkey::from_str(&pos_data.lb_pair)
         .map_err(|e| AppError::ProtocolError(format!("Invalid lb_pair: {e}")))?;
 
@@ -2390,7 +2514,7 @@ pub async fn build_meteora_claim_fees(
     let position = Pubkey::from_str(&params.position)
         .map_err(|e| AppError::InvalidParams(format!("Invalid position: {e}")))?;
 
-    let pos_data = fetch_pos(http, &params.position).await?;
+    let pos_data = fetch_pos(http, user_pubkey_str, &params.position).await?;
     let lb_pair = Pubkey::from_str(&pos_data.lb_pair)
         .map_err(|e| AppError::ProtocolError(format!("Invalid lb_pair: {e}")))?;
 
@@ -2406,6 +2530,14 @@ pub async fn build_meteora_claim_fees(
     let user_ata_x = get_associated_token_address(&user, &mint_x);
     let user_ata_y = get_associated_token_address(&user, &mint_y);
     let event_auth = dlmm_event_authority();
+
+    // claim_fee2 reads the fees out of the bin arrays covering the claimed
+    // range, and takes them as REMAINING accounts after the fixed 14. Without
+    // them Anchor stops at 3005 (NotEnoughAccountKeys).
+    let lower_arr = bin_id_to_array_index(pos_data.lower_bin_id);
+    let upper_arr = bin_id_to_array_index(pos_data.upper_bin_id);
+    let ba_lower = bin_array_pda(&lb_pair, lower_arr);
+    let ba_upper = bin_array_pda(&lb_pair, upper_arr);
 
     let mut ixs: Vec<Instruction> = vec![];
 
@@ -2440,10 +2572,15 @@ pub async fn build_meteora_claim_fees(
             AccountMeta::new_readonly(memo_program(), false),
             AccountMeta::new_readonly(event_auth, false),
             AccountMeta::new_readonly(dlmm_program(), false),
+            // remaining accounts: the bin arrays spanning the claimed range
+            AccountMeta::new(ba_lower, false),
+            AccountMeta::new(ba_upper, false),
         ],
         data: ix_data(
             disc("claim_fee2"),
             &ClaimFee2Args {
+                min_bin_id: pos_data.lower_bin_id,
+                max_bin_id: pos_data.upper_bin_id,
                 remaining_accounts_info: empty_remaining_accounts(),
             },
         ),
@@ -2495,7 +2632,7 @@ pub async fn build_meteora_claim_rewards(
     let position = Pubkey::from_str(&params.position)
         .map_err(|e| AppError::InvalidParams(format!("Invalid position: {e}")))?;
 
-    let pos_data = fetch_pos(http, &params.position).await?;
+    let pos_data = fetch_pos(http, user_pubkey_str, &params.position).await?;
     let lb_pair = Pubkey::from_str(&pos_data.lb_pair)
         .map_err(|e| AppError::ProtocolError(format!("Invalid lb_pair: {e}")))?;
 
@@ -2564,6 +2701,8 @@ pub async fn build_meteora_claim_rewards(
                 disc("claim_reward2"),
                 &ClaimReward2Args {
                     reward_index,
+                    min_bin_id: pos_data.lower_bin_id,
+                    max_bin_id: pos_data.upper_bin_id,
                     remaining_accounts_info: empty_remaining_accounts(),
                 },
             ),
@@ -3538,7 +3677,15 @@ pub fn validate_meteora_dlmm_get_pair_params(p: &MeteoraDlmmGetPairParams) -> Re
 fn is_self_reference(w: &str) -> bool {
     matches!(
         w.trim().to_ascii_lowercase().as_str(),
-        "" | "self" | "me" | "mine" | "myself" | "my" | "my wallet" | "connected" | "current" | "user"
+        "" | "self"
+            | "me"
+            | "mine"
+            | "myself"
+            | "my"
+            | "my wallet"
+            | "connected"
+            | "current"
+            | "user"
     )
 }
 
