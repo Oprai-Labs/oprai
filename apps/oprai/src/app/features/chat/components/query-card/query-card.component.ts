@@ -252,6 +252,8 @@ interface DlmmUserPool {
   /** Per-position detail read on-chain by the backend (SDK), when available. */
   positions?: DlmmPositionDetail[];
   activeBinId?: number;
+  tokenXDecimals?: number;
+  tokenYDecimals?: number;
 }
 
 /** One DLMM position inside a pool — its own range, balance and fees. */
@@ -1817,6 +1819,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       currentPrice: String(pool.poolPrice ?? ''),
       positionIndex: String(row.index + 1),
       positionOutOfRange: row.outOfRange ? 'true' : 'false',
+      ...(pool.activeBinId !== undefined ? { activeBinId: String(pool.activeBinId) } : {}),
+      ...(pool.tokenXDecimals !== undefined ? { tokenADecimals: String(pool.tokenXDecimals) } : {}),
+      ...(pool.tokenYDecimals !== undefined ? { tokenBDecimals: String(pool.tokenYDecimals) } : {}),
       ...(d
         ? {
             positionMinPrice: String(d.lowerPrice),
@@ -1826,6 +1831,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
             positionAmountB: String(d.amountY),
             positionFeeA: String(d.unclaimedFeeX),
             positionFeeB: String(d.unclaimedFeeY),
+            // The position's range IS the range an add-liquidity card must
+            // deposit into — it cannot be re-ranged, only widened by opening
+            // a new position. Passing the bin ids lets the card's existing
+            // ratio engine work against the real range instead of seeding a
+            // fresh one around the active bin.
+            minBinId: String(d.lowerBinId),
+            maxBinId: String(d.upperBinId),
           }
         : {}),
     };

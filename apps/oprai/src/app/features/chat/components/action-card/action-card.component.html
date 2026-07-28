@@ -1268,7 +1268,48 @@
               </div>
             </div>
 
-            @if (isMeteoraDlmm()) {
+            @if (isMeteoraAddToPosition() && meteoraPositionDetail() !== null) {
+              <!-- The range belongs to the position and cannot be changed;
+                   re-ranging means opening a NEW position. So show it, don't
+                   offer inputs that would silently do nothing. -->
+              @let apd = meteoraPositionDetail()!;
+              <div class="clmm-section">
+                <div class="clmm-section__title">Position Range</div>
+                <div class="mtr-detail">
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Range</span>
+                    <span class="mtr-detail__value mono">
+                      {{ apd.minPrice | number:'1.0-6' }} – {{ apd.maxPrice | number:'1.0-6' }}
+                      <span class="mtr-detail__muted">({{ apd.binCount }} bins)</span>
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Current price</span>
+                    <span class="mtr-detail__value mono">
+                      {{ apd.currentPrice | number:'1.0-6' }}
+                      @if (apd.outOfRange) {
+                        <span class="mtr-detail__oor">out of range</span>
+                      }
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Already in position</span>
+                    <span class="mtr-detail__value mono">
+                      {{ apd.amountA | number:'1.0-6' }} {{ mv.symA }} + {{ apd.amountB | number:'1.0-6' }} {{ mv.symB }}
+                    </span>
+                  </div>
+                </div>
+                <div class="clmm-min-hint" [class.clmm-min-hint--warn]="apd.outOfRange">
+                  @if (apd.outOfRange) {
+                    The price has left this range, so the position earns no fees and the
+                    deposit sits idle until the price comes back. To earn now, open a new
+                    position around the current price instead.
+                  } @else {
+                    Fixed by the position — to use a different range, open a new position.
+                  }
+                </div>
+              </div>
+            } @else if (isMeteoraDlmm()) {
               <div class="clmm-section">
                 <div class="clmm-section__title">Price Range</div>
                 <!-- Price is the input and the bin count follows, the way
@@ -1317,10 +1358,12 @@
             }
 
             <div class="clmm-section">
-              <div class="clmm-section__title">Add Deposit Amount</div>
+              <div class="clmm-section__title">{{ isMeteoraAddToPosition() ? 'Amount to add' : 'Add Deposit Amount' }}</div>
               <div class="clmm-min-hint">
                 Type either amount — the other follows at the pool's current ratio.
-                @if (isMeteoraDlmm()) {
+                @if (isMeteoraDlmm() && !isMeteoraAddToPosition()) {
+                  <!-- Only a NEW position creates an account to pay rent on;
+                       adding to one that already exists does not. -->
                   Opening the position also locks ~{{ METEORA_POSITION_RENT }} SOL of rent, refunded when you close it.
                 }
                 @if (dlmmSingleSidedX()) {
@@ -1443,6 +1486,33 @@
               </div>
             </div>
 
+            @if (meteoraPositionDetail(); as wpd) {
+              <div class="clmm-section">
+                <div class="clmm-section__title">Position</div>
+                <div class="mtr-detail">
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Holds</span>
+                    <span class="mtr-detail__value mono">
+                      {{ wpd.amountA | number:'1.0-6' }} {{ rv.symA }} + {{ wpd.amountB | number:'1.0-6' }} {{ rv.symB }}
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Range</span>
+                    <span class="mtr-detail__value mono">
+                      {{ wpd.minPrice | number:'1.0-6' }} – {{ wpd.maxPrice | number:'1.0-6' }}
+                      <span class="mtr-detail__muted">({{ wpd.binCount }} bins)</span>
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Unclaimed fees</span>
+                    <span class="mtr-detail__value mono">
+                      {{ wpd.feeA | number:'1.0-9' }} {{ rv.symA }} + {{ wpd.feeB | number:'1.0-9' }} {{ rv.symB }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            }
+
             <div class="clmm-section">
               <div class="clmm-section__title">Amount to withdraw</div>
               <div class="clmm-presets">
@@ -1454,13 +1524,45 @@
                   </button>
                 }
               </div>
+
+              <!-- What actually lands in the wallet, rather than a percentage
+                   the user has to convert in their head. -->
+              @if (meteoraWithdrawReturns(); as ret) {
+                <div class="mtr-claim">
+                  <div class="mtr-claim__label">You receive</div>
+                  <div class="mtr-claim__amounts">
+                    <span class="mtr-claim__amount">
+                      {{ ret.a | number:'1.0-6' }} <span class="mtr-claim__sym">{{ rv.symA }}</span>
+                    </span>
+                    <span class="mtr-claim__plus">+</span>
+                    <span class="mtr-claim__amount">
+                      {{ ret.b | number:'1.0-6' }} <span class="mtr-claim__sym">{{ rv.symB }}</span>
+                    </span>
+                  </div>
+                </div>
+              }
+
               <div class="clmm-min-hint">
                 @if (rpct >= 100) {
-                  Withdraws the full position and closes it.
+                  Pulls all liquidity out of the bins.
                 } @else {
                   Leaves {{ 100 - rpct | number:'1.0-1' }}% of the position in the pool, still earning fees.
                 }
               </div>
+
+              <!-- This transaction is remove_liquidity ALONE. Saying it closes
+                   the position was wrong: the account survives, so the rent
+                   stays locked and any accrued fees stay unclaimed. -->
+              @if (rpct >= 100) {
+                <div class="clmm-min-hint clmm-min-hint--warn">
+                  <lucide-icon name="alert-circle" [size]="13" />
+                  This does not close the position or claim fees.
+                  @if (meteoraPositionDetail()?.hasFees) {
+                    Claim first, or the accrued fees stay behind.
+                  }
+                  The position account keeps holding ~{{ METEORA_POSITION_RENT }} SOL of rent until you close it.
+                </div>
+              }
             </div>
           </div>
 

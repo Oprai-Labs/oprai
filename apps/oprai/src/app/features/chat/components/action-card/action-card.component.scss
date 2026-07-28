@@ -4820,7 +4820,16 @@
 
   // The range exceeds what one position can hold — this stops being a hint
   // and becomes something the user has to act on.
-  &--warn { color: var(--op-warn, #e8a13a); }
+  &--warn {
+    color: var(--op-warn, #e8a13a);
+    // Some warnings lead with an icon; keep it on the first line rather than
+    // letting the text wrap underneath it.
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+
+    lucide-icon { flex-shrink: 0; margin-top: 1px; }
+  }
 }
 
 // ── Custom-pair token chooser ("Başka bir çift" path) ──

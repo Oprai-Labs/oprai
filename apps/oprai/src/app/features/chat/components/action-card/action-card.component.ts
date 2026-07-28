@@ -2274,6 +2274,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isClaimAction = computed(() => /claim|harvest|collect_fees|collect_rewards/.test(this.action?.type ?? ''));
 
   /**
+   * Adding to an EXISTING position, as opposed to opening one. The difference
+   * is not cosmetic: the range is fixed by the position and cannot be edited,
+   * and no new position account is created — so no rent is locked. Offering
+   * range inputs here would be a control that silently does nothing.
+   */
+  readonly isMeteoraAddToPosition = computed(() => this.action?.type === 'meteora_add_to_position');
+
+  /** What a partial withdrawal actually returns, at the chosen percentage. */
+  readonly meteoraWithdrawReturns = computed<{ a: number; b: number } | null>(() => {
+    const pd = this.meteoraPositionDetail();
+    if (!pd) return null;
+    const share = this.meteoraReducePct() / 100;
+    if (!(share > 0)) return { a: 0, b: 0 };
+    return { a: pd.amountA * share, b: pd.amountB * share };
+  });
+
+  /**
    * Share-to-remove for a Meteora withdrawal. The three reduce actions submit
    * it differently — DLMM in basis points (10000 = 100%), the DAMM variants as
    * an LP amount — so the panel drives a percentage and converts on write.

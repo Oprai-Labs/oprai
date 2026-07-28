@@ -4254,8 +4254,13 @@ pub async fn build_meteora_dlmm_get_user_positions(
                     if let Some(list) = detail.get("positions").cloned() {
                         pool["positions"] = list;
                     }
-                    if let Some(active) = detail.get("activeBinId").cloned() {
-                        pool["activeBinId"] = active;
+                    // activeBinId + decimals travel with the positions because
+                    // the add-liquidity card needs all three to compute the
+                    // deposit ratio for the position's existing range.
+                    for key in ["activeBinId", "tokenXDecimals", "tokenYDecimals"] {
+                        if let Some(v) = detail.get(key).cloned() {
+                            pool[key] = v;
+                        }
                     }
                 }
                 Err(e) => {
