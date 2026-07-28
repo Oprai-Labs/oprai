@@ -1790,12 +1790,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   /** Shared display context so the action card can render a real summary. */
-  private dlmmActionParams(pool: DlmmUserPool, position: string): Record<string, string> {
+  /**
+   * Params handed to a spawned Meteora action. Beyond the addresses the
+   * builder needs, this carries the position's own economics — range, token
+   * amounts, unclaimed fees — as display context. A confirm-only action like
+   * Claim has nothing to fill in, so without these the card could only echo a
+   * base58 address back at the user: "sign this, trust me". With them it can
+   * state what is actually being claimed.
+   */
+  private dlmmActionParams(row: DlmmPositionRow): Record<string, string> {
+    const pool = row.pool;
+    const d = row.detail;
     return {
       pool: pool.poolAddress,
       poolId: pool.poolAddress,
-      position,
-      positionId: position,
+      position: row.address,
+      positionId: row.address,
       pair: `${pool.tokenX}/${pool.tokenY}`,
       tokenASymbol: pool.tokenX,
       tokenBSymbol: pool.tokenY,
@@ -1805,21 +1815,34 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ...(pool.tokenYIcon ? { tokenBLogo: pool.tokenYIcon } : {}),
       binStep: String(pool.binStep ?? ''),
       currentPrice: String(pool.poolPrice ?? ''),
+      positionIndex: String(row.index + 1),
+      positionOutOfRange: row.outOfRange ? 'true' : 'false',
+      ...(d
+        ? {
+            positionMinPrice: String(d.lowerPrice),
+            positionMaxPrice: String(d.upperPrice),
+            positionBinCount: String(d.binCount),
+            positionAmountA: String(d.amountX),
+            positionAmountB: String(d.amountY),
+            positionFeeA: String(d.unclaimedFeeX),
+            positionFeeB: String(d.unclaimedFeeY),
+          }
+        : {}),
     };
   }
 
-  addToDlmmPosition(pool: DlmmUserPool, position: string): void {
-    const params = this.dlmmActionParams(pool, position);
+  addToDlmmPosition(row: DlmmPositionRow): void {
+    const params = this.dlmmActionParams(row);
     this.useAction.emit({ type: 'meteora_add_to_position', params, raw: `[ACTION:meteora_add_to_position] ${JSON.stringify(params)}` });
   }
 
-  withdrawDlmmPosition(pool: DlmmUserPool, position: string): void {
-    const params = { ...this.dlmmActionParams(pool, position), bpsToRemove: '10000' };
+  withdrawDlmmPosition(row: DlmmPositionRow): void {
+    const params = { ...this.dlmmActionParams(row), bpsToRemove: '10000' };
     this.useAction.emit({ type: 'meteora_remove_liquidity', params, raw: `[ACTION:meteora_remove_liquidity] ${JSON.stringify(params)}` });
   }
 
-  claimDlmmFees(pool: DlmmUserPool, position: string): void {
-    const params = this.dlmmActionParams(pool, position);
+  claimDlmmFees(row: DlmmPositionRow): void {
+    const params = this.dlmmActionParams(row);
     this.useAction.emit({ type: 'meteora_claim_fees', params, raw: `[ACTION:meteora_claim_fees] ${JSON.stringify(params)}` });
   }
 

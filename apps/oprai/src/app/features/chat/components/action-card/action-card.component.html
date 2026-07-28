@@ -1548,9 +1548,59 @@
                   </div>
                 }
               </div>
-              <div class="clmm-min-hint">
-                Nothing to fill in — confirm to sign this action for the {{ cv.refLabel | lowercase }} above.
-              </div>
+              <!-- A confirm-only action has no inputs, so the position's own
+                   numbers ARE the decision. Without them the card can only
+                   echo a base58 address back at the user. -->
+              @if (meteoraPositionDetail(); as pd) {
+                @if (isClaimAction()) {
+                  <div class="mtr-claim">
+                    <div class="mtr-claim__label">Claimable now</div>
+                    <div class="mtr-claim__amounts">
+                      <span class="mtr-claim__amount">
+                        {{ pd.feeA | number:'1.0-9' }} <span class="mtr-claim__sym">{{ cv.symA }}</span>
+                      </span>
+                      <span class="mtr-claim__plus">+</span>
+                      <span class="mtr-claim__amount">
+                        {{ pd.feeB | number:'1.0-9' }} <span class="mtr-claim__sym">{{ cv.symB }}</span>
+                      </span>
+                    </div>
+                    @if (!pd.hasFees) {
+                      <div class="mtr-claim__warn">
+                        <lucide-icon name="alert-circle" [size]="13" />
+                        This position has no unclaimed fees — the transaction would cost a fee and return nothing.
+                      </div>
+                    }
+                  </div>
+                }
+                <div class="mtr-detail">
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Position holds</span>
+                    <span class="mtr-detail__value mono">
+                      {{ pd.amountA | number:'1.0-6' }} {{ cv.symA }} + {{ pd.amountB | number:'1.0-6' }} {{ cv.symB }}
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Range</span>
+                    <span class="mtr-detail__value mono">
+                      {{ pd.minPrice | number:'1.0-6' }} – {{ pd.maxPrice | number:'1.0-6' }}
+                      <span class="mtr-detail__muted">({{ pd.binCount }} bins)</span>
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Current price</span>
+                    <span class="mtr-detail__value mono">
+                      {{ pd.currentPrice | number:'1.0-6' }}
+                      @if (pd.outOfRange) {
+                        <span class="mtr-detail__oor">out of range</span>
+                      }
+                    </span>
+                  </div>
+                </div>
+              } @else {
+                <div class="clmm-min-hint">
+                  Nothing to fill in — confirm to sign this action for the {{ cv.refLabel | lowercase }} above.
+                </div>
+              }
             </div>
           </div>
 

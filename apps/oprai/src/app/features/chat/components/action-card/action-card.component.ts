@@ -2230,6 +2230,50 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   });
 
   /**
+   * The acting position's own numbers, when the card was spawned from a
+   * positions row that had them (`dlmmActionParams`). A confirm-only action
+   * has no inputs, so this is the entire content of the decision: what is in
+   * the position, what is claimable, and whether its range still covers the
+   * price. Null when the action arrived from chat text instead, where the
+   * model only ever supplies addresses.
+   */
+  readonly meteoraPositionDetail = computed<{
+    index: string;
+    minPrice: number; maxPrice: number; currentPrice: number;
+    binCount: number;
+    amountA: number; amountB: number;
+    feeA: number; feeB: number;
+    hasFees: boolean;
+    outOfRange: boolean;
+  } | null>(() => {
+    const p = this.editParams();
+    if (p['positionMinPrice'] === undefined || p['positionMaxPrice'] === undefined) return null;
+    const num = (k: string) => {
+      const n = parseFloat(p[k] ?? '');
+      return Number.isFinite(n) ? n : 0;
+    };
+    const feeA = num('positionFeeA');
+    const feeB = num('positionFeeB');
+    return {
+      index: p['positionIndex'] ?? '',
+      minPrice: num('positionMinPrice'),
+      maxPrice: num('positionMaxPrice'),
+      currentPrice: num('currentPrice'),
+      binCount: num('positionBinCount'),
+      amountA: num('positionAmountA'),
+      amountB: num('positionAmountB'),
+      feeA,
+      feeB,
+      hasFees: feeA > 0 || feeB > 0,
+      outOfRange: p['positionOutOfRange'] === 'true',
+    };
+  });
+
+  /** True when this is a fee/reward claim — the panel then leads with the
+   *  claimable amounts rather than the position's balance. */
+  readonly isClaimAction = computed(() => /claim|harvest|collect_fees|collect_rewards/.test(this.action?.type ?? ''));
+
+  /**
    * Share-to-remove for a Meteora withdrawal. The three reduce actions submit
    * it differently — DLMM in basis points (10000 = 100%), the DAMM variants as
    * an LP amount — so the panel drives a percentage and converts on write.
@@ -3271,9 +3315,41 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       AMOUNT_KEYS.has(f.key) ? applyMinAmountGuard(f, this.action.type) : f
     );
   }
+  /**
+   * The CTA names the action, not the gesture. The user clicked "Withdraw" on
+   * a position row, so a button reading "Confirm" makes them re-derive what
+   * they are signing. Protocol actions are hundreds of types, so match on the
+   * verb the type name already carries rather than enumerating every one —
+   * a new `<protocol>_claim_fees` then labels itself correctly on arrival.
+   */
   get confirmButtonLabel(): string {
     const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity' };
-    return labels[this.action?.type] ?? 'Confirm';
+    const t = this.action?.type ?? '';
+    if (labels[t]) return labels[t];
+    // Ordered longest-verb-first so `add_to_position` isn't read as `stake`
+    // by a shorter pattern, and `close_position` beats bare `position`.
+    const verbs: ReadonlyArray<[RegExp, string]> = [
+      [/(claim_fees|collect_fees|harvest)$/, 'Claim Fees'],
+      [/(claim_rewards|collect_rewards)$/,   'Claim Rewards'],
+      [/claim/,                              'Claim'],
+      [/close_position/,                     'Close Position'],
+      [/open_position/,                      'Open Position'],
+      [/(add_to_position|increase_position|increase_liquidity)/, 'Add Liquidity'],
+      [/(remove_liquidity|decrease_liquidity|decrease_position)/, 'Withdraw'],
+      [/add_liquidity/,                      'Add Liquidity'],
+      [/deposit/,                            'Deposit'],
+      [/withdraw/,                           'Withdraw'],
+      [/cancel_unstake/,                     'Cancel Unstake'],
+      [/unstake/,                            'Unstake'],
+      [/stake/,                              'Stake'],
+      [/swap/,                               'Swap'],
+      [/borrow/,                             'Borrow'],
+      [/repay/,                              'Repay'],
+    ];
+    for (const [re, label] of verbs) {
+      if (re.test(t)) return label;
+    }
+    return 'Confirm';
   }
   get explorerUrl(): string { const s = this.txSignature(); return s ? `https://solscan.io/tx/${s}` : ''; }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }

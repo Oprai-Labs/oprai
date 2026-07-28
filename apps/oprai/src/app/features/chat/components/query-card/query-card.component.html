@@ -203,16 +203,16 @@
                 </span>
                 <span class="ray-pos__actions">
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
-                          (click)="claimDlmmFees(row.pool, row.address); $event.stopPropagation()"
+                          (click)="claimDlmmFees(row); $event.stopPropagation()"
                           title="Claim this position's fees">Claim</button>
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
-                          (click)="addToDlmmPosition(row.pool, row.address); $event.stopPropagation()"
+                          (click)="addToDlmmPosition(row); $event.stopPropagation()"
                           title="Add liquidity to this position">
                     <lucide-icon name="plus" [size]="12" />
                     Add
                   </button>
                   <button type="button" class="dlmm-use-btn"
-                          (click)="withdrawDlmmPosition(row.pool, row.address); $event.stopPropagation()"
+                          (click)="withdrawDlmmPosition(row); $event.stopPropagation()"
                           title="Withdraw this position">
                     Withdraw
                     <lucide-icon name="arrow-right" [size]="12" />
