@@ -618,18 +618,6 @@
   }
 }
 
-// Secondary row action (Add) — same shape as the primary Use/Withdraw button
-// but visually subordinate to it.
-.dlmm-use-btn--ghost {
-  background: var(--op-bg-surface-3);
-  color: var(--op-text-secondary);
-
-  &:hover {
-    background: var(--op-bg-surface-2);
-    color: var(--op-text-primary);
-  }
-}
-
 // One row per DLMM position inside a pool card.
 // Pool-level roll-up above the per-position panels. The upstream API only
 // prices a pool as a whole, so value / PnL / fees live here rather than being
@@ -879,6 +867,33 @@
 
   &:active {
     transform: translateY(1px);
+  }
+}
+
+// Secondary row action (Claim / Add) — same shape as the primary Withdraw
+// button but visually subordinate.
+//
+// This block MUST stay after `.dlmm-use-btn`: same specificity, so source
+// order decides. Declared before it, the base gradient overrode the ghost
+// fill and the modifier only took effect on :hover — which is why these
+// buttons looked primary at rest and then went dark on hover.
+//
+// Hover also has to go BRIGHTER. It moved to surface-2, which is the panel's
+// own background, so hovering dissolved the button into the card.
+.dlmm-use-btn--ghost {
+  background: var(--op-bg-surface-3);
+  // 1px border, so shave 1px of padding to keep the same height as the
+  // borderless primary sitting next to it.
+  border: 1px solid var(--op-border-subtle);
+  padding: 3px 9px;
+  color: var(--op-text-secondary);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--op-bg-surface-3) 88%, var(--op-text-primary) 12%);
+    border-color: var(--op-border-strong);
+    color: var(--op-text-primary);
+    filter: none;
   }
 }
 
