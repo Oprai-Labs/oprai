@@ -211,10 +211,18 @@
                     <lucide-icon name="plus" [size]="12" />
                     Add
                   </button>
-                  <button type="button" class="dlmm-use-btn"
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                           (click)="withdrawDlmmPosition(row); $event.stopPropagation()"
-                          title="Withdraw this position">
+                          title="Withdraw the liquidity, keeping the position open">
                     Withdraw
+                  </button>
+                  <!-- Closing is the only thing that returns the position's
+                       rent, so it is the primary action once you are done
+                       with a position — withdraw alone leaves it locked. -->
+                  <button type="button" class="dlmm-use-btn"
+                          (click)="closeDlmmPosition(row); $event.stopPropagation()"
+                          title="Withdraw everything, claim fees and close the position — recovers its rent">
+                    Close
                     <lucide-icon name="arrow-right" [size]="12" />
                   </button>
                 </span>

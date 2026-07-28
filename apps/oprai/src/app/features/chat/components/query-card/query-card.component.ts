@@ -1858,6 +1858,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.useAction.emit({ type: 'meteora_claim_fees', params, raw: `[ACTION:meteora_claim_fees] ${JSON.stringify(params)}` });
   }
 
+  /**
+   * Close: withdraw + claim + close the position account, which is the only
+   * thing that returns the ~0.057 SOL of rent the position holds. Withdraw
+   * alone leaves that locked in an empty position forever, so a row that can
+   * withdraw but not close is a row that can only lose the user money.
+   */
+  closeDlmmPosition(row: DlmmPositionRow): void {
+    const params = this.dlmmActionParams(row);
+    this.useAction.emit({ type: 'meteora_close_position', params, raw: `[ACTION:meteora_close_position] ${JSON.stringify(params)}` });
+  }
+
   dlmmPositionOutOfRange(pool: DlmmUserPool, position: string): boolean {
     return (pool.positionsOutOfRange ?? []).includes(position);
   }

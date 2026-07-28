@@ -2442,6 +2442,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   readonly METEORA_POSITION_RENT = 0.06;
 
+  /**
+   * What closing actually returns: the position account is a fixed 8120 bytes,
+   * so its rent is deterministic — 0.057406 SOL, confirmed on-chain. Worth
+   * stating exactly, because it is often larger than the position itself.
+   */
+  readonly METEORA_POSITION_RENT_REFUND = 0.057406;
+
+  /** Close = withdraw + claim + close the account. Distinct from a plain
+   *  withdrawal, which leaves the account (and its rent) in place. */
+  readonly isMeteoraClose = computed(() => this.action?.type === 'meteora_close_position');
+
   /** True when this action opens a NEW DLMM position (rent applies). */
   private meteoraOpensPosition(): boolean {
     const t = this.action.type;
