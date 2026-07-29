@@ -210,9 +210,15 @@
                           [attr.title]="dlmmHasClaimableFees(row)
                             ? 'Claim this position\'s fees'
                             : 'No unclaimed fees on this position'">Claim</button>
+                  <!-- A range this far from the pool price can never take a
+                       deposit; offering Add would only produce a card that
+                       fails on submit. -->
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          [disabled]="dlmmRangeUnusable(row)"
                           (click)="addToDlmmPosition(row); $event.stopPropagation()"
-                          title="Add liquidity to this position">
+                          [attr.title]="dlmmRangeUnusable(row)
+                            ? 'This position\'s range is too far from the pool price to take a deposit — close it and open a new one'
+                            : 'Add liquidity to this position'">
                     <lucide-icon name="plus" [size]="12" />
                     Add
                   </button>

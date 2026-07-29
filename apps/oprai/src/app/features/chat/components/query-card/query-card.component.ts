@@ -1938,6 +1938,26 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   });
 
   /**
+   * True when the position's range is so far from the pool's price that the
+   * backend will refuse a deposit — the same 100x bound it enforces, computed
+   * here so the card never offers an Add that cannot succeed.
+   *
+   * The bound is expressed in price rather than bins because a bin's width
+   * depends on the pool's bin step.
+   */
+  dlmmRangeUnusable(row: DlmmPositionRow): boolean {
+    const d = row.detail;
+    const active = row.pool.activeBinId;
+    const step = row.pool.binStep;
+    if (!d || active === undefined || !(step > 0)) return false;
+    const maxDistance = Math.ceil(Math.log(100) / Math.log(1 + step / 10_000));
+    const nearest = d.upperBinId < active ? active - d.upperBinId
+      : d.lowerBinId > active ? d.lowerBinId - active
+      : 0;
+    return nearest > maxDistance;
+  }
+
+  /**
    * True when this position has fees worth claiming. Only decidable once the
    * on-chain detail is in — without it, assume there might be (a claim issued
    * blind is better than a Claim button that refuses for the wrong reason).

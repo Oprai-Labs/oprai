@@ -1224,11 +1224,17 @@ fn empty_remaining_accounts() -> RemainingAccountsInfo {
 /// the pool's bin step: 100x away is ~11,500 bins on a 4 bp pool but only ~460
 /// on a 100 bp one. Anything beyond that is a broken conversion upstream
 /// rather than a position anyone meant to open.
+///
+/// `range_is_editable` decides the advice, because the two cases have opposite
+/// remedies: opening a position lets the user move the bounds, while adding to
+/// an existing one cannot — its range is fixed, so the only way out is a new
+/// position.
 fn reject_range_far_from_pool(
     lower_bin_id: i32,
     upper_bin_id: i32,
     active_id: i32,
     bin_step: u16,
+    range_is_editable: bool,
 ) -> Result<(), AppError> {
     if bin_step == 0 {
         return Ok(());
@@ -1244,10 +1250,20 @@ fn reject_range_far_from_pool(
         0 // range straddles the active bin
     };
     if nearest > max_distance {
-        return Err(AppError::InvalidParams(format!(
-            "Price range is {nearest} bins from the pool's current price (limit {max_distance}). \
-             Refresh the pool and set the range again."
-        )));
+        return Err(AppError::InvalidParams(if range_is_editable {
+            format!(
+                "That price range sits {nearest} bins away from the pool's current price — \
+                 far past what the pool can trade through (limit {max_distance}). \
+                 Move the range closer to the current price."
+            )
+        } else {
+            format!(
+                "This position's range sits {nearest} bins away from the pool's current price — \
+                 far past what the pool can trade through (limit {max_distance}), so anything \
+                 added here would sit idle indefinitely. Close this position and open a new one \
+                 around the current price instead."
+            )
+        }));
     }
     Ok(())
 }
@@ -1747,7 +1763,7 @@ pub async fn build_meteora_open_position(
     // NOT fail on-chain: the program happily creates a dead position holding
     // one token at a price that will never trade, which is how a deposit once
     // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
-    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step)?;
+    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, true)?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
@@ -1947,7 +1963,7 @@ pub async fn build_meteora_add_liquidity(
     // NOT fail on-chain: the program happily creates a dead position holding
     // one token at a price that will never trade, which is how a deposit once
     // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
-    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step)?;
+    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, true)?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
@@ -2568,7 +2584,8 @@ pub async fn build_meteora_add_to_position(
     // NOT fail on-chain: the program happily creates a dead position holding
     // one token at a price that will never trade, which is how a deposit once
     // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
-    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step)?;
+    // The range belongs to the position and cannot be edited here.
+    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, false)?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
