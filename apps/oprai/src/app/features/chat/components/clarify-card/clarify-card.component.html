@@ -1,5 +1,8 @@
 <div class="clarify-card">
-  <!-- Header -->
+  <!-- Gradient hairline + tinted header + right-hand badge: the same opening
+       three elements as the query and action cards, so a choice reads as one
+       more mini-app rather than a chat aside. -->
+  <div class="clarify-accent"></div>
   <div class="clarify-card__header">
     @if (cardProtocol(); as proto) {
       <div class="clarify-card__icon clarify-card__icon--protocol">
@@ -11,6 +14,7 @@
       </div>
     }
     <span class="clarify-card__title">{{ cardProtocol()?.name ?? title() }}</span>
+    <span class="clarify-card__badge">CHOOSE</span>
   </div>
 
   <!-- Question -->
