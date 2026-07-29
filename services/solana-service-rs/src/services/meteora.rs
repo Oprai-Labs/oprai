@@ -3354,13 +3354,16 @@ pub struct MeteoraDlmmGetPairsParams {
     #[serde(default)]
     pub page: Option<u32>,
     #[serde(default)]
+    #[serde(alias = "page_size")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
     /// Format: "field:asc" or "field:desc", e.g. "volume_24h:desc"
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     #[serde(default)]
+    #[serde(alias = "filter_by")]
     pub filter_by: Option<String>,
 }
 
@@ -3389,12 +3392,15 @@ pub struct MeteoraDlmmGetPoolGroupsParams {
     #[serde(default)]
     pub page: Option<u32>,
     #[serde(default)]
+    #[serde(alias = "page_size")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     #[serde(default)]
+    #[serde(alias = "filter_by")]
     pub filter_by: Option<String>,
     /// Time window for volume metric, e.g. "volume_24h" or "volume_7d"
     #[serde(default)]
@@ -3408,14 +3414,18 @@ pub struct MeteoraDlmmGetPoolGroupsParams {
 #[serde(rename_all = "camelCase")]
 pub struct MeteoraDlmmGetPoolGroupParams {
     /// Token pair identifier returned by get_pool_groups, e.g. "MINTA-MINTB"
+    #[serde(alias = "lexical_order_mints")]
     pub lexical_order_mints: String,
     #[serde(default)]
     pub page: Option<u32>,
     #[serde(default)]
+    #[serde(alias = "page_size")]
     pub page_size: Option<u32>,
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     #[serde(default)]
+    #[serde(alias = "filter_by")]
     pub filter_by: Option<String>,
 }
 
@@ -3453,12 +3463,15 @@ pub struct MeteoraDammV2GetPoolsParams {
     #[serde(default)]
     pub page: Option<u32>,
     #[serde(default)]
+    #[serde(alias = "page_size")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     #[serde(default)]
+    #[serde(alias = "filter_by")]
     pub filter_by: Option<String>,
 }
 
@@ -3468,12 +3481,15 @@ pub struct MeteoraDammV2GetPoolGroupsParams {
     #[serde(default)]
     pub page: Option<u32>,
     #[serde(default)]
+    #[serde(alias = "page_size")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     #[serde(default)]
+    #[serde(alias = "filter_by")]
     pub filter_by: Option<String>,
     #[serde(default)]
     pub volume_tw: Option<String>,
@@ -3484,16 +3500,20 @@ pub struct MeteoraDammV2GetPoolGroupsParams {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeteoraDammV2GetPoolGroupParams {
+    #[serde(alias = "lexical_order_mints")]
     pub lexical_order_mints: String,
     #[serde(default)]
     pub page: Option<u32>,
     #[serde(default)]
+    #[serde(alias = "page_size")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     #[serde(default)]
+    #[serde(alias = "filter_by")]
     pub filter_by: Option<String>,
 }
 

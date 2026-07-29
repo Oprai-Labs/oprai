@@ -1259,7 +1259,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const page = await this.meteora.fetchDlmmPairs({
       query: queryStr,
       page: this.dlmmPage(),
-      pageSize: this.DLMM_PAGE_SIZE,
+      pageSize: this.requestedPageSize(this.DLMM_PAGE_SIZE),
       sortBy,
     });
 
@@ -1320,6 +1320,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   // ── DAMM v2 ─────────────────────────────────────────────────────────────
+  /**
+   * A count the user actually asked for ("the top 5 pools"), if the model
+   * passed one through. Listing everything when a number was named ignores
+   * half the request — and a 10-row default page is not "5".
+   *
+   * Clamped to what a card can sensibly show; the pager covers the rest.
+   */
+  private requestedPageSize(fallback: number): number {
+    const raw = this.query.params?.['pageSize']
+      ?? this.query.params?.['page_size']
+      ?? this.query.params?.['limit']
+      ?? this.query.params?.['count'];
+    const n = parseInt(String(raw ?? ''), 10);
+    return Number.isFinite(n) && n > 0 ? Math.min(n, 100) : fallback;
+  }
+
   private async fetchDammV2Pools(): Promise<void> {
     this.dammV2Fetching.set(true);
     this.error.set(null);
@@ -1330,7 +1346,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const page = await this.meteora.fetchDammV2Pools({
       query: queryStr,
       page: this.dammV2Page(),
-      pageSize: this.DAMMV2_PAGE_SIZE,
+      pageSize: this.requestedPageSize(this.DAMMV2_PAGE_SIZE),
       sortBy,
     });
     if (!page) {
@@ -1630,7 +1646,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
             poolType: this.raydiumPoolType(),
             sortField: this.raydiumSortField(),
             page: this.raydiumPage(),
-            pageSize: this.RAYDIUM_PAGE_SIZE,
+            pageSize: this.requestedPageSize(this.RAYDIUM_PAGE_SIZE),
           },
         }
       : {
@@ -1640,7 +1656,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
             sortField: this.raydiumSortField(),
             sortType: this.raydiumSortDir(),
             page: this.raydiumPage(),
-            pageSize: this.RAYDIUM_PAGE_SIZE,
+            pageSize: this.requestedPageSize(this.RAYDIUM_PAGE_SIZE),
           },
         };
 
