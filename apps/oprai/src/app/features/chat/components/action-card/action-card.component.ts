@@ -3019,6 +3019,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.applyClmmRangePreset(1);
   }
 
+  /**
+   * DAMM v2's deposit ratio, straight from the SDK's own quote for this pool.
+   * A constant-product pool with bounds relates the two sides linearly, so a
+   * single number fills the second field as the user types — no build
+   * round-trip per keystroke, and correct for concentrated pools where the
+   * reserve ratio alone would not be.
+   */
+  private readonly dammV2Ratio = computed<{ yPerX: number; xPerY: number } | null>(() => {
+    if (!this.isDammV2()) return null;
+    const r = parseFloat(this.editParams()['depositRatio'] ?? '');
+    if (!Number.isFinite(r) || r <= 0) return null;
+    return { yPerX: r, xPerY: 1 / r };
+  });
+
   private dlmmRatioEffect = effect(() => {
     // Three ratio sources: DLMM (range × strategy × active bin),
     // CLMM (Uniswap-v3 sqrt-price math), or AMM (constant-product reserves).
@@ -3074,7 +3088,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // scale baked in); CLMM and AMM yPerX are already human-unit.
     let humanYPerX: number | null = null;
     let humanXPerY: number | null = null;
-    if (dlmm && dlmm.yPerX !== null && dlmm.xPerY !== null) {
+    // DAMM v2 first: it has no bins and no tick math, so none of the sources
+    // below can speak for it — without this the card promised "the other
+    // follows" and then never filled it.
+    const damm = this.dammV2Ratio();
+    if (damm) {
+      humanYPerX = damm.yPerX;
+      humanXPerY = damm.xPerY;
+    } else if (dlmm && dlmm.yPerX !== null && dlmm.xPerY !== null) {
       const scale = this.dlmmDecimalScale();
       humanYPerX = dlmm.yPerX * scale;
       humanXPerY = dlmm.xPerY / scale;

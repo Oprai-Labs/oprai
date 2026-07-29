@@ -260,6 +260,8 @@ interface DlmmUserPool {
   maxPrice?: number;
   concentrated?: boolean;
   priceOutOfRange?: boolean;
+  /** DAMM v2: token Y per 1 token X at the pool's current state. */
+  depositRatio?: number;
 }
 
 /** One DLMM position inside a pool — its own range, balance and fees. */
@@ -1870,6 +1872,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       binStep: String(pool.binStep ?? ''),
       currentPrice: String(pool.poolPrice ?? ''),
       ...(pool.concentrated ? { poolConcentrated: 'true' } : {}),
+      ...(pool.depositRatio ? { depositRatio: String(pool.depositRatio) } : {}),
       ...(pool.priceOutOfRange ? { poolPriceOutOfRange: 'true' } : {}),
       positionIndex: String(row.index + 1),
       positionOutOfRange: row.outOfRange ? 'true' : 'false',

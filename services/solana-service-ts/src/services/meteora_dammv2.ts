@@ -216,9 +216,28 @@ export async function getDammV2UserPositions(
     const minPrice = price(state.sqrtMinPrice);
     const maxPrice = price(state.sqrtMaxPrice);
 
+    // Deposit ratio (Y per X) at the pool's CURRENT state. For a
+    // constant-product pool with bounds the two sides are linearly related —
+    // amountY / amountX is fixed by sqrtPrice and the band — so one number
+    // lets the card fill the second field as the user types, without a build
+    // round-trip per keystroke. Derived from the SDK's own quote rather than
+    // from the reserve ratio, which is only correct for a full-range pool.
+    let depositRatio = 0;
+    try {
+      const probe = amm.getDepositQuote({
+        inAmount: new BN(10 ** t.decA),
+        isTokenA: true,
+        ...poolQuoteBasis(state),
+      });
+      depositRatio = toNum(probe.outputAmount, t.decB);
+    } catch {
+      // Leave 0 — the card then asks for both amounts rather than guessing.
+    }
+
     pools.push({
       poolAddress,
       poolPrice,
+      depositRatio,
       minPrice,
       maxPrice,
       // A pool spanning the whole curve has no meaningful bounds to show.
