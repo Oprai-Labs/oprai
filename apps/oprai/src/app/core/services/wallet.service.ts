@@ -485,7 +485,43 @@ export class WalletService {
   /** Sign a transaction with the connected wallet. */
   async signTransaction(transaction: unknown): Promise<unknown> {
     if (!this._adapter) throw new Error('No wallet connected');
-    return this._adapter.signTransaction(transaction);
+    try {
+      return await this._adapter.signTransaction(transaction);
+    } catch (err) {
+      throw WalletService.describeWalletFailure(err, 'sign');
+    }
+  }
+
+  /**
+   * Turn a wallet's opaque internal failure into something the user can act
+   * on. Phantom reports its own scanning / connection faults as JSON-RPC
+   * -32603 with the text "Unexpected error" — indistinguishable, as written,
+   * from a bug in the transaction we built. `connect()` already translated it;
+   * signing did not, so the same fault read as an app error there.
+   *
+   * A user rejection is passed through untouched: that is a decision, not a
+   * failure, and callers detect it by message.
+   */
+  private static describeWalletFailure(err: unknown, phase: 'sign' | 'send'): Error {
+    const e = err as { code?: number; message?: string };
+    const msg = e?.message ?? '';
+    console.error(`[wallet] ${phase} failed: code=`, e?.code, 'msg=', msg, err);
+    if (/reject|denied|cancel|declined|user refused/i.test(msg)) {
+      return err instanceof Error ? err : new Error(msg || 'Rejected in wallet');
+    }
+    if (e?.code === -32603 || /unexpected error/i.test(msg)) {
+      // A short reference code, not the raw payload. "Unexpected error" is the
+      // same string for a locked wallet, a stale connection and a transaction
+      // the wallet's guard layer choked on, so the code is worth keeping — but
+      // the message and data belong in the console above, not on a card.
+      const ref = typeof e?.code === 'number' ? ` (wallet code ${e.code})` : '';
+      return new Error(
+        'Your wallet couldn’t complete the signature. The transaction itself is fine — this is the wallet’s own ' +
+          'error. Make sure it’s unlocked and try again; if it keeps happening, reload the page, or disconnect this ' +
+          `site in your wallet’s settings and reconnect.${ref}`,
+      );
+    }
+    return err instanceof Error ? err : new Error(msg || 'Wallet error');
   }
 
   /**
@@ -500,7 +536,12 @@ export class WalletService {
     if (!this._adapter) throw new Error('No wallet connected');
     const fn = (this._adapter as any).signAndSendTransaction;
     if (typeof fn !== 'function') return null;
-    const result = await fn.call(this._adapter, transaction, options ?? {});
+    let result: any;
+    try {
+      result = await fn.call(this._adapter, transaction, options ?? {});
+    } catch (err) {
+      throw WalletService.describeWalletFailure(err, 'send');
+    }
     if (typeof result === 'string') return result;
     if (result?.signature && typeof result.signature === 'string') return result.signature;
     if (result?.publicKey === undefined && result?.signature === undefined) {

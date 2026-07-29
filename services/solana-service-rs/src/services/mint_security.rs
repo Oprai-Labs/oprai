@@ -205,10 +205,7 @@ pub async fn resolve_action_mint(
     mint_or_symbol: &str,
 ) -> Result<String, AppError> {
     // Already a valid mint address — nothing to resolve.
-    if mint_or_symbol
-        .parse::<solana_sdk::pubkey::Pubkey>()
-        .is_ok()
-    {
+    if mint_or_symbol.parse::<solana_sdk::pubkey::Pubkey>().is_ok() {
         return Ok(mint_or_symbol.to_string());
     }
     // Compile-time registry symbol — no network hit.

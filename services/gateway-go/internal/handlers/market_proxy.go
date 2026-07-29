@@ -2026,10 +2026,44 @@ func (m *MarketProxy) rpcChain() []rpcEndpoint {
 	return chain
 }
 
+// isProviderRejection reports whether a status means the upstream refused US —
+// bad/expired credentials, a forbidden plan, or a rate limit — as opposed to
+// the request being malformed. These are worth retrying on another endpoint.
+func isProviderRejection(status int) bool {
+	switch status {
+	case http.StatusUnauthorized, http.StatusForbidden,
+		http.StatusProxyAuthRequired, http.StatusTooManyRequests:
+		return true
+	}
+	return false
+}
+
+// rpcMethodOf pulls the JSON-RPC method name out of a request body for logging,
+// so a recurring provider rejection can be traced to the call that triggers it.
+func rpcMethodOf(body []byte) string {
+	var probe struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return "unknown"
+	}
+	if probe.Method == "" {
+		return "batch-or-unknown"
+	}
+	return probe.Method
+}
+
 // PostRpc proxies Solana JSON-RPC POST requests with a fallback chain so a
-// single-provider outage doesn't take down the frontend's RPC needs. Tries
-// each endpoint in order until one returns a 2xx; only 5xx / network errors
-// trigger fallthrough (4xx is treated as a client error and surfaced).
+// single-provider outage doesn't take down the frontend's RPC needs.
+//
+// Fallthrough covers every failure that is about US rather than the caller:
+// network errors, 5xx, and — critically — 401/403/407/429. A provider
+// rejecting our key or throttling our quota says nothing about the browser's
+// request, and the browser can do nothing about it; surfacing that 401 made a
+// signed-transaction flow look like an expired login while a perfectly good
+// public endpoint sat unused later in the chain. Genuine client errors
+// (400/404/422 — malformed JSON-RPC) are still returned as-is, since retrying
+// them elsewhere would fail identically.
 func (m *MarketProxy) PostRpc(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB limit
 	if err != nil {
@@ -2063,9 +2097,11 @@ func (m *MarketProxy) PostRpc(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// 5xx → try next endpoint. 4xx and 2xx → return to client.
-		if resp.StatusCode >= 500 {
-			slog.Warn("RPC proxy: endpoint 5xx", "endpoint", ep.label, "status", resp.StatusCode)
+		// Ours-not-theirs failures → try the next endpoint.
+		if resp.StatusCode >= 500 || isProviderRejection(resp.StatusCode) {
+			slog.Warn("RPC proxy: endpoint rejected request",
+				"endpoint", ep.label, "status", resp.StatusCode, "attempt", i+1,
+				"method", rpcMethodOf(body))
 			lastStatus = resp.StatusCode
 			lastBody = respBody
 			continue
@@ -2077,7 +2113,14 @@ func (m *MarketProxy) PostRpc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Exhausted the chain — surface the last 5xx if we have one, else a generic 502.
+	// Exhausted the chain. A provider rejection is ours, not the caller's, so
+	// don't hand the browser a 401/403 it can't act on — report the outage.
+	if isProviderRejection(lastStatus) {
+		slog.Error("RPC proxy: every endpoint rejected the request",
+			"status", lastStatus, "method", rpcMethodOf(body))
+		writeError(w, http.StatusBadGateway, "all RPC endpoints unavailable")
+		return
+	}
 	if lastStatus >= 500 && lastBody != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(lastStatus)

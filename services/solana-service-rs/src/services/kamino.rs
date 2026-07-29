@@ -580,7 +580,9 @@ fn repay_all_requested(amount: &str, flag: &Option<String>) -> bool {
         return true;
     }
     matches!(
-        flag.as_deref().map(|s| s.trim().to_ascii_lowercase()).as_deref(),
+        flag.as_deref()
+            .map(|s| s.trim().to_ascii_lowercase())
+            .as_deref(),
         Some("true" | "1" | "yes" | "all")
     )
 }
@@ -600,7 +602,8 @@ async fn kamino_repay_covers_debt(
     requested: f64,
 ) -> bool {
     let num = |v: &serde_json::Value| -> Option<f64> {
-        v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
     };
 
     // Debt (USD) from the obligation that borrows this reserve.
@@ -624,9 +627,8 @@ async fn kamino_repay_covers_debt(
             .and_then(|s| s.get("borrows"))
             .and_then(|b| b.as_array())
             .map(|bs| {
-                bs.iter().any(|b| {
-                    b.get("borrowReserve").and_then(|r| r.as_str()) == Some(reserve)
-                })
+                bs.iter()
+                    .any(|b| b.get("borrowReserve").and_then(|r| r.as_str()) == Some(reserve))
             })
             .unwrap_or(false);
         if has_line {
@@ -643,11 +645,7 @@ async fn kamino_repay_covers_debt(
     }
 
     // Price (USD per token) for the reserve, from its supply figures.
-    let metrics = match kamino_get(
-        http,
-        &format!("/kamino-market/{market}/reserves/metrics"),
-    )
-    .await
+    let metrics = match kamino_get(http, &format!("/kamino-market/{market}/reserves/metrics")).await
     {
         Ok(v) => v,
         Err(_) => return false,
@@ -1076,7 +1074,11 @@ pub async fn build_kamino_repay(
         }
     }
     // Repay-all: send a large sentinel so Kamino closes the borrow with no dust.
-    let send_amount = if repay_all { KAMINO_REPAY_ALL_SENTINEL } else { params.amount.as_str() };
+    let send_amount = if repay_all {
+        KAMINO_REPAY_ALL_SENTINEL
+    } else {
+        params.amount.as_str()
+    };
     let body = serde_json::json!({
         "wallet": wallet,
         "market": market,
@@ -1089,9 +1091,16 @@ pub async fn build_kamino_repay(
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_repay".into(),
             description: if repay_all {
-                format!("Repay full debt to Kamino K-Lend reserve {}", short_id(&reserve))
+                format!(
+                    "Repay full debt to Kamino K-Lend reserve {}",
+                    short_id(&reserve)
+                )
             } else {
-                format!("Repay {} to Kamino K-Lend reserve {}", params.amount, short_id(&reserve))
+                format!(
+                    "Repay {} to Kamino K-Lend reserve {}",
+                    params.amount,
+                    short_id(&reserve)
+                )
             },
             estimated_fee: "~0.0001 SOL".into(),
             estimated_refund: None,
@@ -1490,14 +1499,29 @@ pub async fn build_kamino_vaults(
             let st = v.get("state")?;
             let num = |k: &str| -> f64 {
                 st.get(k)
-                    .and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+                    .and_then(|x| {
+                        x.as_f64()
+                            .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+                    })
                     .unwrap_or(0.0)
             };
             Some(V {
                 address,
-                name: st.get("name").and_then(|x| x.as_str()).unwrap_or("").trim().to_string(),
-                mint: st.get("tokenMint").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                decimals: st.get("tokenMintDecimals").and_then(|x| x.as_u64()).unwrap_or(0) as i32,
+                name: st
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+                mint: st
+                    .get("tokenMint")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                decimals: st
+                    .get("tokenMintDecimals")
+                    .and_then(|x| x.as_u64())
+                    .unwrap_or(0) as i32,
                 aum: num("prevAum"),
                 perf_bps: num("performanceFeeBps"),
                 mgmt_bps: num("managementFeeBps"),
@@ -1509,24 +1533,32 @@ pub async fn build_kamino_vaults(
     // Batch USD prices for the distinct token mints so we can rank by real TVL.
     // Jupiter price v3 is public (no key needed); on failure TVL falls back to 0
     // (that vault sinks to the bottom rather than erroring the whole list).
-    let mints: std::collections::HashSet<&str> =
-        vaults.iter().map(|v| v.mint.as_str()).filter(|m| !m.is_empty()).collect();
+    let mints: std::collections::HashSet<&str> = vaults
+        .iter()
+        .map(|v| v.mint.as_str())
+        .filter(|m| !m.is_empty())
+        .collect();
     let ids = mints.into_iter().collect::<Vec<_>>().join(",");
     let prices: std::collections::HashMap<String, f64> = if ids.is_empty() {
         Default::default()
     } else {
         // Jupiter Price v3 is a FLAT object keyed by mint; the price field is
         // `usdPrice` (not v2's `data[mint].price`).
-        match http.get(format!("https://api.jup.ag/price/v3?ids={ids}")).send().await {
+        match http
+            .get(format!("https://api.jup.ag/price/v3?ids={ids}"))
+            .send()
+            .await
+        {
             Ok(r) => {
                 let j: serde_json::Value = r.json().await.unwrap_or(serde_json::Value::Null);
                 j.as_object()
                     .map(|obj| {
                         obj.iter()
                             .filter_map(|(k, val)| {
-                                let p = val
-                                    .get("usdPrice")
-                                    .and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))?;
+                                let p = val.get("usdPrice").and_then(|x| {
+                                    x.as_f64()
+                                        .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+                                })?;
                                 Some((k.clone(), p))
                             })
                             .collect()
@@ -1538,13 +1570,23 @@ pub async fn build_kamino_vaults(
     };
 
     // Optional token filter: only vaults for the requested asset (symbol or mint).
-    if let Some(tok) = params.token.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(tok) = params
+        .token
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let want_mint = crate::solana::tokens::resolve_token_address(tok);
         vaults.retain(|v| v.mint == want_mint);
     }
     // Optional name filter: only vaults whose name contains the query (e.g. the
     // user asks for "Steakhouse" / "Allez" vaults). Case-insensitive substring.
-    if let Some(nm) = params.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(nm) = params
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let needle = nm.to_lowercase();
         vaults.retain(|v| v.name.to_lowercase().contains(&needle));
     }
@@ -1553,7 +1595,9 @@ pub async fn build_kamino_vaults(
         (v.aum / 10f64.powi(v.decimals)) * prices.get(&v.mint).copied().unwrap_or(0.0)
     };
     vaults.sort_by(|a, b| {
-        tvl_usd(b).partial_cmp(&tvl_usd(a)).unwrap_or(std::cmp::Ordering::Equal)
+        tvl_usd(b)
+            .partial_cmp(&tvl_usd(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     // Default to a compact top-N; the LLM raises `limit` when the user asks for more.
@@ -1565,17 +1609,22 @@ pub async fn build_kamino_vaults(
     // holders) — one /metrics call each, fetched concurrently. The cheap prevAum
     // proxy picked the top-N; these accurate figures drive the final display and a
     // re-sort. On a per-vault fetch failure we fall back to the proxy TVL.
-    let metrics: Vec<Option<serde_json::Value>> = futures::future::join_all(
-        top.iter().map(|v| {
-            let addr = v.address.clone();
-            async move { kamino_get(http, &format!("/kvaults/vaults/{addr}/metrics")).await.ok() }
-        }),
-    )
+    let metrics: Vec<Option<serde_json::Value>> = futures::future::join_all(top.iter().map(|v| {
+        let addr = v.address.clone();
+        async move {
+            kamino_get(http, &format!("/kvaults/vaults/{addr}/metrics"))
+                .await
+                .ok()
+        }
+    }))
     .await;
 
     let mf = |m: &serde_json::Value, k: &str| -> f64 {
         m.get(k)
-            .and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+            .and_then(|x| {
+                x.as_f64()
+                    .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+            })
             .unwrap_or(0.0)
     };
     let mut rows: Vec<(V, f64, f64, f64, f64, u64)> = top
@@ -1593,7 +1642,9 @@ pub async fn build_kamino_vaults(
                         mf(mm, "apy90d"),
                         tvl,
                         util,
-                        mm.get("numberOfHolders").and_then(|x| x.as_u64()).unwrap_or(0),
+                        mm.get("numberOfHolders")
+                            .and_then(|x| x.as_u64())
+                            .unwrap_or(0),
                     )
                 }
                 None => (0.0, 0.0, tvl_usd(&v), 0.0, 0),
@@ -1777,7 +1828,8 @@ pub async fn build_kamino_user_obligations(
 
     // Map reserve pubkey -> token symbol so the summary names the collateral /
     // debt tokens instead of dumping raw reserve addresses.
-    let mut reserve_symbol: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut reserve_symbol: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     if let Ok(metrics) =
         kamino_get(http, &format!("/kamino-market/{market}/reserves/metrics")).await
     {
@@ -1791,7 +1843,10 @@ pub async fn build_kamino_user_obligations(
         }
     }
     let sym_of = |reserve: &str| -> String {
-        reserve_symbol.get(reserve).cloned().unwrap_or_else(|| short_id(reserve))
+        reserve_symbol
+            .get(reserve)
+            .cloned()
+            .unwrap_or_else(|| short_id(reserve))
     };
     // The raw obligation is huge (full on-chain state + market config) and gets
     // truncated downstream — return a lean, USD-valued summary instead.
@@ -1799,7 +1854,12 @@ pub async fn build_kamino_user_obligations(
         .iter()
         .map(|o| {
             let rs = o.get("refreshedStats").cloned().unwrap_or_default();
-            let g = |k: &str| rs.get(k).and_then(|v| v.as_str()).unwrap_or("0").to_string();
+            let g = |k: &str| {
+                rs.get(k)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("0")
+                    .to_string()
+            };
             let state = o.get("state");
             let active_tokens = |arr_key: &str, res_key: &str, amt_key: &str| -> Vec<String> {
                 state
@@ -1809,7 +1869,10 @@ pub async fn build_kamino_user_obligations(
                         items
                             .iter()
                             .filter(|it| {
-                                it.get(amt_key).and_then(|v| v.as_str()).map(|a| a != "0").unwrap_or(false)
+                                it.get(amt_key)
+                                    .and_then(|v| v.as_str())
+                                    .map(|a| a != "0")
+                                    .unwrap_or(false)
                             })
                             .filter_map(|it| it.get(res_key).and_then(|v| v.as_str()))
                             .filter(|r| *r != "11111111111111111111111111111111")

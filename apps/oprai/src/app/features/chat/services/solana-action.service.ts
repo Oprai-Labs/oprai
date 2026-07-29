@@ -160,6 +160,7 @@ const DATA_ONLY_ACTION_TYPES_LIST: string[] = [
   'meteora_dammv2_get_pool_group', 'meteora_dammv2_get_pool',
   'meteora_dammv2_get_pool_ohlcv', 'meteora_dammv2_get_pool_volume_history',
   'meteora_dammv2_get_protocol_metrics',
+  'meteora_dammv2_get_user_positions',
   // Meteora DAMM v1 data queries
   'meteora_dammv1_get_pools', 'meteora_dammv1_get_pool_configs',
   'meteora_dammv1_search_pools', 'meteora_dammv1_get_farms',
@@ -301,6 +302,8 @@ const VERSIONED_TX_TYPES: string[] = [
   'meteora_dammv2_swap',
   'meteora_dammv2_add_liquidity',
   'meteora_dammv2_remove_liquidity',
+  'meteora_dammv2_claim_fee',
+  'meteora_dammv2_close_position',
   // Meteora Dynamic Vault — build_vtx_b64 versioned
   'meteora_vault_deposit',
   'meteora_vault_withdraw',
@@ -494,21 +497,51 @@ export class SolanaActionService {
    * `actionTxIndex`. Each setup tx is a separate wallet approval; we wait for
    * confirmation between them (the LUT must exist before the next extend/deposit).
    */
+  /**
+   * Sign and confirm every step that must land BEFORE the action's own
+   * transaction, in order, and return the transaction the caller should treat
+   * as the action itself (null = use buildResult.transaction unchanged).
+   *
+   * Two shapes arrive here:
+   *   - `transactions[] + actionTxIndex` (Kamino Multiply's lookup-table setup)
+   *   - `executionSteps.type === 'sequential'` (Meteora close: remove+claim,
+   *     then close the account)
+   * The second was never handled: the flow signed buildResult.transaction and
+   * stopped, so closing a position removed its liquidity, left the account
+   * open with its rent locked, and still reported success.
+   */
   private async signAndConfirmSetupTxs(
     buildResult: BuildResponse,
     web3: typeof import('@solana/web3.js'),
     connection: ReturnType<typeof createSolanaConnection>,
     callbacks: ActionCallbacks,
-  ): Promise<void> {
+  ): Promise<string | null> {
+    let steps: Array<{ tx: string; label?: string }> = [];
+
     const ordered = (buildResult as { transactions?: string[] }).transactions;
     const actionTxIndex = (buildResult as { actionTxIndex?: number }).actionTxIndex ?? 0;
-    if (!Array.isArray(ordered) || actionTxIndex <= 0) return;
+    if (Array.isArray(ordered) && actionTxIndex > 0) {
+      steps = ordered.map(tx => ({ tx }));
+    } else {
+      const es = (buildResult as { executionSteps?: any }).executionSteps
+        ?? (buildResult as { execution_steps?: any }).execution_steps;
+      if (es?.type === 'sequential' && Array.isArray(es.transactions)) {
+        steps = es.transactions
+          .map((st: any) => ({ tx: typeof st === 'string' ? st : st?.transaction, label: st?.label }))
+          .filter((st: { tx?: string }) => !!st.tx);
+      }
+    }
+    if (steps.length < 2) return null;
 
-    const setupTxs = ordered.slice(0, actionTxIndex);
-    for (let i = 0; i < setupTxs.length; i++) {
-      callbacks.onStatus?.(`Setting up position account (${i + 1}/${setupTxs.length})…`);
+    // Everything but the last is a prerequisite; the last IS the action.
+    const setup = steps.slice(0, -1);
+    for (let i = 0; i < setup.length; i++) {
+      callbacks.onStatus?.(setup[i].label
+        ? `${setup[i].label} (${i + 1}/${steps.length})…`
+        : `Step ${i + 1} of ${steps.length}…`);
       callbacks.onSign?.();
-      const tx = web3.VersionedTransaction.deserialize(this.base64ToUint8Array(setupTxs[i]));
+      const tx = web3.VersionedTransaction.deserialize(this.base64ToUint8Array(setup[i].tx));
+      await this.refreshBlockhash(tx, connection);
       const signed = (await Promise.race([
         this.walletService.signTransaction(tx),
         new Promise<never>((_, reject) =>
@@ -520,9 +553,31 @@ export class SolanaActionService {
         preflightCommitment: 'confirmed',
       });
       const ok = await this.waitForSignatureConfirmation(connection, sig, 90_000);
-      if (!ok) throw new Error('Position account setup did not confirm — please try again.');
+      if (!ok) throw new Error(`Step ${i + 1} didn\u2019t confirm \u2014 please try again.`);
     }
-    callbacks.onStatus?.('Opening position…');
+    const final = steps[steps.length - 1];
+    callbacks.onStatus?.(final.label ? `${final.label}\u2026` : 'Finishing\u2026');
+    return final.tx;
+  }
+
+  /**
+   * Stamp a fresh blockhash on an unsigned transaction. Every step of a
+   * sequential action is built at the same moment, but the later ones are
+   * signed only after the earlier ones confirm — up to 90s each. By then the
+   * blockhash they were built with can be gone, and the step fails with an
+   * expiry error that has nothing to do with what the user did.
+   */
+  private async refreshBlockhash(
+    tx: VersionedTransaction,
+    connection: ReturnType<typeof createSolanaConnection>,
+  ): Promise<void> {
+    try {
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
+      tx.message.recentBlockhash = blockhash;
+    } catch {
+      // Keep the original blockhash — often still valid, and failing here
+      // would block a step that would otherwise land.
+    }
   }
 
   /**
@@ -1502,9 +1557,9 @@ export class SolanaActionService {
     // main tx can reference it (Kamino Multiply's per-user lookup table: create +
     // extend, then the leveraged deposit compresses against it). Sign + confirm
     // those first, in order; the main tx (buildResult.transaction) follows below.
-    await this.signAndConfirmSetupTxs(buildResult, web3, connection, callbacks);
+    const finalStepTx = await this.signAndConfirmSetupTxs(buildResult, web3, connection, callbacks);
 
-    const txBuffer = this.base64ToUint8Array(buildResult.transaction!);
+    const txBuffer = this.base64ToUint8Array(finalStepTx ?? buildResult.transaction!);
     // Detect versioned-vs-legacy from the bytes themselves, not just the static
     // type list. Some actions (e.g. pumpfun_buy/sell) return a LEGACY bonding-curve
     // tx OR a VERSIONED Jupiter tx (graduated tokens routed through the aggregator)
@@ -1519,6 +1574,13 @@ export class SolanaActionService {
       deserializedTx = web3.VersionedTransaction.deserialize(txBuffer);
     } else {
       deserializedTx = web3.Transaction.from(txBuffer);
+    }
+
+    // The final step of a sequential action was built before the earlier steps
+    // ran, so its blockhash is as old as their confirmations — refresh it here
+    // or the submit fails on expiry after the user has already signed.
+    if (finalStepTx && isVersioned) {
+      await this.refreshBlockhash(deserializedTx as VersionedTransaction, connection);
     }
 
     // Get the wallet's SOL balance and the exact tx fee side-by-side
@@ -2620,8 +2682,12 @@ export class SolanaActionService {
         const resolvedFromSpread = minBinId !== undefined && maxBinId !== undefined;
         return {
           pool: p['pool'] ?? p['poolId'],
-          amountX: p['amountX'] ?? p['amountA'],
-          amountY: p['amountY'] ?? p['amountB'],
+          // A single-sided range legitimately deposits nothing on one side —
+          // the card disables that input, so the key would otherwise vanish
+          // from the JSON and the backend would reject the whole action for a
+          // missing field. Zero is the answer, not absence.
+          amountX: p['amountX'] ?? p['amountA'] ?? '0',
+          amountY: p['amountY'] ?? p['amountB'] ?? '0',
           minBinId,
           maxBinId,
           ...(resolvedFromSpread ? {} : {
@@ -2683,8 +2749,12 @@ export class SolanaActionService {
         const resolvedFromSpread = minBinId !== undefined && maxBinId !== undefined;
         return {
           pool: p['pool'] ?? p['poolId'],
-          amountX: p['amountX'] ?? p['amountA'],
-          amountY: p['amountY'] ?? p['amountB'],
+          // A single-sided range legitimately deposits nothing on one side —
+          // the card disables that input, so the key would otherwise vanish
+          // from the JSON and the backend would reject the whole action for a
+          // missing field. Zero is the answer, not absence.
+          amountX: p['amountX'] ?? p['amountA'] ?? '0',
+          amountY: p['amountY'] ?? p['amountB'] ?? '0',
           minBinId,
           maxBinId,
           ...(resolvedFromSpread ? {} : {
@@ -2703,8 +2773,12 @@ export class SolanaActionService {
       case 'meteora_add_to_position':
         return {
           position: p['position'],
-          amountX: p['amountX'] ?? p['amountA'],
-          amountY: p['amountY'] ?? p['amountB'],
+          // A single-sided range legitimately deposits nothing on one side —
+          // the card disables that input, so the key would otherwise vanish
+          // from the JSON and the backend would reject the whole action for a
+          // missing field. Zero is the answer, not absence.
+          amountX: p['amountX'] ?? p['amountA'] ?? '0',
+          amountY: p['amountY'] ?? p['amountB'] ?? '0',
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
           strategy: p['strategy'],
         };
@@ -3347,29 +3421,35 @@ export class SolanaActionService {
         };
 
       // ── Meteora DAMM v2 ───────────────────────────────────────────────────────
+      // Built by @meteora-ag/cp-amm-sdk in the TS service. The pool decides the
+      // output side of a swap and the ratio of a deposit, so neither is a
+      // parameter here — sending an outputMint or a second amount would only
+      // give the SDK something to disagree with.
       case 'meteora_dammv2_swap':
         return {
-          inputMint: p['inputMint'],
-          outputMint: p['outputMint'],
-          amount: p['amount'],
+          pool: p['pool'] ?? p['poolId'],
+          inputMint: p['inputMint'] ?? p['tokenA'],
+          amount: p['amount'] ?? p['amountA'] ?? p['amountX'],
           ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
-          ...(p['pool'] ? { pool: p['pool'] } : {}),
         };
       case 'meteora_dammv2_add_liquidity':
         return {
           pool: p['pool'] ?? p['poolId'],
-          maxAmountA: p['maxAmountA'] ?? p['tokenAAmount'] ?? p['amountA'],
-          maxAmountB: p['maxAmountB'] ?? p['tokenBAmount'] ?? p['amountB'],
+          // One side is enough; the other follows from the pool's ratio.
+          amountX: p['amountX'] ?? p['amountA'] ?? '0',
+          amountY: p['amountY'] ?? p['amountB'] ?? '0',
+          ...(p['position'] ? { position: p['position'] } : {}),
           ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
         };
       case 'meteora_dammv2_remove_liquidity':
         return {
-          pool: p['pool'] ?? p['poolId'],
-          lpAmount: p['lpAmount'] ?? p['amount'],
-          positionNft: p['positionNft'] ?? p['positionId'],
-          ...(p['minAmountA'] ? { minAmountA: p['minAmountA'] } : {}),
-          ...(p['minAmountB'] ? { minAmountB: p['minAmountB'] } : {}),
+          position: p['position'] ?? p['positionId'],
+          ...(p['bpsToRemove'] ? { bpsToRemove: parseInt(p['bpsToRemove']) } : {}),
+          ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
         };
+      case 'meteora_dammv2_claim_fee':
+      case 'meteora_dammv2_close_position':
+        return { position: p['position'] ?? p['positionId'] };
 
       // ── Meteora Dynamic Vault ─────────────────────────────────────────────────
       case 'meteora_vault_deposit':

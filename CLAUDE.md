@@ -210,6 +210,35 @@ Single `.env.example` at repo root (pre-filled with generated secrets). Key vari
 | `BIRDEYE_API_KEY` | No | Market data API (proxied via gateway) |
 | `JUPITER_API_KEY` | No | Jupiter API key |
 
+## Branching
+
+`main` is the trunk and should match what production runs. Work happens on
+short-lived branches cut **from current main** and merged back as soon as the
+unit is done and verified — not when the whole area feels finished.
+
+| Prefix | For | Example |
+|--------|-----|---------|
+| `feat/<protocol>-<product>` | one protocol's product surface | `feat/meteora-dlmm` |
+| `fix/<area>-<subject>` | a defect outside the current feature | `fix/gateway-rpc-fallthrough` |
+| `chore/<subject>` | tooling, assets, deps | `chore/brand-favicon` |
+
+Two rules that matter more than the naming:
+
+**One branch, one subject.** A protocol branch is for that protocol. When work
+on it uncovers something cross-cutting — a gateway bug, a wallet-error
+message, an icon — that fix belongs on its own short branch off main, not
+carried along as a passenger. Passengers are why a "DLMM" branch ends up
+holding a favicon: each one is individually reasonable, and together they make
+the branch unreviewable and unrevertable.
+
+**Merge when the unit is verified, not when the area is finished.** A branch
+that stays open across several sub-features grows a diff nobody can review and
+holds unrelated fixes hostage — a gateway fix that ships to prod but sits
+unmerged for a day is a fix main doesn't have. If a branch is running in
+production, main is already behind: merge it.
+
+Merge with `--no-ff` so the branch's scope stays legible in the history.
+
 ## CI/CD
 
 5 GitHub Actions workflows with path-based triggers:

@@ -188,9 +188,79 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
   },
 };
 
+/**
+ * Raw parameter keys → what the user actually sees on the card. A backend
+ * validation error names the wire field (`amountY`, `poolId`); repeating that
+ * at the user tells them nothing, because no label on screen says "amountY".
+ */
+const PARAM_LABELS: Record<string, string> = {
+  amount: 'amount', amountA: 'first token amount', amountB: 'second token amount',
+  amountX: 'first token amount', amountY: 'second token amount',
+  amountIn: 'amount', amountOut: 'amount', collateralAmount: 'collateral amount',
+  lpAmount: 'LP amount', bpsToRemove: 'withdrawal percentage',
+  pool: 'pool', poolId: 'pool', position: 'position', positionId: 'position',
+  vault: 'vault', market: 'market', reserve: 'reserve', obligation: 'loan',
+  mint: 'token', tokenA: 'first token', tokenB: 'second token',
+  inputMint: 'token you pay', outputMint: 'token you receive',
+  to: 'recipient address', recipient: 'recipient address', wallet: 'wallet',
+  minBinId: 'price range', maxBinId: 'price range',
+  minPrice: 'minimum price', maxPrice: 'maximum price',
+  slippageBps: 'slippage', slippage: 'slippage', leverage: 'leverage',
+  strategy: 'strategy', symbol: 'symbol', name: 'name',
+};
+
+/**
+ * Anchor error NAMES that reach us in a simulation log tail. The numeric codes
+ * are mapped elsewhere; these are the ones that arrive as text.
+ */
+const ANCHOR_NAME_HINTS: Array<[RegExp, string]> = [
+  [/NonEmptyPosition/i, 'This position still holds liquidity. Withdraw it first, then close the position.'],
+  [/AccountNotInitialized/i, 'An account this action needs doesn’t exist yet. It has to be created first — try again in a moment.'],
+  [/NotEnoughAccountKeys|AccountNotEnoughKeys/i, 'This action couldn’t be prepared correctly. Please try again in a moment.'],
+  [/InstructionDidNotDeserialize/i, 'This action couldn’t be prepared correctly. Please try again in a moment.'],
+  [/ConstraintSeeds|ConstraintOwner|ConstraintMut/i, 'The protocol rejected one of the accounts for this action. Please try again in a moment.'],
+  [/InsufficientFunds|insufficient lamports|insufficient funds/i, 'Not enough balance to complete this — check the amount and that the wallet has some SOL for fees.'],
+  [/ExceededBinSlippageTolerance/i, 'The pool price moved past the allowed range while preparing this. Try again, or widen the slippage.'],
+  [/SlippageToleranceExceeded|slippage/i, 'The price moved more than your slippage allows. Raise the slippage or try again.'],
+];
+
+/**
+ * True when a string still reads like machinery rather than a sentence:
+ * identifiers, field names, codes, payloads. Everything genuinely useful is
+ * mapped to prose before this point, so anything tripping these markers is by
+ * definition unmapped — and a user can do nothing with it.
+ */
+function looksTechnical(raw: string): boolean {
+  // Already-shortened addresses ("4jFv…pxcJV") are a deliberate, readable
+  // reference — don't let their mixed case trip the identifier heuristics.
+  const text = raw.replace(/\S*…\S*/g, '');
+  return (
+    /`[^`]+`/.test(text) ||                       // backtick-quoted identifiers
+    /\b[a-z]+(?:_[a-z0-9]+){1,}\b/.test(text) ||  // snake_case: meteora_add_to_position
+    /\b[a-z]+[A-Z][a-zA-Z]*\b/.test(text) ||      // camelCase: amountY, poolId
+    /\b[A-Z][a-z]+[A-Z][a-zA-Z]*\b/.test(text) || // PascalCase error names
+    /error decoding response|failed to parse|reqwest|panicked|unwrap|deserialize/i.test(text) ||
+    /status \d{3}|\bhttp\b|\b\d{3}:\s|\{\s*"|\[\s*\{|https?:\/\/|<[a-z!/]/i.test(text) ||
+    /0x[0-9a-f]+/i.test(text) ||
+    /\bnull\b|\bundefined\b|\bNone\b|context canceled/i.test(text) ||
+    // Implementation vocabulary. A sentence can be perfectly grammatical and
+    // still be written for whoever maintains the service: "position lookup by
+    // id is temporarily unsupported after the datapi migration" tells a user
+    // nothing they can do.
+    /\b(migration|endpoint|upstream|proxy|gateway|discriminator|serializ|deserializ|unsupported|not implemented|datapi|sdk|rpc|payload|schema|struct|enum)\b/i.test(text)
+  );
+}
+
 function sanitizeErrorMessage(msg: string, actionType?: string): string {
-  // Strip internal API instructions (e.g. "Upload via POST /upload/...") that leak from backend errors.
-  let out = msg.replace(/\.\s+(Upload|Call|Use|POST|GET|See|Retry)\s+.*/i, '.').trim();
+  // Strip internal API instructions (e.g. "Upload via POST /upload/...") that
+  // leak from backend errors. "See" is deliberately NOT in this list: "See
+  // explorer for details" is written for the user, and stripping it left the
+  // card saying only "The transaction failed on-chain."
+  let out = msg.replace(/\.\s+(Upload|Call|Use|POST|GET|Retry)\s+.*/i, '.').trim();
+
+  // Base58 addresses are for explorers, not sentences. Shorten rather than
+  // discard: the surrounding message is often the useful part.
+  out = out.replace(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g, m => `${m.slice(0, 4)}…${m.slice(-4)}`);
 
   // web3.js SendTransactionError stringifies with the FULL program-log array and
   // a developer-only "call getLogs()" tail. Never surface raw logs to users —
@@ -277,6 +347,41 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
     return `The transaction simulation failed before signing. Check that your wallet has enough SOL for fees and that the amount meets the protocol's minimum.${floorSuffix}`;
   }
 
+  // Backend parameter validation, e.g.
+  //   "Invalid meteora_add_to_position params: missing field `amountY`"
+  // Name the field the way the CARD names it — nothing on screen says
+  // "amountY", so echoing the wire key tells the user nothing they can act on.
+  {
+    const missing = out.match(/missing field\s*[`'"]?([A-Za-z0-9_]+)/);
+    if (missing) {
+      const label = PARAM_LABELS[missing[1]];
+      return label
+        ? `This action still needs the ${label}. Fill it in and try again.`
+        : 'This action is missing one of its required values. Check the fields above and try again.';
+    }
+    const invalidField = out.match(/invalid (?:value for )?(?:field\s*)?[`'"]([A-Za-z0-9_]+)[`'"]/i);
+    if (invalidField) {
+      const label = PARAM_LABELS[invalidField[1]];
+      return label
+        ? `The ${label} isn’t valid. Check it and try again.`
+        : 'One of the values for this action isn’t valid. Check the fields above and try again.';
+    }
+    if (/^invalid\s+[a-z0-9_]+\s+params/i.test(out)) {
+      return 'Some of the values for this action aren’t valid. Check the fields above and try again.';
+    }
+  }
+
+  // Simulation could not be reached at all. The status/detail tail is for the
+  // console, not the card.
+  if (/sim:unavailable/i.test(out)) {
+    return 'Couldn’t check this transaction before signing. Please try again in a moment.';
+  }
+
+  // Anchor error NAMES surfaced in a log tail.
+  for (const [re, hint] of ANCHOR_NAME_HINTS) {
+    if (re.test(out)) return hint;
+  }
+
   // ── Never surface a raw upstream API response body to the user ────────────
   // Backend errors arrive wrapped in an AppError Display prefix, e.g.
   // "Jupiter API error: <message>" or "Internal error: Jupiter Perps API error
@@ -310,10 +415,13 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
     return 'Pump.fun is temporarily unavailable. Please try again in a moment.';
   }
 
-  // Catch-all: only fires when the message STILL looks like a raw technical
-  // body (JSON, status codes, parse/reqwest errors, HTML, a URL) — clean
-  // sentences from the backend fall through and are shown as-is.
-  if (/error decoding response|failed to parse|reqwest|panicked|status \d{3}|\{\s*"|https?:\/\/|<[a-z!/]/i.test(out)) {
+  // Catch-all. Everything a user can act on has been mapped to prose above, so
+  // whatever is still here is unmapped by definition — and if it still reads
+  // like machinery (identifiers, field names, codes, payloads) it is worse
+  // than useless on a card: it looks like the app broke rather than like
+  // something the user can fix. Keep the original in the console for us.
+  if (looksTechnical(out)) {
+    console.error('[action] unmapped error:', { actionType, raw: msg });
     return 'Something went wrong completing this action. Please try again in a moment.';
   }
 
@@ -1838,9 +1946,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const binStep = parseFloat(p['binStep'] ?? '0');
     const activeBinId = parseFloat(p['activeBinId'] ?? '0');
     if (!(binStep > 0)) return null;
-    const spread = Math.max(1, Math.floor(parseFloat(p['binSpread'] ?? '15')));
     const strategy = (p['strategy'] ?? 'spot') as DlmmStrategy;
-    const range = rangeFromSpread(activeBinId, spread);
+    // Prefer the explicit bin ids — they are what the deposit submits and they
+    // can be ASYMMETRIC (Meteora's own default is). Deriving a symmetric range
+    // from binSpread instead meant moving one bound alone changed nothing: the
+    // ratio stayed put, so the amounts never responded to the range. Fall back
+    // to the spread only when no explicit range exists yet.
+    const explicitMin = parseInt(p['minBinId'] ?? '', 10);
+    const explicitMax = parseInt(p['maxBinId'] ?? '', 10);
+    const range = Number.isFinite(explicitMin) && Number.isFinite(explicitMax)
+      ? { minBinId: Math.min(explicitMin, explicitMax), maxBinId: Math.max(explicitMin, explicitMax) }
+      : rangeFromSpread(activeBinId, Math.max(1, Math.floor(parseFloat(p['binSpread'] ?? '15'))));
     return computeDlmmRatio({
       activeBinId,
       minBinId: range.minBinId,
@@ -1849,12 +1965,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       strategy,
     });
   });
-  /** Decimals scale factor (Y per X has units `10^(decY - decX)` baked in). */
+  /**
+   * Raw -> human scale for a DLMM price (Y per X).
+   *
+   *   human = (y_raw / 10^decY) / (x_raw / 10^decX) = raw * 10^(decX - decY)
+   *
+   * This was inverted, which is a factor of 10^6 on SOL/USDC (9 vs 6
+   * decimals): the form offered 4,469 SOL against 0.33 USDC. It feeds both the
+   * displayed active price and the amount ratio, so one sign error moved every
+   * number on the card.
+   */
   private readonly dlmmDecimalScale = computed(() => {
     const p = this.editParams();
     const decX = parseInt(p['tokenADecimals'] ?? '9', 10);
     const decY = parseInt(p['tokenBDecimals'] ?? '9', 10);
-    return Math.pow(10, decY - decX);
+    return Math.pow(10, decX - decY);
   });
   /** True when the chosen range only collects token Y (range below active). */
   readonly dlmmSingleSidedY = computed(() => {
@@ -1960,6 +2085,447 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** True when the current action is Raydium CLMM open_position — the
    *  template flips the field-list-based form into the dedicated CLMM layout
    *  (current price + range presets + dual amounts + advanced expander). */
+  // ── Meteora panels ────────────────────────────────────────────────────────
+  // Meteora spans 25 write actions across DLMM, DAMM v1/v2, Dynamic Vaults and
+  // Stake2Earn. Rather than 25 bespoke layouts, they collapse into five
+  // archetypes that reuse the same panel language as the swap / CLMM cards.
+  private static readonly METEORA_DUAL = new Set([
+    'meteora_add_liquidity', 'meteora_dammv2_add_liquidity',
+    'meteora_open_position', 'meteora_add_to_position', 'meteora_dammv1_deposit',
+  ]);
+  /** DAMM v2 is constant-product: no bins, no range, so it takes the plain
+   *  two-amount panel rather than the DLMM range controls. */
+  readonly isDammV2 = computed(() => (this.action?.type ?? '').includes('dammv2'));
+  private static readonly METEORA_REDUCE = new Set([
+    'meteora_remove_liquidity', 'meteora_dammv2_remove_liquidity', 'meteora_dammv1_withdraw',
+  ]);
+  private static readonly METEORA_SINGLE = new Set([
+    'meteora_stake', 'meteora_unstake', 'meteora_vault_deposit', 'meteora_vault_withdraw',
+    'meteora_s2e_stake', 'meteora_s2e_unstake',
+  ]);
+  private static readonly METEORA_CONFIRM = new Set([
+    'meteora_dammv2_claim_fee', 'meteora_dammv2_close_position',
+    'meteora_close_position', 'meteora_claim_fees', 'meteora_claim_rewards',
+    'meteora_harvest', 'meteora_s2e_claim_fee', 'meteora_s2e_cancel_unstake',
+    'meteora_s2e_withdraw',
+  ]);
+
+  readonly isMeteoraDual = computed(() => ActionCardComponent.METEORA_DUAL.has(this.action.type));
+  readonly isMeteoraReduce = computed(() => ActionCardComponent.METEORA_REDUCE.has(this.action.type));
+  readonly isMeteoraSingle = computed(() => ActionCardComponent.METEORA_SINGLE.has(this.action.type));
+  readonly isMeteoraConfirm = computed(() => ActionCardComponent.METEORA_CONFIRM.has(this.action.type));
+
+  /** True for the DLMM variants, which add a bin range + distribution shape
+   *  on top of the plain two-token deposit. */
+  readonly isMeteoraDlmm = computed(() => {
+    const t = this.action.type;
+    if (t === 'meteora_open_position' || t === 'meteora_add_to_position') return true;
+    return t === 'meteora_add_liquidity' && !!this.editParams()['binStep'];
+  });
+
+  readonly METEORA_STRATEGIES: ReadonlyArray<{ value: string; label: string; hint: string }> = [
+    { value: 'spot',   label: 'Spot',    hint: 'Equal weight per bin' },
+    { value: 'curve',  label: 'Curve',   hint: 'Concentrated at the current price' },
+    { value: 'bidask', label: 'Bid-Ask', hint: 'Weighted toward the range edges' },
+  ];
+
+  meteoraStrategy(): string {
+    return (this.editParams()['strategy'] || 'spot').toLowerCase();
+  }
+  setMeteoraStrategy(v: string): void { this.setEditParam('strategy', v); }
+
+  // ── DLMM range: PRICE is the input, bins are the result ───────────────────
+  // Meteora's own UI works this way — you move the price bounds and the bin
+  // count follows. A bin is a fixed geometric step, so relative to the active
+  // bin: price(bin) = currentPrice x (1 + binStep/10000)^(bin - activeBin).
+  // Working relative to the active bin keeps token decimals out of the math.
+  //
+  // `minBinId`/`maxBinId` are the single source of truth (the submit path
+  // already prefers them), which also allows the asymmetric ranges Meteora
+  // permits — its own default sits at roughly -1.23% / +1.17%.
+
+  /**
+   * Bin ceiling for ONE add-liquidity transaction.
+   *
+   * Our builder uses add_liquidity_by_weight, which serialises the shape as a
+   * per-bin vector — 6 bytes each (bin_id i32 + weight u16). Measured against
+   * a real pool: 69 bins produced a 1235-byte transaction, 3 over Solana's
+   * 1232 limit, which puts the base transaction near 821 bytes and the hard
+   * ceiling at 68 bins. 60 keeps roughly 50 bytes of headroom for pools that
+   * need an extra bin-array or ATA account.
+   *
+   * Meteora's own UI reaches 69 because it sends add_liquidity_by_strategy,
+   * where the shape is a parameter rather than a list. Switching to that
+   * instruction is what would buy back the range.
+   */
+  readonly METEORA_MAX_BINS = 60;
+
+  private meteoraStep(): number | null {
+    const bs = parseFloat(this.editParams()['binStep'] ?? '');
+    return bs > 0 ? bs / 10_000 : null;
+  }
+  private meteoraActiveBin(): number | null {
+    const v = parseInt(this.editParams()['activeBinId'] ?? '', 10);
+    return Number.isFinite(v) ? v : null;
+  }
+  private meteoraCurrentPrice(): number | null {
+    const v = parseFloat(this.editParams()['currentPrice'] ?? '');
+    return v > 0 ? v : null;
+  }
+
+  /** Price at a bin id, relative to the active bin. */
+  private meteoraPriceAtBin(bin: number): number | null {
+    const step = this.meteoraStep();
+    const active = this.meteoraActiveBin();
+    const price = this.meteoraCurrentPrice();
+    if (step === null || active === null || price === null) return null;
+    return price * Math.pow(1 + step, bin - active);
+  }
+
+  /** Nearest bin id for a price, relative to the active bin. */
+  private meteoraBinAtPrice(target: number): number | null {
+    const step = this.meteoraStep();
+    const active = this.meteoraActiveBin();
+    const price = this.meteoraCurrentPrice();
+    if (step === null || active === null || price === null || !(target > 0)) return null;
+    return active + Math.round(Math.log(target / price) / Math.log(1 + step));
+  }
+
+  /** Bin spread (± bins around the active bin) with the backend's default. */
+  meteoraSpread(): string { return this.editParams()['binSpread'] ?? '15'; }
+
+  /** The resolved range: explicit bin ids when set, else the ± spread. */
+  readonly meteoraRange = computed<{
+    minBin: number; maxBin: number; bins: number;
+    minPrice: number | null; maxPrice: number | null;
+    minPct: number | null; maxPct: number | null;
+  } | null>(() => {
+    const p = this.editParams();
+    const active = this.meteoraActiveBin();
+    if (active === null) return null;
+    let minBin = parseInt(p['minBinId'] ?? '', 10);
+    let maxBin = parseInt(p['maxBinId'] ?? '', 10);
+    if (!Number.isFinite(minBin) || !Number.isFinite(maxBin)) {
+      const spread = parseInt(this.meteoraSpread(), 10);
+      if (!Number.isFinite(spread) || spread <= 0) return null;
+      minBin = active - spread;
+      maxBin = active + spread;
+    }
+    if (maxBin < minBin) [minBin, maxBin] = [maxBin, minBin];
+    const minPrice = this.meteoraPriceAtBin(minBin);
+    const maxPrice = this.meteoraPriceAtBin(maxBin);
+    const cur = this.meteoraCurrentPrice();
+    return {
+      minBin, maxBin,
+      bins: maxBin - minBin + 1,
+      minPrice, maxPrice,
+      minPct: minPrice !== null && cur ? (minPrice / cur - 1) * 100 : null,
+      maxPct: maxPrice !== null && cur ? (maxPrice / cur - 1) * 100 : null,
+    };
+  });
+
+  readonly meteoraTotalBins = computed<number>(() => this.meteoraRange()?.bins ?? 0);
+
+  /** True when the range exceeds what one position can hold. */
+  readonly meteoraBinsOverflow = computed(() => this.meteoraTotalBins() > this.METEORA_MAX_BINS);
+
+  private writeMeteoraBins(minBin: number, maxBin: number): void {
+    const active = this.meteoraActiveBin();
+    this.editParams.update(ep => ({
+      ...ep,
+      minBinId: String(minBin),
+      maxBinId: String(maxBin),
+      // Keep the ± control meaningful for symmetric ranges.
+      ...(active !== null ? { binSpread: String(Math.max(active - minBin, maxBin - active)) } : {}),
+    }));
+    // The range decides how the deposit splits between the two tokens, so the
+    // amounts have to follow it. The auto-balance effect only recomputes the
+    // side opposite the last edit, so point it at whichever side has a value
+    // when the user has moved the range without typing an amount first.
+    if (this.dlmmLastEdited() === null) {
+      const p = this.editParams();
+      if (parseFloat(p['amountA'] ?? '') > 0) this.dlmmLastEdited.set('A');
+      else if (parseFloat(p['amountB'] ?? '') > 0) this.dlmmLastEdited.set('B');
+    }
+  }
+
+  setMeteoraSpread(v: string): void {
+    const spread = parseInt(this.normalizeDecimal(v), 10);
+    const active = this.meteoraActiveBin();
+    if (!Number.isFinite(spread) || spread <= 0 || active === null) {
+      this.setEditParam('binSpread', this.normalizeDecimal(v));
+      return;
+    }
+    this.writeMeteoraBins(active - spread, active + spread);
+  }
+
+  /** User typed a price bound — convert it to a bin id, Meteora-style. */
+  setMeteoraMinPrice(v: string): void {
+    const bin = this.meteoraBinAtPrice(parseFloat(this.normalizeDecimal(v)));
+    const r = this.meteoraRange();
+    if (bin === null || !r) return;
+    this.writeMeteoraBins(Math.min(bin, r.maxBin), r.maxBin);
+  }
+  setMeteoraMaxPrice(v: string): void {
+    const bin = this.meteoraBinAtPrice(parseFloat(this.normalizeDecimal(v)));
+    const r = this.meteoraRange();
+    if (bin === null || !r) return;
+    this.writeMeteoraBins(r.minBin, Math.max(bin, r.minBin));
+  }
+  /** +/- steppers on each bound, one bin at a time (Meteora has these too). */
+  nudgeMeteoraBound(which: 'min' | 'max', delta: number): void {
+    const r = this.meteoraRange();
+    if (!r) return;
+    if (which === 'min') this.writeMeteoraBins(Math.min(r.minBin + delta, r.maxBin), r.maxBin);
+    else this.writeMeteoraBins(r.minBin, Math.max(r.maxBin + delta, r.minBin));
+  }
+
+  /**
+   * Seed a range that actually suits the pool. The old default was a flat
+   * "15 bins" regardless of bin step — which is +/-0.6% on a 4 bp pool but
+   * +/-16% on a 100 bp one, so the same number meant wildly different
+   * positions. Target a price band instead and clamp to the per-position bin
+   * ceiling.
+   */
+  private seedMeteoraRange(): void {
+    const p = this.editParams();
+    if (p['minBinId'] || p['maxBinId']) return;   // explicit range already given
+    const step = this.meteoraStep();
+    const active = this.meteoraActiveBin();
+    if (step === null || active === null) return;
+    const TARGET_BAND = 0.05; // +/-5% around the active price
+    const perSide = Math.max(
+      1,
+      Math.min(
+        Math.floor((this.METEORA_MAX_BINS - 1) / 2),
+        Math.round(Math.log(1 + TARGET_BAND) / Math.log(1 + step)),
+      ),
+    );
+    this.writeMeteoraBins(active - perSide, active + perSide);
+  }
+
+  /**
+   * Pool / position header for any Meteora panel: the pair, its logos and the
+   * on-chain reference (pool, position or vault) the action targets.
+   */
+  readonly meteoraView = computed<{
+    pair: string; symA: string; symB: string;
+    logoA: string | null; logoB: string | null;
+    refLabel: string; ref: string; kind: string;
+  } | null>(() => {
+    const t = this.action.type;
+    if (!t.startsWith('meteora_')) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] || this.resolveTokenDisplay(p['tokenA'] ?? '').symbol || '';
+    const symB = p['tokenBSymbol'] || this.resolveTokenDisplay(p['tokenB'] ?? '').symbol || '';
+    const single = p['tokenMint'] ?? '';
+    const singleSym = single ? this.resolveTokenDisplay(single).symbol : '';
+
+    const ref = p['position'] || p['positionId'] || p['positionNft'] || p['poolId'] || p['pool'] || p['vault'] || '';
+    const refLabel = (p['position'] || p['positionId'] || p['positionNft']) ? 'Position'
+      : p['vault'] ? 'Vault' : 'Pool';
+    const kind = this.isMeteoraDlmm() ? 'DLMM'
+      : t.includes('dammv2') ? 'DAMM V2'
+      : t.includes('dammv1') ? 'DAMM V1'
+      : t.includes('s2e') ? 'STAKE2EARN'
+      : t.includes('vault') ? 'VAULT'
+      : 'DLMM';
+
+    const pair = symA && symB ? `${symA}/${symB}` : (singleSym || '');
+    if (!pair && !ref) return null;
+    return {
+      pair, symA, symB,
+      logoA: p['tokenALogo'] || (symA ? this.resolveTokenDisplay(p['tokenA'] ?? symA).logoURI ?? null : null),
+      logoB: p['tokenBLogo'] || (symB ? this.resolveTokenDisplay(p['tokenB'] ?? symB).logoURI ?? null : null),
+      refLabel, ref, kind,
+    };
+  });
+
+  /**
+   * The acting position's own numbers, when the card was spawned from a
+   * positions row that had them (`dlmmActionParams`). A confirm-only action
+   * has no inputs, so this is the entire content of the decision: what is in
+   * the position, what is claimable, and whether its range still covers the
+   * price. Null when the action arrived from chat text instead, where the
+   * model only ever supplies addresses.
+   */
+  readonly meteoraPositionDetail = computed<{
+    index: string;
+    minPrice: number; maxPrice: number; currentPrice: number;
+    binCount: number;
+    amountA: number; amountB: number;
+    feeA: number; feeB: number;
+    hasFees: boolean;
+    outOfRange: boolean;
+  } | null>(() => {
+    const p = this.editParams();
+    if (p['positionMinPrice'] === undefined || p['positionMaxPrice'] === undefined) return null;
+    const num = (k: string) => {
+      const n = parseFloat(p[k] ?? '');
+      return Number.isFinite(n) ? n : 0;
+    };
+    const feeA = num('positionFeeA');
+    const feeB = num('positionFeeB');
+    return {
+      index: p['positionIndex'] ?? '',
+      minPrice: num('positionMinPrice'),
+      maxPrice: num('positionMaxPrice'),
+      currentPrice: num('currentPrice'),
+      binCount: num('positionBinCount'),
+      amountA: num('positionAmountA'),
+      amountB: num('positionAmountB'),
+      feeA,
+      feeB,
+      hasFees: feeA > 0 || feeB > 0,
+      outOfRange: p['positionOutOfRange'] === 'true',
+    };
+  });
+
+  /** True when this is a fee/reward claim — the panel then leads with the
+   *  claimable amounts rather than the position's balance. */
+  readonly isClaimAction = computed(() => /claim|harvest|collect_fees|collect_rewards/.test(this.action?.type ?? ''));
+
+  /**
+   * Adding to an EXISTING position, as opposed to opening one. The difference
+   * is not cosmetic: the range is fixed by the position and cannot be edited,
+   * and no new position account is created — so no rent is locked. Offering
+   * range inputs here would be a control that silently does nothing.
+   */
+  readonly isMeteoraAddToPosition = computed(() => this.action?.type === 'meteora_add_to_position');
+
+  /** What a partial withdrawal actually returns, at the chosen percentage. */
+  readonly meteoraWithdrawReturns = computed<{ a: number; b: number } | null>(() => {
+    const pd = this.meteoraPositionDetail();
+    if (!pd) return null;
+    const share = this.meteoraReducePct() / 100;
+    if (!(share > 0)) return { a: 0, b: 0 };
+    return { a: pd.amountA * share, b: pd.amountB * share };
+  });
+
+  /**
+   * Share-to-remove for a Meteora withdrawal. The three reduce actions submit
+   * it differently — DLMM in basis points (10000 = 100%), the DAMM variants as
+   * an LP amount — so the panel drives a percentage and converts on write.
+   */
+  meteoraReduceKey(): 'bpsToRemove' | 'lpAmount' {
+    // DLMM and DAMM v2 both submit a share in basis points; only the DAMM v1
+    // withdrawal is denominated in LP tokens.
+    return this.action.type === 'meteora_remove_liquidity'
+        || this.action.type === 'meteora_dammv2_remove_liquidity'
+      ? 'bpsToRemove'
+      : 'lpAmount';
+  }
+
+  readonly meteoraReducePct = computed<number>(() => {
+    const p = this.editParams();
+    if (this.meteoraReduceKey() === 'bpsToRemove') {
+      const bps = parseFloat(p['bpsToRemove'] ?? '');
+      return Number.isFinite(bps) && bps > 0 ? Math.min(100, bps / 100) : 100;
+    }
+    const raw = (p['lpAmount'] ?? '').trim().toLowerCase();
+    if (!raw || raw === 'all' || raw === 'max') return 100;
+    const total = parseFloat(p['positionLpAmount'] ?? '');
+    const asked = parseFloat(raw);
+    if (Number.isFinite(total) && total > 0 && Number.isFinite(asked)) {
+      return Math.min(100, (asked / total) * 100);
+    }
+    return 100;
+  });
+
+  setMeteoraReducePct(pct: number): void {
+    const key = this.meteoraReduceKey();
+    if (key === 'bpsToRemove') { this.setEditParam(key, String(Math.round(pct * 100))); return; }
+    if (pct >= 100) { this.setEditParam(key, 'all'); return; }
+    const total = parseFloat(this.editParams()['positionLpAmount'] ?? '');
+    this.setEditParam(key, Number.isFinite(total) && total > 0
+      ? formatDlmmAmount(total * pct / 100)
+      : String(pct));
+  }
+
+  /**
+   * SOL held back for opening a DLMM position: the position account plus any
+   * bin arrays the range touches that aren't initialised yet. Meteora quotes
+   * ~0.057 SOL for a 69-bin position and refunds it on close; 0.06 covers
+   * that with a little room for fees. Spending it leaves nothing for rent and
+   * the deposit fails at simulation with an unhelpful "insufficient" error.
+   */
+  readonly METEORA_POSITION_RENT = 0.06;
+
+  /**
+   * What closing actually returns: the position account is a fixed 8120 bytes,
+   * so its rent is deterministic — 0.057406 SOL, confirmed on-chain. Worth
+   * stating exactly, because it is often larger than the position itself.
+   */
+  readonly METEORA_POSITION_RENT_REFUND = 0.057406;
+
+  /** Close = withdraw + claim + close the account. Distinct from a plain
+   *  withdrawal, which leaves the account (and its rent) in place. */
+  readonly isMeteoraClose = computed(() =>
+    this.action?.type === 'meteora_close_position'
+    || this.action?.type === 'meteora_dammv2_close_position');
+
+  /**
+   * A claim with nothing to claim. The card already says so; leaving the CTA
+   * live invites the user to pay a fee for a transaction that moves nothing.
+   * Only blocks when the position's fees were actually read — an unknown
+   * amount is not the same as zero, and guessing would block a legitimate
+   * claim issued from chat.
+   */
+  readonly nothingToClaim = computed(() => {
+    if (!this.isClaimAction()) return false;
+    const pd = this.meteoraPositionDetail();
+    return pd !== null && !pd.hasFees;
+  });
+
+  /** True when this action opens a NEW DLMM position (rent applies). */
+  private meteoraOpensPosition(): boolean {
+    const t = this.action.type;
+    return this.isMeteoraDlmm() && (t === 'meteora_open_position' || t === 'meteora_add_liquidity');
+  }
+
+  /**
+   * Pre-Confirm guard for a Meteora deposit: each side against its balance,
+   * and native SOL against the position rent on top of whatever is deposited.
+   */
+  readonly meteoraInsufficient = computed<string | null>(() => {
+    if (!this.isMeteoraDual()) return null;
+    const p = this.editParams();
+    const symA = p['tokenASymbol'] ?? 'A';
+    const symB = p['tokenBSymbol'] ?? 'B';
+    const amtA = parseFloat(p['amountA'] ?? '');
+    const amtB = parseFloat(p['amountB'] ?? '');
+    const balA = this.inputBalance();
+    const balB = this.secondaryBalance();
+    const isSol = (x: string) => { const u = (x ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
+    const rent = this.meteoraOpensPosition() ? this.METEORA_POSITION_RENT : 0.01;
+    const EPS = 1e-9;
+
+    if (Number.isFinite(amtA) && amtA > 0 && balA !== null &&
+        amtA > balA - (isSol(symA) ? rent : 0) + EPS) {
+      return isSol(symA) ? `Keep ~${rent} SOL for position rent` : `Not enough ${symA}`;
+    }
+    if (Number.isFinite(amtB) && amtB > 0 && balB !== null &&
+        amtB > balB - (isSol(symB) ? rent : 0) + EPS) {
+      return isSol(symB) ? `Keep ~${rent} SOL for position rent` : `Not enough ${symB}`;
+    }
+    return null;
+  });
+
+  /** The single amount field each one-sided Meteora action actually submits. */
+  meteoraSingleKey(): string {
+    switch (this.action.type) {
+      case 'meteora_vault_withdraw': return 'unmintAmount';
+      default: return 'amount';
+    }
+  }
+
+  /** Token whose balance the one-sided panel shows. */
+  readonly meteoraSingleToken = computed(() => {
+    const p = this.editParams();
+    const raw = p['tokenMint'] || p['tokenA'] || p['tokenASymbol'] || '';
+    return this.resolveTokenDisplay(raw);
+  });
+
   readonly isRaydiumOpenPosition = computed(
     () => this.action.type === 'raydium_open_position',
   );
@@ -2137,7 +2703,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const symA = p['tokenASymbol'] ?? '';
     const symB = p['tokenBSymbol'] ?? '';
     const isSol = (s: string) => { const u = (s ?? '').toUpperCase(); return u === 'SOL' || u === 'WSOL'; };
-    const RENT = 0.02;
+    // Hold back whatever the guard demands, or Max would always trip it.
+    const RENT = this.meteoraOpensPosition() ? this.METEORA_POSITION_RENT : 0.02;
     const SAFETY = 0.99;
     const availA = Math.max(0, (this.inputBalance() ?? 0) - (isSol(symA) ? RENT : 0)) * SAFETY;
     const availB = Math.max(0, (this.secondaryBalance() ?? 0) - (isSol(symB) ? RENT : 0)) * SAFETY;
@@ -2908,9 +3475,41 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       AMOUNT_KEYS.has(f.key) ? applyMinAmountGuard(f, this.action.type) : f
     );
   }
+  /**
+   * The CTA names the action, not the gesture. The user clicked "Withdraw" on
+   * a position row, so a button reading "Confirm" makes them re-derive what
+   * they are signing. Protocol actions are hundreds of types, so match on the
+   * verb the type name already carries rather than enumerating every one —
+   * a new `<protocol>_claim_fees` then labels itself correctly on arrival.
+   */
   get confirmButtonLabel(): string {
     const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity' };
-    return labels[this.action?.type] ?? 'Confirm';
+    const t = this.action?.type ?? '';
+    if (labels[t]) return labels[t];
+    // Ordered longest-verb-first so `add_to_position` isn't read as `stake`
+    // by a shorter pattern, and `close_position` beats bare `position`.
+    const verbs: ReadonlyArray<[RegExp, string]> = [
+      [/(claim_fees|collect_fees|harvest)$/, 'Claim Fees'],
+      [/(claim_rewards|collect_rewards)$/,   'Claim Rewards'],
+      [/claim/,                              'Claim'],
+      [/close_position/,                     'Close Position'],
+      [/open_position/,                      'Open Position'],
+      [/(add_to_position|increase_position|increase_liquidity)/, 'Add Liquidity'],
+      [/(remove_liquidity|decrease_liquidity|decrease_position)/, 'Withdraw'],
+      [/add_liquidity/,                      'Add Liquidity'],
+      [/deposit/,                            'Deposit'],
+      [/withdraw/,                           'Withdraw'],
+      [/cancel_unstake/,                     'Cancel Unstake'],
+      [/unstake/,                            'Unstake'],
+      [/stake/,                              'Stake'],
+      [/swap/,                               'Swap'],
+      [/borrow/,                             'Borrow'],
+      [/repay/,                              'Repay'],
+    ];
+    for (const [re, label] of verbs) {
+      if (re.test(t)) return label;
+    }
+    return 'Confirm';
   }
   get explorerUrl(): string { const s = this.txSignature(); return s ? `https://solscan.io/tx/${s}` : ''; }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }
@@ -3108,8 +3707,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   ngOnInit(): void {
     if (this.action) this.initFromAction();
     this.maybeLoadLstRate();
+    if (this.isMeteoraDlmm()) this.seedMeteoraRange();
     this.maybeEnrichRaydiumPool();
     void this.maybeEnrichRaydiumWithdraw();
+    void this.maybeEnrichMeteoraPosition();
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
@@ -3219,6 +3820,82 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * Positions are LIVE state, so reading them fresh here also keeps a
    * long-lived chat card honest about what it's about to withdraw.
    */
+  /**
+   * A Meteora action spawned from chat (or from a clarify prompt) carries only
+   * the position address — the model has nothing else to give. The card then
+   * rendered "??/??" with no range, no balance and no fees, which is the exact
+   * information needed to decide whether to sign.
+   *
+   * The positions card passes all of it when the action starts from a row, so
+   * this only fills the gap: look the position up in the wallet's DLMM
+   * portfolio and merge the same fields in.
+   */
+  async maybeEnrichMeteoraPosition(): Promise<void> {
+    const type = this.action?.type ?? '';
+    if (!type.startsWith('meteora_')) return;
+    const p = this.editParams();
+    const position = p['position'] || p['positionId'];
+    if (!position || p['tokenASymbol']) return;   // nothing to look up, or already known
+
+    try {
+      const resp = await firstValueFrom(
+        this.apiService.post<{ data?: { pools?: any[] } }>('/actions/build', {
+          type: 'meteora_dlmm_get_user_positions',
+          params: {},
+        }).pipe(timeout(20_000)),
+      );
+      const pools: any[] = resp?.data?.pools ?? [];
+      const pool = pools.find(pl => (pl.listPositions ?? []).includes(position));
+      if (!pool) return;
+      const detail = (pool.positions ?? []).find((d: any) => d.address === position);
+
+      this.editParams.update(ep => ({
+        ...ep,
+        pair: `${pool.tokenX}/${pool.tokenY}`,
+        tokenASymbol: pool.tokenX,
+        tokenBSymbol: pool.tokenY,
+        ...(pool.tokenXMint ? { tokenA: pool.tokenXMint } : {}),
+        ...(pool.tokenYMint ? { tokenB: pool.tokenYMint } : {}),
+        ...(pool.tokenXIcon ? { tokenALogo: pool.tokenXIcon } : {}),
+        ...(pool.tokenYIcon ? { tokenBLogo: pool.tokenYIcon } : {}),
+        pool: pool.poolAddress,
+        poolId: pool.poolAddress,
+        binStep: String(pool.binStep ?? ''),
+        currentPrice: String(pool.poolPrice ?? ''),
+        // The ratio engine needs the bin ids, the active bin and the token
+        // decimals — without them it can't tell which side of the price the
+        // range sits on, so BOTH amount inputs stay enabled even when the
+        // pool would only accept one of them at this range.
+        ...(pool.activeBinId !== undefined ? { activeBinId: String(pool.activeBinId) } : {}),
+        ...(pool.tokenXDecimals !== undefined ? { tokenADecimals: String(pool.tokenXDecimals) } : {}),
+        ...(pool.tokenYDecimals !== undefined ? { tokenBDecimals: String(pool.tokenYDecimals) } : {}),
+        ...(detail
+          ? {
+              minBinId: String(detail.lowerBinId),
+              maxBinId: String(detail.upperBinId),
+              positionMinPrice: String(detail.lowerPrice),
+              positionMaxPrice: String(detail.upperPrice),
+              positionBinCount: String(detail.binCount),
+              positionAmountA: String(detail.amountX),
+              positionAmountB: String(detail.amountY),
+              positionFeeA: String(detail.unclaimedFeeX),
+              positionFeeB: String(detail.unclaimedFeeY),
+              positionOutOfRange: detail.inRange ? 'false' : 'true',
+            }
+          : {}),
+      }));
+      // The balance loaders ran in ngOnInit, before this lookup returned the
+      // mints — so they had nothing to fetch and the amount row rendered with
+      // no balance and no Max. Re-fire them now that the pair is known.
+      this.inputBalance.set(null);
+      this.secondaryBalance.set(null);
+      if (this.inputBalanceMint()) void this.loadInputBalance();
+      if (this.secondaryBalanceMint()) void this.loadSecondaryBalance();
+    } catch {
+      // Enrichment is cosmetic — the action still builds from the address.
+    }
+  }
+
   async maybeEnrichRaydiumWithdraw(): Promise<void> {
     if (!this.isRaydiumWithdraw() && !this.isRaydiumIncrease() && !this.isRaydiumDecrease()) return;
     const p = this.editParams();
@@ -4844,6 +5521,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly clmmUnresolved = computed(
     () => this.isRaydiumOpenPosition() && !this.editParams()['currentPrice'],
   );
+
+  /**
+   * A Meteora deposit that names no pool. The panel then renders a pair of
+   * "??" logos, an empty price range and "Total bins: 0" — a form that cannot
+   * be completed, since every field below depends on the pool. Blocking the
+   * CTA and saying so beats letting the user fill in amounts that have nowhere
+   * to go.
+   *
+   * Usually this means the model reached for the pool-level deposit when the
+   * user was pointing at an existing position; the prompt covers that, and
+   * this is the backstop.
+   */
+  readonly meteoraPoolUnresolved = computed(() => {
+    if (!this.isMeteoraDual()) return false;
+    const p = this.editParams();
+    if (p['position'] || p['positionId']) return false;   // targets a position
+    return !p['pool'] && !p['poolId'];
+  });
 
   /**
    * Pre-Confirm balance guard for the CLMM deposit — returns a short "Not

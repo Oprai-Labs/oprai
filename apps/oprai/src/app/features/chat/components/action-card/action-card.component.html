@@ -1229,6 +1229,529 @@
           }
 
           </div>
+        } @else if (isMeteoraDual() && meteoraView() !== null) {
+          <!-- ─── Meteora deposit (DLMM range / DAMM v1-v2 pool) ───
+               Same panel language as the swap + Raydium cards: pool header,
+               optional DLMM range + shape, then two auto-balancing amounts. -->
+          @let mv = meteoraView()!;
+          @let mBalA = inputBalance();
+          @let mBalB = secondaryBalance();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Pool</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (mv.logoA) {
+                      <img class="ray-wd__icon" [src]="mv.logoA" [alt]="mv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (mv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (mv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="mv.logoB" [alt]="mv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (mv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ mv.pair }}</span>
+                  <span class="ray-wd__kind">{{ mv.kind }}</span>
+                </div>
+                @if (mv.ref) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ mv.refLabel }}</span>
+                    <code class="ray-wd__ref-value">{{ mv.ref.slice(0, 6) }}…{{ mv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(mv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === mv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+
+            @if (meteoraPoolUnresolved()) {
+              <div class="clmm-section">
+                <div class="clmm-min-hint clmm-min-hint--warn">
+                  <lucide-icon name="alert-circle" [size]="13" />
+                  This deposit doesn’t name a pool yet. Ask for the pool by name
+                  (e.g. “SOL/USDC DLMM pools”), or add to one of your existing
+                  positions from the positions list.
+                </div>
+              </div>
+            }
+            @if (isMeteoraAddToPosition() && meteoraPositionDetail() !== null) {
+              <!-- The range belongs to the position and cannot be changed;
+                   re-ranging means opening a NEW position. So show it, don't
+                   offer inputs that would silently do nothing. -->
+              @let apd = meteoraPositionDetail()!;
+              <div class="clmm-section">
+                <div class="clmm-section__title">Position Range</div>
+                <div class="mtr-detail">
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Range</span>
+                    <span class="mtr-detail__value mono">
+                      {{ apd.minPrice | number:'1.0-6' }} – {{ apd.maxPrice | number:'1.0-6' }}
+                      <span class="mtr-detail__muted">({{ apd.binCount }} bins)</span>
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Current price</span>
+                    <span class="mtr-detail__value mono">
+                      {{ apd.currentPrice | number:'1.0-6' }}
+                      @if (apd.outOfRange) {
+                        <span class="mtr-detail__oor">out of range</span>
+                      }
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Already in position</span>
+                    <span class="mtr-detail__value mono">
+                      {{ apd.amountA | number:'1.0-6' }} {{ mv.symA }} + {{ apd.amountB | number:'1.0-6' }} {{ mv.symB }}
+                    </span>
+                  </div>
+                </div>
+                <div class="clmm-min-hint" [class.clmm-min-hint--warn]="apd.outOfRange">
+                  @if (apd.outOfRange) {
+                    The price has left this range, so the position earns no fees and the
+                    deposit sits idle until the price comes back. This is allowed — it is a
+                    poor trade, not an invalid one. To earn now, open a new position around
+                    the current price instead.
+                  } @else {
+                    Fixed by the position — to use a different range, open a new position.
+                  }
+                </div>
+              </div>
+            } @else if (isDammV2()) {
+              <!-- Constant product: liquidity spans the whole curve, so there
+                   is no range to choose and none to display. -->
+              <div class="clmm-section">
+                <div class="clmm-min-hint">
+                  DAMM v2 is a constant-product pool — liquidity covers every price,
+                  so there is no range to set. Both sides go in at the pool's current ratio.
+                </div>
+              </div>
+            } @else if (isMeteoraDlmm()) {
+              <div class="clmm-section">
+                <div class="clmm-section__title">Price Range</div>
+                <!-- Price is the input and the bin count follows, the way
+                     Meteora's own range control works. -->
+                @let mr = meteoraRange();
+                <div class="clmm-range-inputs">
+                  <div class="clmm-range-input">
+                    <label>Min Price</label>
+                    <input type="text" inputmode="decimal" placeholder="0"
+                           [value]="mr?.minPrice !== null && mr ? (mr.minPrice | number:'1.0-6') : ''"
+                           (change)="setMeteoraMinPrice($any($event.target).value)" />
+                    @if (mr?.minPct !== null && mr) {
+                      <span class="clmm-range-input__suffix">{{ mr.minPct | number:'1.0-2' }}%</span>
+                    }
+                  </div>
+                  <div class="clmm-range-input">
+                    <label>Max Price</label>
+                    <input type="text" inputmode="decimal" placeholder="0"
+                           [value]="mr?.maxPrice !== null && mr ? (mr.maxPrice | number:'1.0-6') : ''"
+                           (change)="setMeteoraMaxPrice($any($event.target).value)" />
+                    @if (mr?.maxPct !== null && mr) {
+                      <span class="clmm-range-input__suffix">+{{ mr.maxPct | number:'1.0-2' }}%</span>
+                    }
+                  </div>
+                </div>
+                <div class="clmm-presets">
+                  <button type="button" class="clmm-preset" (click)="nudgeMeteoraBound('min', -1)">− Min</button>
+                  <button type="button" class="clmm-preset" (click)="nudgeMeteoraBound('min', 1)">+ Min</button>
+                  <button type="button" class="clmm-preset" (click)="nudgeMeteoraBound('max', -1)">− Max</button>
+                  <button type="button" class="clmm-preset" (click)="nudgeMeteoraBound('max', 1)">+ Max</button>
+                </div>
+                <div class="clmm-presets">
+                  @for (s of METEORA_STRATEGIES; track s.value) {
+                    <button type="button" class="clmm-preset"
+                            [class.clmm-preset--active]="meteoraStrategy() === s.value"
+                            [title]="s.hint"
+                            (click)="setMeteoraStrategy(s.value)">{{ s.label }}</button>
+                  }
+                </div>
+                <div class="clmm-min-hint" [class.clmm-min-hint--warn]="meteoraBinsOverflow()">
+                  Total bins: {{ meteoraTotalBins() }}{{ meteoraBinsOverflow() ? ' — past the ' + METEORA_MAX_BINS + ' bins one transaction can carry; narrow the range' : '' }}.
+                  Liquidity is shaped
+                  {{ meteoraStrategy() === 'curve' ? 'toward the current price' : meteoraStrategy() === 'bidask' ? 'toward the range edges' : 'evenly across the range' }}.
+                </div>
+              </div>
+            }
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">{{ isMeteoraAddToPosition() ? 'Amount to add' : 'Add Deposit Amount' }}</div>
+              <div class="clmm-min-hint">
+                Type either amount — the other follows at the pool's current ratio.
+                @if (isMeteoraDlmm() && !isMeteoraAddToPosition()) {
+                  <!-- Only a NEW position creates an account to pay rent on;
+                       adding to one that already exists does not. -->
+                  Opening the position also locks ~{{ METEORA_POSITION_RENT }} SOL of rent, refunded when you close it.
+                }
+                @if (dlmmSingleSidedX()) {
+                  <br />The range sits entirely above the current price, so the pool only takes
+                  {{ editParams()['tokenASymbol'] || 'token A' }} here — it converts to
+                  {{ editParams()['tokenBSymbol'] || 'token B' }} as the price rises through your bins.
+                } @else if (dlmmSingleSidedY()) {
+                  <br />The range sits entirely below the current price, so the pool only takes
+                  {{ editParams()['tokenBSymbol'] || 'token B' }} here — it converts to
+                  {{ editParams()['tokenASymbol'] || 'token A' }} as the price falls through your bins.
+                }
+              </div>
+
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ mv.symA }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (mBalA !== null) { Balance: {{ mBalA | number:'1.0-6' }} }
+                    @if (mBalA !== null && mBalA > 0 && !dlmmSingleSidedY()) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmm('A')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input class="clmm-amount-input" type="text" inputmode="decimal"
+                         pattern="[0-9]*[.,]?[0-9]*"
+                         [placeholder]="dlmmSingleSidedY() ? 'Not used at this range' : '0'"
+                         [disabled]="dlmmSingleSidedY()"
+                         [value]="dlmmSingleSidedY() ? '' : (editParams()['amountA'] ?? '')"
+                         (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
+                  <div class="clmm-token-pill">
+                    @if (mv.logoA) {
+                      <img [src]="mv.logoA" [alt]="mv.symA" class="clmm-token-pill__icon" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (mv.symA || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ mv.symA }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="clmm-amount-plus">+</div>
+
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ mv.symB }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (mBalB !== null) { Balance: {{ mBalB | number:'1.0-6' }} }
+                    @if (mBalB !== null && mBalB > 0 && !dlmmSingleSidedX()) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmm('B')">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input class="clmm-amount-input" type="text" inputmode="decimal"
+                         pattern="[0-9]*[.,]?[0-9]*"
+                         [placeholder]="dlmmSingleSidedX() ? 'Not used at this range' : '0'"
+                         [disabled]="dlmmSingleSidedX()"
+                         [value]="dlmmSingleSidedX() ? '' : (editParams()['amountB'] ?? '')"
+                         (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
+                  <div class="clmm-token-pill">
+                    @if (mv.logoB) {
+                      <img [src]="mv.logoB" [alt]="mv.symB" class="clmm-token-pill__icon" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (mv.symB || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ mv.symB }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <details class="clmm-advanced">
+              <summary>Advanced</summary>
+              <div class="clmm-advanced__row">
+                <label>Slippage tolerance</label>
+                <div class="clmm-advanced__input">
+                  <input type="number" step="0.1" min="0" max="100"
+                         [value]="((+(editParams()['slippageBps'] ?? '50')) / 100)"
+                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))" />
+                  <span>%</span>
+                </div>
+              </div>
+            </details>
+          </div>
+
+        } @else if (isMeteoraReduce() && meteoraView() !== null) {
+          <!-- ─── Meteora withdrawal: pick a share, not a raw bps/LP number ─── -->
+          @let rv = meteoraView()!;
+          @let rpct = meteoraReducePct();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">Withdraw From</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (rv.logoA) {
+                      <img class="ray-wd__icon" [src]="rv.logoA" [alt]="rv.symA" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--letter">{{ (rv.symA || '?').charAt(0) }}</span>
+                    }
+                    @if (rv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="rv.logoB" [alt]="rv.symB" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (rv.symB || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ rv.pair || 'Position' }}</span>
+                  <span class="ray-wd__kind">{{ rv.kind }}</span>
+                </div>
+                @if (rv.ref) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ rv.refLabel }}</span>
+                    <code class="ray-wd__ref-value">{{ rv.ref.slice(0, 6) }}…{{ rv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(rv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === rv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+
+            @if (meteoraPositionDetail(); as wpd) {
+              <div class="clmm-section">
+                <div class="clmm-section__title">Position</div>
+                <div class="mtr-detail">
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Holds</span>
+                    <span class="mtr-detail__value mono">
+                      {{ wpd.amountA | number:'1.0-6' }} {{ rv.symA }} + {{ wpd.amountB | number:'1.0-6' }} {{ rv.symB }}
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Range</span>
+                    <span class="mtr-detail__value mono">
+                      {{ wpd.minPrice | number:'1.0-6' }} – {{ wpd.maxPrice | number:'1.0-6' }}
+                      <span class="mtr-detail__muted">({{ wpd.binCount }} bins)</span>
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Unclaimed fees</span>
+                    <span class="mtr-detail__value mono">
+                      {{ wpd.feeA | number:'1.0-9' }} {{ rv.symA }} + {{ wpd.feeB | number:'1.0-9' }} {{ rv.symB }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            }
+
+            <div class="clmm-section">
+              <div class="clmm-section__title">Amount to withdraw</div>
+              <div class="clmm-presets">
+                @for (preset of CLMM_DECREASE_PRESETS; track preset) {
+                  <button type="button" class="clmm-preset"
+                          [class.clmm-preset--active]="rpct === preset"
+                          (click)="setMeteoraReducePct(preset)">
+                    {{ preset === 100 ? 'All' : preset + '%' }}
+                  </button>
+                }
+              </div>
+
+              <!-- What actually lands in the wallet, rather than a percentage
+                   the user has to convert in their head. -->
+              @if (meteoraWithdrawReturns(); as ret) {
+                <div class="mtr-claim">
+                  <div class="mtr-claim__label">You receive</div>
+                  <div class="mtr-claim__amounts">
+                    <span class="mtr-claim__amount">
+                      {{ ret.a | number:'1.0-6' }} <span class="mtr-claim__sym">{{ rv.symA }}</span>
+                    </span>
+                    <span class="mtr-claim__plus">+</span>
+                    <span class="mtr-claim__amount">
+                      {{ ret.b | number:'1.0-6' }} <span class="mtr-claim__sym">{{ rv.symB }}</span>
+                    </span>
+                  </div>
+                </div>
+              }
+
+              <div class="clmm-min-hint">
+                @if (rpct >= 100) {
+                  Pulls all liquidity out of the bins.
+                } @else {
+                  Leaves {{ 100 - rpct | number:'1.0-1' }}% of the position in the pool, still earning fees.
+                }
+              </div>
+
+              <!-- This transaction is remove_liquidity ALONE. Saying it closes
+                   the position was wrong: the account survives, so the rent
+                   stays locked and any accrued fees stay unclaimed. -->
+              @if (rpct >= 100) {
+                <div class="clmm-min-hint clmm-min-hint--warn">
+                  <lucide-icon name="alert-circle" [size]="13" />
+                  This does not close the position or claim fees.
+                  @if (meteoraPositionDetail()?.hasFees) {
+                    Claim first, or the accrued fees stay behind.
+                  }
+                  The position account keeps holding {{ METEORA_POSITION_RENT_REFUND }} SOL of rent —
+                  use <strong>Close</strong> instead if you are done with this position, since that
+                  withdraws, claims and returns the rent in one go.
+                </div>
+              }
+            </div>
+          </div>
+
+        } @else if (isMeteoraSingle() && meteoraView() !== null) {
+          <!-- ─── Meteora single-asset action (stake / vault deposit / …) ─── -->
+          @let sv = meteoraView()!;
+          @let sTd = meteoraSingleToken();
+          @let sBal = inputBalance();
+          @let sKey = meteoraSingleKey();
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            @if (sv.ref) {
+              <div class="clmm-section">
+                <div class="clmm-section__title">{{ sv.refLabel }}</div>
+                <div class="ray-wd">
+                  <div class="ray-wd__top">
+                    <span class="ray-wd__pair">{{ sv.pair || sv.refLabel }}</span>
+                    <span class="ray-wd__kind">{{ sv.kind }}</span>
+                  </div>
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ sv.refLabel }}</span>
+                    <code class="ray-wd__ref-value">{{ sv.ref.slice(0, 6) }}…{{ sv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(sv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === sv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            }
+            <div class="clmm-section">
+              <div class="clmm-section__title">Amount</div>
+              <div class="clmm-amount-row">
+                <div class="clmm-amount-row__top">
+                  <span class="clmm-amount-row__label">{{ sTd.symbol || 'Token' }}</span>
+                  <span class="clmm-amount-row__bal">
+                    @if (sBal !== null) { Balance: {{ sBal | number:'1.0-6' }} }
+                    @if (sBal !== null && sBal > 0) {
+                      <button type="button" class="clmm-max-btn" (click)="setMaxAmount(sKey)">Max</button>
+                    }
+                  </span>
+                </div>
+                <div class="clmm-amount-row__body">
+                  <input class="clmm-amount-input" type="text" inputmode="decimal"
+                         pattern="[0-9]*[.,]?[0-9]*" placeholder="0"
+                         [value]="editParams()[sKey] ?? ''"
+                         (input)="setEditParam(sKey, normalizeDecimal($any($event.target).value))" />
+                  <div class="clmm-token-pill">
+                    @if (sTd.logoURI) {
+                      <img [src]="sTd.logoURI" [alt]="sTd.symbol" class="clmm-token-pill__icon" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (sTd.symbol || '?').charAt(0) }}</span>
+                    }
+                    <span class="clmm-token-pill__sym">{{ sTd.symbol || 'Token' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        } @else if (isMeteoraConfirm() && meteoraView() !== null) {
+          <!-- ─── Meteora confirm-only (close / claim / harvest) ─── -->
+          @let cv = meteoraView()!;
+          <div class="clmm-form" [class.proto-fields--shake]="shake()">
+            <div class="clmm-section">
+              <div class="clmm-section__title">{{ confirmButtonLabel }}</div>
+              <div class="ray-wd">
+                <div class="ray-wd__top">
+                  <span class="ray-wd__icons">
+                    @if (cv.logoA) {
+                      <img class="ray-wd__icon" [src]="cv.logoA" [alt]="cv.symA" (error)="$any($event.target).style.display='none'" />
+                    }
+                    @if (cv.logoB) {
+                      <img class="ray-wd__icon ray-wd__icon--b" [src]="cv.logoB" [alt]="cv.symB" (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="ray-wd__pair">{{ cv.pair || cv.refLabel }}</span>
+                  <span class="ray-wd__kind">{{ cv.kind }}</span>
+                </div>
+                @if (cv.ref) {
+                  <div class="ray-wd__ref">
+                    <span class="ray-wd__ref-label">{{ cv.refLabel }}</span>
+                    <code class="ray-wd__ref-value">{{ cv.ref.slice(0, 6) }}…{{ cv.ref.slice(-6) }}</code>
+                    <button type="button" class="ray-wd__copy" (click)="copyValue(cv.ref)" title="Copy address">
+                      <lucide-icon [name]="copiedField() === cv.ref ? 'check' : 'copy'" [size]="12" />
+                    </button>
+                  </div>
+                }
+              </div>
+              <!-- A confirm-only action has no inputs, so the position's own
+                   numbers ARE the decision. Without them the card can only
+                   echo a base58 address back at the user. -->
+              @if (meteoraPositionDetail(); as pd) {
+                @if (isMeteoraClose()) {
+                  <!-- Closing is the only action that returns the position's
+                       rent, and that rent is often worth more than the
+                       position — so lead with what comes back. -->
+                  <div class="mtr-claim">
+                    <div class="mtr-claim__label">You get back</div>
+                    <div class="mtr-claim__amounts">
+                      <span class="mtr-claim__amount">
+                        {{ pd.amountA + METEORA_POSITION_RENT_REFUND | number:'1.0-6' }}
+                        <span class="mtr-claim__sym">{{ cv.symA }}</span>
+                      </span>
+                      @if (pd.amountB > 0 || pd.feeB > 0) {
+                        <span class="mtr-claim__plus">+</span>
+                        <span class="mtr-claim__amount">
+                          {{ pd.amountB + pd.feeB | number:'1.0-6' }}
+                          <span class="mtr-claim__sym">{{ cv.symB }}</span>
+                        </span>
+                      }
+                    </div>
+                    <div class="mtr-detail__row" style="margin-top:6px">
+                      <span class="mtr-detail__label">Includes rent refund</span>
+                      <span class="mtr-detail__value mono">{{ METEORA_POSITION_RENT_REFUND }} SOL</span>
+                    </div>
+                  </div>
+                } @else if (isClaimAction()) {
+                  <div class="mtr-claim">
+                    <div class="mtr-claim__label">Claimable now</div>
+                    <div class="mtr-claim__amounts">
+                      <span class="mtr-claim__amount">
+                        {{ pd.feeA | number:'1.0-9' }} <span class="mtr-claim__sym">{{ cv.symA }}</span>
+                      </span>
+                      <span class="mtr-claim__plus">+</span>
+                      <span class="mtr-claim__amount">
+                        {{ pd.feeB | number:'1.0-9' }} <span class="mtr-claim__sym">{{ cv.symB }}</span>
+                      </span>
+                    </div>
+                    @if (!pd.hasFees) {
+                      <div class="mtr-claim__warn">
+                        <lucide-icon name="alert-circle" [size]="13" />
+                        This position has no unclaimed fees — the transaction would cost a fee and return nothing.
+                      </div>
+                    }
+                  </div>
+                }
+                <div class="mtr-detail">
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Position holds</span>
+                    <span class="mtr-detail__value mono">
+                      {{ pd.amountA | number:'1.0-6' }} {{ cv.symA }} + {{ pd.amountB | number:'1.0-6' }} {{ cv.symB }}
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Range</span>
+                    <span class="mtr-detail__value mono">
+                      {{ pd.minPrice | number:'1.0-6' }} – {{ pd.maxPrice | number:'1.0-6' }}
+                      <span class="mtr-detail__muted">({{ pd.binCount }} bins)</span>
+                    </span>
+                  </div>
+                  <div class="mtr-detail__row">
+                    <span class="mtr-detail__label">Current price</span>
+                    <span class="mtr-detail__value mono">
+                      {{ pd.currentPrice | number:'1.0-6' }}
+                      @if (pd.outOfRange) {
+                        <span class="mtr-detail__oor">out of range</span>
+                      }
+                    </span>
+                  </div>
+                </div>
+              } @else {
+                <div class="clmm-min-hint">
+                  Nothing to fill in — confirm to sign this action for the {{ cv.refLabel | lowercase }} above.
+                </div>
+              }
+            </div>
+          </div>
+
         } @else if (raydiumDecreaseView() !== null) {
           <!-- Partial CLMM withdrawal: choose a percentage and see exactly what
                comes back, instead of typing a raw liquidity constant. -->
@@ -3437,10 +3960,22 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
-            @if (clmmUnresolved()) {
+            @if (nothingToClaim()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Nothing to claim
+            } @else if (meteoraPoolUnresolved()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Pick a pool first
+            } @else if (meteoraBinsOverflow()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Range too wide ({{ meteoraTotalBins() }} bins)
+            } @else if (meteoraInsufficient() !== null) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              {{ meteoraInsufficient() }}
+            } @else if (clmmUnresolved()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Select a token pair
             } @else if (clmmInsufficient() !== null) {

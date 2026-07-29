@@ -2023,6 +2023,7 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "meteora_dammv2_get_pool", "meteora_dammv2_get_pool_group", "meteora_dammv2_get_pool_groups",
     "meteora_dammv2_get_pool_ohlcv", "meteora_dammv2_get_pool_volume_history",
     "meteora_dammv2_get_pools", "meteora_dammv2_get_protocol_metrics",
+    "meteora_dammv2_get_user_positions",
     "meteora_dammv1_get_alpha_vault_configs", "meteora_dammv1_get_alpha_vaults",
     "meteora_dammv1_get_farms", "meteora_dammv1_get_fee_config", "meteora_dammv1_get_pool_configs",
     "meteora_dammv1_get_pools", "meteora_dammv1_get_pools_by_vault_lp",

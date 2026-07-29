@@ -142,6 +142,8 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   /** Emit when the user cancels an action card (so parent can clear clarify state). */
   @Output() actionDismissed = new EventEmitter<{ messageId: string; action: ParsedAction }>();
   @Output() retryLast = new EventEmitter<void>();
+  /** The conversation is full — the user wants a fresh one. */
+  @Output() startNewChat = new EventEmitter<void>();
   /** Emitted when the user clicks "Edit message" on a failed assistant turn —
    * parent removes the failed pair and re-populates the composer with the
    * original text so the user can tweak and resend. */

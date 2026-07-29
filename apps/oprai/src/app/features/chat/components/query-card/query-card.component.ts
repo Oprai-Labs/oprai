@@ -232,6 +232,59 @@ interface RaydiumUserPosition {
   lpAmount?: number;
 }
 
+/** One DLMM pool the wallet has open positions in. The API groups by pool and
+ *  lists the position addresses inside it. */
+interface DlmmUserPool {
+  poolAddress: string;
+  tokenX: string; tokenY: string;
+  tokenXIcon?: string; tokenYIcon?: string;
+  tokenXMint?: string; tokenYMint?: string;
+  binStep: number; baseFee: number;
+  poolPrice: number;
+  balances: number; balancesSol: number;
+  totalDeposit: number;
+  unclaimedFees: number;
+  pnl: number; pnlPctChange: number;
+  openPositionCount: number;
+  outOfRange: boolean;
+  listPositions: string[];
+  positionsOutOfRange?: string[];
+  /** Per-position detail read on-chain by the backend (SDK), when available. */
+  positions?: DlmmPositionDetail[];
+  activeBinId?: number;
+  tokenXDecimals?: number;
+  tokenYDecimals?: number;
+}
+
+/** One DLMM position inside a pool — its own range, balance and fees. */
+interface DlmmPositionDetail {
+  address: string;
+  // Range fields are DLMM-only. A DAMM v2 position is constant-product: no
+  // bins, no bounds — the panel simply omits the range strip for those.
+  lowerBinId?: number;
+  upperBinId?: number;
+  lowerPrice?: number;
+  upperPrice?: number;
+  binCount?: number;
+  /** DAMM v2: vested or permanently-locked liquidity can't be withdrawn yet. */
+  locked?: boolean;
+  permanentlyLocked?: boolean;
+  amountX: number;
+  amountY: number;
+  unclaimedFeeX: number;
+  unclaimedFeeY: number;
+  inRange: boolean;
+}
+
+/** A flattened pool×position pair — one rendered panel. */
+interface DlmmPositionRow {
+  pool: DlmmUserPool;
+  address: string;
+  index: number;
+  detail: DlmmPositionDetail | null;
+  outOfRange: boolean;
+}
+
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const SOL_LOGO = 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png';
 
@@ -492,6 +545,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   // The user's own Raydium positions (CLMM + Standard/CPMM LP), read straight
   // from chain via the SDK — rendered in the same km-table design as the pool
   // list, with a per-row Withdraw button.
+  readonly dlmmUserPools = signal<DlmmUserPool[]>([]);
+  readonly dlmmPositionsFetching = signal(false);
+
   readonly raydiumPositions = signal<RaydiumUserPosition[]>([]);
   readonly raydiumPositionsFetching = signal(false);
 
@@ -588,6 +644,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'perp_positions':
         return 'assets/icons/protocols/jupiter.webp';
       case 'meteora_dlmm_get_pairs':
+      case 'meteora_dlmm_get_user_positions':
+      case 'meteora_dammv2_get_user_positions':
       case 'meteora_dammv2_get_pools':
       case 'meteora_dammv1_get_pools':
         return 'assets/icons/protocols/meteora.webp';
@@ -626,6 +684,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   refreshLiveData(): void {
     switch (this.query.type) {
       case 'meteora_dlmm_get_pairs':    void this.fetchDlmmPairs();   break;
+      case 'meteora_dlmm_get_user_positions':
+      case 'meteora_dammv2_get_user_positions': void this.fetchDlmmPositions(); break;
       case 'meteora_dammv2_get_pools':  void this.fetchDammV2Pools(); break;
       case 'meteora_dammv1_get_pools':  void this.fetchDammV1Pools(); break;
       case 'raydium_get_pools':         void this.fetchRaydiumPools(); break;
@@ -657,6 +717,20 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // list — and any Withdraw spawned from it — reflects the chain.
       if (this.query.type === 'raydium_get_user_positions' || this.query.type === 'raydium_get_clmm_positions') {
         void this.fetchRaydiumPositions();
+      }
+      // Same for DLMM: positions are live state, not a receipt. A range that
+      // has drifted out, fees accrued since, or a position closed from another
+      // client must all show on reload — so refetch rather than trust the
+      // snapshot. (Until now the snapshot didn't even carry the pools, so a
+      // reload rendered "No open positions" over a wallet that had two.)
+      if (this.query.type === 'meteora_dlmm_get_user_positions'
+          || this.query.type === 'meteora_dammv2_get_user_positions') {
+        void this.fetchDlmmPositions();
+      }
+      // Jupiter Lend positions had the same gap: never snapshotted, never
+      // refetched, so a reload showed an empty card over a real balance.
+      if (this.query.type === 'lend_positions') {
+        void this.fetchLendPositions();
       }
     } else {
       // Seed the Raydium pool-type filter (and sort) from the incoming query
@@ -774,6 +848,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['raydiumPositions']) {
       this.raydiumPositions.set(d['raydiumPositions'] as RaydiumUserPosition[]);
     }
+    if (d['dlmmUserPools']) {
+      this.dlmmUserPools.set(d['dlmmUserPools'] as DlmmUserPool[]);
+    }
+    if (d['lendEarnPositions'])   this.lendEarnPositions   = d['lendEarnPositions']   as LendPosition[];
+    if (d['lendBorrowPositions']) this.lendBorrowPositions = d['lendBorrowPositions'] as BorrowPosition[];
     if (d['raydiumResults']) {
       this.raydiumResults = d['raydiumResults'] as RaydiumPool[];
       this.raydiumHasNextPage.set((d['raydiumHasNextPage'] as boolean | undefined) ?? false);
@@ -837,6 +916,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.raydiumPositions().length) {
       d['raydiumPositions'] = this.raydiumPositions();
     }
+    if (this.dlmmUserPools().length) {
+      d['dlmmUserPools'] = this.dlmmUserPools();
+    }
+    if (this.lendEarnPositions.length)   d['lendEarnPositions']   = this.lendEarnPositions;
+    if (this.lendBorrowPositions.length) d['lendBorrowPositions'] = this.lendBorrowPositions;
     if (this.raydiumResults.length) {
       d['raydiumResults']     = this.raydiumResults;
       d['raydiumHasNextPage'] = this.raydiumHasNextPage();
@@ -903,6 +987,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const fromRegistry = this.tokenRegistry.getToken(mint);
     if (fromRegistry) return fromRegistry.symbol;
     return mint.slice(0, 4) + '…';
+  }
+
+  /**
+   * Token logo for a mint, for the pool-list pair icons. Reads the registry's
+   * version signal so the icons appear once the token list finishes loading
+   * (these rows can render before it does), and kicks off a lookup for mints
+   * the registry hasn't seen yet.
+   */
+  tokenLogo(mint: string): string | null {
+    void this.tokenRegistry.version();
+    if (!mint) return null;
+    const meta = this.tokenRegistry.getToken(mint);
+    if (meta?.logoURI) return meta.logoURI;
+    this.tokenRegistry.resolveAsync(mint);
+    return null;
   }
 
   private resolveTokenDecimals(mint: string): number {
@@ -1160,7 +1259,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const page = await this.meteora.fetchDlmmPairs({
       query: queryStr,
       page: this.dlmmPage(),
-      pageSize: this.DLMM_PAGE_SIZE,
+      pageSize: this.requestedPageSize(this.DLMM_PAGE_SIZE),
       sortBy,
     });
 
@@ -1221,6 +1320,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   // ── DAMM v2 ─────────────────────────────────────────────────────────────
+  /**
+   * A count the user actually asked for ("the top 5 pools"), if the model
+   * passed one through. Listing everything when a number was named ignores
+   * half the request — and a 10-row default page is not "5".
+   *
+   * Clamped to what a card can sensibly show; the pager covers the rest.
+   */
+  requestedPageSize(fallback: number): number {
+    const raw = this.query.params?.['pageSize']
+      ?? this.query.params?.['page_size']
+      ?? this.query.params?.['limit']
+      ?? this.query.params?.['count'];
+    const n = parseInt(String(raw ?? ''), 10);
+    return Number.isFinite(n) && n > 0 ? Math.min(n, 100) : fallback;
+  }
+
   private async fetchDammV2Pools(): Promise<void> {
     this.dammV2Fetching.set(true);
     this.error.set(null);
@@ -1231,7 +1346,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const page = await this.meteora.fetchDammV2Pools({
       query: queryStr,
       page: this.dammV2Page(),
-      pageSize: this.DAMMV2_PAGE_SIZE,
+      pageSize: this.requestedPageSize(this.DAMMV2_PAGE_SIZE),
       sortBy,
     });
     if (!page) {
@@ -1386,7 +1501,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   get dammV2ShowingRange(): { from: number; to: number; total: number } {
     const total = this.dammV2Total();
-    const size = this.DAMMV2_PAGE_SIZE;
+    // The DEFAULT page size is not necessarily the page size in use — a
+    // request that named a count overrides it, and the footer then claimed
+    // "Showing 1–10" under five rows.
+    const size = this.requestedPageSize(this.DAMMV2_PAGE_SIZE);
     const from = total === 0 ? 0 : (this.dammV2Page() - 1) * size + 1;
     const to = Math.min(this.dammV2Page() * size, total);
     return { from, to, total };
@@ -1531,7 +1649,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
             poolType: this.raydiumPoolType(),
             sortField: this.raydiumSortField(),
             page: this.raydiumPage(),
-            pageSize: this.RAYDIUM_PAGE_SIZE,
+            pageSize: this.requestedPageSize(this.RAYDIUM_PAGE_SIZE),
           },
         }
       : {
@@ -1541,7 +1659,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
             sortField: this.raydiumSortField(),
             sortType: this.raydiumSortDir(),
             page: this.raydiumPage(),
-            pageSize: this.RAYDIUM_PAGE_SIZE,
+            pageSize: this.requestedPageSize(this.RAYDIUM_PAGE_SIZE),
           },
         };
 
@@ -1665,6 +1783,275 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.loading.set(false);
       this.raydiumPositionsFetching.set(false);
     }
+  }
+
+  /**
+   * The wallet's Meteora DLMM positions, grouped by pool as the API returns
+   * them. Rendering these as a card (rather than letting the model narrate
+   * them) is what lets the user click the position they mean — with two
+   * positions in one pool, prose can only offer a pair of base58 addresses.
+   */
+  private async fetchDlmmPositions(): Promise<void> {
+    this.dlmmPositionsFetching.set(true);
+    this.error.set(null);
+    if (!this.walletService.publicKey()) {
+      this.error.set('Connect your wallet to see positions');
+      this.loading.set(false);
+      this.dlmmPositionsFetching.set(false);
+      return;
+    }
+    try {
+      const resp = await firstValueFrom(
+        this.api.post<any>('/actions/build', {
+          type: this.query.type === 'meteora_dammv2_get_user_positions'
+            ? 'meteora_dammv2_get_user_positions'
+            : 'meteora_dlmm_get_user_positions',
+          params: {},
+        }).pipe(timeout(20_000)),
+      );
+      const data = resp?.data ?? resp?.preview?.params?.data;
+      this.dlmmUserPools.set(Array.isArray(data?.pools) ? data.pools : []);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Meteora DLMM positions');
+    } finally {
+      this.dlmmPositionsFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  /** Shared display context so the action card can render a real summary. */
+  /**
+   * Params handed to a spawned Meteora action. Beyond the addresses the
+   * builder needs, this carries the position's own economics — range, token
+   * amounts, unclaimed fees — as display context. A confirm-only action like
+   * Claim has nothing to fill in, so without these the card could only echo a
+   * base58 address back at the user: "sign this, trust me". With them it can
+   * state what is actually being claimed.
+   */
+  private dlmmActionParams(row: DlmmPositionRow): Record<string, string> {
+    const pool = row.pool;
+    const d = row.detail;
+    return {
+      pool: pool.poolAddress,
+      poolId: pool.poolAddress,
+      position: row.address,
+      positionId: row.address,
+      pair: `${pool.tokenX}/${pool.tokenY}`,
+      tokenASymbol: pool.tokenX,
+      tokenBSymbol: pool.tokenY,
+      ...(pool.tokenXMint ? { tokenA: pool.tokenXMint } : {}),
+      ...(pool.tokenYMint ? { tokenB: pool.tokenYMint } : {}),
+      ...(pool.tokenXIcon ? { tokenALogo: pool.tokenXIcon } : {}),
+      ...(pool.tokenYIcon ? { tokenBLogo: pool.tokenYIcon } : {}),
+      binStep: String(pool.binStep ?? ''),
+      currentPrice: String(pool.poolPrice ?? ''),
+      positionIndex: String(row.index + 1),
+      positionOutOfRange: row.outOfRange ? 'true' : 'false',
+      ...(pool.activeBinId !== undefined ? { activeBinId: String(pool.activeBinId) } : {}),
+      ...(pool.tokenXDecimals !== undefined ? { tokenADecimals: String(pool.tokenXDecimals) } : {}),
+      ...(pool.tokenYDecimals !== undefined ? { tokenBDecimals: String(pool.tokenYDecimals) } : {}),
+      ...(d
+        ? {
+            positionMinPrice: String(d.lowerPrice),
+            positionMaxPrice: String(d.upperPrice),
+            positionBinCount: String(d.binCount),
+            positionAmountA: String(d.amountX),
+            positionAmountB: String(d.amountY),
+            positionFeeA: String(d.unclaimedFeeX),
+            positionFeeB: String(d.unclaimedFeeY),
+            // The position's range IS the range an add-liquidity card must
+            // deposit into — it cannot be re-ranged, only widened by opening
+            // a new position. Passing the bin ids lets the card's existing
+            // ratio engine work against the real range instead of seeding a
+            // fresh one around the active bin.
+            minBinId: String(d.lowerBinId),
+            maxBinId: String(d.upperBinId),
+          }
+        : {}),
+    };
+  }
+
+  addToDlmmPosition(row: DlmmPositionRow): void {
+    const params = this.dlmmActionParams(row);
+    const type = this.isDammV2Positions() ? 'meteora_dammv2_add_liquidity' : 'meteora_add_to_position';
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
+  }
+
+  withdrawDlmmPosition(row: DlmmPositionRow): void {
+    const params = { ...this.dlmmActionParams(row), bpsToRemove: '10000' };
+    const type = this.isDammV2Positions() ? 'meteora_dammv2_remove_liquidity' : 'meteora_remove_liquidity';
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
+  }
+
+  claimDlmmFees(row: DlmmPositionRow): void {
+    const params = this.dlmmActionParams(row);
+    const type = this.isDammV2Positions() ? 'meteora_dammv2_claim_fee' : 'meteora_claim_fees';
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
+  }
+
+  /**
+   * Open a NEW position in the same pool, at the current price.
+   *
+   * This is the way out when a position's own range can no longer take a
+   * deposit: a range is fixed at creation, so "add to this one" has no
+   * meaning, but "put liquidity in this pool" — what the user actually wants —
+   * is still perfectly possible. Blocking Add without offering this leaves
+   * them with a dead end.
+   *
+   * No range is passed: the action card seeds one around the pool's active bin.
+   */
+  openNewDlmmPosition(row: DlmmPositionRow): void {
+    const { position, positionId, ...rest } = this.dlmmActionParams(row);
+    void position; void positionId;
+    const params: Record<string, string> = {
+      ...rest,
+      // A fresh position must not inherit the old one's bounds.
+      minBinId: '',
+      maxBinId: '',
+      positionMinPrice: '',
+      positionMaxPrice: '',
+    };
+    for (const k of Object.keys(params)) if (params[k] === '') delete params[k];
+    this.useAction.emit({ type: 'meteora_open_position', params, raw: `[ACTION:meteora_open_position] ${JSON.stringify(params)}` });
+  }
+
+  /**
+   * Close: withdraw + claim + close the position account, which is the only
+   * thing that returns the ~0.057 SOL of rent the position holds. Withdraw
+   * alone leaves that locked in an empty position forever, so a row that can
+   * withdraw but not close is a row that can only lose the user money.
+   */
+  closeDlmmPosition(row: DlmmPositionRow): void {
+    const params = this.dlmmActionParams(row);
+    const type = this.isDammV2Positions() ? 'meteora_dammv2_close_position' : 'meteora_close_position';
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
+  }
+
+  /** DAMM v2 rather than DLMM. The two share this card because a position is a
+   *  position; what differs is that DAMM v2 has no range and its actions live
+   *  under different type names. */
+  readonly isDammV2Positions = computed(() => this.query.type === 'meteora_dammv2_get_user_positions');
+
+  dlmmPositionOutOfRange(pool: DlmmUserPool, position: string): boolean {
+    return (pool.positionsOutOfRange ?? []).includes(position);
+  }
+
+  /**
+   * One panel per POSITION, not per pool. Re-ranging a DLMM position means
+   * opening a second one in the same pool, so "2 positions" in a single pool
+   * row is the common case — and it hides exactly what differs between them:
+   * each has its own price range, balance and unclaimed fees. Flattening here
+   * mirrors the Raydium CLMM card, where every position is its own panel with
+   * its own actions.
+   *
+   * `detail` is null when the on-chain enrichment failed; the panel then still
+   * renders with the address and the pool-level context, which is enough to
+   * act on.
+   */
+  readonly dlmmPositionRows = computed<DlmmPositionRow[]>(() => {
+    const rows: DlmmPositionRow[] = [];
+    for (const pool of this.dlmmUserPools()) {
+      const byAddress = new Map<string, DlmmPositionDetail>(
+        (pool.positions ?? []).map(p => [p.address, p]),
+      );
+      const addresses = pool.listPositions?.length
+        ? pool.listPositions
+        : (pool.positions ?? []).map(p => p.address);
+      addresses.forEach((address, index) => {
+        const detail = byAddress.get(address) ?? null;
+        rows.push({
+          pool,
+          address,
+          index,
+          detail,
+          // Prefer the chain's answer; fall back to the API's per-pool list.
+          outOfRange: detail ? !detail.inRange : this.dlmmPositionOutOfRange(pool, address),
+        });
+      });
+    }
+    return rows;
+  });
+
+  /** Total open positions across every pool — the card's header count. */
+  readonly dlmmPositionTotal = computed(() => this.dlmmPositionRows().length);
+
+  /** Pool-level value / PnL / fees, rolled up. Splitting the card into
+   *  per-position panels would otherwise drop these — they are only priced
+   *  per pool upstream, so they belong in one summary strip, not repeated on
+   *  every panel where they'd read as that position's own PnL. */
+  readonly dlmmPositionsSummary = computed(() => {
+    const pools = this.dlmmUserPools();
+    if (pools.length === 0) return null;
+    const num = (v: unknown) => {
+      const n = Number(v ?? 0);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const value = pools.reduce((s, p) => s + num(p.balances), 0);
+    const pnl = pools.reduce((s, p) => s + num(p.pnl), 0);
+    const fees = pools.reduce((s, p) => s + num(p.unclaimedFees), 0);
+    const deposited = pools.reduce((s, p) => s + num(p.totalDeposit), 0);
+    return {
+      value,
+      pnl,
+      fees,
+      pnlPct: deposited > 0 ? (pnl / deposited) * 100 : 0,
+      poolCount: pools.length,
+      positionCount: this.dlmmPositionRows().length,
+    };
+  });
+
+  /**
+   * True when the position's range is so far from the pool's price that the
+   * backend will refuse a deposit — the same 100x bound it enforces, computed
+   * here so the card never offers an Add that cannot succeed.
+   *
+   * The bound is expressed in price rather than bins because a bin's width
+   * depends on the pool's bin step.
+   */
+  dlmmRangeUnusable(row: DlmmPositionRow): boolean {
+    const d = row.detail;
+    const active = row.pool.activeBinId;
+    const step = row.pool.binStep;
+    // Bin ids are DLMM-only — a constant-product position has no range to be
+    // far from, so this can never apply to DAMM v2.
+    if (!d || d.lowerBinId === undefined || d.upperBinId === undefined) return false;
+    if (active === undefined || !(step > 0)) return false;
+    const lower = d.lowerBinId;
+    const upper = d.upperBinId;
+    const maxDistance = Math.ceil(Math.log(100) / Math.log(1 + step / 10_000));
+    const nearest = upper < active ? active - upper
+      : lower > active ? lower - active
+      : 0;
+    return nearest > maxDistance;
+  }
+
+  /**
+   * True when this position has fees worth claiming. Only decidable once the
+   * on-chain detail is in — without it, assume there might be (a claim issued
+   * blind is better than a Claim button that refuses for the wrong reason).
+   */
+  dlmmHasClaimableFees(row: DlmmPositionRow): boolean {
+    const d = row.detail;
+    if (!d) return true;
+    return d.unclaimedFeeX > 0 || d.unclaimedFeeY > 0;
+  }
+
+  /** USD value of one position, prorated from the pool total by token amounts
+   *  when per-position detail is available. The portfolio API only prices the
+   *  pool as a whole, so this is a split, not an independent valuation. */
+  dlmmPositionValue(row: DlmmPositionRow): number | null {
+    const detail = row.detail;
+    if (!detail) return null;
+    const positions = row.pool.positions ?? [];
+    if (positions.length === 0) return null;
+    const px = row.pool.poolPrice || 0;
+    const weight = (p: DlmmPositionDetail) => p.amountX * px + p.amountY;
+    const total = positions.reduce((sum, p) => sum + weight(p), 0);
+    const poolValue = Number(row.pool.balances ?? 0);
+    if (!Number.isFinite(poolValue)) return null;
+    if (total <= 0) return poolValue / positions.length;
+    return poolValue * (weight(detail) / total);
   }
 
   /** Add liquidity to an EXISTING position: CLMM → increase the range's
@@ -1898,10 +2285,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const decY = p.token_y?.decimals ?? 9;
     let activeBinId = 0;
     if (binStep > 0 && currentPrice > 0) {
-      // current_price is human-units; the bin formula speaks in raw units,
-      // so scale by 10^(decX-decY) before solving for the bin id.
+      // current_price is human-units; the bin formula speaks in RAW units
+      // (y_raw per x_raw), so convert with 10^(decY-decX) before solving for
+      // the bin id — 1 SOL = 74.97 USDC is 74.97e6/1e9 = 0.07497 raw.
+      // Checked against the chain: the SOL/USDC pool's active_id is -6479 and
+      // only this direction reproduces it. The bin ids derived here are what
+      // the deposit submits, so the wrong sign puts the whole range tens of
+      // thousands of bins from the pool.
       activeBinId = Math.round(
-        Math.log(currentPrice * Math.pow(10, decX - decY)) /
+        Math.log(currentPrice * Math.pow(10, decY - decX)) /
           Math.log(1 + binStep / 10_000),
       );
     }
@@ -2003,7 +2395,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    */
   get dlmmShowingRange(): { from: number; to: number; total: number } {
     const total = this.dlmmTotal();
-    const size = this.DLMM_PAGE_SIZE;
+    const size = this.requestedPageSize(this.DLMM_PAGE_SIZE);
     const from = total === 0 ? 0 : (this.dlmmPage() - 1) * size + 1;
     const to = Math.min(this.dlmmPage() * size, total);
     return { from, to, total };
@@ -2116,6 +2508,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'meteora_dlmm_get_pairs':
         await this.fetchDlmmPairs();
+        return;
+      case 'meteora_dlmm_get_user_positions':
+      case 'meteora_dammv2_get_user_positions':
+        await this.fetchDlmmPositions();
         return;
       case 'meteora_dammv2_get_pools':
         await this.fetchDammV2Pools();
@@ -2428,9 +2824,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     try {
       const summary = await this.ensurePortfolio(wallet);
       if (!summary) {
-        this.positionResults = this.getMockPositions();
+        this.error.set('Could not load your positions right now — try again.');
         this.loading.set(false);
-        this.persistSnapshot();
         return;
       }
       const positions = this.portfolioService.protocolPositions();
@@ -2444,15 +2839,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
           apy: 0,
         }))
       );
-      if (this.positionResults.length === 0) {
-        this.positionResults = this.getMockPositions();
-      }
       this.loading.set(false);
       this.persistSnapshot();
     } catch {
-      this.positionResults = this.getMockPositions();
+      this.error.set('Could not load your positions right now — try again.');
       this.loading.set(false);
-      this.persistSnapshot();
     }
   }
 
@@ -2475,9 +2866,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         time: this.formatRelativeTime(tx.blockTime),
         status: tx.success ? 'confirmed' : 'failed',
       }));
-      if (this.transactionResults.length === 0) {
-        this.transactionResults = this.getMockTransactions();
-      }
       this.loading.set(false);
       this.persistSnapshot();
     } catch {
@@ -2672,9 +3060,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     try {
       const summary = await this.ensurePortfolio(wallet);
       if (!summary) {
-        this.walletInfoResult = this.getMockWalletInfo();
+        this.error.set('Could not load wallet info right now — try again.');
         this.loading.set(false);
-        this.persistSnapshot();
         return;
       }
       this.walletInfoResult = {
@@ -2694,25 +3081,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
-
-  private getMockPositions(): PositionResult[] {
-    return [
-      { protocol: 'Marinade', type: 'Staking', token: 'mSOL', amount: 12.5, value: 2225.63, apy: 7.2 },
-      { protocol: 'Raydium', type: 'LP', token: 'SOL-USDC', amount: 1, value: 890.45, apy: 24.5 },
-      { protocol: 'Marginfi', type: 'Lending', token: 'USDC', amount: 500, value: 500.00, apy: 8.3 },
-      { protocol: 'Jito', type: 'Staking', token: 'jitoSOL', amount: 5.0, value: 895.25, apy: 7.8 },
-    ];
-  }
-
-  private getMockTransactions(): TransactionResult[] {
-    return [
-      { type: 'swap', description: 'Swap 2 SOL → 354 USDC', amount: '$354.10', time: '2 min ago', status: 'confirmed' },
-      { type: 'transfer', description: 'Sent 1.5 SOL', amount: '-$267.08', time: '15 min ago', status: 'confirmed' },
-      { type: 'stake', description: 'Stake 10 SOL on Marinade', amount: '$1,780.50', time: '1 hr ago', status: 'confirmed' },
-      { type: 'swap', description: 'Swap 100 USDC → 0.56 SOL', amount: '$100.00', time: '3 hrs ago', status: 'confirmed' },
-      { type: 'receive', description: 'Received 5 SOL', amount: '+$890.25', time: '1 day ago', status: 'confirmed' },
-    ];
-  }
 
   private getMockTrending(): TrendingResult[] {
     return [
@@ -2804,17 +3172,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     };
   }
 
-  private getMockWalletInfo(): WalletInfoResult {
-    return {
-      address: 'HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6',
-      solBalance: 24.56,
-      tokenCount: 12,
-      nftCount: 4,
-      firstTx: '2024-01-15',
-      totalTxs: 1847,
-      label: 'Main Wallet',
-    };
-  }
 
   private async fetchTaxReport(): Promise<void> {
     const currentYear = new Date().getFullYear();
@@ -2913,8 +3270,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return `$${p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
-  formatUsd(n: number): string {
-    return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  /**
+   * Several protocol APIs (Meteora's portfolio endpoint among them) return
+   * money as JSON *strings*. `String.prototype.toLocaleString` silently
+   * ignores the options object and hands the string straight back, which is
+   * how "$0.6551870858262281" reached the card — so coerce first.
+   *
+   * Sub-cent amounts are real here: unclaimed DLMM fees start in the
+   * thousandths, and rounding them to "$0.00" reads as "nothing to claim".
+   */
+  formatUsd(n: number | string | null | undefined): string {
+    const v = typeof n === 'number' ? n : Number(n ?? 0);
+    if (!Number.isFinite(v)) return '$0.00';
+    const abs = Math.abs(v);
+    const maxDigits = abs > 0 && abs < 0.01 ? 6 : 2;
+    const body = abs.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: maxDigits,
+    });
+    return `${v < 0 ? '-' : ''}$${body}`;
   }
 
   /** Compact USD for dense table cells: $2.52M, $18.4K, $47.24. */

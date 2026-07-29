@@ -4727,12 +4727,109 @@
   }
 }
 
+// Claim panel: the claimable amount is the headline, because for a
+// confirm-only action it is the whole reason to sign.
+.mtr-claim {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 12px;
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.02));
+
+  &__label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--op-text-tertiary);
+    margin-bottom: 4px;
+  }
+
+  &__amounts {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  &__amount {
+    font-size: 1.0625rem;
+    font-weight: 650;
+    color: var(--op-text-primary);
+  }
+
+  &__sym {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--op-text-secondary);
+  }
+
+  &__plus { color: var(--op-text-tertiary); }
+
+  &__warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--op-warn, #e8a13a);
+  }
+}
+
+// Supporting facts for a confirm-only Meteora action.
+.mtr-detail {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  &__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.75rem;
+  }
+
+  &__label { color: var(--op-text-tertiary); }
+
+  &__value {
+    color: var(--op-text-secondary);
+    text-align: right;
+  }
+
+  &__muted { color: var(--op-text-tertiary); }
+
+  &__oor {
+    margin-left: 6px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--op-warn, #e8a13a);
+  }
+}
+
 .clmm-min-hint {
   font-size: 0.75rem;
   color: var(--op-text-tertiary);
   line-height: 1.4;
   margin-top: -2px;
   margin-bottom: 2px;
+
+  // The range exceeds what one position can hold — this stops being a hint
+  // and becomes something the user has to act on.
+  &--warn {
+    color: var(--op-warn, #e8a13a);
+    // Some warnings lead with an icon; keep it on the first line rather than
+    // letting the text wrap underneath it.
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+
+    lucide-icon { flex-shrink: 0; margin-top: 1px; }
+  }
 }
 
 // ── Custom-pair token chooser ("Başka bir çift" path) ──
@@ -4966,6 +5063,15 @@
 // Hero amount input — same size/weight as .pump-panel__amount.
 .clmm-amount-input {
   flex: 1;
+
+  // A side the pool won't take at this range: still readable, clearly inert.
+  &:disabled {
+    color: var(--op-text-tertiary);
+    cursor: not-allowed;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
   min-width: 0;
   border: none;
   background: transparent;

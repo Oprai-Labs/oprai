@@ -11,7 +11,9 @@ export const PROTOCOLS: Protocol[] = [
   { id: 'jupiter',      label: 'Jupiter',      category: 'dex',       logo: 'assets/protocols/jupiter.png',      description: 'Best-rate token swaps' },
   { id: 'raydium',      label: 'Raydium',      category: 'dex',       logo: 'assets/protocols/raydium.png',      description: 'AMM liquidity pools' },
   { id: 'orca',         label: 'Orca',         category: 'dex',       logo: 'assets/protocols/orca.png',         description: 'Concentrated liquidity DEX' },
-  { id: 'meteora',      label: 'Meteora',      category: 'dex',       logo: 'assets/protocols/meteora.png',      description: 'Dynamic liquidity pools' },
+  // assets/protocols/meteora.png is a black-circle "M" that is not Meteora's
+  // mark; point at the same file the cards use so the chip and the cards agree.
+  { id: 'meteora',      label: 'Meteora',      category: 'dex',       logo: 'assets/icons/protocols/meteora.webp', description: 'DLMM + DAMM liquidity pools' },
   // Staking
   { id: 'marinade',     label: 'Marinade',     category: 'staking',   logo: 'assets/protocols/marinade.png',     description: 'mSOL liquid staking' },
   { id: 'jito',         label: 'Jito',         category: 'staking',   logo: 'assets/protocols/jito.png',         description: 'MEV-boosted staking (jitoSOL)' },
