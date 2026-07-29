@@ -3851,8 +3851,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         poolId: pool.poolAddress,
         binStep: String(pool.binStep ?? ''),
         currentPrice: String(pool.poolPrice ?? ''),
+        // The ratio engine needs the bin ids, the active bin and the token
+        // decimals — without them it can't tell which side of the price the
+        // range sits on, so BOTH amount inputs stay enabled even when the
+        // pool would only accept one of them at this range.
+        ...(pool.activeBinId !== undefined ? { activeBinId: String(pool.activeBinId) } : {}),
+        ...(pool.tokenXDecimals !== undefined ? { tokenADecimals: String(pool.tokenXDecimals) } : {}),
+        ...(pool.tokenYDecimals !== undefined ? { tokenBDecimals: String(pool.tokenYDecimals) } : {}),
         ...(detail
           ? {
+              minBinId: String(detail.lowerBinId),
+              maxBinId: String(detail.upperBinId),
               positionMinPrice: String(detail.lowerPrice),
               positionMaxPrice: String(detail.upperPrice),
               positionBinCount: String(detail.binCount),
