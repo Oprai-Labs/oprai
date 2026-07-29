@@ -67,6 +67,26 @@ async function toV0Base64(
   // away anyway: compiling to v0 builds a new message, so any signature over
   // the old one no longer applies. The wallet fills the fee-payer slot.
   if (signers.length) vtx.sign(signers);
+
+  // Pre-flight simulate, so a transaction the chain would reject surfaces here
+  // with the program's own error rather than after the user has signed it. The
+  // Rust builders have done this all along; the SDK-built paths did not, which
+  // is why a swapped deposit threshold reached the wallet as an opaque 6002.
+  try {
+    const sim = await connection.simulateTransaction(vtx, {
+      sigVerify: false,
+      replaceRecentBlockhash: true,
+    });
+    if (sim.value.err) {
+      const logs = (sim.value.logs ?? []).slice(-6).join(" | ");
+      throw appError(`Simulation failed: ${JSON.stringify(sim.value.err)}. ${logs}`, 400, "SIMULATION_FAILED");
+    }
+  } catch (e) {
+    // Re-throw our own error; a simulation the RPC couldn't run must not block
+    // a build that would otherwise succeed.
+    if ((e as { code?: string })?.code === "SIMULATION_FAILED") throw e;
+  }
+
   return Buffer.from(vtx.serialize()).toString("base64");
 }
 
@@ -327,6 +347,15 @@ export async function buildDammV2AddLiquidity(
   const slippage = (params.slippageBps ?? 100) / 10_000;
   const pad = (v: BN) => v.muln(Math.round((1 + slippage) * 1000)).divn(1000);
 
+  // The quote is expressed as input/output, NOT as A/B — so which one is
+  // token A depends on the side the user typed. Mapping input to A
+  // unconditionally swapped the two thresholds whenever the user entered the
+  // Y side, leaving token A capped at the Y amount and the deposit rejected
+  // with ExceededSlippage (6002).
+  const quotedIn = deposit.actualInputAmount ?? inAmount;
+  const maxA = pad(isA ? quotedIn : deposit.outputAmount);
+  const maxB = pad(isA ? deposit.outputAmount : quotedIn);
+
   let tx: Transaction;
   const localSigners: Keypair[] = [];
   if (params.position) {
@@ -336,10 +365,10 @@ export async function buildDammV2AddLiquidity(
       position: new PublicKey(params.position),
       positionNftAccount: await resolveNftAccount(amm, user, params.position),
       liquidityDelta: deposit.liquidityDelta,
-      maxAmountTokenA: pad(deposit.actualInputAmount ?? inAmount),
-      maxAmountTokenB: pad(deposit.outputAmount),
-      tokenAAmountThreshold: pad(deposit.actualInputAmount ?? inAmount),
-      tokenBAmountThreshold: pad(deposit.outputAmount),
+      maxAmountTokenA: maxA,
+      maxAmountTokenB: maxB,
+      tokenAAmountThreshold: maxA,
+      tokenBAmountThreshold: maxB,
       tokenAMint: t.mintA,
       tokenBMint: t.mintB,
       tokenAVault: state.tokenAVault,
@@ -356,10 +385,10 @@ export async function buildDammV2AddLiquidity(
       pool: poolPk,
       positionNft: positionNft.publicKey,
       liquidityDelta: deposit.liquidityDelta,
-      maxAmountTokenA: pad(deposit.actualInputAmount ?? inAmount),
-      maxAmountTokenB: pad(deposit.outputAmount),
-      tokenAAmountThreshold: pad(deposit.actualInputAmount ?? inAmount),
-      tokenBAmountThreshold: pad(deposit.outputAmount),
+      maxAmountTokenA: maxA,
+      maxAmountTokenB: maxB,
+      tokenAAmountThreshold: maxA,
+      tokenBAmountThreshold: maxB,
       tokenAMint: t.mintA,
       tokenBMint: t.mintB,
       tokenAProgram: (await connection.getAccountInfo(t.mintA))!.owner,
