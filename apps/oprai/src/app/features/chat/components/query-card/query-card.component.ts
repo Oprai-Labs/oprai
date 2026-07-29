@@ -1327,7 +1327,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    *
    * Clamped to what a card can sensibly show; the pager covers the rest.
    */
-  private requestedPageSize(fallback: number): number {
+  requestedPageSize(fallback: number): number {
     const raw = this.query.params?.['pageSize']
       ?? this.query.params?.['page_size']
       ?? this.query.params?.['limit']
@@ -1501,7 +1501,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   get dammV2ShowingRange(): { from: number; to: number; total: number } {
     const total = this.dammV2Total();
-    const size = this.DAMMV2_PAGE_SIZE;
+    // The DEFAULT page size is not necessarily the page size in use — a
+    // request that named a count overrides it, and the footer then claimed
+    // "Showing 1–10" under five rows.
+    const size = this.requestedPageSize(this.DAMMV2_PAGE_SIZE);
     const from = total === 0 ? 0 : (this.dammV2Page() - 1) * size + 1;
     const to = Math.min(this.dammV2Page() * size, total);
     return { from, to, total };
@@ -2392,7 +2395,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    */
   get dlmmShowingRange(): { from: number; to: number; total: number } {
     const total = this.dlmmTotal();
-    const size = this.DLMM_PAGE_SIZE;
+    const size = this.requestedPageSize(this.DLMM_PAGE_SIZE);
     const from = total === 0 ? 0 : (this.dlmmPage() - 1) * size + 1;
     const to = Math.min(this.dlmmPage() * size, total);
     return { from, to, total };
