@@ -2473,6 +2473,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * shared constant overstated one of them by a factor of ten. The constant
    * remains only as a fallback for a card with no detail.
    */
+  /** Net SOL the wallet will show for a close, measured by simulating it.
+   *  Null until the preview lands, so the panel falls back to amounts + rent
+   *  rather than rendering a blank. */
+  readonly meteoraCloseNetSol = computed<number | null>(() => {
+    const v = parseFloat(this.editParams()['closeNetSol'] ?? '');
+    return Number.isFinite(v) ? v : null;
+  });
+
   readonly meteoraRentRefund = computed(() => {
     const v = parseFloat(this.editParams()['positionRentSol'] ?? '');
     return Number.isFinite(v) && v > 0 ? v : this.METEORA_POSITION_RENT_REFUND;
@@ -3944,6 +3952,28 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (this.secondaryBalanceMint()) void this.loadSecondaryBalance();
     } catch {
       // Enrichment is cosmetic — the action still builds from the address.
+    }
+
+    // A close returns liquidity, fees and several rent refunds at once, and
+    // which accounts get closed is the program's business, not ours. Adding up
+    // the ones we know about left the figure 15% under what the wallet then
+    // offered. Ask the builder, which simulates and reports the wallet's own
+    // net change.
+    if (this.isMeteoraClose()) {
+      try {
+        const built = await firstValueFrom(
+          this.apiService.post<{ data?: { netSolChange?: number; receiveB?: number } }>(
+            '/actions/build',
+            { type: this.action!.type, params: { position } },
+          ).pipe(timeout(20_000)),
+        );
+        const net = built?.data?.netSolChange;
+        if (typeof net === 'number' && Number.isFinite(net)) {
+          this.editParams.update(ep => ({ ...ep, closeNetSol: String(net) }));
+        }
+      } catch {
+        // Falls back to amounts + rent, which is close enough to be useful.
+      }
     }
   }
 

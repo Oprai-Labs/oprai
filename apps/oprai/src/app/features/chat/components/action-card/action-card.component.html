@@ -1698,7 +1698,7 @@
                     <div class="mtr-claim__label">You get back</div>
                     <div class="mtr-claim__amounts">
                       <span class="mtr-claim__amount">
-                        {{ pd.amountA + meteoraRentRefund() | number:'1.0-6' }}
+                        {{ (meteoraCloseNetSol() ?? (pd.amountA + meteoraRentRefund())) | number:'1.0-6' }}
                         <span class="mtr-claim__sym">{{ cv.symA }}</span>
                       </span>
                       @if (pd.amountB > 0 || pd.feeB > 0) {

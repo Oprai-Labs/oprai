@@ -91,6 +91,36 @@ async function toV0Base64(
 }
 
 /**
+ * The wallet's SOL change if this transaction lands, measured by simulating it
+ * — not by adding up the accounts we expect it to close.
+ *
+ * Enumerating them is guesswork that is quietly wrong: closing a DAMM v2
+ * position also closes the NFT mint and the wSOL account, and counting only
+ * the position and its NFT account understated the refund. The simulator
+ * knows exactly which accounts the instruction touches; ask it.
+ */
+async function simulatedSolDelta(
+  connection: Connection,
+  txB64: string,
+  user: PublicKey,
+): Promise<number | null> {
+  try {
+    const vtx = VersionedTransaction.deserialize(Buffer.from(txB64, "base64"));
+    const before = await connection.getBalance(user, "confirmed");
+    const sim = await connection.simulateTransaction(vtx, {
+      sigVerify: false,
+      replaceRecentBlockhash: true,
+      accounts: { encoding: "base64", addresses: [user.toBase58()] },
+    });
+    const after = sim.value.accounts?.[0]?.lamports;
+    if (sim.value.err || after === undefined || after === null) return null;
+    return (after - before) / 1e9;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The pool-state fields every quote needs: the reserves and total liquidity it
  * prices against, plus the fee mode (which decides whether fees come off the
  * input or the output). Passing them explicitly is what makes a quote reflect
@@ -597,13 +627,16 @@ export async function buildDammV2ClosePosition(
     ...poolQuoteBasis(state),
   });
 
+  const txB64 = await toV0Base64(connection, tx, user);
+  const solDelta = await simulatedSolDelta(connection, txB64, user);
+
   return {
     preview: preview(
       "meteora_dammv2_close_position",
       `Close DAMM v2 position ${params.position.slice(0, 8)}… (withdraw + claim + recover rent)`,
       params as unknown as Record<string, unknown>,
     ),
-    transaction: await toV0Base64(connection, tx, user),
+    transaction: txB64,
     additionalSignersRequired: 0,
     isCrossChain: false,
     data: {
@@ -613,6 +646,9 @@ export async function buildDammV2ClosePosition(
       feeB: toNum(h.positionState.feeBPending, t.decB),
       symbolA: t.symA,
       symbolB: t.symB,
+      // Net SOL the wallet will see — liquidity, fees, every rent refund and
+      // the transaction fee, exactly as the wallet's own preview computes it.
+      ...(solDelta !== null ? { netSolChange: solDelta } : {}),
     },
   };
 }
