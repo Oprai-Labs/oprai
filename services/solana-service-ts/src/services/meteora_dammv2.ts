@@ -200,7 +200,23 @@ export async function getDammV2UserPositions(
     const state = await amm.fetchPoolState(poolPk);
     const t = await resolvePoolTokens(amm, connection, poolPk, state);
 
-    const positions = entries.map(e => {
+    // Rent actually locked in the accounts a close returns, read from the
+    // chain rather than assumed. A DAMM v2 position is 408 bytes plus a
+    // 165-byte NFT account — about 0.0058 SOL — where a DLMM position is 8120
+    // bytes at 0.0574. Sharing the DLMM constant overstated the refund tenfold.
+    const rentOf = async (keys: PublicKey[]): Promise<number> => {
+      try {
+        const infos = await connection.getMultipleAccountsInfo(keys);
+        return infos.reduce((sum, a) => sum + (a?.lamports ?? 0), 0) / 1e9;
+      } catch {
+        return 0;
+      }
+    };
+    const rents = await Promise.all(
+      entries.map(e => rentOf([e.position, e.positionNftAccount])),
+    );
+
+    const positions = entries.map((e, i) => {
       const ps = e.positionState;
       // What the shares are worth right now, priced by the SDK against the
       // pool's current reserves — not a stored deposit amount, which drifts
@@ -221,6 +237,7 @@ export async function getDammV2UserPositions(
         unclaimedFeeY: toNum(ps.feeBPending, t.decB),
         // A locked position can't be withdrawn or closed until it vests; the
         // card has to say so rather than offering buttons that will fail.
+        rentSol: rents[i],
         locked: !(ps.vestedLiquidity as BN).isZero() || !(ps.permanentLockedLiquidity as BN).isZero(),
         permanentlyLocked: !(ps.permanentLockedLiquidity as BN).isZero(),
       };

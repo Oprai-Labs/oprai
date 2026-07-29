@@ -2466,6 +2466,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   readonly METEORA_POSITION_RENT_REFUND = 0.057406;
 
+  /**
+   * What closing this position actually returns in rent. Prefer the figure the
+   * backend read off the accounts — DLMM's 8120-byte position is 0.0574 SOL
+   * while a DAMM v2 position plus its NFT account is around 0.0058, so a
+   * shared constant overstated one of them by a factor of ten. The constant
+   * remains only as a fallback for a card with no detail.
+   */
+  readonly meteoraRentRefund = computed(() => {
+    const v = parseFloat(this.editParams()['positionRentSol'] ?? '');
+    return Number.isFinite(v) && v > 0 ? v : this.METEORA_POSITION_RENT_REFUND;
+  });
+
   /** Close = withdraw + claim + close the account. Distinct from a plain
    *  withdrawal, which leaves the account (and its rent) in place. */
   readonly isMeteoraClose = computed(() =>
@@ -3864,12 +3876,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!type.startsWith('meteora_')) return;
     const p = this.editParams();
     const position = p['position'] || p['positionId'];
-    if (!position || p['tokenASymbol']) return;   // nothing to look up, or already known
+    if (!position) return;
 
+    // Always re-read, even when the symbols are already known. The row's
+    // figures were captured when the positions card fetched; by the time the
+    // user opens an action the position may have grown or shrunk, and a Close
+    // panel quoting pre-deposit amounts is worse than one quoting none.
+    const isDamm = (this.action?.type ?? '').includes('dammv2');
     try {
       const resp = await firstValueFrom(
         this.apiService.post<{ data?: { pools?: any[] } }>('/actions/build', {
-          type: 'meteora_dlmm_get_user_positions',
+          type: isDamm ? 'meteora_dammv2_get_user_positions' : 'meteora_dlmm_get_user_positions',
           params: {},
         }).pipe(timeout(20_000)),
       );
@@ -3902,14 +3919,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           ? {
               minBinId: String(detail.lowerBinId),
               maxBinId: String(detail.upperBinId),
-              positionMinPrice: String(detail.lowerPrice),
-              positionMaxPrice: String(detail.upperPrice),
-              positionBinCount: String(detail.binCount),
+              ...(detail.lowerPrice !== undefined && detail.upperPrice !== undefined
+                ? {
+                    positionMinPrice: String(detail.lowerPrice),
+                    positionMaxPrice: String(detail.upperPrice),
+                    positionBinCount: String(detail.binCount ?? ''),
+                  }
+                : {}),
               positionAmountA: String(detail.amountX),
               positionAmountB: String(detail.amountY),
               positionFeeA: String(detail.unclaimedFeeX),
               positionFeeB: String(detail.unclaimedFeeY),
               positionOutOfRange: detail.inRange ? 'false' : 'true',
+              ...(detail.rentSol !== undefined ? { positionRentSol: String(detail.rentSol) } : {}),
             }
           : {}),
       }));

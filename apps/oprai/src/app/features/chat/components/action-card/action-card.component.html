@@ -1594,7 +1594,7 @@
                   @if (meteoraPositionDetail()?.hasFees) {
                     Claim first, or the accrued fees stay behind.
                   }
-                  The position account keeps holding {{ METEORA_POSITION_RENT_REFUND }} SOL of rent —
+                  The position account keeps holding {{ meteoraRentRefund() | number:'1.0-6' }} SOL of rent —
                   use <strong>Close</strong> instead if you are done with this position, since that
                   withdraws, claims and returns the rent in one go.
                 </div>
@@ -1698,7 +1698,7 @@
                     <div class="mtr-claim__label">You get back</div>
                     <div class="mtr-claim__amounts">
                       <span class="mtr-claim__amount">
-                        {{ pd.amountA + METEORA_POSITION_RENT_REFUND | number:'1.0-6' }}
+                        {{ pd.amountA + meteoraRentRefund() | number:'1.0-6' }}
                         <span class="mtr-claim__sym">{{ cv.symA }}</span>
                       </span>
                       @if (pd.amountB > 0 || pd.feeB > 0) {
@@ -1711,7 +1711,7 @@
                     </div>
                     <div class="mtr-detail__row" style="margin-top:6px">
                       <span class="mtr-detail__label">Includes rent refund</span>
-                      <span class="mtr-detail__value mono">{{ METEORA_POSITION_RENT_REFUND }} SOL</span>
+                      <span class="mtr-detail__value mono">{{ meteoraRentRefund() | number:'1.0-6' }} SOL</span>
                     </div>
                   </div>
                 } @else if (isClaimAction()) {

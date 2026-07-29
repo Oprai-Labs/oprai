@@ -274,6 +274,8 @@ interface DlmmPositionDetail {
   lowerPrice?: number;
   upperPrice?: number;
   binCount?: number;
+  /** SOL locked in the accounts a close returns, read from the chain. */
+  rentSol?: number;
   /** DAMM v2: vested or permanently-locked liquidity can't be withdrawn yet. */
   locked?: boolean;
   permanentlyLocked?: boolean;
@@ -1895,6 +1897,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
             positionAmountB: String(d.amountY),
             positionFeeA: String(d.unclaimedFeeX),
             positionFeeB: String(d.unclaimedFeeY),
+            ...(d.rentSol !== undefined ? { positionRentSol: String(d.rentSol) } : {}),
             // The position's range IS the range an add-liquidity card must
             // deposit into — it cannot be re-ranged, only widened by opening
             // a new position. Passing the bin ids lets the card's existing
