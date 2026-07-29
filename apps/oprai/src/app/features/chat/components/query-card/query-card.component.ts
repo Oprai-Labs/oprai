@@ -1859,6 +1859,32 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Open a NEW position in the same pool, at the current price.
+   *
+   * This is the way out when a position's own range can no longer take a
+   * deposit: a range is fixed at creation, so "add to this one" has no
+   * meaning, but "put liquidity in this pool" — what the user actually wants —
+   * is still perfectly possible. Blocking Add without offering this leaves
+   * them with a dead end.
+   *
+   * No range is passed: the action card seeds one around the pool's active bin.
+   */
+  openNewDlmmPosition(row: DlmmPositionRow): void {
+    const { position, positionId, ...rest } = this.dlmmActionParams(row);
+    void position; void positionId;
+    const params: Record<string, string> = {
+      ...rest,
+      // A fresh position must not inherit the old one's bounds.
+      minBinId: '',
+      maxBinId: '',
+      positionMinPrice: '',
+      positionMaxPrice: '',
+    };
+    for (const k of Object.keys(params)) if (params[k] === '') delete params[k];
+    this.useAction.emit({ type: 'meteora_open_position', params, raw: `[ACTION:meteora_open_position] ${JSON.stringify(params)}` });
+  }
+
+  /**
    * Close: withdraw + claim + close the position account, which is the only
    * thing that returns the ~0.057 SOL of rent the position holds. Withdraw
    * alone leaves that locked in an empty position forever, so a row that can
