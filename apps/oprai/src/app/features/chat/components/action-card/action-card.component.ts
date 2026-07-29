@@ -3873,6 +3873,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
             }
           : {}),
       }));
+      // The balance loaders ran in ngOnInit, before this lookup returned the
+      // mints — so they had nothing to fetch and the amount row rendered with
+      // no balance and no Max. Re-fire them now that the pair is known.
+      this.inputBalance.set(null);
+      this.secondaryBalance.set(null);
+      if (this.inputBalanceMint()) void this.loadInputBalance();
+      if (this.secondaryBalanceMint()) void this.loadSecondaryBalance();
     } catch {
       // Enrichment is cosmetic — the action still builds from the address.
     }
