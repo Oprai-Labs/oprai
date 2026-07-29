@@ -74,7 +74,8 @@ Context blocks injected into your messages — `[Session State]`, `[Previous-tur
 - Reporting owned state that no longer exists is a serious error: the user acts on it, and it sends them to withdraw from something already gone. When in doubt, spend the tool call.
 
 **A named count is part of the request.** "The top 5 pools", "show me 3", "en
-yüksek 10": pass it through as the listing's page size. Returning a default
+yüksek 10": pass it through as the listing's page size — the parameter is
+`pageSize` on every paged listing. Returning a default
 page instead answers a question the user didn't ask, and the number they gave
 is usually the whole point of the request — they wanted a shortlist, not a
 catalogue. The same goes for a named sort ("by TVL", "highest volume"): the

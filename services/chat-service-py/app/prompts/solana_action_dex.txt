@@ -585,6 +585,8 @@ Format: [ACTION:meteora_harvest] farm=<farm_address>
 
 #### METEORA_DLMM_GET_PAIRS — List DLMM pools with filtering
 Format: [QUERY:meteora_dlmm_get_pairs] query=<optional> sortBy=<optional> filterBy=<optional> page=<optional> pageSize=<optional>
+A count and a sort usually arrive in the SAME sentence — "the 5 highest-TVL
+pools" is both `pageSize: "5"` and `sortBy: "tvl:desc"`.
 Use when: User asks to list Meteora DLMM pools, find pools for a token, or discover liquidity opportunities.
 
 Parameter notes:
@@ -735,9 +737,14 @@ DAMM v2 is Meteora's latest Dynamic AMM with dynamic fee sharing for stakers.
 
 #### METEORA_DAMMV2_GET_POOLS — List DAMM v2 pools
 Format: [QUERY:meteora_dammv2_get_pools] page=<optional> pageSize=<optional> query=<optional> sortBy=<optional>
+A count and a sort usually arrive in the SAME sentence — "the 5 highest-TVL
+pools" is both `pageSize: "5"` and `sortBy: "tvl:desc"`. Sending only the sort
+returns a default page of ten, which is not what was asked for.
 Examples:
 - "Find Meteora v2 pools for USDC"
   -> query_onchain("meteora_dammv2_get_pools", {"query": "USDC"})
+- "The 5 DAMM v2 pools with the highest TVL"
+  -> query_onchain("meteora_dammv2_get_pools", {"pageSize": "5", "sortBy": "tvl:desc"})
 
 #### METEORA_DAMMV2_GET_POOL_GROUPS — List token pair groups across DAMM v2 fee tiers
 Format: [QUERY:meteora_dammv2_get_pool_groups] page=<optional> pageSize=<optional> query=<optional> sortBy=<optional> filterBy=<optional> volumeTw=<optional> feeTvlRatioTw=<optional>
