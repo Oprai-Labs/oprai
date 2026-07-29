@@ -1302,8 +1302,9 @@
                 <div class="clmm-min-hint" [class.clmm-min-hint--warn]="apd.outOfRange">
                   @if (apd.outOfRange) {
                     The price has left this range, so the position earns no fees and the
-                    deposit sits idle until the price comes back. To earn now, open a new
-                    position around the current price instead.
+                    deposit sits idle until the price comes back. This is allowed — it is a
+                    poor trade, not an invalid one. To earn now, open a new position around
+                    the current price instead.
                   } @else {
                     Fixed by the position — to use a different range, open a new position.
                   }

@@ -210,23 +210,22 @@
                           [attr.title]="dlmmHasClaimableFees(row)
                             ? 'Claim this position\'s fees'
                             : 'No unclaimed fees on this position'">Claim</button>
-                  <!-- A range this far from the pool price can never take a
-                       deposit. Rather than a dead disabled button, offer the
-                       thing the user actually wants: liquidity in this pool,
-                       in a new position around the current price. -->
+                  <!-- Adding to a position whose range has left the price is
+                       allowed — Meteora permits it too. It is a poor trade,
+                       not an invalid one, and the panel says so. A far range
+                       additionally offers opening a fresh one at the current
+                       price, which is usually what was actually wanted. -->
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          (click)="addToDlmmPosition(row); $event.stopPropagation()"
+                          title="Add liquidity to this position">
+                    <lucide-icon name="plus" [size]="12" />
+                    Add
+                  </button>
                   @if (dlmmRangeUnusable(row)) {
                     <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                             (click)="openNewDlmmPosition(row); $event.stopPropagation()"
-                            title="This position's range can no longer take a deposit — open a new one around the current price">
-                      <lucide-icon name="plus" [size]="12" />
+                            title="Open a new position around the current price instead">
                       New position
-                    </button>
-                  } @else {
-                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
-                            (click)="addToDlmmPosition(row); $event.stopPropagation()"
-                            title="Add liquidity to this position">
-                      <lucide-icon name="plus" [size]="12" />
-                      Add
                     </button>
                   }
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"

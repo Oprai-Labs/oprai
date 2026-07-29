@@ -2600,15 +2600,13 @@ pub async fn build_meteora_add_to_position(
     // NOT fail on-chain: the program happily creates a dead position holding
     // one token at a price that will never trade, which is how a deposit once
     // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
-    // The range belongs to the position and cannot be edited here.
-    reject_range_far_from_pool(
-        lower_bin_id,
-        upper_bin_id,
-        active_id,
-        lb_fields.bin_step,
-        false,
-        Some((params.position.as_str(), pos_data.lb_pair.as_str())),
-    )?;
+    // NO range guard here. The guard exists to catch a broken bin<->price
+    // conversion in a range the USER just chose; this range came off the chain
+    // and IS the position. Meteora's own UI allows adding to a position whose
+    // range has left the price — it is a poor trade, not an invalid one — so
+    // refusing it blocked a legal operation on the grounds that we distrusted
+    // data we had read from the chain ourselves. The card warns that the
+    // deposit will sit idle; the decision is the user's.
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
