@@ -1,10 +1,1 @@
 <router-outlet></router-outlet>
-
-<!-- A newer build is live. The tab keeps working on the old one until the user
-     chooses — nothing is interrupted, but a shipped fix stops looking unshipped. -->
-@if (appVersion.updateAvailable()) {
-  <div class="app-update-toast" role="status">
-    <span class="app-update-toast__text">A new version of OPRAI is available.</span>
-    <button type="button" class="app-update-toast__btn" (click)="appVersion.reload()">Reload</button>
-  </div>
-}

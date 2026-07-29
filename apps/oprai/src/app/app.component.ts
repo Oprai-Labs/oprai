@@ -4,50 +4,18 @@ import { Subscription } from 'rxjs';
 import { ThemeService } from './core/services/theme.service';
 import { WalletService } from './core/services/wallet.service';
 import { AuthService } from './core/services/auth.service';
-import { AppVersionService } from './core/services/app-version.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [RouterOutlet],
   templateUrl: './app.component.html',
-  styles: [`
-    .app-update-toast {
-      position: fixed;
-      left: 50%;
-      bottom: 22px;
-      transform: translateX(-50%);
-      z-index: 9000;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 12px 10px 16px;
-      border: 1px solid var(--op-border-default);
-      border-radius: 99px;
-      background: var(--op-bg-surface-1);
-      box-shadow: var(--op-shadow-card);
-      font-size: 0.8125rem;
-      color: var(--op-text-secondary);
-    }
-    .app-update-toast__btn {
-      padding: 5px 14px;
-      border: none;
-      border-radius: 99px;
-      background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06B6D4));
-      color: #fff;
-      font: inherit;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .app-update-toast__btn:hover { filter: brightness(1.1); }
-  `],
 })
 export class AppComponent implements OnInit, OnDestroy {
   private readonly themeService = inject(ThemeService);
   private readonly walletService = inject(WalletService);
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
-  readonly appVersion = inject(AppVersionService);
 
   private accountChangedSub?: Subscription;
 
@@ -90,9 +58,6 @@ export class AppComponent implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     this.themeService.initialize();
-    // A tab left open keeps running the build it loaded; a deploy is invisible
-    // to it. Watch for a newer one so a shipped fix doesn't look unshipped.
-    this.appVersion.start();
 
     // Restore session from HttpOnly cookie via GET /auth/session. Uses the
     // memoized whenAuthReady() so route guards awaiting the same restore share
