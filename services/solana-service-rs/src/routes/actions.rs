@@ -272,6 +272,17 @@ fn is_ts_delegated_action(action_type: &str) -> bool {
             // (raydium.clmm.getOwnerPositionInfo), not the owner-v1 farm API.
             | "raydium_get_user_positions"
             | "raydium_get_clmm_positions"
+            // Meteora DAMM v2 (cp-amm) — a SEPARATE on-chain program from DAMM
+            // v1 with NFT-backed positions, and a data API that exposes no
+            // positions endpoint at all. Built with @meteora-ag/cp-amm-sdk so
+            // quotes, deposit ratios and account derivation come from Meteora
+            // rather than from our guesses about a program layout.
+            | "meteora_dammv2_get_user_positions"
+            | "meteora_dammv2_add_liquidity"
+            | "meteora_dammv2_remove_liquidity"
+            | "meteora_dammv2_claim_fee"
+            | "meteora_dammv2_close_position"
+            | "meteora_dammv2_swap"
     )
 }
 

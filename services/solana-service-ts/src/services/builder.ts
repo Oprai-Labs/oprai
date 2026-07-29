@@ -18,6 +18,7 @@ import * as raydiumSdk from "./raydium_sdk";
 import * as orca from "./orca";
 import * as marinade from "./marinade";
 import * as meteora from "./meteora";
+import * as dammV2 from "./meteora_dammv2";
 import * as jito from "./jito";
 import * as pumpfun from "./pumpfun";
 import * as magicEden from "./magic_eden";
@@ -332,6 +333,19 @@ export async function buildAction(
       return meteora.getMeteoraUserPositions(p(params), userWallet);
     case "meteora_dlmm_position_details":
       return meteora.getMeteoraDlmmPositionDetails(p(params), userWallet);
+    // ── Meteora DAMM v2 (cp-amm) — its own program, its own SDK ──────────
+    case "meteora_dammv2_get_user_positions":
+      return dammV2.getDammV2UserPositions(p(params), userWallet);
+    case "meteora_dammv2_add_liquidity":
+      return dammV2.buildDammV2AddLiquidity(p(params), userWallet);
+    case "meteora_dammv2_remove_liquidity":
+      return dammV2.buildDammV2RemoveLiquidity(p(params), userWallet);
+    case "meteora_dammv2_claim_fee":
+      return dammV2.buildDammV2ClaimFee(p(params), userWallet);
+    case "meteora_dammv2_close_position":
+      return dammV2.buildDammV2ClosePosition(p(params), userWallet);
+    case "meteora_dammv2_swap":
+      return dammV2.buildDammV2Swap(p(params), userWallet);
 
     // ── Jito ─────────────────────────────────────────────────────────────────
     case "jito":
