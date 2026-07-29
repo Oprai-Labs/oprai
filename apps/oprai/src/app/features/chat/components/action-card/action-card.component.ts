@@ -5505,6 +5505,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   );
 
   /**
+   * A Meteora deposit that names no pool. The panel then renders a pair of
+   * "??" logos, an empty price range and "Total bins: 0" — a form that cannot
+   * be completed, since every field below depends on the pool. Blocking the
+   * CTA and saying so beats letting the user fill in amounts that have nowhere
+   * to go.
+   *
+   * Usually this means the model reached for the pool-level deposit when the
+   * user was pointing at an existing position; the prompt covers that, and
+   * this is the backstop.
+   */
+  readonly meteoraPoolUnresolved = computed(() => {
+    if (!this.isMeteoraDual()) return false;
+    const p = this.editParams();
+    if (p['position'] || p['positionId']) return false;   // targets a position
+    return !p['pool'] && !p['poolId'];
+  });
+
+  /**
    * Pre-Confirm balance guard for the CLMM deposit — returns a short "Not
    * enough X" message when either side's amount exceeds its spendable balance
    * (SOL keeps a rent buffer). Catches the shortfall BEFORE the user hits

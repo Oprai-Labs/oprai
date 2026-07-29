@@ -1268,6 +1268,16 @@
               </div>
             </div>
 
+            @if (meteoraPoolUnresolved()) {
+              <div class="clmm-section">
+                <div class="clmm-min-hint clmm-min-hint--warn">
+                  <lucide-icon name="alert-circle" [size]="13" />
+                  This deposit doesn’t name a pool yet. Ask for the pool by name
+                  (e.g. “SOL/USDC DLMM pools”), or add to one of your existing
+                  positions from the positions list.
+                </div>
+              </div>
+            }
             @if (isMeteoraAddToPosition() && meteoraPositionDetail() !== null) {
               <!-- The range belongs to the position and cannot be changed;
                    re-ranging means opening a NEW position. So show it, don't
@@ -3941,12 +3951,15 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="nothingToClaim() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="nothingToClaim() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
             @if (nothingToClaim()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Nothing to claim
+            } @else if (meteoraPoolUnresolved()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Pick a pool first
             } @else if (meteoraBinsOverflow()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Range too wide ({{ meteoraTotalBins() }} bins)
