@@ -118,7 +118,7 @@
       <!-- Meteora DLMM positions — one panel per POSITION, like Raydium CLMM.
            Several positions in one pool is the normal shape (that's what
            re-ranging leaves behind) and each has its own range and fees. -->
-      @if (query.type === 'meteora_dlmm_get_user_positions') {
+      @if (query.type === 'meteora_dlmm_get_user_positions' || query.type === 'meteora_dammv2_get_user_positions') {
         @if (dlmmPositionsSummary(); as sum) {
           <div class="dlmm-pos-summary">
             <span class="dlmm-pos-summary__seg">
@@ -165,8 +165,13 @@
                   }
                 </span>
                 <span class="ray-pos__pair">{{ row.pool.tokenX }} / {{ row.pool.tokenY }}</span>
-                <span class="type-badge">DLMM</span>
-                @if (row.outOfRange) {
+                <span class="type-badge">{{ isDammV2Positions() ? 'DAMM V2' : 'DLMM' }}</span>
+                @if (row.detail?.permanentlyLocked) {
+                  <span class="type-badge dlmm-oor">Permanently locked</span>
+                } @else if (row.detail?.locked) {
+                  <span class="type-badge dlmm-oor">Locked</span>
+                }
+                @if (!isDammV2Positions() && row.outOfRange) {
                   <span class="type-badge dlmm-oor">Out of range</span>
                 }
                 <button type="button"
@@ -192,7 +197,12 @@
                       @if (dlmmPositionValue(row); as usd) {
                         · {{ formatUsd(usd) }}
                       }
-                      · {{ row.detail.binCount }} bins
+                      @if (isDammV2Positions()) {
+                        · unclaimed {{ row.detail.unclaimedFeeX | number:'1.0-6' }} {{ row.pool.tokenX }}
+                        + {{ row.detail.unclaimedFeeY | number:'1.0-6' }} {{ row.pool.tokenY }}
+                      } @else {
+                        · {{ row.detail.binCount }} bins
+                      }
                     </span>
                   } @else {
                     <span class="ray-pos__amount">{{ formatUsd(row.pool.balances) }}</span>
@@ -247,7 +257,7 @@
 
               <!-- The range is what distinguishes one position from another in
                    the same pool, so it belongs on the panel, not in prose. -->
-              @if (row.detail) {
+              @if (row.detail && !isDammV2Positions()) {
                 <div class="dlmm-pos-range">
                   <span class="dlmm-pos-range__seg">
                     <span class="dlmm-pos-range__label">Min</span>
@@ -275,8 +285,10 @@
           @if (!dlmmPositionsFetching() && dlmmUserPools().length === 0) {
             <div class="dlmm-empty">
               <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
-              <div>No open Meteora DLMM positions.</div>
-              <div class="dlmm-empty__hint">Add liquidity to a DLMM pool to open one.</div>
+              <div>No open Meteora {{ isDammV2Positions() ? 'DAMM v2' : 'DLMM' }} positions.</div>
+              <div class="dlmm-empty__hint">
+                Add liquidity to a {{ isDammV2Positions() ? 'DAMM v2' : 'DLMM' }} pool to open one.
+              </div>
             </div>
           }
         </div>

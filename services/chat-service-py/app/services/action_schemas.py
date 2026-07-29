@@ -197,6 +197,7 @@ class ActionType(str, Enum):
     METEORA_DLMM_GET_PROTOCOL_STATS = "meteora_dlmm_get_protocol_stats"
     # Meteora — DAMM v2 GET queries
     METEORA_DAMMV2_GET_POOLS = "meteora_dammv2_get_pools"
+    METEORA_DAMMV2_GET_USER_POSITIONS = "meteora_dammv2_get_user_positions"
     METEORA_DAMMV2_GET_POOL_GROUPS = "meteora_dammv2_get_pool_groups"
     METEORA_DAMMV2_GET_POOL_GROUP = "meteora_dammv2_get_pool_group"
     METEORA_DAMMV2_GET_POOL = "meteora_dammv2_get_pool"
@@ -207,6 +208,8 @@ class ActionType(str, Enum):
     METEORA_DAMMV2_SWAP = "meteora_dammv2_swap"
     METEORA_DAMMV2_ADD_LIQUIDITY = "meteora_dammv2_add_liquidity"
     METEORA_DAMMV2_REMOVE_LIQUIDITY = "meteora_dammv2_remove_liquidity"
+    METEORA_DAMMV2_CLAIM_FEE = "meteora_dammv2_claim_fee"
+    METEORA_DAMMV2_CLOSE_POSITION = "meteora_dammv2_close_position"
     # Meteora — DAMM v1 GET queries
     METEORA_DAMMV1_GET_POOLS = "meteora_dammv1_get_pools"
     METEORA_DAMMV1_GET_POOL_CONFIGS = "meteora_dammv1_get_pool_configs"
@@ -663,6 +666,7 @@ class QueryType(str, Enum):
     METEORA_DAMMV2_GET_POOL_OHLCV = "meteora_dammv2_get_pool_ohlcv"
     METEORA_DAMMV2_GET_POOL_VOLUME_HISTORY = "meteora_dammv2_get_pool_volume_history"
     METEORA_DAMMV2_GET_POOLS = "meteora_dammv2_get_pools"
+    METEORA_DAMMV2_GET_USER_POSITIONS = "meteora_dammv2_get_user_positions"
     METEORA_DAMMV2_GET_PROTOCOL_METRICS = "meteora_dammv2_get_protocol_metrics"
     METEORA_DAMMV1_GET_ALPHA_VAULT_CONFIGS = "meteora_dammv1_get_alpha_vault_configs"
     METEORA_DAMMV1_GET_ALPHA_VAULTS = "meteora_dammv1_get_alpha_vaults"
@@ -877,6 +881,7 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     # Meteora DAMM v1 / DAMM v2 (swaps + liquidity)
     "meteora_dammv1_swap", "meteora_dammv1_deposit", "meteora_dammv1_withdraw",
     "meteora_dammv2_swap", "meteora_dammv2_add_liquidity", "meteora_dammv2_remove_liquidity",
+    "meteora_dammv2_claim_fee", "meteora_dammv2_close_position",
     # Meteora Dynamic Vault
     "meteora_vault_deposit", "meteora_vault_withdraw",
     # Meteora Stake-to-Earn (m3m3)

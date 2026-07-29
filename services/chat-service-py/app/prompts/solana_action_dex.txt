@@ -776,20 +776,56 @@ Examples:
 
 ---
 
+#### METEORA_DAMMV2_GET_USER_POSITIONS — The wallet's DAMM v2 positions
+Format: [QUERY:meteora_dammv2_get_user_positions] wallet=<optional>
+Use when: the user asks about their DAMM v2 / Dynamic AMM positions, what they
+can withdraw or close, or which fees they have waiting.
+Read on-chain, so amounts are priced against the pool's live reserves. Renders
+one panel per position with its own Claim / Add / Withdraw / Close — prefer it
+over describing positions in prose or routing them through a clarify list.
+Examples:
+- "My DAMM v2 positions" -> query_onchain("meteora_dammv2_get_user_positions", {"wallet": "self"})
+
+---
+
 ### Meteora — DAMM v2 Transactions
 
-#### METEORA_DAMMV2_SWAP — Swap via DAMM v2 (routed through Jupiter)
-Format: [ACTION:meteora_dammv2_swap] inputMint=<token> outputMint=<token> amount=<amount> slippageBps=<optional> pool=<optional>
-Required: inputMint, outputMint, amount
+DAMM v2 is a constant-product pool: liquidity has NO price range, and the two
+sides always go in at the pool's current ratio. A position is NFT-backed, so
+opening one mints an NFT the transaction signs for.
 
-#### METEORA_DAMMV2_ADD_LIQUIDITY — Add liquidity to a DAMM v2 pool
-Format: [ACTION:meteora_dammv2_add_liquidity] pool=<address> maxAmountA=<amount> maxAmountB=<amount> slippageBps=<optional>
-Required: pool, maxAmountA, maxAmountB
-Note: Ask user for pool address and both token amounts if not provided.
+#### METEORA_DAMMV2_SWAP — Swap through one DAMM v2 pool
+Format: [ACTION:meteora_dammv2_swap] pool=<address> inputMint=<mint> amount=<amount> slippageBps=<optional>
+Required: pool, inputMint, amount
+The output side follows from the pool, so it is not a parameter. For a
+best-price swap across all venues use the ordinary swap action instead; this
+one is for trading a specific pool.
 
-#### METEORA_DAMMV2_REMOVE_LIQUIDITY — Remove liquidity from a DAMM v2 position
-Format: [ACTION:meteora_dammv2_remove_liquidity] pool=<address> lpAmount=<amount> positionNft=<nft_mint> minAmountA=<optional> minAmountB=<optional>
-Required: pool, lpAmount, positionNft
+#### METEORA_DAMMV2_ADD_LIQUIDITY — Deposit into a DAMM v2 pool
+Format: [ACTION:meteora_dammv2_add_liquidity] pool=<address> amountX=<amount> amountY=<amount> position=<optional> slippageBps=<optional>
+Required: pool, and ONE of amountX / amountY
+Give whichever amount the user named — the pool's ratio fixes the other, and
+the card shows it before signing. Sending both risks a pair that disagrees with
+the ratio and reverts. Omit `position` to open a new one; pass it to add to an
+existing position the user pointed at.
+
+#### METEORA_DAMMV2_REMOVE_LIQUIDITY — Withdraw from a DAMM v2 position
+Format: [ACTION:meteora_dammv2_remove_liquidity] position=<address> bpsToRemove=<optional> slippageBps=<optional>
+Required: position
+`bpsToRemove` is a share in basis points (10000 = all, the default). This
+withdraws only — it does NOT claim fees or close the position, so the account
+keeps its rent. Use close_position when the user is done with the position.
+
+#### METEORA_DAMMV2_CLAIM_FEE — Collect a position's accrued fees
+Format: [ACTION:meteora_dammv2_claim_fee] position=<address>
+Required: position
+Leaves the position open and its liquidity in place.
+
+#### METEORA_DAMMV2_CLOSE_POSITION — Withdraw, claim and close in one go
+Format: [ACTION:meteora_dammv2_close_position] position=<address>
+Required: position
+The only action that returns the position's rent. Prefer it over a 100%
+withdrawal when the user is finished with the position.
 
 ---
 

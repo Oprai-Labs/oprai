@@ -1320,6 +1320,15 @@
                   }
                 </div>
               </div>
+            } @else if (isDammV2()) {
+              <!-- Constant product: liquidity spans the whole curve, so there
+                   is no range to choose and none to display. -->
+              <div class="clmm-section">
+                <div class="clmm-min-hint">
+                  DAMM v2 is a constant-product pool — liquidity covers every price,
+                  so there is no range to set. Both sides go in at the pool's current ratio.
+                </div>
+              </div>
             } @else if (isMeteoraDlmm()) {
               <div class="clmm-section">
                 <div class="clmm-section__title">Price Range</div>

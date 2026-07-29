@@ -140,6 +140,8 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'meteora_dammv2_get_pool_ohlcv', 'meteora_dammv2_get_pool_volume_history',
   'meteora_dammv2_get_protocol_metrics',
   'meteora_dammv2_swap', 'meteora_dammv2_add_liquidity', 'meteora_dammv2_remove_liquidity',
+  'meteora_dammv2_claim_fee', 'meteora_dammv2_close_position',
+  'meteora_dammv2_get_user_positions',
   // Meteora — DAMM v1 queries + TX
   'meteora_dammv1_get_pools', 'meteora_dammv1_get_pool_configs',
   'meteora_dammv1_search_pools', 'meteora_dammv1_get_farms',
@@ -1289,6 +1291,8 @@ export class IntentParserService {
           : 'Meteora DLMM Pools';
       case 'meteora_dlmm_get_user_positions':
         return 'Meteora DLMM Positions';
+      case 'meteora_dammv2_get_user_positions':
+        return 'Meteora DAMM v2 Positions';
       case 'meteora_dammv2_get_pools':
         return query.params['query']
           ? `Meteora DAMM v2 Pools (${query.params['query']})`

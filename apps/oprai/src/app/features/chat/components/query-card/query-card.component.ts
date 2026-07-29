@@ -259,11 +259,16 @@ interface DlmmUserPool {
 /** One DLMM position inside a pool — its own range, balance and fees. */
 interface DlmmPositionDetail {
   address: string;
-  lowerBinId: number;
-  upperBinId: number;
-  lowerPrice: number;
-  upperPrice: number;
-  binCount: number;
+  // Range fields are DLMM-only. A DAMM v2 position is constant-product: no
+  // bins, no bounds — the panel simply omits the range strip for those.
+  lowerBinId?: number;
+  upperBinId?: number;
+  lowerPrice?: number;
+  upperPrice?: number;
+  binCount?: number;
+  /** DAMM v2: vested or permanently-locked liquidity can't be withdrawn yet. */
+  locked?: boolean;
+  permanentlyLocked?: boolean;
   amountX: number;
   amountY: number;
   unclaimedFeeX: number;
@@ -640,6 +645,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return 'assets/icons/protocols/jupiter.webp';
       case 'meteora_dlmm_get_pairs':
       case 'meteora_dlmm_get_user_positions':
+      case 'meteora_dammv2_get_user_positions':
       case 'meteora_dammv2_get_pools':
       case 'meteora_dammv1_get_pools':
         return 'assets/icons/protocols/meteora.webp';
@@ -678,7 +684,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   refreshLiveData(): void {
     switch (this.query.type) {
       case 'meteora_dlmm_get_pairs':    void this.fetchDlmmPairs();   break;
-      case 'meteora_dlmm_get_user_positions': void this.fetchDlmmPositions(); break;
+      case 'meteora_dlmm_get_user_positions':
+      case 'meteora_dammv2_get_user_positions': void this.fetchDlmmPositions(); break;
       case 'meteora_dammv2_get_pools':  void this.fetchDammV2Pools(); break;
       case 'meteora_dammv1_get_pools':  void this.fetchDammV1Pools(); break;
       case 'raydium_get_pools':         void this.fetchRaydiumPools(); break;
@@ -716,7 +723,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // client must all show on reload — so refetch rather than trust the
       // snapshot. (Until now the snapshot didn't even carry the pools, so a
       // reload rendered "No open positions" over a wallet that had two.)
-      if (this.query.type === 'meteora_dlmm_get_user_positions') {
+      if (this.query.type === 'meteora_dlmm_get_user_positions'
+          || this.query.type === 'meteora_dammv2_get_user_positions') {
         void this.fetchDlmmPositions();
       }
       // Jupiter Lend positions had the same gap: never snapshotted, never
@@ -1776,7 +1784,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     try {
       const resp = await firstValueFrom(
         this.api.post<any>('/actions/build', {
-          type: 'meteora_dlmm_get_user_positions',
+          type: this.query.type === 'meteora_dammv2_get_user_positions'
+            ? 'meteora_dammv2_get_user_positions'
+            : 'meteora_dlmm_get_user_positions',
           params: {},
         }).pipe(timeout(20_000)),
       );
@@ -1845,17 +1855,20 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   addToDlmmPosition(row: DlmmPositionRow): void {
     const params = this.dlmmActionParams(row);
-    this.useAction.emit({ type: 'meteora_add_to_position', params, raw: `[ACTION:meteora_add_to_position] ${JSON.stringify(params)}` });
+    const type = this.isDammV2Positions() ? 'meteora_dammv2_add_liquidity' : 'meteora_add_to_position';
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
   }
 
   withdrawDlmmPosition(row: DlmmPositionRow): void {
     const params = { ...this.dlmmActionParams(row), bpsToRemove: '10000' };
-    this.useAction.emit({ type: 'meteora_remove_liquidity', params, raw: `[ACTION:meteora_remove_liquidity] ${JSON.stringify(params)}` });
+    const type = this.isDammV2Positions() ? 'meteora_dammv2_remove_liquidity' : 'meteora_remove_liquidity';
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
   }
 
   claimDlmmFees(row: DlmmPositionRow): void {
     const params = this.dlmmActionParams(row);
-    this.useAction.emit({ type: 'meteora_claim_fees', params, raw: `[ACTION:meteora_claim_fees] ${JSON.stringify(params)}` });
+    const type = this.isDammV2Positions() ? 'meteora_dammv2_claim_fee' : 'meteora_claim_fees';
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
   }
 
   /**
@@ -1892,8 +1905,14 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    */
   closeDlmmPosition(row: DlmmPositionRow): void {
     const params = this.dlmmActionParams(row);
-    this.useAction.emit({ type: 'meteora_close_position', params, raw: `[ACTION:meteora_close_position] ${JSON.stringify(params)}` });
+    const type = this.isDammV2Positions() ? 'meteora_dammv2_close_position' : 'meteora_close_position';
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
   }
+
+  /** DAMM v2 rather than DLMM. The two share this card because a position is a
+   *  position; what differs is that DAMM v2 has no range and its actions live
+   *  under different type names. */
+  readonly isDammV2Positions = computed(() => this.query.type === 'meteora_dammv2_get_user_positions');
 
   dlmmPositionOutOfRange(pool: DlmmUserPool, position: string): boolean {
     return (pool.positionsOutOfRange ?? []).includes(position);
@@ -1975,10 +1994,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const d = row.detail;
     const active = row.pool.activeBinId;
     const step = row.pool.binStep;
-    if (!d || active === undefined || !(step > 0)) return false;
+    // Bin ids are DLMM-only — a constant-product position has no range to be
+    // far from, so this can never apply to DAMM v2.
+    if (!d || d.lowerBinId === undefined || d.upperBinId === undefined) return false;
+    if (active === undefined || !(step > 0)) return false;
+    const lower = d.lowerBinId;
+    const upper = d.upperBinId;
     const maxDistance = Math.ceil(Math.log(100) / Math.log(1 + step / 10_000));
-    const nearest = d.upperBinId < active ? active - d.upperBinId
-      : d.lowerBinId > active ? d.lowerBinId - active
+    const nearest = upper < active ? active - upper
+      : lower > active ? lower - active
       : 0;
     return nearest > maxDistance;
   }
@@ -2467,6 +2491,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         await this.fetchDlmmPairs();
         return;
       case 'meteora_dlmm_get_user_positions':
+      case 'meteora_dammv2_get_user_positions':
         await this.fetchDlmmPositions();
         return;
       case 'meteora_dammv2_get_pools':

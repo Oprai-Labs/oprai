@@ -158,6 +158,7 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "meteora_dlmm_get_pool_volume_history": _A({"dex", "meteora", "analysis"}),
     "meteora_dlmm_get_protocol_stats": _A({"dex", "meteora", "analysis"}),
     "meteora_dammv2_get_pools":        _A({"dex", "meteora", "analysis"}),
+    "meteora_dammv2_get_user_positions": _A({"dex", "meteora", "portfolio"}),
     "meteora_dammv2_get_pool_groups":  _A({"dex", "meteora"}),
     "meteora_dammv2_get_pool_group":   _A({"dex", "meteora"}),
     "meteora_dammv2_get_pool":         _A({"dex", "meteora", "analysis"}),

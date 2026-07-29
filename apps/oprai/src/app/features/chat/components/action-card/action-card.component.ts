@@ -2093,6 +2093,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     'meteora_add_liquidity', 'meteora_dammv2_add_liquidity',
     'meteora_open_position', 'meteora_add_to_position', 'meteora_dammv1_deposit',
   ]);
+  /** DAMM v2 is constant-product: no bins, no range, so it takes the plain
+   *  two-amount panel rather than the DLMM range controls. */
+  readonly isDammV2 = computed(() => (this.action?.type ?? '').includes('dammv2'));
   private static readonly METEORA_REDUCE = new Set([
     'meteora_remove_liquidity', 'meteora_dammv2_remove_liquidity', 'meteora_dammv1_withdraw',
   ]);
@@ -2101,6 +2104,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     'meteora_s2e_stake', 'meteora_s2e_unstake',
   ]);
   private static readonly METEORA_CONFIRM = new Set([
+    'meteora_dammv2_claim_fee', 'meteora_dammv2_close_position',
     'meteora_close_position', 'meteora_claim_fees', 'meteora_claim_rewards',
     'meteora_harvest', 'meteora_s2e_claim_fee', 'meteora_s2e_cancel_unstake',
     'meteora_s2e_withdraw',
@@ -2404,7 +2408,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * an LP amount — so the panel drives a percentage and converts on write.
    */
   meteoraReduceKey(): 'bpsToRemove' | 'lpAmount' {
-    return this.action.type === 'meteora_remove_liquidity' ? 'bpsToRemove' : 'lpAmount';
+    // DLMM and DAMM v2 both submit a share in basis points; only the DAMM v1
+    // withdrawal is denominated in LP tokens.
+    return this.action.type === 'meteora_remove_liquidity'
+        || this.action.type === 'meteora_dammv2_remove_liquidity'
+      ? 'bpsToRemove'
+      : 'lpAmount';
   }
 
   readonly meteoraReducePct = computed<number>(() => {
@@ -2451,7 +2460,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   /** Close = withdraw + claim + close the account. Distinct from a plain
    *  withdrawal, which leaves the account (and its rent) in place. */
-  readonly isMeteoraClose = computed(() => this.action?.type === 'meteora_close_position');
+  readonly isMeteoraClose = computed(() =>
+    this.action?.type === 'meteora_close_position'
+    || this.action?.type === 'meteora_dammv2_close_position');
 
   /**
    * A claim with nothing to claim. The card already says so; leaving the CTA

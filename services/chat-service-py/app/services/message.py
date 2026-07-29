@@ -301,6 +301,9 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # at one of several positions in the same pool — as text the model can
     # only offer base58 addresses for the user to type back.
     "meteora_dlmm_get_user_positions",
+    # Same reasoning for DAMM v2: one row per position with its own
+    # Claim / Add / Withdraw / Close, which prose cannot offer.
+    "meteora_dammv2_get_user_positions",
     # Kamino Multiply pool list — paginated/sortable table with a per-row
     # "Multiply" button that opens kamino_multiply_open on the chosen pair.
     # The card self-fetches from /actions/build (delegated to the TS

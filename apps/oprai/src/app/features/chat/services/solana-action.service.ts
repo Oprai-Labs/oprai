@@ -160,6 +160,7 @@ const DATA_ONLY_ACTION_TYPES_LIST: string[] = [
   'meteora_dammv2_get_pool_group', 'meteora_dammv2_get_pool',
   'meteora_dammv2_get_pool_ohlcv', 'meteora_dammv2_get_pool_volume_history',
   'meteora_dammv2_get_protocol_metrics',
+  'meteora_dammv2_get_user_positions',
   // Meteora DAMM v1 data queries
   'meteora_dammv1_get_pools', 'meteora_dammv1_get_pool_configs',
   'meteora_dammv1_search_pools', 'meteora_dammv1_get_farms',
@@ -301,6 +302,8 @@ const VERSIONED_TX_TYPES: string[] = [
   'meteora_dammv2_swap',
   'meteora_dammv2_add_liquidity',
   'meteora_dammv2_remove_liquidity',
+  'meteora_dammv2_claim_fee',
+  'meteora_dammv2_close_position',
   // Meteora Dynamic Vault — build_vtx_b64 versioned
   'meteora_vault_deposit',
   'meteora_vault_withdraw',
@@ -3418,29 +3421,35 @@ export class SolanaActionService {
         };
 
       // ── Meteora DAMM v2 ───────────────────────────────────────────────────────
+      // Built by @meteora-ag/cp-amm-sdk in the TS service. The pool decides the
+      // output side of a swap and the ratio of a deposit, so neither is a
+      // parameter here — sending an outputMint or a second amount would only
+      // give the SDK something to disagree with.
       case 'meteora_dammv2_swap':
         return {
-          inputMint: p['inputMint'],
-          outputMint: p['outputMint'],
-          amount: p['amount'],
+          pool: p['pool'] ?? p['poolId'],
+          inputMint: p['inputMint'] ?? p['tokenA'],
+          amount: p['amount'] ?? p['amountA'] ?? p['amountX'],
           ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
-          ...(p['pool'] ? { pool: p['pool'] } : {}),
         };
       case 'meteora_dammv2_add_liquidity':
         return {
           pool: p['pool'] ?? p['poolId'],
-          maxAmountA: p['maxAmountA'] ?? p['tokenAAmount'] ?? p['amountA'],
-          maxAmountB: p['maxAmountB'] ?? p['tokenBAmount'] ?? p['amountB'],
+          // One side is enough; the other follows from the pool's ratio.
+          amountX: p['amountX'] ?? p['amountA'] ?? '0',
+          amountY: p['amountY'] ?? p['amountB'] ?? '0',
+          ...(p['position'] ? { position: p['position'] } : {}),
           ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
         };
       case 'meteora_dammv2_remove_liquidity':
         return {
-          pool: p['pool'] ?? p['poolId'],
-          lpAmount: p['lpAmount'] ?? p['amount'],
-          positionNft: p['positionNft'] ?? p['positionId'],
-          ...(p['minAmountA'] ? { minAmountA: p['minAmountA'] } : {}),
-          ...(p['minAmountB'] ? { minAmountB: p['minAmountB'] } : {}),
+          position: p['position'] ?? p['positionId'],
+          ...(p['bpsToRemove'] ? { bpsToRemove: parseInt(p['bpsToRemove']) } : {}),
+          ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
         };
+      case 'meteora_dammv2_claim_fee':
+      case 'meteora_dammv2_close_position':
+        return { position: p['position'] ?? p['positionId'] };
 
       // ── Meteora Dynamic Vault ─────────────────────────────────────────────────
       case 'meteora_vault_deposit':
