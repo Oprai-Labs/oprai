@@ -38,7 +38,14 @@
                   @if (message.metadata?.protocols?.length) {
                     <div class="bubble-protocols">
                       @for (pid of message.metadata!.protocols!; track pid) {
-                        <span class="bubble-protocol-chip">{{ protocolChipLabel(pid) }}</span>
+                        <span class="bubble-protocol-chip">
+                          @if (protocolChipLogo(pid); as logo) {
+                            <img class="bubble-protocol-chip__logo" [src]="logo"
+                                 [alt]="protocolChipLabel(pid)"
+                                 (error)="$any($event.target).style.display='none'" />
+                          }
+                          {{ protocolChipLabel(pid) }}
+                        </span>
                       }
                     </div>
                   }

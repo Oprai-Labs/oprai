@@ -96,13 +96,22 @@
 .bubble-protocol-chip {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  gap: 5px;
+  padding: 2px 8px 2px 4px;
   border-radius: 999px;
   background: var(--op-brand-soft, rgba(91, 95, 199, 0.18));
   color: var(--op-brand, #5b5fc7);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.01em;
+
+  &__logo {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
 }
 
 .bubble-content {

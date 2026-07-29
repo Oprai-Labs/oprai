@@ -24,6 +24,9 @@ import { ApiService } from '@core/services/api.service';
 const PROTOCOL_LABELS: Record<string, string> = Object.fromEntries(
   PROTOCOLS.map(p => [p.id, p.label]),
 );
+const PROTOCOL_LOGOS: Record<string, string> = Object.fromEntries(
+  PROTOCOLS.map(p => [p.id, p.logo]),
+);
 import { ActionCardComponent } from '../action-card/action-card.component';
 import { QueryCardComponent } from '../query-card/query-card.component';
 import { ClarifyCardComponent } from '../clarify-card/clarify-card.component';
@@ -220,6 +223,13 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   /** Pretty-printed protocol label for a chip. Falls back to id if unknown. */
   protocolChipLabel(id: string): string {
     return PROTOCOL_LABELS[id] ?? id;
+  }
+
+  /** The same logo the composer chip shows, so the tag looks identical before
+   *  and after sending. Null for an id with no entry — the chip then renders
+   *  as a plain label rather than a broken image. */
+  protocolChipLogo(id: string): string | null {
+    return PROTOCOL_LOGOS[id] ?? null;
   }
 
   /** Resend the user message verbatim — same supersede semantics as edit. */
