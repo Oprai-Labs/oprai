@@ -2356,10 +2356,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     amountA: number; amountB: number;
     feeA: number; feeB: number;
     hasFees: boolean;
+    hasRange: boolean;
     outOfRange: boolean;
   } | null>(() => {
     const p = this.editParams();
-    if (p['positionMinPrice'] === undefined || p['positionMaxPrice'] === undefined) return null;
+    // Gate on the AMOUNTS, not the range: a DAMM v2 position is
+    // constant-product and has no range at all, so requiring one meant the
+    // whole detail panel — claimable amounts, what you get back, the
+    // nothing-to-claim guard — silently vanished for every DAMM v2 action.
+    const hasDetail = p['positionAmountA'] !== undefined || p['positionAmountB'] !== undefined
+      || p['positionMinPrice'] !== undefined;
+    if (!hasDetail) return null;
     const num = (k: string) => {
       const n = parseFloat(p[k] ?? '');
       return Number.isFinite(n) ? n : 0;
@@ -2377,6 +2384,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       feeA,
       feeB,
       hasFees: feeA > 0 || feeB > 0,
+      hasRange: p['positionMinPrice'] !== undefined && p['positionMaxPrice'] !== undefined,
       outOfRange: p['positionOutOfRange'] === 'true',
     };
   });

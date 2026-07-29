@@ -1321,12 +1321,26 @@
                 </div>
               </div>
             } @else if (isDammV2()) {
-              <!-- Constant product: liquidity spans the whole curve, so there
-                   is no range to choose and none to display. -->
+              <!-- The range belongs to the POOL here, not the position, and it
+                   is set at pool creation — so it is stated, never offered.
+                   Most DAMM v2 pools span the whole curve, but a concentrated
+                   one behaves like a CLMM: price can leave the band, and the
+                   deposit then goes in one-sided and earns nothing. -->
               <div class="clmm-section">
-                <div class="clmm-min-hint">
-                  DAMM v2 is a constant-product pool — liquidity covers every price,
-                  so there is no range to set. Both sides go in at the pool's current ratio.
+                <div class="clmm-min-hint"
+                     [class.clmm-min-hint--warn]="editParams()['poolPriceOutOfRange'] === 'true'">
+                  @if (editParams()['poolPriceOutOfRange'] === 'true') {
+                    <lucide-icon name="alert-circle" [size]="13" />
+                    This pool's price has left its liquidity band, so a deposit goes in
+                    one-sided and earns no fees until the price comes back.
+                  } @else if (editParams()['poolConcentrated'] === 'true') {
+                    This DAMM v2 pool concentrates its liquidity in a price band set when
+                    the pool was created — you can't change it here. Both sides go in at
+                    the pool's current ratio.
+                  } @else {
+                    DAMM v2 is a constant-product pool — liquidity covers every price, so
+                    there is no range to set. Both sides go in at the pool's current ratio.
+                  }
                 </div>
               </div>
             } @else if (isMeteoraDlmm()) {
@@ -1727,18 +1741,20 @@
                       {{ pd.amountA | number:'1.0-6' }} {{ cv.symA }} + {{ pd.amountB | number:'1.0-6' }} {{ cv.symB }}
                     </span>
                   </div>
-                  <div class="mtr-detail__row">
-                    <span class="mtr-detail__label">Range</span>
-                    <span class="mtr-detail__value mono">
-                      {{ pd.minPrice | number:'1.0-6' }} – {{ pd.maxPrice | number:'1.0-6' }}
-                      <span class="mtr-detail__muted">({{ pd.binCount }} bins)</span>
-                    </span>
-                  </div>
+                  @if (pd.hasRange) {
+                    <div class="mtr-detail__row">
+                      <span class="mtr-detail__label">Range</span>
+                      <span class="mtr-detail__value mono">
+                        {{ pd.minPrice | number:'1.0-6' }} – {{ pd.maxPrice | number:'1.0-6' }}
+                        <span class="mtr-detail__muted">({{ pd.binCount }} bins)</span>
+                      </span>
+                    </div>
+                  }
                   <div class="mtr-detail__row">
                     <span class="mtr-detail__label">Current price</span>
                     <span class="mtr-detail__value mono">
                       {{ pd.currentPrice | number:'1.0-6' }}
-                      @if (pd.outOfRange) {
+                      @if (pd.hasRange && pd.outOfRange) {
                         <span class="mtr-detail__oor">out of range</span>
                       }
                     </span>

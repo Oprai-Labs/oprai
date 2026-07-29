@@ -254,6 +254,12 @@ interface DlmmUserPool {
   activeBinId?: number;
   tokenXDecimals?: number;
   tokenYDecimals?: number;
+  /** DAMM v2: a pool can be created with concentrated bounds rather than
+   *  spanning the whole curve, and the price can then sit outside them. */
+  minPrice?: number;
+  maxPrice?: number;
+  concentrated?: boolean;
+  priceOutOfRange?: boolean;
 }
 
 /** One DLMM position inside a pool — its own range, balance and fees. */
@@ -1863,6 +1869,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ...(pool.tokenYIcon ? { tokenBLogo: pool.tokenYIcon } : {}),
       binStep: String(pool.binStep ?? ''),
       currentPrice: String(pool.poolPrice ?? ''),
+      ...(pool.concentrated ? { poolConcentrated: 'true' } : {}),
+      ...(pool.priceOutOfRange ? { poolPriceOutOfRange: 'true' } : {}),
       positionIndex: String(row.index + 1),
       positionOutOfRange: row.outOfRange ? 'true' : 'false',
       ...(pool.activeBinId !== undefined ? { activeBinId: String(pool.activeBinId) } : {}),
@@ -1870,9 +1878,16 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ...(pool.tokenYDecimals !== undefined ? { tokenBDecimals: String(pool.tokenYDecimals) } : {}),
       ...(d
         ? {
-            positionMinPrice: String(d.lowerPrice),
-            positionMaxPrice: String(d.upperPrice),
-            positionBinCount: String(d.binCount),
+            // Range fields only when the product HAS a range — a DAMM v2
+            // position has none, and emitting empty strings would make the
+            // panel draw a "0 – 0" band that does not exist.
+            ...(d.lowerPrice !== undefined && d.upperPrice !== undefined
+              ? {
+                  positionMinPrice: String(d.lowerPrice),
+                  positionMaxPrice: String(d.upperPrice),
+                  positionBinCount: String(d.binCount ?? ''),
+                }
+              : {}),
             positionAmountA: String(d.amountX),
             positionAmountB: String(d.amountY),
             positionFeeA: String(d.unclaimedFeeX),

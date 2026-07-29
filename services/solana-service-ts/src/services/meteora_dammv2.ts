@@ -16,7 +16,7 @@
  * means both sides at the pool's current ratio.
  */
 
-import { CpAmm } from "@meteora-ag/cp-amm-sdk";
+import { CpAmm, getPriceFromSqrtPrice } from "@meteora-ag/cp-amm-sdk";
 import {
   Connection,
   Keypair,
@@ -206,8 +206,25 @@ export async function getDammV2UserPositions(
       };
     });
 
+    // DAMM v2 pools are NOT always full-range: a pool can be created with
+    // concentrated bounds, and then the price CAN sit outside them — the same
+    // state DLMM calls "out of range", with the same consequence (the deposit
+    // becomes one-sided and earns nothing until price returns). Report the
+    // bounds so the card can say which kind of pool this is.
+    const price = (sqrt: BN) => Number(getPriceFromSqrtPrice(sqrt, t.decA, t.decB));
+    const poolPrice = price(state.sqrtPrice);
+    const minPrice = price(state.sqrtMinPrice);
+    const maxPrice = price(state.sqrtMaxPrice);
+
     pools.push({
       poolAddress,
+      poolPrice,
+      minPrice,
+      maxPrice,
+      // A pool spanning the whole curve has no meaningful bounds to show.
+      concentrated: Number.isFinite(minPrice) && Number.isFinite(maxPrice)
+        && poolPrice > 0 && (minPrice > poolPrice / 1e6 || maxPrice < poolPrice * 1e6),
+      priceOutOfRange: poolPrice < minPrice || poolPrice > maxPrice,
       tokenX: t.symA,
       tokenY: t.symB,
       tokenXMint: t.mintA.toBase58(),
