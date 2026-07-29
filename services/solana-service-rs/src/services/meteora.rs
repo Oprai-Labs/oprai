@@ -1235,6 +1235,7 @@ fn reject_range_far_from_pool(
     active_id: i32,
     bin_step: u16,
     range_is_editable: bool,
+    subject: Option<(&str, &str)>,
 ) -> Result<(), AppError> {
     if bin_step == 0 {
         return Ok(());
@@ -1257,11 +1258,26 @@ fn reject_range_far_from_pool(
                  Move the range closer to the current price."
             )
         } else {
+            // Name the position and pool. Without them the message reads as if
+            // it were about whatever the user last looked at, which is exactly
+            // the confusion it caused: a wallet can hold several positions in
+            // the same pair, and only one of them may be the broken one.
+            let which = subject
+                .map(|(pos, pool)| {
+                    format!(
+                        " (position {}…{}, pool {}…{})",
+                        &pos[..4.min(pos.len())],
+                        &pos[pos.len().saturating_sub(4)..],
+                        &pool[..4.min(pool.len())],
+                        &pool[pool.len().saturating_sub(4)..],
+                    )
+                })
+                .unwrap_or_default();
             format!(
                 "This position's range sits {nearest} bins away from the pool's current price — \
                  far past what the pool can trade through (limit {max_distance}), so anything \
-                 added here would sit idle indefinitely. Close this position and open a new one \
-                 around the current price instead."
+                 added here would sit idle indefinitely{which}. Close this position and open a \
+                 new one around the current price instead."
             )
         }));
     }
@@ -1763,7 +1779,7 @@ pub async fn build_meteora_open_position(
     // NOT fail on-chain: the program happily creates a dead position holding
     // one token at a price that will never trade, which is how a deposit once
     // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
-    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, true)?;
+    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, true, None)?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
@@ -1963,7 +1979,7 @@ pub async fn build_meteora_add_liquidity(
     // NOT fail on-chain: the program happily creates a dead position holding
     // one token at a price that will never trade, which is how a deposit once
     // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
-    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, true)?;
+    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, true, None)?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
@@ -2585,7 +2601,14 @@ pub async fn build_meteora_add_to_position(
     // one token at a price that will never trade, which is how a deposit once
     // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
     // The range belongs to the position and cannot be edited here.
-    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, false)?;
+    reject_range_far_from_pool(
+        lower_bin_id,
+        upper_bin_id,
+        active_id,
+        lb_fields.bin_step,
+        false,
+        Some((params.position.as_str(), pos_data.lb_pair.as_str())),
+    )?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
