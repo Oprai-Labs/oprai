@@ -152,14 +152,16 @@
           @for (row of dlmmPositionRows(); track row.address) {
             <div class="ray-pos">
               <div class="ray-pos__top">
+                @let rowXLogo = dlmmPoolLogo(row.pool, 'x');
+                @let rowYLogo = dlmmPoolLogo(row.pool, 'y');
                 <span class="km-icons">
-                  @if (row.pool.tokenXIcon) {
-                    <img class="km-icon" [src]="row.pool.tokenXIcon" [alt]="row.pool.tokenX" (error)="$any($event.target).style.display='none'" />
+                  @if (rowXLogo) {
+                    <img class="km-icon" [src]="rowXLogo" [alt]="row.pool.tokenX" (error)="$any($event.target).style.display='none'" />
                   } @else {
                     <span class="km-icon km-icon--fallback">{{ (row.pool.tokenX || '?').charAt(0) }}</span>
                   }
-                  @if (row.pool.tokenYIcon) {
-                    <img class="km-icon km-icon--debt" [src]="row.pool.tokenYIcon" [alt]="row.pool.tokenY" (error)="$any($event.target).style.display='none'" />
+                  @if (rowYLogo) {
+                    <img class="km-icon km-icon--debt" [src]="rowYLogo" [alt]="row.pool.tokenY" (error)="$any($event.target).style.display='none'" />
                   } @else {
                     <span class="km-icon km-icon--debt km-icon--fallback">{{ (row.pool.tokenY || '?').charAt(0) }}</span>
                   }

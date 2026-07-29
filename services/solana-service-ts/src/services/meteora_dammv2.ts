@@ -192,10 +192,13 @@ export async function getDammV2UserPositions(
       return {
         address: e.position.toBase58(),
         positionNftAccount: e.positionNftAccount.toBase58(),
-        amountA: toNum(quote.outAmountA, t.decA),
-        amountB: toNum(quote.outAmountB, t.decB),
-        unclaimedFeeA: toNum(ps.feeAPending, t.decA),
-        unclaimedFeeB: toNum(ps.feeBPending, t.decB),
+        // X/Y naming, not A/B: the positions card is shared with DLMM and
+        // reads amountX / unclaimedFeeX. Emitting A/B left every amount blank
+        // on screen while the totals above them were right.
+        amountX: toNum(quote.outAmountA, t.decA),
+        amountY: toNum(quote.outAmountB, t.decB),
+        unclaimedFeeX: toNum(ps.feeAPending, t.decA),
+        unclaimedFeeY: toNum(ps.feeBPending, t.decB),
         // A locked position can't be withdrawn or closed until it vests; the
         // card has to say so rather than offering buttons that will fail.
         locked: !(ps.vestedLiquidity as BN).isZero() || !(ps.permanentLockedLiquidity as BN).isZero(),
@@ -215,8 +218,8 @@ export async function getDammV2UserPositions(
       tokenYDecimals: t.decB,
       openPositionCount: positions.length,
       listPositions: positions.map(p => p.address),
-      balances: positions.reduce((s, p) => s + p.amountA, 0),
-      unclaimedFees: positions.reduce((s, p) => s + p.unclaimedFeeA, 0),
+      balances: positions.reduce((s, p) => s + p.amountX, 0),
+      unclaimedFees: positions.reduce((s, p) => s + p.unclaimedFeeX, 0),
       positions,
     });
   }

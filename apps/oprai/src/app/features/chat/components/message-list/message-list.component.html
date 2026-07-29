@@ -169,11 +169,16 @@
               @if (getQueriesForMessage(message.id).length > 0) {
                 <div class="inline-cards inline-cards--in-bubble">
                   @for (query of getQueriesForMessage(message.id); track $index) {
+                    <!-- An empty listing is hidden only while a SIBLING has
+                         results: "no DLMM positions" next to a DAMM v2 position
+                         is noise, but the same card alone is the answer. -->
                     <app-query-card
+                      [class.query-card-hidden]="isQuerySuppressed(message.id, $index)"
                       [query]="query"
                       [sessionId]="message.sessionId"
                       [messageId]="message.id"
                       [snapshot]="message.metadata?.query_snapshots?.[querySnapshotKey(query)] ?? null"
+                      (emptyStateChanged)="onQueryEmptyState(message.id, $index, $event)"
                       (cancelAction)="onCancelAction($event)"
                       (useAction)="onUseAction($event, message.id)">
                     </app-query-card>

@@ -331,6 +331,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    * letting the user enter only the amounts.
    */
   @Output() useAction = new EventEmitter<ParsedAction>();
+
+  /**
+   * Whether this card ended up with anything to show. A message can carry
+   * several listings — "my positions" fans out across a protocol's products —
+   * and an empty one alongside a populated one is noise: the user asked what
+   * they hold, not which products they don't use.
+   *
+   * The card can't see its siblings, so it reports and the message decides.
+   */
+  @Output() emptyStateChanged = new EventEmitter<boolean>();
+
+  /** Emit once the fetch has settled, so the parent never hides a card that is
+   *  merely still loading. */
+  private reportEmptyState(isEmpty: boolean): void {
+    this.emptyStateChanged.emit(isEmpty);
+  }
   /**
    * UI-only feedback: which pool address row was just copied. Cleared
    * after a brief delay so the icon/label can flash "copied" state.
@@ -1811,6 +1827,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       );
       const data = resp?.data ?? resp?.preview?.params?.data;
       this.dlmmUserPools.set(Array.isArray(data?.pools) ? data.pools : []);
+      this.reportEmptyState(this.dlmmUserPools().length === 0);
       this.persistSnapshot();
     } catch {
       this.error.set('Failed to load Meteora DLMM positions');
@@ -1932,6 +1949,16 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    *  position; what differs is that DAMM v2 has no range and its actions live
    *  under different type names. */
   readonly isDammV2Positions = computed(() => this.query.type === 'meteora_dammv2_get_user_positions');
+
+  /** Pair logo for a positions row. The DAMM v2 data API carries no logo
+   *  fields at all, so fall through to the token registry by mint rather than
+   *  dropping to a letter tile. */
+  dlmmPoolLogo(pool: DlmmUserPool, side: 'x' | 'y'): string | null {
+    const fromApi = side === 'x' ? pool.tokenXIcon : pool.tokenYIcon;
+    if (fromApi) return fromApi;
+    const mint = side === 'x' ? pool.tokenXMint : pool.tokenYMint;
+    return mint ? this.tokenLogo(mint) : null;
+  }
 
   dlmmPositionOutOfRange(pool: DlmmUserPool, position: string): boolean {
     return (pool.positionsOutOfRange ?? []).includes(position);

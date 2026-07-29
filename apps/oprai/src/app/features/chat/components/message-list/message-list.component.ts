@@ -220,6 +220,31 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
     }
   }
 
+  /**
+   * Per-message record of which query cards came back empty, keyed
+   * `messageId:index`. Only cards that have actually reported appear here, so
+   * a still-loading card is never treated as empty.
+   */
+  private readonly queryEmptyState = signal<Record<string, boolean>>({});
+
+  onQueryEmptyState(messageId: string, index: number, isEmpty: boolean): void {
+    this.queryEmptyState.update(m => ({ ...m, [`${messageId}:${index}`]: isEmpty }));
+  }
+
+  /**
+   * Hide an empty listing only when a sibling in the same message has results.
+   * "You hold no DLMM positions" next to a DAMM v2 position answers a question
+   * nobody asked; the same card on its own IS the answer, so it stays.
+   */
+  isQuerySuppressed(messageId: string, index: number): boolean {
+    const state = this.queryEmptyState();
+    if (state[`${messageId}:${index}`] !== true) return false;
+    const prefix = `${messageId}:`;
+    return Object.entries(state).some(
+      ([k, empty]) => k.startsWith(prefix) && k !== `${prefix}${index}` && empty === false,
+    );
+  }
+
   /** Pretty-printed protocol label for a chip. Falls back to id if unknown. */
   protocolChipLabel(id: string): string {
     return PROTOCOL_LABELS[id] ?? id;

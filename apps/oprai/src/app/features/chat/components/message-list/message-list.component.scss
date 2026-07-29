@@ -724,3 +724,10 @@
 @keyframes spin-batch {
   to { transform: rotate(360deg); }
 }
+
+// An empty listing suppressed because a sibling in the same message has
+// results. Hidden rather than removed: the card keeps its state, so a refetch
+// that finds positions brings it straight back.
+.query-card-hidden {
+  display: none;
+}
