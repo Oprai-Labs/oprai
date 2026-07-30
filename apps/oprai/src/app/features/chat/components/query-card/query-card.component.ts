@@ -818,8 +818,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.orcaObserver?.disconnect();
-    this.orcaObserver = null;
     if (this.livePollTimer) {
       clearInterval(this.livePollTimer);
       this.livePollTimer = null;
@@ -1469,7 +1467,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.orcaSearchRaw.set((e.target as HTMLInputElement).value);
     this.orcaNextCursor.set(null);
     this.orcaPrevCursor.set(null);
-    this.orcaRows.set([]);   // a new query starts a new list, not an addition
+    this.orcaResetPaging();
     void this.fetchOrcaPools();
   }
 
@@ -1480,31 +1478,66 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.orcaSortField.set(field);
       this.orcaSortDir.set('desc');
     }
-    this.orcaNextCursor.set(null);
-    this.orcaRows.set([]);
+    this.orcaResetPaging();
     void this.fetchOrcaPools();
   }
 
-  /** More rows exist beyond what's loaded. Orca hands back a cursor, not a
-   *  page count, so this is all we can know. */
-  readonly orcaHasMore = computed(() => this.orcaNextCursor() !== null);
-
   /**
-   * Pull the next page and APPEND it. Orca pages by cursor, so there is no
-   * page index to jump to — but scrolling doesn't need one, and a list you
-   * scroll is a better fit for browsing pools than a pager that resets your
-   * position on every click.
+   * Numbered pagination over a CURSOR API.
+   *
+   * Orca gives a cursor for the next page and no total, so page N is only
+   * reachable by having walked to it. We keep the cursor that opened each
+   * page: going back is then a direct jump, going forward is one step at a
+   * time, and the bar offers exactly one page beyond the furthest visited —
+   * offering more would render buttons that fetch nothing (the mistake the
+   * Raydium pager already documents).
    */
-  loadMoreOrcaPools(): void {
-    const cursor = this.orcaNextCursor();
-    if (!cursor || this.orcaFetching()) return;
-    void this.fetchOrcaPools({ next: cursor }, true);
+  readonly orcaPage = signal(1);
+  /** Cursor that opens page N, indexed by page. Page 1 opens with none. */
+  private orcaPageCursors = new Map<number, string | null>([[1, null]]);
+
+  readonly orcaPageNumbers = computed<number[]>(() => {
+    const cur = this.orcaPage();
+    const furthest = Math.max(cur, ...this.orcaPageCursors.keys());
+    const maxOffer = furthest + (this.orcaNextCursor() !== null ? 1 : 0);
+    const WINDOW = 5;
+    let start = Math.max(1, cur - Math.floor(WINDOW / 2));
+    let end = Math.min(maxOffer, start + WINDOW - 1);
+    start = Math.max(1, end - WINDOW + 1);
+    const pages: number[] = [];
+    for (let p = start; p <= end; p++) pages.push(p);
+    return pages;
+  });
+
+  readonly orcaHasNextPage = computed(() => this.orcaNextCursor() !== null);
+
+  orcaGoToPage(n: number): void {
+    if (n < 1 || n === this.orcaPage() || this.orcaFetching()) return;
+    // Only a page we have a cursor for, or exactly one past the furthest.
+    const cursor = this.orcaPageCursors.has(n)
+      ? this.orcaPageCursors.get(n)!
+      : n === Math.max(...this.orcaPageCursors.keys()) + 1
+        ? this.orcaNextCursor()
+        : undefined;
+    if (cursor === undefined) return;
+    this.orcaPage.set(n);
+    void this.fetchOrcaPools(cursor ? { next: cursor } : undefined);
   }
 
-  private async fetchOrcaPools(
-    cursor?: { next?: string; previous?: string },
-    append = false,
-  ): Promise<void> {
+  /** A new search or sort is a new list — the cursors we walked no longer
+   *  point at anything meaningful. */
+  private orcaResetPaging(): void {
+    this.orcaPage.set(1);
+    this.orcaPageCursors = new Map<number, string | null>([[1, null]]);
+    this.orcaNextCursor.set(null);
+    this.orcaPrevCursor.set(null);
+    this.orcaRows.set([]);
+  }
+
+  orcaPrevPage(): void { this.orcaGoToPage(this.orcaPage() - 1); }
+  orcaNextPage(): void { this.orcaGoToPage(this.orcaPage() + 1); }
+
+  private async fetchOrcaPools(cursor?: { next?: string; previous?: string }): Promise<void> {
     this.orcaFetching.set(true);
     this.error.set(null);
     const search = (this.orcaSearchRaw() || (this.query.params['query'] as string | undefined) || '').trim();
@@ -1521,16 +1554,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (!page) {
       this.error.set('Failed to load Orca pools');
     } else {
-      // Dedupe on append: a cursor page can overlap when pools reorder between
-      // requests, and a repeated address would break the @for track.
-      if (append) {
-        const seen = new Set(this.orcaRows().map(r => r.address));
-        this.orcaRows.update(rows => [...rows, ...page.rows.filter(r => !seen.has(r.address))]);
-      } else {
-        this.orcaRows.set(page.rows);
-      }
+      this.orcaRows.set(page.rows);
       this.orcaNextCursor.set(page.nextCursor);
       this.orcaPrevCursor.set(page.prevCursor);
+      // Remember what opens the NEXT page, so its number becomes clickable
+      // and stays reachable after the user pages back and forth.
+      if (page.nextCursor) this.orcaPageCursors.set(this.orcaPage() + 1, page.nextCursor);
       this.reportEmptyState(this.orcaRows().length === 0);
       this.persistSnapshot();
     }
@@ -1538,29 +1567,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.loading.set(false);
   }
 
-  /**
-   * Fetch the next page when the end of the list scrolls into view.
-   *
-   * Observed against the viewport with a generous margin, so the next page is
-   * already arriving by the time the user reaches the bottom rather than
-   * after they stop and wait for it.
-   */
-  private readonly orcaSentinel = viewChild<ElementRef<HTMLElement>>('orcaSentinel');
-  private orcaObserver: IntersectionObserver | null = null;
-
-  private readonly orcaSentinelEffect = effect(() => {
-    const el = this.orcaSentinel()?.nativeElement;
-    this.orcaObserver?.disconnect();
-    this.orcaObserver = null;
-    if (!el) return;
-    this.orcaObserver = new IntersectionObserver(
-      entries => {
-        if (entries.some(e => e.isIntersecting)) this.loadMoreOrcaPools();
-      },
-      { rootMargin: '400px 0px' },
-    );
-    this.orcaObserver.observe(el);
-  });
 
   private async fetchOrcaPositions(): Promise<void> {
     this.orcaPositionsFetching.set(true);

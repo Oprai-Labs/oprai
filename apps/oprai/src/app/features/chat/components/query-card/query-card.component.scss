@@ -2247,34 +2247,3 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
-
-// Foot of an infinite list: a spinner while the next page is in flight, a
-// button when it isn't (the observer may never fire in a hidden tab or with
-// reduced motion / older engines), and a terminal line once there is no more.
-.dlmm-loadmore {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 14px 0 6px;
-  font-size: 0.75rem;
-  color: var(--op-text-tertiary);
-
-  &__btn {
-    padding: 5px 14px;
-    border: 1px solid var(--op-border-subtle);
-    border-radius: 99px;
-    background: var(--op-bg-surface-2);
-    color: var(--op-text-secondary);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-
-    &:hover {
-      background: color-mix(in srgb, var(--op-bg-surface-3) 88%, var(--op-text-primary) 12%);
-      color: var(--op-text-primary);
-    }
-  }
-
-  &--end { color: var(--op-text-tertiary); opacity: 0.8; }
-}
