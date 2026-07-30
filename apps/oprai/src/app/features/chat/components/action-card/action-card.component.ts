@@ -446,7 +446,9 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   jupiter:   { name: 'Jupiter',    icon: 'assets/icons/protocols/jupiter.webp',   accent: '#5b5fc7', accentBg: 'rgba(91,95,199,0.12)' },
   jito:      { name: 'Jito',       icon: 'assets/icons/protocols/jito.webp',      accent: '#7df65c', accentBg: 'rgba(125,246,92,0.10)' },
   kamino:    { name: 'Kamino',     icon: 'assets/icons/protocols/kamino.svg',     accent: '#6C5CE7', accentBg: 'rgba(108,92,231,0.12)' },
-  orca:      { name: 'Orca',       icon: 'assets/icons/protocols/orca.svg',       accent: '#06B6D4', accentBg: 'rgba(6,182,212,0.12)' },
+  // orca.svg is a hand-drawn whale approximation, not Orca's mark — use the
+  // real logo, and its own yellow rather than a borrowed cyan.
+  orca:      { name: 'Orca',       icon: 'assets/icons/protocols/orca.webp',      accent: '#FFD15C', accentBg: 'rgba(255,209,92,0.12)' },
   raydium:   { name: 'Raydium',    icon: 'assets/icons/protocols/raydium.png',    accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.12)' },
   marginfi:  { name: 'MarginFi',   icon: 'assets/icons/protocols/marginfi.svg',   accent: '#F59E0B', accentBg: 'rgba(245,158,11,0.12)' },
   meteora:   { name: 'Meteora',    icon: 'assets/icons/protocols/meteora.webp',    accent: '#10B981', accentBg: 'rgba(16,185,129,0.12)' },

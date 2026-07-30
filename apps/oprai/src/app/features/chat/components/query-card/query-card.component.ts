@@ -685,7 +685,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'orca_get_pools':
       case 'orca_search_pools':
       case 'orca_get_user_positions':
-        return 'assets/icons/protocols/orca.svg';
+        return 'assets/icons/protocols/orca.webp';
       case 'kamino_multiply_markets':
         return 'assets/icons/protocols/kamino.svg';
       default:
