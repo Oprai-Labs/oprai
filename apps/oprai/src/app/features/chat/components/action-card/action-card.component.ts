@@ -27,6 +27,7 @@ import { MarinadeService } from '@core/services/market/marinade.service';
 import { JupSolService } from '@core/services/market/jupsol.service';
 import { MeteoraService } from '@core/services/market/meteora.service';
 import { ApiService } from '@core/services/api.service';
+import { AppVersionService } from '@core/services/app-version.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
 import { firstValueFrom, timeout } from 'rxjs';
 import { createSolanaConnection } from '@core/utils/solana-connection';
@@ -1550,6 +1551,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly jupSolService = inject(JupSolService);
   private readonly meteoraService = inject(MeteoraService);
   private readonly apiService = inject(ApiService);
+  private readonly appVersion = inject(AppVersionService);
 
   /** Cache so a Meteora pool address is fetched once per card lifecycle even
    *  if `editParams.poolId` thrashes (e.g. on draft restore). */
@@ -4980,6 +4982,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   async approve(): Promise<void> {
+    // A background reload must not land between build and signature.
+    this.appVersion.hold();
+    try {
+      await this.approveInner();
+    } finally {
+      this.appVersion.release();
+    }
+  }
+
+  private async approveInner(): Promise<void> {
     // Stable-pair Raydium CLMM with a wide range almost always reverts on-chain
     // (tick range outside the pool's observation arrays). Auto-narrow to ±1%
     // BEFORE every submit — not only on retry — so the first attempt succeeds.
