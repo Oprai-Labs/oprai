@@ -2476,6 +2476,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Net SOL the wallet will show for a close, measured by simulating it.
    *  Null until the preview lands, so the panel falls back to amounts + rent
    *  rather than rendering a blank. */
+  /** True once a lookup finds the position is no longer open. */
+  readonly meteoraPositionGone = signal(false);
+
   readonly meteoraCloseNetSol = computed<number | null>(() => {
     const v = parseFloat(this.editParams()['closeNetSol'] ?? '');
     return Number.isFinite(v) ? v : null;
@@ -3900,7 +3903,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       );
       const pools: any[] = resp?.data?.pools ?? [];
       const pool = pools.find(pl => (pl.listPositions ?? []).includes(position));
-      if (!pool) return;
+      if (!pool) {
+        // The row that spawned this action is a record of an earlier moment.
+        // The position it names may already be closed — say so and block the
+        // CTA, rather than letting the user sign something the chain will
+        // reject. This is why the listing itself doesn't need refetching on
+        // reload: the check happens where someone is about to act.
+        this.meteoraPositionGone.set(true);
+        return;
+      }
+      this.meteoraPositionGone.set(false);
       const detail = (pool.positions ?? []).find((d: any) => d.address === position);
 
       this.editParams.update(ep => ({

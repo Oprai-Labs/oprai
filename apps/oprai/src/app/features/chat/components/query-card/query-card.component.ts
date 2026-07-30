@@ -744,20 +744,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.query.type === 'raydium_get_user_positions' || this.query.type === 'raydium_get_clmm_positions') {
         void this.fetchRaydiumPositions();
       }
-      // Same for DLMM: positions are live state, not a receipt. A range that
-      // has drifted out, fees accrued since, or a position closed from another
-      // client must all show on reload — so refetch rather than trust the
-      // snapshot. (Until now the snapshot didn't even carry the pools, so a
-      // reload rendered "No open positions" over a wallet that had two.)
-      if (this.query.type === 'meteora_dlmm_get_user_positions'
-          || this.query.type === 'meteora_dammv2_get_user_positions') {
-        void this.fetchDlmmPositions();
-      }
-      // Jupiter Lend positions had the same gap: never snapshotted, never
-      // refetched, so a reload showed an empty card over a real balance.
-      if (this.query.type === 'lend_positions') {
-        void this.fetchLendPositions();
-      }
+      // NOT refetched. A message is a record of what was true when it was
+      // answered; re-running its query on every reload rewrites history —
+      // close a position, reload, and the earlier answer that listed it now
+      // says you never had one. The snapshot is the answer.
+      //
+      // Acting on a stale row is handled where it can be handled honestly:
+      // the action card re-reads the position when it opens, so a Withdraw
+      // aimed at something already closed says so instead of failing on
+      // chain. That costs nothing until someone actually clicks.
     } else {
       // Seed the Raydium pool-type filter (and sort) from the incoming query
       // params BEFORE the first fetch, so an explicit "CLMM" / "concentrated"
