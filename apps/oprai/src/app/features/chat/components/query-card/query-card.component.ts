@@ -1441,6 +1441,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       poolId: pos.whirlpool,
       positionMinPrice: String(pos.priceLower),
       positionMaxPrice: String(pos.priceUpper),
+      // The CLMM ratio engine reads minPrice/maxPrice — the band is what
+      // decides how a deposit splits. Passing only the position-prefixed copy
+      // left the engine with nothing, so typing one amount never filled the
+      // other. The panel still shows the band as fixed; this only feeds the
+      // maths.
+      minPrice: String(pos.priceLower),
+      maxPrice: String(pos.priceUpper),
       liquidity: pos.liquidity,
       // Everything the panel needs to render itself. The row already resolved
       // all of it; without passing it along the action opened as "??/??" with
