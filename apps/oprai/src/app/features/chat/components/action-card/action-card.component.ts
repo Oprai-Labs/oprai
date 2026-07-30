@@ -2648,7 +2648,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   });
 
   readonly isRaydiumOpenPosition = computed(
-    () => this.action.type === 'raydium_open_position',
+    // Orca Whirlpools are concentrated liquidity too: the same price band
+    // decides the deposit ratio, so they take the same range panel rather
+    // than a bare pair of amount boxes with no band at all.
+    () => this.action.type === 'raydium_open_position'
+       || this.action.type === 'orca_open_position',
   );
 
   /**
@@ -3089,6 +3093,22 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   ];
 
   /** Apply a ±N% range preset around the current price. */
+  /**
+   * An Orca position opened from a pool row arrives with the pool's price but
+   * no band. Without one the ratio engine returns nothing, so typing into one
+   * amount left the other empty under a line promising it would fill.
+   *
+   * Seed +/-10%: wide enough to hold through ordinary movement, narrow enough
+   * to be worth concentrating. The presets are right there to change it.
+   */
+  private maybeSeedOrcaRange(): void {
+    if (this.action?.type !== 'orca_open_position') return;
+    const p = this.editParams();
+    if (p['minPrice'] || p['maxPrice']) return;   // caller supplied a band
+    if (!(parseFloat(p['currentPrice'] ?? '') > 0)) return;
+    this.applyClmmRangePreset(10);
+  }
+
   applyClmmRangePreset(pct: number): void {
     const p = this.editParams();
     const cur = parseFloat(p['currentPrice'] ?? '');
@@ -3854,6 +3874,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     void this.maybeEnrichRaydiumWithdraw();
     void this.maybeEnrichMeteoraPosition();
     void this.maybeResolveSwapCounterToken();
+    this.maybeSeedOrcaRange();
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
