@@ -214,19 +214,24 @@
           }
         </div>
 
-        <!-- Orca pages by CURSOR, so there is no page index to jump to —
-             only forward and back one step. -->
-        @if (orcaNextCursor() || orcaPrevCursor()) {
-          <div class="dlmm-pagination">
-            <button class="dlmm-page-btn" (click)="orcaPage('prev')"
-                    [disabled]="!orcaPrevCursor() || orcaFetching()">
-              <lucide-icon name="chevron-left" [size]="13" />
-            </button>
-            <span class="dlmm-page-label">{{ orcaRows().length }} pools</span>
-            <button class="dlmm-page-btn" (click)="orcaPage('next')"
-                    [disabled]="!orcaNextCursor() || orcaFetching()">
-              <lucide-icon name="chevron-right" [size]="13" />
-            </button>
+        <!-- Orca pages by CURSOR: no page index exists, so the list grows as
+             you scroll. The sentinel sits below the rows and pulls the next
+             page when it comes into view; the button is the fallback for when
+             the observer can't run. -->
+        @if (orcaHasMore()) {
+          <div #orcaSentinel class="dlmm-loadmore">
+            @if (orcaFetching()) {
+              <span class="status-spinner"></span>
+              <span>Loading more pools…</span>
+            } @else {
+              <button type="button" class="dlmm-loadmore__btn" (click)="loadMoreOrcaPools()">
+                Load more
+              </button>
+            }
+          </div>
+        } @else if (orcaRows().length > 0) {
+          <div class="dlmm-loadmore dlmm-loadmore--end">
+            {{ orcaRows().length }} pools — end of list
           </div>
         }
       }
