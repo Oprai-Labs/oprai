@@ -2239,7 +2239,7 @@ pub async fn build_orca_get_pools(
             description: "Orca Whirlpools pool list".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2248,7 +2248,7 @@ pub async fn build_orca_get_pools(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2312,7 +2312,7 @@ pub async fn build_orca_search_pools(
             description: format!("Orca pool search: \"{}\"", params.q),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2321,7 +2321,7 @@ pub async fn build_orca_search_pools(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2341,7 +2341,7 @@ pub async fn build_orca_get_pool(
             description: format!("Orca pool details: {}", short_id(&params.address)),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2350,7 +2350,7 @@ pub async fn build_orca_get_pool(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2367,7 +2367,7 @@ pub async fn build_orca_get_locked_liquidity(
             description: format!("Orca locked liquidity for: {}", short_id(&params.address)),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2376,7 +2376,7 @@ pub async fn build_orca_get_locked_liquidity(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2392,7 +2392,7 @@ pub async fn build_orca_get_protocol_stats(
             description: "Orca protocol TVL, volume, fees and revenue".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2401,7 +2401,7 @@ pub async fn build_orca_get_protocol_stats(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2417,7 +2417,7 @@ pub async fn build_orca_get_orca_token(
             description: "ORCA token price, supply and stats".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2426,7 +2426,7 @@ pub async fn build_orca_get_orca_token(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2446,7 +2446,7 @@ pub async fn build_orca_get_circulating_supply(
             description: "ORCA token circulating supply".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2455,7 +2455,7 @@ pub async fn build_orca_get_circulating_supply(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2471,7 +2471,7 @@ pub async fn build_orca_get_total_supply(
             description: "ORCA token total supply".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2480,7 +2480,7 @@ pub async fn build_orca_get_total_supply(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2516,7 +2516,7 @@ pub async fn build_orca_get_tokens(
             description: "Orca token list".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2525,7 +2525,7 @@ pub async fn build_orca_get_tokens(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2555,7 +2555,7 @@ pub async fn build_orca_search_tokens(
             description: format!("Orca token search: \"{}\"", params.q),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2564,7 +2564,7 @@ pub async fn build_orca_search_tokens(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2582,7 +2582,7 @@ pub async fn build_orca_get_token(
             description: format!("Orca token: {}", params.mint_address),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2591,7 +2591,7 @@ pub async fn build_orca_get_token(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2682,7 +2682,7 @@ pub async fn build_orca_get_user_positions(
             ),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: serde_json::json!({ "positions": positions, "total": total, "wallet": wallet_str }),
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2691,7 +2691,7 @@ pub async fn build_orca_get_user_positions(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(serde_json::json!({ "positions": positions, "total": total, "wallet": wallet_str })),
     })
 }
 
