@@ -158,7 +158,7 @@
           @if (orcaFetching() && orcaRows().length === 0) {
             <div class="dlmm-empty">Loading pools…</div>
           }
-          @for (p of orcaRows(); track p.address) {
+          @for (p of orcaPagedRows(); track p.address) {
             @let oxLogo = p.tokenA.imageUrl || tokenLogo(p.tokenA.address);
             @let oyLogo = p.tokenB.imageUrl || tokenLogo(p.tokenB.address);
             <div class="result-table__row result-table__row--orca dlmm-row">
@@ -217,23 +217,36 @@
         <!-- Numbered pages, same bar as the Raydium list. Orca exposes a
              cursor and no total, so a number appears once the page behind it
              is reachable — never a button that would fetch nothing. -->
-        @if (orcaRows().length > 0 && (orcaPage() > 1 || orcaHasNextPage())) {
+        @if (orcaTotalPages() > 1) {
+          <div class="dlmm-showing">
+            Showing <strong>{{ (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + 1 }}–{{
+              (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + orcaPagedRows().length
+            }}</strong> of <strong>{{ orcaRows().length }}</strong> pools
+          </div>
           <div class="dlmm-pagination">
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaGoToPage(1)"
+                    [disabled]="orcaPage() <= 1" title="First page" aria-label="First page">
+              <lucide-icon name="chevrons-left" [size]="14" />
+            </button>
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaPrevPage()"
-                    [disabled]="orcaPage() <= 1 || orcaFetching()"
-                    title="Previous page" aria-label="Previous page">
+                    [disabled]="orcaPage() <= 1" title="Previous page" aria-label="Previous page">
               <lucide-icon name="chevron-left" [size]="14" />
             </button>
-            @for (n of orcaPageNumbers(); track n) {
-              <button class="dlmm-page-btn" [class.dlmm-page-btn--active]="n === orcaPage()"
-                      [disabled]="orcaFetching()" (click)="orcaGoToPage(n)">
-                {{ n }}
-              </button>
+            @for (n of orcaPageNumbers(); track $index) {
+              @if (n === '…') {
+                <span class="dlmm-page-gap">…</span>
+              } @else {
+                <button class="dlmm-page-btn" [class.dlmm-page-btn--active]="n === orcaPage()"
+                        (click)="orcaGoToPage(n)">{{ n }}</button>
+              }
             }
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaNextPage()"
-                    [disabled]="!orcaHasNextPage() || orcaFetching()"
-                    title="Next page" aria-label="Next page">
+                    [disabled]="orcaPage() >= orcaTotalPages()" title="Next page" aria-label="Next page">
               <lucide-icon name="chevron-right" [size]="14" />
+            </button>
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaGoToPage(orcaTotalPages())"
+                    [disabled]="orcaPage() >= orcaTotalPages()" title="Last page" aria-label="Last page">
+              <lucide-icon name="chevrons-right" [size]="14" />
             </button>
           </div>
         }

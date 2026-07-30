@@ -2151,6 +2151,47 @@ pub async fn build_orca_create_pool(
 // Build — GET query actions (REST API: https://api.orca.so/v2/solana)
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// Trim a pool-LIST row to what a list actually renders.
+///
+/// Orca's `/pools` rows carry a 7-day price history and three stat windows;
+/// 200 rows is 651 KB of which the card draws a name, two logos, TVL, 24h
+/// volume, a fee and a yield. Sending the rest costs the user a slow card for
+/// data nothing reads. The single-pool endpoint is left whole — a detail view
+/// is where those fields belong.
+fn slim_orca_pool(p: &serde_json::Value) -> serde_json::Value {
+    let token = |k: &str| {
+        let t = &p[k];
+        serde_json::json!({
+            "address":  t["address"],
+            "symbol":   t["symbol"],
+            "decimals": t["decimals"],
+            "imageUrl": t["imageUrl"],
+        })
+    };
+    serde_json::json!({
+        "address":     p["address"],
+        "tokenA":      token("tokenA"),
+        "tokenB":      token("tokenB"),
+        "feeRate":     p["feeRate"],
+        "tickSpacing": p["tickSpacing"],
+        "price":       p["price"],
+        "tvlUsdc":     p["tvlUsdc"],
+        "yieldOverTvl": p["yieldOverTvl"],
+        "hasWarning":  p["hasWarning"],
+        "lockedLiquidityPercent": p["lockedLiquidityPercent"],
+        // Only the window the list shows.
+        "stats": { "24h": { "volume": p["stats"]["24h"]["volume"] } },
+    })
+}
+
+fn slim_orca_pool_page(mut data: serde_json::Value) -> serde_json::Value {
+    if let Some(rows) = data.get("data").and_then(|d| d.as_array()) {
+        let slim: Vec<serde_json::Value> = rows.iter().map(slim_orca_pool).collect();
+        data["data"] = serde_json::Value::Array(slim);
+    }
+    data
+}
+
 pub async fn build_orca_get_pools(
     http: &reqwest::Client,
     params: &OrcaGetPoolsParams,
@@ -2212,7 +2253,7 @@ pub async fn build_orca_get_pools(
         url.push_str(&format!("includeBlocked={b}&"));
     }
 
-    let data = orca_get(http, url.trim_end_matches('&')).await?;
+    let data = slim_orca_pool_page(orca_get(http, url.trim_end_matches('&')).await?);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -2285,7 +2326,7 @@ pub async fn build_orca_search_pools(
         url.push_str(&format!("&hasLockedLiquidity={l}"));
     }
 
-    let data = orca_get(http, &url).await?;
+    let data = slim_orca_pool_page(orca_get(http, &url).await?);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),

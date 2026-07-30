@@ -2247,3 +2247,25 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+// Row count above the pager, so the total is stated rather than inferred from
+// how far the numbers happen to go.
+.dlmm-showing {
+  padding: 12px 0 2px;
+  text-align: center;
+  font-size: 0.6875rem;
+  color: var(--op-text-tertiary);
+
+  strong { color: var(--op-text-secondary); font-weight: 600; }
+}
+
+// Ellipsis between page-number runs. Not a button — there is nothing to click.
+.dlmm-page-gap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  color: var(--op-text-tertiary);
+  font-size: 0.75rem;
+  user-select: none;
+}

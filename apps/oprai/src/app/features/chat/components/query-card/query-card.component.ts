@@ -884,8 +884,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
     if (d['orcaRows']) {
       this.orcaRows.set(d['orcaRows'] as OrcaPoolRow[]);
-      this.orcaNextCursor.set((d['orcaNextCursor'] as string | null) ?? null);
-      this.orcaPrevCursor.set((d['orcaPrevCursor'] as string | null) ?? null);
+      this.orcaPage.set((d['orcaPage'] as number | undefined) ?? 1);
       this.orcaSortField.set((d['orcaSortField'] as any) ?? 'tvl');
       this.orcaSortDir.set((d['orcaSortDir'] as any) ?? 'desc');
     }
@@ -962,8 +961,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
     if (this.orcaRows().length) {
       d['orcaRows'] = this.orcaRows();
-      d['orcaNextCursor'] = this.orcaNextCursor();
-      d['orcaPrevCursor'] = this.orcaPrevCursor();
+      d['orcaPage'] = this.orcaPage();
       d['orcaSortField'] = this.orcaSortField();
       d['orcaSortDir'] = this.orcaSortDir();
     }
@@ -1465,8 +1463,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   onOrcaSearch(e: Event): void {
     this.orcaSearchRaw.set((e.target as HTMLInputElement).value);
-    this.orcaNextCursor.set(null);
-    this.orcaPrevCursor.set(null);
     this.orcaResetPaging();
     void this.fetchOrcaPools();
   }
@@ -1483,84 +1479,77 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Numbered pagination over a CURSOR API.
+   * A real pager needs a total, and Orca's API never returns one — only a
+   * cursor to the next page. Walking cursors is why the bar used to grow a
+   * number at a time, which is not a pager at all.
    *
-   * Orca gives a cursor for the next page and no total, so page N is only
-   * reachable by having walked to it. We keep the cursor that opened each
-   * page: going back is then a direct jump, going forward is one step at a
-   * time, and the bar offers exactly one page beyond the furthest visited —
-   * offering more would render buttons that fetch nothing (the mistake the
-   * Raydium pager already documents).
+   * So fetch a bounded working set for the chosen sort and page it here. The
+   * count is then exact: fixed page numbers, instant switching, and no
+   * request per page. The set is the top ORCA_WORKING_SET pools by that sort,
+   * which is what a "browse the pools" card is for — anything outside it is
+   * reached by searching, not by paging to page 400.
    */
+  readonly ORCA_WORKING_SET = 200;
   readonly orcaPage = signal(1);
-  /** Cursor that opens page N, indexed by page. Page 1 opens with none. */
-  private orcaPageCursors = new Map<number, string | null>([[1, null]]);
 
-  readonly orcaPageNumbers = computed<number[]>(() => {
-    const cur = this.orcaPage();
-    const furthest = Math.max(cur, ...this.orcaPageCursors.keys());
-    const maxOffer = furthest + (this.orcaNextCursor() !== null ? 1 : 0);
-    const WINDOW = 5;
-    let start = Math.max(1, cur - Math.floor(WINDOW / 2));
-    let end = Math.min(maxOffer, start + WINDOW - 1);
-    start = Math.max(1, end - WINDOW + 1);
-    const pages: number[] = [];
-    for (let p = start; p <= end; p++) pages.push(p);
-    return pages;
+  readonly orcaTotalPages = computed(() =>
+    Math.max(1, Math.ceil(this.orcaRows().length / this.requestedPageSize(this.ORCA_PAGE_SIZE))));
+
+  readonly orcaPagedRows = computed(() => {
+    const size = this.requestedPageSize(this.ORCA_PAGE_SIZE);
+    const start = (this.orcaPage() - 1) * size;
+    return this.orcaRows().slice(start, start + size);
   });
 
-  readonly orcaHasNextPage = computed(() => this.orcaNextCursor() !== null);
+  /** Windowed page numbers with ellipsis, against a KNOWN total. */
+  readonly orcaPageNumbers = computed<Array<number | '…'>>(() => {
+    const total = this.orcaTotalPages();
+    const cur = this.orcaPage();
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const out: Array<number | '…'> = [1];
+    const from = Math.max(2, cur - 1);
+    const to = Math.min(total - 1, cur + 1);
+    if (from > 2) out.push('…');
+    for (let p = from; p <= to; p++) out.push(p);
+    if (to < total - 1) out.push('…');
+    out.push(total);
+    return out;
+  });
 
-  orcaGoToPage(n: number): void {
-    if (n < 1 || n === this.orcaPage() || this.orcaFetching()) return;
-    // Only a page we have a cursor for, or exactly one past the furthest.
-    const cursor = this.orcaPageCursors.has(n)
-      ? this.orcaPageCursors.get(n)!
-      : n === Math.max(...this.orcaPageCursors.keys()) + 1
-        ? this.orcaNextCursor()
-        : undefined;
-    if (cursor === undefined) return;
+  orcaGoToPage(n: number | '…'): void {
+    if (n === '…' || n < 1 || n > this.orcaTotalPages() || n === this.orcaPage()) return;
     this.orcaPage.set(n);
-    void this.fetchOrcaPools(cursor ? { next: cursor } : undefined);
+    this.persistSnapshot();
   }
 
-  /** A new search or sort is a new list — the cursors we walked no longer
-   *  point at anything meaningful. */
   private orcaResetPaging(): void {
     this.orcaPage.set(1);
-    this.orcaPageCursors = new Map<number, string | null>([[1, null]]);
-    this.orcaNextCursor.set(null);
-    this.orcaPrevCursor.set(null);
     this.orcaRows.set([]);
   }
 
   orcaPrevPage(): void { this.orcaGoToPage(this.orcaPage() - 1); }
   orcaNextPage(): void { this.orcaGoToPage(this.orcaPage() + 1); }
 
-  private async fetchOrcaPools(cursor?: { next?: string; previous?: string }): Promise<void> {
+  private async fetchOrcaPools(): Promise<void> {
     this.orcaFetching.set(true);
     this.error.set(null);
     const search = (this.orcaSearchRaw() || (this.query.params['query'] as string | undefined) || '').trim();
-    const size = this.requestedPageSize(this.ORCA_PAGE_SIZE);
+    // One request for the whole working set; paging happens locally.
+    const size = this.ORCA_WORKING_SET;
     const page = search
-      ? await this.orca.searchPoolsPage(search, { size, next: cursor?.next })
+      ? await this.orca.searchPoolsPage(search, { size })
       : await this.orca.fetchPoolsPage({
           sortBy: this.orcaSortField(),
           sortDirection: this.orcaSortDir(),
           size,
-          ...cursor,
           token: this.query.params['token'] as string | undefined,
         });
     if (!page) {
       this.error.set('Failed to load Orca pools');
     } else {
       this.orcaRows.set(page.rows);
-      this.orcaNextCursor.set(page.nextCursor);
-      this.orcaPrevCursor.set(page.prevCursor);
-      // Remember what opens the NEXT page, so its number becomes clickable
-      // and stays reachable after the user pages back and forth.
-      if (page.nextCursor) this.orcaPageCursors.set(this.orcaPage() + 1, page.nextCursor);
-      this.reportEmptyState(this.orcaRows().length === 0);
+      this.orcaPage.set(1);
+      this.reportEmptyState(page.rows.length === 0);
       this.persistSnapshot();
     }
     this.orcaFetching.set(false);
