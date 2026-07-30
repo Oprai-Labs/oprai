@@ -27,6 +27,7 @@ import { MarinadeService } from '@core/services/market/marinade.service';
 import { JupSolService } from '@core/services/market/jupsol.service';
 import { MeteoraService } from '@core/services/market/meteora.service';
 import { ApiService } from '@core/services/api.service';
+import { OrcaService } from '@core/services/market/orca.service';
 import { AppVersionService } from '@core/services/app-version.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
 import { firstValueFrom, timeout } from 'rxjs';
@@ -1554,6 +1555,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly meteoraService = inject(MeteoraService);
   private readonly apiService = inject(ApiService);
   private readonly appVersion = inject(AppVersionService);
+  private readonly orcaService = inject(OrcaService);
 
   /** Cache so a Meteora pool address is fetched once per card lifecycle even
    *  if `editParams.poolId` thrashes (e.g. on draft restore). */
@@ -4614,13 +4616,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     try {
       // Raydium swaps quote from Raydium's own venue (same DEX that executes);
       // everything else uses the Jupiter aggregated quote.
-      const quote = this.action?.type === 'raydium_swap'
+      // Each venue-scoped swap is quoted by the venue that will execute it —
+      // Raydium from Raydium, Orca from the Whirlpool program via its SDK.
+      // Only the aggregated `swap` goes to Jupiter, which is the venue there.
+      const at = this.action?.type;
+      const quote = at === 'raydium_swap'
         ? await this.swapService.getRaydiumQuote(
             inT.address, outT.address, String(amt), 50, swapMode,
           )
+        : at === 'orca_swap'
+        ? await this.orcaService.quoteSwap(
+            inT.address, outT.address, String(amt), swapMode,
+          )
         : await this.swapService.getQuote(
             inT.address, outT.address, String(amt), 50, swapMode,
-            this.action?.type === 'orca_swap' ? 'Whirlpool' : undefined,
           );
       if (seq !== this._swapEstimateSeq) return;
       if (!quote) {

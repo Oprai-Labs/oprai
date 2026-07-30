@@ -218,6 +218,65 @@ export class OrcaService {
     }
   }
 
+  /**
+   * Price a swap through Orca's own program.
+   *
+   * The build path uses orca_whirlpools' `swap_instructions`, which quotes
+   * from the pool's tick arrays — so previewing through Jupiter (even
+   * restricted to Whirlpool venues) would show a number the transaction is
+   * not obliged to honour. Same source for the preview and the execution.
+   *
+   * Returns base units, matching the shape the swap card already consumes.
+   */
+  async quoteSwap(
+    inputMint: string,
+    outputMint: string,
+    amount: string,
+    swapMode: 'ExactIn' | 'ExactOut' = 'ExactIn',
+    slippageBps = 50,
+  ): Promise<{ inAmount: string; outAmount: string; priceImpactPct: string } | null> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.post<{ quote?: { inAmount: number; outAmount: number } }>(
+          `${environment.apiBase}/actions/build`,
+          {
+            type: 'orca_swap',
+            params: {
+              inputMint, outputMint, amount,
+              swapMode: swapMode === 'ExactOut' ? 'out' : 'in',
+              slippageBps,
+            },
+          },
+          { withCredentials: true },
+        ),
+      );
+      const q = resp?.quote;
+      if (!q) return null;
+      // The card works in base units; the builder reports human units.
+      const dec = await this.decimalsFor(inputMint, outputMint);
+      return {
+        inAmount: String(Math.round(q.inAmount * 10 ** dec.input)),
+        outAmount: String(Math.round(q.outAmount * 10 ** dec.output)),
+        priceImpactPct: '0',
+      };
+    } catch (err) {
+      console.error('Orca quote error:', err);
+      return null;
+    }
+  }
+
+  /** Decimals for a mint pair, from the pool list we already cache upstream. */
+  private async decimalsFor(a: string, b: string): Promise<{ input: number; output: number }> {
+    const page = await this.fetchPoolsPage({ token: a, size: 20 });
+    const row = page?.rows.find(r =>
+      (r.tokenA.address === a && r.tokenB.address === b) ||
+      (r.tokenA.address === b && r.tokenB.address === a));
+    if (!row) return { input: 9, output: 9 };
+    return row.tokenA.address === a
+      ? { input: row.tokenA.decimals, output: row.tokenB.decimals }
+      : { input: row.tokenB.decimals, output: row.tokenA.decimals };
+  }
+
   /** The connected wallet's Whirlpool positions, read on-chain by the backend. */
   async fetchUserPositions(): Promise<OrcaUserPosition[] | null> {
     try {

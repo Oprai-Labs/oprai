@@ -36,6 +36,7 @@ use orca_solana_pubkey::Pubkey as SdkPubkey;
 use orca_solana_rpc::nonblocking::rpc_client::RpcClient as SdkRpcClient;
 use orca_whirlpools::{
     close_position_instructions, create_concentrated_liquidity_pool_instructions,
+    swap_instructions, SwapQuote, SwapType,
     decrease_liquidity_instructions, fetch_positions_for_owner, fetch_positions_in_whirlpool,
     harvest_position_instructions, increase_liquidity_instructions,
     open_full_range_position_instructions, open_position_instructions,
@@ -1266,170 +1267,112 @@ fn from_sdk_kp(kp: SdkKeypair) -> Keypair {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Build — orca_swap  (Jupiter routing through Whirlpool DEX)
+// Build — orca_swap  (Orca's own Whirlpool program, via the SDK)
 // ──────────────────────────────────────────────────────────────────────────────
 
 pub async fn build_orca_swap(
     http: &reqwest::Client,
-    _rpc_url: &str,
-    jupiter_api_key: Option<&str>,
+    rpc_url: &str,
+    _jupiter_api_key: Option<&str>,
     user_pubkey: &str,
     params: &OrcaSwapParams,
 ) -> Result<BuildResponse, AppError> {
     validate_orca_swap_params(params)?;
-    pk(user_pubkey)?; // validate payer before hitting Jupiter
 
+    // Built with Orca's OWN program, not Jupiter.
+    //
+    // This used to quote and build through Jupiter with `dexes=Whirlpool`,
+    // which works but is not the same thing: the transaction executes through
+    // Jupiter's router rather than the Whirlpool program, it can hop across
+    // several pools, and it makes an Orca swap depend on a third party we
+    // otherwise only use for aggregated swaps. Every other Orca action here
+    // already uses the orca_whirlpools SDK, and Raydium builds through
+    // Raydium's own API — the swap was the one inconsistency.
+    let user_pk = pk(user_pubkey)?;
     let input_mint = resolve_token_address(&params.input_mint);
     let output_mint = resolve_token_address(&params.output_mint);
-    let slippage_bps = params.slippage_bps.unwrap_or(50);
-    let swap_mode = match params
-        .swap_mode
-        .as_deref()
-        .unwrap_or("in")
-        .to_lowercase()
-        .as_str()
-    {
-        "out" | "exactout" => "ExactOut",
-        _ => "ExactIn",
+    let slippage_bps = params.slippage_bps.unwrap_or(50) as u16;
+    let exact_out = matches!(
+        params.swap_mode.as_deref().unwrap_or("in").to_lowercase().as_str(),
+        "out" | "exactout"
+    );
+
+    // The pool: named by the caller, or the deepest one for the pair.
+    let pool_addr = match params.whirlpool.as_deref() {
+        Some(w) if !w.is_empty() => w.to_string(),
+        _ => lookup_orca_whirlpool(http, &input_mint, &output_mint).await?.0,
     };
-    // For ExactIn  `amount` is the input  quantity — use input_mint  decimals.
-    // For ExactOut `amount` is the output quantity — use output_mint decimals.
-    let amount_decimals = if swap_mode == "ExactOut" {
-        token_decimals(&params.output_mint)
+
+    // ExactIn prices the INPUT token, ExactOut the OUTPUT token — the SDK
+    // takes whichever mint the amount is denominated in.
+    let (specified_mint, amount_decimals) = if exact_out {
+        (output_mint.clone(), token_decimals(&params.output_mint))
     } else {
-        token_decimals(&params.input_mint)
+        (input_mint.clone(), token_decimals(&params.input_mint))
     };
     let amount_base = to_base_units(&params.amount, amount_decimals)?;
 
-    // Validate mints are well-formed pubkeys before embedding in URL
-    pk(&input_mint)?;
-    pk(&output_mint)?;
+    let sdk_rpc = make_sdk_rpc(rpc_url);
+    let result = swap_instructions(
+        &sdk_rpc,
+        to_sdk_pk(&pk(&pool_addr)?),
+        amount_base,
+        to_sdk_pk(&pk(&specified_mint)?),
+        if exact_out { SwapType::ExactOut } else { SwapType::ExactIn },
+        Some(slippage_bps),
+        Some(to_sdk_pk(&user_pk)),
+    )
+    .await
+    .map_err(|e| AppError::ProtocolError(format!("Orca swap_instructions: {e}")))?;
 
-    // Use paid endpoint (higher rate limits) when API key is present, fall back to public.
-    let quote_url = if jupiter_api_key.is_some() {
-        JUP_PAID_QUOTE
-    } else {
-        JUP_PUB_QUOTE
-    };
-    let swap_url = if jupiter_api_key.is_some() {
-        JUP_PAID_SWAP
-    } else {
-        JUP_PUB_SWAP
-    };
-
-    // Quote via Jupiter with Orca Whirlpool DEX filter
-    let amount_str = amount_base.to_string();
-    let slippage_str = slippage_bps.to_string();
-    let mut quote_req = http.get(quote_url).query(&[
-        ("inputMint", input_mint.as_str()),
-        ("outputMint", output_mint.as_str()),
-        ("amount", amount_str.as_str()),
-        ("slippageBps", slippage_str.as_str()),
-        ("swapMode", swap_mode),
-        ("dexes", "Whirlpool"),
-    ]);
-    if let Some(key) = jupiter_api_key {
-        quote_req = quote_req.header("Authorization", format!("Bearer {key}"));
-    }
-    let quote_resp = quote_req
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Jupiter quote request: {e}")))?;
-    if !quote_resp.status().is_success() {
-        let body = quote_resp.text().await.unwrap_or_default();
-        return Err(AppError::ProtocolError(format!(
-            "Jupiter Whirlpool quote: {body}"
-        )));
-    }
-    let quote: serde_json::Value = quote_resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Jupiter quote parse: {e}")))?;
-
-    // Wire priority_fee to Jupiter's prioritizationFeeLamports
-    let prioritization_fee = match params.priority_fee.as_deref() {
-        Some("low") => serde_json::json!(1_000u64),
-        Some("medium") => serde_json::json!(10_000u64),
-        Some("high") => serde_json::json!(100_000u64),
-        Some("auto") | None => serde_json::json!("auto"),
-        Some(exact) => exact
-            .parse::<u64>()
-            .map(|n| serde_json::json!(n))
-            .unwrap_or(serde_json::json!("auto")),
+    // Report the quote the instructions were built against, so the card shows
+    // the same numbers the transaction will honour.
+    let (est_out, min_out, est_in, max_in) = match &result.quote {
+        SwapQuote::ExactIn(q) => (q.token_est_out, q.token_min_out, amount_base, amount_base),
+        SwapQuote::ExactOut(q) => (amount_base, amount_base, q.token_est_in, q.token_max_in),
     };
 
-    // Build swap TX via Jupiter
-    let swap_body = serde_json::json!({
-        "quoteResponse": quote,
-        "userPublicKey": user_pubkey,
-        "wrapAndUnwrapSol": true,
-        "dynamicComputeUnitLimit": true,
-        "prioritizationFeeLamports": prioritization_fee,
-    });
-    let mut swap_req = http.post(swap_url).json(&swap_body);
-    if let Some(key) = jupiter_api_key {
-        swap_req = swap_req.header("Authorization", format!("Bearer {key}"));
-    }
-    let swap_resp = swap_req
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Jupiter swap request: {e}")))?;
-    if !swap_resp.status().is_success() {
-        let body = swap_resp.text().await.unwrap_or_default();
-        return Err(AppError::ProtocolError(format!(
-            "Jupiter swap build: {body}"
-        )));
-    }
-    let swap_data: serde_json::Value = swap_resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Jupiter swap parse: {e}")))?;
-    let tx_b64 = swap_data["swapTransaction"]
-        .as_str()
-        .ok_or_else(|| {
-            AppError::ProtocolError("Missing swapTransaction in Jupiter response".into())
-        })?
-        .to_string();
+    let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
+    let rpc = make_rpc(rpc_url);
+    let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
 
     let out_decimals = token_decimals(&params.output_mint);
-    let out_amount = quote["outAmount"]
-        .as_str()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(0);
-    let estimated_out = out_amount as f64 / 10_f64.powi(out_decimals as i32);
-    let price_impact: f64 = quote["priceImpactPct"]
-        .as_str()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0);
-
-    let in_sym = token_symbol(&params.input_mint);
-    let out_sym = token_symbol(&params.output_mint);
-    let mut warnings = vec![];
-    if price_impact > 1.0 {
-        warnings.push(format!("Price impact: {price_impact:.2}%"));
-    }
-    if price_impact > 5.0 {
-        warnings.push("Very high price impact! Consider a smaller trade size.".into());
-    }
+    let in_decimals = token_decimals(&params.input_mint);
+    let human = |v: u64, d: u8| v as f64 / 10f64.powi(d as i32);
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "orca_swap".to_string(),
             description: format!(
-                "Swap {} {} → ~{:.6} {} via Orca Whirlpools",
-                params.amount, in_sym, estimated_out, out_sym
+                "Swap {} {} for ~{:.6} {} on Orca",
+                params.amount,
+                token_symbol(&params.input_mint),
+                human(est_out, out_decimals),
+                token_symbol(&params.output_mint),
             ),
-            estimated_fee: "~0.005 SOL".to_string(),
+            estimated_fee: "~0.00005 SOL".to_string(),
             estimated_refund: None,
-            params: serde_json::to_value(params)?,
-            warnings,
+            params: serde_json::json!({}),
+            warnings: vec![],
             requires_approval: true,
         },
         transaction: Some(tx_b64),
         additional_signers_required: 0,
         execution_steps: None,
-        quote: Some(quote),
+        quote: Some(serde_json::json!({
+            "inAmount":  human(est_in, in_decimals),
+            "maxInAmount": human(max_in, in_decimals),
+            "outAmount": human(est_out, out_decimals),
+            "minOutAmount": human(min_out, out_decimals),
+            "pool": pool_addr,
+            "venue": "Orca Whirlpool",
+        })),
         is_cross_chain: false,
         data: None,
     })
