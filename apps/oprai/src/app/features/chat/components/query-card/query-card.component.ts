@@ -1836,6 +1836,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.persistSnapshot();
     } catch {
       this.error.set('Failed to load Meteora DLMM positions');
+      // Report non-empty so a multi-listing message still shows the error
+      // rather than silently hiding a card that failed.
+      this.reportEmptyState(false);
     } finally {
       this.dlmmPositionsFetching.set(false);
       this.loading.set(false);

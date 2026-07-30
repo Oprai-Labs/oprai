@@ -237,13 +237,15 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
    * nobody asked; the same card on its own IS the answer, so it stays.
    */
   isQuerySuppressed(messageId: string, index: number): boolean {
-    if (this.queryEmptyState()[`${messageId}:${index}`] !== true) return false;
-    // Hidden whenever the message carries more than one listing, whether or
-    // not a sibling found anything: asking across a protocol's products and
-    // getting two "you have none" panels says once what the sentence above
-    // them already said. A lone listing stays — empty, it IS the answer, and
-    // its empty state carries the hint for what to do next.
-    return this.getQueriesForMessage(messageId).length > 1;
+    // A lone listing always shows — empty, it IS the answer, and its empty
+    // state carries the hint for what to do next.
+    if (this.getQueriesForMessage(messageId).length <= 1) return false;
+    // With several listings, stay hidden UNTIL the card reports it found
+    // something. Hiding only after the report meant the empty card mounted,
+    // rendered and then vanished — a flash of content is worse than the
+    // content never appearing. A card that errors reports non-empty, so the
+    // error is still seen.
+    return this.queryEmptyState()[`${messageId}:${index}`] !== false;
   }
 
   /** Pretty-printed protocol label for a chip. Falls back to id if unknown. */
