@@ -2089,21 +2089,28 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Meteora spans 25 write actions across DLMM, DAMM v1/v2, Dynamic Vaults and
   // Stake2Earn. Rather than 25 bespoke layouts, they collapse into five
   // archetypes that reuse the same panel language as the swap / CLMM cards.
+  // These archetypes are shared, not Meteora-specific: a two-amount deposit, a
+  // percentage withdrawal and a confirm-only action look the same whoever the
+  // protocol is. Orca joins them rather than keeping the raw field-list form
+  // with its "Liquidity (raw units)" box.
   private static readonly METEORA_DUAL = new Set([
     'meteora_add_liquidity', 'meteora_dammv2_add_liquidity',
     'meteora_open_position', 'meteora_add_to_position', 'meteora_dammv1_deposit',
+    'orca_open_position', 'orca_increase_position',
   ]);
   /** DAMM v2 is constant-product: no bins, no range, so it takes the plain
    *  two-amount panel rather than the DLMM range controls. */
   readonly isDammV2 = computed(() => (this.action?.type ?? '').includes('dammv2'));
   private static readonly METEORA_REDUCE = new Set([
     'meteora_remove_liquidity', 'meteora_dammv2_remove_liquidity', 'meteora_dammv1_withdraw',
+    'orca_decrease_position',
   ]);
   private static readonly METEORA_SINGLE = new Set([
     'meteora_stake', 'meteora_unstake', 'meteora_vault_deposit', 'meteora_vault_withdraw',
     'meteora_s2e_stake', 'meteora_s2e_unstake',
   ]);
   private static readonly METEORA_CONFIRM = new Set([
+    'orca_close_position', 'orca_collect_fees', 'orca_collect_rewards',
     'meteora_dammv2_claim_fee', 'meteora_dammv2_close_position',
     'meteora_close_position', 'meteora_claim_fees', 'meteora_claim_rewards',
     'meteora_harvest', 'meteora_s2e_claim_fee', 'meteora_s2e_cancel_unstake',
@@ -2314,7 +2321,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     refLabel: string; ref: string; kind: string;
   } | null>(() => {
     const t = this.action.type;
-    if (!t.startsWith('meteora_')) return null;
+    if (!t.startsWith('meteora_') && !t.startsWith('orca_')) return null;
     const p = this.editParams();
     const symA = p['tokenASymbol'] || this.resolveTokenDisplay(p['tokenA'] ?? '').symbol || '';
     const symB = p['tokenBSymbol'] || this.resolveTokenDisplay(p['tokenB'] ?? '').symbol || '';
@@ -2324,7 +2331,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const ref = p['position'] || p['positionId'] || p['positionNft'] || p['poolId'] || p['pool'] || p['vault'] || '';
     const refLabel = (p['position'] || p['positionId'] || p['positionNft']) ? 'Position'
       : p['vault'] ? 'Vault' : 'Pool';
-    const kind = this.isMeteoraDlmm() ? 'DLMM'
+    const kind = t.startsWith('orca_') ? 'WHIRLPOOL'
+      : this.isMeteoraDlmm() ? 'DLMM'
       : t.includes('dammv2') ? 'DAMM V2'
       : t.includes('dammv1') ? 'DAMM V1'
       : t.includes('s2e') ? 'STAKE2EARN'
@@ -2399,7 +2407,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * and no new position account is created — so no rent is locked. Offering
    * range inputs here would be a control that silently does nothing.
    */
-  readonly isMeteoraAddToPosition = computed(() => this.action?.type === 'meteora_add_to_position');
+  readonly isMeteoraAddToPosition = computed(() =>
+    this.action?.type === 'meteora_add_to_position'
+    // Increasing an Orca position deposits into its existing tick range, which
+    // is likewise fixed — same panel, same "you can't change this" story.
+    || this.action?.type === 'orca_increase_position');
+
+  /** Orca open-position: the user picks a price band, like Raydium CLMM. */
+  readonly isOrcaOpen = computed(() => this.action?.type === 'orca_open_position');
 
   /** What a partial withdrawal actually returns, at the chosen percentage. */
   readonly meteoraWithdrawReturns = computed<{ a: number; b: number } | null>(() => {
@@ -2416,6 +2431,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * an LP amount — so the panel drives a percentage and converts on write.
    */
   meteoraReduceKey(): 'bpsToRemove' | 'lpAmount' {
+    // Orca takes a raw liquidity figure, but the panel must not ask for one —
+    // the percentage is converted at submit from the position's liquidity.
+    if (this.action.type === 'orca_decrease_position') return 'bpsToRemove';
     // DLMM and DAMM v2 both submit a share in basis points; only the DAMM v1
     // withdrawal is denominated in LP tokens.
     return this.action.type === 'meteora_remove_liquidity'
@@ -2493,7 +2511,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  withdrawal, which leaves the account (and its rent) in place. */
   readonly isMeteoraClose = computed(() =>
     this.action?.type === 'meteora_close_position'
-    || this.action?.type === 'meteora_dammv2_close_position');
+    || this.action?.type === 'meteora_dammv2_close_position'
+    || this.action?.type === 'orca_close_position');
 
   /**
    * A claim with nothing to claim. The card already says so; leaving the CTA

@@ -304,6 +304,12 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # Same reasoning for DAMM v2: one row per position with its own
     # Claim / Add / Withdraw / Close, which prose cannot offer.
     "meteora_dammv2_get_user_positions",
+    # Orca Whirlpools: the pool list is how a user picks where to open a
+    # position, and the positions list carries per-position Collect / Increase
+    # / Decrease / Close — neither survives being flattened into prose.
+    "orca_get_pools",
+    "orca_search_pools",
+    "orca_get_user_positions",
     # Kamino Multiply pool list — paginated/sortable table with a per-row
     # "Multiply" button that opens kamino_multiply_open on the chosen pair.
     # The card self-fetches from /actions/build (delegated to the TS

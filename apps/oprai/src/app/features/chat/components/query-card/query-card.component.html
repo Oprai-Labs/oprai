@@ -115,6 +115,196 @@
         }
       }
 
+      <!-- ── Orca Whirlpools: pool list ──────────────────────────────────
+           Same table language as the DLMM / DAMM v2 / Raydium lists: search,
+           sortable headers, pair logos over a copyable address, and a Use
+           action that pre-fills the open-position card. -->
+      @if (query.type === 'orca_get_pools' || query.type === 'orca_search_pools') {
+        <div class="dlmm-search-wrap">
+          <lucide-icon name="search" [size]="13" class="dlmm-search-icon" />
+          <input class="dlmm-search" type="text"
+                 placeholder="Filter by pair (e.g. SOL/USDC)…"
+                 [value]="orcaSearchRaw()"
+                 (input)="onOrcaSearch($event)" />
+          <button type="button" class="dlmm-refresh-btn"
+                  (click)="refreshLiveData()" [disabled]="orcaFetching()"
+                  title="Refresh pool data">
+            <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="orcaFetching()" />
+          </button>
+        </div>
+
+        <div class="dlmm-sort-bar">
+          @for (opt of ORCA_SORTS; track opt.value) {
+            <button class="sort-btn"
+                    [class.sort-active]="orcaSortField() === opt.value"
+                    (click)="setOrcaSort(opt.value)">
+              {{ opt.label }}
+              <lucide-icon
+                [name]="orcaSortField() === opt.value ? (orcaSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
+                [size]="10" />
+            </button>
+          }
+        </div>
+
+        <div class="result-table">
+          <div class="result-table__header result-table__header--6col">
+            <span>Pool</span>
+            <span class="text-right">TVL</span>
+            <span class="text-right">24h Vol</span>
+            <span class="text-right">APR</span>
+            <span class="text-right">Fee</span>
+            <span class="text-right">Action</span>
+          </div>
+          @if (orcaFetching() && orcaRows().length === 0) {
+            <div class="dlmm-empty">Loading pools…</div>
+          }
+          @for (p of orcaRows(); track p.address) {
+            @let oxLogo = p.tokenA.imageUrl || tokenLogo(p.tokenA.address);
+            @let oyLogo = p.tokenB.imageUrl || tokenLogo(p.tokenB.address);
+            <div class="result-table__row result-table__row--6col dlmm-row">
+              <span class="km-pair">
+                <span class="km-icons">
+                  @if (oxLogo) {
+                    <img class="km-icon" [src]="oxLogo" [alt]="p.tokenA.symbol" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="km-icon km-icon--fallback">{{ (p.tokenA.symbol || '?').charAt(0) }}</span>
+                  }
+                  @if (oyLogo) {
+                    <img class="km-icon km-icon--debt" [src]="oyLogo" [alt]="p.tokenB.symbol" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (p.tokenB.symbol || '?').charAt(0) }}</span>
+                  }
+                </span>
+                <span class="km-pair__text">
+                  <span class="km-pair__name">
+                    {{ p.tokenA.symbol }} / {{ p.tokenB.symbol }}
+                    @if (p.hasWarning) {
+                      <span class="type-badge dlmm-oor">Flagged</span>
+                    }
+                  </span>
+                  <button type="button"
+                          class="dlmm-pair__addr mono dlmm-copy-btn km-pair__sub"
+                          [class.dlmm-copy-btn--copied]="copiedAddress() === p.address"
+                          (click)="copyPoolAddress(p.address); $event.stopPropagation()"
+                          [attr.title]="'Copy pool address: ' + p.address">
+                    <span class="dlmm-pair__addr-text">{{ p.address.slice(0, 4) }}…{{ p.address.slice(-4) }}</span>
+                    <lucide-icon [name]="copiedAddress() === p.address ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                  </button>
+                </span>
+              </span>
+              <span class="text-right mono">{{ formatUsd(p.tvlUsdc) }}</span>
+              <span class="text-right mono">{{ formatUsd(orcaVolume24h(p)) }}</span>
+              <span class="text-right mono change-up">{{ orcaApr(p) | number:'1.0-2' }}%</span>
+              <span class="text-right mono">{{ orcaFeePct(p) | number:'1.0-3' }}%</span>
+              <span class="text-right">
+                <button type="button" class="dlmm-use-btn"
+                        (click)="useOrcaPool(p); $event.stopPropagation()"
+                        title="Open a position in this pool">
+                  Use
+                  <lucide-icon name="arrow-right" [size]="12" />
+                </button>
+              </span>
+            </div>
+          }
+          @if (!orcaFetching() && orcaRows().length === 0) {
+            <div class="dlmm-empty">
+              <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
+              <div>No Orca pools match this search.</div>
+            </div>
+          }
+        </div>
+
+        <!-- Orca pages by CURSOR, so there is no page index to jump to —
+             only forward and back one step. -->
+        @if (orcaNextCursor() || orcaPrevCursor()) {
+          <div class="dlmm-pagination">
+            <button class="dlmm-page-btn" (click)="orcaPage('prev')"
+                    [disabled]="!orcaPrevCursor() || orcaFetching()">
+              <lucide-icon name="chevron-left" [size]="13" />
+            </button>
+            <span class="dlmm-page-label">{{ orcaRows().length }} pools</span>
+            <button class="dlmm-page-btn" (click)="orcaPage('next')"
+                    [disabled]="!orcaNextCursor() || orcaFetching()">
+              <lucide-icon name="chevron-right" [size]="13" />
+            </button>
+          </div>
+        }
+      }
+
+      <!-- ── Orca Whirlpools: the wallet's positions ─────────────────────── -->
+      @if (query.type === 'orca_get_user_positions') {
+        <div class="ray-pos-list">
+          @if (orcaPositionsFetching() && orcaPositions().length === 0) {
+            <div class="dlmm-empty">Loading positions…</div>
+          }
+          @for (pos of orcaPositions(); track pos.positionAddress; let i = $index) {
+            <div class="ray-pos">
+              <div class="ray-pos__top">
+                <span class="ray-pos__pair">Position {{ i + 1 }}</span>
+                <span class="type-badge">WHIRLPOOL</span>
+                <button type="button"
+                        class="dlmm-pair__addr mono dlmm-copy-btn ray-pos__addr"
+                        [class.dlmm-copy-btn--copied]="copiedAddress() === pos.positionAddress"
+                        (click)="copyPoolAddress(pos.positionAddress); $event.stopPropagation()"
+                        [attr.title]="'Copy position address: ' + pos.positionAddress">
+                  <span class="dlmm-pair__addr-text">{{ pos.positionAddress.slice(0, 4) }}…{{ pos.positionAddress.slice(-4) }}</span>
+                  <lucide-icon [name]="copiedAddress() === pos.positionAddress ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                </button>
+              </div>
+
+              <div class="ray-pos__body">
+                <span class="ray-pos__amount-block">
+                  <span class="ray-pos__amount">{{ pos.liquidity }}</span>
+                  <span class="ray-pos__amount-label">Liquidity · pool {{ pos.whirlpool.slice(0, 4) }}…{{ pos.whirlpool.slice(-4) }}</span>
+                </span>
+                <span class="ray-pos__actions">
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          (click)="collectOrcaFees(pos); $event.stopPropagation()"
+                          title="Collect this position's fees">Collect</button>
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          (click)="increaseOrcaPosition(pos); $event.stopPropagation()"
+                          title="Add liquidity to this position">
+                    <lucide-icon name="plus" [size]="12" />
+                    Add
+                  </button>
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          (click)="decreaseOrcaPosition(pos); $event.stopPropagation()"
+                          title="Withdraw part of this position">Withdraw</button>
+                  <button type="button" class="dlmm-use-btn"
+                          (click)="closeOrcaPosition(pos); $event.stopPropagation()"
+                          title="Withdraw everything, collect fees and close — recovers the rent">
+                    Close
+                    <lucide-icon name="arrow-right" [size]="12" />
+                  </button>
+                </span>
+              </div>
+
+              <div class="dlmm-pos-range">
+                <span class="dlmm-pos-range__seg">
+                  <span class="dlmm-pos-range__label">Min</span>
+                  <span class="mono">{{ pos.priceLower | number:'1.0-6' }}</span>
+                </span>
+                <span class="dlmm-pos-range__seg">
+                  <span class="dlmm-pos-range__label">Max</span>
+                  <span class="mono">{{ pos.priceUpper | number:'1.0-6' }}</span>
+                </span>
+                <span class="dlmm-pos-range__seg dlmm-pos-range__seg--fees">
+                  <span class="dlmm-pos-range__label">Fees owed</span>
+                  <span class="mono">{{ pos.feeOwedA }} + {{ pos.feeOwedB }}</span>
+                </span>
+              </div>
+            </div>
+          }
+          @if (!orcaPositionsFetching() && orcaPositions().length === 0) {
+            <div class="dlmm-empty">
+              <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
+              <div>No open Orca Whirlpool positions.</div>
+              <div class="dlmm-empty__hint">Open one from the Orca pool list.</div>
+            </div>
+          }
+        </div>
+      }
+
       <!-- Meteora DLMM positions — one panel per POSITION, like Raydium CLMM.
            Several positions in one pool is the normal shape (that's what
            re-ranging leaves behind) and each has its own range and fees. -->

@@ -76,10 +76,13 @@ const MAX_TICK_INDEX: i32 = 443636;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrcaSwapParams {
+    #[serde(alias = "input_mint")]
     pub input_mint: String,
+    #[serde(alias = "output_mint")]
     pub output_mint: String,
     pub amount: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
     /// "in" = exact input (default), "out" = exact output
     #[serde(default)]
@@ -97,9 +100,12 @@ pub struct OrcaSwapParams {
 #[serde(rename_all = "camelCase")]
 pub struct OrcaAddLiquidityParams {
     pub whirlpool: String,
+    #[serde(alias = "amount_a")]
     pub amount_a: String,
+    #[serde(alias = "amount_b")]
     pub amount_b: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -110,6 +116,7 @@ pub struct OrcaRemoveLiquidityParams {
     pub whirlpool: String,
     pub liquidity: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -120,6 +127,7 @@ pub struct OrcaOpenPositionParams {
     #[serde(default)]
     pub whirlpool: Option<String>,
     #[serde(default)]
+    #[serde(alias = "input_mint")]
     pub input_mint: Option<String>,
     #[serde(default)]
     pub input_amount: Option<String>,
@@ -128,16 +136,20 @@ pub struct OrcaOpenPositionParams {
     #[serde(default)]
     pub tick_upper: Option<i32>,
     #[serde(default)]
+    #[serde(alias = "token_a")]
     pub token_a: Option<String>,
     #[serde(default)]
+    #[serde(alias = "token_b")]
     pub token_b: Option<String>,
     #[serde(default)]
+    #[serde(alias = "amount_a")]
     pub amount_a: Option<String>,
     #[serde(default)]
     pub min_price: Option<f64>,
     #[serde(default)]
     pub max_price: Option<f64>,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -147,6 +159,7 @@ pub struct OrcaOpenPositionParams {
 pub struct OrcaClosePositionParams {
     pub position: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -155,9 +168,11 @@ pub struct OrcaClosePositionParams {
 #[serde(rename_all = "camelCase")]
 pub struct OrcaIncreasePositionParams {
     pub position: String,
+    #[serde(alias = "input_mint")]
     pub input_mint: String,
     pub input_amount: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -176,11 +191,13 @@ pub struct OrcaDecreasePositionParams {
     pub liquidity: Option<String>,
     /// Token mint (symbol or address) to withdraw.  Mutually exclusive with `liquidity`.
     #[serde(default)]
+    #[serde(alias = "input_mint")]
     pub input_mint: Option<String>,
     /// Amount of `input_mint` to withdraw, in display units (e.g. `"1.5"`).
     #[serde(default)]
     pub input_amount: Option<String>,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -205,14 +222,17 @@ pub struct OrcaCollectRewardsParams {
 #[serde(rename_all = "camelCase")]
 pub struct OrcaCreatePoolParams {
     /// Token A symbol or mint address
+    #[serde(alias = "token_a")]
     pub token_a: String,
     /// Token B symbol or mint address
+    #[serde(alias = "token_b")]
     pub token_b: String,
     /// Initial price (tokenB per tokenA, in display units — e.g. 190 for 1 SOL = 190 USDC)
     pub initial_price: f64,
     /// Tick spacing: 1, 2, 4, 8, 16, 32, 64, 128, 256, or 32896 (splash pool).
     /// Defaults to 128 (standard concentrated pool).
     #[serde(default)]
+    #[serde(alias = "tick_spacing")]
     pub tick_spacing: Option<u16>,
 }
 
@@ -224,9 +244,11 @@ pub struct OrcaCreatePoolParams {
 pub struct OrcaGetPoolsParams {
     /// Sort by: "volume" | "tvl" | "fees" | "rewards" | "yieldovertvl" | "lockedliquiditypercent"
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     /// "asc" or "desc"
     #[serde(default)]
+    #[serde(alias = "sort_direction")]
     pub sort_direction: Option<String>,
     #[serde(default)]
     pub size: Option<u32>,
@@ -237,24 +259,32 @@ pub struct OrcaGetPoolsParams {
     #[serde(default)]
     pub previous: Option<String>,
     #[serde(default)]
+    #[serde(alias = "has_rewards")]
     pub has_rewards: Option<bool>,
     #[serde(default)]
+    #[serde(alias = "has_warning")]
     pub has_warning: Option<bool>,
     #[serde(default)]
+    #[serde(alias = "has_adaptive_fee")]
     pub has_adaptive_fee: Option<bool>,
     #[serde(default)]
+    #[serde(alias = "is_wavebreak")]
     pub is_wavebreak: Option<bool>,
     #[serde(default)]
+    #[serde(alias = "min_tvl")]
     pub min_tvl: Option<f64>,
     #[serde(default)]
+    #[serde(alias = "min_volume")]
     pub min_volume: Option<f64>,
     #[serde(default)]
+    #[serde(alias = "min_locked_liquidity_percent")]
     pub min_locked_liquidity_percent: Option<f64>,
     /// Filter by token mint or symbol
     #[serde(default)]
     pub token: Option<String>,
     /// Filter pools that contain BOTH of these tokens (comma-separated)
     #[serde(default)]
+    #[serde(alias = "tokens_both_of")]
     pub tokens_both_of: Option<String>,
     /// Specific pool addresses (comma-separated)
     #[serde(default)]
@@ -263,6 +293,7 @@ pub struct OrcaGetPoolsParams {
     #[serde(default)]
     pub stats: Option<String>,
     #[serde(default)]
+    #[serde(alias = "include_blocked")]
     pub include_blocked: Option<bool>,
 }
 
@@ -276,12 +307,16 @@ pub struct OrcaSearchPoolsParams {
     #[serde(default)]
     pub next: Option<String>,
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     #[serde(default)]
+    #[serde(alias = "sort_direction")]
     pub sort_direction: Option<String>,
     #[serde(default)]
+    #[serde(alias = "min_tvl")]
     pub min_tvl: Option<f64>,
     #[serde(default)]
+    #[serde(alias = "min_volume")]
     pub min_volume: Option<f64>,
     #[serde(default)]
     pub stats: Option<String>,
@@ -289,6 +324,7 @@ pub struct OrcaSearchPoolsParams {
     #[serde(default)]
     pub user_tokens: Option<String>,
     #[serde(default)]
+    #[serde(alias = "has_rewards")]
     pub has_rewards: Option<bool>,
     #[serde(default)]
     pub verified_only: Option<bool>,
@@ -346,9 +382,11 @@ pub struct OrcaGetTokensParams {
     pub previous: Option<String>,
     /// Sort by: "address" | "mint_id" | "volume_24h"
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     /// "asc" or "desc"
     #[serde(default)]
+    #[serde(alias = "sort_direction")]
     pub sort_direction: Option<String>,
     /// Comma-separated mint addresses to retrieve
     #[serde(default)]

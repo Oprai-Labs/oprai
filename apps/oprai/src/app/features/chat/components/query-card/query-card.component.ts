@@ -14,6 +14,7 @@ import { BirdeyeService } from '@features/portfolio/services/birdeye.service';
 import { JupiterLendService, LendPosition, BorrowPosition } from '@core/services/market/jupiter-lend.service';
 import { JupiterPerpService, PerpPosition } from '@core/services/market/jupiter-perp.service';
 import { MeteoraService, DlmmPair, DammV2Pool, DammV1Pool } from '@core/services/market/meteora.service';
+import { OrcaService, OrcaPoolRow, OrcaUserPosition } from '@core/services/market/orca.service';
 import { environment } from '../../../../../environments/environment';
 import { firstValueFrom, debounceTime, distinctUntilChanged, timeout } from 'rxjs';
 
@@ -375,6 +376,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   private readonly jupiterLend = inject(JupiterLendService);
   private readonly jupiterPerp = inject(JupiterPerpService);
   private readonly meteora = inject(MeteoraService);
+  private readonly orca = inject(OrcaService);
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -680,6 +682,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_get_user_positions':
       case 'raydium_get_clmm_positions':
         return 'assets/icons/protocols/raydium.png';
+      case 'orca_get_pools':
+      case 'orca_search_pools':
+      case 'orca_get_user_positions':
+        return 'assets/icons/protocols/orca.svg';
       case 'kamino_multiply_markets':
         return 'assets/icons/protocols/kamino.svg';
       default:
@@ -701,7 +707,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.query.type === 'meteora_dammv2_get_pools' ||
       this.query.type === 'meteora_dammv1_get_pools' ||
       this.query.type === 'raydium_get_pools' ||
-      this.query.type === 'raydium_search_pools'
+      this.query.type === 'raydium_search_pools' ||
+      this.query.type === 'orca_get_pools' ||
+      this.query.type === 'orca_search_pools'
     );
   }
 
@@ -716,6 +724,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'meteora_dammv1_get_pools':  void this.fetchDammV1Pools(); break;
       case 'raydium_get_pools':         void this.fetchRaydiumPools(); break;
       case 'raydium_search_pools':      void this.fetchRaydiumPools(); break;
+      case 'orca_get_pools':
+      case 'orca_search_pools':         void this.fetchOrcaPools(); break;
       case 'kamino_multiply_markets':   void this.fetchKaminoMultiplyMarkets(); break;
     }
   }
@@ -872,6 +882,16 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['dlmmUserPools']) {
       this.dlmmUserPools.set(d['dlmmUserPools'] as DlmmUserPool[]);
     }
+    if (d['orcaRows']) {
+      this.orcaRows.set(d['orcaRows'] as OrcaPoolRow[]);
+      this.orcaNextCursor.set((d['orcaNextCursor'] as string | null) ?? null);
+      this.orcaPrevCursor.set((d['orcaPrevCursor'] as string | null) ?? null);
+      this.orcaSortField.set((d['orcaSortField'] as any) ?? 'tvl');
+      this.orcaSortDir.set((d['orcaSortDir'] as any) ?? 'desc');
+    }
+    if (d['orcaPositions']) {
+      this.orcaPositions.set(d['orcaPositions'] as OrcaUserPosition[]);
+    }
     if (d['lendEarnPositions'])   this.lendEarnPositions   = d['lendEarnPositions']   as LendPosition[];
     if (d['lendBorrowPositions']) this.lendBorrowPositions = d['lendBorrowPositions'] as BorrowPosition[];
     if (d['raydiumResults']) {
@@ -939,6 +959,16 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
     if (this.dlmmUserPools().length) {
       d['dlmmUserPools'] = this.dlmmUserPools();
+    }
+    if (this.orcaRows().length) {
+      d['orcaRows'] = this.orcaRows();
+      d['orcaNextCursor'] = this.orcaNextCursor();
+      d['orcaPrevCursor'] = this.orcaPrevCursor();
+      d['orcaSortField'] = this.orcaSortField();
+      d['orcaSortDir'] = this.orcaSortDir();
+    }
+    if (this.orcaPositions().length) {
+      d['orcaPositions'] = this.orcaPositions();
     }
     if (this.lendEarnPositions.length)   d['lendEarnPositions']   = this.lendEarnPositions;
     if (this.lendBorrowPositions.length) d['lendBorrowPositions'] = this.lendBorrowPositions;
@@ -1355,6 +1385,170 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ?? this.query.params?.['count'];
     const n = parseInt(String(raw ?? ''), 10);
     return Number.isFinite(n) && n > 0 ? Math.min(n, 100) : fallback;
+  }
+
+  // ── Orca Whirlpools ───────────────────────────────────────────────────────
+  readonly ORCA_PAGE_SIZE = 15;
+  readonly orcaRows = signal<OrcaPoolRow[]>([]);
+  readonly orcaFetching = signal(false);
+  readonly orcaNextCursor = signal<string | null>(null);
+  readonly orcaPrevCursor = signal<string | null>(null);
+  readonly orcaSortField = signal<'tvl' | 'volume' | 'fees' | 'yieldovertvl'>('tvl');
+  readonly orcaSortDir = signal<'asc' | 'desc'>('desc');
+  readonly orcaSearchRaw = signal('');
+  readonly orcaPositions = signal<OrcaUserPosition[]>([]);
+  readonly orcaPositionsFetching = signal(false);
+
+  readonly ORCA_SORTS: ReadonlyArray<{ value: 'tvl' | 'volume' | 'fees' | 'yieldovertvl'; label: string }> = [
+    { value: 'tvl',           label: 'TVL' },
+    { value: 'volume',        label: 'Volume' },
+    { value: 'fees',          label: 'Fees' },
+    { value: 'yieldovertvl',  label: 'Yield/TVL' },
+  ];
+
+  /**
+   * Open a position in this pool. Carries the pair, its decimals and the
+   * current price so the action card can seed a range and price both sides —
+   * a poolId alone would leave the user with an empty form.
+   */
+  useOrcaPool(row: OrcaPoolRow): void {
+    const params: Record<string, string> = {
+      whirlpool: row.address,
+      poolId: row.address,
+      pair: `${row.tokenA.symbol}/${row.tokenB.symbol}`,
+      tokenA: row.tokenA.address,
+      tokenB: row.tokenB.address,
+      tokenASymbol: row.tokenA.symbol,
+      tokenBSymbol: row.tokenB.symbol,
+      tokenADecimals: String(row.tokenA.decimals),
+      tokenBDecimals: String(row.tokenB.decimals),
+      ...(row.tokenA.imageUrl ? { tokenALogo: row.tokenA.imageUrl } : {}),
+      ...(row.tokenB.imageUrl ? { tokenBLogo: row.tokenB.imageUrl } : {}),
+      currentPrice: String(row.price ?? ''),
+      tickSpacing: String(row.tickSpacing ?? ''),
+      feeRate: String(row.feeRate ?? ''),
+    };
+    this.useAction.emit({ type: 'orca_open_position', params, raw: `[ACTION:orca_open_position] ${JSON.stringify(params)}` });
+  }
+
+  /** Params every position-scoped Orca action needs, plus the display context
+   *  that keeps the action card from rendering an anonymous form. */
+  private orcaActionParams(pos: OrcaUserPosition): Record<string, string> {
+    return {
+      positionMint: pos.positionMint,
+      position: pos.positionAddress,
+      positionAddress: pos.positionAddress,
+      whirlpool: pos.whirlpool,
+      poolId: pos.whirlpool,
+      positionMinPrice: String(pos.priceLower),
+      positionMaxPrice: String(pos.priceUpper),
+      liquidity: pos.liquidity,
+    };
+  }
+
+  collectOrcaFees(pos: OrcaUserPosition): void {
+    const params = this.orcaActionParams(pos);
+    this.useAction.emit({ type: 'orca_collect_fees', params, raw: `[ACTION:orca_collect_fees] ${JSON.stringify(params)}` });
+  }
+  increaseOrcaPosition(pos: OrcaUserPosition): void {
+    const params = this.orcaActionParams(pos);
+    this.useAction.emit({ type: 'orca_increase_position', params, raw: `[ACTION:orca_increase_position] ${JSON.stringify(params)}` });
+  }
+  decreaseOrcaPosition(pos: OrcaUserPosition): void {
+    const params = { ...this.orcaActionParams(pos), bpsToRemove: '10000' };
+    this.useAction.emit({ type: 'orca_decrease_position', params, raw: `[ACTION:orca_decrease_position] ${JSON.stringify(params)}` });
+  }
+  closeOrcaPosition(pos: OrcaUserPosition): void {
+    const params = this.orcaActionParams(pos);
+    this.useAction.emit({ type: 'orca_close_position', params, raw: `[ACTION:orca_close_position] ${JSON.stringify(params)}` });
+  }
+
+  onOrcaSearch(e: Event): void {
+    this.orcaSearchRaw.set((e.target as HTMLInputElement).value);
+    this.orcaNextCursor.set(null);
+    this.orcaPrevCursor.set(null);
+    void this.fetchOrcaPools();
+  }
+
+  setOrcaSort(field: 'tvl' | 'volume' | 'fees' | 'yieldovertvl'): void {
+    if (this.orcaSortField() === field) {
+      this.orcaSortDir.set(this.orcaSortDir() === 'desc' ? 'asc' : 'desc');
+    } else {
+      this.orcaSortField.set(field);
+      this.orcaSortDir.set('desc');
+    }
+    void this.fetchOrcaPools();
+  }
+
+  /** Orca pages by cursor, so the pager can only step one page at a time —
+   *  there is no page index to jump to. */
+  orcaPage(direction: 'next' | 'prev'): void {
+    const cursor = direction === 'next' ? this.orcaNextCursor() : this.orcaPrevCursor();
+    if (!cursor || this.orcaFetching()) return;
+    void this.fetchOrcaPools(direction === 'next' ? { next: cursor } : { previous: cursor });
+  }
+
+  private async fetchOrcaPools(cursor?: { next?: string; previous?: string }): Promise<void> {
+    this.orcaFetching.set(true);
+    this.error.set(null);
+    const search = (this.orcaSearchRaw() || (this.query.params['query'] as string | undefined) || '').trim();
+    const size = this.requestedPageSize(this.ORCA_PAGE_SIZE);
+    const page = search
+      ? await this.orca.searchPoolsPage(search, { size, next: cursor?.next })
+      : await this.orca.fetchPoolsPage({
+          sortBy: this.orcaSortField(),
+          sortDirection: this.orcaSortDir(),
+          size,
+          ...cursor,
+          token: this.query.params['token'] as string | undefined,
+        });
+    if (!page) {
+      this.error.set('Failed to load Orca pools');
+    } else {
+      this.orcaRows.set(page.rows);
+      this.orcaNextCursor.set(page.nextCursor);
+      this.orcaPrevCursor.set(page.prevCursor);
+      this.reportEmptyState(page.rows.length === 0);
+      this.persistSnapshot();
+    }
+    this.orcaFetching.set(false);
+    this.loading.set(false);
+  }
+
+  private async fetchOrcaPositions(): Promise<void> {
+    this.orcaPositionsFetching.set(true);
+    this.error.set(null);
+    if (!this.walletService.publicKey()) {
+      this.error.set('Connect your wallet to see positions');
+      this.orcaPositionsFetching.set(false);
+      this.loading.set(false);
+      return;
+    }
+    const rows = await this.orca.fetchUserPositions();
+    if (rows === null) {
+      this.error.set('Failed to load Orca positions');
+      this.reportEmptyState(false);
+    } else {
+      this.orcaPositions.set(rows);
+      this.reportEmptyState(rows.length === 0);
+      this.persistSnapshot();
+    }
+    this.orcaPositionsFetching.set(false);
+    this.loading.set(false);
+  }
+
+  /** Orca quotes its fee as hundredths of a basis point: 400 -> 0.04%. */
+  orcaFeePct(row: OrcaPoolRow): number {
+    return (Number(row.feeRate) || 0) / 10_000;
+  }
+
+  orcaVolume24h(row: OrcaPoolRow): number {
+    return Number(row.stats?.['24h']?.volume ?? 0) || 0;
+  }
+
+  /** Fees over TVL for the window, annualised — Orca's own yield figure. */
+  orcaApr(row: OrcaPoolRow): number {
+    return (Number(row.yieldOverTvl) || 0) * 365 * 100;
   }
 
   private async fetchDammV2Pools(): Promise<void> {
@@ -2568,6 +2762,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_get_pools':
       case 'raydium_search_pools':
         await this.fetchRaydiumPools();
+        return;
+      case 'orca_get_pools':
+      case 'orca_search_pools':
+        await this.fetchOrcaPools();
+        return;
+      case 'orca_get_user_positions':
+        await this.fetchOrcaPositions();
         return;
       case 'raydium_get_user_positions':
       case 'raydium_get_clmm_positions':
