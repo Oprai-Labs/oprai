@@ -147,13 +147,13 @@
         </div>
 
         <div class="result-table">
-          <div class="result-table__header result-table__header--6col">
+          <div class="result-table__header result-table__header--orca">
             <span>Pool</span>
             <span class="text-right">TVL</span>
             <span class="text-right">24h Vol</span>
             <span class="text-right">APR</span>
             <span class="text-right">Fee</span>
-            <span class="text-right">Action</span>
+            <span></span>
           </div>
           @if (orcaFetching() && orcaRows().length === 0) {
             <div class="dlmm-empty">Loading pools…</div>
@@ -161,7 +161,7 @@
           @for (p of orcaRows(); track p.address) {
             @let oxLogo = p.tokenA.imageUrl || tokenLogo(p.tokenA.address);
             @let oyLogo = p.tokenB.imageUrl || tokenLogo(p.tokenB.address);
-            <div class="result-table__row result-table__row--6col dlmm-row">
+            <div class="result-table__row result-table__row--orca dlmm-row">
               <span class="km-pair">
                 <span class="km-icons">
                   @if (oxLogo) {
@@ -192,8 +192,8 @@
                   </button>
                 </span>
               </span>
-              <span class="text-right mono">{{ formatUsd(p.tvlUsdc) }}</span>
-              <span class="text-right mono">{{ formatUsd(orcaVolume24h(p)) }}</span>
+              <span class="text-right mono" [attr.title]="formatUsd(p.tvlUsdc)">{{ formatUsdCompact(p.tvlUsdc) }}</span>
+              <span class="text-right mono" [attr.title]="formatUsd(orcaVolume24h(p))">{{ formatUsdCompact(orcaVolume24h(p)) }}</span>
               <span class="text-right mono change-up">{{ orcaApr(p) | number:'1.0-2' }}%</span>
               <span class="text-right mono">{{ orcaFeePct(p) | number:'1.0-3' }}%</span>
               <span class="text-right">

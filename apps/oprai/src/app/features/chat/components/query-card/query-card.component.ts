@@ -1537,6 +1537,26 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.loading.set(false);
   }
 
+  /**
+   * Abbreviated USD for table cells: $26.07M rather than $26,071,872.82.
+   *
+   * A pool list is scanned, not audited — the extra seven characters buy no
+   * information and cost a column that then wraps and shifts the row. The
+   * full figure stays in the cell's title for anyone who wants it.
+   */
+  formatUsdCompact(v: number | string | null | undefined): string {
+    const n = typeof v === 'number' ? v : Number(v ?? 0);
+    if (!Number.isFinite(n)) return '$0';
+    const abs = Math.abs(n);
+    const [div, suffix] = abs >= 1e9 ? [1e9, 'B']
+      : abs >= 1e6 ? [1e6, 'M']
+      : abs >= 1e3 ? [1e3, 'K']
+      : [1, ''];
+    const scaled = n / div;
+    const digits = suffix && Math.abs(scaled) < 100 ? 2 : suffix ? 1 : 2;
+    return `$${scaled.toFixed(digits)}${suffix}`;
+  }
+
   /** Orca quotes its fee as hundredths of a basis point: 400 -> 0.04%. */
   orcaFeePct(row: OrcaPoolRow): number {
     return (Number(row.feeRate) || 0) / 10_000;

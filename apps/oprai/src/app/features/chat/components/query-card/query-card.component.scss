@@ -203,6 +203,22 @@
   grid-template-columns: 1.5fr 1.2fr 0.8fr 0.8fr 0.8fr 28px;
 }
 
+// The Orca pool list reuses the six-column shape but its last column holds a
+// BUTTON, not the 28px icon the others put there — so "Action" wrapped to two
+// lines and dragged the header out of line with the rows. Its figures are also
+// full USD amounts, which the fractional columns were too narrow to hold: a
+// 24h volume of $97,338,226.55 broke across two lines and shifted that row's
+// height. Fixed widths for everything except the pair, and no wrapping.
+.result-table__header--orca,
+.result-table__row--orca {
+  grid-template-columns: minmax(0, 1fr) 84px 84px 74px 56px 58px;
+  column-gap: 10px;
+
+  > span:not(:first-child) {
+    white-space: nowrap;
+  }
+}
+
 .result-table__header--7col,
 .result-table__row--7col {
   grid-template-columns: 1.4fr 1.1fr 0.8fr 0.8fr 0.7fr 0.7fr 28px;
