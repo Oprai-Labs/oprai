@@ -1290,7 +1290,11 @@
                     <span class="mtr-detail__label">Range</span>
                     <span class="mtr-detail__value mono">
                       {{ apd.minPrice | number:'1.0-6' }} – {{ apd.maxPrice | number:'1.0-6' }}
-                      <span class="mtr-detail__muted">({{ apd.binCount }} bins)</span>
+                      @if (apd.binCount > 0) {
+                        @if (apd.binCount > 0) {
+                          <span class="mtr-detail__muted">({{ apd.binCount }} bins)</span>
+                        }
+                      }
                     </span>
                   </div>
                   <div class="mtr-detail__row">
@@ -1534,7 +1538,9 @@
                     <span class="mtr-detail__label">Range</span>
                     <span class="mtr-detail__value mono">
                       {{ wpd.minPrice | number:'1.0-6' }} – {{ wpd.maxPrice | number:'1.0-6' }}
-                      <span class="mtr-detail__muted">({{ wpd.binCount }} bins)</span>
+                      @if (wpd.binCount > 0) {
+                        <span class="mtr-detail__muted">({{ wpd.binCount }} bins)</span>
+                      }
                     </span>
                   </div>
                   <div class="mtr-detail__row">
@@ -1755,7 +1761,11 @@
                       <span class="mtr-detail__label">Range</span>
                       <span class="mtr-detail__value mono">
                         {{ pd.minPrice | number:'1.0-6' }} – {{ pd.maxPrice | number:'1.0-6' }}
-                        <span class="mtr-detail__muted">({{ pd.binCount }} bins)</span>
+                        @if (pd.binCount > 0) {
+                          @if (pd.binCount > 0) {
+                            <span class="mtr-detail__muted">({{ pd.binCount }} bins)</span>
+                          }
+                        }
                       </span>
                     </div>
                   }

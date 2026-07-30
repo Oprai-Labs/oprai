@@ -1432,6 +1432,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   /** Params every position-scoped Orca action needs, plus the display context
    *  that keeps the action card from rendering an anonymous form. */
   private orcaActionParams(pos: OrcaUserPosition): Record<string, string> {
+    const num = (v: unknown) => (v === undefined || v === null ? undefined : String(v));
     return {
       positionMint: pos.positionMint,
       position: pos.positionAddress,
@@ -1441,7 +1442,38 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       positionMinPrice: String(pos.priceLower),
       positionMaxPrice: String(pos.priceUpper),
       liquidity: pos.liquidity,
+      // Everything the panel needs to render itself. The row already resolved
+      // all of it; without passing it along the action opened as "??/??" with
+      // zeros, which is the row's own data thrown away one click later.
+      ...(pos.tokenASymbol ? { tokenASymbol: pos.tokenASymbol } : {}),
+      ...(pos.tokenBSymbol ? { tokenBSymbol: pos.tokenBSymbol } : {}),
+      ...(pos.tokenAMint ? { tokenA: pos.tokenAMint } : {}),
+      ...(pos.tokenBMint ? { tokenB: pos.tokenBMint } : {}),
+      ...(pos.tokenAMint && this.tokenLogo(pos.tokenAMint)
+        ? { tokenALogo: this.tokenLogo(pos.tokenAMint)! } : {}),
+      ...(pos.tokenBMint && this.tokenLogo(pos.tokenBMint)
+        ? { tokenBLogo: this.tokenLogo(pos.tokenBMint)! } : {}),
+      ...(num(pos.tokenADecimals) ? { tokenADecimals: num(pos.tokenADecimals)! } : {}),
+      ...(num(pos.tokenBDecimals) ? { tokenBDecimals: num(pos.tokenBDecimals)! } : {}),
+      ...(num(pos.amountA) ? { positionAmountA: num(pos.amountA)! } : {}),
+      ...(num(pos.amountB) ? { positionAmountB: num(pos.amountB)! } : {}),
+      ...(num(pos.feeOwedAUi) ? { positionFeeA: num(pos.feeOwedAUi)! } : {}),
+      ...(num(pos.feeOwedBUi) ? { positionFeeB: num(pos.feeOwedBUi)! } : {}),
+      ...(num(pos.currentPrice) ? { currentPrice: num(pos.currentPrice)! } : {}),
+      ...(num((pos as { rentSol?: number }).rentSol)
+        ? { positionRentSol: num((pos as { rentSol?: number }).rentSol)! } : {}),
+      positionOutOfRange: pos.inRange === false ? 'true' : 'false',
+      // Whirlpools have a tick range, not bins — say so, so the panel omits
+      // the bin count rather than printing "0 bins".
+      positionMinPriceIsRange: 'true',
     };
+  }
+
+  /** A collect with nothing owed costs a fee and moves nothing. */
+  orcaHasFees(pos: OrcaUserPosition): boolean {
+    const a = Number(pos.feeOwedAUi ?? pos.feeOwedA ?? 0);
+    const b = Number(pos.feeOwedBUi ?? pos.feeOwedB ?? 0);
+    return (Number.isFinite(a) && a > 0) || (Number.isFinite(b) && b > 0);
   }
 
   collectOrcaFees(pos: OrcaUserPosition): void {

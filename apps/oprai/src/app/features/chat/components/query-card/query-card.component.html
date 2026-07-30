@@ -311,8 +311,11 @@
                 </span>
                 <span class="ray-pos__actions">
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          [disabled]="!orcaHasFees(pos)"
                           (click)="collectOrcaFees(pos); $event.stopPropagation()"
-                          title="Collect this position's fees">Collect</button>
+                          [attr.title]="orcaHasFees(pos)
+                            ? 'Collect this position\'s fees'
+                            : 'No fees owed on this position'">Collect</button>
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                           (click)="increaseOrcaPosition(pos); $event.stopPropagation()"
                           title="Add liquidity to this position">

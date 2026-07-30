@@ -2762,6 +2762,22 @@ pub async fn build_orca_get_user_positions(
                     entry["priceUpper"] = serde_json::json!(upper);
                     entry["currentPrice"] = serde_json::json!(current);
                     entry["inRange"] = serde_json::json!(current >= lower && current <= upper);
+
+                    // Rent the close returns, read off the accounts rather
+                    // than assumed — a Whirlpool position is not the size of a
+                    // DLMM one, and the card was quoting DLMM's number.
+                    let rent_keys = [hp.address, hp.data.position_mint];
+                    if let Ok(infos) = rpc
+                        .get_multiple_accounts(&[
+                            Pubkey::from_str(&rent_keys[0].to_string()).unwrap_or_default(),
+                            Pubkey::from_str(&rent_keys[1].to_string()).unwrap_or_default(),
+                        ])
+                        .await
+                    {
+                        let lamports: u64 =
+                            infos.iter().filter_map(|a| a.as_ref().map(|x| x.lamports)).sum();
+                        entry["rentSol"] = serde_json::json!(lamports as f64 / 1e9);
+                    }
                 }
                 positions.push(entry);
             }
