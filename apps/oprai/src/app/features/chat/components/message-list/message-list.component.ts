@@ -24,6 +24,9 @@ import { ApiService } from '@core/services/api.service';
 const PROTOCOL_LABELS: Record<string, string> = Object.fromEntries(
   PROTOCOLS.map(p => [p.id, p.label]),
 );
+const PROTOCOL_LOGOS: Record<string, string> = Object.fromEntries(
+  PROTOCOLS.map(p => [p.id, p.logo]),
+);
 import { ActionCardComponent } from '../action-card/action-card.component';
 import { QueryCardComponent } from '../query-card/query-card.component';
 import { ClarifyCardComponent } from '../clarify-card/clarify-card.component';
@@ -217,9 +220,44 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
     }
   }
 
+  /**
+   * Per-message record of which query cards came back empty, keyed
+   * `messageId:index`. Only cards that have actually reported appear here, so
+   * a still-loading card is never treated as empty.
+   */
+  private readonly queryEmptyState = signal<Record<string, boolean>>({});
+
+  onQueryEmptyState(messageId: string, index: number, isEmpty: boolean): void {
+    this.queryEmptyState.update(m => ({ ...m, [`${messageId}:${index}`]: isEmpty }));
+  }
+
+  /**
+   * Hide an empty listing only when a sibling in the same message has results.
+   * "You hold no DLMM positions" next to a DAMM v2 position answers a question
+   * nobody asked; the same card on its own IS the answer, so it stays.
+   */
+  isQuerySuppressed(messageId: string, index: number): boolean {
+    // A lone listing always shows — empty, it IS the answer, and its empty
+    // state carries the hint for what to do next.
+    if (this.getQueriesForMessage(messageId).length <= 1) return false;
+    // With several listings, stay hidden UNTIL the card reports it found
+    // something. Hiding only after the report meant the empty card mounted,
+    // rendered and then vanished — a flash of content is worse than the
+    // content never appearing. A card that errors reports non-empty, so the
+    // error is still seen.
+    return this.queryEmptyState()[`${messageId}:${index}`] !== false;
+  }
+
   /** Pretty-printed protocol label for a chip. Falls back to id if unknown. */
   protocolChipLabel(id: string): string {
     return PROTOCOL_LABELS[id] ?? id;
+  }
+
+  /** The same logo the composer chip shows, so the tag looks identical before
+   *  and after sending. Null for an id with no entry — the chip then renders
+   *  as a plain label rather than a broken image. */
+  protocolChipLogo(id: string): string | null {
+    return PROTOCOL_LOGOS[id] ?? null;
   }
 
   /** Resend the user message verbatim — same supersede semantics as edit. */

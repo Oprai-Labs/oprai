@@ -2356,10 +2356,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     amountA: number; amountB: number;
     feeA: number; feeB: number;
     hasFees: boolean;
+    hasRange: boolean;
     outOfRange: boolean;
   } | null>(() => {
     const p = this.editParams();
-    if (p['positionMinPrice'] === undefined || p['positionMaxPrice'] === undefined) return null;
+    // Gate on the AMOUNTS, not the range: a DAMM v2 position is
+    // constant-product and has no range at all, so requiring one meant the
+    // whole detail panel — claimable amounts, what you get back, the
+    // nothing-to-claim guard — silently vanished for every DAMM v2 action.
+    const hasDetail = p['positionAmountA'] !== undefined || p['positionAmountB'] !== undefined
+      || p['positionMinPrice'] !== undefined;
+    if (!hasDetail) return null;
     const num = (k: string) => {
       const n = parseFloat(p[k] ?? '');
       return Number.isFinite(n) ? n : 0;
@@ -2377,6 +2384,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       feeA,
       feeB,
       hasFees: feeA > 0 || feeB > 0,
+      hasRange: p['positionMinPrice'] !== undefined && p['positionMaxPrice'] !== undefined,
       outOfRange: p['positionOutOfRange'] === 'true',
     };
   });
@@ -2457,6 +2465,29 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * stating exactly, because it is often larger than the position itself.
    */
   readonly METEORA_POSITION_RENT_REFUND = 0.057406;
+
+  /**
+   * What closing this position actually returns in rent. Prefer the figure the
+   * backend read off the accounts — DLMM's 8120-byte position is 0.0574 SOL
+   * while a DAMM v2 position plus its NFT account is around 0.0058, so a
+   * shared constant overstated one of them by a factor of ten. The constant
+   * remains only as a fallback for a card with no detail.
+   */
+  /** Net SOL the wallet will show for a close, measured by simulating it.
+   *  Null until the preview lands, so the panel falls back to amounts + rent
+   *  rather than rendering a blank. */
+  /** True once a lookup finds the position is no longer open. */
+  readonly meteoraPositionGone = signal(false);
+
+  readonly meteoraCloseNetSol = computed<number | null>(() => {
+    const v = parseFloat(this.editParams()['closeNetSol'] ?? '');
+    return Number.isFinite(v) ? v : null;
+  });
+
+  readonly meteoraRentRefund = computed(() => {
+    const v = parseFloat(this.editParams()['positionRentSol'] ?? '');
+    return Number.isFinite(v) && v > 0 ? v : this.METEORA_POSITION_RENT_REFUND;
+  });
 
   /** Close = withdraw + claim + close the account. Distinct from a plain
    *  withdrawal, which leaves the account (and its rent) in place. */
@@ -3011,6 +3042,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.applyClmmRangePreset(1);
   }
 
+  /**
+   * DAMM v2's deposit ratio, straight from the SDK's own quote for this pool.
+   * A constant-product pool with bounds relates the two sides linearly, so a
+   * single number fills the second field as the user types — no build
+   * round-trip per keystroke, and correct for concentrated pools where the
+   * reserve ratio alone would not be.
+   */
+  private readonly dammV2Ratio = computed<{ yPerX: number; xPerY: number } | null>(() => {
+    if (!this.isDammV2()) return null;
+    const r = parseFloat(this.editParams()['depositRatio'] ?? '');
+    if (!Number.isFinite(r) || r <= 0) return null;
+    return { yPerX: r, xPerY: 1 / r };
+  });
+
   private dlmmRatioEffect = effect(() => {
     // Three ratio sources: DLMM (range × strategy × active bin),
     // CLMM (Uniswap-v3 sqrt-price math), or AMM (constant-product reserves).
@@ -3066,7 +3111,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // scale baked in); CLMM and AMM yPerX are already human-unit.
     let humanYPerX: number | null = null;
     let humanXPerY: number | null = null;
-    if (dlmm && dlmm.yPerX !== null && dlmm.xPerY !== null) {
+    // DAMM v2 first: it has no bins and no tick math, so none of the sources
+    // below can speak for it — without this the card promised "the other
+    // follows" and then never filled it.
+    const damm = this.dammV2Ratio();
+    if (damm) {
+      humanYPerX = damm.yPerX;
+      humanXPerY = damm.xPerY;
+    } else if (dlmm && dlmm.yPerX !== null && dlmm.xPerY !== null) {
       const scale = this.dlmmDecimalScale();
       humanYPerX = dlmm.yPerX * scale;
       humanXPerY = dlmm.xPerY / scale;
@@ -3835,18 +3887,32 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!type.startsWith('meteora_')) return;
     const p = this.editParams();
     const position = p['position'] || p['positionId'];
-    if (!position || p['tokenASymbol']) return;   // nothing to look up, or already known
+    if (!position) return;
 
+    // Always re-read, even when the symbols are already known. The row's
+    // figures were captured when the positions card fetched; by the time the
+    // user opens an action the position may have grown or shrunk, and a Close
+    // panel quoting pre-deposit amounts is worse than one quoting none.
+    const isDamm = (this.action?.type ?? '').includes('dammv2');
     try {
       const resp = await firstValueFrom(
         this.apiService.post<{ data?: { pools?: any[] } }>('/actions/build', {
-          type: 'meteora_dlmm_get_user_positions',
+          type: isDamm ? 'meteora_dammv2_get_user_positions' : 'meteora_dlmm_get_user_positions',
           params: {},
         }).pipe(timeout(20_000)),
       );
       const pools: any[] = resp?.data?.pools ?? [];
       const pool = pools.find(pl => (pl.listPositions ?? []).includes(position));
-      if (!pool) return;
+      if (!pool) {
+        // The row that spawned this action is a record of an earlier moment.
+        // The position it names may already be closed — say so and block the
+        // CTA, rather than letting the user sign something the chain will
+        // reject. This is why the listing itself doesn't need refetching on
+        // reload: the check happens where someone is about to act.
+        this.meteoraPositionGone.set(true);
+        return;
+      }
+      this.meteoraPositionGone.set(false);
       const detail = (pool.positions ?? []).find((d: any) => d.address === position);
 
       this.editParams.update(ep => ({
@@ -3873,14 +3939,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           ? {
               minBinId: String(detail.lowerBinId),
               maxBinId: String(detail.upperBinId),
-              positionMinPrice: String(detail.lowerPrice),
-              positionMaxPrice: String(detail.upperPrice),
-              positionBinCount: String(detail.binCount),
+              ...(detail.lowerPrice !== undefined && detail.upperPrice !== undefined
+                ? {
+                    positionMinPrice: String(detail.lowerPrice),
+                    positionMaxPrice: String(detail.upperPrice),
+                    positionBinCount: String(detail.binCount ?? ''),
+                  }
+                : {}),
               positionAmountA: String(detail.amountX),
               positionAmountB: String(detail.amountY),
               positionFeeA: String(detail.unclaimedFeeX),
               positionFeeB: String(detail.unclaimedFeeY),
               positionOutOfRange: detail.inRange ? 'false' : 'true',
+              ...(detail.rentSol !== undefined ? { positionRentSol: String(detail.rentSol) } : {}),
             }
           : {}),
       }));
@@ -3893,6 +3964,28 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (this.secondaryBalanceMint()) void this.loadSecondaryBalance();
     } catch {
       // Enrichment is cosmetic — the action still builds from the address.
+    }
+
+    // A close returns liquidity, fees and several rent refunds at once, and
+    // which accounts get closed is the program's business, not ours. Adding up
+    // the ones we know about left the figure 15% under what the wallet then
+    // offered. Ask the builder, which simulates and reports the wallet's own
+    // net change.
+    if (this.isMeteoraClose()) {
+      try {
+        const built = await firstValueFrom(
+          this.apiService.post<{ data?: { netSolChange?: number; receiveB?: number } }>(
+            '/actions/build',
+            { type: this.action!.type, params: { position } },
+          ).pipe(timeout(20_000)),
+        );
+        const net = built?.data?.netSolChange;
+        if (typeof net === 'number' && Number.isFinite(net)) {
+          this.editParams.update(ep => ({ ...ep, closeNetSol: String(net) }));
+        }
+      } catch {
+        // Falls back to amounts + rent, which is close enough to be useful.
+      }
     }
   }
 

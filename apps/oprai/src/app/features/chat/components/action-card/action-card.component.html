@@ -1321,12 +1321,26 @@
                 </div>
               </div>
             } @else if (isDammV2()) {
-              <!-- Constant product: liquidity spans the whole curve, so there
-                   is no range to choose and none to display. -->
+              <!-- The range belongs to the POOL here, not the position, and it
+                   is set at pool creation — so it is stated, never offered.
+                   Most DAMM v2 pools span the whole curve, but a concentrated
+                   one behaves like a CLMM: price can leave the band, and the
+                   deposit then goes in one-sided and earns nothing. -->
               <div class="clmm-section">
-                <div class="clmm-min-hint">
-                  DAMM v2 is a constant-product pool — liquidity covers every price,
-                  so there is no range to set. Both sides go in at the pool's current ratio.
+                <div class="clmm-min-hint"
+                     [class.clmm-min-hint--warn]="editParams()['poolPriceOutOfRange'] === 'true'">
+                  @if (editParams()['poolPriceOutOfRange'] === 'true') {
+                    <lucide-icon name="alert-circle" [size]="13" />
+                    This pool's price has left its liquidity band, so a deposit goes in
+                    one-sided and earns no fees until the price comes back.
+                  } @else if (editParams()['poolConcentrated'] === 'true') {
+                    This DAMM v2 pool concentrates its liquidity in a price band set when
+                    the pool was created — you can't change it here. Both sides go in at
+                    the pool's current ratio.
+                  } @else {
+                    DAMM v2 is a constant-product pool — liquidity covers every price, so
+                    there is no range to set. Both sides go in at the pool's current ratio.
+                  }
                 </div>
               </div>
             } @else if (isMeteoraDlmm()) {
@@ -1580,7 +1594,7 @@
                   @if (meteoraPositionDetail()?.hasFees) {
                     Claim first, or the accrued fees stay behind.
                   }
-                  The position account keeps holding {{ METEORA_POSITION_RENT_REFUND }} SOL of rent —
+                  The position account keeps holding {{ meteoraRentRefund() | number:'1.0-6' }} SOL of rent —
                   use <strong>Close</strong> instead if you are done with this position, since that
                   withdraws, claims and returns the rent in one go.
                 </div>
@@ -1675,7 +1689,16 @@
               <!-- A confirm-only action has no inputs, so the position's own
                    numbers ARE the decision. Without them the card can only
                    echo a base58 address back at the user. -->
-              @if (meteoraPositionDetail(); as pd) {
+              <!-- Angular 19: `; as` binds only on a PRIMARY @if, never on an
+                   @else if — so the alias is hoisted to a @let. -->
+              @let pd = meteoraPositionDetail();
+              @if (meteoraPositionGone()) {
+                <div class="clmm-min-hint clmm-min-hint--warn">
+                  <lucide-icon name="alert-circle" [size]="13" />
+                  This position is no longer open — it was closed after this card was
+                  created. Ask for your positions again to see the current ones.
+                </div>
+              } @else if (pd) {
                 @if (isMeteoraClose()) {
                   <!-- Closing is the only action that returns the position's
                        rent, and that rent is often worth more than the
@@ -1684,7 +1707,7 @@
                     <div class="mtr-claim__label">You get back</div>
                     <div class="mtr-claim__amounts">
                       <span class="mtr-claim__amount">
-                        {{ pd.amountA + METEORA_POSITION_RENT_REFUND | number:'1.0-6' }}
+                        {{ (meteoraCloseNetSol() ?? (pd.amountA + meteoraRentRefund())) | number:'1.0-6' }}
                         <span class="mtr-claim__sym">{{ cv.symA }}</span>
                       </span>
                       @if (pd.amountB > 0 || pd.feeB > 0) {
@@ -1697,7 +1720,7 @@
                     </div>
                     <div class="mtr-detail__row" style="margin-top:6px">
                       <span class="mtr-detail__label">Includes rent refund</span>
-                      <span class="mtr-detail__value mono">{{ METEORA_POSITION_RENT_REFUND }} SOL</span>
+                      <span class="mtr-detail__value mono">{{ meteoraRentRefund() | number:'1.0-6' }} SOL</span>
                     </div>
                   </div>
                 } @else if (isClaimAction()) {
@@ -1727,18 +1750,20 @@
                       {{ pd.amountA | number:'1.0-6' }} {{ cv.symA }} + {{ pd.amountB | number:'1.0-6' }} {{ cv.symB }}
                     </span>
                   </div>
-                  <div class="mtr-detail__row">
-                    <span class="mtr-detail__label">Range</span>
-                    <span class="mtr-detail__value mono">
-                      {{ pd.minPrice | number:'1.0-6' }} – {{ pd.maxPrice | number:'1.0-6' }}
-                      <span class="mtr-detail__muted">({{ pd.binCount }} bins)</span>
-                    </span>
-                  </div>
+                  @if (pd.hasRange) {
+                    <div class="mtr-detail__row">
+                      <span class="mtr-detail__label">Range</span>
+                      <span class="mtr-detail__value mono">
+                        {{ pd.minPrice | number:'1.0-6' }} – {{ pd.maxPrice | number:'1.0-6' }}
+                        <span class="mtr-detail__muted">({{ pd.binCount }} bins)</span>
+                      </span>
+                    </div>
+                  }
                   <div class="mtr-detail__row">
                     <span class="mtr-detail__label">Current price</span>
                     <span class="mtr-detail__value mono">
                       {{ pd.currentPrice | number:'1.0-6' }}
-                      @if (pd.outOfRange) {
+                      @if (pd.hasRange && pd.outOfRange) {
                         <span class="mtr-detail__oor">out of range</span>
                       }
                     </span>
@@ -3960,10 +3985,13 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
-            @if (nothingToClaim()) {
+            @if (meteoraPositionGone()) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              Position already closed
+            } @else if (nothingToClaim()) {
               <lucide-icon name="alert-circle" [size]="14" />
               Nothing to claim
             } @else if (meteoraPoolUnresolved()) {

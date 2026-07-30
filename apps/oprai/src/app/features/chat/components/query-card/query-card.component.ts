@@ -254,6 +254,14 @@ interface DlmmUserPool {
   activeBinId?: number;
   tokenXDecimals?: number;
   tokenYDecimals?: number;
+  /** DAMM v2: a pool can be created with concentrated bounds rather than
+   *  spanning the whole curve, and the price can then sit outside them. */
+  minPrice?: number;
+  maxPrice?: number;
+  concentrated?: boolean;
+  priceOutOfRange?: boolean;
+  /** DAMM v2: token Y per 1 token X at the pool's current state. */
+  depositRatio?: number;
 }
 
 /** One DLMM position inside a pool — its own range, balance and fees. */
@@ -266,6 +274,8 @@ interface DlmmPositionDetail {
   lowerPrice?: number;
   upperPrice?: number;
   binCount?: number;
+  /** SOL locked in the accounts a close returns, read from the chain. */
+  rentSol?: number;
   /** DAMM v2: vested or permanently-locked liquidity can't be withdrawn yet. */
   locked?: boolean;
   permanentlyLocked?: boolean;
@@ -331,6 +341,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    * letting the user enter only the amounts.
    */
   @Output() useAction = new EventEmitter<ParsedAction>();
+
+  /**
+   * Whether this card ended up with anything to show. A message can carry
+   * several listings — "my positions" fans out across a protocol's products —
+   * and an empty one alongside a populated one is noise: the user asked what
+   * they hold, not which products they don't use.
+   *
+   * The card can't see its siblings, so it reports and the message decides.
+   */
+  @Output() emptyStateChanged = new EventEmitter<boolean>();
+
+  /** Emit once the fetch has settled, so the parent never hides a card that is
+   *  merely still loading. */
+  private reportEmptyState(isEmpty: boolean): void {
+    this.emptyStateChanged.emit(isEmpty);
+  }
   /**
    * UI-only feedback: which pool address row was just copied. Cleared
    * after a brief delay so the icon/label can flash "copied" state.
@@ -718,20 +744,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.query.type === 'raydium_get_user_positions' || this.query.type === 'raydium_get_clmm_positions') {
         void this.fetchRaydiumPositions();
       }
-      // Same for DLMM: positions are live state, not a receipt. A range that
-      // has drifted out, fees accrued since, or a position closed from another
-      // client must all show on reload — so refetch rather than trust the
-      // snapshot. (Until now the snapshot didn't even carry the pools, so a
-      // reload rendered "No open positions" over a wallet that had two.)
-      if (this.query.type === 'meteora_dlmm_get_user_positions'
-          || this.query.type === 'meteora_dammv2_get_user_positions') {
-        void this.fetchDlmmPositions();
-      }
-      // Jupiter Lend positions had the same gap: never snapshotted, never
-      // refetched, so a reload showed an empty card over a real balance.
-      if (this.query.type === 'lend_positions') {
-        void this.fetchLendPositions();
-      }
+      // NOT refetched. A message is a record of what was true when it was
+      // answered; re-running its query on every reload rewrites history —
+      // close a position, reload, and the earlier answer that listed it now
+      // says you never had one. The snapshot is the answer.
+      //
+      // Acting on a stale row is handled where it can be handled honestly:
+      // the action card re-reads the position when it opens, so a Withdraw
+      // aimed at something already closed says so instead of failing on
+      // chain. That costs nothing until someone actually clicks.
     } else {
       // Seed the Raydium pool-type filter (and sort) from the incoming query
       // params BEFORE the first fetch, so an explicit "CLMM" / "concentrated"
@@ -1811,9 +1832,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       );
       const data = resp?.data ?? resp?.preview?.params?.data;
       this.dlmmUserPools.set(Array.isArray(data?.pools) ? data.pools : []);
+      this.reportEmptyState(this.dlmmUserPools().length === 0);
       this.persistSnapshot();
     } catch {
       this.error.set('Failed to load Meteora DLMM positions');
+      // Report non-empty so a multi-listing message still shows the error
+      // rather than silently hiding a card that failed.
+      this.reportEmptyState(false);
     } finally {
       this.dlmmPositionsFetching.set(false);
       this.loading.set(false);
@@ -1846,6 +1871,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ...(pool.tokenYIcon ? { tokenBLogo: pool.tokenYIcon } : {}),
       binStep: String(pool.binStep ?? ''),
       currentPrice: String(pool.poolPrice ?? ''),
+      ...(pool.concentrated ? { poolConcentrated: 'true' } : {}),
+      ...(pool.depositRatio ? { depositRatio: String(pool.depositRatio) } : {}),
+      ...(pool.priceOutOfRange ? { poolPriceOutOfRange: 'true' } : {}),
       positionIndex: String(row.index + 1),
       positionOutOfRange: row.outOfRange ? 'true' : 'false',
       ...(pool.activeBinId !== undefined ? { activeBinId: String(pool.activeBinId) } : {}),
@@ -1853,13 +1881,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ...(pool.tokenYDecimals !== undefined ? { tokenBDecimals: String(pool.tokenYDecimals) } : {}),
       ...(d
         ? {
-            positionMinPrice: String(d.lowerPrice),
-            positionMaxPrice: String(d.upperPrice),
-            positionBinCount: String(d.binCount),
+            // Range fields only when the product HAS a range — a DAMM v2
+            // position has none, and emitting empty strings would make the
+            // panel draw a "0 – 0" band that does not exist.
+            ...(d.lowerPrice !== undefined && d.upperPrice !== undefined
+              ? {
+                  positionMinPrice: String(d.lowerPrice),
+                  positionMaxPrice: String(d.upperPrice),
+                  positionBinCount: String(d.binCount ?? ''),
+                }
+              : {}),
             positionAmountA: String(d.amountX),
             positionAmountB: String(d.amountY),
             positionFeeA: String(d.unclaimedFeeX),
             positionFeeB: String(d.unclaimedFeeY),
+            ...(d.rentSol !== undefined ? { positionRentSol: String(d.rentSol) } : {}),
             // The position's range IS the range an add-liquidity card must
             // deposit into — it cannot be re-ranged, only widened by opening
             // a new position. Passing the bin ids lets the card's existing
@@ -1932,6 +1968,16 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    *  position; what differs is that DAMM v2 has no range and its actions live
    *  under different type names. */
   readonly isDammV2Positions = computed(() => this.query.type === 'meteora_dammv2_get_user_positions');
+
+  /** Pair logo for a positions row. The DAMM v2 data API carries no logo
+   *  fields at all, so fall through to the token registry by mint rather than
+   *  dropping to a letter tile. */
+  dlmmPoolLogo(pool: DlmmUserPool, side: 'x' | 'y'): string | null {
+    const fromApi = side === 'x' ? pool.tokenXIcon : pool.tokenYIcon;
+    if (fromApi) return fromApi;
+    const mint = side === 'x' ? pool.tokenXMint : pool.tokenYMint;
+    return mint ? this.tokenLogo(mint) : null;
+  }
 
   dlmmPositionOutOfRange(pool: DlmmUserPool, position: string): boolean {
     return (pool.positionsOutOfRange ?? []).includes(position);

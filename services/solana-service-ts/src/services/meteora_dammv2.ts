@@ -16,7 +16,7 @@
  * means both sides at the pool's current ratio.
  */
 
-import { CpAmm } from "@meteora-ag/cp-amm-sdk";
+import { CpAmm, getPriceFromSqrtPrice } from "@meteora-ag/cp-amm-sdk";
 import {
   Connection,
   Keypair,
@@ -67,7 +67,57 @@ async function toV0Base64(
   // away anyway: compiling to v0 builds a new message, so any signature over
   // the old one no longer applies. The wallet fills the fee-payer slot.
   if (signers.length) vtx.sign(signers);
+
+  // Pre-flight simulate, so a transaction the chain would reject surfaces here
+  // with the program's own error rather than after the user has signed it. The
+  // Rust builders have done this all along; the SDK-built paths did not, which
+  // is why a swapped deposit threshold reached the wallet as an opaque 6002.
+  try {
+    const sim = await connection.simulateTransaction(vtx, {
+      sigVerify: false,
+      replaceRecentBlockhash: true,
+    });
+    if (sim.value.err) {
+      const logs = (sim.value.logs ?? []).slice(-6).join(" | ");
+      throw appError(`Simulation failed: ${JSON.stringify(sim.value.err)}. ${logs}`, 400, "SIMULATION_FAILED");
+    }
+  } catch (e) {
+    // Re-throw our own error; a simulation the RPC couldn't run must not block
+    // a build that would otherwise succeed.
+    if ((e as { code?: string })?.code === "SIMULATION_FAILED") throw e;
+  }
+
   return Buffer.from(vtx.serialize()).toString("base64");
+}
+
+/**
+ * The wallet's SOL change if this transaction lands, measured by simulating it
+ * — not by adding up the accounts we expect it to close.
+ *
+ * Enumerating them is guesswork that is quietly wrong: closing a DAMM v2
+ * position also closes the NFT mint and the wSOL account, and counting only
+ * the position and its NFT account understated the refund. The simulator
+ * knows exactly which accounts the instruction touches; ask it.
+ */
+async function simulatedSolDelta(
+  connection: Connection,
+  txB64: string,
+  user: PublicKey,
+): Promise<number | null> {
+  try {
+    const vtx = VersionedTransaction.deserialize(Buffer.from(txB64, "base64"));
+    const before = await connection.getBalance(user, "confirmed");
+    const sim = await connection.simulateTransaction(vtx, {
+      sigVerify: false,
+      replaceRecentBlockhash: true,
+      accounts: { encoding: "base64", addresses: [user.toBase58()] },
+    });
+    const after = sim.value.accounts?.[0]?.lamports;
+    if (sim.value.err || after === undefined || after === null) return null;
+    return (after - before) / 1e9;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -180,7 +230,23 @@ export async function getDammV2UserPositions(
     const state = await amm.fetchPoolState(poolPk);
     const t = await resolvePoolTokens(amm, connection, poolPk, state);
 
-    const positions = entries.map(e => {
+    // Rent actually locked in the accounts a close returns, read from the
+    // chain rather than assumed. A DAMM v2 position is 408 bytes plus a
+    // 165-byte NFT account — about 0.0058 SOL — where a DLMM position is 8120
+    // bytes at 0.0574. Sharing the DLMM constant overstated the refund tenfold.
+    const rentOf = async (keys: PublicKey[]): Promise<number> => {
+      try {
+        const infos = await connection.getMultipleAccountsInfo(keys);
+        return infos.reduce((sum, a) => sum + (a?.lamports ?? 0), 0) / 1e9;
+      } catch {
+        return 0;
+      }
+    };
+    const rents = await Promise.all(
+      entries.map(e => rentOf([e.position, e.positionNftAccount])),
+    );
+
+    const positions = entries.map((e, i) => {
       const ps = e.positionState;
       // What the shares are worth right now, priced by the SDK against the
       // pool's current reserves — not a stored deposit amount, which drifts
@@ -192,19 +258,59 @@ export async function getDammV2UserPositions(
       return {
         address: e.position.toBase58(),
         positionNftAccount: e.positionNftAccount.toBase58(),
-        amountA: toNum(quote.outAmountA, t.decA),
-        amountB: toNum(quote.outAmountB, t.decB),
-        unclaimedFeeA: toNum(ps.feeAPending, t.decA),
-        unclaimedFeeB: toNum(ps.feeBPending, t.decB),
+        // X/Y naming, not A/B: the positions card is shared with DLMM and
+        // reads amountX / unclaimedFeeX. Emitting A/B left every amount blank
+        // on screen while the totals above them were right.
+        amountX: toNum(quote.outAmountA, t.decA),
+        amountY: toNum(quote.outAmountB, t.decB),
+        unclaimedFeeX: toNum(ps.feeAPending, t.decA),
+        unclaimedFeeY: toNum(ps.feeBPending, t.decB),
         // A locked position can't be withdrawn or closed until it vests; the
         // card has to say so rather than offering buttons that will fail.
+        rentSol: rents[i],
         locked: !(ps.vestedLiquidity as BN).isZero() || !(ps.permanentLockedLiquidity as BN).isZero(),
         permanentlyLocked: !(ps.permanentLockedLiquidity as BN).isZero(),
       };
     });
 
+    // DAMM v2 pools are NOT always full-range: a pool can be created with
+    // concentrated bounds, and then the price CAN sit outside them — the same
+    // state DLMM calls "out of range", with the same consequence (the deposit
+    // becomes one-sided and earns nothing until price returns). Report the
+    // bounds so the card can say which kind of pool this is.
+    const price = (sqrt: BN) => Number(getPriceFromSqrtPrice(sqrt, t.decA, t.decB));
+    const poolPrice = price(state.sqrtPrice);
+    const minPrice = price(state.sqrtMinPrice);
+    const maxPrice = price(state.sqrtMaxPrice);
+
+    // Deposit ratio (Y per X) at the pool's CURRENT state. For a
+    // constant-product pool with bounds the two sides are linearly related —
+    // amountY / amountX is fixed by sqrtPrice and the band — so one number
+    // lets the card fill the second field as the user types, without a build
+    // round-trip per keystroke. Derived from the SDK's own quote rather than
+    // from the reserve ratio, which is only correct for a full-range pool.
+    let depositRatio = 0;
+    try {
+      const probe = amm.getDepositQuote({
+        inAmount: new BN(10 ** t.decA),
+        isTokenA: true,
+        ...poolQuoteBasis(state),
+      });
+      depositRatio = toNum(probe.outputAmount, t.decB);
+    } catch {
+      // Leave 0 — the card then asks for both amounts rather than guessing.
+    }
+
     pools.push({
       poolAddress,
+      poolPrice,
+      depositRatio,
+      minPrice,
+      maxPrice,
+      // A pool spanning the whole curve has no meaningful bounds to show.
+      concentrated: Number.isFinite(minPrice) && Number.isFinite(maxPrice)
+        && poolPrice > 0 && (minPrice > poolPrice / 1e6 || maxPrice < poolPrice * 1e6),
+      priceOutOfRange: poolPrice < minPrice || poolPrice > maxPrice,
       tokenX: t.symA,
       tokenY: t.symB,
       tokenXMint: t.mintA.toBase58(),
@@ -215,8 +321,8 @@ export async function getDammV2UserPositions(
       tokenYDecimals: t.decB,
       openPositionCount: positions.length,
       listPositions: positions.map(p => p.address),
-      balances: positions.reduce((s, p) => s + p.amountA, 0),
-      unclaimedFees: positions.reduce((s, p) => s + p.unclaimedFeeA, 0),
+      balances: positions.reduce((s, p) => s + p.amountX, 0),
+      unclaimedFees: positions.reduce((s, p) => s + p.unclaimedFeeX, 0),
       positions,
     });
   }
@@ -288,6 +394,15 @@ export async function buildDammV2AddLiquidity(
   const slippage = (params.slippageBps ?? 100) / 10_000;
   const pad = (v: BN) => v.muln(Math.round((1 + slippage) * 1000)).divn(1000);
 
+  // The quote is expressed as input/output, NOT as A/B — so which one is
+  // token A depends on the side the user typed. Mapping input to A
+  // unconditionally swapped the two thresholds whenever the user entered the
+  // Y side, leaving token A capped at the Y amount and the deposit rejected
+  // with ExceededSlippage (6002).
+  const quotedIn = deposit.actualInputAmount ?? inAmount;
+  const maxA = pad(isA ? quotedIn : deposit.outputAmount);
+  const maxB = pad(isA ? deposit.outputAmount : quotedIn);
+
   let tx: Transaction;
   const localSigners: Keypair[] = [];
   if (params.position) {
@@ -297,10 +412,10 @@ export async function buildDammV2AddLiquidity(
       position: new PublicKey(params.position),
       positionNftAccount: await resolveNftAccount(amm, user, params.position),
       liquidityDelta: deposit.liquidityDelta,
-      maxAmountTokenA: pad(deposit.actualInputAmount ?? inAmount),
-      maxAmountTokenB: pad(deposit.outputAmount),
-      tokenAAmountThreshold: pad(deposit.actualInputAmount ?? inAmount),
-      tokenBAmountThreshold: pad(deposit.outputAmount),
+      maxAmountTokenA: maxA,
+      maxAmountTokenB: maxB,
+      tokenAAmountThreshold: maxA,
+      tokenBAmountThreshold: maxB,
       tokenAMint: t.mintA,
       tokenBMint: t.mintB,
       tokenAVault: state.tokenAVault,
@@ -317,10 +432,10 @@ export async function buildDammV2AddLiquidity(
       pool: poolPk,
       positionNft: positionNft.publicKey,
       liquidityDelta: deposit.liquidityDelta,
-      maxAmountTokenA: pad(deposit.actualInputAmount ?? inAmount),
-      maxAmountTokenB: pad(deposit.outputAmount),
-      tokenAAmountThreshold: pad(deposit.actualInputAmount ?? inAmount),
-      tokenBAmountThreshold: pad(deposit.outputAmount),
+      maxAmountTokenA: maxA,
+      maxAmountTokenB: maxB,
+      tokenAAmountThreshold: maxA,
+      tokenBAmountThreshold: maxB,
       tokenAMint: t.mintA,
       tokenBMint: t.mintB,
       tokenAProgram: (await connection.getAccountInfo(t.mintA))!.owner,
@@ -512,13 +627,16 @@ export async function buildDammV2ClosePosition(
     ...poolQuoteBasis(state),
   });
 
+  const txB64 = await toV0Base64(connection, tx, user);
+  const solDelta = await simulatedSolDelta(connection, txB64, user);
+
   return {
     preview: preview(
       "meteora_dammv2_close_position",
       `Close DAMM v2 position ${params.position.slice(0, 8)}… (withdraw + claim + recover rent)`,
       params as unknown as Record<string, unknown>,
     ),
-    transaction: await toV0Base64(connection, tx, user),
+    transaction: txB64,
     additionalSignersRequired: 0,
     isCrossChain: false,
     data: {
@@ -528,6 +646,9 @@ export async function buildDammV2ClosePosition(
       feeB: toNum(h.positionState.feeBPending, t.decB),
       symbolA: t.symA,
       symbolB: t.symB,
+      // Net SOL the wallet will see — liquidity, fees, every rent refund and
+      // the transaction fee, exactly as the wallet's own preview computes it.
+      ...(solDelta !== null ? { netSolChange: solDelta } : {}),
     },
   };
 }
