@@ -84,6 +84,8 @@ pub struct SwapParams {
     pub slippage_bps: Option<u32>,
     #[serde(default)]
     pub only_direct_routes: Option<bool>,
+    #[serde(default)]
+    pub dexes: Option<String>,
     /// "ExactIn" (default), "ExactOut", or shorthand "in"/"out" — normalized automatically.
     #[serde(default)]
     pub swap_mode: Option<String>,
@@ -130,6 +132,12 @@ pub struct QuoteRequest {
     pub swap_mode: Option<String>,
     #[serde(default)]
     pub restrict_intermediate_tokens: Option<bool>,
+    /// Restrict routing to specific venues, e.g. "Whirlpool". A venue-scoped
+    /// action (orca_swap) executes through exactly one DEX, so its preview
+    /// must be quoted the same way or the number shown is from a route the
+    /// transaction will not take.
+    #[serde(default)]
+    pub dexes: Option<String>,
 }
 
 fn deserialize_optional_u32<'de, D: serde::Deserializer<'de>>(
@@ -288,6 +296,12 @@ pub async fn get_swap_quote(
 
     let amount_in_smallest = parse_amount_to_base_units(&params.amount, amount_decimals)?;
     let only_direct = params.only_direct_routes.unwrap_or(false);
+    let dexes_qs = params
+        .dexes
+        .as_deref()
+        .filter(|d| !d.is_empty())
+        .map(|d| format!("&dexes={d}"))
+        .unwrap_or_default();
 
     let restrict_intermediate = params.restrict_intermediate_tokens.unwrap_or(false);
 
@@ -304,7 +318,7 @@ pub async fn get_swap_quote(
          slippageBps={slippage_bps}&\
          swapMode={swap_mode}&\
          onlyDirectRoutes={only_direct}&\
-         restrictIntermediateTokens={restrict_intermediate}",
+         restrictIntermediateTokens={restrict_intermediate}{dexes_qs}",
     );
 
     let mut req = http.get(&url);

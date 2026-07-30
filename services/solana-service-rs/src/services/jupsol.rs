@@ -49,6 +49,7 @@ pub async fn build_jupsol_stake_transaction(
     validate_jupsol_params(params)?;
 
     let swap_params = SwapParams {
+        dexes: None,
         input_mint: SOL_MINT.to_string(),
         output_mint: JUPSOL_MINT.to_string(),
         amount: params.amount.clone(),
@@ -99,6 +100,7 @@ pub async fn build_jupsol_unstake_transaction(
     validate_jupsol_params(params)?;
 
     let swap_params = SwapParams {
+        dexes: None,
         input_mint: JUPSOL_MINT.to_string(),
         output_mint: SOL_MINT.to_string(),
         amount: params.amount.clone(),

@@ -4460,7 +4460,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Touch the signals we want to track. Effect re-runs on any change.
     const params = this.editParams();
     const actionType = this.action?.type;
-    if (actionType !== 'swap' && actionType !== 'raydium_swap') {
+    // orca_swap executes through Jupiter restricted to Whirlpool venues, so
+    // the aggregator IS its quote source — it just has to be asked with the
+    // same restriction. The DLMM / DAMM swaps build their own transactions
+    // and are not quotable this way.
+    if (actionType !== 'swap' && actionType !== 'raydium_swap' && actionType !== 'orca_swap') {
       this.swapEstimate.set(null);
       return;
     }
@@ -4492,7 +4496,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Start / stop polling based on action type + card status. Effect re-runs
   // whenever `status()` changes, so submit / cancel / error all stop it.
   private readonly _quotePollLifecycleEffect = effect(() => {
-    const isPollable = this.action?.type === 'swap' || this.action?.type === 'raydium_swap' || this.pumpActionConfig() !== null;
+    const isPollable = this.action?.type === 'swap' || this.action?.type === 'raydium_swap'
+      || this.action?.type === 'orca_swap' || this.pumpActionConfig() !== null;
     const shouldPoll = isPollable && this.status() === 'pending';
     if (shouldPoll) this.startQuotePolling();
     else this.stopQuotePolling();
@@ -4615,6 +4620,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           )
         : await this.swapService.getQuote(
             inT.address, outT.address, String(amt), 50, swapMode,
+            this.action?.type === 'orca_swap' ? 'Whirlpool' : undefined,
           );
       if (seq !== this._swapEstimateSeq) return;
       if (!quote) {
