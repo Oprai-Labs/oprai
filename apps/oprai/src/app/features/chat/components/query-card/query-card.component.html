@@ -259,10 +259,29 @@
             <div class="dlmm-empty">Loading positions…</div>
           }
           @for (pos of orcaPositions(); track pos.positionAddress; let i = $index) {
+            @let paLogo = pos.tokenAMint ? tokenLogo(pos.tokenAMint) : null;
+            @let pbLogo = pos.tokenBMint ? tokenLogo(pos.tokenBMint) : null;
             <div class="ray-pos">
               <div class="ray-pos__top">
-                <span class="ray-pos__pair">Position {{ i + 1 }}</span>
+                <span class="km-icons">
+                  @if (paLogo) {
+                    <img class="km-icon" [src]="paLogo" [alt]="pos.tokenASymbol" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="km-icon km-icon--fallback">{{ (pos.tokenASymbol || '?').charAt(0) }}</span>
+                  }
+                  @if (pbLogo) {
+                    <img class="km-icon km-icon--debt" [src]="pbLogo" [alt]="pos.tokenBSymbol" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (pos.tokenBSymbol || '?').charAt(0) }}</span>
+                  }
+                </span>
+                <span class="ray-pos__pair">
+                  {{ pos.tokenASymbol || '?' }} / {{ pos.tokenBSymbol || '?' }}
+                </span>
                 <span class="type-badge">WHIRLPOOL</span>
+                @if (pos.inRange === false) {
+                  <span class="type-badge dlmm-oor">Out of range</span>
+                }
                 <button type="button"
                         class="dlmm-pair__addr mono dlmm-copy-btn ray-pos__addr"
                         [class.dlmm-copy-btn--copied]="copiedAddress() === pos.positionAddress"
@@ -275,8 +294,20 @@
 
               <div class="ray-pos__body">
                 <span class="ray-pos__amount-block">
-                  <span class="ray-pos__amount">{{ pos.liquidity }}</span>
-                  <span class="ray-pos__amount-label">Liquidity · pool {{ pos.whirlpool.slice(0, 4) }}…{{ pos.whirlpool.slice(-4) }}</span>
+                  @if (pos.amountA !== undefined || pos.amountB !== undefined) {
+                    <!-- What the position holds, not the opaque liquidity
+                         constant the chain stores. -->
+                    <span class="ray-pos__amount ray-pos__amount--pair">
+                      {{ pos.amountA ?? 0 | number:'1.0-6' }} {{ pos.tokenASymbol }}
+                      <span class="ray-pos__amount-sep">+</span>
+                      {{ pos.amountB ?? 0 | number:'1.0-6' }} {{ pos.tokenBSymbol }}
+                    </span>
+                  } @else {
+                    <span class="ray-pos__amount">{{ pos.liquidity }}</span>
+                  }
+                  <span class="ray-pos__amount-label">
+                    Position {{ i + 1 }} · pool {{ pos.whirlpool.slice(0, 4) }}…{{ pos.whirlpool.slice(-4) }}
+                  </span>
                 </span>
                 <span class="ray-pos__actions">
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
@@ -309,9 +340,18 @@
                   <span class="dlmm-pos-range__label">Max</span>
                   <span class="mono">{{ pos.priceUpper | number:'1.0-6' }}</span>
                 </span>
+                @if (pos.currentPrice !== undefined) {
+                  <span class="dlmm-pos-range__seg">
+                    <span class="dlmm-pos-range__label">Now</span>
+                    <span class="mono">{{ pos.currentPrice | number:'1.0-6' }}</span>
+                  </span>
+                }
                 <span class="dlmm-pos-range__seg dlmm-pos-range__seg--fees">
                   <span class="dlmm-pos-range__label">Fees owed</span>
-                  <span class="mono">{{ pos.feeOwedA }} + {{ pos.feeOwedB }}</span>
+                  <span class="mono">
+                    {{ (pos.feeOwedAUi ?? pos.feeOwedA) | number:'1.0-6' }} {{ pos.tokenASymbol }}
+                    + {{ (pos.feeOwedBUi ?? pos.feeOwedB) | number:'1.0-6' }} {{ pos.tokenBSymbol }}
+                  </span>
                 </span>
               </div>
             </div>

@@ -48,10 +48,24 @@ export interface OrcaUserPosition {
   liquidity: string;
   tickLowerIndex: number;
   tickUpperIndex: number;
+  /** Human price (token B per token A), decimal-adjusted by the backend. */
   priceLower: number;
   priceUpper: number;
+  currentPrice?: number;
+  inRange?: boolean;
+  /** What the position holds right now, derived from liquidity + ticks. */
+  amountA?: number;
+  amountB?: number;
+  tokenAMint?: string;
+  tokenBMint?: string;
+  tokenASymbol?: string | null;
+  tokenBSymbol?: string | null;
+  tokenADecimals?: number;
+  tokenBDecimals?: number;
   feeOwedA: number | string;
   feeOwedB: number | string;
+  feeOwedAUi?: number;
+  feeOwedBUi?: number;
 }
 
 /** Orca Whirlpool info */

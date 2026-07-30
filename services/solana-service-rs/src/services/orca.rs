@@ -918,6 +918,7 @@ pub fn validate_orca_get_pool_positions_params(
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
+#[derive(Clone)]
 struct WhirlpoolOnchain {
     tick_spacing: i32,
     sqrt_price: u128, // Q64.64
@@ -2626,6 +2627,43 @@ pub async fn build_orca_get_token(
 /// Uses `orca_whirlpools::fetch_positions_for_owner` which queries both the SPL
 /// Token program and the Token-2022 program, and handles position bundles
 /// (multiple positions under one NFT) in addition to plain positions.
+/// Token amounts a concentrated-liquidity position currently holds.
+///
+/// The chain stores an opaque liquidity constant; what the user wants to see
+/// is "0.004 SOL + 0.31 USDC". Standard Uniswap-v3 maths against the pool's
+/// current sqrt price and the position's tick bounds:
+///   below the range   -> all token A
+///   above the range   -> all token B
+///   inside            -> split at the current price
+fn clmm_position_amounts(
+    liquidity: u128,
+    tick_lower: i32,
+    tick_upper: i32,
+    sqrt_price_q64: u128,
+) -> (f64, f64) {
+    if liquidity == 0 {
+        return (0.0, 0.0);
+    }
+    let l = liquidity as f64;
+    let s = sqrt_price_q64 as f64 / 2f64.powi(64);
+    let sa = tick_to_sqrt_price_f64(tick_lower);
+    let sb = tick_to_sqrt_price_f64(tick_upper);
+    if s <= sa {
+        (l * (sb - sa) / (sa * sb), 0.0)
+    } else if s >= sb {
+        (0.0, l * (sb - sa))
+    } else {
+        (l * (sb - s) / (s * sb), l * (s - sa))
+    }
+}
+
+/// Raw tick price -> human price (token B per token A), which is what the
+/// range in a card has to read. Skipping this shows SOL/USDC as 0.067 rather
+/// than 67.16 — the pair's decimal gap, silently.
+fn human_price(raw: f64, dec_a: u8, dec_b: u8) -> f64 {
+    raw * 10f64.powi(dec_a as i32 - dec_b as i32)
+}
+
 pub async fn build_orca_get_user_positions(
     _http: &reqwest::Client,
     rpc_url: &str,
@@ -2643,25 +2681,89 @@ pub async fn build_orca_get_user_positions(
         .map_err(|e| AppError::ProtocolError(format!("fetch_positions_for_owner: {e}")))?;
 
     let mut positions: Vec<serde_json::Value> = Vec::new();
+    // One RPC read per DISTINCT pool: a wallet's positions cluster in a
+    // handful of pools, and re-reading the same account per row would turn a
+    // list into a dozen round-trips.
+    let rpc = make_rpc(rpc_url);
+    let mut pool_cache: std::collections::HashMap<String, WhirlpoolOnchain> =
+        std::collections::HashMap::new();
 
     for item in all {
         match item {
             PositionOrBundle::Position(hp) => {
-                let price_lower = tick_to_sqrt_price_f64(hp.data.tick_lower_index).powi(2);
-                let price_upper = tick_to_sqrt_price_f64(hp.data.tick_upper_index).powi(2);
-                positions.push(serde_json::json!({
+                // The raw account gives ticks and a liquidity constant. A card
+                // needs the pair, what the position actually holds, and prices
+                // in human units — so resolve the pool once per address and
+                // derive the rest here rather than leaving it to the client.
+                let pool_addr = hp.data.whirlpool.to_string();
+                let pool = match pool_cache.get(&pool_addr) {
+                    Some(p) => Some(p.clone()),
+                    None => match Pubkey::from_str(&pool_addr) {
+                        Ok(pk_) => match fetch_whirlpool(&rpc, &pk_).await {
+                            Ok(p) => {
+                                pool_cache.insert(pool_addr.clone(), p.clone());
+                                Some(p)
+                            }
+                            Err(_) => None,
+                        },
+                        Err(_) => None,
+                    },
+                };
+
+                let raw_lower = tick_to_sqrt_price_f64(hp.data.tick_lower_index).powi(2);
+                let raw_upper = tick_to_sqrt_price_f64(hp.data.tick_upper_index).powi(2);
+
+                let mut entry = serde_json::json!({
                     "type": "position",
                     "positionAddress": hp.address.to_string(),
                     "positionMint": hp.data.position_mint.to_string(),
-                    "whirlpool": hp.data.whirlpool.to_string(),
+                    "whirlpool": pool_addr,
                     "liquidity": hp.data.liquidity.to_string(),
                     "tickLowerIndex": hp.data.tick_lower_index,
                     "tickUpperIndex": hp.data.tick_upper_index,
-                    "priceLower": price_lower,
-                    "priceUpper": price_upper,
+                    "priceLower": raw_lower,
+                    "priceUpper": raw_upper,
                     "feeOwedA": hp.data.fee_owed_a,
                     "feeOwedB": hp.data.fee_owed_b,
-                }));
+                });
+
+                if let Some(pool) = pool {
+                    let mint_a = pool.token_mint_a.to_string();
+                    let mint_b = pool.token_mint_b.to_string();
+                    let info_a = get_token_info(&mint_a);
+                    let info_b = get_token_info(&mint_b);
+                    let dec_a = info_a.as_ref().map(|t| t.decimals).unwrap_or(9);
+                    let dec_b = info_b.as_ref().map(|t| t.decimals).unwrap_or(6);
+                    let (amt_a, amt_b) = clmm_position_amounts(
+                        hp.data.liquidity,
+                        hp.data.tick_lower_index,
+                        hp.data.tick_upper_index,
+                        pool.sqrt_price,
+                    );
+                    let cur_raw = (pool.sqrt_price as f64 / 2f64.powi(64)).powi(2);
+                    let lower = human_price(raw_lower, dec_a, dec_b);
+                    let upper = human_price(raw_upper, dec_a, dec_b);
+                    let current = human_price(cur_raw, dec_a, dec_b);
+                    let scale = |v: f64, d: u8| v / 10f64.powi(d as i32);
+
+                    entry["tokenAMint"] = serde_json::json!(mint_a);
+                    entry["tokenBMint"] = serde_json::json!(mint_b);
+                    entry["tokenASymbol"] =
+                        serde_json::json!(info_a.as_ref().map(|t| t.symbol.clone()));
+                    entry["tokenBSymbol"] =
+                        serde_json::json!(info_b.as_ref().map(|t| t.symbol.clone()));
+                    entry["tokenADecimals"] = serde_json::json!(dec_a);
+                    entry["tokenBDecimals"] = serde_json::json!(dec_b);
+                    entry["amountA"] = serde_json::json!(scale(amt_a, dec_a));
+                    entry["amountB"] = serde_json::json!(scale(amt_b, dec_b));
+                    entry["feeOwedAUi"] = serde_json::json!(scale(hp.data.fee_owed_a as f64, dec_a));
+                    entry["feeOwedBUi"] = serde_json::json!(scale(hp.data.fee_owed_b as f64, dec_b));
+                    entry["priceLower"] = serde_json::json!(lower);
+                    entry["priceUpper"] = serde_json::json!(upper);
+                    entry["currentPrice"] = serde_json::json!(current);
+                    entry["inRange"] = serde_json::json!(current >= lower && current <= upper);
+                }
+                positions.push(entry);
             }
             PositionOrBundle::PositionBundle(bundle) => {
                 let bundled: Vec<serde_json::Value> = bundle
