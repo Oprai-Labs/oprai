@@ -499,7 +499,7 @@
               </div>
             </div>
           </div>
-        } @else if (action.type === 'swap' || action.type === 'raydium_swap') {
+        } @else if (isSwapPanel()) {
           <!-- ─────── Generic swap (Jupiter / Raydium): mini-Uniswap layout ─────── -->
           <!-- Same "You pay / You receive" two-panel widget as pump.fun, but with
                clickable token SELECTORS (open the token picker) and a live quote

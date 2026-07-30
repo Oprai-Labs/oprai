@@ -2097,13 +2097,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     'meteora_add_liquidity', 'meteora_dammv2_add_liquidity',
     'meteora_open_position', 'meteora_add_to_position', 'meteora_dammv1_deposit',
     'orca_open_position', 'orca_increase_position',
+    // Orca is concentrated-liquidity only, so "add liquidity" IS opening or
+    // growing a position — the backend marks these two deprecated in favour
+    // of the position actions. They keep the designed panel rather than
+    // dropping to a raw form on the rare path that still emits them.
+    'orca_add_liquidity',
   ]);
   /** DAMM v2 is constant-product: no bins, no range, so it takes the plain
    *  two-amount panel rather than the DLMM range controls. */
   readonly isDammV2 = computed(() => (this.action?.type ?? '').includes('dammv2'));
   private static readonly METEORA_REDUCE = new Set([
     'meteora_remove_liquidity', 'meteora_dammv2_remove_liquidity', 'meteora_dammv1_withdraw',
-    'orca_decrease_position',
+    'orca_decrease_position', 'orca_remove_liquidity',
   ]);
   private static readonly METEORA_SINGLE = new Set([
     'meteora_stake', 'meteora_unstake', 'meteora_vault_deposit', 'meteora_vault_withdraw',
@@ -2415,6 +2420,66 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   /** Orca open-position: the user picks a price band, like Raydium CLMM. */
   readonly isOrcaOpen = computed(() => this.action?.type === 'orca_open_position');
+
+  /**
+   * Every swap gets the two-panel "You pay / You receive" layout, not just
+   * Jupiter's and Raydium's. A venue-specific swap is still a swap; leaving
+   * the protocol ones on the raw field list meant the same operation looked
+   * like a different product depending on which pool it ran through.
+   *
+   * The live aggregator quote stays restricted to `swap` / `raydium_swap` —
+   * quoting a pool-specific trade against the aggregator would show a price
+   * from a route this action will not take.
+   */
+  readonly isSwapPanel = computed(() => {
+    const t = this.action?.type ?? '';
+    return t === 'swap' || t === 'raydium_swap'
+      || t === 'meteora_swap' || t === 'meteora_dammv1_swap'
+      || t === 'meteora_dammv2_swap' || t === 'orca_swap';
+  });
+
+  /**
+   * Pool-scoped swaps name only the input side — the pool decides the output.
+   * The panel needs both to render, so resolve the counter token from the
+   * pool's pair when the action didn't carry it.
+   */
+  private async maybeResolveSwapCounterToken(): Promise<void> {
+    const t = this.action?.type ?? '';
+    if (t !== 'meteora_dammv2_swap' && t !== 'orca_swap') return;
+    const p = this.editParams();
+    if (p['outputMint']) return;
+    const pool = p['pool'] || p['poolId'] || p['whirlpool'];
+    const input = p['inputMint'];
+    if (!pool || !input) return;
+
+    // The pair may already be on the action if it came from a pool row.
+    const known = [p['tokenA'], p['tokenB']].filter(Boolean);
+    if (known.length === 2) {
+      this.setEditParam('outputMint', known[0] === input ? known[1]! : known[0]!);
+      return;
+    }
+    try {
+      const isOrca = t === 'orca_swap';
+      const resp = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', isOrca
+          ? { type: 'orca_get_pools', params: { addresses: pool, size: 1 } }
+          : { type: 'meteora_dammv2_get_pool', params: { address: pool } },
+        ).pipe(timeout(15_000)),
+      );
+      const row = isOrca ? resp?.data?.data?.[0] : resp?.data;
+      const a = isOrca ? row?.tokenA?.address : row?.token_x?.address;
+      const b = isOrca ? row?.tokenB?.address : row?.token_y?.address;
+      if (!a || !b) return;
+      this.editParams.update(ep => ({
+        ...ep,
+        tokenA: a,
+        tokenB: b,
+        outputMint: a === input ? b : a,
+      }));
+    } catch {
+      // Panel still renders; the receive side simply stays unresolved.
+    }
+  }
 
   /** What a partial withdrawal actually returns, at the chosen percentage. */
   readonly meteoraWithdrawReturns = computed<{ a: number; b: number } | null>(() => {
@@ -3782,6 +3847,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeEnrichRaydiumPool();
     void this.maybeEnrichRaydiumWithdraw();
     void this.maybeEnrichMeteoraPosition();
+    void this.maybeResolveSwapCounterToken();
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
