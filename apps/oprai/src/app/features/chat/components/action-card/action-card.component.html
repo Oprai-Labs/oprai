@@ -395,6 +395,65 @@
          rendering a header and a Confirm button over empty space. -->
     @if (actionFields.length > 0 || isMeNftPanel()) {
       <div class="proto-body">
+        <!-- Rendered ABOVE the field chain, not as a branch inside it.
+             As a branch it REPLACED the fields, so an offer showed a price
+             the card had chosen and no box to change it. The panel is
+             context; the fields below are what the user sets. -->
+        @if (isMeNftPanel()) {
+          <!-- ─────── Magic Eden: the NFT, not a form ───────────────────────
+               You recognise an NFT by looking at it. This leads with the art,
+               the name and the collection; the mint, seller, token account and
+               auction house are resolved server-side off the live listing and
+               are not the user's to supply. What remains editable is the price
+               and the expiry, rendered by the generic field list below. -->
+          <div class="me-act">
+            <div class="me-act__art">
+              @if (meNftImage()) {
+                <img [src]="meArtSrc()" [alt]="meNftName()" loading="eager" decoding="async"
+                     (error)="$any($event.target).style.display='none'" />
+              } @else {
+                <span class="me-act__fallback">{{ (meNftName() || '?').charAt(0) }}</span>
+              }
+            </div>
+            <div class="me-act__body">
+              <div class="me-act__name">{{ meNftName() || 'This NFT' }}</div>
+              @if (meCollectionName()) {
+                <div class="me-act__coll">{{ meCollectionName() }}</div>
+              }
+              <!-- What an offer is judged against. Shown instead of guessing a
+                   number into the box: these are real, the guess was not. -->
+              @if (meShowsReference()) {
+                <div class="me-act__ref">
+                  @if (meAskPrice(); as ask) {
+                    <span><span class="me-act__ref-k">Asking</span><span class="mono">{{ ask | number:'1.0-3' }} SOL</span></span>
+                  }
+                  @if (meFloorPrice(); as fl) {
+                    <span><span class="me-act__ref-k">Floor</span><span class="mono">{{ fl | number:'1.0-3' }} SOL</span></span>
+                  }
+                </div>
+              }
+              @if (meHeadlinePrice(); as price) {
+                <div class="me-act__price">
+                  @if (meVerb()) { <span class="me-act__price-k">{{ meVerb() }}</span> }
+                  <span class="me-act__price-v mono">{{ price | number:'1.0-4' }} SOL</span>
+                </div>
+                @if (meFeeSol(); as fee) {
+                  <!-- A seller who reads only the ask is reading the wrong
+                       number: Magic Eden's 2% comes out of it. -->
+                  <div class="me-act__fee">
+                    <span>Magic Eden fee 2%</span><span class="mono">−{{ fee | number:'1.0-4' }} SOL</span>
+                  </div>
+                  @if (meNetSol(); as net) {
+                    <div class="me-act__net">
+                      <span>You keep</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
+                    </div>
+                  }
+                }
+              }
+            </div>
+          </div>
+        }
+
 
         <!-- ─────────── pump.fun / PumpSwap: mini-Uniswap swap layout ─────────── -->
         <!-- Bespoke "You pay / You receive" two-panel swap widget (like a small
@@ -509,59 +568,6 @@
                   <span class="pump-setting__suffix">SOL</span>
                 </div>
               </div>
-            </div>
-          </div>
-        } @else if (isMeNftPanel()) {
-          <!-- ─────── Magic Eden: the NFT, not a form ───────────────────────
-               You recognise an NFT by looking at it. This leads with the art,
-               the name and the collection; the mint, seller, token account and
-               auction house are resolved server-side off the live listing and
-               are not the user's to supply. What remains editable is the price
-               and the expiry, rendered by the generic field list below. -->
-          <div class="me-act">
-            <div class="me-act__art">
-              @if (meNftImage()) {
-                <img [src]="meArtSrc()" [alt]="meNftName()" loading="eager" decoding="async"
-                     (error)="$any($event.target).style.display='none'" />
-              } @else {
-                <span class="me-act__fallback">{{ (meNftName() || '?').charAt(0) }}</span>
-              }
-            </div>
-            <div class="me-act__body">
-              <div class="me-act__name">{{ meNftName() || 'This NFT' }}</div>
-              @if (meCollectionName()) {
-                <div class="me-act__coll">{{ meCollectionName() }}</div>
-              }
-              <!-- What an offer is judged against. Shown instead of guessing a
-                   number into the box: these are real, the guess was not. -->
-              @if (meShowsReference()) {
-                <div class="me-act__ref">
-                  @if (meAskPrice(); as ask) {
-                    <span><span class="me-act__ref-k">Asking</span><span class="mono">{{ ask | number:'1.0-3' }} SOL</span></span>
-                  }
-                  @if (meFloorPrice(); as fl) {
-                    <span><span class="me-act__ref-k">Floor</span><span class="mono">{{ fl | number:'1.0-3' }} SOL</span></span>
-                  }
-                </div>
-              }
-              @if (meHeadlinePrice(); as price) {
-                <div class="me-act__price">
-                  @if (meVerb()) { <span class="me-act__price-k">{{ meVerb() }}</span> }
-                  <span class="me-act__price-v mono">{{ price | number:'1.0-4' }} SOL</span>
-                </div>
-                @if (meFeeSol(); as fee) {
-                  <!-- A seller who reads only the ask is reading the wrong
-                       number: Magic Eden's 2% comes out of it. -->
-                  <div class="me-act__fee">
-                    <span>Magic Eden fee 2%</span><span class="mono">−{{ fee | number:'1.0-4' }} SOL</span>
-                  </div>
-                  @if (meNetSol(); as net) {
-                    <div class="me-act__net">
-                      <span>You keep</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
-                    </div>
-                  }
-                }
-              }
             </div>
           </div>
         } @else if (isSwapPanel()) {
