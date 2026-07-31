@@ -327,6 +327,10 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// Same rationale as /rpc: public on-chain metadata, Helius key stays server-side.
 	r.With(defaultTimeout).Post("/token-meta", marketProxy.PostTokenMeta)
 
+	// Token-logo cache. Public and un-gated for the same reason as the two
+	// above, and because an <img> can't send our auth headers at all.
+	r.With(defaultTimeout).Get("/token-image", marketProxy.GetTokenImage)
+
 	// Upload handler — stores files locally, serves via /uploads/*
 	uploadHandler := handlers.NewUploadHandler(cfg.UploadDir, cfg.PublicBaseURL)
 	r.Route("/upload", func(r chi.Router) {

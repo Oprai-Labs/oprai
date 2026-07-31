@@ -1007,6 +1007,30 @@
   flex-shrink: 0;
 }
 
+// A 28px slot holding the letter chip with the logo layered over it.
+//
+// The logo used to REPLACE the letter, which meant an empty circle for as long
+// as the image took to arrive — and token logos are hosted by their issuers,
+// some of whom serve a 600 KB PNG down a straw. Keeping the letter underneath
+// means the pair is always identifiable, and the logo simply covers it when
+// it lands (or never, if the host is down).
+.km-icon-slot {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+
+  &--debt {
+    margin-left: -10px;
+  }
+
+  .km-icon {
+    position: absolute;
+    inset: 0;
+  }
+}
+
 // Exactly the swap card's .proto-token-chip__icon-wrap (28px circle).
 .km-icon {
   width: 28px;
@@ -1018,6 +1042,11 @@
 
   &--debt {
     margin-left: -10px;
+  }
+
+  // Opaque, so a logo with transparency doesn't show the letter through it.
+  &--img {
+    background: var(--op-bg-surface-1, #14151a);
   }
 
   // Solid brand-gradient chip with a white glyph — the same fallback treatment

@@ -1065,6 +1065,24 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return null;
   }
 
+  /**
+   * Route a third-party token logo through the gateway's image cache.
+   *
+   * Token logos are hosted by whoever issued the token, and some of those
+   * hosts are slow enough to look broken — the GILTS and CETES logos are
+   * 621 KB PNGs that take a minute to arrive, so the circle just sits empty.
+   * The gateway redirects the first request to the origin and caches the
+   * bytes, so nothing is ever slower than going direct and everything after
+   * the first view is served from our own server.
+   *
+   * Local assets and data URIs are left alone — they're already ours.
+   */
+  logoSrc(url: string | null | undefined): string | null {
+    if (!url) return null;
+    if (!/^https:\/\//i.test(url)) return url;
+    return `${environment.apiBase}/token-image?url=${encodeURIComponent(url)}`;
+  }
+
   private resolveTokenDecimals(mint: string): number {
     if (!mint) return 9;
     const known = KNOWN_TOKENS[mint];

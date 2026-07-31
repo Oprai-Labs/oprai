@@ -175,16 +175,22 @@
             <div class="result-table__row result-table__row--orca dlmm-row">
               <span class="km-pair">
                 <span class="km-icons">
-                  @if (oxLogo) {
-                    <img class="km-icon" [src]="oxLogo" [alt]="p.tokenA.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (p.tokenA.symbol || '?').charAt(0) }}</span>
-                  }
-                  @if (oyLogo) {
-                    <img class="km-icon km-icon--debt" [src]="oyLogo" [alt]="p.tokenB.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (p.tokenB.symbol || '?').charAt(0) }}</span>
-                  }
+                    @if (oxLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(oxLogo)" [alt]="p.tokenA.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (p.tokenB.symbol || '?').charAt(0) }}</span>
+                    @if (oyLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(oyLogo)" [alt]="p.tokenB.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="km-pair__text">
                   <span class="km-pair__name">
@@ -284,16 +290,22 @@
             <div class="ray-pos">
               <div class="ray-pos__top">
                 <span class="km-icons">
-                  @if (paLogo) {
-                    <img class="km-icon" [src]="paLogo" [alt]="pos.tokenASymbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (pos.tokenASymbol || '?').charAt(0) }}</span>
-                  }
-                  @if (pbLogo) {
-                    <img class="km-icon km-icon--debt" [src]="pbLogo" [alt]="pos.tokenBSymbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (pos.tokenBSymbol || '?').charAt(0) }}</span>
-                  }
+                    @if (paLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(paLogo)" [alt]="pos.tokenASymbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (pos.tokenBSymbol || '?').charAt(0) }}</span>
+                    @if (pbLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(pbLogo)" [alt]="pos.tokenBSymbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="ray-pos__pair">
                   {{ pos.tokenASymbol || '?' }} / {{ pos.tokenBSymbol || '?' }}
@@ -429,16 +441,22 @@
                 @let rowXLogo = dlmmPoolLogo(row.pool, 'x');
                 @let rowYLogo = dlmmPoolLogo(row.pool, 'y');
                 <span class="km-icons">
-                  @if (rowXLogo) {
-                    <img class="km-icon" [src]="rowXLogo" [alt]="row.pool.tokenX" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (row.pool.tokenX || '?').charAt(0) }}</span>
-                  }
-                  @if (rowYLogo) {
-                    <img class="km-icon km-icon--debt" [src]="rowYLogo" [alt]="row.pool.tokenY" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (row.pool.tokenY || '?').charAt(0) }}</span>
-                  }
+                    @if (rowXLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(rowXLogo)" [alt]="row.pool.tokenX"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (row.pool.tokenY || '?').charAt(0) }}</span>
+                    @if (rowYLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(rowYLogo)" [alt]="row.pool.tokenY"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="ray-pos__pair">{{ row.pool.tokenX }} / {{ row.pool.tokenY }}</span>
                 <span class="type-badge">{{ isDammV2Positions() ? 'DAMM V2' : 'DLMM' }}</span>
@@ -624,16 +642,22 @@
               @let yLogo = tokenLogo(p.token_y.address);
               <span class="km-pair">
                 <span class="km-icons">
-                  @if (xLogo) {
-                    <img class="km-icon" [src]="xLogo" [alt]="p.token_x.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (p.token_x.symbol || '?').charAt(0) }}</span>
-                  }
-                  @if (yLogo) {
-                    <img class="km-icon km-icon--debt" [src]="yLogo" [alt]="p.token_y.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (p.token_y.symbol || '?').charAt(0) }}</span>
-                  }
+                    @if (xLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(xLogo)" [alt]="p.token_x.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (p.token_y.symbol || '?').charAt(0) }}</span>
+                    @if (yLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(yLogo)" [alt]="p.token_y.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="km-pair__text">
                   <span class="km-pair__name">{{ p.token_x.symbol }} / {{ p.token_y.symbol }}</span>
@@ -798,16 +822,22 @@
               <div class="result-table__row dlmm-row">
                 <span class="km-pair">
                   <span class="km-icons">
-                    @if (dxLogo) {
-                      <img class="km-icon" [src]="dxLogo" [alt]="p.token_x.symbol" (error)="$any($event.target).style.display='none'" />
-                    } @else {
+                    <span class="km-icon-slot">
                       <span class="km-icon km-icon--fallback">{{ (p.token_x.symbol || '?').charAt(0) }}</span>
-                    }
-                    @if (dyLogo) {
-                      <img class="km-icon km-icon--debt" [src]="dyLogo" [alt]="p.token_y.symbol" (error)="$any($event.target).style.display='none'" />
-                    } @else {
-                      <span class="km-icon km-icon--debt km-icon--fallback">{{ (p.token_y.symbol || '?').charAt(0) }}</span>
-                    }
+                      @if (dxLogo) {
+                        <img class="km-icon km-icon--img" [src]="logoSrc(dxLogo)" [alt]="p.token_x.symbol"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
+                    <span class="km-icon-slot km-icon-slot--debt">
+                      <span class="km-icon km-icon--fallback">{{ (p.token_y.symbol || '?').charAt(0) }}</span>
+                      @if (dyLogo) {
+                        <img class="km-icon km-icon--img" [src]="logoSrc(dyLogo)" [alt]="p.token_y.symbol"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
                   </span>
                   <span class="km-pair__text">
                     <span class="km-pair__name">{{ p.token_x.symbol }} / {{ p.token_y.symbol }}</span>
@@ -947,16 +977,22 @@
               <div class="result-table__row km-row" [class.km-row--capped]="m.borrowable === false">
                 <span class="km-pair">
                   <span class="km-icons">
-                    @if (logoForMint(m.collMint); as icon) {
-                      <img class="km-icon" [src]="icon" [alt]="m.collToken" (error)="$any($event.target).style.display='none'" />
-                    } @else {
+                    <span class="km-icon-slot">
                       <span class="km-icon km-icon--fallback">{{ m.collToken.charAt(0) }}</span>
-                    }
-                    @if (logoForMint(m.debtMint); as icon) {
-                      <img class="km-icon km-icon--debt" [src]="icon" [alt]="m.debtToken" (error)="$any($event.target).style.display='none'" />
-                    } @else {
-                      <span class="km-icon km-icon--debt km-icon--fallback">{{ m.debtToken.charAt(0) }}</span>
-                    }
+                      @if (logoForMint(m.collMint); as icon) {
+                        <img class="km-icon km-icon--img" [src]="logoSrc(icon)" [alt]="m.collToken"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
+                    <span class="km-icon-slot km-icon-slot--debt">
+                      <span class="km-icon km-icon--fallback">{{ m.debtToken.charAt(0) }}</span>
+                      @if (logoForMint(m.debtMint); as icon) {
+                        <img class="km-icon km-icon--img" [src]="logoSrc(icon)" [alt]="m.debtToken"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
                   </span>
                   <span class="km-pair__text">
                     <span class="km-pair__name">{{ m.collToken }}/{{ m.debtToken }}</span>
@@ -1247,16 +1283,22 @@
             <div class="result-table__row km-row">
               <span class="km-pair">
                 <span class="km-icons">
-                  @if (p.mintA.logoURI) {
-                    <img class="km-icon" [src]="p.mintA.logoURI" [alt]="p.mintA.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ p.mintA.symbol.charAt(0) }}</span>
-                  }
-                  @if (p.mintB.logoURI) {
-                    <img class="km-icon km-icon--debt" [src]="p.mintB.logoURI" [alt]="p.mintB.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ p.mintB.symbol.charAt(0) }}</span>
-                  }
+                    @if (p.mintA.logoURI) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(p.mintA.logoURI)" [alt]="p.mintA.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ p.mintB.symbol.charAt(0) }}</span>
+                    @if (p.mintB.logoURI) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(p.mintB.logoURI)" [alt]="p.mintB.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="km-pair__text">
                   <span class="km-pair__name">{{ p.mintA.symbol }} / {{ p.mintB.symbol }}</span>
@@ -1387,16 +1429,22 @@
             <div class="ray-pos">
               <div class="ray-pos__top">
                 <span class="km-icons">
-                  @if (pos.mintA?.logoURI) {
-                    <img class="km-icon" [src]="pos.mintA!.logoURI" [alt]="pos.mintA!.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (pos.mintA?.symbol || '?').charAt(0) }}</span>
-                  }
-                  @if (pos.mintB?.logoURI) {
-                    <img class="km-icon km-icon--debt" [src]="pos.mintB!.logoURI" [alt]="pos.mintB!.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (pos.mintB?.symbol || '?').charAt(0) }}</span>
-                  }
+                    @if (pos.mintA?.logoURI) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(pos.mintA!.logoURI)" [alt]="pos.mintA!.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (pos.mintB?.symbol || '?').charAt(0) }}</span>
+                    @if (pos.mintB?.logoURI) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(pos.mintB!.logoURI)" [alt]="pos.mintB!.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="ray-pos__pair">{{ pos.pair }}</span>
                 <span class="type-badge">{{ pos.kind === 'clmm' ? 'CLMM' : 'LP' }}</span>
