@@ -125,9 +125,18 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "me_marketplace_popular": "Magic Eden — popular collections on the marketplace",
     "me_magic_ticket_burns": "Magic Eden — Magic Ticket burn records",
     # ── Orca (Whirlpool AMM reads) ──
-    "orca_get_pools": "Orca — list Whirlpool liquidity pools",
+    "orca_get_pools": (
+        "Orca — list Whirlpool liquidity pools. Optional category=rwa | "
+        "stablecoin | lst | governance | utility | meme narrows the list to "
+        "pools holding that kind of asset; pass it whenever the user names a "
+        "theme (\"RWA pools\", \"meme pools\"), since those pools sit far "
+        "below the top of the unfiltered list"
+    ),
     "orca_get_pool": "Orca — details for a specific Whirlpool",
-    "orca_search_pools": "Orca — search Whirlpools by token/pair",
+    "orca_search_pools": (
+        "Orca — search Whirlpools by token/pair; takes the same optional "
+        "category as orca_get_pools"
+    ),
     "orca_get_user_positions": "Orca — a wallet's LP positions",
     "orca_get_pool_positions": "Orca — positions in a specific pool",
     "orca_search_tokens": "Orca — search supported tokens",

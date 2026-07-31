@@ -27,6 +27,8 @@ import { MarinadeService } from '@core/services/market/marinade.service';
 import { JupSolService } from '@core/services/market/jupsol.service';
 import { MeteoraService } from '@core/services/market/meteora.service';
 import { ApiService } from '@core/services/api.service';
+import { OrcaService } from '@core/services/market/orca.service';
+import { AppVersionService } from '@core/services/app-version.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
 import { firstValueFrom, timeout } from 'rxjs';
 import { createSolanaConnection } from '@core/utils/solana-connection';
@@ -111,7 +113,37 @@ const SIM_GENERIC_HINTS: Record<string, string> = {
  * generic hint actively misleads the user. When we know the action and the
  * code, use the more accurate explanation.
  */
+/**
+ * Orca Whirlpool program errors, shared by every Orca position action.
+ *
+ * Without these, 6015 fell through to the generic hint — "insufficient
+ * balance, or an amount below the protocol's minimum, try a slightly larger
+ * amount" — which is advice you cannot act on when the action is a CLOSE with
+ * no amount at all.
+ */
+const ORCA_WHIRLPOOL_HINTS: Record<string, string> = {
+  '6005': "This position still holds liquidity, so it can't be closed yet. Withdraw it first, then close.",
+  '6015': "The position's liquidity changed while this was being prepared — usually another deposit or withdrawal landing first. Ask for your positions again and retry.",
+  '6016': "The pool's liquidity moved mid-transaction. Retry in a moment.",
+  '6017': "The deposit would need more tokens than the slippage allows. Raise the slippage or lower the amount.",
+  '6018': "The withdrawal would return less than the slippage allows. Raise the slippage or retry — the price is moving.",
+  '6020': "This wallet doesn't hold the position's NFT, so it can't act on it.",
+  '6035': "The amount rounds to zero at this pool's precision. Use a larger amount.",
+  '6036': "Price moved and the swap would return less than the minimum. Raise the slippage or retry.",
+  '6037': "Price moved and the swap would cost more than the maximum. Raise the slippage or retry.",
+  // Anchor's generic constraint failure — for a Whirlpool this is almost
+  // always tick alignment or stale pool state.
+  '101': "Whirlpool constraint failed — usually tick alignment or stale pool data. Try a wider range, or refresh the pool and retry.",
+};
+
 const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
+  orca_open_position:     ORCA_WHIRLPOOL_HINTS,
+  orca_increase_position: ORCA_WHIRLPOOL_HINTS,
+  orca_decrease_position: ORCA_WHIRLPOOL_HINTS,
+  orca_close_position:    ORCA_WHIRLPOOL_HINTS,
+  orca_collect_fees:      ORCA_WHIRLPOOL_HINTS,
+  orca_collect_rewards:   ORCA_WHIRLPOOL_HINTS,
+  orca_swap:              ORCA_WHIRLPOOL_HINTS,
   raydium_open_position: {
     '101':
       "Pool returned a constraint error. Most common causes: tick range falls outside the pool's tracked observation window, the pool isn't a CLMM pool (no concentrated-liquidity support for this pair), or the deposit ratio doesn't match the current price. Try the Full range preset, refresh the pool data, or use Raydium Add Liquidity (CPMM) instead.",
@@ -125,10 +157,6 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
   meteora_dlmm_add_liquidity: {
     '101':
       "DLMM bin constraint failed. The price range may cross more bins than the per-tx limit (commonly ≤ 70 bins). Narrow the range or split into multiple positions.",
-  },
-  orca_open_position: {
-    '101':
-      "Whirlpool constraint failed. Range tick alignment or pool state issue. Try a wider range or refresh the pool data.",
   },
   borrow: {
     // Jupiter Lend vaults program: position would exceed the vault's collateral
@@ -445,7 +473,9 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   jupiter:   { name: 'Jupiter',    icon: 'assets/icons/protocols/jupiter.webp',   accent: '#5b5fc7', accentBg: 'rgba(91,95,199,0.12)' },
   jito:      { name: 'Jito',       icon: 'assets/icons/protocols/jito.webp',      accent: '#7df65c', accentBg: 'rgba(125,246,92,0.10)' },
   kamino:    { name: 'Kamino',     icon: 'assets/icons/protocols/kamino.svg',     accent: '#6C5CE7', accentBg: 'rgba(108,92,231,0.12)' },
-  orca:      { name: 'Orca',       icon: 'assets/icons/protocols/orca.svg',       accent: '#06B6D4', accentBg: 'rgba(6,182,212,0.12)' },
+  // orca.svg is a hand-drawn whale approximation, not Orca's mark — use the
+  // real logo, and its own yellow rather than a borrowed cyan.
+  orca:      { name: 'Orca',       icon: 'assets/icons/protocols/orca.webp',      accent: '#FFD15C', accentBg: 'rgba(255,209,92,0.12)' },
   raydium:   { name: 'Raydium',    icon: 'assets/icons/protocols/raydium.png',    accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.12)' },
   marginfi:  { name: 'MarginFi',   icon: 'assets/icons/protocols/marginfi.svg',   accent: '#F59E0B', accentBg: 'rgba(245,158,11,0.12)' },
   meteora:   { name: 'Meteora',    icon: 'assets/icons/protocols/meteora.webp',    accent: '#10B981', accentBg: 'rgba(16,185,129,0.12)' },
@@ -1550,6 +1580,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly jupSolService = inject(JupSolService);
   private readonly meteoraService = inject(MeteoraService);
   private readonly apiService = inject(ApiService);
+  private readonly appVersion = inject(AppVersionService);
+  private readonly orcaService = inject(OrcaService);
 
   /** Cache so a Meteora pool address is fetched once per card lifecycle even
    *  if `editParams.poolId` thrashes (e.g. on draft restore). */
@@ -2089,21 +2121,33 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Meteora spans 25 write actions across DLMM, DAMM v1/v2, Dynamic Vaults and
   // Stake2Earn. Rather than 25 bespoke layouts, they collapse into five
   // archetypes that reuse the same panel language as the swap / CLMM cards.
+  // These archetypes are shared, not Meteora-specific: a two-amount deposit, a
+  // percentage withdrawal and a confirm-only action look the same whoever the
+  // protocol is. Orca joins them rather than keeping the raw field-list form
+  // with its "Liquidity (raw units)" box.
   private static readonly METEORA_DUAL = new Set([
     'meteora_add_liquidity', 'meteora_dammv2_add_liquidity',
     'meteora_open_position', 'meteora_add_to_position', 'meteora_dammv1_deposit',
+    'orca_open_position', 'orca_increase_position',
+    // Orca is concentrated-liquidity only, so "add liquidity" IS opening or
+    // growing a position — the backend marks these two deprecated in favour
+    // of the position actions. They keep the designed panel rather than
+    // dropping to a raw form on the rare path that still emits them.
+    'orca_add_liquidity',
   ]);
   /** DAMM v2 is constant-product: no bins, no range, so it takes the plain
    *  two-amount panel rather than the DLMM range controls. */
   readonly isDammV2 = computed(() => (this.action?.type ?? '').includes('dammv2'));
   private static readonly METEORA_REDUCE = new Set([
     'meteora_remove_liquidity', 'meteora_dammv2_remove_liquidity', 'meteora_dammv1_withdraw',
+    'orca_decrease_position', 'orca_remove_liquidity',
   ]);
   private static readonly METEORA_SINGLE = new Set([
     'meteora_stake', 'meteora_unstake', 'meteora_vault_deposit', 'meteora_vault_withdraw',
     'meteora_s2e_stake', 'meteora_s2e_unstake',
   ]);
   private static readonly METEORA_CONFIRM = new Set([
+    'orca_close_position', 'orca_collect_fees', 'orca_collect_rewards',
     'meteora_dammv2_claim_fee', 'meteora_dammv2_close_position',
     'meteora_close_position', 'meteora_claim_fees', 'meteora_claim_rewards',
     'meteora_harvest', 'meteora_s2e_claim_fee', 'meteora_s2e_cancel_unstake',
@@ -2314,7 +2358,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     refLabel: string; ref: string; kind: string;
   } | null>(() => {
     const t = this.action.type;
-    if (!t.startsWith('meteora_')) return null;
+    if (!t.startsWith('meteora_') && !t.startsWith('orca_')) return null;
     const p = this.editParams();
     const symA = p['tokenASymbol'] || this.resolveTokenDisplay(p['tokenA'] ?? '').symbol || '';
     const symB = p['tokenBSymbol'] || this.resolveTokenDisplay(p['tokenB'] ?? '').symbol || '';
@@ -2324,7 +2368,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const ref = p['position'] || p['positionId'] || p['positionNft'] || p['poolId'] || p['pool'] || p['vault'] || '';
     const refLabel = (p['position'] || p['positionId'] || p['positionNft']) ? 'Position'
       : p['vault'] ? 'Vault' : 'Pool';
-    const kind = this.isMeteoraDlmm() ? 'DLMM'
+    const kind = t.startsWith('orca_') ? 'WHIRLPOOL'
+      : this.isMeteoraDlmm() ? 'DLMM'
       : t.includes('dammv2') ? 'DAMM V2'
       : t.includes('dammv1') ? 'DAMM V1'
       : t.includes('s2e') ? 'STAKE2EARN'
@@ -2399,7 +2444,74 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * and no new position account is created — so no rent is locked. Offering
    * range inputs here would be a control that silently does nothing.
    */
-  readonly isMeteoraAddToPosition = computed(() => this.action?.type === 'meteora_add_to_position');
+  readonly isMeteoraAddToPosition = computed(() =>
+    this.action?.type === 'meteora_add_to_position'
+    // Increasing an Orca position deposits into its existing tick range, which
+    // is likewise fixed — same panel, same "you can't change this" story.
+    || this.action?.type === 'orca_increase_position');
+
+  /** Orca open-position: the user picks a price band, like Raydium CLMM. */
+  readonly isOrcaOpen = computed(() => this.action?.type === 'orca_open_position');
+
+  /**
+   * Every swap gets the two-panel "You pay / You receive" layout, not just
+   * Jupiter's and Raydium's. A venue-specific swap is still a swap; leaving
+   * the protocol ones on the raw field list meant the same operation looked
+   * like a different product depending on which pool it ran through.
+   *
+   * The live aggregator quote stays restricted to `swap` / `raydium_swap` —
+   * quoting a pool-specific trade against the aggregator would show a price
+   * from a route this action will not take.
+   */
+  readonly isSwapPanel = computed(() => {
+    const t = this.action?.type ?? '';
+    return t === 'swap' || t === 'raydium_swap'
+      || t === 'meteora_swap' || t === 'meteora_dammv1_swap'
+      || t === 'meteora_dammv2_swap' || t === 'orca_swap';
+  });
+
+  /**
+   * Pool-scoped swaps name only the input side — the pool decides the output.
+   * The panel needs both to render, so resolve the counter token from the
+   * pool's pair when the action didn't carry it.
+   */
+  private async maybeResolveSwapCounterToken(): Promise<void> {
+    const t = this.action?.type ?? '';
+    if (t !== 'meteora_dammv2_swap' && t !== 'orca_swap') return;
+    const p = this.editParams();
+    if (p['outputMint']) return;
+    const pool = p['pool'] || p['poolId'] || p['whirlpool'];
+    const input = p['inputMint'];
+    if (!pool || !input) return;
+
+    // The pair may already be on the action if it came from a pool row.
+    const known = [p['tokenA'], p['tokenB']].filter(Boolean);
+    if (known.length === 2) {
+      this.setEditParam('outputMint', known[0] === input ? known[1]! : known[0]!);
+      return;
+    }
+    try {
+      const isOrca = t === 'orca_swap';
+      const resp = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', isOrca
+          ? { type: 'orca_get_pools', params: { addresses: pool, size: 1 } }
+          : { type: 'meteora_dammv2_get_pool', params: { address: pool } },
+        ).pipe(timeout(15_000)),
+      );
+      const row = isOrca ? resp?.data?.data?.[0] : resp?.data;
+      const a = isOrca ? row?.tokenA?.address : row?.token_x?.address;
+      const b = isOrca ? row?.tokenB?.address : row?.token_y?.address;
+      if (!a || !b) return;
+      this.editParams.update(ep => ({
+        ...ep,
+        tokenA: a,
+        tokenB: b,
+        outputMint: a === input ? b : a,
+      }));
+    } catch {
+      // Panel still renders; the receive side simply stays unresolved.
+    }
+  }
 
   /** What a partial withdrawal actually returns, at the chosen percentage. */
   readonly meteoraWithdrawReturns = computed<{ a: number; b: number } | null>(() => {
@@ -2416,6 +2528,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * an LP amount — so the panel drives a percentage and converts on write.
    */
   meteoraReduceKey(): 'bpsToRemove' | 'lpAmount' {
+    // Orca takes a raw liquidity figure, but the panel must not ask for one —
+    // the percentage is converted at submit from the position's liquidity.
+    if (this.action.type === 'orca_decrease_position') return 'bpsToRemove';
     // DLMM and DAMM v2 both submit a share in basis points; only the DAMM v1
     // withdrawal is denominated in LP tokens.
     return this.action.type === 'meteora_remove_liquidity'
@@ -2493,7 +2608,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  withdrawal, which leaves the account (and its rent) in place. */
   readonly isMeteoraClose = computed(() =>
     this.action?.type === 'meteora_close_position'
-    || this.action?.type === 'meteora_dammv2_close_position');
+    || this.action?.type === 'meteora_dammv2_close_position'
+    || this.action?.type === 'orca_close_position');
 
   /**
    * A claim with nothing to claim. The card already says so; leaving the CTA
@@ -2558,7 +2674,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   });
 
   readonly isRaydiumOpenPosition = computed(
-    () => this.action.type === 'raydium_open_position',
+    // Orca Whirlpools are concentrated liquidity too: the same price band
+    // decides the deposit ratio, so they take the same range panel rather
+    // than a bare pair of amount boxes with no band at all.
+    () => this.action.type === 'raydium_open_position'
+       || this.action.type === 'orca_open_position',
   );
 
   /**
@@ -2999,6 +3119,22 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   ];
 
   /** Apply a ±N% range preset around the current price. */
+  /**
+   * An Orca position opened from a pool row arrives with the pool's price but
+   * no band. Without one the ratio engine returns nothing, so typing into one
+   * amount left the other empty under a line promising it would fill.
+   *
+   * Seed +/-10%: wide enough to hold through ordinary movement, narrow enough
+   * to be worth concentrating. The presets are right there to change it.
+   */
+  private maybeSeedOrcaRange(): void {
+    if (this.action?.type !== 'orca_open_position') return;
+    const p = this.editParams();
+    if (p['minPrice'] || p['maxPrice']) return;   // caller supplied a band
+    if (!(parseFloat(p['currentPrice'] ?? '') > 0)) return;
+    this.applyClmmRangePreset(10);
+  }
+
   applyClmmRangePreset(pct: number): void {
     const p = this.editParams();
     const cur = parseFloat(p['currentPrice'] ?? '');
@@ -3763,6 +3899,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeEnrichRaydiumPool();
     void this.maybeEnrichRaydiumWithdraw();
     void this.maybeEnrichMeteoraPosition();
+    void this.maybeResolveSwapCounterToken();
+    this.maybeSeedOrcaRange();
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
@@ -4371,7 +4509,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Touch the signals we want to track. Effect re-runs on any change.
     const params = this.editParams();
     const actionType = this.action?.type;
-    if (actionType !== 'swap' && actionType !== 'raydium_swap') {
+    // orca_swap executes through Jupiter restricted to Whirlpool venues, so
+    // the aggregator IS its quote source — it just has to be asked with the
+    // same restriction. The DLMM / DAMM swaps build their own transactions
+    // and are not quotable this way.
+    if (actionType !== 'swap' && actionType !== 'raydium_swap' && actionType !== 'orca_swap') {
       this.swapEstimate.set(null);
       return;
     }
@@ -4403,7 +4545,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Start / stop polling based on action type + card status. Effect re-runs
   // whenever `status()` changes, so submit / cancel / error all stop it.
   private readonly _quotePollLifecycleEffect = effect(() => {
-    const isPollable = this.action?.type === 'swap' || this.action?.type === 'raydium_swap' || this.pumpActionConfig() !== null;
+    const isPollable = this.action?.type === 'swap' || this.action?.type === 'raydium_swap'
+      || this.action?.type === 'orca_swap' || this.pumpActionConfig() !== null;
     const shouldPoll = isPollable && this.status() === 'pending';
     if (shouldPoll) this.startQuotePolling();
     else this.stopQuotePolling();
@@ -4520,9 +4663,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     try {
       // Raydium swaps quote from Raydium's own venue (same DEX that executes);
       // everything else uses the Jupiter aggregated quote.
-      const quote = this.action?.type === 'raydium_swap'
+      // Each venue-scoped swap is quoted by the venue that will execute it —
+      // Raydium from Raydium, Orca from the Whirlpool program via its SDK.
+      // Only the aggregated `swap` goes to Jupiter, which is the venue there.
+      const at = this.action?.type;
+      const quote = at === 'raydium_swap'
         ? await this.swapService.getRaydiumQuote(
             inT.address, outT.address, String(amt), 50, swapMode,
+          )
+        : at === 'orca_swap'
+        ? await this.orcaService.quoteSwap(
+            inT.address, outT.address, String(amt), swapMode,
           )
         : await this.swapService.getQuote(
             inT.address, outT.address, String(amt), 50, swapMode,
@@ -4895,6 +5046,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   async approve(): Promise<void> {
+    // A background reload must not land between build and signature.
+    this.appVersion.hold();
+    try {
+      await this.approveInner();
+    } finally {
+      this.appVersion.release();
+    }
+  }
+
+  private async approveInner(): Promise<void> {
     // Stable-pair Raydium CLMM with a wide range almost always reverts on-chain
     // (tick range outside the pool's observation arrays). Auto-narrow to ±1%
     // BEFORE every submit — not only on retry — so the first attempt succeeds.

@@ -1293,6 +1293,13 @@ export class IntentParserService {
         return 'Meteora DLMM Positions';
       case 'meteora_dammv2_get_user_positions':
         return 'Meteora DAMM v2 Positions';
+      // ── Orca Whirlpools ───────────────────────────────────────────────────
+      case 'orca_get_pools':
+        return query.params['token'] ? `Orca Pools (${query.params['token']})` : 'Orca Whirlpools';
+      case 'orca_search_pools':
+        return query.params['q'] ? `Orca Pools (${query.params['q']})` : 'Orca Whirlpools';
+      case 'orca_get_user_positions':
+        return 'Orca Positions';
       case 'meteora_dammv2_get_pools':
         return query.params['query']
           ? `Meteora DAMM v2 Pools (${query.params['query']})`

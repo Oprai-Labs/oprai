@@ -254,6 +254,10 @@ const VERSIONED_TX_TYPES: string[] = [
   'orca_decrease_position',
   'orca_collect_fees',
   'orca_collect_rewards',
+  'orca_increase_position',
+  'orca_decrease_position',
+  'orca_collect_fees',
+  'orca_collect_rewards',
   // Kamino Finance API → versioned
   'kamino_deposit',
   'kamino_withdraw',
@@ -2451,49 +2455,71 @@ export class SolanaActionService {
           initialPrice: p['initialPrice'] ? parseFloat(p['initialPrice']) : undefined,
           tickSpacing: p['tickSpacing'] ? parseInt(p['tickSpacing']) : undefined,
         };
-      case 'orca_open_position':
+      case 'orca_open_position': {
+        // The card collects two amounts and a price band. The backend wants
+        // ONE input side plus the band, and derives the pair from the pool —
+        // so send whichever side the user actually filled.
+        const aAmt = parseFloat(p['amountA'] ?? p['inputAmount'] ?? '') || 0;
+        const bAmt = parseFloat(p['amountB'] ?? '') || 0;
+        const useA = aAmt > 0 || bAmt <= 0;
         return {
-          // Direct mode
-          whirlpool: p['whirlpool'],
-          inputMint: p['inputMint'],
-          inputAmount: p['inputAmount'],
-          tickLower: p['tickLower'] ? parseInt(p['tickLower']) : undefined,
-          tickUpper: p['tickUpper'] ? parseInt(p['tickUpper']) : undefined,
-          // Human-friendly mode (LLM-generated)
+          whirlpool: p['whirlpool'] ?? p['poolId'],
+          inputMint: useA ? (p['tokenA'] ?? p['inputMint']) : p['tokenB'],
+          inputAmount: String(useA ? aAmt : bAmt),
+          ...(p['tickLower'] ? { tickLower: parseInt(p['tickLower']) } : {}),
+          ...(p['tickUpper'] ? { tickUpper: parseInt(p['tickUpper']) } : {}),
           tokenA: p['tokenA'],
           tokenB: p['tokenB'],
-          amountA: p['amountA'],
           minPrice: p['minPrice'] ? parseFloat(p['minPrice']) : undefined,
           maxPrice: p['maxPrice'] ? parseFloat(p['maxPrice']) : undefined,
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
+      }
       case 'orca_close_position':
         return {
           position: p['position'],
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
-      case 'orca_increase_position':
+      case 'orca_increase_position': {
+        // Same shape as open: the panel has two amount fields, the backend
+        // takes one side and prices the other from the position's range.
+        const aAmt = parseFloat(p['amountA'] ?? p['inputAmount'] ?? '') || 0;
+        const bAmt = parseFloat(p['amountB'] ?? '') || 0;
+        const useA = aAmt > 0 || bAmt <= 0;
         return {
-          position: p['position'],
-          inputMint: p['inputMint'],
-          inputAmount: p['inputAmount'],
+          position: p['position'] ?? p['positionAddress'],
+          inputMint: useA ? (p['tokenA'] ?? p['inputMint']) : p['tokenB'],
+          inputAmount: String(useA ? aAmt : bAmt),
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
-      case 'orca_decrease_position':
+      }
+      case 'orca_decrease_position': {
+        // The panel drives a PERCENTAGE — nobody can reason about a raw
+        // liquidity constant. Convert it here against the position's own
+        // liquidity, which the positions row passes along.
+        const bps = parseInt(p['bpsToRemove'] ?? '10000', 10);
+        const total = p['liquidity'] ?? '';
+        let liquidity = total;
+        if (total && Number.isFinite(bps) && bps < 10_000) {
+          try {
+            liquidity = ((BigInt(total) * BigInt(bps)) / 10_000n).toString();
+          } catch {
+            liquidity = total;   // non-integer liquidity: withdraw it all
+          }
+        }
         return {
-          position: p['position'],
-          ...(p['liquidity'] ? { liquidity: p['liquidity'] } : {}),
-          ...(p['inputMint'] ? { inputMint: p['inputMint'] } : {}),
-          ...(p['inputAmount'] ? { inputAmount: p['inputAmount'] } : {}),
+          position: p['position'] ?? p['positionAddress'],
+          ...(liquidity ? { liquidity } : {}),
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
         };
+      }
       case 'orca_collect_fees':
         return {
-          position: p['position'],
+          position: p['position'] ?? p['positionAddress'],
         };
       case 'orca_collect_rewards':
         return {
-          position: p['position'],
+          position: p['position'] ?? p['positionAddress'],
           rewardIndex: p['rewardIndex'] ? parseInt(p['rewardIndex']) : 0,
         };
       // ── Kamino Finance Actions ─────────────────────────────────────────────────

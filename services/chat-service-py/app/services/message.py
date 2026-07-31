@@ -304,6 +304,12 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # Same reasoning for DAMM v2: one row per position with its own
     # Claim / Add / Withdraw / Close, which prose cannot offer.
     "meteora_dammv2_get_user_positions",
+    # Orca Whirlpools: the pool list is how a user picks where to open a
+    # position, and the positions list carries per-position Collect / Increase
+    # / Decrease / Close — neither survives being flattened into prose.
+    "orca_get_pools",
+    "orca_search_pools",
+    "orca_get_user_positions",
     # Kamino Multiply pool list — paginated/sortable table with a per-row
     # "Multiply" button that opens kamino_multiply_open on the chosen pair.
     # The card self-fetches from /actions/build (delegated to the TS
@@ -1514,6 +1520,23 @@ async def stream_chat_response(
     # being positive triggers context injection — the LLM classifier sometimes
     # returns false on short Turkish / Spanish phrasings the keyword matcher
     # catches reliably. Both are cheap; belt-and-braces is the right default.
+    #
+    # But a class of TOKENS and a class of POOLS are different questions.
+    # "Which stablecoins exist" is a static list; "list the stablecoin pools"
+    # is live protocol data with a card, and the pool tools can now filter by
+    # category themselves. The classifier flagged the second as the first, all
+    # tools were dropped, and the model answered by re-describing the previous
+    # turn's RWA pools in prose. Correct the flag here, before either the
+    # context block or the tool filter reads it.
+    try:
+        from app.services.token_categories import asks_for_venues
+        if intent_result.is_category_request and asks_for_venues(user_content or ""):
+            import dataclasses as _dc
+            intent_result = _dc.replace(intent_result, is_category_request=False)
+            _log.info("intent_router: category-request names pools → keeping tools")
+    except Exception:
+        _log.warning("venue-request check failed", exc_info=True)
+
     category_context: str | None = None
     try:
         from app.services.token_categories import (

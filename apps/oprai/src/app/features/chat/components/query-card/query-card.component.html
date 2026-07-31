@@ -115,6 +115,298 @@
         }
       }
 
+      <!-- ── Orca Whirlpools: pool list ──────────────────────────────────
+           Same table language as the DLMM / DAMM v2 / Raydium lists: search,
+           sortable headers, pair logos over a copyable address, and a Use
+           action that pre-fills the open-position card. -->
+      @if (query.type === 'orca_get_pools' || query.type === 'orca_search_pools') {
+        <div class="dlmm-search-wrap">
+          <lucide-icon name="search" [size]="13" class="dlmm-search-icon" />
+          <input class="dlmm-search" type="text"
+                 placeholder="Filter by pair (e.g. SOL/USDC)…"
+                 [value]="orcaSearchRaw()"
+                 (input)="onOrcaSearch($event)" />
+          <button type="button" class="dlmm-refresh-btn"
+                  (click)="refreshLiveData()" [disabled]="orcaFetching()"
+                  title="Refresh pool data">
+            <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="orcaFetching()" />
+          </button>
+        </div>
+
+        <!-- Category chips, same grouping Orca's own pool browser offers. -->
+        <div class="dlmm-sort-bar dlmm-sort-bar--chips">
+          @for (c of ORCA_CATEGORIES; track c.value) {
+            <button class="orca-chip"
+                    [class.orca-chip--active]="orcaCategory() === c.value"
+                    (click)="setOrcaCategory(c.value)">
+              {{ c.label }}
+            </button>
+          }
+        </div>
+
+        <div class="dlmm-sort-bar">
+          @for (opt of ORCA_SORTS; track opt.value) {
+            <button class="sort-btn"
+                    [class.sort-active]="orcaSortField() === opt.value"
+                    (click)="setOrcaSort(opt.value)">
+              {{ opt.label }}
+              <lucide-icon
+                [name]="orcaSortField() === opt.value ? (orcaSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
+                [size]="10" />
+            </button>
+          }
+        </div>
+
+        <div class="result-table">
+          <div class="result-table__header result-table__header--orca">
+            <span>Pool</span>
+            <span class="text-right">TVL</span>
+            <span class="text-right">24h Vol</span>
+            <span class="text-right">APR</span>
+            <span class="text-right">Fee</span>
+            <span></span>
+          </div>
+          @if (orcaFetching() && orcaRows().length === 0) {
+            <div class="dlmm-empty">Loading pools…</div>
+          }
+          @for (p of orcaPagedRows(); track p.address) {
+            @let oxLogo = p.tokenA.imageUrl || tokenLogo(p.tokenA.address);
+            @let oyLogo = p.tokenB.imageUrl || tokenLogo(p.tokenB.address);
+            <div class="result-table__row result-table__row--orca dlmm-row">
+              <span class="km-pair">
+                <span class="km-icons">
+                  <span class="km-icon-slot">
+                    <span class="km-icon km-icon--fallback">{{ (p.tokenA.symbol || '?').charAt(0) }}</span>
+                    @if (oxLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(oxLogo)" [alt]="p.tokenA.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (p.tokenB.symbol || '?').charAt(0) }}</span>
+                    @if (oyLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(oyLogo)" [alt]="p.tokenB.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                </span>
+                <span class="km-pair__text">
+                  <span class="km-pair__name">
+                    {{ p.tokenA.symbol }} / {{ p.tokenB.symbol }}
+                    @if (p.hasWarning) {
+                      <span class="type-badge dlmm-oor">Flagged</span>
+                    }
+                  </span>
+                  <button type="button"
+                          class="dlmm-pair__addr mono dlmm-copy-btn km-pair__sub"
+                          [class.dlmm-copy-btn--copied]="copiedAddress() === p.address"
+                          (click)="copyPoolAddress(p.address); $event.stopPropagation()"
+                          [attr.title]="'Copy pool address: ' + p.address">
+                    <span class="dlmm-pair__addr-text">{{ p.address.slice(0, 4) }}…{{ p.address.slice(-4) }}</span>
+                    <lucide-icon [name]="copiedAddress() === p.address ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                  </button>
+                </span>
+              </span>
+              <span class="text-right mono" [attr.title]="formatUsd(p.tvlUsdc)">{{ formatUsdCompact(p.tvlUsdc) }}</span>
+              <span class="text-right mono" [attr.title]="formatUsd(orcaVolume24h(p))">{{ formatUsdCompact(orcaVolume24h(p)) }}</span>
+              <span class="text-right mono change-up">{{ orcaApr(p) | number:'1.0-2' }}%</span>
+              <span class="text-right mono">{{ orcaFeePct(p) | number:'1.0-3' }}%</span>
+              <span class="text-right">
+                <button type="button" class="dlmm-use-btn"
+                        (click)="useOrcaPool(p); $event.stopPropagation()"
+                        title="Open a position in this pool">
+                  Use
+                  <lucide-icon name="arrow-right" [size]="12" />
+                </button>
+              </span>
+            </div>
+          }
+          @if (!orcaFetching() && orcaPagedRows().length === 0) {
+            <div class="dlmm-empty">
+              <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
+              <div>
+                @if (orcaCategory() !== 'all') {
+                  No {{ orcaCategoryLabel() }} pools on Orca right now.
+                } @else {
+                  No Orca pools match this search.
+                }
+              </div>
+              @if (orcaCategory() !== 'all') {
+                <div class="dlmm-empty__hint">Try All Pools, or search for the token directly.</div>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- Numbered pages over the loaded set. When Orca says there are more
+             pools past it, the count is a cap and the label says so rather
+             than passing it off as the total. -->
+        @if (orcaTotalPages() > 1) {
+          <div class="dlmm-showing">
+            Showing <strong>{{ (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + 1 }}–{{
+              (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + orcaPagedRows().length
+            }}</strong> of
+            @if (orcaCapped()) {
+              the top <strong>{{ orcaRows().length }}</strong> pools by TVL
+            } @else {
+              <strong>{{ orcaRows().length }}</strong> pools
+            }
+            over {{ ORCA_MIN_TVL_LABEL }} TVL
+          </div>
+          <div class="dlmm-pagination">
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaGoToPage(1)"
+                    [disabled]="orcaPage() <= 1" title="First page" aria-label="First page">
+              <lucide-icon name="chevrons-left" [size]="14" />
+            </button>
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaPrevPage()"
+                    [disabled]="orcaPage() <= 1" title="Previous page" aria-label="Previous page">
+              <lucide-icon name="chevron-left" [size]="14" />
+            </button>
+            @for (n of orcaPageNumbers(); track $index) {
+              @if (n === '…') {
+                <span class="dlmm-page-gap">…</span>
+              } @else {
+                <button class="dlmm-page-btn" [class.dlmm-page-btn--active]="n === orcaPage()"
+                        (click)="orcaGoToPage(n)">{{ n }}</button>
+              }
+            }
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaNextPage()"
+                    [disabled]="orcaPage() >= orcaTotalPages()" title="Next page" aria-label="Next page">
+              <lucide-icon name="chevron-right" [size]="14" />
+            </button>
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaGoToPage(orcaTotalPages())"
+                    [disabled]="orcaPage() >= orcaTotalPages()" title="Last page" aria-label="Last page">
+              <lucide-icon name="chevrons-right" [size]="14" />
+            </button>
+          </div>
+        }
+      }
+
+      <!-- ── Orca Whirlpools: the wallet's positions ─────────────────────── -->
+      @if (query.type === 'orca_get_user_positions') {
+        <div class="ray-pos-list">
+          @if (orcaPositionsFetching() && orcaPositions().length === 0) {
+            <div class="dlmm-empty">Loading positions…</div>
+          }
+          @for (pos of orcaPositions(); track pos.positionAddress; let i = $index) {
+            @let paLogo = pos.tokenAMint ? tokenLogo(pos.tokenAMint) : null;
+            @let pbLogo = pos.tokenBMint ? tokenLogo(pos.tokenBMint) : null;
+            <div class="ray-pos">
+              <div class="ray-pos__top">
+                <span class="km-icons">
+                  <span class="km-icon-slot">
+                    <span class="km-icon km-icon--fallback">{{ (pos.tokenASymbol || '?').charAt(0) }}</span>
+                    @if (paLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(paLogo)" [alt]="pos.tokenASymbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (pos.tokenBSymbol || '?').charAt(0) }}</span>
+                    @if (pbLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(pbLogo)" [alt]="pos.tokenBSymbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                </span>
+                <span class="ray-pos__pair">
+                  {{ pos.tokenASymbol || '?' }} / {{ pos.tokenBSymbol || '?' }}
+                </span>
+                <span class="type-badge">WHIRLPOOL</span>
+                @if (pos.inRange === false) {
+                  <span class="type-badge dlmm-oor">Out of range</span>
+                }
+                <button type="button"
+                        class="dlmm-pair__addr mono dlmm-copy-btn ray-pos__addr"
+                        [class.dlmm-copy-btn--copied]="copiedAddress() === pos.positionAddress"
+                        (click)="copyPoolAddress(pos.positionAddress); $event.stopPropagation()"
+                        [attr.title]="'Copy position address: ' + pos.positionAddress">
+                  <span class="dlmm-pair__addr-text">{{ pos.positionAddress.slice(0, 4) }}…{{ pos.positionAddress.slice(-4) }}</span>
+                  <lucide-icon [name]="copiedAddress() === pos.positionAddress ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                </button>
+              </div>
+
+              <div class="ray-pos__body">
+                <span class="ray-pos__amount-block">
+                  @if (pos.amountA !== undefined || pos.amountB !== undefined) {
+                    <!-- What the position holds, not the opaque liquidity
+                         constant the chain stores. -->
+                    <span class="ray-pos__amount ray-pos__amount--pair">
+                      {{ pos.amountA ?? 0 | number:'1.0-6' }} {{ pos.tokenASymbol }}
+                      <span class="ray-pos__amount-sep">+</span>
+                      {{ pos.amountB ?? 0 | number:'1.0-6' }} {{ pos.tokenBSymbol }}
+                    </span>
+                  } @else {
+                    <span class="ray-pos__amount">{{ pos.liquidity }}</span>
+                  }
+                  <span class="ray-pos__amount-label">
+                    Position {{ i + 1 }} · pool {{ pos.whirlpool.slice(0, 4) }}…{{ pos.whirlpool.slice(-4) }}
+                  </span>
+                </span>
+                <span class="ray-pos__actions">
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          [disabled]="!orcaHasFees(pos)"
+                          (click)="collectOrcaFees(pos); $event.stopPropagation()"
+                          [attr.title]="orcaHasFees(pos)
+                            ? 'Collect this position\'s fees'
+                            : 'No fees owed on this position'">Collect</button>
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          (click)="increaseOrcaPosition(pos); $event.stopPropagation()"
+                          title="Add liquidity to this position">
+                    <lucide-icon name="plus" [size]="12" />
+                    Add
+                  </button>
+                  <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                          (click)="decreaseOrcaPosition(pos); $event.stopPropagation()"
+                          title="Withdraw part of this position">Withdraw</button>
+                  <button type="button" class="dlmm-use-btn"
+                          (click)="closeOrcaPosition(pos); $event.stopPropagation()"
+                          title="Withdraw everything, collect fees and close — recovers the rent">
+                    Close
+                    <lucide-icon name="arrow-right" [size]="12" />
+                  </button>
+                </span>
+              </div>
+
+              <div class="dlmm-pos-range">
+                <span class="dlmm-pos-range__seg">
+                  <span class="dlmm-pos-range__label">Min</span>
+                  <span class="mono">{{ pos.priceLower | number:'1.0-6' }}</span>
+                </span>
+                <span class="dlmm-pos-range__seg">
+                  <span class="dlmm-pos-range__label">Max</span>
+                  <span class="mono">{{ pos.priceUpper | number:'1.0-6' }}</span>
+                </span>
+                @if (pos.currentPrice !== undefined) {
+                  <span class="dlmm-pos-range__seg">
+                    <span class="dlmm-pos-range__label">Now</span>
+                    <span class="mono">{{ pos.currentPrice | number:'1.0-6' }}</span>
+                  </span>
+                }
+                <span class="dlmm-pos-range__seg dlmm-pos-range__seg--fees">
+                  <span class="dlmm-pos-range__label">Fees owed</span>
+                  <span class="mono">
+                    {{ (pos.feeOwedAUi ?? pos.feeOwedA) | number:'1.0-6' }} {{ pos.tokenASymbol }}
+                    + {{ (pos.feeOwedBUi ?? pos.feeOwedB) | number:'1.0-6' }} {{ pos.tokenBSymbol }}
+                  </span>
+                </span>
+              </div>
+            </div>
+          }
+          @if (!orcaPositionsFetching() && orcaPositions().length === 0) {
+            <div class="dlmm-empty">
+              <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
+              <div>No open Orca Whirlpool positions.</div>
+              <div class="dlmm-empty__hint">Open one from the Orca pool list.</div>
+            </div>
+          }
+        </div>
+      }
+
       <!-- Meteora DLMM positions — one panel per POSITION, like Raydium CLMM.
            Several positions in one pool is the normal shape (that's what
            re-ranging leaves behind) and each has its own range and fees. -->
@@ -155,16 +447,22 @@
                 @let rowXLogo = dlmmPoolLogo(row.pool, 'x');
                 @let rowYLogo = dlmmPoolLogo(row.pool, 'y');
                 <span class="km-icons">
-                  @if (rowXLogo) {
-                    <img class="km-icon" [src]="rowXLogo" [alt]="row.pool.tokenX" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (row.pool.tokenX || '?').charAt(0) }}</span>
-                  }
-                  @if (rowYLogo) {
-                    <img class="km-icon km-icon--debt" [src]="rowYLogo" [alt]="row.pool.tokenY" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (row.pool.tokenY || '?').charAt(0) }}</span>
-                  }
+                    @if (rowXLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(rowXLogo)" [alt]="row.pool.tokenX"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (row.pool.tokenY || '?').charAt(0) }}</span>
+                    @if (rowYLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(rowYLogo)" [alt]="row.pool.tokenY"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="ray-pos__pair">{{ row.pool.tokenX }} / {{ row.pool.tokenY }}</span>
                 <span class="type-badge">{{ isDammV2Positions() ? 'DAMM V2' : 'DLMM' }}</span>
@@ -350,16 +648,22 @@
               @let yLogo = tokenLogo(p.token_y.address);
               <span class="km-pair">
                 <span class="km-icons">
-                  @if (xLogo) {
-                    <img class="km-icon" [src]="xLogo" [alt]="p.token_x.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (p.token_x.symbol || '?').charAt(0) }}</span>
-                  }
-                  @if (yLogo) {
-                    <img class="km-icon km-icon--debt" [src]="yLogo" [alt]="p.token_y.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (p.token_y.symbol || '?').charAt(0) }}</span>
-                  }
+                    @if (xLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(xLogo)" [alt]="p.token_x.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (p.token_y.symbol || '?').charAt(0) }}</span>
+                    @if (yLogo) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(yLogo)" [alt]="p.token_y.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="km-pair__text">
                   <span class="km-pair__name">{{ p.token_x.symbol }} / {{ p.token_y.symbol }}</span>
@@ -524,16 +828,22 @@
               <div class="result-table__row dlmm-row">
                 <span class="km-pair">
                   <span class="km-icons">
-                    @if (dxLogo) {
-                      <img class="km-icon" [src]="dxLogo" [alt]="p.token_x.symbol" (error)="$any($event.target).style.display='none'" />
-                    } @else {
+                    <span class="km-icon-slot">
                       <span class="km-icon km-icon--fallback">{{ (p.token_x.symbol || '?').charAt(0) }}</span>
-                    }
-                    @if (dyLogo) {
-                      <img class="km-icon km-icon--debt" [src]="dyLogo" [alt]="p.token_y.symbol" (error)="$any($event.target).style.display='none'" />
-                    } @else {
-                      <span class="km-icon km-icon--debt km-icon--fallback">{{ (p.token_y.symbol || '?').charAt(0) }}</span>
-                    }
+                      @if (dxLogo) {
+                        <img class="km-icon km-icon--img" [src]="logoSrc(dxLogo)" [alt]="p.token_x.symbol"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
+                    <span class="km-icon-slot km-icon-slot--debt">
+                      <span class="km-icon km-icon--fallback">{{ (p.token_y.symbol || '?').charAt(0) }}</span>
+                      @if (dyLogo) {
+                        <img class="km-icon km-icon--img" [src]="logoSrc(dyLogo)" [alt]="p.token_y.symbol"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
                   </span>
                   <span class="km-pair__text">
                     <span class="km-pair__name">{{ p.token_x.symbol }} / {{ p.token_y.symbol }}</span>
@@ -673,16 +983,22 @@
               <div class="result-table__row km-row" [class.km-row--capped]="m.borrowable === false">
                 <span class="km-pair">
                   <span class="km-icons">
-                    @if (logoForMint(m.collMint); as icon) {
-                      <img class="km-icon" [src]="icon" [alt]="m.collToken" (error)="$any($event.target).style.display='none'" />
-                    } @else {
+                    <span class="km-icon-slot">
                       <span class="km-icon km-icon--fallback">{{ m.collToken.charAt(0) }}</span>
-                    }
-                    @if (logoForMint(m.debtMint); as icon) {
-                      <img class="km-icon km-icon--debt" [src]="icon" [alt]="m.debtToken" (error)="$any($event.target).style.display='none'" />
-                    } @else {
-                      <span class="km-icon km-icon--debt km-icon--fallback">{{ m.debtToken.charAt(0) }}</span>
-                    }
+                      @if (logoForMint(m.collMint); as icon) {
+                        <img class="km-icon km-icon--img" [src]="logoSrc(icon)" [alt]="m.collToken"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
+                    <span class="km-icon-slot km-icon-slot--debt">
+                      <span class="km-icon km-icon--fallback">{{ m.debtToken.charAt(0) }}</span>
+                      @if (logoForMint(m.debtMint); as icon) {
+                        <img class="km-icon km-icon--img" [src]="logoSrc(icon)" [alt]="m.debtToken"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
                   </span>
                   <span class="km-pair__text">
                     <span class="km-pair__name">{{ m.collToken }}/{{ m.debtToken }}</span>
@@ -973,16 +1289,22 @@
             <div class="result-table__row km-row">
               <span class="km-pair">
                 <span class="km-icons">
-                  @if (p.mintA.logoURI) {
-                    <img class="km-icon" [src]="p.mintA.logoURI" [alt]="p.mintA.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ p.mintA.symbol.charAt(0) }}</span>
-                  }
-                  @if (p.mintB.logoURI) {
-                    <img class="km-icon km-icon--debt" [src]="p.mintB.logoURI" [alt]="p.mintB.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ p.mintB.symbol.charAt(0) }}</span>
-                  }
+                    @if (p.mintA.logoURI) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(p.mintA.logoURI)" [alt]="p.mintA.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ p.mintB.symbol.charAt(0) }}</span>
+                    @if (p.mintB.logoURI) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(p.mintB.logoURI)" [alt]="p.mintB.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="km-pair__text">
                   <span class="km-pair__name">{{ p.mintA.symbol }} / {{ p.mintB.symbol }}</span>
@@ -1113,16 +1435,22 @@
             <div class="ray-pos">
               <div class="ray-pos__top">
                 <span class="km-icons">
-                  @if (pos.mintA?.logoURI) {
-                    <img class="km-icon" [src]="pos.mintA!.logoURI" [alt]="pos.mintA!.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
+                  <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (pos.mintA?.symbol || '?').charAt(0) }}</span>
-                  }
-                  @if (pos.mintB?.logoURI) {
-                    <img class="km-icon km-icon--debt" [src]="pos.mintB!.logoURI" [alt]="pos.mintB!.symbol" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="km-icon km-icon--debt km-icon--fallback">{{ (pos.mintB?.symbol || '?').charAt(0) }}</span>
-                  }
+                    @if (pos.mintA?.logoURI) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(pos.mintA!.logoURI)" [alt]="pos.mintA!.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (pos.mintB?.symbol || '?').charAt(0) }}</span>
+                    @if (pos.mintB?.logoURI) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(pos.mintB!.logoURI)" [alt]="pos.mintB!.symbol"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
                 </span>
                 <span class="ray-pos__pair">{{ pos.pair }}</span>
                 <span class="type-badge">{{ pos.kind === 'clmm' ? 'CLMM' : 'LP' }}</span>

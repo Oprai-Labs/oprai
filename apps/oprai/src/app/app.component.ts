@@ -4,6 +4,7 @@ import { Subscription } from 'rxjs';
 import { ThemeService } from './core/services/theme.service';
 import { WalletService } from './core/services/wallet.service';
 import { AuthService } from './core/services/auth.service';
+import { AppVersionService } from './core/services/app-version.service';
 
 @Component({
   selector: 'app-root',
@@ -16,6 +17,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly walletService = inject(WalletService);
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly appVersion = inject(AppVersionService);
 
   private accountChangedSub?: Subscription;
 
@@ -58,6 +60,9 @@ export class AppComponent implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     this.themeService.initialize();
+    // Silently pick up a newer build while the tab is in the background, so a
+    // shipped fix stops looking unshipped. No banner — see the service.
+    this.appVersion.start();
 
     // Restore session from HttpOnly cookie via GET /auth/session. Uses the
     // memoized whenAuthReady() so route guards awaiting the same restore share

@@ -48,7 +48,10 @@ export class JupiterSwapService {
     outputMint: string,
     amount: string,
     slippageBps = 50,
-    swapMode: 'ExactIn' | 'ExactOut' = 'ExactIn'
+    swapMode: 'ExactIn' | 'ExactOut' = 'ExactIn',
+    /** Restrict routing to one venue, e.g. 'Whirlpool' for an Orca swap, so
+     *  the preview is priced through the DEX the action actually uses. */
+    dexes?: string,
   ): Promise<SwapQuote | null> {
     try {
       const resp = await firstValueFrom(
@@ -58,6 +61,7 @@ export class JupiterSwapService {
           amount,
           slippage_bps: slippageBps,
           swap_mode: swapMode,
+          ...(dexes ? { dexes } : {}),
         })
       );
       return resp?.quote ?? null;

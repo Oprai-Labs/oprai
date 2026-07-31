@@ -106,6 +106,9 @@ pub async fn post_quote(
     .await?;
 
     let params = swap::SwapParams {
+        // Forward the caller's venue filter so a venue-scoped preview is
+        // quoted through the same DEX the action will execute on.
+        dexes: body.dexes.clone(),
         input_mint: input_mint.clone(),
         output_mint: output_mint.clone(),
         amount: body.amount.clone(),

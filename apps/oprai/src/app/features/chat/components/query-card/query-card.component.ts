@@ -14,6 +14,10 @@ import { BirdeyeService } from '@features/portfolio/services/birdeye.service';
 import { JupiterLendService, LendPosition, BorrowPosition } from '@core/services/market/jupiter-lend.service';
 import { JupiterPerpService, PerpPosition } from '@core/services/market/jupiter-perp.service';
 import { MeteoraService, DlmmPair, DammV2Pool, DammV1Pool } from '@core/services/market/meteora.service';
+import { OrcaService, OrcaPoolRow, OrcaUserPosition } from '@core/services/market/orca.service';
+
+/** Pool categories offered by the Orca card's filter chips. */
+type OrcaCategory = 'all' | 'stable' | 'lst' | 'rwa' | 'governance' | 'utility' | 'meme';
 import { environment } from '../../../../../environments/environment';
 import { firstValueFrom, debounceTime, distinctUntilChanged, timeout } from 'rxjs';
 
@@ -375,6 +379,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   private readonly jupiterLend = inject(JupiterLendService);
   private readonly jupiterPerp = inject(JupiterPerpService);
   private readonly meteora = inject(MeteoraService);
+  private readonly orca = inject(OrcaService);
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -680,6 +685,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_get_user_positions':
       case 'raydium_get_clmm_positions':
         return 'assets/icons/protocols/raydium.png';
+      case 'orca_get_pools':
+      case 'orca_search_pools':
+      case 'orca_get_user_positions':
+        return 'assets/icons/protocols/orca.webp';
       case 'kamino_multiply_markets':
         return 'assets/icons/protocols/kamino.svg';
       default:
@@ -701,7 +710,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.query.type === 'meteora_dammv2_get_pools' ||
       this.query.type === 'meteora_dammv1_get_pools' ||
       this.query.type === 'raydium_get_pools' ||
-      this.query.type === 'raydium_search_pools'
+      this.query.type === 'raydium_search_pools' ||
+      this.query.type === 'orca_get_pools' ||
+      this.query.type === 'orca_search_pools'
     );
   }
 
@@ -716,6 +727,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'meteora_dammv1_get_pools':  void this.fetchDammV1Pools(); break;
       case 'raydium_get_pools':         void this.fetchRaydiumPools(); break;
       case 'raydium_search_pools':      void this.fetchRaydiumPools(); break;
+      case 'orca_get_pools':
+      case 'orca_search_pools':         void this.fetchOrcaPools(); break;
       case 'kamino_multiply_markets':   void this.fetchKaminoMultiplyMarkets(); break;
     }
   }
@@ -783,6 +796,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         ).toLowerCase();
         if (k === 'clmm' || k === 'concentrated') this.raydiumPositionKind.set('clmm');
         else if (k === 'lp' || k === 'standard' || k === 'amm') this.raydiumPositionKind.set('lp');
+      }
+      // Open the Orca list on the category the user asked for. Someone who
+      // said "RWA pools" and got a card sitting on All Pools has to find the
+      // chip themselves to see the answer to their own question.
+      if (this.query.type === 'orca_get_pools' || this.query.type === 'orca_search_pools') {
+        const c = this.orcaCategoryFromParams();
+        if (c) this.orcaCategory.set(c);
       }
       this.simulateQuery();
     }
@@ -872,6 +892,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['dlmmUserPools']) {
       this.dlmmUserPools.set(d['dlmmUserPools'] as DlmmUserPool[]);
     }
+    if (d['orcaRows']) {
+      this.orcaRows.set(d['orcaRows'] as OrcaPoolRow[]);
+      this.orcaPage.set((d['orcaPage'] as number | undefined) ?? 1);
+      this.orcaSortField.set((d['orcaSortField'] as any) ?? 'tvl');
+      this.orcaSortDir.set((d['orcaSortDir'] as any) ?? 'desc');
+      this.orcaCategory.set((d['orcaCategory'] as OrcaCategory | undefined) ?? 'all');
+      this.orcaCapped.set(!!d['orcaCapped']);
+    }
+    if (d['orcaPositions']) {
+      this.orcaPositions.set(d['orcaPositions'] as OrcaUserPosition[]);
+    }
     if (d['lendEarnPositions'])   this.lendEarnPositions   = d['lendEarnPositions']   as LendPosition[];
     if (d['lendBorrowPositions']) this.lendBorrowPositions = d['lendBorrowPositions'] as BorrowPosition[];
     if (d['raydiumResults']) {
@@ -939,6 +970,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
     if (this.dlmmUserPools().length) {
       d['dlmmUserPools'] = this.dlmmUserPools();
+    }
+    if (this.orcaRows().length) {
+      d['orcaRows'] = this.orcaRows();
+      d['orcaPage'] = this.orcaPage();
+      d['orcaSortField'] = this.orcaSortField();
+      d['orcaSortDir'] = this.orcaSortDir();
+      d['orcaCategory'] = this.orcaCategory();
+      d['orcaCapped'] = this.orcaCapped();
+    }
+    if (this.orcaPositions().length) {
+      d['orcaPositions'] = this.orcaPositions();
     }
     if (this.lendEarnPositions.length)   d['lendEarnPositions']   = this.lendEarnPositions;
     if (this.lendBorrowPositions.length) d['lendBorrowPositions'] = this.lendBorrowPositions;
@@ -1023,6 +1065,24 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (meta?.logoURI) return meta.logoURI;
     this.tokenRegistry.resolveAsync(mint);
     return null;
+  }
+
+  /**
+   * Route a third-party token logo through the gateway's image cache.
+   *
+   * Token logos are hosted by whoever issued the token, and some of those
+   * hosts are slow enough to look broken — the GILTS and CETES logos are
+   * 621 KB PNGs that take a minute to arrive, so the circle just sits empty.
+   * The gateway redirects the first request to the origin and caches the
+   * bytes, so nothing is ever slower than going direct and everything after
+   * the first view is served from our own server.
+   *
+   * Local assets and data URIs are left alone — they're already ours.
+   */
+  logoSrc(url: string | null | undefined): string | null {
+    if (!url) return null;
+    if (!/^https:\/\//i.test(url)) return url;
+    return `${environment.apiBase}/token-image?url=${encodeURIComponent(url)}`;
   }
 
   private resolveTokenDecimals(mint: string): number {
@@ -1355,6 +1415,357 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ?? this.query.params?.['count'];
     const n = parseInt(String(raw ?? ''), 10);
     return Number.isFinite(n) && n > 0 ? Math.min(n, 100) : fallback;
+  }
+
+  // ── Orca Whirlpools ───────────────────────────────────────────────────────
+  readonly ORCA_PAGE_SIZE = 15;
+  readonly orcaRows = signal<OrcaPoolRow[]>([]);
+  readonly orcaFetching = signal(false);
+  readonly orcaNextCursor = signal<string | null>(null);
+  readonly orcaPrevCursor = signal<string | null>(null);
+  readonly orcaSortField = signal<'tvl' | 'volume' | 'fees' | 'yieldovertvl'>('tvl');
+  readonly orcaSortDir = signal<'asc' | 'desc'>('desc');
+  readonly orcaSearchRaw = signal('');
+  readonly orcaPositions = signal<OrcaUserPosition[]>([]);
+  readonly orcaPositionsFetching = signal(false);
+
+  /**
+   * Category chips, mirroring Orca's own UI and answered by Orca's own API —
+   * `categories=` on the pool list, which is how orca.so does it.
+   *
+   * It has to be the API and not a filter over the loaded rows. The working
+   * set is the top 200 pools by TVL, and an RWA pool does a few thousand
+   * dollars a day against SOL/USDC's tens of millions: none of them are in
+   * the top 200, so filtering locally would answer "RWAs" with an empty
+   * table while Orca shows a full one.
+   *
+   * The API's own word for RWAs is `security`; the chip keeps the word the
+   * user uses and the backend translates.
+   */
+  readonly ORCA_CATEGORIES: ReadonlyArray<{ value: OrcaCategory; label: string }> = [
+    { value: 'all',        label: 'All Pools' },
+    { value: 'stable',     label: 'Stablecoins' },
+    { value: 'rwa',        label: 'RWAs' },
+    { value: 'lst',        label: 'LSTs' },
+    { value: 'governance', label: 'Governance' },
+    { value: 'utility',    label: 'Utility' },
+    { value: 'meme',       label: 'Memes' },
+  ];
+  readonly orcaCategory = signal<OrcaCategory>('all');
+
+  /** The chip's label, for prose ("No RWA pools…"). */
+  orcaCategoryLabel(): string {
+    return this.ORCA_CATEGORIES.find(c => c.value === this.orcaCategory())?.label ?? '';
+  }
+
+  /** The category carried by the incoming query, if it names one we show. */
+  private orcaCategoryFromParams(): OrcaCategory | null {
+    const raw = String(
+      this.query.params?.['category'] ?? this.query.params?.['categories'] ?? '',
+    ).toLowerCase().trim();
+    if (!raw) return null;
+    const k = raw.replace(/[\s-]/g, '_').replace(/s$/, '');
+    if (k === 'rwa' || k === 'real_world_asset' || k === 'security') return 'rwa';
+    if (k === 'stable' || k === 'stablecoin') return 'stable';
+    if (k === 'lst' || k === 'liquid_staking_token' || k === 'liquid_staking') return 'lst';
+    if (k === 'governance') return 'governance';
+    if (k === 'utility') return 'utility';
+    if (k === 'meme' || k === 'memecoin') return 'meme';
+    return null;
+  }
+
+  setOrcaCategory(c: OrcaCategory): void {
+    if (this.orcaCategory() === c) return;
+    this.orcaCategory.set(c);
+    this.orcaResetPaging();
+    void this.fetchOrcaPools();
+  }
+
+  /** Rows the pager works over. The category is applied upstream, so this is
+   *  just the loaded set — kept as a seam for any local narrowing. */
+  readonly orcaFilteredRows = computed(() => this.orcaRows());
+
+  readonly ORCA_SORTS: ReadonlyArray<{ value: 'tvl' | 'volume' | 'fees' | 'yieldovertvl'; label: string }> = [
+    { value: 'tvl',           label: 'TVL' },
+    { value: 'volume',        label: 'Volume' },
+    { value: 'fees',          label: 'Fees' },
+    { value: 'yieldovertvl',  label: 'Yield/TVL' },
+  ];
+
+  /**
+   * Open a position in this pool. Carries the pair, its decimals and the
+   * current price so the action card can seed a range and price both sides —
+   * a poolId alone would leave the user with an empty form.
+   */
+  useOrcaPool(row: OrcaPoolRow): void {
+    const params: Record<string, string> = {
+      whirlpool: row.address,
+      poolId: row.address,
+      pair: `${row.tokenA.symbol}/${row.tokenB.symbol}`,
+      tokenA: row.tokenA.address,
+      tokenB: row.tokenB.address,
+      tokenASymbol: row.tokenA.symbol,
+      tokenBSymbol: row.tokenB.symbol,
+      tokenADecimals: String(row.tokenA.decimals),
+      tokenBDecimals: String(row.tokenB.decimals),
+      ...(row.tokenA.imageUrl ? { tokenALogo: row.tokenA.imageUrl } : {}),
+      ...(row.tokenB.imageUrl ? { tokenBLogo: row.tokenB.imageUrl } : {}),
+      currentPrice: String(row.price ?? ''),
+      tickSpacing: String(row.tickSpacing ?? ''),
+      feeRate: String(row.feeRate ?? ''),
+    };
+    this.useAction.emit({ type: 'orca_open_position', params, raw: `[ACTION:orca_open_position] ${JSON.stringify(params)}` });
+  }
+
+  /** Params every position-scoped Orca action needs, plus the display context
+   *  that keeps the action card from rendering an anonymous form. */
+  private orcaActionParams(pos: OrcaUserPosition): Record<string, string> {
+    const num = (v: unknown) => (v === undefined || v === null ? undefined : String(v));
+    return {
+      positionMint: pos.positionMint,
+      position: pos.positionAddress,
+      positionAddress: pos.positionAddress,
+      whirlpool: pos.whirlpool,
+      poolId: pos.whirlpool,
+      positionMinPrice: String(pos.priceLower),
+      positionMaxPrice: String(pos.priceUpper),
+      // The CLMM ratio engine reads minPrice/maxPrice — the band is what
+      // decides how a deposit splits. Passing only the position-prefixed copy
+      // left the engine with nothing, so typing one amount never filled the
+      // other. The panel still shows the band as fixed; this only feeds the
+      // maths.
+      minPrice: String(pos.priceLower),
+      maxPrice: String(pos.priceUpper),
+      liquidity: pos.liquidity,
+      // Everything the panel needs to render itself. The row already resolved
+      // all of it; without passing it along the action opened as "??/??" with
+      // zeros, which is the row's own data thrown away one click later.
+      ...(pos.tokenASymbol ? { tokenASymbol: pos.tokenASymbol } : {}),
+      ...(pos.tokenBSymbol ? { tokenBSymbol: pos.tokenBSymbol } : {}),
+      ...(pos.tokenAMint ? { tokenA: pos.tokenAMint } : {}),
+      ...(pos.tokenBMint ? { tokenB: pos.tokenBMint } : {}),
+      ...(pos.tokenAMint && this.tokenLogo(pos.tokenAMint)
+        ? { tokenALogo: this.tokenLogo(pos.tokenAMint)! } : {}),
+      ...(pos.tokenBMint && this.tokenLogo(pos.tokenBMint)
+        ? { tokenBLogo: this.tokenLogo(pos.tokenBMint)! } : {}),
+      ...(num(pos.tokenADecimals) ? { tokenADecimals: num(pos.tokenADecimals)! } : {}),
+      ...(num(pos.tokenBDecimals) ? { tokenBDecimals: num(pos.tokenBDecimals)! } : {}),
+      ...(num(pos.amountA) ? { positionAmountA: num(pos.amountA)! } : {}),
+      ...(num(pos.amountB) ? { positionAmountB: num(pos.amountB)! } : {}),
+      ...(num(pos.feeOwedAUi) ? { positionFeeA: num(pos.feeOwedAUi)! } : {}),
+      ...(num(pos.feeOwedBUi) ? { positionFeeB: num(pos.feeOwedBUi)! } : {}),
+      ...(num(pos.currentPrice) ? { currentPrice: num(pos.currentPrice)! } : {}),
+      ...(num((pos as { rentSol?: number }).rentSol)
+        ? { positionRentSol: num((pos as { rentSol?: number }).rentSol)! } : {}),
+      positionOutOfRange: pos.inRange === false ? 'true' : 'false',
+      // Whirlpools have a tick range, not bins — say so, so the panel omits
+      // the bin count rather than printing "0 bins".
+      positionMinPriceIsRange: 'true',
+    };
+  }
+
+  /** A collect with nothing owed costs a fee and moves nothing. */
+  orcaHasFees(pos: OrcaUserPosition): boolean {
+    const a = Number(pos.feeOwedAUi ?? pos.feeOwedA ?? 0);
+    const b = Number(pos.feeOwedBUi ?? pos.feeOwedB ?? 0);
+    return (Number.isFinite(a) && a > 0) || (Number.isFinite(b) && b > 0);
+  }
+
+  collectOrcaFees(pos: OrcaUserPosition): void {
+    const params = this.orcaActionParams(pos);
+    this.useAction.emit({ type: 'orca_collect_fees', params, raw: `[ACTION:orca_collect_fees] ${JSON.stringify(params)}` });
+  }
+  increaseOrcaPosition(pos: OrcaUserPosition): void {
+    const params = this.orcaActionParams(pos);
+    this.useAction.emit({ type: 'orca_increase_position', params, raw: `[ACTION:orca_increase_position] ${JSON.stringify(params)}` });
+  }
+  decreaseOrcaPosition(pos: OrcaUserPosition): void {
+    const params = { ...this.orcaActionParams(pos), bpsToRemove: '10000' };
+    this.useAction.emit({ type: 'orca_decrease_position', params, raw: `[ACTION:orca_decrease_position] ${JSON.stringify(params)}` });
+  }
+  closeOrcaPosition(pos: OrcaUserPosition): void {
+    const params = this.orcaActionParams(pos);
+    this.useAction.emit({ type: 'orca_close_position', params, raw: `[ACTION:orca_close_position] ${JSON.stringify(params)}` });
+  }
+
+  onOrcaSearch(e: Event): void {
+    this.orcaSearchRaw.set((e.target as HTMLInputElement).value);
+    this.orcaResetPaging();
+    void this.fetchOrcaPools();
+  }
+
+  setOrcaSort(field: 'tvl' | 'volume' | 'fees' | 'yieldovertvl'): void {
+    if (this.orcaSortField() === field) {
+      this.orcaSortDir.set(this.orcaSortDir() === 'desc' ? 'asc' : 'desc');
+    } else {
+      this.orcaSortField.set(field);
+      this.orcaSortDir.set('desc');
+    }
+    this.orcaResetPaging();
+    void this.fetchOrcaPools();
+  }
+
+  /**
+   * A real pager needs a total, and Orca's API never returns one — only a
+   * cursor to the next page. Walking cursors is why the bar used to grow a
+   * number at a time, which is not a pager at all.
+   *
+   * So fetch a bounded working set for the chosen sort and page it here. The
+   * count is then exact: fixed page numbers, instant switching, and no
+   * request per page. The set is the top ORCA_WORKING_SET pools by that sort,
+   * which is what a "browse the pools" card is for — anything outside it is
+   * reached by searching, not by paging to page 400.
+   */
+  readonly ORCA_WORKING_SET = 200;
+  readonly orcaPage = signal(1);
+
+  /**
+   * Floor for the browse list.
+   *
+   * Orca has thousands of pools and most of them are dust — 540 pools hold an
+   * RWA, 43 of them hold more than $1,000. Without a floor every category
+   * filled the 200-row working set and the pager read "14 pages" for all of
+   * them, which is what made the numbers look broken: they were all reporting
+   * our own cap, not the data.
+   *
+   * With it the counts are real and different (RWAs 43, LSTs 68, memes 50),
+   * and every row is a pool someone could actually add liquidity to. Nothing
+   * is hidden silently — the count line names the floor, and SEARCH is not
+   * floored, so a specific small pool is still findable by name.
+   */
+  readonly ORCA_MIN_TVL = 1_000;
+  readonly ORCA_MIN_TVL_LABEL = '$1K';
+
+  /** True when Orca reported more pools past the working set, i.e. the count
+   *  shown is our cap rather than the real total. */
+  readonly orcaCapped = signal(false);
+
+  readonly orcaTotalPages = computed(() =>
+    Math.max(1, Math.ceil(this.orcaFilteredRows().length / this.requestedPageSize(this.ORCA_PAGE_SIZE))));
+
+  readonly orcaPagedRows = computed(() => {
+    const size = this.requestedPageSize(this.ORCA_PAGE_SIZE);
+    const start = (this.orcaPage() - 1) * size;
+    return this.orcaFilteredRows().slice(start, start + size);
+  });
+
+  /** Windowed page numbers with ellipsis, against a KNOWN total. */
+  readonly orcaPageNumbers = computed<Array<number | '…'>>(() => {
+    const total = this.orcaTotalPages();
+    const cur = this.orcaPage();
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const out: Array<number | '…'> = [1];
+    const from = Math.max(2, cur - 1);
+    const to = Math.min(total - 1, cur + 1);
+    if (from > 2) out.push('…');
+    for (let p = from; p <= to; p++) out.push(p);
+    if (to < total - 1) out.push('…');
+    out.push(total);
+    return out;
+  });
+
+  orcaGoToPage(n: number | '…'): void {
+    if (n === '…' || n < 1 || n > this.orcaTotalPages() || n === this.orcaPage()) return;
+    this.orcaPage.set(n);
+    this.persistSnapshot();
+  }
+
+  private orcaResetPaging(): void {
+    this.orcaPage.set(1);
+    this.orcaRows.set([]);
+  }
+
+  orcaPrevPage(): void { this.orcaGoToPage(this.orcaPage() - 1); }
+  orcaNextPage(): void { this.orcaGoToPage(this.orcaPage() + 1); }
+
+  private async fetchOrcaPools(): Promise<void> {
+    this.orcaFetching.set(true);
+    this.error.set(null);
+    const search = (this.orcaSearchRaw() || (this.query.params['query'] as string | undefined) || '').trim();
+    // One request for the whole working set; paging happens locally.
+    const size = this.ORCA_WORKING_SET;
+    const cat = this.orcaCategory();
+    const category = cat === 'all' ? undefined : cat;
+    // Search is NOT floored — someone looking for a specific small pool by
+    // name should find it. The floor is for browsing.
+    const page = search
+      ? await this.orca.searchPoolsPage(search, { size, category })
+      : await this.orca.fetchPoolsPage({
+          sortBy: this.orcaSortField(),
+          sortDirection: this.orcaSortDir(),
+          size,
+          category,
+          minTvl: this.ORCA_MIN_TVL,
+          token: this.query.params['token'] as string | undefined,
+        });
+    if (!page) {
+      this.error.set('Failed to load Orca pools');
+    } else {
+      this.orcaRows.set(page.rows);
+      this.orcaCapped.set(!search && !!page.nextCursor);
+      this.orcaPage.set(1);
+      this.reportEmptyState(page.rows.length === 0);
+      this.persistSnapshot();
+    }
+    this.orcaFetching.set(false);
+    this.loading.set(false);
+  }
+
+
+  private async fetchOrcaPositions(): Promise<void> {
+    this.orcaPositionsFetching.set(true);
+    this.error.set(null);
+    if (!this.walletService.publicKey()) {
+      this.error.set('Connect your wallet to see positions');
+      this.orcaPositionsFetching.set(false);
+      this.loading.set(false);
+      return;
+    }
+    const rows = await this.orca.fetchUserPositions();
+    if (rows === null) {
+      this.error.set('Failed to load Orca positions');
+      this.reportEmptyState(false);
+    } else {
+      this.orcaPositions.set(rows);
+      this.reportEmptyState(rows.length === 0);
+      this.persistSnapshot();
+    }
+    this.orcaPositionsFetching.set(false);
+    this.loading.set(false);
+  }
+
+  /**
+   * Abbreviated USD for table cells: $26.07M rather than $26,071,872.82.
+   *
+   * A pool list is scanned, not audited — the extra seven characters buy no
+   * information and cost a column that then wraps and shifts the row. The
+   * full figure stays in the cell's title for anyone who wants it.
+   */
+  formatUsdCompact(v: number | string | null | undefined): string {
+    const n = typeof v === 'number' ? v : Number(v ?? 0);
+    if (!Number.isFinite(n)) return '$0';
+    const abs = Math.abs(n);
+    const [div, suffix] = abs >= 1e9 ? [1e9, 'B']
+      : abs >= 1e6 ? [1e6, 'M']
+      : abs >= 1e3 ? [1e3, 'K']
+      : [1, ''];
+    const scaled = n / div;
+    const digits = suffix && Math.abs(scaled) < 100 ? 2 : suffix ? 1 : 2;
+    return `$${scaled.toFixed(digits)}${suffix}`;
+  }
+
+  /** Orca quotes its fee as hundredths of a basis point: 400 -> 0.04%. */
+  orcaFeePct(row: OrcaPoolRow): number {
+    return (Number(row.feeRate) || 0) / 10_000;
+  }
+
+  orcaVolume24h(row: OrcaPoolRow): number {
+    return Number(row.stats?.['24h']?.volume ?? 0) || 0;
+  }
+
+  /** Fees over TVL for the window, annualised — Orca's own yield figure. */
+  orcaApr(row: OrcaPoolRow): number {
+    return (Number(row.yieldOverTvl) || 0) * 365 * 100;
   }
 
   private async fetchDammV2Pools(): Promise<void> {
@@ -2568,6 +2979,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_get_pools':
       case 'raydium_search_pools':
         await this.fetchRaydiumPools();
+        return;
+      case 'orca_get_pools':
+      case 'orca_search_pools':
+        await this.fetchOrcaPools();
+        return;
+      case 'orca_get_user_positions':
+        await this.fetchOrcaPositions();
         return;
       case 'raydium_get_user_positions':
       case 'raydium_get_clmm_positions':

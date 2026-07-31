@@ -521,6 +521,7 @@ pub async fn build_perp_liquidity_transaction(
     };
 
     let swap_params = swap::SwapParams {
+        dexes: None,
         input_mint: input_mint_addr,
         output_mint: output_mint_addr,
         amount: params.amount.clone(),

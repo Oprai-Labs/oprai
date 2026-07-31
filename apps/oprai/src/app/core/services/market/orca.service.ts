@@ -7,6 +7,67 @@ import { environment } from '../../../../environments/environment';
 // Types
 // ──────────────────────────────────────────────────────────────────────────────
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Gateway-backed reads (Orca v2 API via solana-service)
+//
+// The browser-side methods below this block talk to Orca's public v1 API
+// directly. These go through our own backend instead, which is what the DLMM
+// and DAMM v2 cards do: one API version, one place the payload shape is
+// pinned, and no third-party host in the browser's request path.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** One row of `orca_get_pools` — Orca v2 `/pools` shape. */
+export interface OrcaPoolRow {
+  address: string;
+  tokenA: { address: string; symbol: string; decimals: number; imageUrl?: string };
+  tokenB: { address: string; symbol: string; decimals: number; imageUrl?: string };
+  /** Hundredths of a basis point: 400 = 0.04%. */
+  feeRate: number;
+  tickSpacing: number;
+  price: number;
+  tvlUsdc: string | number;
+  /** Fees over TVL for the period — the closest thing Orca gives to an APR. */
+  yieldOverTvl: string | number;
+  stats?: Record<string, { volume?: string; fees?: string }>;
+  hasWarning?: boolean;
+  lockedLiquidityPercent?: string | number;
+}
+
+export interface OrcaPoolsPage {
+  rows: OrcaPoolRow[];
+  nextCursor: string | null;
+  prevCursor: string | null;
+}
+
+/** One row of `orca_get_user_positions`. */
+export interface OrcaUserPosition {
+  type: 'position' | 'bundle';
+  positionAddress: string;
+  positionMint: string;
+  whirlpool: string;
+  liquidity: string;
+  tickLowerIndex: number;
+  tickUpperIndex: number;
+  /** Human price (token B per token A), decimal-adjusted by the backend. */
+  priceLower: number;
+  priceUpper: number;
+  currentPrice?: number;
+  inRange?: boolean;
+  /** What the position holds right now, derived from liquidity + ticks. */
+  amountA?: number;
+  amountB?: number;
+  tokenAMint?: string;
+  tokenBMint?: string;
+  tokenASymbol?: string | null;
+  tokenBSymbol?: string | null;
+  tokenADecimals?: number;
+  tokenBDecimals?: number;
+  feeOwedA: number | string;
+  feeOwedB: number | string;
+  feeOwedAUi?: number;
+  feeOwedBUi?: number;
+}
+
 /** Orca Whirlpool info */
 export interface OrcaWhirlpool {
   address: string;
@@ -102,6 +163,168 @@ const ORCA_WHIRLPOOLS_API = 'https://api.orca.so/v1/whirlpool';
 @Injectable({ providedIn: 'root' })
 export class OrcaService {
   private readonly http = inject(HttpClient);
+
+  // ─── Gateway-backed reads ───────────────────────────────────────────────────
+
+  /**
+   * Whirlpool list from Orca's v2 API, proxied by our backend.
+   *
+   * Orca pages by CURSOR, not page number — the response carries the cursor
+   * for the next page, so a card can only move forward and back one step at a
+   * time. Passing a page index would be inventing an API that isn't there.
+   */
+  async fetchPoolsPage(opts: {
+    sortBy?: string;
+    sortDirection?: 'asc' | 'desc';
+    size?: number;
+    next?: string;
+    previous?: string;
+    token?: string;
+    /** Asset category, e.g. 'rwa' | 'stablecoin' | 'lst' | 'memecoin'. */
+    category?: string;
+    /** Skip pools below this USD TVL — most of Orca's pools are dust. */
+    minTvl?: number;
+  } = {}): Promise<OrcaPoolsPage | null> {
+    const params: Record<string, unknown> = {};
+    if (opts.sortBy)        params['sortBy']        = opts.sortBy;
+    if (opts.sortDirection) params['sortDirection'] = opts.sortDirection;
+    if (opts.size)          params['size']          = opts.size;
+    if (opts.next)          params['next']          = opts.next;
+    if (opts.previous)      params['previous']      = opts.previous;
+    if (opts.token)         params['token']         = opts.token;
+    if (opts.category)      params['category']      = opts.category;
+    if (opts.minTvl)        params['minTvl']        = opts.minTvl;
+    try {
+      const resp = await firstValueFrom(
+        this.http.post<{ data?: { data?: OrcaPoolRow[]; meta?: { cursor?: { next?: string; previous?: string } } } }>(
+          `${environment.apiBase}/actions/build`,
+          { type: 'orca_get_pools', params },
+          { withCredentials: true },
+        ),
+      );
+      const payload = resp?.data;
+      if (!payload) return null;
+      return {
+        rows: payload.data ?? [],
+        nextCursor: payload.meta?.cursor?.next ?? null,
+        prevCursor: payload.meta?.cursor?.previous ?? null,
+      };
+    } catch (err) {
+      console.error('Failed to fetch Orca pools:', err);
+      return null;
+    }
+  }
+
+  /** Free-text pool search (symbol, name or address), optionally kept inside
+   *  the asset category the user is browsing. */
+  async searchPoolsPage(
+    q: string,
+    opts: { size?: number; next?: string; category?: string } = {},
+  ): Promise<OrcaPoolsPage | null> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.post<{ data?: { data?: OrcaPoolRow[]; meta?: { cursor?: { next?: string; previous?: string } } } }>(
+          `${environment.apiBase}/actions/build`,
+          {
+            type: 'orca_search_pools',
+            params: {
+              q,
+              ...(opts.size ? { size: opts.size } : {}),
+              ...(opts.next ? { next: opts.next } : {}),
+              ...(opts.category ? { category: opts.category } : {}),
+            },
+          },
+          { withCredentials: true },
+        ),
+      );
+      const payload = resp?.data;
+      if (!payload) return null;
+      return {
+        rows: payload.data ?? [],
+        nextCursor: payload.meta?.cursor?.next ?? null,
+        prevCursor: payload.meta?.cursor?.previous ?? null,
+      };
+    } catch (err) {
+      console.error('Failed to search Orca pools:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Price a swap through Orca's own program.
+   *
+   * The build path uses orca_whirlpools' `swap_instructions`, which quotes
+   * from the pool's tick arrays — so previewing through Jupiter (even
+   * restricted to Whirlpool venues) would show a number the transaction is
+   * not obliged to honour. Same source for the preview and the execution.
+   *
+   * Returns base units, matching the shape the swap card already consumes.
+   */
+  async quoteSwap(
+    inputMint: string,
+    outputMint: string,
+    amount: string,
+    swapMode: 'ExactIn' | 'ExactOut' = 'ExactIn',
+    slippageBps = 50,
+  ): Promise<{ inAmount: string; outAmount: string; priceImpactPct: string } | null> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.post<{ quote?: { inAmount: number; outAmount: number } }>(
+          `${environment.apiBase}/actions/build`,
+          {
+            type: 'orca_swap',
+            params: {
+              inputMint, outputMint, amount,
+              swapMode: swapMode === 'ExactOut' ? 'out' : 'in',
+              slippageBps,
+            },
+          },
+          { withCredentials: true },
+        ),
+      );
+      const q = resp?.quote;
+      if (!q) return null;
+      // The card works in base units; the builder reports human units.
+      const dec = await this.decimalsFor(inputMint, outputMint);
+      return {
+        inAmount: String(Math.round(q.inAmount * 10 ** dec.input)),
+        outAmount: String(Math.round(q.outAmount * 10 ** dec.output)),
+        priceImpactPct: '0',
+      };
+    } catch (err) {
+      console.error('Orca quote error:', err);
+      return null;
+    }
+  }
+
+  /** Decimals for a mint pair, from the pool list we already cache upstream. */
+  private async decimalsFor(a: string, b: string): Promise<{ input: number; output: number }> {
+    const page = await this.fetchPoolsPage({ token: a, size: 20 });
+    const row = page?.rows.find(r =>
+      (r.tokenA.address === a && r.tokenB.address === b) ||
+      (r.tokenA.address === b && r.tokenB.address === a));
+    if (!row) return { input: 9, output: 9 };
+    return row.tokenA.address === a
+      ? { input: row.tokenA.decimals, output: row.tokenB.decimals }
+      : { input: row.tokenB.decimals, output: row.tokenA.decimals };
+  }
+
+  /** The connected wallet's Whirlpool positions, read on-chain by the backend. */
+  async fetchUserPositions(): Promise<OrcaUserPosition[] | null> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.post<{ data?: { positions?: OrcaUserPosition[] } }>(
+          `${environment.apiBase}/actions/build`,
+          { type: 'orca_get_user_positions', params: {} },
+          { withCredentials: true },
+        ),
+      );
+      return resp?.data?.positions ?? null;
+    } catch (err) {
+      console.error('Failed to fetch Orca positions:', err);
+      return null;
+    }
+  }
 
   // ─── Whirlpool Queries ────────────────────────────────────────────────────────
 

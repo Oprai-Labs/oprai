@@ -36,6 +36,7 @@ use orca_solana_pubkey::Pubkey as SdkPubkey;
 use orca_solana_rpc::nonblocking::rpc_client::RpcClient as SdkRpcClient;
 use orca_whirlpools::{
     close_position_instructions, create_concentrated_liquidity_pool_instructions,
+    swap_instructions, SwapQuote, SwapType,
     decrease_liquidity_instructions, fetch_positions_for_owner, fetch_positions_in_whirlpool,
     harvest_position_instructions, increase_liquidity_instructions,
     open_full_range_position_instructions, open_position_instructions,
@@ -76,10 +77,13 @@ const MAX_TICK_INDEX: i32 = 443636;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrcaSwapParams {
+    #[serde(alias = "input_mint")]
     pub input_mint: String,
+    #[serde(alias = "output_mint")]
     pub output_mint: String,
     pub amount: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
     /// "in" = exact input (default), "out" = exact output
     #[serde(default)]
@@ -97,9 +101,12 @@ pub struct OrcaSwapParams {
 #[serde(rename_all = "camelCase")]
 pub struct OrcaAddLiquidityParams {
     pub whirlpool: String,
+    #[serde(alias = "amount_a")]
     pub amount_a: String,
+    #[serde(alias = "amount_b")]
     pub amount_b: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -110,6 +117,7 @@ pub struct OrcaRemoveLiquidityParams {
     pub whirlpool: String,
     pub liquidity: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -120,6 +128,7 @@ pub struct OrcaOpenPositionParams {
     #[serde(default)]
     pub whirlpool: Option<String>,
     #[serde(default)]
+    #[serde(alias = "input_mint")]
     pub input_mint: Option<String>,
     #[serde(default)]
     pub input_amount: Option<String>,
@@ -128,16 +137,20 @@ pub struct OrcaOpenPositionParams {
     #[serde(default)]
     pub tick_upper: Option<i32>,
     #[serde(default)]
+    #[serde(alias = "token_a")]
     pub token_a: Option<String>,
     #[serde(default)]
+    #[serde(alias = "token_b")]
     pub token_b: Option<String>,
     #[serde(default)]
+    #[serde(alias = "amount_a")]
     pub amount_a: Option<String>,
     #[serde(default)]
     pub min_price: Option<f64>,
     #[serde(default)]
     pub max_price: Option<f64>,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -147,6 +160,7 @@ pub struct OrcaOpenPositionParams {
 pub struct OrcaClosePositionParams {
     pub position: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -155,9 +169,11 @@ pub struct OrcaClosePositionParams {
 #[serde(rename_all = "camelCase")]
 pub struct OrcaIncreasePositionParams {
     pub position: String,
+    #[serde(alias = "input_mint")]
     pub input_mint: String,
     pub input_amount: String,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -176,11 +192,13 @@ pub struct OrcaDecreasePositionParams {
     pub liquidity: Option<String>,
     /// Token mint (symbol or address) to withdraw.  Mutually exclusive with `liquidity`.
     #[serde(default)]
+    #[serde(alias = "input_mint")]
     pub input_mint: Option<String>,
     /// Amount of `input_mint` to withdraw, in display units (e.g. `"1.5"`).
     #[serde(default)]
     pub input_amount: Option<String>,
     #[serde(default)]
+    #[serde(alias = "slippage_bps")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -205,14 +223,17 @@ pub struct OrcaCollectRewardsParams {
 #[serde(rename_all = "camelCase")]
 pub struct OrcaCreatePoolParams {
     /// Token A symbol or mint address
+    #[serde(alias = "token_a")]
     pub token_a: String,
     /// Token B symbol or mint address
+    #[serde(alias = "token_b")]
     pub token_b: String,
     /// Initial price (tokenB per tokenA, in display units — e.g. 190 for 1 SOL = 190 USDC)
     pub initial_price: f64,
     /// Tick spacing: 1, 2, 4, 8, 16, 32, 64, 128, 256, or 32896 (splash pool).
     /// Defaults to 128 (standard concentrated pool).
     #[serde(default)]
+    #[serde(alias = "tick_spacing")]
     pub tick_spacing: Option<u16>,
 }
 
@@ -224,9 +245,11 @@ pub struct OrcaCreatePoolParams {
 pub struct OrcaGetPoolsParams {
     /// Sort by: "volume" | "tvl" | "fees" | "rewards" | "yieldovertvl" | "lockedliquiditypercent"
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     /// "asc" or "desc"
     #[serde(default)]
+    #[serde(alias = "sort_direction")]
     pub sort_direction: Option<String>,
     #[serde(default)]
     pub size: Option<u32>,
@@ -237,24 +260,32 @@ pub struct OrcaGetPoolsParams {
     #[serde(default)]
     pub previous: Option<String>,
     #[serde(default)]
+    #[serde(alias = "has_rewards")]
     pub has_rewards: Option<bool>,
     #[serde(default)]
+    #[serde(alias = "has_warning")]
     pub has_warning: Option<bool>,
     #[serde(default)]
+    #[serde(alias = "has_adaptive_fee")]
     pub has_adaptive_fee: Option<bool>,
     #[serde(default)]
+    #[serde(alias = "is_wavebreak")]
     pub is_wavebreak: Option<bool>,
     #[serde(default)]
+    #[serde(alias = "min_tvl")]
     pub min_tvl: Option<f64>,
     #[serde(default)]
+    #[serde(alias = "min_volume")]
     pub min_volume: Option<f64>,
     #[serde(default)]
+    #[serde(alias = "min_locked_liquidity_percent")]
     pub min_locked_liquidity_percent: Option<f64>,
     /// Filter by token mint or symbol
     #[serde(default)]
     pub token: Option<String>,
     /// Filter pools that contain BOTH of these tokens (comma-separated)
     #[serde(default)]
+    #[serde(alias = "tokens_both_of")]
     pub tokens_both_of: Option<String>,
     /// Specific pool addresses (comma-separated)
     #[serde(default)]
@@ -263,7 +294,14 @@ pub struct OrcaGetPoolsParams {
     #[serde(default)]
     pub stats: Option<String>,
     #[serde(default)]
+    #[serde(alias = "include_blocked")]
     pub include_blocked: Option<bool>,
+    /// Asset category of either side of the pair, e.g. "stablecoin", "security"
+    /// (real-world assets), "liquid_staking_token", "memecoin". Comma-separated
+    /// for several. Friendly spellings are accepted — see `normalize_categories`.
+    #[serde(default)]
+    #[serde(alias = "category")]
+    pub categories: Option<String>,
 }
 
 /// Search Orca pools by query string.
@@ -276,12 +314,16 @@ pub struct OrcaSearchPoolsParams {
     #[serde(default)]
     pub next: Option<String>,
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     #[serde(default)]
+    #[serde(alias = "sort_direction")]
     pub sort_direction: Option<String>,
     #[serde(default)]
+    #[serde(alias = "min_tvl")]
     pub min_tvl: Option<f64>,
     #[serde(default)]
+    #[serde(alias = "min_volume")]
     pub min_volume: Option<f64>,
     #[serde(default)]
     pub stats: Option<String>,
@@ -289,11 +331,17 @@ pub struct OrcaSearchPoolsParams {
     #[serde(default)]
     pub user_tokens: Option<String>,
     #[serde(default)]
+    #[serde(alias = "has_rewards")]
     pub has_rewards: Option<bool>,
     #[serde(default)]
     pub verified_only: Option<bool>,
     #[serde(default)]
     pub has_locked_liquidity: Option<bool>,
+    /// Same asset categories as the pool list, so a search can stay inside the
+    /// group the user is browsing.
+    #[serde(default)]
+    #[serde(alias = "category")]
+    pub categories: Option<String>,
 }
 
 /// Get a specific Orca pool by address.
@@ -346,9 +394,11 @@ pub struct OrcaGetTokensParams {
     pub previous: Option<String>,
     /// Sort by: "address" | "mint_id" | "volume_24h"
     #[serde(default)]
+    #[serde(alias = "sort_by")]
     pub sort_by: Option<String>,
     /// "asc" or "desc"
     #[serde(default)]
+    #[serde(alias = "sort_direction")]
     pub sort_direction: Option<String>,
     /// Comma-separated mint addresses to retrieve
     #[serde(default)]
@@ -739,7 +789,57 @@ pub fn validate_orca_create_pool_params(p: &OrcaCreatePoolParams) -> Result<(), 
     Ok(())
 }
 
+/// Orca's own asset categories, and the words people actually use for them.
+///
+/// The API names are a taxonomy, not vocabulary: real-world assets are filed
+/// under `security`, and a user asking for "RWA pools" — or an LLM relaying
+/// that ask — will never guess it. So accept the human word and translate.
+/// An unknown one is rejected here rather than sent on, because the API
+/// answers a bad category with a 400 that tells the user nothing.
+fn canonical_category(raw: &str) -> Option<&'static str> {
+    let k = raw.trim().to_lowercase().replace([' ', '-'], "_");
+    Some(match k.trim_end_matches('s') {
+        "rwa" | "real_world_asset" | "security" | "securitie" | "stock" | "equitie" | "equity"
+        | "tokenized_stock" => "security",
+        "stable" | "stablecoin" => "stablecoin",
+        "lst" | "liquid_staking_token" | "liquid_staking" | "staked_sol" => "liquid_staking_token",
+        "governance" | "gov" => "governance",
+        "utility" => "utility",
+        "meme" | "memecoin" => "memecoin",
+        "ai" => "ai",
+        "currency" | "fiat" => "currency",
+        "nft" => "nft",
+        "wrapped_token" | "wrapped" => "wrapped_token",
+        "bridged_token" | "bridged" => "bridged_token",
+        "restaked_token" | "restaked" => "restaked_token",
+        "synthetic_asset" | "synthetic" => "synthetic_asset",
+        "digital_reward_asset" => "digital_reward_asset",
+        "yield_bearing" | "yield" => "yield_bearing",
+        _ => return None,
+    })
+}
+
+/// Translate a comma-separated category list to what the API expects.
+fn normalize_categories(raw: &str) -> Result<String, AppError> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for part in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let Some(c) = canonical_category(part) else {
+            return Err(AppError::InvalidParams(format!(
+                "'{part}' is not a pool category. Try one of: stablecoin, rwa, \
+                 lst, governance, utility, meme."
+            )));
+        };
+        if !out.contains(&c) {
+            out.push(c);
+        }
+    }
+    Ok(out.join(","))
+}
+
 pub fn validate_orca_get_pools_params(p: &OrcaGetPoolsParams) -> Result<(), AppError> {
+    if let Some(ref c) = p.categories {
+        normalize_categories(c)?;
+    }
     if let Some(ref s) = p.sort_by {
         let valid = [
             "volume",
@@ -771,6 +871,9 @@ pub fn validate_orca_search_pools_params(p: &OrcaSearchPoolsParams) -> Result<()
         return Err(AppError::InvalidParams(
             "q (search query) is required".into(),
         ));
+    }
+    if let Some(ref c) = p.categories {
+        normalize_categories(c)?;
     }
     Ok(())
 }
@@ -879,6 +982,7 @@ pub fn validate_orca_get_pool_positions_params(
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
+#[derive(Clone)]
 struct WhirlpoolOnchain {
     tick_spacing: i32,
     sqrt_price: u128, // Q64.64
@@ -1228,170 +1332,112 @@ fn from_sdk_kp(kp: SdkKeypair) -> Keypair {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Build — orca_swap  (Jupiter routing through Whirlpool DEX)
+// Build — orca_swap  (Orca's own Whirlpool program, via the SDK)
 // ──────────────────────────────────────────────────────────────────────────────
 
 pub async fn build_orca_swap(
     http: &reqwest::Client,
-    _rpc_url: &str,
-    jupiter_api_key: Option<&str>,
+    rpc_url: &str,
+    _jupiter_api_key: Option<&str>,
     user_pubkey: &str,
     params: &OrcaSwapParams,
 ) -> Result<BuildResponse, AppError> {
     validate_orca_swap_params(params)?;
-    pk(user_pubkey)?; // validate payer before hitting Jupiter
 
+    // Built with Orca's OWN program, not Jupiter.
+    //
+    // This used to quote and build through Jupiter with `dexes=Whirlpool`,
+    // which works but is not the same thing: the transaction executes through
+    // Jupiter's router rather than the Whirlpool program, it can hop across
+    // several pools, and it makes an Orca swap depend on a third party we
+    // otherwise only use for aggregated swaps. Every other Orca action here
+    // already uses the orca_whirlpools SDK, and Raydium builds through
+    // Raydium's own API — the swap was the one inconsistency.
+    let user_pk = pk(user_pubkey)?;
     let input_mint = resolve_token_address(&params.input_mint);
     let output_mint = resolve_token_address(&params.output_mint);
-    let slippage_bps = params.slippage_bps.unwrap_or(50);
-    let swap_mode = match params
-        .swap_mode
-        .as_deref()
-        .unwrap_or("in")
-        .to_lowercase()
-        .as_str()
-    {
-        "out" | "exactout" => "ExactOut",
-        _ => "ExactIn",
+    let slippage_bps = params.slippage_bps.unwrap_or(50) as u16;
+    let exact_out = matches!(
+        params.swap_mode.as_deref().unwrap_or("in").to_lowercase().as_str(),
+        "out" | "exactout"
+    );
+
+    // The pool: named by the caller, or the deepest one for the pair.
+    let pool_addr = match params.whirlpool.as_deref() {
+        Some(w) if !w.is_empty() => w.to_string(),
+        _ => lookup_orca_whirlpool(http, &input_mint, &output_mint).await?.0,
     };
-    // For ExactIn  `amount` is the input  quantity — use input_mint  decimals.
-    // For ExactOut `amount` is the output quantity — use output_mint decimals.
-    let amount_decimals = if swap_mode == "ExactOut" {
-        token_decimals(&params.output_mint)
+
+    // ExactIn prices the INPUT token, ExactOut the OUTPUT token — the SDK
+    // takes whichever mint the amount is denominated in.
+    let (specified_mint, amount_decimals) = if exact_out {
+        (output_mint.clone(), token_decimals(&params.output_mint))
     } else {
-        token_decimals(&params.input_mint)
+        (input_mint.clone(), token_decimals(&params.input_mint))
     };
     let amount_base = to_base_units(&params.amount, amount_decimals)?;
 
-    // Validate mints are well-formed pubkeys before embedding in URL
-    pk(&input_mint)?;
-    pk(&output_mint)?;
+    let sdk_rpc = make_sdk_rpc(rpc_url);
+    let result = swap_instructions(
+        &sdk_rpc,
+        to_sdk_pk(&pk(&pool_addr)?),
+        amount_base,
+        to_sdk_pk(&pk(&specified_mint)?),
+        if exact_out { SwapType::ExactOut } else { SwapType::ExactIn },
+        Some(slippage_bps),
+        Some(to_sdk_pk(&user_pk)),
+    )
+    .await
+    .map_err(|e| AppError::ProtocolError(format!("Orca swap_instructions: {e}")))?;
 
-    // Use paid endpoint (higher rate limits) when API key is present, fall back to public.
-    let quote_url = if jupiter_api_key.is_some() {
-        JUP_PAID_QUOTE
-    } else {
-        JUP_PUB_QUOTE
-    };
-    let swap_url = if jupiter_api_key.is_some() {
-        JUP_PAID_SWAP
-    } else {
-        JUP_PUB_SWAP
-    };
-
-    // Quote via Jupiter with Orca Whirlpool DEX filter
-    let amount_str = amount_base.to_string();
-    let slippage_str = slippage_bps.to_string();
-    let mut quote_req = http.get(quote_url).query(&[
-        ("inputMint", input_mint.as_str()),
-        ("outputMint", output_mint.as_str()),
-        ("amount", amount_str.as_str()),
-        ("slippageBps", slippage_str.as_str()),
-        ("swapMode", swap_mode),
-        ("dexes", "Whirlpool"),
-    ]);
-    if let Some(key) = jupiter_api_key {
-        quote_req = quote_req.header("Authorization", format!("Bearer {key}"));
-    }
-    let quote_resp = quote_req
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Jupiter quote request: {e}")))?;
-    if !quote_resp.status().is_success() {
-        let body = quote_resp.text().await.unwrap_or_default();
-        return Err(AppError::ProtocolError(format!(
-            "Jupiter Whirlpool quote: {body}"
-        )));
-    }
-    let quote: serde_json::Value = quote_resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Jupiter quote parse: {e}")))?;
-
-    // Wire priority_fee to Jupiter's prioritizationFeeLamports
-    let prioritization_fee = match params.priority_fee.as_deref() {
-        Some("low") => serde_json::json!(1_000u64),
-        Some("medium") => serde_json::json!(10_000u64),
-        Some("high") => serde_json::json!(100_000u64),
-        Some("auto") | None => serde_json::json!("auto"),
-        Some(exact) => exact
-            .parse::<u64>()
-            .map(|n| serde_json::json!(n))
-            .unwrap_or(serde_json::json!("auto")),
+    // Report the quote the instructions were built against, so the card shows
+    // the same numbers the transaction will honour.
+    let (est_out, min_out, est_in, max_in) = match &result.quote {
+        SwapQuote::ExactIn(q) => (q.token_est_out, q.token_min_out, amount_base, amount_base),
+        SwapQuote::ExactOut(q) => (amount_base, amount_base, q.token_est_in, q.token_max_in),
     };
 
-    // Build swap TX via Jupiter
-    let swap_body = serde_json::json!({
-        "quoteResponse": quote,
-        "userPublicKey": user_pubkey,
-        "wrapAndUnwrapSol": true,
-        "dynamicComputeUnitLimit": true,
-        "prioritizationFeeLamports": prioritization_fee,
-    });
-    let mut swap_req = http.post(swap_url).json(&swap_body);
-    if let Some(key) = jupiter_api_key {
-        swap_req = swap_req.header("Authorization", format!("Bearer {key}"));
-    }
-    let swap_resp = swap_req
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Jupiter swap request: {e}")))?;
-    if !swap_resp.status().is_success() {
-        let body = swap_resp.text().await.unwrap_or_default();
-        return Err(AppError::ProtocolError(format!(
-            "Jupiter swap build: {body}"
-        )));
-    }
-    let swap_data: serde_json::Value = swap_resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Jupiter swap parse: {e}")))?;
-    let tx_b64 = swap_data["swapTransaction"]
-        .as_str()
-        .ok_or_else(|| {
-            AppError::ProtocolError("Missing swapTransaction in Jupiter response".into())
-        })?
-        .to_string();
+    let ixs: Vec<Instruction> = result.instructions.into_iter().map(from_sdk_ix).collect();
+    let signers: Vec<Keypair> = result
+        .additional_signers
+        .into_iter()
+        .map(from_sdk_kp)
+        .collect();
+    let rpc = make_rpc(rpc_url);
+    let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
 
     let out_decimals = token_decimals(&params.output_mint);
-    let out_amount = quote["outAmount"]
-        .as_str()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(0);
-    let estimated_out = out_amount as f64 / 10_f64.powi(out_decimals as i32);
-    let price_impact: f64 = quote["priceImpactPct"]
-        .as_str()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0);
-
-    let in_sym = token_symbol(&params.input_mint);
-    let out_sym = token_symbol(&params.output_mint);
-    let mut warnings = vec![];
-    if price_impact > 1.0 {
-        warnings.push(format!("Price impact: {price_impact:.2}%"));
-    }
-    if price_impact > 5.0 {
-        warnings.push("Very high price impact! Consider a smaller trade size.".into());
-    }
+    let in_decimals = token_decimals(&params.input_mint);
+    let human = |v: u64, d: u8| v as f64 / 10f64.powi(d as i32);
 
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "orca_swap".to_string(),
             description: format!(
-                "Swap {} {} → ~{:.6} {} via Orca Whirlpools",
-                params.amount, in_sym, estimated_out, out_sym
+                "Swap {} {} for ~{:.6} {} on Orca",
+                params.amount,
+                token_symbol(&params.input_mint),
+                human(est_out, out_decimals),
+                token_symbol(&params.output_mint),
             ),
-            estimated_fee: "~0.005 SOL".to_string(),
+            estimated_fee: "~0.00005 SOL".to_string(),
             estimated_refund: None,
-            params: serde_json::to_value(params)?,
-            warnings,
+            params: serde_json::json!({}),
+            warnings: vec![],
             requires_approval: true,
         },
         transaction: Some(tx_b64),
         additional_signers_required: 0,
         execution_steps: None,
-        quote: Some(quote),
+        quote: Some(serde_json::json!({
+            "inAmount":  human(est_in, in_decimals),
+            "maxInAmount": human(max_in, in_decimals),
+            "outAmount": human(est_out, out_decimals),
+            "minOutAmount": human(min_out, out_decimals),
+            "pool": pool_addr,
+            "venue": "Orca Whirlpool",
+        })),
         is_cross_chain: false,
         data: None,
     })
@@ -2170,6 +2216,47 @@ pub async fn build_orca_create_pool(
 // Build — GET query actions (REST API: https://api.orca.so/v2/solana)
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// Trim a pool-LIST row to what a list actually renders.
+///
+/// Orca's `/pools` rows carry a 7-day price history and three stat windows;
+/// 200 rows is 651 KB of which the card draws a name, two logos, TVL, 24h
+/// volume, a fee and a yield. Sending the rest costs the user a slow card for
+/// data nothing reads. The single-pool endpoint is left whole — a detail view
+/// is where those fields belong.
+fn slim_orca_pool(p: &serde_json::Value) -> serde_json::Value {
+    let token = |k: &str| {
+        let t = &p[k];
+        serde_json::json!({
+            "address":  t["address"],
+            "symbol":   t["symbol"],
+            "decimals": t["decimals"],
+            "imageUrl": t["imageUrl"],
+        })
+    };
+    serde_json::json!({
+        "address":     p["address"],
+        "tokenA":      token("tokenA"),
+        "tokenB":      token("tokenB"),
+        "feeRate":     p["feeRate"],
+        "tickSpacing": p["tickSpacing"],
+        "price":       p["price"],
+        "tvlUsdc":     p["tvlUsdc"],
+        "yieldOverTvl": p["yieldOverTvl"],
+        "hasWarning":  p["hasWarning"],
+        "lockedLiquidityPercent": p["lockedLiquidityPercent"],
+        // Only the window the list shows.
+        "stats": { "24h": { "volume": p["stats"]["24h"]["volume"] } },
+    })
+}
+
+fn slim_orca_pool_page(mut data: serde_json::Value) -> serde_json::Value {
+    if let Some(rows) = data.get("data").and_then(|d| d.as_array()) {
+        let slim: Vec<serde_json::Value> = rows.iter().map(slim_orca_pool).collect();
+        data["data"] = serde_json::Value::Array(slim);
+    }
+    data
+}
+
 pub async fn build_orca_get_pools(
     http: &reqwest::Client,
     params: &OrcaGetPoolsParams,
@@ -2230,8 +2317,14 @@ pub async fn build_orca_get_pools(
     if let Some(b) = params.include_blocked {
         url.push_str(&format!("includeBlocked={b}&"));
     }
+    if let Some(ref c) = params.categories {
+        let list = normalize_categories(c)?;
+        if !list.is_empty() {
+            url.push_str(&format!("categories={list}&"));
+        }
+    }
 
-    let data = orca_get(http, url.trim_end_matches('&')).await?;
+    let data = slim_orca_pool_page(orca_get(http, url.trim_end_matches('&')).await?);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -2239,7 +2332,7 @@ pub async fn build_orca_get_pools(
             description: "Orca Whirlpools pool list".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2248,7 +2341,7 @@ pub async fn build_orca_get_pools(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2303,8 +2396,14 @@ pub async fn build_orca_search_pools(
     if let Some(l) = params.has_locked_liquidity {
         url.push_str(&format!("&hasLockedLiquidity={l}"));
     }
+    if let Some(ref c) = params.categories {
+        let list = normalize_categories(c)?;
+        if !list.is_empty() {
+            url.push_str(&format!("&categories={list}"));
+        }
+    }
 
-    let data = orca_get(http, &url).await?;
+    let data = slim_orca_pool_page(orca_get(http, &url).await?);
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -2312,7 +2411,7 @@ pub async fn build_orca_search_pools(
             description: format!("Orca pool search: \"{}\"", params.q),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2321,7 +2420,7 @@ pub async fn build_orca_search_pools(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2341,7 +2440,7 @@ pub async fn build_orca_get_pool(
             description: format!("Orca pool details: {}", short_id(&params.address)),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2350,7 +2449,7 @@ pub async fn build_orca_get_pool(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2367,7 +2466,7 @@ pub async fn build_orca_get_locked_liquidity(
             description: format!("Orca locked liquidity for: {}", short_id(&params.address)),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2376,7 +2475,7 @@ pub async fn build_orca_get_locked_liquidity(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2392,7 +2491,7 @@ pub async fn build_orca_get_protocol_stats(
             description: "Orca protocol TVL, volume, fees and revenue".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2401,7 +2500,7 @@ pub async fn build_orca_get_protocol_stats(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2417,7 +2516,7 @@ pub async fn build_orca_get_orca_token(
             description: "ORCA token price, supply and stats".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2426,7 +2525,7 @@ pub async fn build_orca_get_orca_token(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2446,7 +2545,7 @@ pub async fn build_orca_get_circulating_supply(
             description: "ORCA token circulating supply".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2455,7 +2554,7 @@ pub async fn build_orca_get_circulating_supply(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2471,7 +2570,7 @@ pub async fn build_orca_get_total_supply(
             description: "ORCA token total supply".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2480,7 +2579,7 @@ pub async fn build_orca_get_total_supply(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2516,7 +2615,7 @@ pub async fn build_orca_get_tokens(
             description: "Orca token list".to_string(),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2525,7 +2624,7 @@ pub async fn build_orca_get_tokens(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2555,7 +2654,7 @@ pub async fn build_orca_search_tokens(
             description: format!("Orca token search: \"{}\"", params.q),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2564,7 +2663,7 @@ pub async fn build_orca_search_tokens(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2582,7 +2681,7 @@ pub async fn build_orca_get_token(
             description: format!("Orca token: {}", params.mint_address),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: data,
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2591,7 +2690,7 @@ pub async fn build_orca_get_token(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(data),
     })
 }
 
@@ -2604,6 +2703,43 @@ pub async fn build_orca_get_token(
 /// Uses `orca_whirlpools::fetch_positions_for_owner` which queries both the SPL
 /// Token program and the Token-2022 program, and handles position bundles
 /// (multiple positions under one NFT) in addition to plain positions.
+/// Token amounts a concentrated-liquidity position currently holds.
+///
+/// The chain stores an opaque liquidity constant; what the user wants to see
+/// is "0.004 SOL + 0.31 USDC". Standard Uniswap-v3 maths against the pool's
+/// current sqrt price and the position's tick bounds:
+///   below the range   -> all token A
+///   above the range   -> all token B
+///   inside            -> split at the current price
+fn clmm_position_amounts(
+    liquidity: u128,
+    tick_lower: i32,
+    tick_upper: i32,
+    sqrt_price_q64: u128,
+) -> (f64, f64) {
+    if liquidity == 0 {
+        return (0.0, 0.0);
+    }
+    let l = liquidity as f64;
+    let s = sqrt_price_q64 as f64 / 2f64.powi(64);
+    let sa = tick_to_sqrt_price_f64(tick_lower);
+    let sb = tick_to_sqrt_price_f64(tick_upper);
+    if s <= sa {
+        (l * (sb - sa) / (sa * sb), 0.0)
+    } else if s >= sb {
+        (0.0, l * (sb - sa))
+    } else {
+        (l * (sb - s) / (s * sb), l * (s - sa))
+    }
+}
+
+/// Raw tick price -> human price (token B per token A), which is what the
+/// range in a card has to read. Skipping this shows SOL/USDC as 0.067 rather
+/// than 67.16 — the pair's decimal gap, silently.
+fn human_price(raw: f64, dec_a: u8, dec_b: u8) -> f64 {
+    raw * 10f64.powi(dec_a as i32 - dec_b as i32)
+}
+
 pub async fn build_orca_get_user_positions(
     _http: &reqwest::Client,
     rpc_url: &str,
@@ -2621,25 +2757,105 @@ pub async fn build_orca_get_user_positions(
         .map_err(|e| AppError::ProtocolError(format!("fetch_positions_for_owner: {e}")))?;
 
     let mut positions: Vec<serde_json::Value> = Vec::new();
+    // One RPC read per DISTINCT pool: a wallet's positions cluster in a
+    // handful of pools, and re-reading the same account per row would turn a
+    // list into a dozen round-trips.
+    let rpc = make_rpc(rpc_url);
+    let mut pool_cache: std::collections::HashMap<String, WhirlpoolOnchain> =
+        std::collections::HashMap::new();
 
     for item in all {
         match item {
             PositionOrBundle::Position(hp) => {
-                let price_lower = tick_to_sqrt_price_f64(hp.data.tick_lower_index).powi(2);
-                let price_upper = tick_to_sqrt_price_f64(hp.data.tick_upper_index).powi(2);
-                positions.push(serde_json::json!({
+                // The raw account gives ticks and a liquidity constant. A card
+                // needs the pair, what the position actually holds, and prices
+                // in human units — so resolve the pool once per address and
+                // derive the rest here rather than leaving it to the client.
+                let pool_addr = hp.data.whirlpool.to_string();
+                let pool = match pool_cache.get(&pool_addr) {
+                    Some(p) => Some(p.clone()),
+                    None => match Pubkey::from_str(&pool_addr) {
+                        Ok(pk_) => match fetch_whirlpool(&rpc, &pk_).await {
+                            Ok(p) => {
+                                pool_cache.insert(pool_addr.clone(), p.clone());
+                                Some(p)
+                            }
+                            Err(_) => None,
+                        },
+                        Err(_) => None,
+                    },
+                };
+
+                let raw_lower = tick_to_sqrt_price_f64(hp.data.tick_lower_index).powi(2);
+                let raw_upper = tick_to_sqrt_price_f64(hp.data.tick_upper_index).powi(2);
+
+                let mut entry = serde_json::json!({
                     "type": "position",
                     "positionAddress": hp.address.to_string(),
                     "positionMint": hp.data.position_mint.to_string(),
-                    "whirlpool": hp.data.whirlpool.to_string(),
+                    "whirlpool": pool_addr,
                     "liquidity": hp.data.liquidity.to_string(),
                     "tickLowerIndex": hp.data.tick_lower_index,
                     "tickUpperIndex": hp.data.tick_upper_index,
-                    "priceLower": price_lower,
-                    "priceUpper": price_upper,
+                    "priceLower": raw_lower,
+                    "priceUpper": raw_upper,
                     "feeOwedA": hp.data.fee_owed_a,
                     "feeOwedB": hp.data.fee_owed_b,
-                }));
+                });
+
+                if let Some(pool) = pool {
+                    let mint_a = pool.token_mint_a.to_string();
+                    let mint_b = pool.token_mint_b.to_string();
+                    let info_a = get_token_info(&mint_a);
+                    let info_b = get_token_info(&mint_b);
+                    let dec_a = info_a.as_ref().map(|t| t.decimals).unwrap_or(9);
+                    let dec_b = info_b.as_ref().map(|t| t.decimals).unwrap_or(6);
+                    let (amt_a, amt_b) = clmm_position_amounts(
+                        hp.data.liquidity,
+                        hp.data.tick_lower_index,
+                        hp.data.tick_upper_index,
+                        pool.sqrt_price,
+                    );
+                    let cur_raw = (pool.sqrt_price as f64 / 2f64.powi(64)).powi(2);
+                    let lower = human_price(raw_lower, dec_a, dec_b);
+                    let upper = human_price(raw_upper, dec_a, dec_b);
+                    let current = human_price(cur_raw, dec_a, dec_b);
+                    let scale = |v: f64, d: u8| v / 10f64.powi(d as i32);
+
+                    entry["tokenAMint"] = serde_json::json!(mint_a);
+                    entry["tokenBMint"] = serde_json::json!(mint_b);
+                    entry["tokenASymbol"] =
+                        serde_json::json!(info_a.as_ref().map(|t| t.symbol.clone()));
+                    entry["tokenBSymbol"] =
+                        serde_json::json!(info_b.as_ref().map(|t| t.symbol.clone()));
+                    entry["tokenADecimals"] = serde_json::json!(dec_a);
+                    entry["tokenBDecimals"] = serde_json::json!(dec_b);
+                    entry["amountA"] = serde_json::json!(scale(amt_a, dec_a));
+                    entry["amountB"] = serde_json::json!(scale(amt_b, dec_b));
+                    entry["feeOwedAUi"] = serde_json::json!(scale(hp.data.fee_owed_a as f64, dec_a));
+                    entry["feeOwedBUi"] = serde_json::json!(scale(hp.data.fee_owed_b as f64, dec_b));
+                    entry["priceLower"] = serde_json::json!(lower);
+                    entry["priceUpper"] = serde_json::json!(upper);
+                    entry["currentPrice"] = serde_json::json!(current);
+                    entry["inRange"] = serde_json::json!(current >= lower && current <= upper);
+
+                    // Rent the close returns, read off the accounts rather
+                    // than assumed — a Whirlpool position is not the size of a
+                    // DLMM one, and the card was quoting DLMM's number.
+                    let rent_keys = [hp.address, hp.data.position_mint];
+                    if let Ok(infos) = rpc
+                        .get_multiple_accounts(&[
+                            Pubkey::from_str(&rent_keys[0].to_string()).unwrap_or_default(),
+                            Pubkey::from_str(&rent_keys[1].to_string()).unwrap_or_default(),
+                        ])
+                        .await
+                    {
+                        let lamports: u64 =
+                            infos.iter().filter_map(|a| a.as_ref().map(|x| x.lamports)).sum();
+                        entry["rentSol"] = serde_json::json!(lamports as f64 / 1e9);
+                    }
+                }
+                positions.push(entry);
             }
             PositionOrBundle::PositionBundle(bundle) => {
                 let bundled: Vec<serde_json::Value> = bundle
@@ -2682,7 +2898,7 @@ pub async fn build_orca_get_user_positions(
             ),
             estimated_fee: "0".to_string(),
             estimated_refund: None,
-            params: serde_json::json!({ "positions": positions, "total": total, "wallet": wallet_str }),
+            params: serde_json::json!({}),
             warnings: vec![],
             requires_approval: false,
         },
@@ -2691,7 +2907,7 @@ pub async fn build_orca_get_user_positions(
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: None,
+        data: Some(serde_json::json!({ "positions": positions, "total": total, "wallet": wallet_str })),
     })
 }
 

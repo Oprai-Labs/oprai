@@ -265,6 +265,13 @@ Category-request detection (boolean field `is_category_request`):
 - FALSE when the user asks about NON-category data: balance, transaction
   history, current price of a named token, validator list, pool list for a
   named pair.
+- FALSE when the user asks for POOLS, pairs, markets, farms or vaults of a
+  class rather than for the class itself: "stablecoin pools", "list the RWA
+  pools", "meme pools on Orca", "stablecoin havuzlarını listele". A class of
+  TOKENS is a static list; a class of POOLS is live market data with TVL and
+  fees, and the pool tools filter by category themselves. The discriminator
+  is whether the user named a venue (pool / pair / market / farm / vault) in
+  any language — if they did, this is FALSE.
 - FALSE for a protocol's own configuration, global state, or on-chain
   parameters (fee settings, program limits, a global/config account). That is
   a single live record fetched by a dedicated tool, not a static class of

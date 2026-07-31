@@ -203,6 +203,22 @@
   grid-template-columns: 1.5fr 1.2fr 0.8fr 0.8fr 0.8fr 28px;
 }
 
+// The Orca pool list reuses the six-column shape but its last column holds a
+// BUTTON, not the 28px icon the others put there — so "Action" wrapped to two
+// lines and dragged the header out of line with the rows. Its figures are also
+// full USD amounts, which the fractional columns were too narrow to hold: a
+// 24h volume of $97,338,226.55 broke across two lines and shifted that row's
+// height. Fixed widths for everything except the pair, and no wrapping.
+.result-table__header--orca,
+.result-table__row--orca {
+  grid-template-columns: minmax(0, 1fr) 84px 84px 74px 56px 58px;
+  column-gap: 10px;
+
+  > span:not(:first-child) {
+    white-space: nowrap;
+  }
+}
+
 .result-table__header--7col,
 .result-table__row--7col {
   grid-template-columns: 1.4fr 1.1fr 0.8fr 0.8fr 0.7fr 0.7fr 28px;
@@ -991,6 +1007,30 @@
   flex-shrink: 0;
 }
 
+// A 28px slot holding the letter chip with the logo layered over it.
+//
+// The logo used to REPLACE the letter, which meant an empty circle for as long
+// as the image took to arrive — and token logos are hosted by their issuers,
+// some of whom serve a 600 KB PNG down a straw. Keeping the letter underneath
+// means the pair is always identifiable, and the logo simply covers it when
+// it lands (or never, if the host is down).
+.km-icon-slot {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+
+  &--debt {
+    margin-left: -10px;
+  }
+
+  .km-icon {
+    position: absolute;
+    inset: 0;
+  }
+}
+
 // Exactly the swap card's .proto-token-chip__icon-wrap (28px circle).
 .km-icon {
   width: 28px;
@@ -1002,6 +1042,11 @@
 
   &--debt {
     margin-left: -10px;
+  }
+
+  // Opaque, so a logo with transparency doesn't show the letter through it.
+  &--img {
+    background: var(--op-bg-surface-1, #14151a);
   }
 
   // Solid brand-gradient chip with a white glyph — the same fallback treatment
@@ -2230,4 +2275,59 @@
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+// Row count above the pager, so the total is stated rather than inferred from
+// how far the numbers happen to go.
+.dlmm-showing {
+  padding: 12px 0 2px;
+  text-align: center;
+  font-size: 0.6875rem;
+  color: var(--op-text-tertiary);
+
+  strong { color: var(--op-text-secondary); font-weight: 600; }
+}
+
+// Ellipsis between page-number runs. Not a button — there is nothing to click.
+.dlmm-page-gap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  color: var(--op-text-tertiary);
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+// Category chips above the Orca pool list. Distinct from the sort bar
+// underneath: these narrow WHAT is listed, the sort bar reorders it.
+.dlmm-sort-bar--chips {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.orca-chip {
+  padding: 5px 12px;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 99px;
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-tertiary);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+
+  &:hover:not(.orca-chip--active) {
+    color: var(--op-text-secondary);
+    border-color: var(--op-border-strong);
+  }
+
+  &--active {
+    background: color-mix(in srgb, var(--op-brand) 16%, var(--op-bg-surface-2));
+    border-color: color-mix(in srgb, var(--op-brand) 45%, transparent);
+    color: var(--op-text-primary);
+  }
 }
