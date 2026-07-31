@@ -5346,3 +5346,66 @@
     }
   }
 }
+
+// ── Magic Eden action panel ──────────────────────────────────────────────────
+// Leads with the art because that is how anyone identifies an NFT. The fee
+// breakdown is only shown on the actions where the user pays it.
+.me-act {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+
+  &__art {
+    flex-shrink: 0;
+    width: 84px;
+    height: 84px;
+    border-radius: var(--op-radius-sm, 8px);
+    overflow: hidden;
+    background: var(--op-bg-surface-1, #14151a);
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  }
+
+  &__fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06b6d4));
+    color: #fff;
+    font-size: 1.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  &__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+
+  &__name {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__coll { font-size: 0.75rem; color: var(--op-text-tertiary, #71717a); }
+
+  &__price { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+  &__price-k { font-size: 0.75rem; color: var(--op-text-tertiary, #71717a); }
+  &__price-v { font-size: 1.125rem; font-weight: 700; }
+
+  &__fee,
+  &__net {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.75rem;
+    color: var(--op-text-tertiary, #71717a);
+  }
+
+  &__net { color: var(--op-text-secondary, #a1a1aa); font-weight: 600; }
+}

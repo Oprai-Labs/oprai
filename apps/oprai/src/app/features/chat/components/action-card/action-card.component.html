@@ -499,6 +499,47 @@
               </div>
             </div>
           </div>
+        } @else if (isMeNftPanel()) {
+          <!-- ─────── Magic Eden: the NFT, not a form ───────────────────────
+               You recognise an NFT by looking at it. This leads with the art,
+               the name and the collection; the mint, seller, token account and
+               auction house are resolved server-side off the live listing and
+               are not the user's to supply. What remains editable is the price
+               and the expiry, rendered by the generic field list below. -->
+          <div class="me-act">
+            <div class="me-act__art">
+              @if (meNftImage()) {
+                <img [src]="meNftImage()" [alt]="meNftName()" loading="eager" decoding="async"
+                     (error)="$any($event.target).style.display='none'" />
+              } @else {
+                <span class="me-act__fallback">{{ (meNftName() || '?').charAt(0) }}</span>
+              }
+            </div>
+            <div class="me-act__body">
+              <div class="me-act__name">{{ meNftName() || 'This NFT' }}</div>
+              @if (meCollectionName()) {
+                <div class="me-act__coll">{{ meCollectionName() }}</div>
+              }
+              @if (meHeadlinePrice(); as price) {
+                <div class="me-act__price">
+                  @if (meVerb()) { <span class="me-act__price-k">{{ meVerb() }}</span> }
+                  <span class="me-act__price-v mono">{{ price | number:'1.0-4' }} SOL</span>
+                </div>
+                @if (meFeeSol(); as fee) {
+                  <!-- A seller who reads only the ask is reading the wrong
+                       number: Magic Eden's 2% comes out of it. -->
+                  <div class="me-act__fee">
+                    <span>Magic Eden fee 2%</span><span class="mono">−{{ fee | number:'1.0-4' }} SOL</span>
+                  </div>
+                  @if (meNetSol(); as net) {
+                    <div class="me-act__net">
+                      <span>You keep</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
+                    </div>
+                  }
+                }
+              }
+            </div>
+          </div>
         } @else if (isSwapPanel()) {
           <!-- ─────── Generic swap (Jupiter / Raydium): mini-Uniswap layout ─────── -->
           <!-- Same "You pay / You receive" two-panel widget as pump.fun, but with

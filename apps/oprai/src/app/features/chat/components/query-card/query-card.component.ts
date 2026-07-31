@@ -15,6 +15,9 @@ import { JupiterLendService, LendPosition, BorrowPosition } from '@core/services
 import { JupiterPerpService, PerpPosition } from '@core/services/market/jupiter-perp.service';
 import { MeteoraService, DlmmPair, DammV2Pool, DammV1Pool } from '@core/services/market/meteora.service';
 import { OrcaService, OrcaPoolRow, OrcaUserPosition } from '@core/services/market/orca.service';
+import {
+  MagicEdenService, MeCollectionRow, MeTokenRow, MeActivityRow, MeOfferRow,
+} from '@core/services/market/magic-eden.service';
 
 /** Pool categories offered by the Orca card's filter chips. */
 type OrcaCategory = 'all' | 'stable' | 'lst' | 'rwa' | 'governance' | 'utility' | 'meme';
@@ -380,6 +383,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   private readonly jupiterPerp = inject(JupiterPerpService);
   private readonly meteora = inject(MeteoraService);
   private readonly orca = inject(OrcaService);
+  private readonly magicEden = inject(MagicEdenService);
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -900,6 +904,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.orcaCategory.set((d['orcaCategory'] as OrcaCategory | undefined) ?? 'all');
       this.orcaCapped.set(!!d['orcaCapped']);
     }
+    if (d['meShape']) {
+      this.meShape.set(d['meShape'] as any);
+      this.mePage.set((d['mePage'] as number | undefined) ?? 1);
+      this.meCollections.set((d['meCollections'] as MeCollectionRow[] | undefined) ?? []);
+      this.meTokens.set((d['meTokens'] as MeTokenRow[] | undefined) ?? []);
+      this.meActivities.set((d['meActivities'] as MeActivityRow[] | undefined) ?? []);
+      this.meOffers.set((d['meOffers'] as MeOfferRow[] | undefined) ?? []);
+      this.meTraitRows.set((d['meTraitRows'] as any[] | undefined) ?? []);
+      this.meStats.set((d['meStats'] as MeCollectionRow | undefined) ?? null);
+      this.meEscrowSol.set((d['meEscrowSol'] as number | undefined) ?? null);
+    }
     if (d['orcaPositions']) {
       this.orcaPositions.set(d['orcaPositions'] as OrcaUserPosition[]);
     }
@@ -977,6 +992,19 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       d['orcaSortField'] = this.orcaSortField();
       d['orcaSortDir'] = this.orcaSortDir();
       d['orcaCategory'] = this.orcaCategory();
+    }
+    // Magic Eden. The shape has to be stored too — it is what the template
+    // switches on, and a restored card with rows but no shape renders blank.
+    if (this.meShape()) {
+      d['meShape'] = this.meShape();
+      d['mePage'] = this.mePage();
+      if (this.meCollections().length) d['meCollections'] = this.meCollections();
+      if (this.meTokens().length)      d['meTokens'] = this.meTokens();
+      if (this.meActivities().length)  d['meActivities'] = this.meActivities();
+      if (this.meOffers().length)      d['meOffers'] = this.meOffers();
+      if (this.meTraitRows().length)   d['meTraitRows'] = this.meTraitRows();
+      if (this.meStats())              d['meStats'] = this.meStats();
+      if (this.meEscrowSol() !== null) d['meEscrowSol'] = this.meEscrowSol();
       d['orcaCapped'] = this.orcaCapped();
     }
     if (this.orcaPositions().length) {
@@ -1418,7 +1446,75 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   // ── Orca Whirlpools ───────────────────────────────────────────────────────
-  readonly ORCA_PAGE_SIZE = 15;
+  // ── Magic Eden ────────────────────────────────────────────────────────────
+  //
+  // Twenty-six query types, four shapes. A card picks its renderer from the
+  // shape of what came back, not from the endpoint name — otherwise every new
+  // Magic Eden endpoint needs its own branch and the ones that already exist
+  // drift apart.
+  readonly ME_PAGE_SIZE = 12;
+  readonly meCollections = signal<MeCollectionRow[]>([]);
+  readonly meTokens = signal<MeTokenRow[]>([]);
+  readonly meActivities = signal<MeActivityRow[]>([]);
+  readonly meOffers = signal<MeOfferRow[]>([]);
+  readonly meStats = signal<MeCollectionRow | null>(null);
+  readonly meEscrowSol = signal<number | null>(null);
+  readonly meFetching = signal(false);
+  readonly mePage = signal(1);
+  /** Which renderer this card is using: set once the payload lands. */
+  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | null>(null);
+  /** Trait rarity with a floor per trait — the table a buyer actually uses. */
+  readonly meTraitRows = signal<Array<{ trait: string; value: string; count: number; floor: number | null }>>([]);
+
+  readonly mePagedCollections = computed(() => this.mePageSlice(this.meCollections()));
+  readonly mePagedTokens = computed(() => this.mePageSlice(this.meTokens()));
+  readonly mePagedActivities = computed(() => this.mePageSlice(this.meActivities()));
+  readonly mePagedOffers = computed(() => this.mePageSlice(this.meOffers()));
+  readonly mePagedTraits = computed(() => this.mePageSlice(this.meTraitRows()));
+
+  private mePageSlice<T>(rows: T[]): T[] {
+    const size = this.requestedPageSize(this.ME_PAGE_SIZE);
+    const start = (this.mePage() - 1) * size;
+    return rows.slice(start, start + size);
+  }
+
+  readonly meRowCount = computed(() => {
+    switch (this.meShape()) {
+      case 'collections': return this.meCollections().length;
+      case 'tokens':      return this.meTokens().length;
+      case 'activities':  return this.meActivities().length;
+      case 'offers':      return this.meOffers().length;
+      case 'traits':      return this.meTraitRows().length;
+      default:            return 0;
+    }
+  });
+
+  readonly meTotalPages = computed(() =>
+    Math.max(1, Math.ceil(this.meRowCount() / this.requestedPageSize(this.ME_PAGE_SIZE))));
+
+  readonly mePageNumbers = computed<Array<number | '…'>>(() => {
+    const total = this.meTotalPages();
+    const cur = this.mePage();
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const out: Array<number | '…'> = [1];
+    const from = Math.max(2, cur - 1);
+    const to = Math.min(total - 1, cur + 1);
+    if (from > 2) out.push('…');
+    for (let p = from; p <= to; p++) out.push(p);
+    if (to < total - 1) out.push('…');
+    out.push(total);
+    return out;
+  });
+
+  meGoToPage(n: number | '…'): void {
+    if (n === '…' || n < 1 || n > this.meTotalPages() || n === this.mePage()) return;
+    this.mePage.set(n);
+    this.persistSnapshot();
+  }
+  mePrevPage(): void { this.meGoToPage(this.mePage() - 1); }
+  meNextPage(): void { this.meGoToPage(this.mePage() + 1); }
+
+    readonly ORCA_PAGE_SIZE = 15;
   readonly orcaRows = signal<OrcaPoolRow[]>([]);
   readonly orcaFetching = signal(false);
   readonly orcaNextCursor = signal<string | null>(null);
@@ -1497,6 +1593,103 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    * current price so the action card can seed a range and price both sides —
    * a poolId alone would leave the user with an empty form.
    */
+  // ── Magic Eden row actions ────────────────────────────────────────────────
+  //
+  // Every one of these carries the NFT's name and picture into the action so
+  // the card that opens shows what is being bought or sold. The backend
+  // resolves the seller, token account, auction house and expiry off the live
+  // listing, so none of those are passed here and none are asked of the user.
+
+  /** Everything the action card needs to render an NFT rather than a form. */
+  private meNftContext(t: MeTokenRow): Record<string, string> {
+    return {
+      mintAddress: t.mintAddress,
+      ...(t.name ? { nftName: t.name } : {}),
+      ...(t.image ? { nftImage: t.image } : {}),
+      ...(t.collectionName ? { collectionName: t.collectionName } : {}),
+      ...(t.collection ? { collectionSymbol: t.collection } : {}),
+      ...(t.rarityRank ? { rarityRank: String(t.rarityRank) } : {}),
+    };
+  }
+
+  private meEmit(type: string, params: Record<string, string>): void {
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
+  }
+
+  /** Buy a listed NFT. */
+  buyMeToken(t: MeTokenRow): void {
+    this.meEmit('me_buy', {
+      ...this.meNftContext(t),
+      ...(t.price ? { price: String(t.price) } : {}),
+    });
+  }
+
+  /** List one the wallet owns. Seeded at the collection floor when we know it
+   *  — an empty price box is a question the user has to go and answer
+   *  somewhere else. */
+  listMeToken(t: MeTokenRow): void {
+    const floor = this.meSol(this.meStats()?.floorPrice);
+    this.meEmit('me_list', {
+      ...this.meNftContext(t),
+      ...(t.price ? { price: String(t.price) } : floor ? { price: String(floor) } : {}),
+    });
+  }
+
+  cancelMeListing(t: MeTokenRow): void {
+    this.meEmit('me_cancel_listing', this.meNftContext(t));
+  }
+
+  offerOnMeToken(t: MeTokenRow): void {
+    this.meEmit('me_make_offer', this.meNftContext(t));
+  }
+
+  /** True when the connected wallet owns this NFT — decides List vs Buy. */
+  meOwnsToken(t: MeTokenRow): boolean {
+    const me = this.walletService.publicKey()?.toString();
+    return !!me && !!t.owner && t.owner === me;
+  }
+
+  meIsListed(t: MeTokenRow): boolean {
+    return t.listStatus === 'listed' || (t.price ?? 0) > 0;
+  }
+
+  /** Take a bid on an NFT you own, or withdraw one you made. */
+  acceptMeOffer(o: MeOfferRow): void {
+    if (!o.tokenMint) return;
+    this.meEmit('me_accept_offer', {
+      mintAddress: o.tokenMint,
+      ...(o.buyer ? { buyer: o.buyer } : {}),
+      ...(o.price ? { price: String(o.price) } : {}),
+      ...(o.name ? { nftName: o.name } : {}),
+      ...(o.image ? { nftImage: o.image } : {}),
+    });
+  }
+
+  cancelMeOffer(o: MeOfferRow): void {
+    if (!o.tokenMint) return;
+    this.meEmit('me_cancel_offer', {
+      mintAddress: o.tokenMint,
+      ...(o.price ? { price: String(o.price) } : {}),
+      ...(o.name ? { nftName: o.name } : {}),
+      ...(o.image ? { nftImage: o.image } : {}),
+    });
+  }
+
+  /** Open a collection's listings from a collection row. */
+  browseMeCollection(c: MeCollectionRow): void {
+    this.useAction.emit({
+      type: 'me_collection_listings',
+      params: { symbol: c.symbol, collectionName: c.name },
+      raw: `[QUERY:me_collection_listings] symbol=${c.symbol}`,
+    });
+  }
+
+  meDepositEscrow(): void { this.meEmit('me_deposit', {}); }
+  meWithdrawEscrow(): void {
+    const bal = this.meEscrowSol();
+    this.meEmit('me_withdraw', bal ? { amount: String(bal) } : {});
+  }
+
   useOrcaPool(row: OrcaPoolRow): void {
     const params: Record<string, string> = {
       whirlpool: row.address,
@@ -1677,6 +1870,201 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   orcaPrevPage(): void { this.orcaGoToPage(this.orcaPage() - 1); }
   orcaNextPage(): void { this.orcaGoToPage(this.orcaPage() + 1); }
+
+  /**
+   * Fetch any Magic Eden read and pick a renderer from what came back.
+   *
+   * Shape-first rather than name-first: `me_collection_listings` and
+   * `me_wallet_tokens` are different endpoints returning the same thing — a
+   * list of NFTs with prices — and should look identical to the user.
+   */
+  private async fetchMagicEden(): Promise<void> {
+    this.meFetching.set(true);
+    this.error.set(null);
+
+    const p = this.query.params ?? {};
+    const wallet = this.walletService.publicKey()?.toString();
+    const params: Record<string, unknown> = {
+      ...(p['symbol'] || p['collection'] || p['collectionSymbol']
+        ? { symbol: p['symbol'] ?? p['collection'] ?? p['collectionSymbol'] } : {}),
+      ...(p['mintAddress'] || p['mint'] || p['tokenMint']
+        ? { mintAddress: p['mintAddress'] ?? p['mint'] ?? p['tokenMint'] } : {}),
+      limit: this.requestedPageSize(this.ME_PAGE_SIZE) * 5,
+    };
+    // Anything wallet-scoped means the CONNECTED wallet unless the user named
+    // another one — "my NFTs" must never resolve to whoever was asked about
+    // last.
+    if (/wallet|owner/.test(this.query.type)) {
+      const named = p['wallet'] ?? p['address'] ?? p['owner'];
+      const w = named && named !== 'self' ? named : wallet;
+      if (!w) {
+        this.error.set('Connect your wallet to see this');
+        this.meFetching.set(false);
+        this.loading.set(false);
+        return;
+      }
+      params['wallet'] = w;
+    }
+
+    const data = await this.magicEden.read(this.query.type, params);
+    if (data === null) {
+      this.error.set('Could not reach Magic Eden');
+      this.meFetching.set(false);
+      this.loading.set(false);
+      return;
+    }
+    this.applyMagicEdenPayload(data);
+    this.mePage.set(1);
+    this.reportEmptyState(this.meRowCount() === 0 && this.meShape() !== 'stats' && this.meShape() !== 'escrow');
+    this.persistSnapshot();
+    this.meFetching.set(false);
+    this.loading.set(false);
+  }
+
+  /** Decide which of the four shapes this payload is, and file it. */
+  private applyMagicEdenPayload(data: unknown): void {
+    const t = this.query.type;
+
+    if (t === 'me_wallet_escrow_balance') {
+      const d = data as { buyerEscrow?: unknown; balance?: unknown } | null;
+      const raw = (d?.buyerEscrow ?? d?.balance) as number | undefined;
+      this.meEscrowSol.set(MagicEdenService.solFromMaybeLamports(raw ?? null));
+      this.meShape.set('escrow');
+      return;
+    }
+
+    // A single collection's stats is one record, not a list.
+    if (t === 'me_collection_stats' || t === 'me_collection_info') {
+      const row = (Array.isArray(data) ? data[0] : data) as MeCollectionRow | null;
+      if (row && (row.symbol || row.name)) {
+        this.meStats.set(row);
+        this.meShape.set('stats');
+        return;
+      }
+    }
+
+    // A single NFT is a one-row token list — same renderer, same actions.
+    if (t === 'me_token' || t === 'me_nft_info') {
+      const row = (Array.isArray(data) ? data[0] : data) as MeTokenRow | null;
+      if (row?.mintAddress) {
+        this.meTokens.set([row]);
+        this.meShape.set('tokens');
+        return;
+      }
+    }
+
+    if (/activit/.test(t)) {
+      this.meActivities.set(MagicEdenService.rowsFrom<MeActivityRow>(data, 'activities'));
+      this.meShape.set('activities');
+      return;
+    }
+    if (/offer/.test(t)) {
+      this.meOffers.set(MagicEdenService.rowsFrom<MeOfferRow>(data, 'offers'));
+      this.meShape.set('offers');
+      return;
+    }
+    if (/listing/.test(t)) {
+      // Listings ARE tokens with a price on them, and the user wants to buy
+      // from this list — so they render as the NFT grid, not as a table of
+      // addresses.
+      const rows = MagicEdenService.rowsFrom<Record<string, unknown>>(data, 'listings');
+      this.meTokens.set(rows.map(r => this.meListingToToken(r)));
+      this.meShape.set('tokens');
+      return;
+    }
+    if (t === 'me_collection_attributes') {
+      // `{results:{availableAttributes:[{attribute:{trait_type,value},count,floor}]}}`
+      // — the floor is per trait and in lamports, which is the whole reason
+      // to show this rather than a bare trait list.
+      const res = (data as Record<string, any> | null)?.['results'] ?? {};
+      const avail = (res['availableAttributes'] ?? []) as Array<Record<string, any>>;
+      this.meTraitRows.set(avail.map(a => ({
+        trait: String(a['attribute']?.['trait_type'] ?? ''),
+        value: String(a['attribute']?.['value'] ?? ''),
+        count: Number(a['count'] ?? 0),
+        floor: MagicEdenService.solFromMaybeLamports(a['floor'] ?? null),
+      })).filter(r => r.trait).sort((x, y) => (y.floor ?? 0) - (x.floor ?? 0)));
+      this.meShape.set('traits');
+      return;
+    }
+    if (/collection|launchpad|popular/.test(t) && !/nfts|token/.test(t)) {
+      this.meCollections.set(MagicEdenService.collectionsFrom(data));
+      this.meShape.set('collections');
+      return;
+    }
+
+    // Everything else is a list of NFTs: a wallet's tokens, a collection's
+    // tokens, MMM pool inventory.
+    const rows = MagicEdenService.rowsFrom<MeTokenRow>(data, 'tokens', 'nfts', 'pools');
+    this.meTokens.set(rows);
+    this.meShape.set('tokens');
+  }
+
+  /** A listing row carries the NFT under `token` on some endpoints and inline
+   *  on others. Flatten so the grid only ever reads one shape. */
+  private meListingToToken(r: Record<string, unknown>): MeTokenRow {
+    const inner = (r['token'] ?? {}) as Record<string, unknown>;
+    const pick = <T,>(k: string): T | undefined => (r[k] ?? inner[k]) as T | undefined;
+    const extra = (r['extra'] ?? {}) as Record<string, unknown>;
+    return {
+      mintAddress: (pick<string>('mintAddress') ?? pick<string>('tokenMint') ?? '') as string,
+      name: (pick<string>('name') ?? '') as string,
+      image: (pick<string>('image') ?? (extra['img'] as string | undefined) ?? null),
+      collection: pick<string>('collection') ?? null,
+      collectionName: pick<string>('collectionName') ?? null,
+      owner: pick<string>('owner') ?? (r['seller'] as string | undefined) ?? null,
+      price: (r['price'] as number | undefined) ?? null,
+      listStatus: 'listed',
+      tokenAddress: (r['tokenAddress'] as string | undefined) ?? null,
+      rarityRank: this.meRarityRank(r),
+    };
+  }
+
+  /** Rarity arrives under three competing providers; take whichever is there. */
+  private meRarityRank(r: Record<string, unknown>): number | null {
+    const rarity = (r['rarity'] ?? {}) as Record<string, Record<string, unknown>>;
+    for (const provider of ['moonrank', 'howrare', 'meInstant']) {
+      const rank = rarity[provider]?.['rank'];
+      if (typeof rank === 'number') return rank;
+    }
+    return null;
+  }
+
+  /** Floor prices arrive in lamports from stats, SOL elsewhere. */
+  meSol(v: number | null | undefined): number | null {
+    return MagicEdenService.solFromMaybeLamports(v);
+  }
+
+  meTraits(t: MeTokenRow): Array<{ label: string; value: string }> {
+    return (t.attributes ?? []).map(a => ({
+      label: String(a.trait_type ?? a.traitType ?? ''),
+      value: String(a.value ?? ''),
+    })).filter(a => a.label);
+  }
+
+  meWhen(blockTime: number | null | undefined): string {
+    if (!blockTime) return '';
+    const secs = Math.max(0, Math.floor(Date.now() / 1000) - blockTime);
+    if (secs < 60) return `${secs}s ago`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+    return `${Math.floor(secs / 86400)}d ago`;
+  }
+
+  meExpiry(expiry: number | null | undefined): string {
+    if (!expiry || expiry < 0) return 'No expiry';
+    const secs = expiry - Math.floor(Date.now() / 1000);
+    if (secs <= 0) return 'Expired';
+    if (secs < 3600) return `${Math.floor(secs / 60)}m left`;
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h left`;
+    return `${Math.floor(secs / 86400)}d left`;
+  }
+
+  /** True when the offer is one the connected wallet made — Cancel, not Accept. */
+  meIsOwnOffer(o: MeOfferRow): boolean {
+    const me = this.walletService.publicKey()?.toString();
+    return !!me && o.buyer === me;
+  }
 
   private async fetchOrcaPools(): Promise<void> {
     this.orcaFetching.set(true);
@@ -2980,6 +3368,36 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_search_pools':
         await this.fetchRaydiumPools();
         return;
+      // Every Magic Eden read goes through one fetcher; the renderer is
+      // chosen from the shape of the reply, not from the type name.
+      case 'me_collections':
+      case 'me_marketplace_popular':
+      case 'me_launchpad_collections':
+      case 'me_collection_listings':
+      case 'me_collection_nfts':
+      case 'me_collection_activities':
+      case 'me_collection_activity':
+      case 'me_collection_stats':
+      case 'me_collection_info':
+      case 'me_collection_attributes':
+      case 'me_collection_leaderboard':
+      case 'me_token':
+      case 'me_nft_info':
+      case 'me_token_activities':
+      case 'me_token_listings':
+      case 'me_token_offers_received':
+      case 'me_offers':
+      case 'me_listings':
+      case 'me_wallet_tokens':
+      case 'me_wallet_nfts':
+      case 'me_wallet_activities':
+      case 'me_owner_activities':
+      case 'me_wallet_offers_made':
+      case 'me_wallet_offers_received':
+      case 'me_wallet_escrow_balance':
+      case 'me_mmm_pools':
+        await this.fetchMagicEden();
+        return;
       case 'orca_get_pools':
       case 'orca_search_pools':
         await this.fetchOrcaPools();
@@ -3003,13 +3421,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'solend_user_info':
       case 'solend_reserves':
       case 'solend_market':
-      case 'me_collection_info':
-      case 'me_nft_info':
-      case 'me_wallet_nfts':
-      case 'me_collection_activity':
-      case 'me_listings':
-      case 'me_offers':
-      case 'me_collection_nfts':
       case 'cross_chain_quote':
       case 'cross_chain_chains':
       case 'cross_chain_tokens':

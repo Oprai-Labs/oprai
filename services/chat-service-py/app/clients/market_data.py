@@ -2009,6 +2009,23 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "raydium_get_ido_keys", "raydium_get_main_version", "raydium_get_rpcs",
     "raydium_get_chain_time", "raydium_get_stake_pools", "raydium_get_migrate_lp",
     "raydium_get_auto_fee", "raydium_get_cpmm_configs",
+    # Magic Eden — routed through the gateway to the Rust service, which
+    # resolves the auction house / token account / referral off the live
+    # listing. chat-service has its own Magic Eden client for the reads the
+    # LLM answers in prose; these are the ones that render as a card.
+    "me_collections", "me_marketplace_popular", "me_launchpad_collections",
+    "me_collection_listings", "me_collection_activities", "me_collection_stats",
+    "me_collection_attributes", "me_collection_leaderboard",
+    "me_token", "me_token_activities", "me_token_listings",
+    "me_token_offers_received",
+    "me_wallet", "me_wallet_tokens", "me_wallet_activities",
+    "me_owner_activities", "me_wallet_offers_made", "me_wallet_offers_received",
+    "me_wallet_escrow_balance", "me_mmm_pools",
+    # The older spellings of the same reads. They were reachable only as
+    # ACTIONS, which is why the query card answered them with "use the action
+    # card" — a dead end for something that only ever returned data.
+    "me_collection_info", "me_nft_info", "me_wallet_nfts",
+    "me_collection_activity", "me_listings", "me_offers", "me_collection_nfts",
     # Orca read-only
     "orca_get_pools", "orca_get_pool", "orca_search_pools", "orca_get_user_positions",
     "orca_get_pool_positions", "orca_search_tokens", "orca_get_token", "orca_get_tokens",

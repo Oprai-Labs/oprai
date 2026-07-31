@@ -28,6 +28,7 @@ import { JupSolService } from '@core/services/market/jupsol.service';
 import { MeteoraService } from '@core/services/market/meteora.service';
 import { ApiService } from '@core/services/api.service';
 import { OrcaService } from '@core/services/market/orca.service';
+import { MagicEdenService } from '@core/services/market/magic-eden.service';
 import { AppVersionService } from '@core/services/app-version.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
 import { firstValueFrom, timeout } from 'rxjs';
@@ -1393,87 +1394,87 @@ function getActionFields(
   } else if (t === 'marginfi_points' || t === 'marginfi_user_accounts') {
     fields.push({ key: 'wallet', label: 'Wallet (optional)', type: 'address', placeholder: 'Wallet address...' });
   // ── Magic Eden TX ─────────────────────────────────────────────────────────
-  } else if (t === 'me_buy') {
+  // ── Magic Eden ────────────────────────────────────────────────────────────
+  //
+  // These used to ask the user to type a mint address, a seller's wallet and a
+  // token ATA. Nobody has those to hand, and the backend now reads all of them
+  // off the live listing or offer — asking for them was asking the user to
+  // re-derive what we already know, and getting one wrong meant a card that
+  // failed on submit.
+  //
+  // What is left is what only the user can decide: the price, and how long the
+  // offer stands. The mint travels in the params from the row that spawned the
+  // action; when it did not (someone typed the request), it is the one field
+  // still worth showing.
+  } else if (t === 'me_buy' || t === 'me_buy_now' || t === 'me_buy_instruction'
+             || t === 'me_buy_now_transfer_nft') {
+    // Nothing to fill in — the listing sets the price, and paying anything
+    // else is not a thing Magic Eden will accept.
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
+  } else if (t === 'me_list' || t === 'me_sell') {
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
     fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: "Seller's wallet (from listing)..." },
-      { key: 'tokenAddress', label: 'Token Account', type: 'address', placeholder: 'Escrow token account...' },
+      { key: 'price', label: 'Ask', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
+      { key: 'expiry', label: 'Expires', type: 'number', placeholder: 'Leave empty for no expiry', hint: 'Unix timestamp' },
     );
-  } else if (t === 'me_buy_instruction') {
-    fields.push(
-      { key: 'buyer', label: 'Buyer', type: 'address', placeholder: 'Buyer wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
-  } else if (t === 'me_buy_now') {
-    fields.push(
-      { key: 'buyer', label: 'Buyer', type: 'address', placeholder: 'Buyer wallet...', required: true },
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: 'Seller wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'tokenATA', label: 'Token ATA', type: 'address', placeholder: "Seller's ATA...", required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
-  } else if (t === 'me_list') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'expiry', label: 'Expiry', type: 'number', placeholder: '0 = no expiry', hint: 'Unix timestamp' },
-    );
-  } else if (t === 'me_sell') {
-    fields.push(
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: 'Seller wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'tokenAccount', label: 'Token Account', type: 'address', placeholder: 'Token account...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
-  } else if (t === 'me_cancel_listing') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'tokenAddress', label: 'Token Account', type: 'address', placeholder: 'Escrow token account...' },
-    );
-  } else if (t === 'me_buy_cancel' || t === 'me_sell_cancel') {
-    fields.push(
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: 'Seller wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'tokenAccount', label: 'Token Account', type: 'address', placeholder: 'Token account...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
+  } else if (t === 'me_cancel_listing' || t === 'me_sell_cancel'
+             || t === 'me_cancel_offer' || t === 'me_buy_cancel'
+             || t === 'me_accept_offer' || t === 'me_sell_now') {
+    // Cancelling or accepting has no parameters at all: which listing, which
+    // offer, at what price — all of it is looked up.
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
   } else if (t === 'me_make_offer') {
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
     fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Offer Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'expiry', label: 'Expiry', type: 'number', placeholder: '0 = no expiry', hint: 'Unix timestamp' },
-    );
-  } else if (t === 'me_accept_offer') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'buyer', label: 'Buyer', type: 'address', placeholder: "Offer maker's wallet..." },
-    );
-  } else if (t === 'me_sell_now') {
-    fields.push(
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: 'Seller wallet...', required: true },
-      { key: 'buyer', label: 'Buyer', type: 'address', placeholder: 'Buyer wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
-  } else if (t === 'me_cancel_offer') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
+      { key: 'price', label: 'Your offer', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
+      { key: 'expiry', label: 'Expires', type: 'number', placeholder: 'Leave empty for no expiry', hint: 'Unix timestamp' },
     );
   } else if (t === 'me_buy_change_price' || t === 'me_sell_change_price') {
-    fields.push(
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Current Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true, half: true },
-      { key: 'newPrice', label: 'New Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true, half: true },
-    );
+    // Only the NEW price. The current one is read from the live listing —
+    // asking the user to restate it is how the two disagree.
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
+    fields.push({ key: 'newPrice', label: 'New price', type: 'number', placeholder: '0', suffix: 'SOL', required: true });
   } else if (t === 'me_deposit' || t === 'me_withdraw') {
+    // The wallet is the connected one; it was never a question.
+    fields.push({ key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'SOL', required: true });
+  // ── Magic Eden MMM (NFT AMM pools) ────────────────────────────────────────
+  } else if (t === 'me_mmm_create_pool') {
     fields.push(
-      { key: 'buyer', label: 'Wallet', type: 'address', placeholder: 'Wallet address...', required: true },
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
+      { key: 'collectionSymbol', label: 'Collection', type: 'text', placeholder: 'e.g. mad_lads', required: true },
+      { key: 'spotPrice', label: 'Starting price', type: 'number', placeholder: '0', suffix: 'SOL', required: true, half: true },
+      { key: 'curveType', label: 'Curve', type: 'text', placeholder: 'linear or exp', required: true, half: true },
+      { key: 'curveDelta', label: 'Step', type: 'number', placeholder: '0', required: true, half: true,
+        hint: 'SOL per fill for linear, basis points for exp' },
+      { key: 'lpFeeBp', label: 'Pool fee', type: 'number', placeholder: '0', suffix: 'bps', half: true },
+    );
+  } else if (t === 'me_mmm_update_pool') {
+    fields.push(
+      { key: 'pool', label: 'Pool', type: 'address', placeholder: 'Pool address…', required: true },
+      { key: 'spotPrice', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true, half: true },
+      { key: 'curveType', label: 'Curve', type: 'text', placeholder: 'linear or exp', required: true, half: true },
+      { key: 'curveDelta', label: 'Step', type: 'number', placeholder: '0', required: true },
+    );
+  } else if (t === 'me_mmm_sol_close_pool') {
+    fields.push({ key: 'pool', label: 'Pool', type: 'address', placeholder: 'Pool address…', required: true });
+  } else if (t === 'me_mmm_sol_deposit_buy' || t === 'me_mmm_sol_withdraw_buy') {
+    fields.push(
+      { key: 'pool', label: 'Pool', type: 'address', placeholder: 'Pool address…', required: true },
+      { key: 'paymentAmount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
+    );
+  } else if (t === 'me_mmm_sol_fulfill_buy' || t === 'me_mmm_sol_fulfill_sell') {
+    fields.push(
+      { key: 'pool', label: 'Pool', type: 'address', placeholder: 'Pool address…', required: true },
+      { key: 'assetMint', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true },
     );
   // ── Bridge / Cross-Chain ──────────────────────────────────────────────────
   } else if (t === 'relay_bridge' || t === 'bridge' || t === 'cross_chain_swap') {
@@ -1568,6 +1569,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly jupiterLend = inject(JupiterLendService);
   private readonly kamino = inject(KaminoService);
   private readonly walletService = inject(WalletService);
+  private readonly magicEden = inject(MagicEdenService);
   private readonly tokenRegistry = inject(TokenRegistryService);
   private readonly previewService = inject(TransactionPreviewService);
   private readonly swapService = inject(JupiterSwapService);
@@ -2463,7 +2465,108 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * quoting a pool-specific trade against the aggregator would show a price
    * from a route this action will not take.
    */
-  readonly isSwapPanel = computed(() => {
+  /**
+   * A Magic Eden action on a specific NFT.
+   *
+   * These cards used to be a column of address inputs. What the user actually
+   * needs to see is the picture — you recognise an NFT by looking at it, not
+   * by reading its mint — plus the price and what it costs. The mint, seller,
+   * token account and auction house are resolved server-side and never shown.
+   */
+  readonly isMeNftPanel = computed(() => {
+    const t = this.action.type;
+    if (!t.startsWith('me_') || t.startsWith('me_mmm_')) return false;
+    if (t === 'me_deposit' || t === 'me_withdraw') return false;
+    this.ensureMeNftDisplay();
+    return !!this.meNftName() || !!this.meNftImage()
+      || !!this.getEditParam('mintAddress') || !!this.getEditParam('tokenMint');
+  });
+
+  /**
+   * The NFT's name and picture.
+   *
+   * Normally they ride in from the row that spawned the action. When someone
+   * types the request instead ("buy this mint"), there is nothing but an
+   * address — so the card looks it up rather than showing the user a base58
+   * string and asking them to recognise it.
+   */
+  private readonly meFetchedNft = signal<{ name?: string; image?: string; collectionName?: string } | null>(null);
+
+  private meNftLookupDone = '';
+
+  private ensureMeNftDisplay(): void {
+    const mint = this.getEditParam('mintAddress') || this.getEditParam('tokenMint')
+      || this.getEditParam('assetMint');
+    if (!mint || this.meNftLookupDone === mint) return;
+    if (this.action.params?.['nftName'] || this.action.params?.['nftImage']) return;
+    this.meNftLookupDone = mint;
+    void this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: mint })
+      .then(d => {
+        if (!d) return;
+        this.meFetchedNft.set({
+          name: d['name'] as string | undefined,
+          image: d['image'] as string | undefined,
+          collectionName: d['collectionName'] as string | undefined,
+        });
+      });
+  }
+
+  meNftName(): string {
+    return this.getEditParam('nftName')
+      || this.action.params?.['nftName']
+      || this.meFetchedNft()?.name
+      || '';
+  }
+
+  meNftImage(): string {
+    return this.getEditParam('nftImage')
+      || this.action.params?.['nftImage']
+      || this.meFetchedNft()?.image
+      || '';
+  }
+
+  meCollectionName(): string {
+    return this.getEditParam('collectionName')
+      || this.action.params?.['collectionName']
+      || this.meFetchedNft()?.collectionName
+      || '';
+  }
+
+  /** What the action does, in the user's terms — the verb on the button and
+   *  the sentence above the price both come from here. */
+  meVerb(): string {
+    const t = this.action.type;
+    if (/change_price/.test(t)) return 'New price';
+    if (/accept_offer|sell_now/.test(t)) return 'You receive';
+    if (/make_offer/.test(t)) return 'Your offer';
+    if (/list|_sell$/.test(t)) return 'Ask';
+    if (/cancel/.test(t)) return '';
+    return 'You pay';
+  }
+
+  /** The number the card leads with. */
+  meHeadlinePrice(): number | null {
+    const raw = this.getEditParam('newPrice') || this.getEditParam('price');
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  /** Magic Eden's cut, shown on the actions where the user is the one paying
+   *  it — a seller who sees only the ask is reading the wrong number. */
+  meFeeSol(): number | null {
+    const t = this.action.type;
+    if (!/list|_sell$|accept_offer|sell_now|change_price/.test(t)) return null;
+    const p = this.meHeadlinePrice();
+    return p ? p * 0.02 : null;
+  }
+
+  meNetSol(): number | null {
+    const p = this.meHeadlinePrice();
+    const f = this.meFeeSol();
+    return p && f ? p - f : null;
+  }
+
+    readonly isSwapPanel = computed(() => {
     const t = this.action?.type ?? '';
     return t === 'swap' || t === 'raydium_swap'
       || t === 'meteora_swap' || t === 'meteora_dammv1_swap'

@@ -310,6 +310,36 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     "orca_get_pools",
     "orca_search_pools",
     "orca_get_user_positions",
+    # Magic Eden. An NFT is a picture with a price on it — prose is the wrong
+    # shape for all of these. The collection lists need a floor and a thumbnail
+    # per row, the token lists a grid you can buy from, the offer lists an
+    # Accept or a Cancel per row. None of that survives being flattened.
+    "me_collections",
+    "me_marketplace_popular",
+    "me_launchpad_collections",
+    "me_collection_listings",
+    "me_collection_nfts",
+    "me_collection_activities",
+    "me_collection_activity",
+    "me_collection_stats",
+    "me_collection_info",
+    "me_collection_attributes",
+    "me_collection_leaderboard",
+    "me_token",
+    "me_nft_info",
+    "me_token_activities",
+    "me_token_listings",
+    "me_token_offers_received",
+    "me_offers",
+    "me_listings",
+    "me_wallet_tokens",
+    "me_wallet_nfts",
+    "me_wallet_activities",
+    "me_owner_activities",
+    "me_wallet_offers_made",
+    "me_wallet_offers_received",
+    "me_wallet_escrow_balance",
+    "me_mmm_pools",
     # Kamino Multiply pool list — paginated/sortable table with a per-row
     # "Multiply" button that opens kamino_multiply_open on the chosen pair.
     # The card self-fetches from /actions/build (delegated to the TS

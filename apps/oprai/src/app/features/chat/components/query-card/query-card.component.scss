@@ -2331,3 +2331,246 @@
     color: var(--op-text-primary);
   }
 }
+
+// ── Magic Eden ───────────────────────────────────────────────────────────────
+//
+// The one place in the app where the thing being traded is a picture. Every
+// other card can lead with a symbol and a number; an NFT list that does that
+// is unusable — you recognise a Mad Lad by looking at it. So these lead with
+// the art and keep the same tokens, buttons and pager as the pool tables.
+
+.me-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 4px 0;
+
+  &--nft {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+}
+
+.me-art__fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06b6d4));
+  color: #fff;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+// Collection row — art, name, the three numbers that decide whether to look.
+.me-coll {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 45%, transparent);
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+  }
+
+  &__art {
+    display: block;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--op-radius-sm, 8px);
+    overflow: hidden;
+    background: var(--op-bg-surface-1, #14151a);
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    &--lg { width: 56px; height: 56px; }
+  }
+
+  &__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+
+  &__name {
+    font-weight: 600;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__stats { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  &__go { flex-shrink: 0; opacity: 0.5; }
+}
+
+.me-stat {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--op-text-secondary, #a1a1aa);
+
+  &__k { color: var(--op-text-tertiary, #71717a); margin-right: 4px; }
+}
+
+// NFT tile.
+.me-nft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+
+  &__art {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: var(--op-radius-sm, 8px);
+    overflow: hidden;
+    background: var(--op-bg-surface-1, #14151a);
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  }
+
+  &__rank {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__name {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__coll {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary, #71717a);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: -4px;
+  }
+
+  &__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  &__price { font-size: 0.8125rem; font-weight: 600; }
+
+  &__unlisted { color: var(--op-text-tertiary, #71717a); font-weight: 400; }
+
+  &__traits { display: flex; flex-wrap: wrap; gap: 4px; }
+}
+
+.me-trait {
+  padding: 2px 6px;
+  border-radius: var(--op-radius-sm, 6px);
+  background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+  font-size: 0.625rem;
+  color: var(--op-text-secondary, #a1a1aa);
+  white-space: nowrap;
+
+  &__k { color: var(--op-text-tertiary, #71717a); margin-right: 3px; }
+}
+
+// Activity verb. Buys and lists are the two a reader scans for.
+.me-evt {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+  color: var(--op-text-secondary, #a1a1aa);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: capitalize;
+
+  &--buy {
+    background: color-mix(in srgb, var(--op-success, #22c55e) 16%, transparent);
+    color: var(--op-success, #22c55e);
+  }
+
+  &--list {
+    background: color-mix(in srgb, var(--op-brand-accent, #06b6d4) 16%, transparent);
+    color: var(--op-brand-accent, #06b6d4);
+  }
+}
+
+.result-table__header--me-act,
+.result-table__row--me-act {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) 100px 80px;
+  align-items: center;
+  gap: 8px;
+}
+
+.result-table__header--me-offer,
+.result-table__row--me-offer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px 90px 96px;
+  align-items: center;
+  gap: 8px;
+}
+
+// Single-record cards: collection stats, escrow balance.
+.me-stats-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+
+  &__head { display: flex; align-items: center; gap: 10px; }
+  &__name { display: block; font-weight: 600; font-size: 0.9375rem; }
+  &__sym { display: block; font-size: 0.75rem; color: var(--op-text-tertiary, #71717a); }
+  &__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+  &__cta { align-self: flex-start; }
+}
+
+.me-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  &__k { font-size: 0.6875rem; color: var(--op-text-tertiary, #71717a); }
+  &__v { font-size: 0.9375rem; font-weight: 600; }
+
+  &--hero &__v { font-size: 1.375rem; }
+}
+
+.me-escrow {
+  &__note { font-size: 0.75rem; color: var(--op-text-tertiary, #71717a); }
+  &__actions { display: flex; gap: 8px; }
+}
+
+.result-table__header--me-trait,
+.result-table__row--me-trait {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 70px 100px;
+  align-items: center;
+  gap: 8px;
+}
