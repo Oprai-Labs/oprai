@@ -1116,10 +1116,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    *
    * Local assets and data URIs are left alone — they're already ours.
    */
-  logoSrc(url: string | null | undefined): string | null {
+  logoSrc(url: string | null | undefined, size?: number): string | null {
     if (!url) return null;
     if (!/^https:\/\//i.test(url)) return url;
-    return `${environment.apiBase}/token-image?url=${encodeURIComponent(url)}`;
+    const sz = size ? `&size=${size}` : '';
+    return `${environment.apiBase}/token-image?url=${encodeURIComponent(url)}${sz}`;
+  }
+
+  /**
+   * NFT art, cached at tile resolution.
+   *
+   * The grid draws these at ~150px, which is ~300 on a retina screen. The
+   * default cache size is built for 28px token circles, and art served at
+   * that size looks like a thumbnail of a thumbnail.
+   */
+  nftArtSrc(url: string | null | undefined): string | null {
+    return this.logoSrc(url, 320);
   }
 
   private resolveTokenDecimals(mint: string): number {

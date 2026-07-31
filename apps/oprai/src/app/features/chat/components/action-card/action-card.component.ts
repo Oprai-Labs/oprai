@@ -29,6 +29,7 @@ import { MeteoraService } from '@core/services/market/meteora.service';
 import { ApiService } from '@core/services/api.service';
 import { OrcaService } from '@core/services/market/orca.service';
 import { MagicEdenService } from '@core/services/market/magic-eden.service';
+import { environment } from '../../../../../environments/environment';
 import { AppVersionService } from '@core/services/app-version.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
 import { firstValueFrom, timeout } from 'rxjs';
@@ -2523,6 +2524,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       || this.action.params?.['nftImage']
       || this.meFetchedNft()?.image
       || '';
+  }
+
+  /** The NFT's art, through the gateway's image cache at panel resolution.
+   *  Issuer-hosted art is routinely hundreds of KB for a picture drawn at
+   *  84px. */
+  meArtSrc(): string | null {
+    const url = this.meNftImage();
+    if (!url) return null;
+    if (!/^https:\/\//i.test(url)) return url;
+    return `${environment.apiBase}/token-image?url=${encodeURIComponent(url)}&size=256`;
   }
 
   meCollectionName(): string {

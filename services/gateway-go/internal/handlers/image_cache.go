@@ -5,15 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/draw"
 	_ "image/gif"
-	_ "image/jpeg"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,9 +41,18 @@ const (
 	imageCacheTTL     = 24 * time.Hour
 	imageFailTTL      = 10 * time.Minute
 	imageFetchTimeout = 45 * time.Second
-	imageMaxBytes     = 4 << 20 // 4 MB — larger than any legitimate token logo
-	imageTargetPx     = 96      // ~3x the 28px the cards draw, for retina
-	imageWaitFirst    = 1500 * time.Millisecond
+	// Generous, because the input is not what we store. A Mad Lads PNG is
+	// 4.7 MB — over the 4 MB this used to allow, so every one of them was
+	// rejected and negatively cached, and the grid fell back to pulling all
+	// twelve originals from the issuer. What we keep is the downscaled copy,
+	// so the cost of a large input is one resize, not memory.
+	imageMaxBytes = 24 << 20
+	// Default for token logos: ~3x the 28px circle they are drawn in.
+	imageTargetPx = 96
+	// NFT art is drawn at ~150px in the grid, so it needs a bigger cache
+	// entry. Serving those at 96 makes the whole grid look soft.
+	imageMaxTargetPx = 512
+	imageWaitFirst   = 1500 * time.Millisecond
 )
 
 type cachedImage struct {
@@ -49,11 +60,12 @@ type cachedImage struct {
 	Body        []byte `json:"b"`
 }
 
-// inFlightImages keeps a single warm-up per URL, so a card with twenty rows
-// pointing at the same slow host doesn't start twenty identical downloads.
+// inFlightImages keeps a single warm-up per cache key, so a card with twenty
+// rows pointing at the same slow host doesn't start twenty identical
+// downloads.
 // The channel closes when that warm-up finishes, so a request can wait a
 // moment for it instead of bouncing the browser to the origin.
-var inFlightImages sync.Map // url string -> chan struct{}
+var inFlightImages sync.Map // cache key -> chan struct{}
 
 // GetTokenImage serves a cached token logo, or redirects to the origin while
 // it warms. GET /market/token-image?url=<absolute https url>
@@ -73,7 +85,14 @@ func (m *MarketProxy) GetTokenImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := "img:" + hashURL(raw)
+	// One URL can be wanted at two sizes — a 28px token logo and a 150px NFT
+	// tile — so the size is part of the key. Without it whichever request
+	// arrived first would decide how sharp the other one looks.
+	size := imageTargetPx
+	if n, err := strconv.Atoi(r.URL.Query().Get("size")); err == nil && n > 0 {
+		size = min(n, imageMaxTargetPx)
+	}
+	key := fmt.Sprintf("img:%d:%s", size, hashURL(raw))
 	if m.serveCachedImage(w, key) {
 		return
 	}
@@ -81,7 +100,7 @@ func (m *MarketProxy) GetTokenImage(w http.ResponseWriter, r *http.Request) {
 	// Not cached. Start the warm-up and give it a moment — most logos arrive
 	// well inside this, and then even the FIRST viewer gets the small cached
 	// copy instead of the issuer's original.
-	done := m.warmImage(raw, key)
+	done := m.warmImage(raw, key, size)
 	select {
 	case <-done:
 		if m.serveCachedImage(w, key) {
@@ -119,14 +138,14 @@ func (m *MarketProxy) serveCachedImage(w http.ResponseWriter, key string) bool {
 
 // warmImage downloads the image in the background, once per URL. The returned
 // channel closes when the download finishes, however it finished.
-func (m *MarketProxy) warmImage(raw, key string) <-chan struct{} {
+func (m *MarketProxy) warmImage(raw, key string, size int) <-chan struct{} {
 	ch := make(chan struct{})
-	if existing, busy := inFlightImages.LoadOrStore(raw, ch); busy {
+	if existing, busy := inFlightImages.LoadOrStore(key, ch); busy {
 		return existing.(chan struct{})
 	}
 	go func() {
 		defer func() {
-			inFlightImages.Delete(raw)
+			inFlightImages.Delete(key)
 			close(ch)
 		}()
 
@@ -164,7 +183,7 @@ func (m *MarketProxy) warmImage(raw, key string) <-chan struct{} {
 			fail()
 			return
 		}
-		if small, sct, ok := downscale(body); ok {
+		if small, sct, ok := downscale(body, size); ok {
 			body, ct = small, sct
 		}
 		if b, e := json.Marshal(cachedImage{ContentType: ct, Body: body}); e == nil {
@@ -180,22 +199,22 @@ func (m *MarketProxy) warmImage(raw, key string) <-chan struct{} {
 //
 // Returns ok=false for anything it can't decode (SVG, WebP, AVIF) — those are
 // cached as-is, since a format we can't read is not one we should mangle.
-func downscale(body []byte) ([]byte, string, bool) {
+func downscale(body []byte, targetPx int) ([]byte, string, bool) {
 	src, _, err := image.Decode(bytes.NewReader(body))
 	if err != nil {
 		return nil, "", false
 	}
 	b := src.Bounds()
-	if b.Dx() <= imageTargetPx && b.Dy() <= imageTargetPx {
+	if b.Dx() <= targetPx && b.Dy() <= targetPx {
 		return nil, "", false // already small; re-encoding would only lose quality
 	}
 	w, h := b.Dx(), b.Dy()
 	if w > h {
-		h = h * imageTargetPx / w
-		w = imageTargetPx
+		h = h * targetPx / w
+		w = targetPx
 	} else {
-		w = w * imageTargetPx / h
-		h = imageTargetPx
+		w = w * targetPx / h
+		h = targetPx
 	}
 	if w < 1 || h < 1 {
 		return nil, "", false
@@ -203,12 +222,38 @@ func downscale(body []byte) ([]byte, string, bool) {
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Over, nil)
 
+	// Transparency decides the format. Token logos are cut-outs and need PNG;
+	// NFT art is usually a full-bleed picture, and PNG is the wrong codec for
+	// one — a 320px Mad Lad is 113 KB as PNG and about a fifth of that as
+	// JPEG, for a difference nobody can see at tile size.
 	var out bytes.Buffer
-	// PNG keeps transparency, which most token logos rely on.
-	if png.Encode(&out, dst) != nil || out.Len() >= len(body) {
+	if hasTransparency(dst) {
+		if png.Encode(&out, dst) != nil || out.Len() >= len(body) {
+			return nil, "", false
+		}
+		return out.Bytes(), "image/png", true
+	}
+	if jpeg.Encode(&out, dst, &jpeg.Options{Quality: 82}) != nil || out.Len() >= len(body) {
 		return nil, "", false
 	}
-	return out.Bytes(), "image/png", true
+	return out.Bytes(), "image/jpeg", true
+}
+
+// hasTransparency reports whether any pixel is not fully opaque. Sampled on a
+// grid rather than every pixel: a logo with a transparent background has it
+// along the edges, and a photograph has none anywhere.
+func hasTransparency(img *image.RGBA) bool {
+	b := img.Bounds()
+	stepX := max(1, b.Dx()/64)
+	stepY := max(1, b.Dy()/64)
+	for y := b.Min.Y; y < b.Max.Y; y += stepY {
+		for x := b.Min.X; x < b.Max.X; x += stepX {
+			if img.RGBAAt(x, y).A < 250 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hashURL(raw string) string {

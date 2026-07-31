@@ -133,7 +133,7 @@
               <button type="button" class="me-coll" (click)="browseMeCollection(c)">
                 <span class="me-coll__art">
                   @if (c.image) {
-                    <img [src]="logoSrc(c.image)" [alt]="c.name" loading="lazy" decoding="async"
+                    <img [src]="nftArtSrc(c.image)" [alt]="c.name" loading="lazy" decoding="async"
                          (error)="$any($event.target).style.display='none'" />
                   } @else {
                     <span class="me-art__fallback">{{ (c.name || '?').charAt(0) }}</span>
@@ -166,7 +166,7 @@
               <div class="me-nft">
                 <div class="me-nft__art">
                   @if (t.image) {
-                    <img [src]="logoSrc(t.image)" [alt]="t.name" loading="lazy" decoding="async"
+                    <img [src]="nftArtSrc(t.image)" [alt]="t.name" loading="lazy" decoding="async"
                          (error)="$any($event.target).style.display='none'" />
                   } @else {
                     <span class="me-art__fallback">{{ (t.name || '?').charAt(0) }}</span>
@@ -370,7 +370,7 @@
               <div class="me-stats-card__head">
                 <span class="me-coll__art me-coll__art--lg">
                   @if (st.image) {
-                    <img [src]="logoSrc(st.image)" [alt]="st.name" loading="lazy" decoding="async"
+                    <img [src]="nftArtSrc(st.image)" [alt]="st.name" loading="lazy" decoding="async"
                          (error)="$any($event.target).style.display='none'" />
                   } @else {
                     <span class="me-art__fallback">{{ (st.name || '?').charAt(0) }}</span>

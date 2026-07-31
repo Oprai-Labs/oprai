@@ -509,7 +509,7 @@
           <div class="me-act">
             <div class="me-act__art">
               @if (meNftImage()) {
-                <img [src]="meNftImage()" [alt]="meNftName()" loading="eager" decoding="async"
+                <img [src]="meArtSrc()" [alt]="meNftName()" loading="eager" decoding="async"
                      (error)="$any($event.target).style.display='none'" />
               } @else {
                 <span class="me-act__fallback">{{ (meNftName() || '?').charAt(0) }}</span>

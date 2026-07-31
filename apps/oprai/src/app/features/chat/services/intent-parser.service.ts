@@ -1240,6 +1240,91 @@ export class IntentParserService {
   /**
    * Get a human-readable label for a query type
    */
+  /** "Mad Lads — Listings" when we know the collection, "Magic Eden
+   *  Listings" when we don't. */
+  private static meNamed(query: ParsedQuery, subject: string): string {
+    const raw = query.params?.['collectionName'] || query.params?.['symbol']
+      || query.params?.['collection'] || query.params?.['collectionSymbol'];
+    if (!raw || !/^[\w .-]{1,40}$/.test(String(raw))) return `Magic Eden ${subject}`;
+    const pretty = String(raw).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return `${pretty} — ${subject}`;
+  }
+
+  /** Protocol prefixes, longest first so `meteora_dammv2_` beats `meteora_`. */
+  private static readonly QUERY_PREFIXES: ReadonlyArray<[string, string]> = [
+    ['meteora_dammv2_', 'Meteora DAMM v2'],
+    ['meteora_dammv1_', 'Meteora DAMM v1'],
+    ['meteora_dlmm_',   'Meteora DLMM'],
+    ['meteora_s2e_',    'Meteora Stake2Earn'],
+    ['meteora_vault_',  'Meteora Vault'],
+    ['meteora_',        'Meteora'],
+    ['me_mmm_',         'Magic Eden Pools'],
+    ['me_',             'Magic Eden'],
+    ['orca_',           'Orca'],
+    ['raydium_',        'Raydium'],
+    ['kamino_',         'Kamino'],
+    ['jup_',            'Jupiter'],
+    ['jupiter_',        'Jupiter'],
+    ['solend_',         'Solend'],
+    ['marginfi_',       'MarginFi'],
+    ['jito_',           'Jito'],
+    ['pumpfun_',        'pump.fun'],
+    ['birdeye_',        'Birdeye'],
+    ['sns_',            'SNS'],
+    ['cross_chain_',    'Cross-chain'],
+  ];
+
+  /** Words that lose their meaning in Title Case. */
+  private static readonly QUERY_ACRONYMS: Record<string, string> = {
+    nft: 'NFT', nfts: 'NFTs', cnft: 'cNFT', sol: 'SOL', usd: 'USD',
+    lp: 'LP', amm: 'AMM', clmm: 'CLMM', dlmm: 'DLMM', mmm: 'MMM',
+    tvl: 'TVL', apr: 'APR', apy: 'APY', dca: 'DCA', ido: 'IDO',
+    ohlcv: 'OHLCV', pnl: 'PnL', rpc: 'RPC', ata: 'ATA', id: 'ID',
+    v2: 'v2', v3: 'v3', s2e: 'Stake2Earn',
+  };
+
+  /**
+   * A readable name for a query type we never wrote a label for.
+   *
+   * The fallback used to be the identifier itself, so any card without an
+   * explicit case announced itself as `me_collection_listings`. There are
+   * hundreds of query types and only a few dozen have labels — the fallback
+   * IS the common path, and it was showing users a variable name.
+   */
+  static humanizeQueryType(query: ParsedQuery): string {
+    const type = query.type;
+    let protocol = '';
+    let rest = type;
+    for (const [prefix, name] of IntentParserService.QUERY_PREFIXES) {
+      if (type.startsWith(prefix)) {
+        protocol = name;
+        rest = type.slice(prefix.length);
+        break;
+      }
+    }
+    // `get_` is plumbing — every read gets one and it says nothing.
+    rest = rest.replace(/^(get|fetch|search)_/, m => (m === 'search_' ? 'search_' : ''));
+
+    const words = rest.split('_').filter(Boolean).map(w => {
+      const lower = w.toLowerCase();
+      return IntentParserService.QUERY_ACRONYMS[lower]
+        ?? lower.charAt(0).toUpperCase() + lower.slice(1);
+    });
+    let subject = words.join(' ');
+
+    // Name the thing being looked at when we know it — "Mad Lads — Listings"
+    // beats "Magic Eden — Collection Listings" for a card about Mad Lads.
+    const named = query.params?.['collectionName'] || query.params?.['symbol']
+      || query.params?.['collection'] || query.params?.['collectionSymbol'];
+    if (named && /^[\w .-]{1,40}$/.test(String(named))) {
+      const pretty = String(named).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      subject = subject.replace(/^Collection /, '');
+      return `${pretty} — ${subject}`;
+    }
+    if (!subject) return protocol || type;
+    return protocol ? `${protocol} — ${subject}` : subject;
+  }
+
   getQueryLabel(query: ParsedQuery): string {
     switch (query.type) {
       case 'balance':
@@ -1376,8 +1461,53 @@ export class IntentParserService {
         return `Record Key: ${query.params['record'] ?? ''} on ${query.params['domain'] ?? ''}.sol`;
       case 'sns_twitter_handle':
         return `Twitter Lookup: ${query.params['input'] ?? ''}`;
+      // ── Magic Eden ────────────────────────────────────────────────────────
+      // The humanizer below handles the rest; these are the ones where a
+      // literal reading of the endpoint name ("Wallet Escrow Balance",
+      // "Marketplace Popular") is not how anyone would say it.
+      case 'me_wallet_escrow_balance':
+        return 'Your Magic Eden Balance';
+      case 'me_marketplace_popular':
+        return 'Popular Collections';
+      case 'me_launchpad_collections':
+        return 'Magic Eden Launchpad';
+      case 'me_wallet_tokens':
+      case 'me_wallet_nfts':
+        return 'Your NFTs';
+      case 'me_wallet_offers_made':
+        return 'Offers You Made';
+      case 'me_wallet_offers_received':
+        return 'Offers You Received';
+      case 'me_token_offers_received':
+      case 'me_offers':
+        return 'Offers on This NFT';
+      case 'me_wallet_activities':
+      case 'me_owner_activities':
+        return 'Your NFT Activity';
+      case 'me_token':
+      case 'me_nft_info':
+        return 'NFT Details';
+      case 'me_collections':
+        return 'Magic Eden Collections';
+      case 'me_collection_leaderboard':
+        return IntentParserService.meNamed(query, 'Top Traders');
+      case 'me_collection_listings':
+      case 'me_listings':
+        return IntentParserService.meNamed(query, 'Listings');
+      case 'me_collection_nfts':
+        return IntentParserService.meNamed(query, 'NFTs');
+      case 'me_collection_activities':
+      case 'me_collection_activity':
+        return IntentParserService.meNamed(query, 'Activity');
+      case 'me_collection_attributes':
+        return IntentParserService.meNamed(query, 'Traits');
+      case 'me_collection_stats':
+      case 'me_collection_info':
+        return IntentParserService.meNamed(query, 'Stats');
+      case 'me_mmm_pools':
+        return IntentParserService.meNamed(query, 'Pools');
       default:
-        return query.type;
+        return IntentParserService.humanizeQueryType(query);
     }
   }
 
