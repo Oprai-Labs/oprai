@@ -2574,3 +2574,21 @@
   align-items: center;
   gap: 8px;
 }
+
+.result-table__header--me-pool,
+.result-table__row--me-pool {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 100px 110px minmax(0, 1fr) 120px;
+  align-items: center;
+  gap: 8px;
+}
+
+.me-pool__acts { display: inline-flex; gap: 6px; justify-content: flex-end; }
+
+.result-table__header--me-trader,
+.result-table__row--me-trader {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 120px 96px;
+  align-items: center;
+  gap: 8px;
+}

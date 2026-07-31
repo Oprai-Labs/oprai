@@ -300,6 +300,69 @@
           </div>
         }
 
+        <!-- MMM pools. A pool is a standing two-way quote on a collection,
+             so the row leads with the price and which way it faces, and the
+             buttons are the two trades it will actually take. -->
+        @if (shape === 'pools') {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--me-pool">
+              <span>Pool</span><span class="text-right">Quote</span>
+              <span class="text-right">Curve</span><span>Holds</span><span></span>
+            </div>
+            @for (pl of mePagedPools(); track pl['poolKey']) {
+              <div class="result-table__row result-table__row--me-pool dlmm-row">
+                <span class="km-pair__text">
+                  <span class="km-pair__name">{{ pl['collectionName'] || pl['collectionSymbol'] }}</span>
+                  <button type="button"
+                          class="dlmm-pair__addr mono dlmm-copy-btn km-pair__sub"
+                          [class.dlmm-copy-btn--copied]="copiedAddress() === pl['poolKey']"
+                          (click)="copyPoolAddress(pl['poolKey']); $event.stopPropagation()"
+                          [attr.title]="'Copy pool address: ' + pl['poolKey']">
+                    <span class="dlmm-pair__addr-text">{{ pl['poolKey'].slice(0, 4) }}…{{ pl['poolKey'].slice(-4) }}</span>
+                    <lucide-icon [name]="copiedAddress() === pl['poolKey'] ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                  </button>
+                </span>
+                <span class="text-right mono">@if (mePoolSpot(pl); as sp) { {{ sp | number:'1.0-3' }} SOL } @else { — }</span>
+                <span class="text-right dlmm-muted">{{ mePoolCurve(pl) }}</span>
+                <span class="dlmm-muted">{{ mePoolInventory(pl) }}</span>
+                <span class="text-right me-pool__acts">
+                  @if (mePoolCanBuyFrom(pl)) {
+                    <button type="button" class="dlmm-use-btn" (click)="buyFromMePool(pl)">Buy</button>
+                  }
+                  @if (mePoolCanSellTo(pl)) {
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="sellToMePool(pl)">Sell</button>
+                  }
+                </span>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- A collection's biggest traders. -->
+        @if (shape === 'traders') {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--me-trader">
+              <span>#</span><span>Wallet</span>
+              <span class="text-right">Volume</span><span class="text-right">Last trade</span>
+            </div>
+            @for (tr of mePagedTraders(); track tr.wallet; let i = $index) {
+              <div class="result-table__row result-table__row--me-trader dlmm-row">
+                <span class="dlmm-muted mono">{{ (mePage() - 1) * requestedPageSize(ME_PAGE_SIZE) + i + 1 }}</span>
+                <button type="button"
+                        class="dlmm-pair__addr mono dlmm-copy-btn"
+                        [class.dlmm-copy-btn--copied]="copiedAddress() === tr.wallet"
+                        (click)="copyPoolAddress(tr.wallet); $event.stopPropagation()"
+                        [attr.title]="'Copy wallet: ' + tr.wallet">
+                  <span class="dlmm-pair__addr-text">{{ tr.wallet.slice(0, 4) }}…{{ tr.wallet.slice(-4) }}</span>
+                  <lucide-icon [name]="copiedAddress() === tr.wallet ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                </button>
+                <span class="text-right mono">@if (tr.volume) { {{ tr.volume | number:'1.0-1' }} SOL } @else { — }</span>
+                <span class="text-right dlmm-muted">{{ meWhen(tr.lastTradeAt) }}</span>
+              </div>
+            }
+          </div>
+        }
+
         <!-- A single collection's numbers. -->
         @if (shape === 'stats') {
           @if (meStats(); as st) {
@@ -366,7 +429,9 @@
               (mePage() - 1) * requestedPageSize(ME_PAGE_SIZE) + (shape === 'collections' ? mePagedCollections().length
                 : shape === 'tokens' ? mePagedTokens().length
                 : shape === 'activities' ? mePagedActivities().length
-                : shape === 'traits' ? mePagedTraits().length : mePagedOffers().length)
+                : shape === 'traits' ? mePagedTraits().length
+                : shape === 'pools' ? mePagedPools().length
+                : shape === 'traders' ? mePagedTraders().length : mePagedOffers().length)
             }}</strong> of <strong>{{ meRowCount() }}</strong>
           </div>
           <div class="dlmm-pagination">

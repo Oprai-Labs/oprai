@@ -695,7 +695,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return 'assets/icons/protocols/orca.webp';
       case 'kamino_multiply_markets':
         return 'assets/icons/protocols/kamino.svg';
+      // Every Magic Eden read, by prefix — there are twenty-six of them and
+      // listing each one here is how one gets forgotten and renders headerless.
       default:
+        if (this.query.type.startsWith('me_')) {
+          return 'assets/icons/protocols/magiceden.webp';
+        }
         return null;
     }
   }
@@ -912,6 +917,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meActivities.set((d['meActivities'] as MeActivityRow[] | undefined) ?? []);
       this.meOffers.set((d['meOffers'] as MeOfferRow[] | undefined) ?? []);
       this.meTraitRows.set((d['meTraitRows'] as any[] | undefined) ?? []);
+      this.mePools.set((d['mePools'] as any[] | undefined) ?? []);
+      this.meTraders.set((d['meTraders'] as any[] | undefined) ?? []);
       this.meStats.set((d['meStats'] as MeCollectionRow | undefined) ?? null);
       this.meEscrowSol.set((d['meEscrowSol'] as number | undefined) ?? null);
     }
@@ -1003,6 +1010,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.meActivities().length)  d['meActivities'] = this.meActivities();
       if (this.meOffers().length)      d['meOffers'] = this.meOffers();
       if (this.meTraitRows().length)   d['meTraitRows'] = this.meTraitRows();
+      if (this.mePools().length)       d['mePools'] = this.mePools();
+      if (this.meTraders().length)     d['meTraders'] = this.meTraders();
       if (this.meStats())              d['meStats'] = this.meStats();
       if (this.meEscrowSol() !== null) d['meEscrowSol'] = this.meEscrowSol();
       d['orcaCapped'] = this.orcaCapped();
@@ -1462,15 +1471,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly meFetching = signal(false);
   readonly mePage = signal(1);
   /** Which renderer this card is using: set once the payload lands. */
-  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | null>(null);
+  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | null>(null);
   /** Trait rarity with a floor per trait — the table a buyer actually uses. */
   readonly meTraitRows = signal<Array<{ trait: string; value: string; count: number; floor: number | null }>>([]);
+  /** MMM pools: an AMM quoting both sides of a collection. */
+  readonly mePools = signal<Array<Record<string, any>>>([]);
+  /** A collection's biggest traders. */
+  readonly meTraders = signal<Array<{ wallet: string; volume: number | null; lastTradeAt: number | null }>>([]);
 
   readonly mePagedCollections = computed(() => this.mePageSlice(this.meCollections()));
   readonly mePagedTokens = computed(() => this.mePageSlice(this.meTokens()));
   readonly mePagedActivities = computed(() => this.mePageSlice(this.meActivities()));
   readonly mePagedOffers = computed(() => this.mePageSlice(this.meOffers()));
   readonly mePagedTraits = computed(() => this.mePageSlice(this.meTraitRows()));
+  readonly mePagedPools = computed(() => this.mePageSlice(this.mePools()));
+  readonly mePagedTraders = computed(() => this.mePageSlice(this.meTraders()));
 
   private mePageSlice<T>(rows: T[]): T[] {
     const size = this.requestedPageSize(this.ME_PAGE_SIZE);
@@ -1485,6 +1500,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'activities':  return this.meActivities().length;
       case 'offers':      return this.meOffers().length;
       case 'traits':      return this.meTraitRows().length;
+      case 'pools':       return this.mePools().length;
+      case 'traders':     return this.meTraders().length;
       default:            return 0;
     }
   });
@@ -1972,6 +1989,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meShape.set('tokens');
       return;
     }
+    if (t === 'me_mmm_pools') {
+      // A pool is not an NFT and must not render as one: what matters is the
+      // price it quotes, which way it is facing, and what it has to trade
+      // with.
+      this.mePools.set(MagicEdenService.rowsFrom<Record<string, any>>(data, 'results', 'pools'));
+      this.meShape.set('pools');
+      return;
+    }
+    if (t === 'me_collection_leaderboard') {
+      // Wallets, not collections. Volume is in lamports here.
+      const rows = MagicEdenService.rowsFrom<Record<string, any>>(data, 'results');
+      this.meTraders.set(rows.map(r => ({
+        wallet: String(r['wallet'] ?? ''),
+        volume: MagicEdenService.solFromMaybeLamports(r['totalVolume'] ?? null),
+        lastTradeAt: (r['lastTradeAt'] as number | undefined) ?? null,
+      })).filter(r => r.wallet));
+      this.meShape.set('traders');
+      return;
+    }
     if (t === 'me_collection_attributes') {
       // `{results:{availableAttributes:[{attribute:{trait_type,value},count,floor}]}}`
       // — the floor is per trait and in lamports, which is the whole reason
@@ -2028,6 +2064,64 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (typeof rank === 'number') return rank;
     }
     return null;
+  }
+
+  /** A pool's quote, in SOL. Magic Eden stores it in lamports. */
+  mePoolSpot(pool: Record<string, any>): number | null {
+    return MagicEdenService.solFromMaybeLamports(pool['spotPrice']);
+  }
+
+  /** What the pool has to trade with: NFTs on the sell side, SOL on the buy
+   *  side. A pool with neither quotes nothing, which is worth seeing. */
+  mePoolInventory(pool: Record<string, any>): string {
+    const nfts = Number(pool['sellsideAssetAmount'] ?? 0);
+    const sol = MagicEdenService.solFromMaybeLamports(pool['buysidePaymentAmount']) ?? 0;
+    const parts: string[] = [];
+    if (nfts) parts.push(`${nfts} NFT${nfts === 1 ? '' : 's'}`);
+    if (sol) parts.push(`${sol.toFixed(2)} SOL`);
+    return parts.length ? parts.join(' · ') : 'Empty';
+  }
+
+  /** "exp 15%" / "linear 0.1 SOL" — the curve only means something with its
+   *  step, and the step's unit depends on the curve. */
+  mePoolCurve(pool: Record<string, any>): string {
+    const type = String(pool['curveType'] ?? '');
+    const delta = Number(pool['curveDelta'] ?? 0);
+    if (!delta) return type || '—';
+    return type === 'exp' ? `exp ${(delta / 100).toFixed(2)}%` : `linear ${(delta / 1e9).toFixed(3)} SOL`;
+  }
+
+  /** A two-sided pool both buys and sells; a one-sided one only does one. */
+  mePoolCanBuyFrom(pool: Record<string, any>): boolean {
+    return Number(pool['sellsideAssetAmount'] ?? 0) > 0;
+  }
+  mePoolCanSellTo(pool: Record<string, any>): boolean {
+    return (MagicEdenService.solFromMaybeLamports(pool['buysidePaymentAmount']) ?? 0) > 0;
+  }
+
+  /** Buy an NFT out of the pool. The pool decides which one, so the mint
+   *  comes from its own inventory. */
+  buyFromMePool(pool: Record<string, any>): void {
+    const mint = (pool['mints'] as string[] | undefined)?.[0];
+    if (!mint) return;
+    const spot = this.mePoolSpot(pool);
+    this.meEmit('me_mmm_sol_fulfill_sell', {
+      pool: String(pool['poolKey'] ?? ''),
+      assetMint: mint,
+      ...(spot ? { maxPaymentAmount: String(spot) } : {}),
+      ...(pool['collectionName'] ? { collectionName: String(pool['collectionName']) } : {}),
+    });
+  }
+
+  /** Sell an NFT into the pool's bid. Which NFT is the user's to choose, so
+   *  the action card asks for it — it is the one thing the pool cannot say. */
+  sellToMePool(pool: Record<string, any>): void {
+    const spot = this.mePoolSpot(pool);
+    this.meEmit('me_mmm_sol_fulfill_buy', {
+      pool: String(pool['poolKey'] ?? ''),
+      ...(spot ? { minPaymentAmount: String(spot) } : {}),
+      ...(pool['collectionSymbol'] ? { collectionSymbol: String(pool['collectionSymbol']) } : {}),
+    });
   }
 
   /** Floor prices arrive in lamports from stats, SOL elsewhere. */

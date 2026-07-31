@@ -2018,7 +2018,10 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "me_collection_attributes", "me_collection_leaderboard",
     "me_token", "me_token_activities", "me_token_listings",
     "me_token_offers_received",
-    "me_wallet", "me_wallet_tokens", "me_wallet_activities",
+    # me_wallet is NOT here: /wallets/{w} answers with {walletAddress} and
+    # nothing else — a card echoing back the address the user just typed.
+    # chat-service still serves it for prose.
+    "me_wallet_tokens", "me_wallet_activities",
     "me_owner_activities", "me_wallet_offers_made", "me_wallet_offers_received",
     "me_wallet_escrow_balance", "me_mmm_pools",
     # The older spellings of the same reads. They were reachable only as

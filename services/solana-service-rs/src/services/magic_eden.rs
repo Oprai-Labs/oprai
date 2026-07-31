@@ -2099,7 +2099,19 @@ fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
             need(&p.wallet, "wallet")?
         ),
 
-        "me_mmm_pools" => format!("{base}/mmm/pools?limit={limit}&offset={off}"),
+        // Without a collection the pool list comes back empty — Magic Eden
+        // will not enumerate every pool on the marketplace. Pass the symbol
+        // through, and let the card say so when there isn't one.
+        "me_mmm_pools" => match p.symbol.as_deref().filter(|x| !x.is_empty()) {
+            Some(sym) => format!(
+                "{base}/mmm/pools?collectionSymbol={sym}&limit={limit}&offset={off}"
+            ),
+            None => {
+                return Err(AppError::InvalidParams(
+                    "Name a collection to see its pools".into(),
+                ))
+            }
+        },
 
         other => {
             return Err(AppError::InvalidParams(format!(
