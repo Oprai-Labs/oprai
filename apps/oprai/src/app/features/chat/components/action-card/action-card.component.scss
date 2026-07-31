@@ -5444,3 +5444,54 @@
 }
 
 .me-act__ref-k { color: var(--op-text-tertiary, #71717a); }
+
+// ── Magic Eden amount + expiry ───────────────────────────────────────────────
+.me-amount { margin-top: 10px; }
+
+.me-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+
+  &__btn {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: 999px;
+    background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+    color: var(--op-text-secondary, #a1a1aa);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+
+    &:hover:not(:disabled) {
+      border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 50%, transparent);
+      color: var(--op-text-primary, #fafafa);
+    }
+
+    &--active {
+      border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 65%, transparent);
+      background: color-mix(in srgb, var(--op-brand, #5b5fc7) 16%, transparent);
+      color: var(--op-text-primary, #fafafa);
+    }
+
+    &:disabled { opacity: 0.5; cursor: default; }
+  }
+}
+
+.me-expiry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+
+  &__label {
+    font-size: 0.75rem;
+    color: var(--op-text-tertiary, #71717a);
+  }
+
+  &__opts { display: flex; flex-wrap: wrap; gap: 6px; }
+}

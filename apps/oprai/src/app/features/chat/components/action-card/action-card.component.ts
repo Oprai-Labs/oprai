@@ -1415,13 +1415,10 @@ function getActionFields(
       fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
     }
   } else if (t === 'me_list' || t === 'me_sell') {
+    // Price and expiry are rendered by the amount panel, not as form rows.
     if (!params['mintAddress'] && !params['tokenMint']) {
       fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
     }
-    fields.push(
-      { key: 'price', label: 'Ask', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'expiry', label: 'Expires', type: 'number', placeholder: 'Leave empty for no expiry', hint: 'Unix timestamp' },
-    );
   } else if (t === 'me_cancel_listing' || t === 'me_sell_cancel'
              || t === 'me_cancel_offer' || t === 'me_buy_cancel'
              || t === 'me_accept_offer' || t === 'me_sell_now') {
@@ -1434,20 +1431,15 @@ function getActionFields(
     if (!params['mintAddress'] && !params['tokenMint']) {
       fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
     }
-    fields.push(
-      { key: 'price', label: 'Your offer', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'expiry', label: 'Expires', type: 'number', placeholder: 'Leave empty for no expiry', hint: 'Unix timestamp' },
-    );
   } else if (t === 'me_buy_change_price' || t === 'me_sell_change_price') {
     // Only the NEW price. The current one is read from the live listing —
     // asking the user to restate it is how the two disagree.
     if (!params['mintAddress'] && !params['tokenMint']) {
       fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
     }
-    fields.push({ key: 'newPrice', label: 'New price', type: 'number', placeholder: '0', suffix: 'SOL', required: true });
+    // The new price is the amount panel's.
   } else if (t === 'me_deposit' || t === 'me_withdraw') {
-    // The wallet is the connected one; it was never a question.
-    fields.push({ key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'SOL', required: true });
+    // The wallet is the connected one; the amount is the panel's.
   // ── Magic Eden MMM (NFT AMM pools) ────────────────────────────────────────
   } else if (t === 'me_mmm_create_pool') {
     fields.push(
@@ -2474,7 +2466,118 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * by reading its mint — plus the price and what it costs. The mint, seller,
    * token account and auction house are resolved server-side and never shown.
    */
-  /** Set once the protocol logo actually renders. The initial shows only
+  /**
+   * Magic Eden actions that ask for an amount.
+   *
+   * They were rendering as bare form rows — a small uppercase label and an
+   * input — while every other amount in the app is a panel with the token,
+   * the balance it comes from and a Max. The amount IS the decision on these
+   * cards; it should not look like a settings field.
+   */
+  readonly isMeAmountPanel = computed(() => {
+    const t = this.action.type;
+    return /^me_(make_offer|list|sell|sell_change_price|buy_change_price|deposit|withdraw)$/.test(t);
+  });
+
+  /** The amount field this panel owns, so the generic list can skip it. */
+  meAmountKey(): string {
+    const t = this.action.type;
+    if (t === 'me_deposit' || t === 'me_withdraw') return 'amount';
+    if (/change_price/.test(t)) return 'newPrice';
+    return 'price';
+  }
+
+  meAmountLabel(): string {
+    const t = this.action.type;
+    if (t === 'me_deposit') return 'Deposit';
+    if (t === 'me_withdraw') return 'Withdraw';
+    if (/change_price/.test(t)) return 'New price';
+    if (/list|_sell$/.test(t)) return 'Your ask';
+    return 'Your offer';
+  }
+
+  /** Only offers and listings expire. */
+  meHasExpiry(): boolean {
+    return /^me_(make_offer|list|sell)$/.test(this.action.type);
+  }
+
+  readonly ME_EXPIRY_CHOICES: ReadonlyArray<{ label: string; days: number }> = [
+    { label: 'No expiry', days: 0 },
+    { label: '1 day', days: 1 },
+    { label: '3 days', days: 3 },
+    { label: '7 days', days: 7 },
+    { label: '30 days', days: 30 },
+  ];
+
+  /**
+   * Expiry was a raw unix timestamp box. Nobody knows what 1785521483 is, and
+   * a user who wants "a week" should not have to compute one.
+   */
+  meExpiryDays(): number {
+    const raw = Number(this.getEditParam('expiry'));
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    const secs = raw - Math.floor(Date.now() / 1000);
+    if (secs <= 0) return 0;
+    return this.ME_EXPIRY_CHOICES
+      .filter(c => c.days > 0)
+      .reduce((best, c) => (Math.abs(c.days * 86400 - secs) < Math.abs(best.days * 86400 - secs) ? c : best),
+              { label: '', days: 1 }).days;
+  }
+
+  setMeExpiry(days: number): void {
+    this.setEditParam('expiry', days === 0 ? '' : String(Math.floor(Date.now() / 1000) + days * 86400));
+  }
+
+  /**
+   * Quick-fills, each labelled with the number it puts in. A chip the user
+   * clicks is their choice; a value the card pre-fills is the card's, which
+   * is why the box still starts empty.
+   */
+  meQuickFills(): Array<{ label: string; value: number }> {
+    const out: Array<{ label: string; value: number }> = [];
+    const ask = this.meAskPrice();
+    const floor = this.meFloorPrice();
+    if (floor) out.push({ label: 'Floor', value: floor });
+    if (ask && (!floor || Math.abs(ask - floor) > 1e-9)) out.push({ label: 'Ask', value: ask });
+    const ref = ask ?? floor;
+    if (ref && /make_offer/.test(this.action.type)) {
+      out.push({ label: '−5%', value: Math.round(ref * 0.95 * 1e4) / 1e4 });
+      out.push({ label: '−10%', value: Math.round(ref * 0.9 * 1e4) / 1e4 });
+    }
+    return out;
+  }
+
+  applyMeQuickFill(v: number): void {
+    this.setEditParam(this.meAmountKey(), String(v));
+  }
+
+  /** The Magic Eden balance an offer is paid from. Fetched once per card. */
+  readonly meEscrowSol = signal<number | null>(null);
+  private meEscrowAsked = false;
+
+  private ensureMeEscrow(): void {
+    if (this.meEscrowAsked) return;
+    const w = this.walletService.publicKey()?.toString();
+    if (!w) return;
+    this.meEscrowAsked = true;
+    void this.magicEden.read<Record<string, unknown>>('me_wallet_escrow_balance', { wallet: w })
+      .then(d => {
+        const raw = (d?.['buyerEscrow'] ?? d?.['balance']) as number | undefined;
+        this.meEscrowSol.set(MagicEdenService.solFromMaybeLamports(raw ?? null));
+      });
+  }
+
+  /** Shown beside the amount: where the money comes from, or goes to. */
+  meBalanceNote(): string | null {
+    const t = this.action.type;
+    if (!/make_offer|withdraw/.test(t)) return null;
+    this.ensureMeEscrow();
+    const bal = this.meEscrowSol();
+    if (bal === null) return null;
+    return `Magic Eden balance ${bal.toFixed(4)} SOL`;
+  }
+
+    /** Set once the protocol logo actually renders. The initial shows only
    *  while it hasn't — a plate behind a transparent icon is a black square. */
   readonly protoIconLoaded = signal(false);
 

@@ -393,7 +393,7 @@
          its own. Buying an NFT asks the user for nothing — the listing sets
          the price — so gating the body on `actionFields.length` alone left it
          rendering a header and a Confirm button over empty space. -->
-    @if (actionFields.length > 0 || isMeNftPanel()) {
+    @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -452,6 +452,63 @@
               }
             </div>
           </div>
+        }
+
+        <!-- The amount, in the same panel every other amount in the app uses:
+             the number, the token it is in, where it comes from, and quick
+             fills labelled with what they put in. It was a form row with a
+             small uppercase label, which is what a setting looks like — this
+             is the decision the card exists for. -->
+        @if (isMeAmountPanel()) {
+          <div class="pump-panel me-amount">
+            <div class="pump-panel__top">
+              <span class="pump-panel__label">{{ meAmountLabel() }}</span>
+              @if (meBalanceNote(); as note) {
+                <span class="pump-panel__bal">{{ note }}</span>
+              }
+            </div>
+            <div class="pump-panel__row">
+              <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                     [value]="getEditParam(meAmountKey())"
+                     [disabled]="!isEditable()"
+                     (input)="setEditParam(meAmountKey(), $any($event.target).value)" />
+              @let solTd = resolveTokenDisplay('So11111111111111111111111111111111111111112');
+              <span class="pump-token">
+                @if (solTd.logoURI) {
+                  <img [src]="solTd.logoURI" class="pump-token__icon" alt=""
+                       (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="pump-token__icon pump-token__icon--ph">S</span>
+                }
+                <span class="pump-token__sym">SOL</span>
+              </span>
+            </div>
+            @if (meQuickFills().length && isEditable()) {
+              <div class="me-quick">
+                @for (q of meQuickFills(); track q.label) {
+                  <button type="button" class="me-quick__btn" (click)="applyMeQuickFill(q.value)">
+                    {{ q.label }} <span class="mono">{{ q.value | number:'1.0-3' }}</span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
+
+          @if (meHasExpiry()) {
+            <!-- Was a unix timestamp box. Nobody knows what 1785521483 is, and
+                 someone who wants "a week" should not have to work one out. -->
+            <div class="me-expiry">
+              <span class="me-expiry__label">Expires</span>
+              <div class="me-expiry__opts">
+                @for (c of ME_EXPIRY_CHOICES; track c.days) {
+                  <button type="button" class="me-quick__btn"
+                          [class.me-quick__btn--active]="meExpiryDays() === c.days"
+                          [disabled]="!isEditable()"
+                          (click)="setMeExpiry(c.days)">{{ c.label }}</button>
+                }
+              </div>
+            </div>
+          }
         }
 
 
