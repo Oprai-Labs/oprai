@@ -381,7 +381,11 @@
     </div>
 
     <!-- Editable fields -->
-    @if (actionFields.length > 0) {
+    <!-- The body opens for a field list OR for a panel that has no fields of
+         its own. Buying an NFT asks the user for nothing — the listing sets
+         the price — so gating the body on `actionFields.length` alone left it
+         rendering a header and a Confirm button over empty space. -->
+    @if (actionFields.length > 0 || isMeNftPanel()) {
       <div class="proto-body">
 
         <!-- ─────────── pump.fun / PumpSwap: mini-Uniswap swap layout ─────────── -->

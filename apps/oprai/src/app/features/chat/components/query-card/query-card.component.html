@@ -185,6 +185,11 @@
                   </span>
                   <!-- The button follows from who owns it and whether it is
                        listed — one action, the one that applies. -->
+                  <!-- Buying is not the only thing you can do with a listed
+                       NFT: an offer below the ask is a normal move, and a
+                       browser that only offers Buy quietly decides otherwise
+                       for the user. Both are shown; Buy leads because it is
+                       the one with a price already on it. -->
                   @if (meOwnsToken(t)) {
                     @if (meIsListed(t)) {
                       <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(t)">Delist</button>
@@ -192,11 +197,15 @@
                       <button type="button" class="dlmm-use-btn" (click)="listMeToken(t)">List
                         <lucide-icon name="arrow-right" [size]="12" /></button>
                     }
-                  } @else if (meIsListed(t)) {
-                    <button type="button" class="dlmm-use-btn" (click)="buyMeToken(t)">Buy
-                      <lucide-icon name="arrow-right" [size]="12" /></button>
                   } @else {
-                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="offerOnMeToken(t)">Offer</button>
+                    <span class="me-nft__acts">
+                      @if (meIsListed(t)) {
+                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(t)">Buy</button>
+                      }
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                              [attr.title]="'Bid below the asking price'"
+                              (click)="offerOnMeToken(t)">Offer</button>
+                    </span>
                   }
                 </div>
                 @if (meTraits(t).length) {

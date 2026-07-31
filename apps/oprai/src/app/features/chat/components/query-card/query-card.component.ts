@@ -1668,8 +1668,19 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.meEmit('me_cancel_listing', this.meNftContext(t));
   }
 
+  /**
+   * Bid on an NFT. Seeded a little under the ask when there is one — an offer
+   * is normally a discount to the asking price, and an empty box makes the
+   * user go and find that number themselves.
+   */
   offerOnMeToken(t: MeTokenRow): void {
-    this.meEmit('me_make_offer', this.meNftContext(t));
+    const ask = t.price ?? this.meSol(this.meStats()?.floorPrice) ?? 0;
+    const seed = ask > 0 ? Math.max(0.001, Math.round(ask * 0.9 * 1000) / 1000) : 0;
+    this.meEmit('me_make_offer', {
+      ...this.meNftContext(t),
+      ...(seed ? { price: String(seed) } : {}),
+      ...(ask ? { askPrice: String(ask) } : {}),
+    });
   }
 
   /** True when the connected wallet owns this NFT — decides List vs Buy. */
