@@ -221,13 +221,13 @@
             <div class="dlmm-empty">
               <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
               <div>
-                @if (orcaCategory() !== 'all' && orcaRows().length > 0) {
-                  No {{ orcaCategory() }} pools in the loaded set.
+                @if (orcaCategory() !== 'all') {
+                  No {{ orcaCategoryLabel() }} pools on Orca right now.
                 } @else {
                   No Orca pools match this search.
                 }
               </div>
-              @if (orcaCategory() !== 'all' && orcaRows().length > 0) {
+              @if (orcaCategory() !== 'all') {
                 <div class="dlmm-empty__hint">Try All Pools, or search for the token directly.</div>
               }
             </div>

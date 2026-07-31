@@ -797,6 +797,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         if (k === 'clmm' || k === 'concentrated') this.raydiumPositionKind.set('clmm');
         else if (k === 'lp' || k === 'standard' || k === 'amm') this.raydiumPositionKind.set('lp');
       }
+      // Open the Orca list on the category the user asked for. Someone who
+      // said "RWA pools" and got a card sitting on All Pools has to find the
+      // chip themselves to see the answer to their own question.
+      if (this.query.type === 'orca_get_pools' || this.query.type === 'orca_search_pools') {
+        const c = this.orcaCategoryFromParams();
+        if (c) this.orcaCategory.set(c);
+      }
       this.simulateQuery();
     }
 
@@ -1403,10 +1410,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly orcaPositionsFetching = signal(false);
 
   /**
-   * Category chips, mirroring Orca's own UI. Applied over the loaded working
-   * set rather than sent to the API: Orca returns every token with an empty
-   * `tags` array, so the grouping has to be recognised from the token
-   * registry — the same source that already drives isStable / isLst.
+   * Category chips, mirroring Orca's own UI and answered by Orca's own API —
+   * `categories=` on the pool list, which is how orca.so does it.
+   *
+   * It has to be the API and not a filter over the loaded rows. The working
+   * set is the top 200 pools by TVL, and an RWA pool does a few thousand
+   * dollars a day against SOL/USDC's tens of millions: none of them are in
+   * the top 200, so filtering locally would answer "RWAs" with an empty
+   * table while Orca shows a full one.
+   *
+   * The API's own word for RWAs is `security`; the chip keeps the word the
+   * user uses and the backend translates.
    */
   readonly ORCA_CATEGORIES: ReadonlyArray<{ value: OrcaCategory; label: string }> = [
     { value: 'all',        label: 'All Pools' },
@@ -1419,23 +1433,37 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   ];
   readonly orcaCategory = signal<OrcaCategory>('all');
 
+  /** The chip's label, for prose ("No RWA pools…"). */
+  orcaCategoryLabel(): string {
+    return this.ORCA_CATEGORIES.find(c => c.value === this.orcaCategory())?.label ?? '';
+  }
+
+  /** The category carried by the incoming query, if it names one we show. */
+  private orcaCategoryFromParams(): OrcaCategory | null {
+    const raw = String(
+      this.query.params?.['category'] ?? this.query.params?.['categories'] ?? '',
+    ).toLowerCase().trim();
+    if (!raw) return null;
+    const k = raw.replace(/[\s-]/g, '_').replace(/s$/, '');
+    if (k === 'rwa' || k === 'real_world_asset' || k === 'security') return 'rwa';
+    if (k === 'stable' || k === 'stablecoin') return 'stable';
+    if (k === 'lst' || k === 'liquid_staking_token' || k === 'liquid_staking') return 'lst';
+    if (k === 'governance') return 'governance';
+    if (k === 'utility') return 'utility';
+    if (k === 'meme' || k === 'memecoin') return 'meme';
+    return null;
+  }
+
   setOrcaCategory(c: OrcaCategory): void {
     if (this.orcaCategory() === c) return;
     this.orcaCategory.set(c);
-    this.orcaPage.set(1);
-    this.persistSnapshot();
+    this.orcaResetPaging();
+    void this.fetchOrcaPools();
   }
 
-  /** Rows after the category chip, before paging. Reads the registry's
-   *  version signal so the list re-filters once the token list finishes
-   *  loading — the rows can render before it does. */
-  readonly orcaFilteredRows = computed(() => {
-    void this.tokenRegistry.version();
-    const cat = this.orcaCategory();
-    if (cat === 'all') return this.orcaRows();
-    return this.orcaRows().filter(r =>
-      this.tokenRegistry.pairInCategory(cat, r.tokenA.address, r.tokenB.address));
-  });
+  /** Rows the pager works over. The category is applied upstream, so this is
+   *  just the loaded set — kept as a seam for any local narrowing. */
+  readonly orcaFilteredRows = computed(() => this.orcaRows());
 
   readonly ORCA_SORTS: ReadonlyArray<{ value: 'tvl' | 'volume' | 'fees' | 'yieldovertvl'; label: string }> = [
     { value: 'tvl',           label: 'TVL' },
@@ -1615,12 +1643,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const search = (this.orcaSearchRaw() || (this.query.params['query'] as string | undefined) || '').trim();
     // One request for the whole working set; paging happens locally.
     const size = this.ORCA_WORKING_SET;
+    const cat = this.orcaCategory();
+    const category = cat === 'all' ? undefined : cat;
     const page = search
-      ? await this.orca.searchPoolsPage(search, { size })
+      ? await this.orca.searchPoolsPage(search, { size, category })
       : await this.orca.fetchPoolsPage({
           sortBy: this.orcaSortField(),
           sortDirection: this.orcaSortDir(),
           size,
+          category,
           token: this.query.params['token'] as string | undefined,
         });
     if (!page) {

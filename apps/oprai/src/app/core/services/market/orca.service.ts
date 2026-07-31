@@ -180,6 +180,8 @@ export class OrcaService {
     next?: string;
     previous?: string;
     token?: string;
+    /** Asset category, e.g. 'rwa' | 'stablecoin' | 'lst' | 'memecoin'. */
+    category?: string;
   } = {}): Promise<OrcaPoolsPage | null> {
     const params: Record<string, unknown> = {};
     if (opts.sortBy)        params['sortBy']        = opts.sortBy;
@@ -188,6 +190,7 @@ export class OrcaService {
     if (opts.next)          params['next']          = opts.next;
     if (opts.previous)      params['previous']      = opts.previous;
     if (opts.token)         params['token']         = opts.token;
+    if (opts.category)      params['category']      = opts.category;
     try {
       const resp = await firstValueFrom(
         this.http.post<{ data?: { data?: OrcaPoolRow[]; meta?: { cursor?: { next?: string; previous?: string } } } }>(
@@ -209,13 +212,25 @@ export class OrcaService {
     }
   }
 
-  /** Free-text pool search (symbol, name or address). */
-  async searchPoolsPage(q: string, opts: { size?: number; next?: string } = {}): Promise<OrcaPoolsPage | null> {
+  /** Free-text pool search (symbol, name or address), optionally kept inside
+   *  the asset category the user is browsing. */
+  async searchPoolsPage(
+    q: string,
+    opts: { size?: number; next?: string; category?: string } = {},
+  ): Promise<OrcaPoolsPage | null> {
     try {
       const resp = await firstValueFrom(
         this.http.post<{ data?: { data?: OrcaPoolRow[]; meta?: { cursor?: { next?: string; previous?: string } } } }>(
           `${environment.apiBase}/actions/build`,
-          { type: 'orca_search_pools', params: { q, ...(opts.size ? { size: opts.size } : {}), ...(opts.next ? { next: opts.next } : {}) } },
+          {
+            type: 'orca_search_pools',
+            params: {
+              q,
+              ...(opts.size ? { size: opts.size } : {}),
+              ...(opts.next ? { next: opts.next } : {}),
+              ...(opts.category ? { category: opts.category } : {}),
+            },
+          },
           { withCredentials: true },
         ),
       );

@@ -296,6 +296,12 @@ pub struct OrcaGetPoolsParams {
     #[serde(default)]
     #[serde(alias = "include_blocked")]
     pub include_blocked: Option<bool>,
+    /// Asset category of either side of the pair, e.g. "stablecoin", "security"
+    /// (real-world assets), "liquid_staking_token", "memecoin". Comma-separated
+    /// for several. Friendly spellings are accepted — see `normalize_categories`.
+    #[serde(default)]
+    #[serde(alias = "category")]
+    pub categories: Option<String>,
 }
 
 /// Search Orca pools by query string.
@@ -331,6 +337,11 @@ pub struct OrcaSearchPoolsParams {
     pub verified_only: Option<bool>,
     #[serde(default)]
     pub has_locked_liquidity: Option<bool>,
+    /// Same asset categories as the pool list, so a search can stay inside the
+    /// group the user is browsing.
+    #[serde(default)]
+    #[serde(alias = "category")]
+    pub categories: Option<String>,
 }
 
 /// Get a specific Orca pool by address.
@@ -778,7 +789,57 @@ pub fn validate_orca_create_pool_params(p: &OrcaCreatePoolParams) -> Result<(), 
     Ok(())
 }
 
+/// Orca's own asset categories, and the words people actually use for them.
+///
+/// The API names are a taxonomy, not vocabulary: real-world assets are filed
+/// under `security`, and a user asking for "RWA pools" — or an LLM relaying
+/// that ask — will never guess it. So accept the human word and translate.
+/// An unknown one is rejected here rather than sent on, because the API
+/// answers a bad category with a 400 that tells the user nothing.
+fn canonical_category(raw: &str) -> Option<&'static str> {
+    let k = raw.trim().to_lowercase().replace([' ', '-'], "_");
+    Some(match k.trim_end_matches('s') {
+        "rwa" | "real_world_asset" | "security" | "securitie" | "stock" | "equitie" | "equity"
+        | "tokenized_stock" => "security",
+        "stable" | "stablecoin" => "stablecoin",
+        "lst" | "liquid_staking_token" | "liquid_staking" | "staked_sol" => "liquid_staking_token",
+        "governance" | "gov" => "governance",
+        "utility" => "utility",
+        "meme" | "memecoin" => "memecoin",
+        "ai" => "ai",
+        "currency" | "fiat" => "currency",
+        "nft" => "nft",
+        "wrapped_token" | "wrapped" => "wrapped_token",
+        "bridged_token" | "bridged" => "bridged_token",
+        "restaked_token" | "restaked" => "restaked_token",
+        "synthetic_asset" | "synthetic" => "synthetic_asset",
+        "digital_reward_asset" => "digital_reward_asset",
+        "yield_bearing" | "yield" => "yield_bearing",
+        _ => return None,
+    })
+}
+
+/// Translate a comma-separated category list to what the API expects.
+fn normalize_categories(raw: &str) -> Result<String, AppError> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for part in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let Some(c) = canonical_category(part) else {
+            return Err(AppError::InvalidParams(format!(
+                "'{part}' is not a pool category. Try one of: stablecoin, rwa, \
+                 lst, governance, utility, meme."
+            )));
+        };
+        if !out.contains(&c) {
+            out.push(c);
+        }
+    }
+    Ok(out.join(","))
+}
+
 pub fn validate_orca_get_pools_params(p: &OrcaGetPoolsParams) -> Result<(), AppError> {
+    if let Some(ref c) = p.categories {
+        normalize_categories(c)?;
+    }
     if let Some(ref s) = p.sort_by {
         let valid = [
             "volume",
@@ -810,6 +871,9 @@ pub fn validate_orca_search_pools_params(p: &OrcaSearchPoolsParams) -> Result<()
         return Err(AppError::InvalidParams(
             "q (search query) is required".into(),
         ));
+    }
+    if let Some(ref c) = p.categories {
+        normalize_categories(c)?;
     }
     Ok(())
 }
@@ -2253,6 +2317,12 @@ pub async fn build_orca_get_pools(
     if let Some(b) = params.include_blocked {
         url.push_str(&format!("includeBlocked={b}&"));
     }
+    if let Some(ref c) = params.categories {
+        let list = normalize_categories(c)?;
+        if !list.is_empty() {
+            url.push_str(&format!("categories={list}&"));
+        }
+    }
 
     let data = slim_orca_pool_page(orca_get(http, url.trim_end_matches('&')).await?);
     Ok(BuildResponse {
@@ -2325,6 +2395,12 @@ pub async fn build_orca_search_pools(
     }
     if let Some(l) = params.has_locked_liquidity {
         url.push_str(&format!("&hasLockedLiquidity={l}"));
+    }
+    if let Some(ref c) = params.categories {
+        let list = normalize_categories(c)?;
+        if !list.is_empty() {
+            url.push_str(&format!("&categories={list}"));
+        }
     }
 
     let data = slim_orca_pool_page(orca_get(http, &url).await?);
