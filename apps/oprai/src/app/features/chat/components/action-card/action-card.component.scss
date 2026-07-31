@@ -1438,6 +1438,27 @@
   align-items: center;
   justify-content: center;
   background: var(--op-bg-surface-2);
+  position: relative;
+
+  // Under the logo, so a missing or slow asset still names the protocol.
+  &__letter {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06b6d4));
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  &__img {
+    position: relative;
+    z-index: 1;
+    background: var(--op-bg-surface-2);
+  }
 
   img {
     width: 100%;

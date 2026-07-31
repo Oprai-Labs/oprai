@@ -484,7 +484,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   marinade:  { name: 'Marinade',   icon: 'assets/icons/protocols/marinade.webp',  accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)' },
   solend:    { name: 'Solend',     icon: 'assets/icons/protocols/solend.svg',     accent: '#3B82F6', accentBg: 'rgba(59,130,246,0.12)' },
   tensor:    { name: 'Tensor',     icon: 'assets/icons/protocols/tensor.webp',    accent: '#00D4AA', accentBg: 'rgba(0,212,170,0.12)' },
-  'magic-eden': { name: 'Magic Eden', icon: 'assets/icons/protocols/magic-eden.svg', accent: '#E42575', accentBg: 'rgba(228,37,117,0.12)' },
+  'magic-eden': { name: 'Magic Eden', icon: 'assets/icons/protocols/magiceden.webp', accent: '#E42575', accentBg: 'rgba(228,37,117,0.12)' },
   streamflow:{ name: 'Streamflow', icon: 'assets/icons/protocols/streamflow.svg', accent: '#00D4FF', accentBg: 'rgba(0,212,255,0.12)' },
   pumpfun:   { name: 'pump.fun',   icon: 'assets/icons/protocols/pumpfun.png',    accent: '#AD6DFF', accentBg: 'rgba(173,109,255,0.12)' },
   default:   { name: 'Solana',     icon: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },

@@ -351,8 +351,13 @@
 
     <!-- Header -->
     <div class="proto-header">
+      <!-- The letter sits under the logo rather than instead of it. On error
+           the image hides and the letter shows through; two icon paths in this
+           table pointed at files that do not exist, and the result was an
+           empty square with no clue which protocol it was. -->
       <div class="proto-logo">
-        <img [src]="protocolConfig.icon" [alt]="protocolConfig.name"
+        <span class="proto-logo__letter">{{ (protocolConfig.name || '?').charAt(0) }}</span>
+        <img class="proto-logo__img" [src]="protocolConfig.icon" [alt]="protocolConfig.name"
              width="36" height="36"
              onerror="this.style.display='none'" />
       </div>
