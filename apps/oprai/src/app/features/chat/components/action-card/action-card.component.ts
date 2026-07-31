@@ -113,7 +113,37 @@ const SIM_GENERIC_HINTS: Record<string, string> = {
  * generic hint actively misleads the user. When we know the action and the
  * code, use the more accurate explanation.
  */
+/**
+ * Orca Whirlpool program errors, shared by every Orca position action.
+ *
+ * Without these, 6015 fell through to the generic hint — "insufficient
+ * balance, or an amount below the protocol's minimum, try a slightly larger
+ * amount" — which is advice you cannot act on when the action is a CLOSE with
+ * no amount at all.
+ */
+const ORCA_WHIRLPOOL_HINTS: Record<string, string> = {
+  '6005': "This position still holds liquidity, so it can't be closed yet. Withdraw it first, then close.",
+  '6015': "The position's liquidity changed while this was being prepared — usually another deposit or withdrawal landing first. Ask for your positions again and retry.",
+  '6016': "The pool's liquidity moved mid-transaction. Retry in a moment.",
+  '6017': "The deposit would need more tokens than the slippage allows. Raise the slippage or lower the amount.",
+  '6018': "The withdrawal would return less than the slippage allows. Raise the slippage or retry — the price is moving.",
+  '6020': "This wallet doesn't hold the position's NFT, so it can't act on it.",
+  '6035': "The amount rounds to zero at this pool's precision. Use a larger amount.",
+  '6036': "Price moved and the swap would return less than the minimum. Raise the slippage or retry.",
+  '6037': "Price moved and the swap would cost more than the maximum. Raise the slippage or retry.",
+  // Anchor's generic constraint failure — for a Whirlpool this is almost
+  // always tick alignment or stale pool state.
+  '101': "Whirlpool constraint failed — usually tick alignment or stale pool data. Try a wider range, or refresh the pool and retry.",
+};
+
 const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
+  orca_open_position:     ORCA_WHIRLPOOL_HINTS,
+  orca_increase_position: ORCA_WHIRLPOOL_HINTS,
+  orca_decrease_position: ORCA_WHIRLPOOL_HINTS,
+  orca_close_position:    ORCA_WHIRLPOOL_HINTS,
+  orca_collect_fees:      ORCA_WHIRLPOOL_HINTS,
+  orca_collect_rewards:   ORCA_WHIRLPOOL_HINTS,
+  orca_swap:              ORCA_WHIRLPOOL_HINTS,
   raydium_open_position: {
     '101':
       "Pool returned a constraint error. Most common causes: tick range falls outside the pool's tracked observation window, the pool isn't a CLMM pool (no concentrated-liquidity support for this pair), or the deposit ratio doesn't match the current price. Try the Full range preset, refresh the pool data, or use Raydium Add Liquidity (CPMM) instead.",
@@ -127,10 +157,6 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
   meteora_dlmm_add_liquidity: {
     '101':
       "DLMM bin constraint failed. The price range may cross more bins than the per-tx limit (commonly ≤ 70 bins). Narrow the range or split into multiple positions.",
-  },
-  orca_open_position: {
-    '101':
-      "Whirlpool constraint failed. Range tick alignment or pool state issue. Try a wider range or refresh the pool data.",
   },
   borrow: {
     // Jupiter Lend vaults program: position would exceed the vault's collateral
