@@ -2151,11 +2151,93 @@ fn me_read_title(action: &str, p: &MeReadParams) -> String {
 }
 
 /// Run any of the table's reads and hand back the payload.
+/// A collection's identity and its numbers, merged.
+///
+/// Magic Eden splits them across two endpoints and neither is a collection
+/// card on its own: `/collections/{s}` has the name, art, description and
+/// links but no prices, and `/stats` has floor, listed count, 7-day volume
+/// and 24-hour average price but nothing that says which collection it is.
+/// Asked for one, a user means both.
+async fn me_collection_detail(
+    http: &reqwest::Client,
+    symbol: &str,
+) -> Result<serde_json::Value, AppError> {
+    let info_url = format!("{MAGIC_EDEN_API}/collections/{symbol}");
+    let stats_url = format!("{MAGIC_EDEN_API}/collections/{symbol}/stats");
+    let (info, stats) = futures::join!(
+        me_get_json(http, &info_url),
+        me_get_json(http, &stats_url)
+    );
+    // `/collections/{symbol}` answers 429 for every collection we ask about,
+    // on every attempt, with 90 seconds of silence in between — while its own
+    // sibling paths return 200. It is not a limit we are tripping; that route
+    // is closed to us. So when it fails, take the collection's NAME from a
+    // listing, which does work. The description, avatar and links live only
+    // behind the closed route, and the card simply omits them rather than
+    // inventing a stand-in.
+    let mut out = match info {
+        Ok(serde_json::Value::Object(m)) => serde_json::Value::Object(m),
+        _ => {
+            let name = me_get_json(
+                http,
+                &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1"),
+            )
+            .await
+            .ok()
+            .and_then(|v| {
+                v.as_array()?
+                    .first()?
+                    .pointer("/token/collectionName")?
+                    .as_str()
+                    .map(str::to_string)
+            });
+            match name {
+                Some(n) => serde_json::json!({ "symbol": symbol, "name": n }),
+                None => serde_json::json!({ "symbol": symbol }),
+            }
+        }
+    };
+    if let Ok(serde_json::Value::Object(m)) = stats {
+        if let Some(obj) = out.as_object_mut() {
+            for (k, v) in m {
+                obj.insert(k, v);
+            }
+        }
+    } else if out.get("name").is_none() {
+        return Err(AppError::NotFound(
+            "Magic Eden has no collection by that name".into(),
+        ));
+    }
+    Ok(out)
+}
+
 pub async fn build_me_read(
     http: &reqwest::Client,
     action: &str,
     params: &MeReadParams,
 ) -> Result<BuildResponse, AppError> {
+    if matches!(action, "me_collection_stats" | "me_collection_info") {
+        let symbol = need(&params.symbol, "collection")?.to_string();
+        let data = me_collection_detail(http, &symbol).await?;
+        return Ok(BuildResponse {
+            preview: ActionPreview {
+                id: Uuid::new_v4().to_string(),
+                action_type: action.to_string(),
+                description: me_read_title(action, params),
+                estimated_fee: "0".to_string(),
+                estimated_refund: None,
+                params: serde_json::json!({}),
+                warnings: vec![],
+                requires_approval: false,
+            },
+            transaction: None,
+            additional_signers_required: 0,
+            execution_steps: None,
+            quote: None,
+            is_cross_chain: false,
+            data: Some(data),
+        });
+    }
     let url = me_read_url(action, params)?;
     let data = me_get_json(http, &url).await?;
     Ok(BuildResponse {

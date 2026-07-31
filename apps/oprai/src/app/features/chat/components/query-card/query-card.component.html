@@ -386,20 +386,37 @@
                   }
                 </span>
                 <span>
-                  <span class="me-stats-card__name">{{ st.name || st.symbol }}</span>
+                  <span class="me-stats-card__name">{{ st.name || st.symbol }}@if (st.isBadged) {
+                      <lucide-icon name="shield-check" [size]="13" class="me-badge" />
+                    }</span>
                   @if (st.symbol) { <span class="me-stats-card__sym mono">{{ st.symbol }}</span> }
                 </span>
               </div>
+              @if (st.description) {
+                <p class="me-stats-card__desc">{{ st.description }}</p>
+              }
+              <!-- The four the API actually returns. It sends volume7d and
+                   avgPrice24hr; the 24h and all-time volumes this used to show
+                   are not in the response, so both rendered as dashes. -->
               <div class="me-stats-card__grid">
                 <div class="me-kpi"><span class="me-kpi__k">Floor</span>
                   <span class="me-kpi__v mono">@if (meSol(st.floorPrice); as f) { {{ f | number:'1.0-3' }} SOL } @else { — }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">Listed</span>
                   <span class="me-kpi__v mono">{{ st.listedCount ?? '—' }}</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">24h volume</span>
-                  <span class="me-kpi__v mono">@if (meSol(st.volume24hr); as v) { {{ v | number:'1.0-2' }} SOL } @else { — }</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">All-time volume</span>
-                  <span class="me-kpi__v mono">@if (meSol(st.volumeAll); as v) { {{ v | number:'1.0-0' }} SOL } @else { — }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">7d volume</span>
+                  <span class="me-kpi__v mono">@if (meSol(st.volume7d); as v) { {{ v | number:'1.0-0' }} SOL } @else { — }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">24h avg price</span>
+                  <span class="me-kpi__v mono">@if (meSol(st.avgPrice24hr); as v) { {{ v | number:'1.0-2' }} SOL } @else { — }</span></div>
               </div>
+              @if (meCollectionLinks(st).length) {
+                <div class="me-links">
+                  @for (l of meCollectionLinks(st); track l.href) {
+                    <a class="me-links__a" [href]="l.href" target="_blank" rel="noopener noreferrer">
+                      <lucide-icon [name]="l.icon" [size]="12" />{{ l.label }}
+                    </a>
+                  }
+                </div>
+              }
               @if (st.symbol) {
                 <button type="button" class="dlmm-use-btn me-stats-card__cta" (click)="browseMeCollection(st)">
                   Browse listings <lucide-icon name="arrow-right" [size]="12" />

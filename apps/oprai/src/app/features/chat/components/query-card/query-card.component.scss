@@ -2594,3 +2594,41 @@
 }
 
 .me-nft__acts { display: inline-flex; gap: 5px; }
+
+.me-stats-card__desc {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--op-text-secondary, #a1a1aa);
+}
+
+.me-badge {
+  margin-left: 5px;
+  vertical-align: -2px;
+  color: var(--op-brand-accent, #06b6d4);
+}
+
+.me-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  &__a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: 999px;
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+    color: var(--op-text-secondary, #a1a1aa);
+    font-size: 0.75rem;
+    text-decoration: none;
+    transition: border-color 0.15s ease, color 0.15s ease;
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 50%, transparent);
+      color: var(--op-text-primary, #fafafa);
+    }
+  }
+}

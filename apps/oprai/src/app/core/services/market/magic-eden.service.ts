@@ -25,9 +25,18 @@ export interface MeCollectionRow {
   description?: string | null;
   floorPrice?: number | null;      // lamports on /collections/{s}/stats
   listedCount?: number | null;
+  /** `/stats` returns volume7d and avgPrice24hr — NOT an all-time or 24h
+   *  volume. Rendering fields the endpoint never sends is how a card ends up
+   *  showing two dashes where its headline numbers should be. */
+  volume7d?: number | null;
+  avgPrice24hr?: number | null;
   volumeAll?: number | null;
   volume24hr?: number | null;
-  avgPrice24hr?: number | null;
+  twitter?: string | null;
+  discord?: string | null;
+  website?: string | null;
+  categories?: string[];
+  isBadged?: boolean;
   hasCNFTs?: boolean;
 }
 

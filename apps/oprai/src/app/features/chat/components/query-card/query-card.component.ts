@@ -2150,6 +2150,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** A collection's official links, when it published any. */
+  meCollectionLinks(c: MeCollectionRow): Array<{ label: string; href: string; icon: string }> {
+    const out: Array<{ label: string; href: string; icon: string }> = [];
+    const add = (label: string, url: string | null | undefined, icon: string) => {
+      if (url && /^https?:\/\//i.test(url)) out.push({ label, href: url, icon });
+    };
+    add('Website', c.website, 'globe');
+    add('X', c.twitter, 'twitter');
+    add('Discord', c.discord, 'message-circle');
+    if (c.symbol) {
+      out.push({ label: 'Magic Eden', href: `https://magiceden.io/marketplace/${c.symbol}`, icon: 'external-link' });
+    }
+    return out;
+  }
+
   /** Floor prices arrive in lamports from stats, SOL elsewhere. */
   meSol(v: number | null | undefined): number | null {
     return MagicEdenService.solFromMaybeLamports(v);
