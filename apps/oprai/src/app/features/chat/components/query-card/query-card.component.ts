@@ -15,6 +15,9 @@ import { JupiterLendService, LendPosition, BorrowPosition } from '@core/services
 import { JupiterPerpService, PerpPosition } from '@core/services/market/jupiter-perp.service';
 import { MeteoraService, DlmmPair, DammV2Pool, DammV1Pool } from '@core/services/market/meteora.service';
 import { OrcaService, OrcaPoolRow, OrcaUserPosition } from '@core/services/market/orca.service';
+
+/** Pool categories offered by the Orca card's filter chips. */
+type OrcaCategory = 'all' | 'stable' | 'lst' | 'rwa' | 'governance' | 'utility' | 'meme';
 import { environment } from '../../../../../environments/environment';
 import { firstValueFrom, debounceTime, distinctUntilChanged, timeout } from 'rxjs';
 
@@ -887,6 +890,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.orcaPage.set((d['orcaPage'] as number | undefined) ?? 1);
       this.orcaSortField.set((d['orcaSortField'] as any) ?? 'tvl');
       this.orcaSortDir.set((d['orcaSortDir'] as any) ?? 'desc');
+      this.orcaCategory.set((d['orcaCategory'] as OrcaCategory | undefined) ?? 'all');
     }
     if (d['orcaPositions']) {
       this.orcaPositions.set(d['orcaPositions'] as OrcaUserPosition[]);
@@ -964,6 +968,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       d['orcaPage'] = this.orcaPage();
       d['orcaSortField'] = this.orcaSortField();
       d['orcaSortDir'] = this.orcaSortDir();
+      d['orcaCategory'] = this.orcaCategory();
     }
     if (this.orcaPositions().length) {
       d['orcaPositions'] = this.orcaPositions();
@@ -1397,6 +1402,41 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly orcaPositions = signal<OrcaUserPosition[]>([]);
   readonly orcaPositionsFetching = signal(false);
 
+  /**
+   * Category chips, mirroring Orca's own UI. Applied over the loaded working
+   * set rather than sent to the API: Orca returns every token with an empty
+   * `tags` array, so the grouping has to be recognised from the token
+   * registry — the same source that already drives isStable / isLst.
+   */
+  readonly ORCA_CATEGORIES: ReadonlyArray<{ value: OrcaCategory; label: string }> = [
+    { value: 'all',        label: 'All Pools' },
+    { value: 'stable',     label: 'Stablecoins' },
+    { value: 'rwa',        label: 'RWAs' },
+    { value: 'lst',        label: 'LSTs' },
+    { value: 'governance', label: 'Governance' },
+    { value: 'utility',    label: 'Utility' },
+    { value: 'meme',       label: 'Memes' },
+  ];
+  readonly orcaCategory = signal<OrcaCategory>('all');
+
+  setOrcaCategory(c: OrcaCategory): void {
+    if (this.orcaCategory() === c) return;
+    this.orcaCategory.set(c);
+    this.orcaPage.set(1);
+    this.persistSnapshot();
+  }
+
+  /** Rows after the category chip, before paging. Reads the registry's
+   *  version signal so the list re-filters once the token list finishes
+   *  loading — the rows can render before it does. */
+  readonly orcaFilteredRows = computed(() => {
+    void this.tokenRegistry.version();
+    const cat = this.orcaCategory();
+    if (cat === 'all') return this.orcaRows();
+    return this.orcaRows().filter(r =>
+      this.tokenRegistry.pairInCategory(cat, r.tokenA.address, r.tokenB.address));
+  });
+
   readonly ORCA_SORTS: ReadonlyArray<{ value: 'tvl' | 'volume' | 'fees' | 'yieldovertvl'; label: string }> = [
     { value: 'tvl',           label: 'TVL' },
     { value: 'volume',        label: 'Volume' },
@@ -1532,12 +1572,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly orcaPage = signal(1);
 
   readonly orcaTotalPages = computed(() =>
-    Math.max(1, Math.ceil(this.orcaRows().length / this.requestedPageSize(this.ORCA_PAGE_SIZE))));
+    Math.max(1, Math.ceil(this.orcaFilteredRows().length / this.requestedPageSize(this.ORCA_PAGE_SIZE))));
 
   readonly orcaPagedRows = computed(() => {
     const size = this.requestedPageSize(this.ORCA_PAGE_SIZE);
     const start = (this.orcaPage() - 1) * size;
-    return this.orcaRows().slice(start, start + size);
+    return this.orcaFilteredRows().slice(start, start + size);
   });
 
   /** Windowed page numbers with ellipsis, against a KNOWN total. */

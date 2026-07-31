@@ -133,6 +133,17 @@
           </button>
         </div>
 
+        <!-- Category chips, same grouping Orca's own pool browser offers. -->
+        <div class="dlmm-sort-bar dlmm-sort-bar--chips">
+          @for (c of ORCA_CATEGORIES; track c.value) {
+            <button class="orca-chip"
+                    [class.orca-chip--active]="orcaCategory() === c.value"
+                    (click)="setOrcaCategory(c.value)">
+              {{ c.label }}
+            </button>
+          }
+        </div>
+
         <div class="dlmm-sort-bar">
           @for (opt of ORCA_SORTS; track opt.value) {
             <button class="sort-btn"
@@ -206,10 +217,19 @@
               </span>
             </div>
           }
-          @if (!orcaFetching() && orcaRows().length === 0) {
+          @if (!orcaFetching() && orcaPagedRows().length === 0) {
             <div class="dlmm-empty">
               <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
-              <div>No Orca pools match this search.</div>
+              <div>
+                @if (orcaCategory() !== 'all' && orcaRows().length > 0) {
+                  No {{ orcaCategory() }} pools in the loaded set.
+                } @else {
+                  No Orca pools match this search.
+                }
+              </div>
+              @if (orcaCategory() !== 'all' && orcaRows().length > 0) {
+                <div class="dlmm-empty__hint">Try All Pools, or search for the token directly.</div>
+              }
             </div>
           }
         </div>

@@ -346,6 +346,88 @@ export class TokenRegistryService {
   }
 
   /**
+   * Tokenised real-world assets — equities, treasuries, commodities.
+   *
+   * Orca's own UI groups pools this way but its API returns every token with
+   * an empty `tags` array, so the category has to be recognised rather than
+   * read. Issuers converge on a small set of naming conventions: an "x" suffix
+   * on a ticker (SPYx, NVDAx), an "ib" prefix for interest-bearing treasuries,
+   * or the asset class spelled out in the name.
+   */
+  isRwa(addressOrSymbol: string): boolean {
+    if (!addressOrSymbol) return false;
+    const meta = SOLANA_ADDR_RE.test(addressOrSymbol)
+      ? this.getToken(addressOrSymbol)
+      : this.getBySymbol(addressOrSymbol);
+    const tags = (meta?.tags ?? []).map(t => String(t).toLowerCase());
+    if (tags.some(t => t === 'rwa' || t === 'real-world-asset' || t === 'tokenized-stock')) return true;
+    const symbol = (meta?.symbol ?? (SOLANA_ADDR_RE.test(addressOrSymbol) ? '' : addressOrSymbol));
+    // Ticker + lowercase x: SPYx, NVDAx, TSLAx. Requires the trailing x to be
+    // lowercase against upper-case ticker letters, so USDX and PYUSD don't match.
+    if (/^[A-Z]{2,6}x$/.test(symbol)) return true;
+    if (/^ib[A-Z]/.test(symbol)) return true;
+    const name = (meta?.name ?? '').toLowerCase();
+    return /tokeniz(ed|ation)|real.world|treasury|t-bill|equit(y|ies)|stock|commodit/.test(name);
+  }
+
+  /** Governance / protocol tokens — the thing you vote with. */
+  isGovernance(addressOrSymbol: string): boolean {
+    if (!addressOrSymbol) return false;
+    const meta = SOLANA_ADDR_RE.test(addressOrSymbol)
+      ? this.getToken(addressOrSymbol)
+      : this.getBySymbol(addressOrSymbol);
+    const tags = (meta?.tags ?? []).map(t => String(t).toLowerCase());
+    if (tags.some(t => t === 'governance' || t === 'dao')) return true;
+    const name = (meta?.name ?? '').toLowerCase();
+    return /governance|\bdao\b/.test(name);
+  }
+
+  /**
+   * Memecoins. Deliberately tag-led: guessing from a name is how a serious
+   * token ends up filed as a joke, so this trusts the token list and falls
+   * back only to the launchpad tags that are themselves a strong signal.
+   */
+  isMeme(addressOrSymbol: string): boolean {
+    if (!addressOrSymbol) return false;
+    const meta = SOLANA_ADDR_RE.test(addressOrSymbol)
+      ? this.getToken(addressOrSymbol)
+      : this.getBySymbol(addressOrSymbol);
+    const tags = (meta?.tags ?? []).map(t => String(t).toLowerCase());
+    return tags.some(t => t === 'meme' || t === 'memecoin' || t === 'pump' || t === 'moonshot');
+  }
+
+  /**
+   * Anything that isn't one of the named groups. "Utility" is what's left, so
+   * it is defined by exclusion rather than by a list nobody can maintain.
+   */
+  isUtility(addressOrSymbol: string): boolean {
+    if (!addressOrSymbol) return false;
+    return !this.isStable(addressOrSymbol)
+        && !this.isLst(addressOrSymbol)
+        && !this.isRwa(addressOrSymbol)
+        && !this.isGovernance(addressOrSymbol)
+        && !this.isMeme(addressOrSymbol);
+  }
+
+  /** True when either side of a pair falls in the category. A pool belongs to
+   *  "RWAs" if it holds an RWA, regardless of what it is quoted against. */
+  pairInCategory(
+    category: 'all' | 'stable' | 'lst' | 'rwa' | 'governance' | 'utility' | 'meme',
+    mintA: string,
+    mintB: string,
+  ): boolean {
+    if (category === 'all') return true;
+    const test = (m: string) =>
+      category === 'stable' ? this.isStable(m)
+      : category === 'lst' ? this.isLst(m)
+      : category === 'rwa' ? this.isRwa(m)
+      : category === 'governance' ? this.isGovernance(m)
+      : category === 'meme' ? this.isMeme(m)
+      : this.isUtility(m);
+    return test(mintA) || test(mintB);
+  }
+
+  /**
    * List all loaded tokens, optionally filtered to a category and/or a free-text
    * query (matches against symbol or name). Used by the token picker modal in
    * the action-card swap form. Sorted by name for stable display order.
