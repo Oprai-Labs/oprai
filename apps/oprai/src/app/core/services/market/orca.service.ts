@@ -182,6 +182,8 @@ export class OrcaService {
     token?: string;
     /** Asset category, e.g. 'rwa' | 'stablecoin' | 'lst' | 'memecoin'. */
     category?: string;
+    /** Skip pools below this USD TVL — most of Orca's pools are dust. */
+    minTvl?: number;
   } = {}): Promise<OrcaPoolsPage | null> {
     const params: Record<string, unknown> = {};
     if (opts.sortBy)        params['sortBy']        = opts.sortBy;
@@ -191,6 +193,7 @@ export class OrcaService {
     if (opts.previous)      params['previous']      = opts.previous;
     if (opts.token)         params['token']         = opts.token;
     if (opts.category)      params['category']      = opts.category;
+    if (opts.minTvl)        params['minTvl']        = opts.minTvl;
     try {
       const resp = await firstValueFrom(
         this.http.post<{ data?: { data?: OrcaPoolRow[]; meta?: { cursor?: { next?: string; previous?: string } } } }>(

@@ -898,6 +898,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.orcaSortField.set((d['orcaSortField'] as any) ?? 'tvl');
       this.orcaSortDir.set((d['orcaSortDir'] as any) ?? 'desc');
       this.orcaCategory.set((d['orcaCategory'] as OrcaCategory | undefined) ?? 'all');
+      this.orcaCapped.set(!!d['orcaCapped']);
     }
     if (d['orcaPositions']) {
       this.orcaPositions.set(d['orcaPositions'] as OrcaUserPosition[]);
@@ -976,6 +977,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       d['orcaSortField'] = this.orcaSortField();
       d['orcaSortDir'] = this.orcaSortDir();
       d['orcaCategory'] = this.orcaCategory();
+      d['orcaCapped'] = this.orcaCapped();
     }
     if (this.orcaPositions().length) {
       d['orcaPositions'] = this.orcaPositions();
@@ -1617,6 +1619,27 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly ORCA_WORKING_SET = 200;
   readonly orcaPage = signal(1);
 
+  /**
+   * Floor for the browse list.
+   *
+   * Orca has thousands of pools and most of them are dust — 540 pools hold an
+   * RWA, 43 of them hold more than $1,000. Without a floor every category
+   * filled the 200-row working set and the pager read "14 pages" for all of
+   * them, which is what made the numbers look broken: they were all reporting
+   * our own cap, not the data.
+   *
+   * With it the counts are real and different (RWAs 43, LSTs 68, memes 50),
+   * and every row is a pool someone could actually add liquidity to. Nothing
+   * is hidden silently — the count line names the floor, and SEARCH is not
+   * floored, so a specific small pool is still findable by name.
+   */
+  readonly ORCA_MIN_TVL = 1_000;
+  readonly ORCA_MIN_TVL_LABEL = '$1K';
+
+  /** True when Orca reported more pools past the working set, i.e. the count
+   *  shown is our cap rather than the real total. */
+  readonly orcaCapped = signal(false);
+
   readonly orcaTotalPages = computed(() =>
     Math.max(1, Math.ceil(this.orcaFilteredRows().length / this.requestedPageSize(this.ORCA_PAGE_SIZE))));
 
@@ -1663,6 +1686,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const size = this.ORCA_WORKING_SET;
     const cat = this.orcaCategory();
     const category = cat === 'all' ? undefined : cat;
+    // Search is NOT floored — someone looking for a specific small pool by
+    // name should find it. The floor is for browsing.
     const page = search
       ? await this.orca.searchPoolsPage(search, { size, category })
       : await this.orca.fetchPoolsPage({
@@ -1670,12 +1695,14 @@ export class QueryCardComponent implements OnInit, OnDestroy {
           sortDirection: this.orcaSortDir(),
           size,
           category,
+          minTvl: this.ORCA_MIN_TVL,
           token: this.query.params['token'] as string | undefined,
         });
     if (!page) {
       this.error.set('Failed to load Orca pools');
     } else {
       this.orcaRows.set(page.rows);
+      this.orcaCapped.set(!search && !!page.nextCursor);
       this.orcaPage.set(1);
       this.reportEmptyState(page.rows.length === 0);
       this.persistSnapshot();

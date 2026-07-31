@@ -240,14 +240,20 @@
           }
         </div>
 
-        <!-- Numbered pages, same bar as the Raydium list. Orca exposes a
-             cursor and no total, so a number appears once the page behind it
-             is reachable — never a button that would fetch nothing. -->
+        <!-- Numbered pages over the loaded set. When Orca says there are more
+             pools past it, the count is a cap and the label says so rather
+             than passing it off as the total. -->
         @if (orcaTotalPages() > 1) {
           <div class="dlmm-showing">
             Showing <strong>{{ (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + 1 }}–{{
               (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + orcaPagedRows().length
-            }}</strong> of <strong>{{ orcaRows().length }}</strong> pools
+            }}</strong> of
+            @if (orcaCapped()) {
+              the top <strong>{{ orcaRows().length }}</strong> pools by TVL
+            } @else {
+              <strong>{{ orcaRows().length }}</strong> pools
+            }
+            over {{ ORCA_MIN_TVL_LABEL }} TVL
           </div>
           <div class="dlmm-pagination">
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaGoToPage(1)"
