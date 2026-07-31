@@ -1669,17 +1669,20 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Bid on an NFT. Seeded a little under the ask when there is one — an offer
-   * is normally a discount to the asking price, and an empty box makes the
-   * user go and find that number themselves.
+   * Bid on an NFT.
+   *
+   * The price is left EMPTY on purpose. It was seeded at 90% of the ask, and
+   * 90% is a number I made up — presented in the box it reads as a market
+   * figure rather than as the guess it is. What an offer should be is the
+   * user's judgement, and the card's job is to put the real reference numbers
+   * in front of them: the asking price and the collection floor.
    */
   offerOnMeToken(t: MeTokenRow): void {
-    const ask = t.price ?? this.meSol(this.meStats()?.floorPrice) ?? 0;
-    const seed = ask > 0 ? Math.max(0.001, Math.round(ask * 0.9 * 1000) / 1000) : 0;
+    const floor = this.meSol(this.meStats()?.floorPrice);
     this.meEmit('me_make_offer', {
       ...this.meNftContext(t),
-      ...(seed ? { price: String(seed) } : {}),
-      ...(ask ? { askPrice: String(ask) } : {}),
+      ...(t.price ? { askPrice: String(t.price) } : {}),
+      ...(floor ? { floorPrice: String(floor) } : {}),
     });
   }
 

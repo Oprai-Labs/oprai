@@ -356,10 +356,13 @@
            table pointed at files that do not exist, and the result was an
            empty square with no clue which protocol it was. -->
       <div class="proto-logo">
-        <span class="proto-logo__letter">{{ (protocolConfig.name || '?').charAt(0) }}</span>
+        @if (!protoIconLoaded()) {
+          <span class="proto-logo__letter">{{ (protocolConfig.name || '?').charAt(0) }}</span>
+        }
         <img class="proto-logo__img" [src]="protocolConfig.icon" [alt]="protocolConfig.name"
              width="36" height="36"
-             onerror="this.style.display='none'" />
+             (load)="protoIconLoaded.set(true)"
+             (error)="$any($event.target).style.display='none'" />
       </div>
       <div class="proto-header-info">
         <span class="proto-name">{{ protocolConfig.name }}</span>
@@ -528,6 +531,18 @@
               <div class="me-act__name">{{ meNftName() || 'This NFT' }}</div>
               @if (meCollectionName()) {
                 <div class="me-act__coll">{{ meCollectionName() }}</div>
+              }
+              <!-- What an offer is judged against. Shown instead of guessing a
+                   number into the box: these are real, the guess was not. -->
+              @if (meShowsReference()) {
+                <div class="me-act__ref">
+                  @if (meAskPrice(); as ask) {
+                    <span><span class="me-act__ref-k">Asking</span><span class="mono">{{ ask | number:'1.0-3' }} SOL</span></span>
+                  }
+                  @if (meFloorPrice(); as fl) {
+                    <span><span class="me-act__ref-k">Floor</span><span class="mono">{{ fl | number:'1.0-3' }} SOL</span></span>
+                  }
+                </div>
               }
               @if (meHeadlinePrice(); as price) {
                 <div class="me-act__price">

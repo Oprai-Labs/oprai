@@ -2474,6 +2474,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * by reading its mint — plus the price and what it costs. The mint, seller,
    * token account and auction house are resolved server-side and never shown.
    */
+  /** Set once the protocol logo actually renders. The initial shows only
+   *  while it hasn't — a plate behind a transparent icon is a black square. */
+  readonly protoIconLoaded = signal(false);
+
   readonly isMeNftPanel = computed(() => {
     const t = this.action.type;
     if (!t.startsWith('me_') || t.startsWith('me_mmm_')) return false;
@@ -2553,6 +2557,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (/list|_sell$/.test(t)) return 'Ask';
     if (/cancel/.test(t)) return '';
     return 'You pay';
+  }
+
+  /** The asking price, when this action was spawned from a listed NFT. */
+  meAskPrice(): number | null {
+    const n = Number(this.getEditParam('askPrice') || this.action.params?.['askPrice']);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  /** The collection floor, as the other reference an offer is judged against. */
+  meFloorPrice(): number | null {
+    const n = Number(this.getEditParam('floorPrice') || this.action.params?.['floorPrice']);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  /** True while making an offer — the one action with real reference prices
+   *  worth showing next to an empty box. */
+  meShowsReference(): boolean {
+    return /make_offer/.test(this.action.type) && (!!this.meAskPrice() || !!this.meFloorPrice());
   }
 
   /** The number the card leads with. */

@@ -1437,7 +1437,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--op-bg-surface-2);
   position: relative;
 
   // Under the logo, so a missing or slow asset still names the protocol.
@@ -1454,10 +1453,12 @@
     text-transform: uppercase;
   }
 
+  // No plate. These icons are transparent cut-outs and a background behind
+  // them is a black square on a coloured header — which is what putting one
+  // here produced.
   &__img {
     position: relative;
     z-index: 1;
-    background: var(--op-bg-surface-2);
   }
 
   img {
@@ -5430,3 +5431,16 @@
 
   &__net { color: var(--op-text-secondary, #a1a1aa); font-weight: 600; }
 }
+
+.me-act__ref {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--op-text-secondary, #a1a1aa);
+
+  span { display: inline-flex; gap: 5px; align-items: baseline; }
+}
+
+.me-act__ref-k { color: var(--op-text-tertiary, #71717a); }
