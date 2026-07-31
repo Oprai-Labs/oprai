@@ -1974,7 +1974,6 @@ _DISPATCH: dict[str, tuple] = {
     "me_collections":              (_me_collections,              [],                ["offset", "limit"]),
     "me_collection_listings":      (_me_collection_listings,      ["symbol"],        ["offset", "limit", "minPrice", "maxPrice", "sort", "sortDirection", "listingAggMode"]),
     "me_collections_batch_listings":(_me_collections_batch_listings,["symbols"],     ["offset", "limit", "minPrice", "maxPrice", "sort", "sortDirection", "listingAggMode"]),
-    "me_collection_holder_stats":  (_me_collection_holder_stats,  ["symbol"],        []),
     "me_collection_leaderboard":   (_me_collection_leaderboard,   ["symbol"],        ["limit"]),
     "me_launchpad_collections":    (_me_launchpad_collections,    [],                ["offset", "limit"]),
     "me_collection_attributes":    (_me_collection_attributes,    ["collectionSymbol"], []),

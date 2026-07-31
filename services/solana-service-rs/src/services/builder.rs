@@ -3093,17 +3093,17 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             solend::validate_solend_exercise_reward_params(&p)
         }
         // ── Magic Eden NFT Marketplace Actions ───────────────────────────────────────
-        "me_list" => {
+        "me_list" | "me_sell" => {
             let p: magic_eden::MeListParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid me_list params: {e}")))?;
             magic_eden::validate_me_list_params(&p)
         }
-        "me_buy" => {
+        "me_buy" | "me_buy_now" | "me_buy_instruction" | "me_buy_now_transfer_nft" => {
             let p: magic_eden::MeBuyParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid me_buy params: {e}")))?;
             magic_eden::validate_me_buy_params(&p)
         }
-        "me_cancel_listing" => {
+        "me_cancel_listing" | "me_sell_cancel" => {
             let p: magic_eden::MeCancelListingParams = serde_json::from_value(params.clone())
                 .map_err(|e| {
                     AppError::InvalidParams(format!("Invalid me_cancel_listing params: {e}"))
@@ -3117,19 +3117,46 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
                 })?;
             magic_eden::validate_me_make_offer_params(&p)
         }
-        "me_accept_offer" => {
+        "me_accept_offer" | "me_sell_now" => {
             let p: magic_eden::MeAcceptOfferParams = serde_json::from_value(params.clone())
                 .map_err(|e| {
                     AppError::InvalidParams(format!("Invalid me_accept_offer params: {e}"))
                 })?;
             magic_eden::validate_me_accept_offer_params(&p)
         }
-        "me_cancel_offer" => {
+        "me_cancel_offer" | "me_buy_cancel" => {
             let p: magic_eden::MeCancelOfferParams = serde_json::from_value(params.clone())
                 .map_err(|e| {
                     AppError::InvalidParams(format!("Invalid me_cancel_offer params: {e}"))
                 })?;
             magic_eden::validate_me_cancel_offer_params(&p)
+        }
+        // Repricing and escrow moves take only a mint (or nothing) plus an
+        // amount; the live listing/offer supplies the rest, so there is
+        // nothing here a user could get wrong beyond the number.
+        "me_sell_change_price" | "me_buy_change_price" => {
+            let _p: magic_eden::MeChangePriceParams = serde_json::from_value(params.clone())
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid price-change params: {e}"))
+                })?;
+            Ok(())
+        }
+        "me_deposit" | "me_withdraw" => {
+            let _p: magic_eden::MeEscrowParams = serde_json::from_value(params.clone())
+                .map_err(|e| AppError::InvalidParams(format!("Invalid escrow params: {e}")))?;
+            Ok(())
+        }
+        // MMM params are validated where they are built — the price, curve
+        // and pool checks live next to the endpoint that rejects them.
+        "me_mmm_create_pool" | "me_mmm_update_pool" | "me_mmm_sol_close_pool"
+        | "me_mmm_sol_deposit_buy" | "me_mmm_sol_withdraw_buy"
+        | "me_mmm_sol_fulfill_buy" | "me_mmm_sol_fulfill_sell" => Ok(()),
+        // Reads validate themselves: `me_read_url` is where a missing symbol,
+        // mint or wallet is reported, and it names which one is missing.
+        "me_collections" | "me_collection_stats" | "me_collection_attributes" | "me_collection_leaderboard" | "me_collection_listings" | "me_collection_activities" | "me_collections_batch_listings" | "me_launchpad_collections" | "me_marketplace_popular" | "me_token" | "me_token_activities" | "me_token_listings" | "me_token_offers_received" | "me_wallet" | "me_wallet_tokens" | "me_wallet_activities" | "me_owner_activities" | "me_wallet_escrow_balance" | "me_wallet_offers_made" | "me_wallet_offers_received" | "me_mmm_pools" => {
+            let _p: magic_eden::MeReadParams = serde_json::from_value(params.clone())
+                .map_err(|e| AppError::InvalidParams(format!("Invalid Magic Eden query: {e}")))?;
+            Ok(())
         }
         "me_collection_info" => {
             let p: magic_eden::MeCollectionInfoParams = serde_json::from_value(params.clone())
@@ -5362,29 +5389,79 @@ pub async fn build_action(
             solend::build_solend_exercise_reward(http, user_pubkey.to_string().as_str(), &p).await
         }
         // ── Magic Eden NFT Marketplace Actions ───────────────────────────────────────
-        "me_list" => {
+        // Magic Eden's own API names the two sides of every trade separately
+        // (`sell` vs `sell_cancel` vs `sell_now`), and the tool catalogue grew
+        // both those names and our plainer ones. They are the same action;
+        // aliasing here beats making the model guess which spelling works.
+        "me_list" | "me_sell" => {
             let p: magic_eden::MeListParams = serde_json::from_value(params)?;
             magic_eden::build_me_list(http, rpc, user_pubkey, &p).await
         }
-        "me_buy" => {
+        "me_buy" | "me_buy_now" | "me_buy_instruction" | "me_buy_now_transfer_nft" => {
             let p: magic_eden::MeBuyParams = serde_json::from_value(params)?;
             magic_eden::build_me_buy(http, rpc, user_pubkey, &p).await
         }
-        "me_cancel_listing" => {
+        "me_cancel_listing" | "me_sell_cancel" => {
             let p: magic_eden::MeCancelListingParams = serde_json::from_value(params)?;
             magic_eden::build_me_cancel_listing(http, rpc, user_pubkey, &p).await
+        }
+        "me_sell_change_price" => {
+            let p: magic_eden::MeChangePriceParams = serde_json::from_value(params)?;
+            magic_eden::build_me_change_listing_price(http, rpc, user_pubkey, &p).await
         }
         "me_make_offer" => {
             let p: magic_eden::MeMakeOfferParams = serde_json::from_value(params)?;
             magic_eden::build_me_make_offer(http, rpc, user_pubkey, &p).await
         }
-        "me_accept_offer" => {
+        "me_accept_offer" | "me_sell_now" => {
             let p: magic_eden::MeAcceptOfferParams = serde_json::from_value(params)?;
             magic_eden::build_me_accept_offer(http, rpc, user_pubkey, &p).await
         }
-        "me_cancel_offer" => {
+        "me_cancel_offer" | "me_buy_cancel" => {
             let p: magic_eden::MeCancelOfferParams = serde_json::from_value(params)?;
             magic_eden::build_me_cancel_offer(http, rpc, user_pubkey, &p).await
+        }
+        "me_buy_change_price" => {
+            let p: magic_eden::MeChangePriceParams = serde_json::from_value(params)?;
+            magic_eden::build_me_change_offer_price(http, rpc, user_pubkey, &p).await
+        }
+        "me_deposit" => {
+            let p: magic_eden::MeEscrowParams = serde_json::from_value(params)?;
+            magic_eden::build_me_deposit(http, rpc, user_pubkey, &p).await
+        }
+        // MMM — Magic Eden's NFT AMM. A pool quotes both sides of a
+        // collection; these are its whole lifecycle.
+        "me_mmm_create_pool" => {
+            let p: magic_eden::MeMmmCreatePoolParams = serde_json::from_value(params)?;
+            magic_eden::build_me_mmm_create_pool(http, user_pubkey, &p).await
+        }
+        "me_mmm_update_pool" => {
+            let p: magic_eden::MeMmmUpdatePoolParams = serde_json::from_value(params)?;
+            magic_eden::build_me_mmm_update_pool(http, user_pubkey, &p).await
+        }
+        "me_mmm_sol_close_pool" => {
+            let p: magic_eden::MeMmmPoolParams = serde_json::from_value(params)?;
+            magic_eden::build_me_mmm_close_pool(http, user_pubkey, &p).await
+        }
+        "me_mmm_sol_deposit_buy" => {
+            let p: magic_eden::MeMmmFundParams = serde_json::from_value(params)?;
+            magic_eden::build_me_mmm_deposit_buy(http, user_pubkey, &p).await
+        }
+        "me_mmm_sol_withdraw_buy" => {
+            let p: magic_eden::MeMmmFundParams = serde_json::from_value(params)?;
+            magic_eden::build_me_mmm_withdraw_buy(http, user_pubkey, &p).await
+        }
+        "me_mmm_sol_fulfill_buy" => {
+            let p: magic_eden::MeMmmFulfillBuyParams = serde_json::from_value(params)?;
+            magic_eden::build_me_mmm_fulfill_buy(http, user_pubkey, &p).await
+        }
+        "me_mmm_sol_fulfill_sell" => {
+            let p: magic_eden::MeMmmFulfillSellParams = serde_json::from_value(params)?;
+            magic_eden::build_me_mmm_fulfill_sell(http, user_pubkey, &p).await
+        }
+        "me_withdraw" => {
+            let p: magic_eden::MeEscrowParams = serde_json::from_value(params)?;
+            magic_eden::build_me_withdraw(http, rpc, user_pubkey, &p).await
         }
         "me_collection_info" => {
             let p: magic_eden::MeCollectionInfoParams = serde_json::from_value(params)?;
@@ -5413,6 +5490,13 @@ pub async fn build_action(
         "me_collection_nfts" => {
             let p: magic_eden::MeCollectionNFTsParams = serde_json::from_value(params)?;
             magic_eden::build_me_collection_nfts(http, &p).await
+        }
+        // Every remaining Magic Eden read, through one table. See
+        // `me_read_url` — the paths there were checked against the live API,
+        // and the three that 404 are deliberately not among them.
+        "me_collections" | "me_collection_stats" | "me_collection_attributes" | "me_collection_leaderboard" | "me_collection_listings" | "me_collection_activities" | "me_collections_batch_listings" | "me_launchpad_collections" | "me_marketplace_popular" | "me_token" | "me_token_activities" | "me_token_listings" | "me_token_offers_received" | "me_wallet" | "me_wallet_tokens" | "me_wallet_activities" | "me_owner_activities" | "me_wallet_escrow_balance" | "me_wallet_offers_made" | "me_wallet_offers_received" | "me_mmm_pools" => {
+            let p: magic_eden::MeReadParams = serde_json::from_value(params)?;
+            magic_eden::build_me_read(http, action_type, &p).await
         }
         // ── Cross-Chain Actions ─────────────────────────────────────────────────────
         "cross_chain_swap" | "bridge" => {

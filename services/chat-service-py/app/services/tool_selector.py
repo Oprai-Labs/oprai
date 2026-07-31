@@ -530,7 +530,6 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_collections":          _A({"nft", "magic_eden"}),
     "me_collection_listings":  _A({"nft", "magic_eden"}),
     "me_collections_batch_listings":_A({"nft", "magic_eden"}),
-    "me_collection_holder_stats":_A({"nft", "magic_eden", "analysis"}),
     "me_collection_leaderboard":_A({"nft", "magic_eden", "analysis"}),
     "me_launchpad_collections":_A({"nft", "magic_eden"}),
     "me_buy_instruction":      _A({"nft", "magic_eden"}),
@@ -561,7 +560,6 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_mmm_sol_fulfill_buy":  _A({"nft", "magic_eden"}),
     "me_mmm_sol_fulfill_sell": _A({"nft", "magic_eden"}),
     "me_marketplace_popular":  _A({"nft", "magic_eden", "analysis"}),
-    "me_magic_ticket_burns":   _A({"nft", "magic_eden"}),
     # Knowledge + Strategy
     "knowledge": _A({"always", "core"}),
     "strategy":  _A({"analysis"}),

@@ -567,7 +567,6 @@ class QueryType(str, Enum):
     ME_COLLECTIONS = "me_collections"
     ME_COLLECTION_LISTINGS = "me_collection_listings"
     ME_COLLECTIONS_BATCH_LISTINGS = "me_collections_batch_listings"
-    ME_COLLECTION_HOLDER_STATS = "me_collection_holder_stats"
     ME_COLLECTION_LEADERBOARD = "me_collection_leaderboard"
     ME_LAUNCHPAD_COLLECTIONS = "me_launchpad_collections"
     ME_BUY_INSTRUCTION = "me_buy_instruction"
@@ -598,7 +597,6 @@ class QueryType(str, Enum):
     ME_MMM_SOL_FULFILL_BUY = "me_mmm_sol_fulfill_buy"
     ME_MMM_SOL_FULFILL_SELL = "me_mmm_sol_fulfill_sell"
     ME_MARKETPLACE_POPULAR = "me_marketplace_popular"
-    ME_MAGIC_TICKET_BURNS = "me_magic_ticket_burns"
     # RAG knowledge base queries
     KNOWLEDGE = "knowledge"
     # Portfolio strategy generation
