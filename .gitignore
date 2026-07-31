@@ -101,7 +101,7 @@ target/
 bin/
 
 # Proto generated (local)
-proto/gen/
+**/proto/gen/
 
 # Database backups
 backups/
