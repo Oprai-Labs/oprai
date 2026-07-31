@@ -33,6 +33,14 @@ export class AppVersionService {
     this.entry = AppVersionService.entryOf(document.documentElement.outerHTML);
     if (!this.entry) return;           // dev server — nothing to compare
     this.timer = setInterval(() => void this.check(), AppVersionService.POLL_MS);
+    // The timer alone needs the tab to be hidden at the moment a tick lands,
+    // so someone working in the app for an hour could sit on a build from
+    // before they started — testing a fix and seeing the old behaviour.
+    // Checking the moment the tab goes away makes a glance at another window
+    // enough to pick one up.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) void this.check();
+    });
   }
 
   /** Bracket anything a reload must not interrupt. */
