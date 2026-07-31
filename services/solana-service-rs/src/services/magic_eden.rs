@@ -2151,6 +2151,96 @@ fn me_read_title(action: &str, p: &MeReadParams) -> String {
 }
 
 /// Run any of the table's reads and hand back the payload.
+/// The collection's cover art, name and description, read from the chain.
+///
+/// Magic Eden's `/collections/{symbol}` carries all three and is closed to us
+/// (429, every collection, every attempt). The same facts are on-chain: any
+/// NFT in the collection points at the collection's own metadata account, and
+/// that account has the cover.
+///
+/// Two hops from a listing we can already fetch: mint → its collection →
+/// that collection's metadata. Cached, because it does not change.
+async fn me_collection_identity(
+    http: &reqwest::Client,
+    symbol: &str,
+) -> Option<serde_json::Value> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    static CACHE: OnceLock<Mutex<HashMap<String, (Instant, serde_json::Value)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    const TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
+    if let Ok(map) = cache.lock() {
+        if let Some((at, v)) = map.get(symbol) {
+            if at.elapsed() < TTL {
+                return Some(v.clone());
+            }
+        }
+    }
+
+    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let rpc = format!("https://mainnet.helius-rpc.com/?api-key={key}");
+    let get_asset = |id: String| {
+        let rpc = rpc.clone();
+        async move {
+            http.post(&rpc)
+                .json(&serde_json::json!({
+                    "jsonrpc": "2.0", "id": 1, "method": "getAsset",
+                    "params": { "id": id }
+                }))
+                .send()
+                .await
+                .ok()?
+                .json::<serde_json::Value>()
+                .await
+                .ok()
+        }
+    };
+
+    // Any listed NFT will do — we only need something that belongs to it.
+    let listings = me_get_json(
+        http,
+        &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1"),
+    )
+    .await
+    .ok()?;
+    let mint = listings
+        .as_array()?
+        .first()?
+        .get("tokenMint")?
+        .as_str()?
+        .to_string();
+
+    let asset = get_asset(mint).await?;
+    let collection_mint = asset
+        .pointer("/result/grouping")?
+        .as_array()?
+        .iter()
+        .find(|g| g.get("group_key").and_then(|k| k.as_str()) == Some("collection"))?
+        .get("group_value")?
+        .as_str()?
+        .to_string();
+
+    let coll = get_asset(collection_mint).await?;
+    let content = coll.pointer("/result/content")?;
+    let out = serde_json::json!({
+        "name": content.pointer("/metadata/name").and_then(|v| v.as_str()),
+        "image": content.pointer("/links/image").and_then(|v| v.as_str()),
+        "description": content.pointer("/metadata/description").and_then(|v| v.as_str()),
+    });
+    if out.get("name").map(|v| v.is_null()).unwrap_or(true)
+        && out.get("image").map(|v| v.is_null()).unwrap_or(true)
+    {
+        return None;
+    }
+    if let Ok(mut map) = cache.lock() {
+        map.insert(symbol.to_string(), (Instant::now(), out.clone()));
+    }
+    Some(out)
+}
+
 /// A collection's identity and its numbers, merged.
 ///
 /// Magic Eden splits them across two endpoints and neither is a collection
@@ -2171,31 +2261,20 @@ async fn me_collection_detail(
     // `/collections/{symbol}` answers 429 for every collection we ask about,
     // on every attempt, with 90 seconds of silence in between — while its own
     // sibling paths return 200. It is not a limit we are tripping; that route
-    // is closed to us. So when it fails, take the collection's NAME from a
-    // listing, which does work. The description, avatar and links live only
-    // behind the closed route, and the card simply omits them rather than
-    // inventing a stand-in.
+    // is closed to us. When it fails, the name, cover and description come
+    // from the chain instead — see `me_collection_identity`.
     let mut out = match info {
         Ok(serde_json::Value::Object(m)) => serde_json::Value::Object(m),
-        _ => {
-            let name = me_get_json(
-                http,
-                &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1"),
-            )
-            .await
-            .ok()
-            .and_then(|v| {
-                v.as_array()?
-                    .first()?
-                    .pointer("/token/collectionName")?
-                    .as_str()
-                    .map(str::to_string)
-            });
-            match name {
-                Some(n) => serde_json::json!({ "symbol": symbol, "name": n }),
-                None => serde_json::json!({ "symbol": symbol }),
+        _ => match me_collection_identity(http, symbol).await {
+            Some(mut id) => {
+                if let Some(obj) = id.as_object_mut() {
+                    obj.insert("symbol".into(), serde_json::json!(symbol));
+                    obj.retain(|_, v| !v.is_null());
+                }
+                id
             }
-        }
+            None => serde_json::json!({ "symbol": symbol }),
+        },
     };
     if let Ok(serde_json::Value::Object(m)) = stats {
         if let Some(obj) = out.as_object_mut() {
