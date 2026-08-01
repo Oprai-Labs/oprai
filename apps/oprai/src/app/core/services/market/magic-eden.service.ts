@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../../environments/environment';
@@ -94,8 +94,20 @@ export interface MeEscrowBalance {
 export class MagicEdenService {
   private readonly http = inject(HttpClient);
 
+  /**
+   * The reason the last read failed, in the backend's own words.
+   *
+   * It knows things the card cannot infer — that an NFT is not listed, that a
+   * collection does not exist — and swallowing them left every failure
+   * reading as "could not reach Magic Eden", which was usually untrue and
+   * never actionable.
+   */
+  private readonly _lastError = signal<string | null>(null);
+  lastError(): string | null { return this._lastError(); }
+
   /** Run any Magic Eden read through /actions/build and hand back the payload. */
   async read<T = unknown>(type: string, params: Record<string, unknown> = {}): Promise<T | null> {
+    this._lastError.set(null);
     try {
       const resp = await firstValueFrom(
         this.http.post<{ data?: T }>(
@@ -106,6 +118,9 @@ export class MagicEdenService {
       );
       return (resp?.data ?? null) as T | null;
     } catch (err) {
+      const msg = (err as { error?: { error?: string } })?.error?.error;
+      // Strip the classifier the API prefixes onto every error.
+      this._lastError.set(msg ? msg.replace(/^(Not found|Invalid parameters):\s*/i, '') : null);
       console.error(`Magic Eden ${type} failed:`, err);
       return null;
     }

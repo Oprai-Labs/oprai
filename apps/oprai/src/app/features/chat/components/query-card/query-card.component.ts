@@ -1937,6 +1937,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         ? { symbol: p['symbol'] ?? p['collection'] ?? p['collectionSymbol'] } : {}),
       ...(p['mintAddress'] || p['mint'] || p['tokenMint']
         ? { mintAddress: p['mintAddress'] ?? p['mint'] ?? p['tokenMint'] } : {}),
+      // The NFT's number within its collection. Without this a question like
+      // "Mad Lads 8051" arrived at the backend as a collection and nothing
+      // else, and came back as an error the card reported as unreachable.
+      ...(p['number'] || p['tokenId'] || p['id']
+        ? { number: String(p['number'] ?? p['tokenId'] ?? p['id']).replace(/^#/, '') } : {}),
       limit: this.requestedPageSize(this.ME_PAGE_SIZE) * 5,
     };
     // Anything wallet-scoped means the CONNECTED wallet unless the user named
@@ -1956,7 +1961,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
     const data = await this.magicEden.read(this.query.type, params);
     if (data === null) {
-      this.error.set('Could not reach Magic Eden');
+      // The backend says WHY — "#8051 is not currently listed", "there is no
+      // collection by that name". Reporting all of it as unreachable throws
+      // away the only part the user can act on.
+      this.error.set(this.magicEden.lastError() ?? 'Could not reach Magic Eden');
       this.meFetching.set(false);
       this.loading.set(false);
       return;
