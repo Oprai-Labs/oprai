@@ -2482,6 +2482,60 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * the balance it comes from and a Max. The amount IS the decision on these
    * cards; it should not look like a settings field.
    */
+  // ── Token safety ──────────────────────────────────────────────────────────
+  //
+  // Runs on the action, not on request: someone who knows to ask "is this a
+  // scam" is not the person at risk. The one at risk types a ticker they saw
+  // and presses Confirm.
+  //
+  // It renders NOTHING when nothing was found. A panel that says "no problems"
+  // on every clean token is noise, and noise is what teaches people to stop
+  // reading the panel that matters.
+  readonly tokenSafety = signal<{
+    severity: 'note' | 'warn' | 'block';
+    findings: Array<{ severity: string; title: string; detail: string }>;
+    clean: boolean;
+    limits: string[];
+  } | null>(null);
+  readonly safetyAcknowledged = signal(false);
+  private safetyCheckedMint = '';
+
+  /** The mint this action would put INTO the wallet. That is the one whose
+   *  danger the user has not chosen yet. */
+  private acquiredMint(): string | null {
+    const t = this.action.type;
+    const p = this.action.params;
+    if (/swap|convert|exchange/.test(t)) {
+      return (this.getEditParam('outputMint') || p['outputMint'] || p['toToken'] || null) as string | null;
+    }
+    if (/pumpfun_buy|pumpswap_buy|_buy$/.test(t) && !t.startsWith('me_')) {
+      return (this.getEditParam('mint') || p['mint'] || p['tokenMint'] || null) as string | null;
+    }
+    return null;
+  }
+
+  /** Only findings worth interrupting for. Notes are carried for the answer,
+   *  not for the card. */
+  readonly safetyAlerts = computed(() =>
+    (this.tokenSafety()?.findings ?? []).filter(f => f.severity !== 'note'));
+
+  readonly safetyBlocks = computed(() =>
+    this.safetyAlerts().some(f => f.severity === 'block'));
+
+  /** True while a block is unacknowledged — Confirm stays shut. */
+  readonly safetyGated = computed(() => this.safetyBlocks() && !this.safetyAcknowledged());
+
+  private async runTokenSafety(): Promise<void> {
+    const mint = this.acquiredMint();
+    if (!mint || mint.length < 32) return;
+    if (this.safetyCheckedMint === mint) return;
+    this.safetyCheckedMint = mint;
+    this.safetyAcknowledged.set(false);
+    const data = await this.magicEden.read<any>('token_safety', { mintAddress: mint });
+    // A check that could not run must not read as a clean bill of health.
+    this.tokenSafety.set(data ?? null);
+  }
+
   readonly isMeAmountPanel = computed(() => {
     const t = this.action.type;
     return /^me_(make_offer|list|sell|sell_change_price|buy_change_price|deposit|withdraw)$/.test(t);
@@ -6939,6 +6993,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   async showTransactionPreview(): Promise<void> {
     this.showPreview.set(true); this.loadingPreview.set(true);
+    // The safety check runs alongside the preview rather than after it — this
+    // is the last screen before a signature, and it is where someone who has
+    // never heard of a freeze authority needs to be told about one.
+    void this.runTokenSafety();
     try {
       const previewParams: Record<string, string> = Object.fromEntries(
         Object.entries(this.editParams()).filter(([, v]) => v !== undefined),

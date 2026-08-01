@@ -5495,3 +5495,49 @@
 
   &__opts { display: flex; flex-wrap: wrap; gap: 6px; }
 }
+
+// ── Token safety ─────────────────────────────────────────────────────────────
+// Only ever rendered when there is something to say. Amber for a cost to
+// weigh, red for a token built so someone else can take the money.
+.tok-safety {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--op-warning, #f59e0b) 35%, transparent);
+  background: color-mix(in srgb, var(--op-warning, #f59e0b) 8%, var(--op-bg-surface-2));
+
+  &--block {
+    border-color: color-mix(in srgb, var(--op-loss, #ef4444) 40%, transparent);
+    background: color-mix(in srgb, var(--op-loss, #ef4444) 9%, var(--op-bg-surface-2));
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--op-warning, #f59e0b);
+  }
+
+  &--block &__head { color: var(--op-loss, #ef4444); }
+
+  &__item { display: flex; flex-direction: column; gap: 2px; }
+  &__title { font-size: 0.8125rem; font-weight: 600; color: var(--op-text-primary); }
+  &__detail { font-size: 0.75rem; line-height: 1.5; color: var(--op-text-secondary); }
+
+  &__ack {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: var(--op-text-secondary);
+    cursor: pointer;
+
+    input { accent-color: var(--op-loss, #ef4444); cursor: pointer; }
+  }
+}

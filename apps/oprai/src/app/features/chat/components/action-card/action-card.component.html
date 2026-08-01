@@ -4446,14 +4446,40 @@
         }
       }
 
+      <!-- Token safety. Renders only when something was found that can cost
+           the user money — a panel reading "no problems" on every clean token
+           is noise, and noise is what teaches people to skip the panel that
+           matters. -->
+      @if (safetyAlerts().length) {
+        <div class="tok-safety" [class.tok-safety--block]="safetyBlocks()">
+          <div class="tok-safety__head">
+            <lucide-icon [name]="safetyBlocks() ? 'shield-alert' : 'alert-circle'" [size]="15" />
+            <span>{{ safetyBlocks() ? 'This token can trap your money' : 'Worth knowing before you buy' }}</span>
+          </div>
+          @for (f of safetyAlerts(); track f.title) {
+            <div class="tok-safety__item">
+              <div class="tok-safety__title">{{ f.title }}</div>
+              <div class="tok-safety__detail">{{ f.detail }}</div>
+            </div>
+          }
+          @if (safetyBlocks()) {
+            <label class="tok-safety__ack">
+              <input type="checkbox" [checked]="safetyAcknowledged()"
+                     (change)="safetyAcknowledged.set($any($event.target).checked)" />
+              <span>I understand and want to continue anyway</span>
+            </label>
+          }
+        </div>
+      }
+
       <!-- Actions -->
       <div class="tx-preview-actions">
         <button class="tx-preview-btn tx-preview-btn--cancel" type="button" (click)="cancelPreview()">
           Cancel
         </button>
         <button class="tx-preview-btn tx-preview-btn--confirm"
-                [class.tx-preview-btn--disabled]="!preview()?.canExecute"
-                [disabled]="loadingPreview() || !preview()?.canExecute"
+                [class.tx-preview-btn--disabled]="!preview()?.canExecute || safetyGated()"
+                [disabled]="loadingPreview() || !preview()?.canExecute || safetyGated()"
                 (click)="confirmPreview()">
           @if (preview()?.canExecute) {
             <lucide-icon name="check" [size]="16" />
