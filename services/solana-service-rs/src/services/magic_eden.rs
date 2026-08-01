@@ -2337,11 +2337,14 @@ async fn me_collection_mint(http: &reqwest::Client, symbol: &str) -> Option<Stri
 /// answers those in about a second. Failing that, the collection's whole
 /// name→mint map is built from the chain and cached: ten pages and fourteen
 /// seconds for a ten-thousand-piece collection, once per day.
+/// Returns the mint, and whether the whole collection was searched. A miss
+/// from a truncated search is not the same statement as a miss from a
+/// complete one, and the user is owed the difference.
 async fn me_resolve_mint_by_number(
     http: &reqwest::Client,
     symbol: &str,
     number: &str,
-) -> Option<String> {
+) -> (Option<String>, bool) {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant};
@@ -2364,7 +2367,7 @@ async fn me_resolve_mint_by_number(
                     .unwrap_or_default();
                 if matches(name) {
                     if let Some(m) = r.get("tokenMint").and_then(|v| v.as_str()) {
-                        return Some(m.to_string());
+                        return (Some(m.to_string()), true);
                     }
                 }
             }
@@ -2372,26 +2375,58 @@ async fn me_resolve_mint_by_number(
     }
 
     // Tier 2 — the whole collection, indexed once.
-    static INDEX: OnceLock<Mutex<HashMap<String, (Instant, HashMap<String, String>)>>> =
-        OnceLock::new();
+    // (built_at, last_used, complete, next_page, names)
+    type Indexed = (Instant, Instant, bool, u32, HashMap<String, String>);
+    static INDEX: OnceLock<Mutex<HashMap<String, Indexed>>> = OnceLock::new();
     let index = INDEX.get_or_init(|| Mutex::new(HashMap::new()));
     const TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
-    if let Ok(map) = index.lock() {
-        if let Some((at, names)) = map.get(symbol) {
-            if at.elapsed() < TTL {
-                return names.get(&suffix).cloned();
+    // Whatever we already have of this collection, and the page to resume
+    // from. A partial index answers what it covers and keeps going later; a
+    // complete one can also say, truthfully, that a number does not exist.
+    let (mut names, mut page): (HashMap<String, String>, u32) = {
+        let mut carried = (HashMap::new(), 1u32);
+        if let Ok(mut map) = index.lock() {
+            if let Some(entry) = map.get_mut(symbol) {
+                if entry.0.elapsed() < TTL {
+                    entry.1 = Instant::now();
+                    if let Some(hit) = entry.4.get(&suffix).cloned() {
+                        return (Some(hit), true);
+                    }
+                    if entry.2 {
+                        return (None, true);
+                    }
+                    carried = (entry.4.clone(), entry.3);
+                } else {
+                    map.remove(symbol);
+                }
             }
         }
-    }
+        carried
+    };
 
-    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
-    let collection = me_collection_mint(http, symbol).await?;
+    let key = match std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty()) {
+        Some(k) => k,
+        None => return (None, false),
+    };
+    let collection = match me_collection_mint(http, symbol).await {
+        Some(c) => c,
+        None => return (None, false),
+    };
     let rpc = format!("https://mainnet.helius-rpc.com/?api-key={key}");
-    let mut names: HashMap<String, String> = HashMap::new();
-
-    for page in 1..=20u32 {
-        let resp: serde_json::Value = http
+    // A chat turn cannot block while we page through a collection. Okay Bears
+    // took 80 seconds to index and DeGods 55 — nobody waits that long for an
+    // answer, and the first version made them.
+    //
+    // So the build gets a budget. Whatever it reached is kept, along with the
+    // page to resume from, and the next question about that collection picks
+    // up where this one stopped. A big collection becomes searchable over a
+    // few asks instead of holding one hostage.
+    const BUDGET: Duration = Duration::from_secs(12);
+    let started = Instant::now();
+    let mut complete = false;
+    while page <= 50 {
+        let resp: serde_json::Value = match http
             .post(&rpc)
             .json(&serde_json::json!({
                 "jsonrpc": "2.0", "id": 1, "method": "searchAssets",
@@ -2402,10 +2437,13 @@ async fn me_resolve_mint_by_number(
             }))
             .send()
             .await
-            .ok()?
-            .json()
-            .await
-            .ok()?;
+        {
+            Ok(r) => match r.json().await {
+                Ok(v) => v,
+                Err(_) => break,
+            },
+            Err(_) => break,
+        };
         let items = match resp.pointer("/result/items").and_then(|v| v.as_array()) {
             Some(i) => i.clone(),
             None => break,
@@ -2423,21 +2461,39 @@ async fn me_resolve_mint_by_number(
             }
         }
         if count < 1000 {
+            complete = true;
+            break;
+        }
+        page += 1;
+        // Stop the moment we have what was asked for, or run out of budget.
+        if names.contains_key(&suffix) || started.elapsed() > BUDGET {
             break;
         }
     }
     if names.is_empty() {
-        return None;
+        return (None, false);
     }
     let found = names.get(&suffix).cloned();
     if let Ok(mut map) = index.lock() {
-        // One collection's index is a few hundred KB; keep a handful.
-        if map.len() >= 8 {
-            map.clear();
+        // Evict the least recently used, not everything. Clearing the map
+        // meant nine collections in rotation rebuilt on every single lookup —
+        // fourteen seconds each, forever.
+        while map.len() >= 8 {
+            let oldest = map
+                .iter()
+                .min_by_key(|(_, v)| v.1)
+                .map(|(k, _)| k.clone());
+            match oldest {
+                Some(k) => {
+                    map.remove(&k);
+                }
+                None => break,
+            }
         }
-        map.insert(symbol.to_string(), (Instant::now(), names));
+        let now = Instant::now();
+        map.insert(symbol.to_string(), (now, now, complete, page, names));
     }
-    found
+    (found, complete)
 }
 
 /// Everything worth knowing about one NFT, in one reply.
@@ -2490,13 +2546,20 @@ pub async fn build_me_read(
                 let symbol = need(&params.symbol, "collection")?;
                 let number = need(&params.number, "NFT number")?;
                 let digits = number.trim_start_matches('#').trim().to_string();
-                me_resolve_mint_by_number(http, symbol, &digits)
-                    .await
-                    .ok_or_else(|| {
-                        AppError::NotFound(format!(
-                            "No #{digits} in that collection — check the number, or give the mint address"
-                        ))
-                    })?
+                match me_resolve_mint_by_number(http, symbol, &digits).await {
+                    (Some(m), _) => m,
+                    (None, true) => {
+                        return Err(AppError::NotFound(format!(
+                            "There is no #{digits} in that collection"
+                        )))
+                    }
+                    (None, false) => {
+                        return Err(AppError::NotFound(format!(
+                            "Still looking for #{digits} in that collection — it is a large \
+                             one. Ask again in a moment, or give the mint address."
+                        )))
+                    }
+                }
             }
         };
         let data = me_nft_detail(http, &mint).await?;
