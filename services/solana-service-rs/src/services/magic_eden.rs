@@ -2294,6 +2294,164 @@ async fn me_collection_detail(
     Ok(out)
 }
 
+/// How a collection's metadata URIs are addressed, learned from one sample.
+///
+/// Most collections number their metadata: Mad Lads is `.../json/8051.json`,
+/// Famous Foxes `.../metadata/1001.json`, Claynosaurz `.../claynosaurz/8003`.
+/// Where that holds, one indexed query finds any piece — listed or not —
+/// instead of paging a marketplace that only knows about what is for sale.
+///
+/// It does not always hold. Okay Bears and Cets address theirs by content
+/// hash, and DeGods is numbered but OFF BY ONE — "DeGod #5899" lives at
+/// `5898.json`. Substituting blindly there returns the wrong NFT, which is
+/// worse than returning none, so the offset is measured from the sample and
+/// every hit is checked against the name before it is believed.
+#[derive(Clone)]
+struct MeUriTemplate {
+    collection: String,
+    /// The URI with the number replaced by `{}`.
+    pattern: Option<String>,
+    /// name_number - uri_number. Zero for most, -1 for DeGods.
+    offset: i64,
+}
+
+/// Learn a collection's addressing from any one of its NFTs. Cached — it is
+/// a property of the collection, not of the question.
+async fn me_uri_template(http: &reqwest::Client, symbol: &str) -> Option<MeUriTemplate> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    static CACHE: OnceLock<Mutex<HashMap<String, (Instant, MeUriTemplate)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    const TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
+    if let Ok(map) = cache.lock() {
+        if let Some((at, t)) = map.get(symbol) {
+            if at.elapsed() < TTL {
+                return Some(t.clone());
+            }
+        }
+    }
+
+    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let listings = me_get_json(
+        http,
+        &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1"),
+    )
+    .await
+    .ok()?;
+    let sample_mint = listings.as_array()?.first()?.get("tokenMint")?.as_str()?;
+
+    let asset: serde_json::Value = http
+        .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "getAsset", "params": { "id": sample_mint }
+        }))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let result = asset.get("result")?;
+    let collection = result
+        .get("grouping")?
+        .as_array()?
+        .iter()
+        .find(|g| g.get("group_key").and_then(|k| k.as_str()) == Some("collection"))?
+        .get("group_value")?
+        .as_str()?
+        .to_string();
+
+    let content = result.get("content")?;
+    let name = content.pointer("/metadata/name")?.as_str()?;
+    let uri = content.get("json_uri")?.as_str()?;
+    let name_num: i64 = name.rsplit('#').next()?.trim().parse().ok()?;
+
+    // The number in the URI is the last run of digits that is a segment or a
+    // filename stem — not a fragment of a hash.
+    let mut pattern = None;
+    let mut offset = 0;
+    for (idx, ch) in uri.char_indices().rev() {
+        if !ch.is_ascii_digit() {
+            continue;
+        }
+        let end = uri[..=idx]
+            .char_indices()
+            .rev()
+            .take_while(|(_, c)| c.is_ascii_digit())
+            .count();
+        let start = idx + 1 - end;
+        let digits = &uri[start..=idx];
+        if let Ok(uri_num) = digits.parse::<i64>() {
+            // Guard against matching a digit buried in a hash: the run has to
+            // be bounded by a separator or the end of the string.
+            let before_ok = start == 0
+                || matches!(uri.as_bytes()[start - 1], b'/' | b'-' | b'_' | b'=');
+            let after_ok = idx + 1 == uri.len()
+                || matches!(uri.as_bytes()[idx + 1], b'.' | b'/' | b'?' | b'&');
+            if before_ok && after_ok && (name_num - uri_num).abs() <= 2 {
+                pattern = Some(format!("{}{{}}{}", &uri[..start], &uri[idx + 1..]));
+                offset = name_num - uri_num;
+            }
+        }
+        break;
+    }
+
+    let t = MeUriTemplate {
+        collection,
+        pattern,
+        offset,
+    };
+    if let Ok(mut map) = cache.lock() {
+        if map.len() >= 32 {
+            map.clear();
+        }
+        map.insert(symbol.to_string(), (Instant::now(), t.clone()));
+    }
+    Some(t)
+}
+
+/// Find a numbered NFT through its metadata URI. One indexed lookup, and it
+/// does not care whether the piece is for sale.
+async fn me_find_by_uri(
+    http: &reqwest::Client,
+    symbol: &str,
+    number: i64,
+) -> Option<String> {
+    let t = me_uri_template(http, symbol).await?;
+    let pattern = t.pattern.as_ref()?;
+    let uri = pattern.replacen("{}", &(number - t.offset).to_string(), 1);
+    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+
+    let resp: serde_json::Value = http
+        .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "searchAssets",
+            "params": {
+                "jsonUri": uri,
+                "grouping": ["collection", t.collection],
+                "page": 1, "limit": 2
+            }
+        }))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+
+    let item = resp.pointer("/result/items")?.as_array()?.first()?;
+    // Believe it only if it says what we asked for. The offset is inferred
+    // from a single sample, and a collection that numbers irregularly would
+    // otherwise hand back a neighbour.
+    let name = item.pointer("/content/metadata/name")?.as_str()?;
+    if !name.trim().ends_with(&format!("#{number}")) {
+        return None;
+    }
+    item.get("id")?.as_str().map(str::to_string)
+}
+
 /// Resolve "Mad Lads #8051" to a mint address.
 ///
 /// People refer to an NFT by its number — it is on the picture and it is what
@@ -2318,6 +2476,14 @@ async fn me_resolve_mint_by_number(
     number: &str,
 ) -> Option<String> {
     let suffix = format!("#{number}");
+
+    // The metadata URI first: it finds unlisted pieces too, which is most of
+    // any collection, and costs one query.
+    if let Ok(n) = number.parse::<i64>() {
+        if let Some(mint) = me_find_by_uri(http, symbol, n).await {
+            return Some(mint);
+        }
+    }
 
     // 100 is the cap. Asking for 500 returns an error OBJECT, not a longer
     // list — which the previous version read as "no match", so this search
