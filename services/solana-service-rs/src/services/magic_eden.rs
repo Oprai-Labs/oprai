@@ -2294,206 +2294,82 @@ async fn me_collection_detail(
     Ok(out)
 }
 
-/// The collection's on-chain address, from any NFT that belongs to it.
-async fn me_collection_mint(http: &reqwest::Client, symbol: &str) -> Option<String> {
-    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
-    let listings = me_get_json(
-        http,
-        &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1"),
-    )
-    .await
-    .ok()?;
-    let mint = listings.as_array()?.first()?.get("tokenMint")?.as_str()?;
-    let asset: serde_json::Value = http
-        .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
-        .json(&serde_json::json!({
-            "jsonrpc": "2.0", "id": 1, "method": "getAsset", "params": { "id": mint }
-        }))
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
-    asset
-        .pointer("/result/grouping")?
-        .as_array()?
-        .iter()
-        .find(|g| g.get("group_key").and_then(|k| k.as_str()) == Some("collection"))?
-        .get("group_value")?
-        .as_str()
-        .map(str::to_string)
-}
-
 /// Resolve "Mad Lads #8051" to a mint address.
 ///
-/// People refer to an NFT by its number — it is on the picture, it is what
-/// the marketplace prints under it, and it is what anyone types. Neither
-/// Magic Eden nor the DAS API can search by it: Magic Eden has no name search
-/// at all, and `searchAssets` rejects every name filter it was offered.
+/// People refer to an NFT by its number — it is on the picture and it is what
+/// anyone types. Neither API can look one up: Magic Eden has no name search
+/// (`search`, `q` and a name filter all 400 or 500) and DAS `searchAssets`
+/// rejects every name filter it was offered.
 ///
-/// Two tiers, cheapest first. Most questions are about an NFT someone can
-/// see, and what they can see is listed — a scan of the collection's listings
-/// answers those in about a second. Failing that, the collection's whole
-/// name→mint map is built from the chain and cached: ten pages and fourteen
-/// seconds for a ten-thousand-piece collection, once per day.
-/// Returns the mint, and whether the whole collection was searched. A miss
-/// from a truncated search is not the same statement as a miss from a
-/// complete one, and the user is owed the difference.
+/// So we search the collection's LISTINGS, which is the set that matters on a
+/// marketplace: a question about a specific NFT is nearly always about one
+/// someone can see and might buy.
+///
+/// What this deliberately does NOT do is index the whole collection. The
+/// earlier version did, off DAS, and the numbers made the case against it:
+/// 2.4 MB per thousand assets, 24 MB and fourteen seconds for a ten-thousand
+/// piece collection, eighty seconds for Okay Bears — all to extract one mint,
+/// into a map that dies with the process. An unlisted NFT is answered by
+/// saying so and asking for the mint address, which costs the user one
+/// copy-paste and costs us nothing.
 async fn me_resolve_mint_by_number(
     http: &reqwest::Client,
     symbol: &str,
     number: &str,
-) -> (Option<String>, bool) {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-    use std::time::{Duration, Instant};
-
+) -> Option<String> {
     let suffix = format!("#{number}");
-    let matches = |name: &str| name.trim().ends_with(&suffix);
 
-    // Tier 1 — the listings, which are what a user is usually looking at.
-    if let Ok(rows) = me_get_json(
-        http,
-        &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=500"),
-    )
-    .await
-    {
-        if let Some(arr) = rows.as_array() {
+    // 100 is the cap. Asking for 500 returns an error OBJECT, not a longer
+    // list — which the previous version read as "no match", so this search
+    // never actually ran.
+    const PAGE: u32 = 100;
+    const MAX_PAGES: u32 = 12; // 1,200 listings — past any collection's depth
+
+    // The pages are independent, so read them together. Sequentially, a miss
+    // on a collection with seven hundred listings took ten seconds — one
+    // round-trip after another for an answer that was never going to change.
+    // Four at a time keeps it quick without opening twelve connections to a
+    // marketplace that rate-limits.
+    const BATCH: u32 = 4;
+    let mut page = 0u32;
+    while page < MAX_PAGES {
+        let batch: Vec<u32> = (page..(page + BATCH).min(MAX_PAGES)).collect();
+        let results = futures::future::join_all(batch.iter().map(|p| {
+            let url = format!(
+                "{MAGIC_EDEN_API}/collections/{symbol}/listings?limit={PAGE}&offset={}",
+                p * PAGE
+            );
+            async move { me_get_json(http, &url).await.ok() }
+        }))
+        .await;
+
+        let mut exhausted = false;
+        for rows in results.into_iter().flatten() {
+            let arr = match rows.as_array() {
+                Some(a) => a,
+                None => continue,
+            };
+            if (arr.len() as u32) < PAGE {
+                exhausted = true; // past the end of the book
+            }
             for r in arr {
                 let name = r
                     .pointer("/token/name")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
-                if matches(name) {
+                if name.trim().ends_with(&suffix) {
                     if let Some(m) = r.get("tokenMint").and_then(|v| v.as_str()) {
-                        return (Some(m.to_string()), true);
+                        return Some(m.to_string());
                     }
                 }
             }
         }
-    }
-
-    // Tier 2 — the whole collection, indexed once.
-    // (built_at, last_used, complete, next_page, names)
-    type Indexed = (Instant, Instant, bool, u32, HashMap<String, String>);
-    static INDEX: OnceLock<Mutex<HashMap<String, Indexed>>> = OnceLock::new();
-    let index = INDEX.get_or_init(|| Mutex::new(HashMap::new()));
-    const TTL: Duration = Duration::from_secs(24 * 60 * 60);
-
-    // Whatever we already have of this collection, and the page to resume
-    // from. A partial index answers what it covers and keeps going later; a
-    // complete one can also say, truthfully, that a number does not exist.
-    let (mut names, mut page): (HashMap<String, String>, u32) = {
-        let mut carried = (HashMap::new(), 1u32);
-        if let Ok(mut map) = index.lock() {
-            if let Some(entry) = map.get_mut(symbol) {
-                if entry.0.elapsed() < TTL {
-                    entry.1 = Instant::now();
-                    if let Some(hit) = entry.4.get(&suffix).cloned() {
-                        return (Some(hit), true);
-                    }
-                    if entry.2 {
-                        return (None, true);
-                    }
-                    carried = (entry.4.clone(), entry.3);
-                } else {
-                    map.remove(symbol);
-                }
-            }
-        }
-        carried
-    };
-
-    let key = match std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty()) {
-        Some(k) => k,
-        None => return (None, false),
-    };
-    let collection = match me_collection_mint(http, symbol).await {
-        Some(c) => c,
-        None => return (None, false),
-    };
-    let rpc = format!("https://mainnet.helius-rpc.com/?api-key={key}");
-    // A chat turn cannot block while we page through a collection. Okay Bears
-    // took 80 seconds to index and DeGods 55 — nobody waits that long for an
-    // answer, and the first version made them.
-    //
-    // So the build gets a budget. Whatever it reached is kept, along with the
-    // page to resume from, and the next question about that collection picks
-    // up where this one stopped. A big collection becomes searchable over a
-    // few asks instead of holding one hostage.
-    const BUDGET: Duration = Duration::from_secs(12);
-    let started = Instant::now();
-    let mut complete = false;
-    while page <= 50 {
-        let resp: serde_json::Value = match http
-            .post(&rpc)
-            .json(&serde_json::json!({
-                "jsonrpc": "2.0", "id": 1, "method": "searchAssets",
-                "params": {
-                    "grouping": ["collection", collection],
-                    "page": page, "limit": 1000
-                }
-            }))
-            .send()
-            .await
-        {
-            Ok(r) => match r.json().await {
-                Ok(v) => v,
-                Err(_) => break,
-            },
-            Err(_) => break,
-        };
-        let items = match resp.pointer("/result/items").and_then(|v| v.as_array()) {
-            Some(i) => i.clone(),
-            None => break,
-        };
-        let count = items.len();
-        for item in items {
-            let name = item
-                .pointer("/content/metadata/name")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
-            if let Some(hash) = name.rfind('#') {
-                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-                    names.insert(name[hash..].trim().to_string(), id.to_string());
-                }
-            }
-        }
-        if count < 1000 {
-            complete = true;
+        if exhausted {
             break;
         }
-        page += 1;
-        // Stop the moment we have what was asked for, or run out of budget.
-        if names.contains_key(&suffix) || started.elapsed() > BUDGET {
-            break;
-        }
+        page += BATCH;
     }
-    if names.is_empty() {
-        return (None, false);
-    }
-    let found = names.get(&suffix).cloned();
-    if let Ok(mut map) = index.lock() {
-        // Evict the least recently used, not everything. Clearing the map
-        // meant nine collections in rotation rebuilt on every single lookup —
-        // fourteen seconds each, forever.
-        while map.len() >= 8 {
-            let oldest = map
-                .iter()
-                .min_by_key(|(_, v)| v.1)
-                .map(|(k, _)| k.clone());
-            match oldest {
-                Some(k) => {
-                    map.remove(&k);
-                }
-                None => break,
-            }
-        }
-        let now = Instant::now();
-        map.insert(symbol.to_string(), (now, now, complete, page, names));
-    }
-    (found, complete)
+    None
 }
 
 /// Everything worth knowing about one NFT, in one reply.
@@ -2547,16 +2423,11 @@ pub async fn build_me_read(
                 let number = need(&params.number, "NFT number")?;
                 let digits = number.trim_start_matches('#').trim().to_string();
                 match me_resolve_mint_by_number(http, symbol, &digits).await {
-                    (Some(m), _) => m,
-                    (None, true) => {
+                    Some(m) => m,
+                    None => {
                         return Err(AppError::NotFound(format!(
-                            "There is no #{digits} in that collection"
-                        )))
-                    }
-                    (None, false) => {
-                        return Err(AppError::NotFound(format!(
-                            "Still looking for #{digits} in that collection — it is a large \
-                             one. Ask again in a moment, or give the mint address."
+                            "#{digits} is not currently listed, so I can't find it by number. \
+                             Paste its mint address and I'll pull it up."
                         )))
                     }
                 }
