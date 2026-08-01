@@ -919,6 +919,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meTraitRows.set((d['meTraitRows'] as any[] | undefined) ?? []);
       this.mePools.set((d['mePools'] as any[] | undefined) ?? []);
       this.meTraders.set((d['meTraders'] as any[] | undefined) ?? []);
+      this.meNft.set((d['meNft'] as MeTokenRow | undefined) ?? null);
       this.meStats.set((d['meStats'] as MeCollectionRow | undefined) ?? null);
       this.meEscrowSol.set((d['meEscrowSol'] as number | undefined) ?? null);
     }
@@ -1012,6 +1013,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.meTraitRows().length)   d['meTraitRows'] = this.meTraitRows();
       if (this.mePools().length)       d['mePools'] = this.mePools();
       if (this.meTraders().length)     d['meTraders'] = this.meTraders();
+      if (this.meNft())                d['meNft'] = this.meNft();
       if (this.meStats())              d['meStats'] = this.meStats();
       if (this.meEscrowSol() !== null) d['meEscrowSol'] = this.meEscrowSol();
       d['orcaCapped'] = this.orcaCapped();
@@ -1483,13 +1485,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly meFetching = signal(false);
   readonly mePage = signal(1);
   /** Which renderer this card is using: set once the payload lands. */
-  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | null>(null);
+  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | 'nft' | null>(null);
   /** Trait rarity with a floor per trait — the table a buyer actually uses. */
   readonly meTraitRows = signal<Array<{ trait: string; value: string; count: number; floor: number | null }>>([]);
   /** MMM pools: an AMM quoting both sides of a collection. */
   readonly mePools = signal<Array<Record<string, any>>>([]);
   /** A collection's biggest traders. */
   readonly meTraders = signal<Array<{ wallet: string; volume: number | null; lastTradeAt: number | null }>>([]);
+  /** The one NFT a detail card is about. */
+  readonly meNft = signal<MeTokenRow | null>(null);
 
   readonly mePagedCollections = computed(() => this.mePageSlice(this.meCollections()));
   readonly mePagedTokens = computed(() => this.mePageSlice(this.meTokens()));
@@ -1514,6 +1518,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'traits':      return this.meTraitRows().length;
       case 'pools':       return this.mePools().length;
       case 'traders':     return this.meTraders().length;
+      case 'nft':         return this.meNft() ? 1 : 0;
       default:            return 0;
     }
   });
@@ -1986,12 +1991,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       }
     }
 
-    // A single NFT is a one-row token list — same renderer, same actions.
+    // One NFT, everything about it. The backend merges the token with its
+    // offers and its activity, because "tell me about this NFT" is one
+    // question and answering it with three cards is three headers.
     if (t === 'me_token' || t === 'me_nft_info') {
-      const row = (Array.isArray(data) ? data[0] : data) as MeTokenRow | null;
-      if (row?.mintAddress) {
-        this.meTokens.set([row]);
-        this.meShape.set('tokens');
+      const d = data as { token?: MeTokenRow; offers?: MeOfferRow[]; activities?: MeActivityRow[] } | null;
+      const token = d?.token ?? ((Array.isArray(data) ? data[0] : data) as MeTokenRow | null);
+      if (token?.mintAddress) {
+        this.meNft.set(token);
+        this.meOffers.set(d?.offers ?? []);
+        this.meActivities.set(d?.activities ?? []);
+        this.meShape.set('nft');
         return;
       }
     }
@@ -2163,6 +2173,26 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       out.push({ label: 'Magic Eden', href: `https://magiceden.io/marketplace/${c.symbol}`, icon: 'external-link' });
     }
     return out;
+  }
+
+  /** The best live bid on the NFT being shown. */
+  meTopOffer(): number | null {
+    const prices = this.meOffers().map(o => o.price ?? 0).filter(p => p > 0);
+    return prices.length ? Math.max(...prices) : null;
+  }
+
+  /** Every trait, not the first four — on a detail card the traits ARE the
+   *  content. */
+  meNftTraits(): Array<{ label: string; value: string }> {
+    const n = this.meNft();
+    return n ? this.meTraits(n) : [];
+  }
+
+  /** The royalty a sale pays the creator, which comes out of the seller's
+   *  proceeds and is not the marketplace fee. */
+  meRoyaltyPct(): number | null {
+    const bps = this.meNft()?.sellerFeeBasisPoints;
+    return typeof bps === 'number' && bps > 0 ? bps / 100 : null;
   }
 
   /** Floor prices arrive in lamports from stats, SOL elsewhere. */

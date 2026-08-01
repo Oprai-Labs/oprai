@@ -372,6 +372,124 @@
           </div>
         }
 
+        <!-- One NFT, everything about it: what it is, what it is worth, what
+             it is made of, who has bid, and what has happened to it. Four
+             questions that used to be four cards. -->
+        @if (shape === 'nft') {
+          @if (meNft(); as n) {
+            <div class="me-detail">
+              <div class="me-detail__hero">
+                <div class="me-detail__art">
+                  @if (n.image) {
+                    <img [src]="nftArtSrc(n.image)" [alt]="n.name" loading="eager" decoding="async"
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="me-art__fallback">{{ (n.name || '?').charAt(0) }}</span>
+                  }
+                </div>
+                <div class="me-detail__ident">
+                  <div class="me-detail__name">{{ n.name || 'NFT' }}</div>
+                  @if (n.collectionName) {
+                    <div class="me-detail__coll">{{ n.collectionName }}</div>
+                  }
+                  <div class="me-detail__facts">
+                    @if (n.rarityRank) {
+                      <span class="me-stat"><span class="me-stat__k">Rank</span>#{{ n.rarityRank }}</span>
+                    }
+                    @if (meRoyaltyPct(); as r) {
+                      <span class="me-stat"><span class="me-stat__k">Royalty</span>{{ r | number:'1.0-2' }}%</span>
+                    }
+                    @if (n.owner) {
+                      <button type="button" class="dlmm-pair__addr mono dlmm-copy-btn"
+                              [class.dlmm-copy-btn--copied]="copiedAddress() === n.owner"
+                              (click)="copyPoolAddress(n.owner!)"
+                              [attr.title]="'Copy owner: ' + n.owner">
+                        <span class="dlmm-pair__addr-text">{{ n.owner.slice(0,4) }}…{{ n.owner.slice(-4) }}</span>
+                        <lucide-icon [name]="copiedAddress() === n.owner ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                      </button>
+                    }
+                  </div>
+                  <div class="me-stats-card__grid me-detail__grid">
+                    <div class="me-kpi"><span class="me-kpi__k">{{ meIsListed(n) ? 'Asking' : 'Status' }}</span>
+                      <span class="me-kpi__v mono">@if (n.price) { {{ n.price | number:'1.0-3' }} SOL } @else { Not listed }</span></div>
+                    <div class="me-kpi"><span class="me-kpi__k">Top offer</span>
+                      <span class="me-kpi__v mono">@if (meTopOffer(); as o) { {{ o | number:'1.0-3' }} SOL } @else { None }</span></div>
+                  </div>
+                  <div class="me-stats-card__actions">
+                    @if (meOwnsToken(n)) {
+                      @if (meIsListed(n)) {
+                        <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(n)">Delist</button>
+                      } @else {
+                        <button type="button" class="dlmm-use-btn" (click)="listMeToken(n)">List
+                          <lucide-icon name="arrow-right" [size]="12" /></button>
+                      }
+                    } @else {
+                      @if (meIsListed(n)) {
+                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(n)">Buy</button>
+                      }
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="offerOnMeToken(n)">Offer</button>
+                    }
+                  </div>
+                </div>
+              </div>
+
+              @if (meNftTraits().length) {
+                <div class="me-detail__section">
+                  <div class="me-detail__h">Traits</div>
+                  <div class="me-detail__traits">
+                    @for (tr of meNftTraits(); track tr.label) {
+                      <div class="me-detail__trait">
+                        <span class="me-detail__trait-k">{{ tr.label }}</span>
+                        <span class="me-detail__trait-v">{{ tr.value }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+
+              @if (meOffers().length) {
+                <div class="me-detail__section">
+                  <div class="me-detail__h">Offers</div>
+                  <div class="result-table">
+                    @for (o of meOffers(); track o.pdaAddress ?? $index) {
+                      <div class="result-table__row result-table__row--me-offer dlmm-row">
+                        <span class="mono dlmm-muted">
+                          @if (o.buyer) { {{ o.buyer.slice(0,4) }}…{{ o.buyer.slice(-4) }} } @else { — }
+                        </span>
+                        <span class="text-right mono">@if (o.price) { {{ o.price | number:'1.0-3' }} SOL } @else { — }</span>
+                        <span class="text-right dlmm-muted">{{ meExpiry(o.expiry) }}</span>
+                        <span class="text-right">
+                          @if (meIsOwnOffer(o)) {
+                            <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeOffer(o)">Withdraw</button>
+                          } @else if (meOwnsToken(n)) {
+                            <button type="button" class="dlmm-use-btn" (click)="acceptMeOffer(o)">Accept</button>
+                          }
+                        </span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+
+              @if (meActivities().length) {
+                <div class="me-detail__section">
+                  <div class="me-detail__h">Activity</div>
+                  <div class="result-table">
+                    @for (a of meActivities(); track a.signature ?? $index) {
+                      <div class="result-table__row result-table__row--me-hist dlmm-row">
+                        <span><span class="me-evt" [class.me-evt--buy]="a.type === 'buyNow'"
+                                    [class.me-evt--list]="a.type === 'list'">{{ a.type || '—' }}</span></span>
+                        <span class="text-right mono">@if (a.price) { {{ a.price | number:'1.0-3' }} SOL } @else { — }</span>
+                        <span class="text-right dlmm-muted">{{ meWhen(a.blockTime) }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        }
+
         <!-- A single collection's numbers. -->
         @if (shape === 'stats') {
           @if (meStats(); as st) {

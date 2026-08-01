@@ -2290,11 +2290,69 @@ async fn me_collection_detail(
     Ok(out)
 }
 
+/// Everything worth knowing about one NFT, in one reply.
+///
+/// "Tell me about this NFT" is four questions — what is it, what are its
+/// traits, who has bid on it, what has happened to it — and Magic Eden
+/// answers each on a different endpoint. Three cards for one question is
+/// three round-trips and three headers; the traits already ride along with
+/// the token itself.
+///
+/// Offers and activity are best-effort: an NFT nobody has bid on is a normal
+/// NFT, and it should not fail to render because one of its lists is empty
+/// or its endpoint is having a bad minute.
+async fn me_nft_detail(
+    http: &reqwest::Client,
+    mint: &str,
+) -> Result<serde_json::Value, AppError> {
+    let token_url = format!("{MAGIC_EDEN_API}/tokens/{mint}");
+    let offers_url = format!("{MAGIC_EDEN_API}/tokens/{mint}/offers_received?limit=20");
+    let acts_url = format!("{MAGIC_EDEN_API}/tokens/{mint}/activities?limit=20");
+    let (token, offers, activities) = futures::join!(
+        me_get_json(http, &token_url),
+        me_get_json(http, &offers_url),
+        me_get_json(http, &acts_url),
+    );
+    let token = token?;
+    if token.get("mintAddress").is_none() {
+        return Err(AppError::NotFound(
+            "Magic Eden has no record of that NFT".into(),
+        ));
+    }
+    Ok(serde_json::json!({
+        "token": token,
+        "offers": offers.unwrap_or_else(|_| serde_json::json!([])),
+        "activities": activities.unwrap_or_else(|_| serde_json::json!([])),
+    }))
+}
+
 pub async fn build_me_read(
     http: &reqwest::Client,
     action: &str,
     params: &MeReadParams,
 ) -> Result<BuildResponse, AppError> {
+    if matches!(action, "me_token" | "me_nft_info") {
+        let mint = need(&params.mint_address, "NFT mint")?.to_string();
+        let data = me_nft_detail(http, &mint).await?;
+        return Ok(BuildResponse {
+            preview: ActionPreview {
+                id: Uuid::new_v4().to_string(),
+                action_type: action.to_string(),
+                description: me_read_title(action, params),
+                estimated_fee: "0".to_string(),
+                estimated_refund: None,
+                params: serde_json::json!({}),
+                warnings: vec![],
+                requires_approval: false,
+            },
+            transaction: None,
+            additional_signers_required: 0,
+            execution_steps: None,
+            quote: None,
+            is_cross_chain: false,
+            data: Some(data),
+        });
+    }
     if matches!(action, "me_collection_stats" | "me_collection_info") {
         let symbol = need(&params.symbol, "collection")?.to_string();
         let data = me_collection_detail(http, &symbol).await?;
