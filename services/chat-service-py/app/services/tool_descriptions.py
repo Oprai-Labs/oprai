@@ -99,6 +99,16 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "kamino_yield_history": "Kamino — historical yield data",
     "kamino_airdrop_metrics": "Kamino — airdrop metrics",
     "kamino_farm_transactions": "Kamino — farm transaction history",
+    "token_safety": (
+        "Is this token safe to buy — honeypot, tax, freeze, mint authority, "
+        "holder concentration. Reads the mint account directly, so it works "
+        "on a token created seconds ago. Call it BEFORE any swap or buy the "
+        "user asks for on an unfamiliar token, not only when they ask about "
+        "safety"
+    ),
+    "honeypot_check": "Same as token_safety — can this token be sold after buying",
+    "scam_check": "Same as token_safety — what is dangerous about this token",
+    "rug_check": "Same as token_safety — freeze, mint authority, concentration",
     # ── Magic Eden (NFT marketplace + MMM AMM; several build tx instructions) ──
     "me_token": (
         "Magic Eden — everything about ONE NFT in a single card: traits, "

@@ -7,7 +7,8 @@ use crate::error::AppError;
 use crate::services::{
     burn, dca, debridge, helius, jito, jupiter_lend, jupiter_perp, jupiter_query, jupsol, kamino,
     limit_order, magic_eden, marginfi, marinade, meteora, native_stake, orca, protocol_reads,
-    pumpfun, raydium, relay, sns, solend, squid, streamflow, swap, tensor, transfer,
+    pumpfun, raydium, relay, sns, solend, squid, streamflow, swap, tensor, token_safety,
+    transfer,
 };
 use crate::solana::connection::SolanaRpc;
 
@@ -3134,6 +3135,10 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         // Repricing and escrow moves take only a mint (or nothing) plus an
         // amount; the live listing/offer supplies the rest, so there is
         // nothing here a user could get wrong beyond the number.
+        // The address is validated where it is read — a mint that does not
+        // parse, or is not a token at all, is named as such rather than
+        // rejected as a bad parameter.
+        "token_safety" | "honeypot_check" | "scam_check" | "rug_check" => Ok(()),
         "me_sell_change_price" | "me_buy_change_price" => {
             let _p: magic_eden::MeChangePriceParams = serde_json::from_value(params.clone())
                 .map_err(|e| {
@@ -5387,6 +5392,32 @@ pub async fn build_action(
         "solend_exercise_reward" => {
             let p: solend::SolendExerciseRewardParams = serde_json::from_value(params)?;
             solend::build_solend_exercise_reward(http, user_pubkey.to_string().as_str(), &p).await
+        }
+        // What can be checked about a token before someone spends money on it.
+        // Reads the mint account for the facts that decide whether money can
+        // be taken, then enriches with what the indexers know.
+        "token_safety" | "honeypot_check" | "scam_check" | "rug_check" => {
+            let p: token_safety::TokenSafetyParams = serde_json::from_value(params)?;
+            let mut safety = token_safety::inspect_mint(rpc, &p.mint_address).await?;
+            token_safety::enrich(http, &mut safety).await;
+            Ok(BuildResponse {
+                preview: ActionPreview {
+                    id: Uuid::new_v4().to_string(),
+                    action_type: action_type.to_string(),
+                    description: "Token safety check".to_string(),
+                    estimated_fee: "0".to_string(),
+                    estimated_refund: None,
+                    params: serde_json::json!({}),
+                    warnings: vec![],
+                    requires_approval: false,
+                },
+                transaction: None,
+                additional_signers_required: 0,
+                execution_steps: None,
+                quote: None,
+                is_cross_chain: false,
+                data: Some(serde_json::to_value(&safety)?),
+            })
         }
         // ── Magic Eden NFT Marketplace Actions ───────────────────────────────────────
         // Magic Eden's own API names the two sides of every trade separately

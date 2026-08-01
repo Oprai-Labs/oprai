@@ -2009,6 +2009,9 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "raydium_get_ido_keys", "raydium_get_main_version", "raydium_get_rpcs",
     "raydium_get_chain_time", "raydium_get_stake_pools", "raydium_get_migrate_lp",
     "raydium_get_auto_fee", "raydium_get_cpmm_configs",
+    # Token safety: reads the mint account for the facts that decide whether
+    # money can be taken, enriched with holder concentration and verification.
+    "token_safety", "honeypot_check", "scam_check", "rug_check",
     # Magic Eden — routed through the gateway to the Rust service, which
     # resolves the auction house / token account / referral off the live
     # listing. chat-service has its own Magic Eden client for the reads the

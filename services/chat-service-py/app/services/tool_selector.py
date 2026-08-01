@@ -546,6 +546,13 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_collection_attributes":_A({"nft", "magic_eden"}),
     "me_owner_activities":     _A({"nft", "magic_eden"}),
     "me_wallet_tokens":        _A({"nft", "magic_eden", "portfolio"}),
+    # Offered on every token question — the check has to be reachable
+    # whenever a token is being discussed, not only when someone asks
+    # whether it is a scam.
+    "token_safety":            _A({"analysis", "dex", "portfolio", "trading", "pumpfun"}),
+    "honeypot_check":          _A({"analysis", "dex", "trading"}),
+    "scam_check":              _A({"analysis", "dex", "trading"}),
+    "rug_check":               _A({"analysis", "dex", "trading"}),
     "me_token":                _A({"nft", "magic_eden"}),
     "me_token_listings":       _A({"nft", "magic_eden"}),
     "me_token_offers_received":_A({"nft", "magic_eden"}),
