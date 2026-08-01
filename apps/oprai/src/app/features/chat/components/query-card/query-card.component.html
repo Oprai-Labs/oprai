@@ -378,9 +378,11 @@
         @if (shape === 'nft') {
           @if (meNft(); as n) {
             <div class="me-detail">
-              <!-- Art left and large, everything else in a column beside it —
-                   the shape Magic Eden uses, because the picture is what you
-                   are looking at and the numbers are what you are reading. -->
+              <!-- Art beside the identity, then everything else across the
+                   full width. As two full-height columns the art stretched to
+                   300px and left a tall empty gap under itself while the
+                   traits squeezed into half the card. -->
+              <div class="me-detail__hero">
               <div class="me-detail__art">
                 @if (n.image) {
                   <img [src]="nftArtSrc(n.image)" [alt]="n.name" loading="eager" decoding="async"
@@ -442,6 +444,9 @@
                     }
                   </div>
                 </div>
+
+              </div>
+              </div>
 
               <!-- Tabs, the way Magic Eden splits an NFT page: the four are
                    read at different moments and stacking them makes the card
@@ -562,7 +567,6 @@
                     <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
                 </div>
               }
-              </div>
             </div>
           }
         }
