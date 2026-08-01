@@ -433,23 +433,51 @@
                 </div>
               </div>
 
-              @if (meNftTraits().length) {
-                <div class="me-detail__section">
-                  <div class="me-detail__h">Traits</div>
+              <!-- Tabs, the way Magic Eden splits an NFT page: the four are
+                   read at different moments and stacking them makes the card
+                   a scroll. -->
+              <div class="me-tabs">
+                <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'traits'"
+                        (click)="setMeTab('traits')">Traits</button>
+                <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'offers'"
+                        (click)="setMeTab('offers')">Offers
+                  @if (meTabCount('offers')) { <span class="me-tab__n">{{ meTabCount('offers') }}</span> }
+                </button>
+                <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'activity'"
+                        (click)="setMeTab('activity')">Activity
+                  @if (meTabCount('activity')) { <span class="me-tab__n">{{ meTabCount('activity') }}</span> }
+                </button>
+                <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'details'"
+                        (click)="setMeTab('details')">Details</button>
+              </div>
+
+              @if (meTab() === 'traits') {
+                @if (meNftTraits().length) {
                   <div class="me-detail__traits">
                     @for (tr of meNftTraits(); track tr.label) {
                       <div class="me-detail__trait">
                         <span class="me-detail__trait-k">{{ tr.label }}</span>
                         <span class="me-detail__trait-v">{{ tr.value }}</span>
+                        <span class="me-detail__trait-foot">
+                          @if (tr.share !== null) {
+                            <span class="me-rar" [class]="'me-rar ' + meRarityClass(tr.share)">
+                              {{ tr.share * 100 | number:'1.0-1' }}%
+                            </span>
+                          }
+                          @if (tr.floor) {
+                            <span class="me-detail__trait-floor mono">{{ tr.floor | number:'1.0-3' }} SOL</span>
+                          }
+                        </span>
                       </div>
                     }
                   </div>
-                </div>
+                } @else {
+                  <div class="dlmm-empty">No traits recorded for this NFT.</div>
+                }
               }
 
-              @if (meOffers().length) {
-                <div class="me-detail__section">
-                  <div class="me-detail__h">Offers</div>
+              @if (meTab() === 'offers') {
+                @if (meOffers().length) {
                   <div class="result-table">
                     @for (o of meOffers(); track o.pdaAddress ?? $index) {
                       <div class="result-table__row result-table__row--me-offer dlmm-row">
@@ -468,12 +496,18 @@
                       </div>
                     }
                   </div>
-                </div>
+                } @else {
+                  <div class="dlmm-empty">
+                    <div>No open offers on this NFT.</div>
+                    @if (!meOwnsToken(n)) {
+                      <button type="button" class="dlmm-use-btn" (click)="offerOnMeToken(n)">Make the first offer</button>
+                    }
+                  </div>
+                }
               }
 
-              @if (meActivities().length) {
-                <div class="me-detail__section">
-                  <div class="me-detail__h">Activity</div>
+              @if (meTab() === 'activity') {
+                @if (meActivities().length) {
                   <div class="result-table">
                     @for (a of meActivities(); track a.signature ?? $index) {
                       <div class="result-table__row result-table__row--me-hist dlmm-row">
@@ -484,6 +518,38 @@
                       </div>
                     }
                   </div>
+                } @else {
+                  <div class="dlmm-empty">Nothing has happened to this NFT on Magic Eden.</div>
+                }
+              }
+
+              @if (meTab() === 'details') {
+                <div class="me-detail__rows">
+                  <div class="me-detail__row"><span>Mint</span>
+                    <button type="button" class="dlmm-pair__addr mono dlmm-copy-btn"
+                            [class.dlmm-copy-btn--copied]="copiedAddress() === n.mintAddress"
+                            (click)="copyPoolAddress(n.mintAddress)"
+                            [attr.title]="'Copy mint: ' + n.mintAddress">
+                      <span class="dlmm-pair__addr-text">{{ n.mintAddress.slice(0,6) }}…{{ n.mintAddress.slice(-6) }}</span>
+                      <lucide-icon [name]="copiedAddress() === n.mintAddress ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                    </button>
+                  </div>
+                  @if (n.owner) {
+                    <div class="me-detail__row"><span>Owner</span>
+                      <span class="mono">{{ n.owner.slice(0,6) }}…{{ n.owner.slice(-6) }}</span></div>
+                  }
+                  @if (n.collectionName) {
+                    <div class="me-detail__row"><span>Collection</span><span>{{ n.collectionName }}</span></div>
+                  }
+                  @if (meRoyaltyPct(); as r) {
+                    <div class="me-detail__row"><span>Creator royalty</span><span class="mono">{{ r | number:'1.0-2' }}%</span></div>
+                  }
+                  <div class="me-detail__row"><span>Marketplace fee</span><span class="mono">2%</span></div>
+                  @if (n.rarityRank) {
+                    <div class="me-detail__row"><span>Rarity rank</span><span class="mono">#{{ n.rarityRank }}</span></div>
+                  }
+                  <div class="me-detail__row"><span>Status</span>
+                    <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
                 </div>
               }
             </div>

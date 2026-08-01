@@ -2538,6 +2538,85 @@ async fn me_resolve_mint_by_number(
     None
 }
 
+/// Rarity and floor for the traits a given NFT actually has.
+///
+/// Returns `{ "Background|Pink": { count, share, floor } }`. The collection's
+/// supply is derived by summing one trait type's counts — every piece has
+/// exactly one value of each trait, so any single type sums to the whole.
+async fn me_trait_stats(
+    http: &reqwest::Client,
+    symbol: &str,
+    token: &serde_json::Value,
+) -> serde_json::Value {
+    use std::collections::{HashMap, HashSet};
+
+    let wanted: HashSet<(String, String)> = token
+        .get("attributes")
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|a| {
+                    let t = a.get("trait_type")?.as_str()?.to_string();
+                    let v = match a.get("value")? {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    Some((t, v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if wanted.is_empty() {
+        return serde_json::json!({});
+    }
+
+    let url = format!("{MAGIC_EDEN_API}/collections/{symbol}/attributes");
+    let data = match me_get_json(http, &url).await {
+        Ok(d) => d,
+        Err(_) => return serde_json::json!({}),
+    };
+    let available = match data.pointer("/results/availableAttributes").and_then(|v| v.as_array()) {
+        Some(a) => a,
+        None => return serde_json::json!({}),
+    };
+
+    // Supply, from the totals of one trait type.
+    let mut totals: HashMap<String, u64> = HashMap::new();
+    for row in available {
+        if let Some(t) = row.pointer("/attribute/trait_type").and_then(|v| v.as_str()) {
+            *totals.entry(t.to_string()).or_default() +=
+                row.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
+        }
+    }
+    let supply = totals.values().copied().max().unwrap_or(0);
+
+    let mut out = serde_json::Map::new();
+    for row in available {
+        let t = match row.pointer("/attribute/trait_type").and_then(|v| v.as_str()) {
+            Some(t) => t.to_string(),
+            None => continue,
+        };
+        let v = match row.pointer("/attribute/value") {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(other) => other.to_string(),
+            None => continue,
+        };
+        if !wanted.contains(&(t.clone(), v.clone())) {
+            continue;
+        }
+        let count = row.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
+        out.insert(
+            format!("{t}|{v}"),
+            serde_json::json!({
+                "count": count,
+                "share": if supply > 0 { count as f64 / supply as f64 } else { 0.0 },
+                "floor": row.get("floor").and_then(|f| f.as_f64()),
+            }),
+        );
+    }
+    serde_json::Value::Object(out)
+}
+
 /// Everything worth knowing about one NFT, in one reply.
 ///
 /// "Tell me about this NFT" is four questions — what is it, what are its
@@ -2567,10 +2646,26 @@ async fn me_nft_detail(
             "Magic Eden has no record of that NFT".into(),
         ));
     }
+
+    // What each of this NFT's traits is worth and how rare it is.
+    //
+    // A trait list on its own is a description. With the share of the
+    // collection that carries it and the floor of the pieces that do, it is
+    // the thing people actually read an NFT page for — the difference between
+    // "Background: Pink" and "Background: Pink, 10%, floor 7.6 SOL".
+    //
+    // Only this NFT's traits are kept: the full attribute table for a
+    // ten-thousand piece collection is far more than a card needs.
+    let trait_stats = match token.get("collection").and_then(|c| c.as_str()) {
+        Some(symbol) => me_trait_stats(http, symbol, &token).await,
+        None => serde_json::json!({}),
+    };
+
     Ok(serde_json::json!({
         "token": token,
         "offers": offers.unwrap_or_else(|_| serde_json::json!([])),
         "activities": activities.unwrap_or_else(|_| serde_json::json!([])),
+        "traitStats": trait_stats,
     }))
 }
 

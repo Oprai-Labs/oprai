@@ -920,6 +920,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.mePools.set((d['mePools'] as any[] | undefined) ?? []);
       this.meTraders.set((d['meTraders'] as any[] | undefined) ?? []);
       this.meNft.set((d['meNft'] as MeTokenRow | undefined) ?? null);
+      this.meTraitStats.set((d['meTraitStats'] as any) ?? {});
+      this.meTab.set((d['meTab'] as any) ?? 'traits');
       this.meStats.set((d['meStats'] as MeCollectionRow | undefined) ?? null);
       this.meEscrowSol.set((d['meEscrowSol'] as number | undefined) ?? null);
     }
@@ -1013,7 +1015,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.meTraitRows().length)   d['meTraitRows'] = this.meTraitRows();
       if (this.mePools().length)       d['mePools'] = this.mePools();
       if (this.meTraders().length)     d['meTraders'] = this.meTraders();
-      if (this.meNft())                d['meNft'] = this.meNft();
+      if (this.meNft()) {
+        d['meNft'] = this.meNft();
+        d['meTraitStats'] = this.meTraitStats();
+        d['meTab'] = this.meTab();
+      }
       if (this.meStats())              d['meStats'] = this.meStats();
       if (this.meEscrowSol() !== null) d['meEscrowSol'] = this.meEscrowSol();
       d['orcaCapped'] = this.orcaCapped();
@@ -1494,6 +1500,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly meTraders = signal<Array<{ wallet: string; volume: number | null; lastTradeAt: number | null }>>([]);
   /** The one NFT a detail card is about. */
   readonly meNft = signal<MeTokenRow | null>(null);
+  /** Rarity and floor for this NFT's traits, keyed "Trait|Value". */
+  readonly meTraitStats = signal<Record<string, { count: number; share: number; floor: number | null }>>({});
+  /** Which face of the detail card is showing. Magic Eden splits an NFT page
+   *  the same way, because the four are read at different moments. */
+  readonly meTab = signal<'traits' | 'offers' | 'activity' | 'details'>('traits');
+  setMeTab(t: 'traits' | 'offers' | 'activity' | 'details'): void {
+    this.meTab.set(t);
+    this.persistSnapshot();
+  }
 
   readonly mePagedCollections = computed(() => this.mePageSlice(this.meCollections()));
   readonly mePagedTokens = computed(() => this.mePageSlice(this.meTokens()));
@@ -2009,6 +2024,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         this.meNft.set(token);
         this.meOffers.set(d?.offers ?? []);
         this.meActivities.set(d?.activities ?? []);
+        this.meTraitStats.set((data as any)?.traitStats ?? {});
+        this.meTab.set('traits');
         this.meShape.set('nft');
         return;
       }
@@ -2189,11 +2206,39 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return prices.length ? Math.max(...prices) : null;
   }
 
-  /** Every trait, not the first four — on a detail card the traits ARE the
-   *  content. */
-  meNftTraits(): Array<{ label: string; value: string }> {
+  /**
+   * Every trait, with what it is worth and how rare it is.
+   *
+   * A trait list on its own describes a picture. The share of the collection
+   * carrying it, and the floor of the pieces that do, is what people open an
+   * NFT page to read.
+   */
+  meNftTraits(): Array<{ label: string; value: string; share: number | null; floor: number | null }> {
     const n = this.meNft();
-    return n ? this.meTraits(n) : [];
+    if (!n) return [];
+    const stats = this.meTraitStats();
+    return this.meTraits(n).map(t => {
+      const s = stats[`${t.label}|${t.value}`];
+      return {
+        ...t,
+        share: s ? s.share : null,
+        floor: s ? MagicEdenService.solFromMaybeLamports(s.floor) : null,
+      };
+    });
+  }
+
+  /** Rare traits deserve to stand out; a trait 89% of the collection has does
+   *  not. The bands follow how the market talks about them. */
+  meRarityClass(share: number | null): string {
+    if (share === null) return '';
+    if (share <= 0.01) return 'me-rar--legendary';
+    if (share <= 0.05) return 'me-rar--rare';
+    if (share <= 0.15) return 'me-rar--uncommon';
+    return 'me-rar--common';
+  }
+
+  meTabCount(tab: 'offers' | 'activity'): number {
+    return tab === 'offers' ? this.meOffers().length : this.meActivities().length;
   }
 
   /** The royalty a sale pays the creator, which comes out of the seller's
