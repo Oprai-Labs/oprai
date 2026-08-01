@@ -378,28 +378,33 @@
         @if (shape === 'nft') {
           @if (meNft(); as n) {
             <div class="me-detail">
-              <div class="me-detail__hero">
-                <div class="me-detail__art">
-                  @if (n.image) {
-                    <img [src]="nftArtSrc(n.image)" [alt]="n.name" loading="eager" decoding="async"
-                         (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="me-art__fallback">{{ (n.name || '?').charAt(0) }}</span>
-                  }
-                </div>
-                <div class="me-detail__ident">
-                  <div class="me-detail__name">{{ n.name || 'NFT' }}</div>
+              <!-- Art left and large, everything else in a column beside it —
+                   the shape Magic Eden uses, because the picture is what you
+                   are looking at and the numbers are what you are reading. -->
+              <div class="me-detail__art">
+                @if (n.image) {
+                  <img [src]="nftArtSrc(n.image)" [alt]="n.name" loading="eager" decoding="async"
+                       (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="me-art__fallback">{{ (n.name || '?').charAt(0) }}</span>
+                }
+              </div>
+
+              <div class="me-detail__main">
+                <div class="me-detail__name">{{ n.name || 'NFT' }}</div>
+
+                <div class="me-detail__meta">
                   @if (n.collectionName) {
-                    <div class="me-detail__coll">{{ n.collectionName }}</div>
+                    <span class="me-detail__coll">{{ n.collectionName }}</span>
                   }
-                  <div class="me-detail__facts">
-                    @if (n.rarityRank) {
-                      <span class="me-stat"><span class="me-stat__k">Rank</span>#{{ n.rarityRank }}</span>
-                    }
-                    @if (meRoyaltyPct(); as r) {
-                      <span class="me-stat"><span class="me-stat__k">Royalty</span>{{ r | number:'1.0-2' }}%</span>
-                    }
-                    @if (n.owner) {
+                  @if (n.rarityRank) {
+                    <span class="me-chip me-chip--rank"><lucide-icon name="shield-check" [size]="11" />{{ n.rarityRank }}</span>
+                  }
+                  @if (meRoyaltyPct(); as r) {
+                    <span class="me-chip me-chip--royalty"><lucide-icon name="crown" [size]="11" />{{ r | number:'1.0-2' }}%</span>
+                  }
+                  @if (n.owner) {
+                    <span class="me-detail__owner">Owned by
                       <button type="button" class="dlmm-pair__addr mono dlmm-copy-btn"
                               [class.dlmm-copy-btn--copied]="copiedAddress() === n.owner"
                               (click)="copyPoolAddress(n.owner!)"
@@ -407,13 +412,19 @@
                         <span class="dlmm-pair__addr-text">{{ n.owner.slice(0,4) }}…{{ n.owner.slice(-4) }}</span>
                         <lucide-icon [name]="copiedAddress() === n.owner ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
                       </button>
+                    </span>
+                  }
+                </div>
+
+                <div class="me-detail__bar">
+                  <div class="me-detail__price">
+                    <span class="me-detail__price-k">{{ meIsListed(n) ? 'Asking' : 'Not listed' }}</span>
+                    @if (n.price) {
+                      <span class="me-detail__price-v mono">{{ n.price | number:'1.0-3' }} SOL</span>
                     }
-                  </div>
-                  <div class="me-stats-card__grid me-detail__grid">
-                    <div class="me-kpi"><span class="me-kpi__k">{{ meIsListed(n) ? 'Asking' : 'Status' }}</span>
-                      <span class="me-kpi__v mono">@if (n.price) { {{ n.price | number:'1.0-3' }} SOL } @else { Not listed }</span></div>
-                    <div class="me-kpi"><span class="me-kpi__k">Top offer</span>
-                      <span class="me-kpi__v mono">@if (meTopOffer(); as o) { {{ o | number:'1.0-3' }} SOL } @else { None }</span></div>
+                    @if (meTopOffer(); as o) {
+                      <span class="me-detail__price-sub">Top offer <span class="mono">{{ o | number:'1.0-3' }} SOL</span></span>
+                    }
                   </div>
                   <div class="me-stats-card__actions">
                     @if (meOwnsToken(n)) {
@@ -431,7 +442,6 @@
                     }
                   </div>
                 </div>
-              </div>
 
               <!-- Tabs, the way Magic Eden splits an NFT page: the four are
                    read at different moments and stacking them makes the card
@@ -552,6 +562,7 @@
                     <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
                 </div>
               }
+              </div>
             </div>
           }
         }

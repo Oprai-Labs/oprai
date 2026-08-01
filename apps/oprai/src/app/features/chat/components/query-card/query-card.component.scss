@@ -2695,32 +2695,73 @@
 }
 
 // ── One NFT, in full ─────────────────────────────────────────────────────────
+// Art on the left at size, everything read on the right — the shape Magic
+// Eden uses. A 140px thumbnail next to a wall of text had the emphasis
+// backwards: the picture is the thing being valued.
 .me-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(200px, 300px) minmax(0, 1fr);
+  gap: 18px;
+  padding: 16px;
   border: 1px solid var(--op-border-default, rgba(255, 255, 255, 0.09));
   border-radius: var(--op-radius-md, 10px);
   background: var(--op-bg-surface-1, rgba(255, 255, 255, 0.02));
 
-  &__hero { display: flex; gap: 14px; }
-
   &__art {
-    flex-shrink: 0;
-    width: 140px;
-    height: 140px;
-    border-radius: var(--op-radius-sm, 8px);
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: var(--op-radius-md, 10px);
     overflow: hidden;
     background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
 
     img { width: 100%; height: 100%; object-fit: cover; display: block; }
   }
 
-  &__ident { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
-  &__name { font-size: 1.0625rem; font-weight: 600; }
-  &__coll { font-size: 0.8125rem; color: var(--op-text-tertiary, #71717a); margin-top: -4px; }
-  &__facts { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  &__main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  &__name {
+    font-size: 1.375rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  &__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+  }
+
+  &__coll { color: var(--op-text-secondary, #a1a1aa); font-weight: 600; }
+
+  &__owner {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--op-text-tertiary, #71717a);
+    font-size: 0.75rem;
+  }
+
+  &__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.06));
+    border-radius: var(--op-radius-sm, 8px);
+    background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+  }
+
+  &__price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+  &__price-k { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em;
+               color: var(--op-text-tertiary, #71717a); }
+  &__price-v { font-size: 1.125rem; font-weight: 700; }
+  &__price-sub { font-size: 0.75rem; color: var(--op-text-tertiary, #71717a); }
+
   &__grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-top: 2px; }
 
   &__section {
@@ -2739,33 +2780,31 @@
     color: var(--op-text-tertiary, #71717a);
   }
 
-  // Every trait, in a grid. On a detail card these are the content, not a
-  // footnote — the tile card shows four and that is right there, not here.
+  // Three across, like the reference. Each tile is name, value, then the two
+  // numbers that make it worth reading.
   &__traits {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
-    gap: 6px;
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+    gap: 8px;
   }
 
   &__trait {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 7px 10px;
+    gap: 3px;
+    padding: 10px 12px;
     background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
     border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.06));
     border-radius: var(--op-radius-sm, 8px);
     min-width: 0;
 
     &-k {
-      font-size: 0.625rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+      font-size: 0.6875rem;
       color: var(--op-text-tertiary, #71717a);
     }
 
     &-v {
-      font-size: 0.8125rem;
+      font-size: 0.875rem;
       font-weight: 600;
       white-space: nowrap;
       overflow: hidden;
@@ -2781,9 +2820,8 @@
   gap: 8px;
 }
 
-@media (max-width: 520px) {
-  .me-detail__hero { flex-direction: column; }
-  .me-detail__art { width: 100%; height: auto; aspect-ratio: 1; }
+@media (max-width: 620px) {
+  .me-detail { grid-template-columns: 1fr; }
 }
 
 // Tabs on the NFT detail. The four faces are read at different moments —
@@ -2847,10 +2885,9 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 
-  &--legendary { background: rgba(245, 158, 11, 0.18); color: #f59e0b; }
-  &--rare      { background: rgba(168, 85, 247, 0.18); color: #c084fc; }
-  &--uncommon  { background: rgba(6, 182, 212, 0.16);  color: #22d3ee; }
-  &--common    { background: rgba(255, 255, 255, 0.06); color: var(--op-text-tertiary, #71717a); }
+  &--gold   { background: rgba(245, 158, 11, 0.18); color: #fbbf24; }
+  &--mid    { background: rgba(217, 70, 239, 0.18);  color: #e879f9; }
+  &--common { background: rgba(139, 92, 246, 0.14);  color: #a78bfa; }
 }
 
 // Details tab: plain rows, because they are facts and not figures.
@@ -2868,4 +2905,19 @@
   &:last-child { border-bottom: none; }
 
   > span:first-child { color: var(--op-text-tertiary, #71717a); }
+}
+
+// Rank and royalty, as chips beside the collection.
+.me-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--op-radius-sm, 6px);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+
+  &--rank    { background: rgba(34, 197, 94, 0.16);  color: #4ade80; }
+  &--royalty { background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
 }

@@ -2227,13 +2227,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Rare traits deserve to stand out; a trait 89% of the collection has does
-   *  not. The bands follow how the market talks about them. */
+  /** Three bands, matching the reference: gold under 5%, magenta to 15%,
+   *  muted above. A trait 89% of the collection has should not shout. */
   meRarityClass(share: number | null): string {
     if (share === null) return '';
-    if (share <= 0.01) return 'me-rar--legendary';
-    if (share <= 0.05) return 'me-rar--rare';
-    if (share <= 0.15) return 'me-rar--uncommon';
+    if (share <= 0.05) return 'me-rar--gold';
+    if (share <= 0.15) return 'me-rar--mid';
     return 'me-rar--common';
   }
 
