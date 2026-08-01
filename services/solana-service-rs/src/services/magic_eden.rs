@@ -2014,6 +2014,10 @@ pub struct MeReadParams {
     /// `collections/batch/listings` takes a comma-separated symbol list.
     #[serde(default)]
     pub symbols: Option<String>,
+    /// The NFT's number within its collection — "#8051". How people refer to
+    /// an NFT, and the only handle most of them have.
+    #[serde(default, alias = "tokenId", alias = "id", alias = "index")]
+    pub number: Option<String>,
 }
 
 fn need<'a>(v: &'a Option<String>, what: &str) -> Result<&'a str, AppError> {
@@ -2290,6 +2294,152 @@ async fn me_collection_detail(
     Ok(out)
 }
 
+/// The collection's on-chain address, from any NFT that belongs to it.
+async fn me_collection_mint(http: &reqwest::Client, symbol: &str) -> Option<String> {
+    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let listings = me_get_json(
+        http,
+        &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1"),
+    )
+    .await
+    .ok()?;
+    let mint = listings.as_array()?.first()?.get("tokenMint")?.as_str()?;
+    let asset: serde_json::Value = http
+        .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "getAsset", "params": { "id": mint }
+        }))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    asset
+        .pointer("/result/grouping")?
+        .as_array()?
+        .iter()
+        .find(|g| g.get("group_key").and_then(|k| k.as_str()) == Some("collection"))?
+        .get("group_value")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// Resolve "Mad Lads #8051" to a mint address.
+///
+/// People refer to an NFT by its number — it is on the picture, it is what
+/// the marketplace prints under it, and it is what anyone types. Neither
+/// Magic Eden nor the DAS API can search by it: Magic Eden has no name search
+/// at all, and `searchAssets` rejects every name filter it was offered.
+///
+/// Two tiers, cheapest first. Most questions are about an NFT someone can
+/// see, and what they can see is listed — a scan of the collection's listings
+/// answers those in about a second. Failing that, the collection's whole
+/// name→mint map is built from the chain and cached: ten pages and fourteen
+/// seconds for a ten-thousand-piece collection, once per day.
+async fn me_resolve_mint_by_number(
+    http: &reqwest::Client,
+    symbol: &str,
+    number: &str,
+) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    let suffix = format!("#{number}");
+    let matches = |name: &str| name.trim().ends_with(&suffix);
+
+    // Tier 1 — the listings, which are what a user is usually looking at.
+    if let Ok(rows) = me_get_json(
+        http,
+        &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=500"),
+    )
+    .await
+    {
+        if let Some(arr) = rows.as_array() {
+            for r in arr {
+                let name = r
+                    .pointer("/token/name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                if matches(name) {
+                    if let Some(m) = r.get("tokenMint").and_then(|v| v.as_str()) {
+                        return Some(m.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Tier 2 — the whole collection, indexed once.
+    static INDEX: OnceLock<Mutex<HashMap<String, (Instant, HashMap<String, String>)>>> =
+        OnceLock::new();
+    let index = INDEX.get_or_init(|| Mutex::new(HashMap::new()));
+    const TTL: Duration = Duration::from_secs(24 * 60 * 60);
+
+    if let Ok(map) = index.lock() {
+        if let Some((at, names)) = map.get(symbol) {
+            if at.elapsed() < TTL {
+                return names.get(&suffix).cloned();
+            }
+        }
+    }
+
+    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let collection = me_collection_mint(http, symbol).await?;
+    let rpc = format!("https://mainnet.helius-rpc.com/?api-key={key}");
+    let mut names: HashMap<String, String> = HashMap::new();
+
+    for page in 1..=20u32 {
+        let resp: serde_json::Value = http
+            .post(&rpc)
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "searchAssets",
+                "params": {
+                    "grouping": ["collection", collection],
+                    "page": page, "limit": 1000
+                }
+            }))
+            .send()
+            .await
+            .ok()?
+            .json()
+            .await
+            .ok()?;
+        let items = match resp.pointer("/result/items").and_then(|v| v.as_array()) {
+            Some(i) => i.clone(),
+            None => break,
+        };
+        let count = items.len();
+        for item in items {
+            let name = item
+                .pointer("/content/metadata/name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if let Some(hash) = name.rfind('#') {
+                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                    names.insert(name[hash..].trim().to_string(), id.to_string());
+                }
+            }
+        }
+        if count < 1000 {
+            break;
+        }
+    }
+    if names.is_empty() {
+        return None;
+    }
+    let found = names.get(&suffix).cloned();
+    if let Ok(mut map) = index.lock() {
+        // One collection's index is a few hundred KB; keep a handful.
+        if map.len() >= 8 {
+            map.clear();
+        }
+        map.insert(symbol.to_string(), (Instant::now(), names));
+    }
+    found
+}
+
 /// Everything worth knowing about one NFT, in one reply.
 ///
 /// "Tell me about this NFT" is four questions — what is it, what are its
@@ -2332,7 +2482,23 @@ pub async fn build_me_read(
     params: &MeReadParams,
 ) -> Result<BuildResponse, AppError> {
     if matches!(action, "me_token" | "me_nft_info") {
-        let mint = need(&params.mint_address, "NFT mint")?.to_string();
+        // A mint if we were given one; otherwise the collection and the
+        // number, which is what a person actually has.
+        let mint = match params.mint_address.as_deref().filter(|m| !m.is_empty()) {
+            Some(m) => m.to_string(),
+            None => {
+                let symbol = need(&params.symbol, "collection")?;
+                let number = need(&params.number, "NFT number")?;
+                let digits = number.trim_start_matches('#').trim().to_string();
+                me_resolve_mint_by_number(http, symbol, &digits)
+                    .await
+                    .ok_or_else(|| {
+                        AppError::NotFound(format!(
+                            "No #{digits} in that collection — check the number, or give the mint address"
+                        ))
+                    })?
+            }
+        };
         let data = me_nft_detail(http, &mint).await?;
         return Ok(BuildResponse {
             preview: ActionPreview {

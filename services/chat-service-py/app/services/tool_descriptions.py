@@ -100,6 +100,17 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "kamino_airdrop_metrics": "Kamino — airdrop metrics",
     "kamino_farm_transactions": "Kamino — farm transaction history",
     # ── Magic Eden (NFT marketplace + MMM AMM; several build tx instructions) ──
+    "me_token": (
+        "Magic Eden — everything about ONE NFT in a single card: traits, "
+        "current offers, activity and price. Takes either mintAddress, OR the "
+        "collection symbol plus number — \"Mad Lads 8051\" is "
+        "symbol=mad_lads, number=8051. People refer to an NFT by its number, "
+        "so resolve it that way instead of asking them for a mint address"
+    ),
+    "me_nft_info": (
+        "Magic Eden — same as me_token: one NFT with its traits, offers and "
+        "activity, by mintAddress or by symbol + number"
+    ),
     "me_launchpad_collections": "Magic Eden — launchpad collections",
     "me_buy_instruction": "Magic Eden — build a buy instruction for an NFT",
     "me_buy_now_transfer_nft": "Magic Eden — buy-now with NFT transfer",
