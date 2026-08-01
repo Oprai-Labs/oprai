@@ -342,6 +342,14 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
     ? ` This action's minimum is ${minCfg.amount}${minCfg.unit ? ` ${minCfg.unit}` : ''}.`
     : '';
 
+  // The spend guard speaks for itself: it compared what the transaction would
+  // actually take against what the card promised, and the numbers it names are
+  // the point. Strip the marker and pass it through untouched.
+  const guarded = out.match(/guard:(.+)$/s);
+  if (guarded) {
+    return guarded[1].trim();
+  }
+
   // Translate machine codes from `parseSimulationError`. The shape is one of:
   //   sim:insufficient_tokens
   //   sim:slippage_exceeded
