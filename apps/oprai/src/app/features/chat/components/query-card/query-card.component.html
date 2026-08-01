@@ -528,12 +528,8 @@
                     <div class="me-detail__row"><span>Creator royalty</span><span class="mono">{{ r | number:'1.0-2' }}%</span></div>
                   }
                   <div class="me-detail__row"><span>Marketplace fee</span><span class="mono">2%</span></div>
-                  @if (meChain().frozen) {
-                    <div class="me-detail__row"><span>Status</span><span class="me-frozen">Frozen — cannot be traded</span></div>
-                  } @else {
-                    <div class="me-detail__row"><span>Status</span>
-                      <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
-                  }
+                  <div class="me-detail__row"><span>Status</span>
+                    <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
                   <div class="me-detail__row"><span>Magic Eden</span>
                     <a class="me-link" [href]="'https://magiceden.io/item-details/' + n.mintAddress"
                        target="_blank" rel="noopener noreferrer">

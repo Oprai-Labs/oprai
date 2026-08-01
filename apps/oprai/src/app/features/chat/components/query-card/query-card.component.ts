@@ -2269,8 +2269,14 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         note: c.mutable ? 'Mutable — the update authority can still change it' : 'Immutable',
       });
     }
-    if (c.frozen) {
-      out.push({ label: 'Transfer', ok: false, note: 'Frozen — cannot be traded' });
+    // NOT a frozen check. Programmable NFTs report `frozen: true` by design —
+    // they move through the Token Metadata program rather than a plain SPL
+    // transfer — and Mad Lads that are listed and selling right now come back
+    // frozen. Flagging that would fire on an entire token standard, which is
+    // how a warning becomes something people click past. A plain NFT frozen
+    // in its account genuinely cannot move, so only that is worth saying.
+    if (c.frozen && c.standard !== 'ProgrammableNFT') {
+      out.push({ label: 'Transfer', ok: false, note: 'Frozen — cannot be moved' });
     }
     return out;
   }
