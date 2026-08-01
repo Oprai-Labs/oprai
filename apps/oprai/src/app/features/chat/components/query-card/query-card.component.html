@@ -484,6 +484,17 @@
               }
 
               @if (meTab() === 'details') {
+                @if (meChecks().length) {
+                  <div class="me-checks">
+                    @for (c of meChecks(); track c.label) {
+                      <div class="me-check" [class.me-check--bad]="!c.ok">
+                        <lucide-icon [name]="c.ok ? 'shield-check' : 'shield-alert'" [size]="13" />
+                        <span class="me-check__k">{{ c.label }}</span>
+                        <span class="me-check__v">{{ c.note }}</span>
+                      </div>
+                    }
+                  </div>
+                }
                 <div class="me-detail__rows">
                   <div class="me-detail__row"><span>Mint</span>
                     <a class="me-link mono" [href]="solscan(n.mintAddress)" target="_blank" rel="noopener noreferrer">

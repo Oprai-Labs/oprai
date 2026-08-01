@@ -2230,7 +2230,50 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   /** On-chain facts from the detail payload. */
-  readonly meChain = signal<{ collectionMint?: string; standard?: string; frozen?: boolean; compressed?: boolean }>({});
+  readonly meChain = signal<{
+    collectionMint?: string; standard?: string; frozen?: boolean;
+    compressed?: boolean; creatorsVerified?: boolean; mutable?: boolean; burnt?: boolean;
+  }>({});
+
+  /**
+   * What can be checked about an NFT before buying it.
+   *
+   * Magic Eden lists whatever anyone mints, and copying a famous collection's
+   * art and name costs nothing. What cannot be copied is a signature: a
+   * creator counts as verified only if that key signed the metadata, and a
+   * collection membership is only reported once the collection's own
+   * authority has verified it. Those two separate the real thing from a
+   * picture of it.
+   */
+  meChecks(): Array<{ label: string; ok: boolean; note: string }> {
+    const c = this.meChain();
+    const out: Array<{ label: string; ok: boolean; note: string }> = [];
+    if (c.collectionMint !== undefined) {
+      out.push({
+        label: 'Verified collection',
+        ok: !!c.collectionMint,
+        note: c.collectionMint ? 'Signed by the collection authority' : 'Not part of a verified collection',
+      });
+    }
+    if (c.creatorsVerified !== undefined) {
+      out.push({
+        label: 'Verified creator',
+        ok: !!c.creatorsVerified,
+        note: c.creatorsVerified ? 'A listed creator signed the metadata' : 'No creator signature',
+      });
+    }
+    if (c.mutable !== undefined) {
+      out.push({
+        label: 'Metadata',
+        ok: !c.mutable,
+        note: c.mutable ? 'Mutable — the update authority can still change it' : 'Immutable',
+      });
+    }
+    if (c.frozen) {
+      out.push({ label: 'Transfer', ok: false, note: 'Frozen — cannot be traded' });
+    }
+    return out;
+  }
 
   meStandardLabel(): string | null {
     const i = this.meChain().standard;

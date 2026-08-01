@@ -2978,3 +2978,33 @@
 }
 
 .me-frozen { color: var(--op-warning, #f59e0b); font-weight: 600; }
+
+// Pre-purchase checks. Not a verdict — the facts a buyer would look up
+// themselves, in one place, before spending.
+.me-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.me-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 12px;
+  background: var(--op-bg-surface-2);
+  font-size: 0.75rem;
+  color: var(--op-success, #22c55e);
+
+  &__k { font-weight: 600; color: var(--op-text-primary); }
+  &__v { margin-left: auto; color: var(--op-text-tertiary); text-align: right; }
+
+  &--bad {
+    color: var(--op-warning, #f59e0b);
+    border-color: color-mix(in srgb, var(--op-warning, #f59e0b) 30%, var(--op-border-subtle));
+    background: color-mix(in srgb, var(--op-warning, #f59e0b) 7%, var(--op-bg-surface-2));
+  }
+}

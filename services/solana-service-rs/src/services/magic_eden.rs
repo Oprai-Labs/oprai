@@ -2643,6 +2643,21 @@ async fn me_asset_facts(http: &reqwest::Client, mint: &str) -> serde_json::Value
         Some(r) => r,
         None => return serde_json::json!({}),
     };
+    // Anyone can mint a picture and call it Mad Lads. What they cannot forge
+    // is a signature: a creator is `verified` only if that key signed the
+    // metadata, and a collection grouping is only reported once the
+    // collection authority has verified the membership. Those two are the
+    // difference between the real thing and a copy of its art.
+    let creators_verified = result
+        .get("creators")
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            !arr.is_empty()
+                && arr
+                    .iter()
+                    .any(|c| c.get("verified").and_then(|v| v.as_bool()) == Some(true))
+        });
+
     serde_json::json!({
         "collectionMint": result
             .get("grouping")
@@ -2654,6 +2669,11 @@ async fn me_asset_facts(http: &reqwest::Client, mint: &str) -> serde_json::Value
         "standard": result.get("interface").and_then(|v| v.as_str()),
         "frozen": result.pointer("/ownership/frozen").and_then(|v| v.as_bool()),
         "compressed": result.pointer("/compression/compressed").and_then(|v| v.as_bool()),
+        "creatorsVerified": creators_verified,
+        // Metadata that can still be rewritten after you own it: the picture
+        // you bought is not guaranteed to stay the picture you bought.
+        "mutable": result.get("mutable").and_then(|v| v.as_bool()),
+        "burnt": result.get("burnt").and_then(|v| v.as_bool()),
     })
 }
 
