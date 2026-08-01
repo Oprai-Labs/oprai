@@ -454,10 +454,6 @@
               <div class="me-tabs">
                 <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'traits'"
                         (click)="setMeTab('traits')">Traits</button>
-                <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'offers'"
-                        (click)="setMeTab('offers')">Offers
-                  @if (meTabCount()) { <span class="me-tab__n">{{ meTabCount() }}</span> }
-                </button>
                 <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'details'"
                         (click)="setMeTab('details')">Details</button>
               </div>
@@ -484,42 +480,6 @@
                   </div>
                 } @else {
                   <div class="dlmm-empty">No traits recorded for this NFT.</div>
-                }
-              }
-
-              @if (meTab() === 'offers') {
-                @if (meLiveOffers().length) {
-                  <div class="me-scroll">
-                    <div class="result-table">
-                      <div class="result-table__header result-table__header--me-bid">
-                        <span>From</span><span class="text-right">Offer</span>
-                        <span class="text-right">Expires</span><span></span>
-                      </div>
-                      @for (o of meLiveOffers(); track o.pdaAddress ?? $index) {
-                        <div class="result-table__row result-table__row--me-bid dlmm-row">
-                          <span class="mono dlmm-muted">
-                            @if (o.buyer) { {{ o.buyer.slice(0,4) }}…{{ o.buyer.slice(-4) }} } @else { — }
-                          </span>
-                          <span class="text-right mono me-bid__price">@if (o.price) { {{ o.price | number:'1.0-3' }} SOL } @else { — }</span>
-                          <span class="text-right dlmm-muted">{{ meExpiry(o.expiry) }}</span>
-                          <span class="text-right">
-                            @if (meIsOwnOffer(o)) {
-                              <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeOffer(o)">Withdraw</button>
-                            } @else if (meOwnsToken(n)) {
-                              <button type="button" class="dlmm-use-btn" (click)="acceptMeOffer(o)">Accept</button>
-                            }
-                          </span>
-                        </div>
-                      }
-                    </div>
-                  </div>
-                } @else {
-                  <div class="dlmm-empty">
-                    <div>No live offers on this NFT.</div>
-                    @if (!meOwnsToken(n)) {
-                      <button type="button" class="dlmm-use-btn" (click)="offerOnMeToken(n)">Make the first offer</button>
-                    }
-                  </div>
                 }
               }
 

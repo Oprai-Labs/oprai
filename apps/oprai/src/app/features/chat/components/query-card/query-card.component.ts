@@ -1504,10 +1504,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly meNft = signal<MeTokenRow | null>(null);
   /** Rarity and floor for this NFT's traits, keyed "Trait|Value". */
   readonly meTraitStats = signal<Record<string, { count: number; share: number; floor: number | null }>>({});
-  /** Which face of the detail card is showing. Magic Eden splits an NFT page
-   *  the same way, because the four are read at different moments. */
-  readonly meTab = signal<'traits' | 'offers' | 'details'>('traits');
-  setMeTab(t: 'traits' | 'offers' | 'details'): void {
+  /** Which face of the detail card is showing. Offers came out: on almost
+   *  every NFT the tab was an empty state with a button, which is a prompt
+   *  dressed as data. Bidding is still one click away in the price bar. */
+  readonly meTab = signal<'traits' | 'details'>('traits');
+  setMeTab(t: 'traits' | 'details'): void {
     this.meTab.set(t);
     this.persistSnapshot();
   }
@@ -2274,11 +2275,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (share <= 0.05) return 'me-rar--gold';
     if (share <= 0.15) return 'me-rar--mid';
     return 'me-rar--common';
-  }
-
-  /** Only live bids are worth a badge. */
-  meTabCount(): number {
-    return this.meLiveOffers().length;
   }
 
   /** The royalty a sale pays the creator, which comes out of the seller's
