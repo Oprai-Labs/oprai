@@ -2719,7 +2719,7 @@
     flex-shrink: 0;
     width: 168px;
     aspect-ratio: 1;
-    border-radius: var(--op-radius-md, 10px);
+    border-radius: 16px;
     overflow: hidden;
     background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
 
@@ -2753,23 +2753,24 @@
     font-size: 0.75rem;
   }
 
+  // The same panel the swap card uses for an amount: 16px, surface-2, subtle
+  // border. This is the equivalent statement — what it costs.
   &__bar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 12px;
-    border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.06));
-    border-radius: var(--op-radius-sm, 8px);
-    background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+    padding: 14px 16px;
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 16px;
+    background: var(--op-bg-surface-2);
   }
 
   &__price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
-  &__price-k { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em;
-               color: var(--op-text-tertiary, #71717a); }
-  &__price-v { font-size: 1.125rem; font-weight: 700; }
-  &__price-sub { font-size: 0.75rem; color: var(--op-text-tertiary, #71717a); }
+  &__price-k { font-size: 0.75rem; font-weight: 600; color: var(--op-text-primary); }
+  &__price-v { font-size: 1.25rem; font-weight: 700; }
+  &__price-sub { font-size: 0.6875rem; color: var(--op-text-tertiary); }
 
   &__grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-top: 2px; }
 
@@ -2797,24 +2798,32 @@
     gap: 8px;
   }
 
+  // Same construction as a swap panel, scaled down: 16px corners, surface-2,
+  // subtle border. Nine of them next to a swap card should look like they
+  // came out of the same app.
   &__trait {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 9px 11px;
-    background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
-    border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.06));
-    border-radius: var(--op-radius-sm, 8px);
+    padding: 12px 14px;
+    background: var(--op-bg-surface-2);
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 16px;
     min-width: 0;
+    transition: border-color 0.12s;
+
+    &:hover { border-color: color-mix(in srgb, var(--op-brand) 35%, var(--op-border-subtle)); }
 
     &-k {
       font-size: 0.6875rem;
-      color: var(--op-text-tertiary, #71717a);
+      font-weight: 500;
+      color: var(--op-text-tertiary);
     }
 
     &-v {
-      font-size: 0.875rem;
+      font-size: 0.9375rem;
       font-weight: 600;
+      color: var(--op-text-primary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -2888,9 +2897,10 @@
 // The floor is what the trait is WORTH, and it was the dimmest thing on the
 // tile. It reads at the same weight as the value now.
 .me-detail__trait-floor {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--op-text-primary, #fafafa);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .me-rar {
@@ -2936,3 +2946,35 @@
   &--rank    { background: rgba(34, 197, 94, 0.16);  color: #4ade80; }
   &--royalty { background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
 }
+
+// Offers can run long; the card should not. Scrolls in place instead of
+// pushing the conversation down.
+.me-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  border-radius: 12px;
+}
+
+.result-table__header--me-bid,
+.result-table__row--me-bid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 100px 104px;
+  align-items: center;
+  gap: 8px;
+}
+
+.me-bid__price { font-weight: 700; font-size: 0.875rem; }
+
+// Explorer links: an address is only useful if you can go and look at it.
+.me-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--op-text-secondary);
+  text-decoration: none;
+  transition: color 0.12s;
+
+  &:hover { color: var(--op-brand-accent, #06b6d4); }
+}
+
+.me-frozen { color: var(--op-warning, #f59e0b); font-weight: 600; }

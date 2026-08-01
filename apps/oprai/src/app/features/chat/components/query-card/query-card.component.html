@@ -456,11 +456,7 @@
                         (click)="setMeTab('traits')">Traits</button>
                 <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'offers'"
                         (click)="setMeTab('offers')">Offers
-                  @if (meTabCount('offers')) { <span class="me-tab__n">{{ meTabCount('offers') }}</span> }
-                </button>
-                <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'activity'"
-                        (click)="setMeTab('activity')">Activity
-                  @if (meTabCount('activity')) { <span class="me-tab__n">{{ meTabCount('activity') }}</span> }
+                  @if (meTabCount()) { <span class="me-tab__n">{{ meTabCount() }}</span> }
                 </button>
                 <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'details'"
                         (click)="setMeTab('details')">Details</button>
@@ -492,28 +488,34 @@
               }
 
               @if (meTab() === 'offers') {
-                @if (meOffers().length) {
-                  <div class="result-table">
-                    @for (o of meOffers(); track o.pdaAddress ?? $index) {
-                      <div class="result-table__row result-table__row--me-offer dlmm-row">
-                        <span class="mono dlmm-muted">
-                          @if (o.buyer) { {{ o.buyer.slice(0,4) }}…{{ o.buyer.slice(-4) }} } @else { — }
-                        </span>
-                        <span class="text-right mono">@if (o.price) { {{ o.price | number:'1.0-3' }} SOL } @else { — }</span>
-                        <span class="text-right dlmm-muted">{{ meExpiry(o.expiry) }}</span>
-                        <span class="text-right">
-                          @if (meIsOwnOffer(o)) {
-                            <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeOffer(o)">Withdraw</button>
-                          } @else if (meOwnsToken(n)) {
-                            <button type="button" class="dlmm-use-btn" (click)="acceptMeOffer(o)">Accept</button>
-                          }
-                        </span>
+                @if (meLiveOffers().length) {
+                  <div class="me-scroll">
+                    <div class="result-table">
+                      <div class="result-table__header result-table__header--me-bid">
+                        <span>From</span><span class="text-right">Offer</span>
+                        <span class="text-right">Expires</span><span></span>
                       </div>
-                    }
+                      @for (o of meLiveOffers(); track o.pdaAddress ?? $index) {
+                        <div class="result-table__row result-table__row--me-bid dlmm-row">
+                          <span class="mono dlmm-muted">
+                            @if (o.buyer) { {{ o.buyer.slice(0,4) }}…{{ o.buyer.slice(-4) }} } @else { — }
+                          </span>
+                          <span class="text-right mono me-bid__price">@if (o.price) { {{ o.price | number:'1.0-3' }} SOL } @else { — }</span>
+                          <span class="text-right dlmm-muted">{{ meExpiry(o.expiry) }}</span>
+                          <span class="text-right">
+                            @if (meIsOwnOffer(o)) {
+                              <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeOffer(o)">Withdraw</button>
+                            } @else if (meOwnsToken(n)) {
+                              <button type="button" class="dlmm-use-btn" (click)="acceptMeOffer(o)">Accept</button>
+                            }
+                          </span>
+                        </div>
+                      }
+                    </div>
                   </div>
                 } @else {
                   <div class="dlmm-empty">
-                    <div>No open offers on this NFT.</div>
+                    <div>No live offers on this NFT.</div>
                     @if (!meOwnsToken(n)) {
                       <button type="button" class="dlmm-use-btn" (click)="offerOnMeToken(n)">Make the first offer</button>
                     }
@@ -521,37 +523,32 @@
                 }
               }
 
-              @if (meTab() === 'activity') {
-                @if (meActivities().length) {
-                  <div class="result-table">
-                    @for (a of meActivities(); track a.signature ?? $index) {
-                      <div class="result-table__row result-table__row--me-hist dlmm-row">
-                        <span><span class="me-evt" [class.me-evt--buy]="a.type === 'buyNow'"
-                                    [class.me-evt--list]="a.type === 'list'">{{ a.type || '—' }}</span></span>
-                        <span class="text-right mono">@if (a.price) { {{ a.price | number:'1.0-3' }} SOL } @else { — }</span>
-                        <span class="text-right dlmm-muted">{{ meWhen(a.blockTime) }}</span>
-                      </div>
-                    }
-                  </div>
-                } @else {
-                  <div class="dlmm-empty">Nothing has happened to this NFT on Magic Eden.</div>
-                }
-              }
-
               @if (meTab() === 'details') {
                 <div class="me-detail__rows">
                   <div class="me-detail__row"><span>Mint</span>
-                    <button type="button" class="dlmm-pair__addr mono dlmm-copy-btn"
-                            [class.dlmm-copy-btn--copied]="copiedAddress() === n.mintAddress"
-                            (click)="copyPoolAddress(n.mintAddress)"
-                            [attr.title]="'Copy mint: ' + n.mintAddress">
-                      <span class="dlmm-pair__addr-text">{{ n.mintAddress.slice(0,6) }}…{{ n.mintAddress.slice(-6) }}</span>
-                      <lucide-icon [name]="copiedAddress() === n.mintAddress ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
-                    </button>
+                    <a class="me-link mono" [href]="solscan(n.mintAddress)" target="_blank" rel="noopener noreferrer">
+                      {{ n.mintAddress.slice(0,4) }}…{{ n.mintAddress.slice(-4) }}
+                      <lucide-icon name="external-link" [size]="11" />
+                    </a>
                   </div>
                   @if (n.owner) {
                     <div class="me-detail__row"><span>Owner</span>
-                      <span class="mono">{{ n.owner.slice(0,6) }}…{{ n.owner.slice(-6) }}</span></div>
+                      <a class="me-link mono" [href]="solscanAccount(n.owner)" target="_blank" rel="noopener noreferrer">
+                        {{ n.owner.slice(0,4) }}…{{ n.owner.slice(-4) }}
+                        <lucide-icon name="external-link" [size]="11" />
+                      </a>
+                    </div>
+                  }
+                  @if (meChain().collectionMint; as cm) {
+                    <div class="me-detail__row"><span>On-chain collection</span>
+                      <a class="me-link mono" [href]="solscan(cm)" target="_blank" rel="noopener noreferrer">
+                        {{ cm.slice(0,4) }}…{{ cm.slice(-4) }}
+                        <lucide-icon name="external-link" [size]="11" />
+                      </a>
+                    </div>
+                  }
+                  @if (meStandardLabel(); as std) {
+                    <div class="me-detail__row"><span>Token standard</span><span>{{ std }}</span></div>
                   }
                   @if (n.collectionName) {
                     <div class="me-detail__row"><span>Collection</span><span>{{ n.collectionName }}</span></div>
@@ -560,11 +557,18 @@
                     <div class="me-detail__row"><span>Creator royalty</span><span class="mono">{{ r | number:'1.0-2' }}%</span></div>
                   }
                   <div class="me-detail__row"><span>Marketplace fee</span><span class="mono">2%</span></div>
-                  @if (n.rarityRank) {
-                    <div class="me-detail__row"><span>Rarity rank</span><span class="mono">#{{ n.rarityRank }}</span></div>
+                  @if (meChain().frozen) {
+                    <div class="me-detail__row"><span>Status</span><span class="me-frozen">Frozen — cannot be traded</span></div>
+                  } @else {
+                    <div class="me-detail__row"><span>Status</span>
+                      <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
                   }
-                  <div class="me-detail__row"><span>Status</span>
-                    <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
+                  <div class="me-detail__row"><span>Magic Eden</span>
+                    <a class="me-link" [href]="'https://magiceden.io/item-details/' + n.mintAddress"
+                       target="_blank" rel="noopener noreferrer">
+                      Open <lucide-icon name="external-link" [size]="11" />
+                    </a>
+                  </div>
                 </div>
               }
             </div>

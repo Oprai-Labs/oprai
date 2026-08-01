@@ -2617,6 +2617,46 @@ async fn me_trait_stats(
     serde_json::Value::Object(out)
 }
 
+/// On-chain facts about a mint: its collection account, its token standard,
+/// and whether it is frozen. Best-effort — a card without them is still a
+/// card.
+async fn me_asset_facts(http: &reqwest::Client, mint: &str) -> serde_json::Value {
+    let key = match std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty()) {
+        Some(k) => k,
+        None => return serde_json::json!({}),
+    };
+    let resp: serde_json::Value = match http
+        .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "getAsset", "params": { "id": mint }
+        }))
+        .send()
+        .await
+    {
+        Ok(r) => match r.json().await {
+            Ok(v) => v,
+            Err(_) => return serde_json::json!({}),
+        },
+        Err(_) => return serde_json::json!({}),
+    };
+    let result = match resp.get("result") {
+        Some(r) => r,
+        None => return serde_json::json!({}),
+    };
+    serde_json::json!({
+        "collectionMint": result
+            .get("grouping")
+            .and_then(|g| g.as_array())
+            .and_then(|arr| arr.iter()
+                .find(|g| g.get("group_key").and_then(|k| k.as_str()) == Some("collection")))
+            .and_then(|g| g.get("group_value"))
+            .and_then(|v| v.as_str()),
+        "standard": result.get("interface").and_then(|v| v.as_str()),
+        "frozen": result.pointer("/ownership/frozen").and_then(|v| v.as_bool()),
+        "compressed": result.pointer("/compression/compressed").and_then(|v| v.as_bool()),
+    })
+}
+
 /// Everything worth knowing about one NFT, in one reply.
 ///
 /// "Tell me about this NFT" is four questions — what is it, what are its
@@ -2661,11 +2701,18 @@ async fn me_nft_detail(
         None => serde_json::json!({}),
     };
 
+    // The chain facts Magic Eden shows under Details and its own API does
+    // not carry: which collection account this belongs to, and whether it is
+    // a programmable NFT — the difference decides whether a marketplace can
+    // move it at all.
+    let chain = me_asset_facts(http, mint).await;
+
     Ok(serde_json::json!({
         "token": token,
         "offers": offers.unwrap_or_else(|_| serde_json::json!([])),
         "activities": activities.unwrap_or_else(|_| serde_json::json!([])),
         "traitStats": trait_stats,
+        "chain": chain,
     }))
 }
 

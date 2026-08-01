@@ -922,6 +922,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meNft.set((d['meNft'] as MeTokenRow | undefined) ?? null);
       this.meTraitStats.set((d['meTraitStats'] as any) ?? {});
       this.meTab.set((d['meTab'] as any) ?? 'traits');
+      this.meChain.set((d['meChain'] as any) ?? {});
       this.meStats.set((d['meStats'] as MeCollectionRow | undefined) ?? null);
       this.meEscrowSol.set((d['meEscrowSol'] as number | undefined) ?? null);
     }
@@ -1019,6 +1020,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         d['meNft'] = this.meNft();
         d['meTraitStats'] = this.meTraitStats();
         d['meTab'] = this.meTab();
+        d['meChain'] = this.meChain();
       }
       if (this.meStats())              d['meStats'] = this.meStats();
       if (this.meEscrowSol() !== null) d['meEscrowSol'] = this.meEscrowSol();
@@ -1504,8 +1506,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly meTraitStats = signal<Record<string, { count: number; share: number; floor: number | null }>>({});
   /** Which face of the detail card is showing. Magic Eden splits an NFT page
    *  the same way, because the four are read at different moments. */
-  readonly meTab = signal<'traits' | 'offers' | 'activity' | 'details'>('traits');
-  setMeTab(t: 'traits' | 'offers' | 'activity' | 'details'): void {
+  readonly meTab = signal<'traits' | 'offers' | 'details'>('traits');
+  setMeTab(t: 'traits' | 'offers' | 'details'): void {
     this.meTab.set(t);
     this.persistSnapshot();
   }
@@ -2025,6 +2027,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         this.meOffers.set(d?.offers ?? []);
         this.meActivities.set(d?.activities ?? []);
         this.meTraitStats.set((data as any)?.traitStats ?? {});
+        this.meChain.set((data as any)?.chain ?? {});
         this.meTab.set('traits');
         this.meShape.set('nft');
         return;
@@ -2200,10 +2203,47 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return out;
   }
 
-  /** The best live bid on the NFT being shown. */
+  /** True once a bid's expiry has passed. Magic Eden keeps returning them. */
+  meOfferExpired(o: MeOfferRow): boolean {
+    const e = o.expiry ?? -1;
+    return e > 0 && e < Math.floor(Date.now() / 1000);
+  }
+
+  /** Bids that could still be accepted, best first. */
+  meLiveOffers(): MeOfferRow[] {
+    return this.meOffers()
+      .filter(o => !this.meOfferExpired(o))
+      .sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
+  }
+
+  /**
+   * The best bid anyone could actually take.
+   *
+   * This counted expired ones, so an NFT with a single dead 158 SOL bid
+   * advertised a top offer of 158 SOL. Nobody can accept it and the seller
+   * cannot get it; showing it is worse than showing nothing.
+   */
   meTopOffer(): number | null {
-    const prices = this.meOffers().map(o => o.price ?? 0).filter(p => p > 0);
+    const prices = this.meLiveOffers().map(o => o.price ?? 0).filter(p => p > 0);
     return prices.length ? Math.max(...prices) : null;
+  }
+
+  /** On-chain facts from the detail payload. */
+  readonly meChain = signal<{ collectionMint?: string; standard?: string; frozen?: boolean; compressed?: boolean }>({});
+
+  meStandardLabel(): string | null {
+    const i = this.meChain().standard;
+    if (!i) return null;
+    if (i === 'ProgrammableNFT') return 'Programmable NFT';
+    if (i === 'V1_NFT') return this.meChain().compressed ? 'Compressed NFT' : 'NFT';
+    return i;
+  }
+
+  solscan(addr: string | null | undefined): string {
+    return `https://solscan.io/token/${addr ?? ''}`;
+  }
+  solscanAccount(addr: string | null | undefined): string {
+    return `https://solscan.io/account/${addr ?? ''}`;
   }
 
   /**
@@ -2236,8 +2276,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return 'me-rar--common';
   }
 
-  meTabCount(tab: 'offers' | 'activity'): number {
-    return tab === 'offers' ? this.meOffers().length : this.meActivities().length;
+  /** Only live bids are worth a badge. */
+  meTabCount(): number {
+    return this.meLiveOffers().length;
   }
 
   /** The royalty a sale pays the creator, which comes out of the seller's
