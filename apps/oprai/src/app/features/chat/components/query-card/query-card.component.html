@@ -408,20 +408,19 @@
                 <div class="me-kpi"><span class="me-kpi__k">24h avg price</span>
                   <span class="me-kpi__v mono">@if (meSol(st.avgPrice24hr); as v) { {{ v | number:'1.0-2' }} SOL } @else { — }</span></div>
               </div>
-              @if (meCollectionLinks(st).length) {
-                <div class="me-links">
-                  @for (l of meCollectionLinks(st); track l.href) {
-                    <a class="me-links__a" [href]="l.href" target="_blank" rel="noopener noreferrer">
-                      <lucide-icon [name]="l.icon" [size]="12" />{{ l.label }}
-                    </a>
-                  }
-                </div>
-              }
-              @if (st.symbol) {
-                <button type="button" class="dlmm-use-btn me-stats-card__cta" (click)="browseMeCollection(st)">
-                  Browse listings <lucide-icon name="arrow-right" [size]="12" />
-                </button>
-              }
+              <div class="me-stats-card__actions">
+                @if (st.symbol) {
+                  <button type="button" class="dlmm-use-btn" (click)="browseMeCollection(st)">
+                    Browse listings <lucide-icon name="arrow-right" [size]="12" />
+                  </button>
+                }
+                @for (l of meCollectionLinks(st); track l.href) {
+                  <a class="me-links__a" [href]="l.href" target="_blank" rel="noopener noreferrer">
+                    <lucide-icon [name]="l.icon" [size]="12" />{{ l.label }}
+                  </a>
+                }
+              </div>
+
             </div>
           }
         }
