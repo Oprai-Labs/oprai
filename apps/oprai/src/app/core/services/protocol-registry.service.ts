@@ -101,7 +101,7 @@ export class ProtocolRegistryService {
       id: 'solend',
       name: 'Solend',
       category: 'lend',
-      icon: 'assets/icons/protocols/solend.webp',
+      icon: 'assets/icons/protocols/solend.svg',
       accent: '#6366F1',
       accentBg: 'rgba(99,102,241,0.08)',
       tvl: 150000000,

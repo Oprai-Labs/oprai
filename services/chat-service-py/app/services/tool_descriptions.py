@@ -99,7 +99,28 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "kamino_yield_history": "Kamino — historical yield data",
     "kamino_airdrop_metrics": "Kamino — airdrop metrics",
     "kamino_farm_transactions": "Kamino — farm transaction history",
+    "token_safety": (
+        "Is this token safe to buy — honeypot, tax, freeze, mint authority, "
+        "holder concentration. Reads the mint account directly, so it works "
+        "on a token created seconds ago. Call it BEFORE any swap or buy the "
+        "user asks for on an unfamiliar token, not only when they ask about "
+        "safety"
+    ),
+    "honeypot_check": "Same as token_safety — can this token be sold after buying",
+    "scam_check": "Same as token_safety — what is dangerous about this token",
+    "rug_check": "Same as token_safety — freeze, mint authority, concentration",
     # ── Magic Eden (NFT marketplace + MMM AMM; several build tx instructions) ──
+    "me_token": (
+        "Magic Eden — everything about ONE NFT in a single card: traits, "
+        "current offers, activity and price. Takes either mintAddress, OR the "
+        "collection symbol plus number — \"Mad Lads 8051\" is "
+        "symbol=mad_lads, number=8051. People refer to an NFT by its number, "
+        "so resolve it that way instead of asking them for a mint address"
+    ),
+    "me_nft_info": (
+        "Magic Eden — same as me_token: one NFT with its traits, offers and "
+        "activity, by mintAddress or by symbol + number"
+    ),
     "me_launchpad_collections": "Magic Eden — launchpad collections",
     "me_buy_instruction": "Magic Eden — build a buy instruction for an NFT",
     "me_buy_now_transfer_nft": "Magic Eden — buy-now with NFT transfer",
@@ -123,7 +144,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "me_mmm_sol_fulfill_buy": "Magic Eden — fulfill an MMM buy",
     "me_mmm_sol_fulfill_sell": "Magic Eden — fulfill an MMM sell",
     "me_marketplace_popular": "Magic Eden — popular collections on the marketplace",
-    "me_magic_ticket_burns": "Magic Eden — Magic Ticket burn records",
     # ── Orca (Whirlpool AMM reads) ──
     "orca_get_pools": (
         "Orca — list Whirlpool liquidity pools. Optional category=rwa | "

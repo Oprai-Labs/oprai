@@ -1,6 +1,6 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
+use solana_sdk::pubkey::Pubkey;
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -17,8 +17,162 @@ pub const MAGIC_EDEN_API: &str = "https://api-mainnet.magiceden.dev/v2";
 /// Marketplace fee (2% = 200 basis points)
 pub const MARKETPLACE_FEE_BPS: u64 = 200;
 
-/// Auction House ID for Magic Eden
-pub const MAGIC_EDEN_AUCTION_HOUSE: &str = "C76z7q6gT84xMH5s9t1r7hRe2QQpBCT7o2D8nQ46DmNK";
+/// Magic Eden's default auction house — the one every live listing I sampled
+/// runs under (Mad Lads, Okay Bears, DeGods, Claynosaurz).
+///
+/// A FALLBACK only. The value previously hard-coded here was a different
+/// address and the instruction endpoints answer it with "invalid auction
+/// house", so always prefer the `auctionHouse` carried by the listing or offer
+/// being acted on; this is for when we have nothing else.
+pub const MAGIC_EDEN_AUCTION_HOUSE: &str = "E8cU1WiRWjanGxmn96ewBgk9vPTcL6AEZ1t6F6fkgUWe";
+
+/// API key for the instruction endpoints.
+///
+/// Reads are public; every `/instructions/*` endpoint — which is to say every
+/// buy, list, offer, cancel and escrow movement — answers 401 without a
+/// Bearer token. Read once from the environment.
+fn me_api_key() -> Option<&'static str> {
+    use std::sync::OnceLock;
+    static KEY: OnceLock<Option<String>> = OnceLock::new();
+    KEY.get_or_init(|| {
+        std::env::var("MAGIC_EDEN_API_KEY")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+    })
+    .as_deref()
+}
+
+/// GET a Magic Eden endpoint, sending the key when we have one.
+pub async fn me_get_json(
+    http: &reqwest::Client,
+    url: &str,
+) -> Result<serde_json::Value, AppError> {
+    let mut req = http.get(url);
+    if let Some(key) = me_api_key() {
+        req = req.bearer_auth(key);
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| AppError::ProtocolError(format!("Magic Eden request failed: {e}")))?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(me_api_error(status, &body));
+    }
+    serde_json::from_str(&body)
+        .map_err(|e| AppError::ProtocolError(format!("Magic Eden returned malformed JSON: {e}")))
+}
+
+/// Turn a Magic Eden failure into something a person can act on.
+///
+/// Its errors arrive in three different shapes — `{"msg":…}`, `{"err":…}`, or
+/// bare text like "Not Found." — and none of them belong in front of a user
+/// as-is. A 401 in particular is OUR configuration problem, not theirs, and
+/// must never read as if the user did something wrong.
+fn me_api_error(status: reqwest::StatusCode, body: &str) -> AppError {
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return AppError::ProtocolError(
+            "Magic Eden trading is unavailable right now. Browsing still works.".into(),
+        );
+    }
+    let detail = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("msg")
+                .or_else(|| v.get("err"))
+                .or_else(|| v.get("error"))
+                .and_then(|m| m.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    if status == reqwest::StatusCode::NOT_FOUND || detail.contains("Not Found") {
+        return AppError::NotFound("Magic Eden has no record of that item".into());
+    }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return AppError::ProtocolError("Magic Eden is rate-limiting us — try again shortly".into());
+    }
+    if detail.contains("auction house") {
+        return AppError::InvalidParams(
+            "That collection trades under a different auction house — reload the listing".into(),
+        );
+    }
+    AppError::ProtocolError(if detail.is_empty() {
+        "Magic Eden could not complete that request".into()
+    } else {
+        detail
+    })
+}
+
+/// A transaction returned by an `/instructions/*` endpoint.
+pub struct MeTx {
+    /// base64 transaction, ready for the wallet to sign.
+    pub tx_b64: String,
+    pub blockhash: Option<String>,
+    pub last_valid_block_height: Option<u64>,
+}
+
+/// Call an instruction endpoint and take the transaction out of the reply.
+///
+/// The reply carries four fields and only one of them is the right answer.
+/// `tx` is a serialized MESSAGE with no signature slots. `txSigned` is the
+/// whole transaction — and for anything the marketplace co-signs (listing
+/// needs two signatures, the second already filled by Magic Eden's authority)
+/// it is the ONLY usable form: rebuilding from `tx` throws that signature
+/// away and the transaction can never land.
+///
+/// So: prefer `txSigned`, fall back to `v0.txSigned`/`v0.tx` for versioned,
+/// and only then to `tx`.
+pub async fn me_instruction(
+    http: &reqwest::Client,
+    endpoint: &str,
+    query: &[(&str, String)],
+) -> Result<MeTx, AppError> {
+    if me_api_key().is_none() {
+        return Err(AppError::ProtocolError(
+            "Magic Eden trading is unavailable right now. Browsing still works.".into(),
+        ));
+    }
+    let url = format!("{MAGIC_EDEN_API}/instructions/{endpoint}");
+    let mut req = http.get(&url).bearer_auth(me_api_key().unwrap());
+    let filtered: Vec<&(&str, String)> = query.iter().filter(|(_, v)| !v.is_empty()).collect();
+    req = req.query(&filtered.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>());
+
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| AppError::ProtocolError(format!("Magic Eden request failed: {e}")))?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(me_api_error(status, &body));
+    }
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| AppError::ProtocolError(format!("Magic Eden returned malformed JSON: {e}")))?;
+
+    let buffer_bytes = |v: Option<&serde_json::Value>| -> Option<Vec<u8>> {
+        let arr = v?.get("data")?.as_array()?;
+        Some(arr.iter().filter_map(|b| b.as_u64()).map(|b| b as u8).collect())
+    };
+    let bytes = buffer_bytes(json.get("txSigned"))
+        .or_else(|| buffer_bytes(json.pointer("/v0/txSigned")))
+        .or_else(|| buffer_bytes(json.pointer("/v0/tx")))
+        .or_else(|| buffer_bytes(json.get("tx")))
+        .ok_or_else(|| {
+            AppError::ProtocolError("Magic Eden did not return a transaction".into())
+        })?;
+
+    Ok(MeTx {
+        tx_b64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+        blockhash: json
+            .pointer("/blockhashData/blockhash")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        last_valid_block_height: json
+            .pointer("/blockhashData/lastValidBlockHeight")
+            .and_then(|v| v.as_u64()),
+    })
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -29,8 +183,14 @@ pub const MAGIC_EDEN_AUCTION_HOUSE: &str = "C76z7q6gT84xMH5s9t1r7hRe2QQpBCT7o2D8
 #[serde(rename_all = "camelCase")]
 pub struct MeNFT {
     pub mint_address: String,
+    #[serde(default)]
     pub name: String,
-    pub uri: String,
+    /// Magic Eden does not return `uri` on `/tokens/{mint}` or on a wallet's
+    /// tokens. It was REQUIRED here, so those lookups failed to deserialize
+    /// and fell back silently — cards read "Buy HRZo…aFZf" instead of
+    /// "Buy Mad Lads #674", and a wallet's NFTs came back empty.
+    #[serde(default)]
+    pub uri: Option<String>,
     pub image: Option<String>,
     pub price: Option<f64>,
     pub owner: Option<String>,
@@ -44,7 +204,14 @@ pub struct MeNFT {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeAttribute {
+    /// Magic Eden sends this as `trait_type`, in snake case, while the rest
+    /// of its payload is camel. Without the alias the struct-level
+    /// `rename_all` looks for `traitType`, the whole NFT fails to
+    /// deserialize, and every caller silently falls back — which is why
+    /// cards showed a truncated mint instead of the NFT's name.
+    #[serde(alias = "trait_type")]
     pub trait_type: String,
+    #[serde(default)]
     pub value: serde_json::Value,
 }
 
@@ -130,8 +297,14 @@ pub struct MeActivity {
 #[serde(rename_all = "camelCase")]
 pub struct MeWalletNFT {
     pub mint_address: String,
+    #[serde(default)]
     pub name: String,
-    pub uri: String,
+    /// Magic Eden does not return `uri` on `/tokens/{mint}` or on a wallet's
+    /// tokens. It was REQUIRED here, so those lookups failed to deserialize
+    /// and fell back silently — cards read "Buy HRZo…aFZf" instead of
+    /// "Buy Mad Lads #674", and a wallet's NFTs came back empty.
+    #[serde(default)]
+    pub uri: Option<String>,
     pub image: Option<String>,
     pub collection_name: Option<String>,
     pub collection_symbol: Option<String>,
@@ -154,6 +327,35 @@ pub struct MeListParams {
     pub price: String,
     /// Optional expiry (unix timestamp)
     pub expiry: Option<u64>,
+    /// The wallet's token account for this mint. Resolved when absent.
+    #[serde(default)]
+    pub token_account: Option<String>,
+    /// Auction house the collection trades under. Resolved when absent.
+    #[serde(default)]
+    pub auction_house: Option<String>,
+    #[serde(default)]
+    pub seller_referral: Option<String>,
+}
+
+/// Reprice an existing listing or offer.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeChangePriceParams {
+    pub mint_address: String,
+    /// The price to move to, in SOL. The current one is read from the live
+    /// listing/offer — asking the user to restate it invites a mismatch.
+    #[serde(alias = "price")]
+    pub new_price: String,
+}
+
+/// Move SOL in or out of the Magic Eden bidding escrow.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeEscrowParams {
+    /// Amount in SOL.
+    pub amount: String,
+    #[serde(default)]
+    pub auction_house: Option<String>,
 }
 
 /// Parameters for buying an NFT
@@ -166,7 +368,7 @@ pub struct MeBuyParams {
     pub price: String,
     /// Token address (escrow account)
     pub token_address: Option<String>,
-    /// Seller's wallet address
+    /// Seller's wallet address. When absent the cheapest live listing is used.
     pub seller: Option<String>,
 }
 
@@ -192,6 +394,10 @@ pub struct MeMakeOfferParams {
     pub price: String,
     /// Optional expiry (unix timestamp)
     pub expiry: Option<u64>,
+    #[serde(default)]
+    pub auction_house: Option<String>,
+    #[serde(default)]
+    pub buyer_referral: Option<String>,
 }
 
 /// Parameters for accepting an offer
@@ -532,7 +738,7 @@ pub async fn get_collection_stats(
 /// Get NFT info by mint address
 pub async fn get_nft_info(http: &reqwest::Client, mint_address: &str) -> Result<MeNFT, AppError> {
     let resp = http
-        .get(format!("{}/nfts/{}", MAGIC_EDEN_API, mint_address))
+        .get(format!("{}/tokens/{}", MAGIC_EDEN_API, mint_address))
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("Failed to fetch NFT: {e}")))?;
@@ -684,7 +890,7 @@ pub async fn get_nft_offers(
     limit: Option<u32>,
     offset: Option<u32>,
 ) -> Result<Vec<MeOffer>, AppError> {
-    let mut url = format!("{}/nfts/{}/offers", MAGIC_EDEN_API, mint_address);
+    let mut url = format!("{}/tokens/{}/offers_received", MAGIC_EDEN_API, mint_address);
     let mut params = vec![];
 
     if let Some(l) = limit {
@@ -763,7 +969,7 @@ pub async fn get_nft_listings(
     mint_address: &str,
 ) -> Result<Vec<MeListing>, AppError> {
     let resp = http
-        .get(format!("{}/nfts/{}/listings", MAGIC_EDEN_API, mint_address))
+        .get(format!("{}/tokens/{}/listings", MAGIC_EDEN_API, mint_address))
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("Failed to fetch NFT listings: {e}")))?;
@@ -781,10 +987,171 @@ pub async fn get_nft_listings(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Build Functions
+// Build Functions — marketplace writes
 // ──────────────────────────────────────────────────────────────────────────────
+//
+// Every one of these was previously a placeholder: an empty `Message` with a
+// zeroed blockhash and no call to Magic Eden at all. The preview looked
+// convincing — "Buy Mad Lads #674 for 7.3 SOL" — and the transaction behind it
+// could never land. They are now built from Magic Eden's own
+// `/instructions/*` endpoints, which return a transaction the marketplace has
+// already co-signed where its authority is a required signer.
+//
+// The parameters those endpoints need — auction house, token account, seller
+// referral, expiry — are not things a user or an LLM can know. They come off
+// the live listing or offer, resolved here.
 
-/// Build NFT listing transaction
+/// A live listing, reduced to what the instruction endpoints ask for.
+struct MeResolvedListing {
+    seller: String,
+    token_account: String,
+    auction_house: String,
+    seller_referral: Option<String>,
+    expiry: i64,
+    price: f64,
+}
+
+/// A live offer (bid) on a token.
+struct MeResolvedOffer {
+    buyer: String,
+    token_account: Option<String>,
+    auction_house: String,
+    buyer_referral: Option<String>,
+    expiry: i64,
+    price: f64,
+}
+
+fn json_str(v: &serde_json::Value, k: &str) -> Option<String> {
+    v.get(k).and_then(|x| x.as_str()).map(str::to_string)
+}
+
+/// The cheapest listing for a mint, or the one owned by `only_seller`.
+async fn resolve_listing(
+    http: &reqwest::Client,
+    mint: &str,
+    only_seller: Option<&str>,
+) -> Option<MeResolvedListing> {
+    let url = format!("{MAGIC_EDEN_API}/tokens/{mint}/listings");
+    let rows = me_get_json(http, &url).await.ok()?;
+    let rows = rows.as_array()?;
+    let pick = rows.iter().find(|r| match only_seller {
+        Some(s) => json_str(r, "seller").as_deref() == Some(s),
+        None => true,
+    })?;
+    Some(MeResolvedListing {
+        seller: json_str(pick, "seller")?,
+        token_account: json_str(pick, "tokenAddress")?,
+        auction_house: json_str(pick, "auctionHouse")
+            .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string()),
+        seller_referral: json_str(pick, "sellerReferral"),
+        expiry: pick.get("expiry").and_then(|e| e.as_i64()).unwrap_or(-1),
+        price: pick.get("price").and_then(|p| p.as_f64()).unwrap_or(0.0),
+    })
+}
+
+/// The best (or a named buyer's) offer on a mint.
+async fn resolve_offer(
+    http: &reqwest::Client,
+    mint: &str,
+    only_buyer: Option<&str>,
+) -> Option<MeResolvedOffer> {
+    let url = format!("{MAGIC_EDEN_API}/tokens/{mint}/offers_received?limit=20");
+    let rows = me_get_json(http, &url).await.ok()?;
+    let rows = rows.as_array()?;
+    let pick = match only_buyer {
+        Some(b) => rows
+            .iter()
+            .find(|r| json_str(r, "buyer").as_deref() == Some(b))?,
+        // No buyer named: the highest bid is the one anyone means by "accept
+        // the offer".
+        None => rows.iter().max_by(|a, b| {
+            let pa = a.get("price").and_then(|p| p.as_f64()).unwrap_or(0.0);
+            let pb = b.get("price").and_then(|p| p.as_f64()).unwrap_or(0.0);
+            pa.total_cmp(&pb)
+        })?,
+    };
+    Some(MeResolvedOffer {
+        buyer: json_str(pick, "buyer")?,
+        token_account: json_str(pick, "tokenAddress"),
+        auction_house: json_str(pick, "auctionHouse")
+            .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string()),
+        buyer_referral: json_str(pick, "buyerReferral"),
+        expiry: pick.get("expiry").and_then(|e| e.as_i64()).unwrap_or(-1),
+        price: pick.get("price").and_then(|p| p.as_f64()).unwrap_or(0.0),
+    })
+}
+
+/// The wallet's token account for a mint.
+///
+/// Magic Eden reports one on anything it already knows about; for an NFT it
+/// has never seen listed, the associated token account is where a standard
+/// NFT lives.
+async fn resolve_token_account(http: &reqwest::Client, owner: &Pubkey, mint: &str) -> String {
+    let url = format!("{MAGIC_EDEN_API}/tokens/{mint}");
+    if let Ok(v) = me_get_json(http, &url).await {
+        if let Some(ta) = json_str(&v, "tokenAddress") {
+            return ta;
+        }
+    }
+    match mint.parse::<Pubkey>() {
+        Ok(m) => spl_associated_token_account::get_associated_token_address(owner, &m).to_string(),
+        Err(_) => String::new(),
+    }
+}
+
+/// Name and image for a mint, for the card's header. Best-effort: a preview
+/// missing its picture is better than a failed action.
+async fn nft_display(http: &reqwest::Client, mint: &str) -> (String, Option<String>, Option<String>) {
+    match get_nft_info(http, mint).await {
+        Ok(n) => (n.name.clone(), n.image.clone(), n.collection_name.clone()),
+        Err(_) => (format!("{}…{}", &mint[..4.min(mint.len())], &mint[mint.len().saturating_sub(4)..]), None, None),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn me_tx_response(
+    action_type: &str,
+    description: String,
+    tx: MeTx,
+    params: serde_json::Value,
+    warnings: Vec<String>,
+) -> BuildResponse {
+    let mut params = params;
+    if let Some(bh) = tx.blockhash.clone() {
+        params["blockhash"] = serde_json::json!(bh);
+    }
+    if let Some(h) = tx.last_valid_block_height {
+        params["lastValidBlockHeight"] = serde_json::json!(h);
+    }
+    BuildResponse {
+        preview: ActionPreview {
+            id: Uuid::new_v4().to_string(),
+            action_type: action_type.to_string(),
+            description,
+            estimated_fee: "~0.00001 SOL".to_string(),
+            estimated_refund: None,
+            params,
+            warnings,
+            requires_approval: true,
+        },
+        transaction: Some(tx.tx_b64),
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: None,
+    }
+}
+
+fn fee_note(price: f64) -> String {
+    format!(
+        "Magic Eden takes {}% ({:.4} SOL) of the sale",
+        MARKETPLACE_FEE_BPS as f64 / 100.0,
+        price * MARKETPLACE_FEE_BPS as f64 / 10_000.0
+    )
+}
+
+/// List an NFT for sale.
 pub async fn build_me_list(
     http: &reqwest::Client,
     _rpc: &SolanaRpc,
@@ -792,72 +1159,64 @@ pub async fn build_me_list(
     params: &MeListParams,
 ) -> Result<BuildResponse, AppError> {
     validate_me_list_params(params)?;
-
     let price: f64 = params
         .price
         .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid price".into()))?;
+        .map_err(|_| AppError::InvalidParams("Enter a price in SOL".into()))?;
 
-    // Get NFT info for preview
-    let nft_info = get_nft_info(http, &params.mint_address).await.ok();
+    let seller = user_pubkey.to_string();
+    let token_account = match params.token_account.clone() {
+        Some(t) => t,
+        None => resolve_token_account(http, user_pubkey, &params.mint_address).await,
+    };
+    let auction_house = params
+        .auction_house
+        .clone()
+        .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string());
+    let expiry = params.expiry.map(|e| e as i64).unwrap_or(-1);
 
-    let blockhash = solana_sdk::hash::Hash::default();
-    let message = Message::new(&[], Some(user_pubkey));
-    let mut transaction = Transaction::new_unsigned(message);
-    transaction.message.recent_blockhash = blockhash;
-
-    let tx_bytes = bincode::serialize(&transaction)
-        .map_err(|e| AppError::Internal(format!("Serialization error: {e}")))?;
-    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
-
-    let marketplace_fee = price * (MARKETPLACE_FEE_BPS as f64) / 10000.0;
-
-    Ok(BuildResponse {
-        preview: ActionPreview {
-            id: Uuid::new_v4().to_string(),
-            action_type: "me_list".to_string(),
-            description: format!(
-                "List {} for {} SOL",
-                nft_info
-                    .as_ref()
-                    .map(|n| n.name.as_str())
-                    .unwrap_or(&params.mint_address),
-                price
+    let tx = me_instruction(
+        http,
+        "sell",
+        &[
+            ("seller", seller.clone()),
+            ("auctionHouseAddress", auction_house.clone()),
+            ("tokenMint", params.mint_address.clone()),
+            ("tokenAccount", token_account.clone()),
+            ("price", price.to_string()),
+            ("expiry", expiry.to_string()),
+            (
+                "sellerReferral",
+                params.seller_referral.clone().unwrap_or_default(),
             ),
-            estimated_fee: format!(
-                "~0.000005 SOL + {} SOL marketplace fee on sale",
-                marketplace_fee
-            ),
-            estimated_refund: None,
-            params: serde_json::json!({
-                "mintAddress": params.mint_address,
-                "price": price,
-                "expiry": params.expiry,
-                "nftName": nft_info.as_ref().map(|n| n.name.clone()),
-                "collectionName": nft_info.as_ref().and_then(|n| n.collection_name.clone()),
-                "marketplaceFeeBps": MARKETPLACE_FEE_BPS,
-                "auctionHouse": MAGIC_EDEN_AUCTION_HOUSE,
-            }),
-            warnings: vec![
-                format!(
-                    "Marketplace fee: {}% ({} SOL)",
-                    MARKETPLACE_FEE_BPS as f64 / 100.0,
-                    marketplace_fee
-                ),
-                "Listing will be active until cancelled or sold".into(),
-            ],
-            requires_approval: true,
-        },
-        transaction: Some(tx_b64),
-        additional_signers_required: 0,
-        execution_steps: None,
-        quote: None,
-        is_cross_chain: false,
-        data: None,
-    })
+        ],
+    )
+    .await?;
+
+    let (name, image, collection) = nft_display(http, &params.mint_address).await;
+    Ok(me_tx_response(
+        "me_list",
+        format!("List {name} for {price} SOL"),
+        tx,
+        serde_json::json!({
+            "mintAddress": params.mint_address,
+            "price": price,
+            "expiry": expiry,
+            "nftName": name,
+            "nftImage": image,
+            "collectionName": collection,
+            "tokenAccount": token_account,
+            "auctionHouse": auction_house,
+            "marketplaceFeeBps": MARKETPLACE_FEE_BPS,
+        }),
+        vec![
+            fee_note(price),
+            "The listing stays open until it sells or you cancel it".into(),
+        ],
+    ))
 }
 
-/// Build NFT buy transaction
+/// Buy a listed NFT outright.
 pub async fn build_me_buy(
     http: &reqwest::Client,
     _rpc: &SolanaRpc,
@@ -866,70 +1225,63 @@ pub async fn build_me_buy(
 ) -> Result<BuildResponse, AppError> {
     validate_me_buy_params(params)?;
 
-    let price: f64 = params
-        .price
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid price".into()))?;
+    let listing = resolve_listing(http, &params.mint_address, params.seller.as_deref())
+        .await
+        .ok_or_else(|| {
+            AppError::InvalidParams(
+                "That NFT is not listed for sale right now — someone may have just bought it"
+                    .into(),
+            )
+        })?;
 
-    // Get NFT info and listings
-    let nft_info = get_nft_info(http, &params.mint_address).await.ok();
-    let listings = get_nft_listings(http, &params.mint_address).await.ok();
+    // Price the user agreed to, checked against the live listing. Buying at a
+    // price that moved under them is the one mistake this card must not make.
+    let asked: f64 = params.price.parse().unwrap_or(listing.price);
+    if (asked - listing.price).abs() > f64::EPSILON.max(listing.price * 0.0001) {
+        return Err(AppError::InvalidParams(format!(
+            "The price changed — it is now {} SOL, not {} SOL",
+            listing.price, asked
+        )));
+    }
 
-    let blockhash = solana_sdk::hash::Hash::default();
-    let message = Message::new(&[], Some(user_pubkey));
-    let mut transaction = Transaction::new_unsigned(message);
-    transaction.message.recent_blockhash = blockhash;
-
-    let tx_bytes = bincode::serialize(&transaction)
-        .map_err(|e| AppError::Internal(format!("Serialization error: {e}")))?;
-    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
-
-    let marketplace_fee = price * (MARKETPLACE_FEE_BPS as f64) / 10000.0;
-    let total_cost = price + marketplace_fee;
-
-    Ok(BuildResponse {
-        preview: ActionPreview {
-            id: Uuid::new_v4().to_string(),
-            action_type: "me_buy".to_string(),
-            description: format!(
-                "Buy {} for {} SOL",
-                nft_info
-                    .as_ref()
-                    .map(|n| n.name.as_str())
-                    .unwrap_or(&params.mint_address),
-                price
+    let tx = me_instruction(
+        http,
+        "buy_now",
+        &[
+            ("buyer", user_pubkey.to_string()),
+            ("seller", listing.seller.clone()),
+            ("auctionHouseAddress", listing.auction_house.clone()),
+            ("tokenMint", params.mint_address.clone()),
+            ("tokenATA", listing.token_account.clone()),
+            ("price", listing.price.to_string()),
+            (
+                "sellerReferral",
+                listing.seller_referral.clone().unwrap_or_default(),
             ),
-            estimated_fee: format!("~{} SOL total (price + fee)", total_cost),
-            estimated_refund: None,
-            params: serde_json::json!({
-                "mintAddress": params.mint_address,
-                "price": price,
-                "marketplaceFee": marketplace_fee,
-                "totalCost": total_cost,
-                "tokenAddress": params.token_address,
-                "seller": params.seller.clone().or(listings.and_then(|l| l.first().map(|l| l.seller.clone()))),
-                "nftName": nft_info.as_ref().map(|n| n.name.clone()),
-                "collectionName": nft_info.as_ref().and_then(|n| n.collection_name.clone()),
-            }),
-            warnings: vec![
-                format!(
-                    "Total cost: {} SOL (includes {} SOL fee)",
-                    total_cost, marketplace_fee
-                ),
-                "Transaction will fail if listing is no longer active".into(),
-            ],
-            requires_approval: true,
-        },
-        transaction: Some(tx_b64),
-        additional_signers_required: 0,
-        execution_steps: None,
-        quote: None,
-        is_cross_chain: false,
-        data: None,
-    })
+            ("sellerExpiry", listing.expiry.to_string()),
+        ],
+    )
+    .await?;
+
+    let (name, image, collection) = nft_display(http, &params.mint_address).await;
+    Ok(me_tx_response(
+        "me_buy",
+        format!("Buy {name} for {} SOL", listing.price),
+        tx,
+        serde_json::json!({
+            "mintAddress": params.mint_address,
+            "price": listing.price,
+            "seller": listing.seller,
+            "nftName": name,
+            "nftImage": image,
+            "collectionName": collection,
+            "auctionHouse": listing.auction_house,
+        }),
+        vec![],
+    ))
 }
 
-/// Build cancel listing transaction
+/// Cancel your own listing.
 pub async fn build_me_cancel_listing(
     http: &reqwest::Client,
     _rpc: &SolanaRpc,
@@ -937,50 +1289,107 @@ pub async fn build_me_cancel_listing(
     params: &MeCancelListingParams,
 ) -> Result<BuildResponse, AppError> {
     validate_me_cancel_listing_params(params)?;
+    let seller = user_pubkey.to_string();
+    let listing = resolve_listing(http, &params.mint_address, Some(&seller))
+        .await
+        .ok_or_else(|| {
+            AppError::InvalidParams("You don't have an active listing for that NFT".into())
+        })?;
 
-    let nft_info = get_nft_info(http, &params.mint_address).await.ok();
-
-    let blockhash = solana_sdk::hash::Hash::default();
-    let message = Message::new(&[], Some(user_pubkey));
-    let mut transaction = Transaction::new_unsigned(message);
-    transaction.message.recent_blockhash = blockhash;
-
-    let tx_bytes = bincode::serialize(&transaction)
-        .map_err(|e| AppError::Internal(format!("Serialization error: {e}")))?;
-    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
-
-    Ok(BuildResponse {
-        preview: ActionPreview {
-            id: Uuid::new_v4().to_string(),
-            action_type: "me_cancel_listing".to_string(),
-            description: format!(
-                "Cancel listing for {}",
-                nft_info
-                    .as_ref()
-                    .map(|n| n.name.as_str())
-                    .unwrap_or(&params.mint_address)
+    let tx = me_instruction(
+        http,
+        "sell_cancel",
+        &[
+            ("seller", seller),
+            ("auctionHouseAddress", listing.auction_house.clone()),
+            ("tokenMint", params.mint_address.clone()),
+            ("tokenAccount", listing.token_account.clone()),
+            ("price", listing.price.to_string()),
+            ("expiry", listing.expiry.to_string()),
+            (
+                "sellerReferral",
+                listing.seller_referral.clone().unwrap_or_default(),
             ),
-            estimated_fee: "~0.000005 SOL".to_string(),
-            estimated_refund: None,
-            params: serde_json::json!({
-                "mintAddress": params.mint_address,
-                "price": params.price,
-                "tokenAddress": params.token_address,
-                "nftName": nft_info.as_ref().map(|n| n.name.clone()),
-            }),
-            warnings: vec![],
-            requires_approval: true,
-        },
-        transaction: Some(tx_b64),
-        additional_signers_required: 0,
-        execution_steps: None,
-        quote: None,
-        is_cross_chain: false,
-        data: None,
-    })
+        ],
+    )
+    .await?;
+
+    let (name, image, collection) = nft_display(http, &params.mint_address).await;
+    Ok(me_tx_response(
+        "me_cancel_listing",
+        format!("Remove {name} from sale"),
+        tx,
+        serde_json::json!({
+            "mintAddress": params.mint_address,
+            "price": listing.price,
+            "nftName": name,
+            "nftImage": image,
+            "collectionName": collection,
+            "auctionHouse": listing.auction_house,
+        }),
+        vec![],
+    ))
 }
 
-/// Build make offer transaction
+/// Reprice your own listing without cancelling it.
+pub async fn build_me_change_listing_price(
+    http: &reqwest::Client,
+    _rpc: &SolanaRpc,
+    user_pubkey: &Pubkey,
+    params: &MeChangePriceParams,
+) -> Result<BuildResponse, AppError> {
+    let new_price: f64 = params
+        .new_price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Enter the new price in SOL".into()))?;
+    if new_price <= 0.0 {
+        return Err(AppError::InvalidParams("Price must be above zero".into()));
+    }
+    let seller = user_pubkey.to_string();
+    let listing = resolve_listing(http, &params.mint_address, Some(&seller))
+        .await
+        .ok_or_else(|| {
+            AppError::InvalidParams("You don't have an active listing for that NFT".into())
+        })?;
+
+    let tx = me_instruction(
+        http,
+        "sell_change_price",
+        &[
+            ("seller", seller),
+            ("auctionHouseAddress", listing.auction_house.clone()),
+            ("tokenMint", params.mint_address.clone()),
+            ("tokenAccount", listing.token_account.clone()),
+            ("price", listing.price.to_string()),
+            ("newPrice", new_price.to_string()),
+            ("expiry", listing.expiry.to_string()),
+            (
+                "sellerReferral",
+                listing.seller_referral.clone().unwrap_or_default(),
+            ),
+        ],
+    )
+    .await?;
+
+    let (name, image, collection) = nft_display(http, &params.mint_address).await;
+    Ok(me_tx_response(
+        "me_sell_change_price",
+        format!("Reprice {name} from {} to {new_price} SOL", listing.price),
+        tx,
+        serde_json::json!({
+            "mintAddress": params.mint_address,
+            "oldPrice": listing.price,
+            "price": new_price,
+            "nftName": name,
+            "nftImage": image,
+            "collectionName": collection,
+            "auctionHouse": listing.auction_house,
+        }),
+        vec![fee_note(new_price)],
+    ))
+}
+
+/// Bid on an NFT.
 pub async fn build_me_make_offer(
     http: &reqwest::Client,
     _rpc: &SolanaRpc,
@@ -988,66 +1397,60 @@ pub async fn build_me_make_offer(
     params: &MeMakeOfferParams,
 ) -> Result<BuildResponse, AppError> {
     validate_me_make_offer_params(params)?;
-
     let price: f64 = params
         .price
         .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid price".into()))?;
+        .map_err(|_| AppError::InvalidParams("Enter an offer price in SOL".into()))?;
 
-    let nft_info = get_nft_info(http, &params.mint_address).await.ok();
+    // An offer needs an auction house, and an unlisted NFT has no listing to
+    // take one from — fall back to the marketplace default.
+    let auction_house = match params.auction_house.clone() {
+        Some(a) => a,
+        None => resolve_listing(http, &params.mint_address, None)
+            .await
+            .map(|l| l.auction_house)
+            .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string()),
+    };
+    let expiry = params.expiry.map(|e| e as i64).unwrap_or(-1);
 
-    let blockhash = solana_sdk::hash::Hash::default();
-    let message = Message::new(&[], Some(user_pubkey));
-    let mut transaction = Transaction::new_unsigned(message);
-    transaction.message.recent_blockhash = blockhash;
-
-    let tx_bytes = bincode::serialize(&transaction)
-        .map_err(|e| AppError::Internal(format!("Serialization error: {e}")))?;
-    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
-
-    let _marketplace_fee = price * (MARKETPLACE_FEE_BPS as f64) / 10000.0;
-
-    Ok(BuildResponse {
-        preview: ActionPreview {
-            id: Uuid::new_v4().to_string(),
-            action_type: "me_make_offer".to_string(),
-            description: format!(
-                "Make offer of {} SOL on {}",
-                price,
-                nft_info
-                    .as_ref()
-                    .map(|n| n.name.as_str())
-                    .unwrap_or(&params.mint_address)
+    let tx = me_instruction(
+        http,
+        "buy",
+        &[
+            ("buyer", user_pubkey.to_string()),
+            ("auctionHouseAddress", auction_house.clone()),
+            ("tokenMint", params.mint_address.clone()),
+            ("price", price.to_string()),
+            ("expiry", expiry.to_string()),
+            (
+                "buyerReferral",
+                params.buyer_referral.clone().unwrap_or_default(),
             ),
-            estimated_fee: "~0.000005 SOL (offer amount escrowed)".to_string(),
-            estimated_refund: None,
-            params: serde_json::json!({
-                "mintAddress": params.mint_address,
-                "price": price,
-                "expiry": params.expiry,
-                "nftName": nft_info.as_ref().map(|n| n.name.clone()),
-                "collectionName": nft_info.as_ref().and_then(|n| n.collection_name.clone()),
-                "marketplaceFeeBps": MARKETPLACE_FEE_BPS,
-            }),
-            warnings: vec![
-                format!("Offer amount ({}) SOL will be escrowed", price),
-                format!(
-                    "Marketplace fee: {}% on sale",
-                    MARKETPLACE_FEE_BPS as f64 / 100.0
-                ),
-            ],
-            requires_approval: true,
-        },
-        transaction: Some(tx_b64),
-        additional_signers_required: 0,
-        execution_steps: None,
-        quote: None,
-        is_cross_chain: false,
-        data: None,
-    })
+        ],
+    )
+    .await?;
+
+    let (name, image, collection) = nft_display(http, &params.mint_address).await;
+    Ok(me_tx_response(
+        "me_make_offer",
+        format!("Offer {price} SOL for {name}"),
+        tx,
+        serde_json::json!({
+            "mintAddress": params.mint_address,
+            "price": price,
+            "expiry": expiry,
+            "nftName": name,
+            "nftImage": image,
+            "collectionName": collection,
+            "auctionHouse": auction_house,
+        }),
+        vec![
+            "The SOL is held in your Magic Eden escrow until the offer is taken, expires, or you cancel it".into(),
+        ],
+    ))
 }
 
-/// Build accept offer transaction
+/// Take a bid on an NFT you own.
 pub async fn build_me_accept_offer(
     http: &reqwest::Client,
     _rpc: &SolanaRpc,
@@ -1055,73 +1458,58 @@ pub async fn build_me_accept_offer(
     params: &MeAcceptOfferParams,
 ) -> Result<BuildResponse, AppError> {
     validate_me_accept_offer_params(params)?;
-
-    let price: f64 = params
-        .price
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid price".into()))?;
-
-    let nft_info = get_nft_info(http, &params.mint_address).await.ok();
-    let offers = get_nft_offers(http, &params.mint_address, Some(10), None)
+    let seller = user_pubkey.to_string();
+    let offer = resolve_offer(http, &params.mint_address, params.buyer.as_deref())
         .await
-        .ok();
+        .ok_or_else(|| {
+            AppError::InvalidParams("There is no open offer on that NFT right now".into())
+        })?;
 
-    let blockhash = solana_sdk::hash::Hash::default();
-    let message = Message::new(&[], Some(user_pubkey));
-    let mut transaction = Transaction::new_unsigned(message);
-    transaction.message.recent_blockhash = blockhash;
+    let token_account = match offer.token_account.clone() {
+        Some(t) => t,
+        None => resolve_token_account(http, user_pubkey, &params.mint_address).await,
+    };
 
-    let tx_bytes = bincode::serialize(&transaction)
-        .map_err(|e| AppError::Internal(format!("Serialization error: {e}")))?;
-    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
-
-    let marketplace_fee = price * (MARKETPLACE_FEE_BPS as f64) / 10000.0;
-    let net_proceeds = price - marketplace_fee;
-
-    Ok(BuildResponse {
-        preview: ActionPreview {
-            id: Uuid::new_v4().to_string(),
-            action_type: "me_accept_offer".to_string(),
-            description: format!(
-                "Accept offer of {} SOL on {}",
-                price,
-                nft_info
-                    .as_ref()
-                    .map(|n| n.name.as_str())
-                    .unwrap_or(&params.mint_address)
+    let tx = me_instruction(
+        http,
+        "sell_now",
+        &[
+            ("seller", seller),
+            ("buyer", offer.buyer.clone()),
+            ("auctionHouseAddress", offer.auction_house.clone()),
+            ("tokenMint", params.mint_address.clone()),
+            ("tokenATA", token_account.clone()),
+            ("price", offer.price.to_string()),
+            ("newPrice", offer.price.to_string()),
+            (
+                "buyerReferral",
+                offer.buyer_referral.clone().unwrap_or_default(),
             ),
-            estimated_fee: format!(
-                "~{} SOL net (after {} SOL fee)",
-                net_proceeds, marketplace_fee
-            ),
-            estimated_refund: None,
-            params: serde_json::json!({
-                "mintAddress": params.mint_address,
-                "price": price,
-                "buyer": params.buyer.clone().or(offers.as_ref().and_then(|o| o.first().map(|o| o.buyer.clone()))),
-                "netProceeds": net_proceeds,
-                "marketplaceFee": marketplace_fee,
-                "nftName": nft_info.as_ref().map(|n| n.name.clone()),
-            }),
-            warnings: vec![
-                format!(
-                    "You will receive {} SOL after {} SOL marketplace fee",
-                    net_proceeds, marketplace_fee
-                ),
-                "Transaction will fail if offer is no longer active".into(),
-            ],
-            requires_approval: true,
-        },
-        transaction: Some(tx_b64),
-        additional_signers_required: 0,
-        execution_steps: None,
-        quote: None,
-        is_cross_chain: false,
-        data: None,
-    })
+            ("buyerExpiry", offer.expiry.to_string()),
+            ("sellerExpiry", "-1".to_string()),
+        ],
+    )
+    .await?;
+
+    let (name, image, collection) = nft_display(http, &params.mint_address).await;
+    Ok(me_tx_response(
+        "me_accept_offer",
+        format!("Sell {name} for {} SOL", offer.price),
+        tx,
+        serde_json::json!({
+            "mintAddress": params.mint_address,
+            "price": offer.price,
+            "buyer": offer.buyer,
+            "nftName": name,
+            "nftImage": image,
+            "collectionName": collection,
+            "auctionHouse": offer.auction_house,
+        }),
+        vec![fee_note(offer.price)],
+    ))
 }
 
-/// Build cancel offer transaction
+/// Withdraw your own bid.
 pub async fn build_me_cancel_offer(
     http: &reqwest::Client,
     _rpc: &SolanaRpc,
@@ -1129,46 +1517,181 @@ pub async fn build_me_cancel_offer(
     params: &MeCancelOfferParams,
 ) -> Result<BuildResponse, AppError> {
     validate_me_cancel_offer_params(params)?;
+    let buyer = user_pubkey.to_string();
+    let offer = resolve_offer(http, &params.mint_address, Some(&buyer))
+        .await
+        .ok_or_else(|| {
+            AppError::InvalidParams("You don't have an open offer on that NFT".into())
+        })?;
 
-    let nft_info = get_nft_info(http, &params.mint_address).await.ok();
-
-    let blockhash = solana_sdk::hash::Hash::default();
-    let message = Message::new(&[], Some(user_pubkey));
-    let mut transaction = Transaction::new_unsigned(message);
-    transaction.message.recent_blockhash = blockhash;
-
-    let tx_bytes = bincode::serialize(&transaction)
-        .map_err(|e| AppError::Internal(format!("Serialization error: {e}")))?;
-    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
-
-    Ok(BuildResponse {
-        preview: ActionPreview {
-            id: Uuid::new_v4().to_string(),
-            action_type: "me_cancel_offer".to_string(),
-            description: format!(
-                "Cancel offer on {}",
-                nft_info
-                    .as_ref()
-                    .map(|n| n.name.as_str())
-                    .unwrap_or(&params.mint_address)
+    let tx = me_instruction(
+        http,
+        "buy_cancel",
+        &[
+            ("buyer", buyer),
+            ("auctionHouseAddress", offer.auction_house.clone()),
+            ("tokenMint", params.mint_address.clone()),
+            ("price", offer.price.to_string()),
+            ("expiry", offer.expiry.to_string()),
+            (
+                "buyerReferral",
+                offer.buyer_referral.clone().unwrap_or_default(),
             ),
-            estimated_fee: "~0.000005 SOL".to_string(),
-            estimated_refund: None,
-            params: serde_json::json!({
-                "mintAddress": params.mint_address,
-                "price": params.price,
-                "nftName": nft_info.as_ref().map(|n| n.name.clone()),
-            }),
-            warnings: vec!["Escrowed funds will be returned".into()],
-            requires_approval: true,
-        },
-        transaction: Some(tx_b64),
-        additional_signers_required: 0,
-        execution_steps: None,
-        quote: None,
-        is_cross_chain: false,
-        data: None,
-    })
+        ],
+    )
+    .await?;
+
+    let (name, image, collection) = nft_display(http, &params.mint_address).await;
+    Ok(me_tx_response(
+        "me_cancel_offer",
+        format!("Withdraw your {} SOL offer on {name}", offer.price),
+        tx,
+        serde_json::json!({
+            "mintAddress": params.mint_address,
+            "price": offer.price,
+            "nftName": name,
+            "nftImage": image,
+            "collectionName": collection,
+            "auctionHouse": offer.auction_house,
+        }),
+        vec!["The escrowed SOL returns to your Magic Eden balance".into()],
+    ))
+}
+
+/// Change the price of your own bid.
+pub async fn build_me_change_offer_price(
+    http: &reqwest::Client,
+    _rpc: &SolanaRpc,
+    user_pubkey: &Pubkey,
+    params: &MeChangePriceParams,
+) -> Result<BuildResponse, AppError> {
+    let new_price: f64 = params
+        .new_price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Enter the new offer price in SOL".into()))?;
+    if new_price <= 0.0 {
+        return Err(AppError::InvalidParams("Price must be above zero".into()));
+    }
+    let buyer = user_pubkey.to_string();
+    let offer = resolve_offer(http, &params.mint_address, Some(&buyer))
+        .await
+        .ok_or_else(|| {
+            AppError::InvalidParams("You don't have an open offer on that NFT".into())
+        })?;
+
+    let tx = me_instruction(
+        http,
+        "buy_change_price",
+        &[
+            ("buyer", buyer),
+            ("auctionHouseAddress", offer.auction_house.clone()),
+            ("tokenMint", params.mint_address.clone()),
+            ("price", offer.price.to_string()),
+            ("newPrice", new_price.to_string()),
+            ("expiry", offer.expiry.to_string()),
+            ("newExpiry", offer.expiry.to_string()),
+            (
+                "buyerReferral",
+                offer.buyer_referral.clone().unwrap_or_default(),
+            ),
+        ],
+    )
+    .await?;
+
+    let (name, image, collection) = nft_display(http, &params.mint_address).await;
+    Ok(me_tx_response(
+        "me_buy_change_price",
+        format!("Change your offer on {name} from {} to {new_price} SOL", offer.price),
+        tx,
+        serde_json::json!({
+            "mintAddress": params.mint_address,
+            "oldPrice": offer.price,
+            "price": new_price,
+            "nftName": name,
+            "nftImage": image,
+            "collectionName": collection,
+            "auctionHouse": offer.auction_house,
+        }),
+        vec![],
+    ))
+}
+
+/// Move SOL into the Magic Eden escrow that funds bids.
+pub async fn build_me_deposit(
+    http: &reqwest::Client,
+    _rpc: &SolanaRpc,
+    user_pubkey: &Pubkey,
+    params: &MeEscrowParams,
+) -> Result<BuildResponse, AppError> {
+    let amount: f64 = params
+        .amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?;
+    if amount <= 0.0 {
+        return Err(AppError::InvalidParams("Amount must be above zero".into()));
+    }
+    let auction_house = params
+        .auction_house
+        .clone()
+        .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string());
+
+    let tx = me_instruction(
+        http,
+        "deposit",
+        &[
+            ("buyer", user_pubkey.to_string()),
+            ("auctionHouseAddress", auction_house.clone()),
+            ("amount", amount.to_string()),
+        ],
+    )
+    .await?;
+
+    Ok(me_tx_response(
+        "me_deposit",
+        format!("Deposit {amount} SOL to your Magic Eden balance"),
+        tx,
+        serde_json::json!({ "amount": amount, "auctionHouse": auction_house }),
+        vec!["This balance is what your offers are paid from".into()],
+    ))
+}
+
+/// Take SOL back out of the Magic Eden escrow.
+pub async fn build_me_withdraw(
+    http: &reqwest::Client,
+    _rpc: &SolanaRpc,
+    user_pubkey: &Pubkey,
+    params: &MeEscrowParams,
+) -> Result<BuildResponse, AppError> {
+    let amount: f64 = params
+        .amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?;
+    if amount <= 0.0 {
+        return Err(AppError::InvalidParams("Amount must be above zero".into()));
+    }
+    let auction_house = params
+        .auction_house
+        .clone()
+        .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string());
+
+    let tx = me_instruction(
+        http,
+        "withdraw",
+        &[
+            ("buyer", user_pubkey.to_string()),
+            ("auctionHouseAddress", auction_house.clone()),
+            ("amount", amount.to_string()),
+        ],
+    )
+    .await?;
+
+    Ok(me_tx_response(
+        "me_withdraw",
+        format!("Withdraw {amount} SOL from your Magic Eden balance"),
+        tx,
+        serde_json::json!({ "amount": amount, "auctionHouse": auction_house }),
+        vec!["Open offers backed by this balance may be cancelled".into()],
+    ))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1453,4 +1976,1213 @@ pub async fn build_me_collection_nfts(
         is_cross_chain: false,
         data: None,
     })
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Generic reads
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// Twenty-odd Magic Eden reads differ only in their path and which identifier
+// they take. Written out one function at a time they would be twenty near
+// copies, and the tool catalogue already offered all of them while the backend
+// implemented none — the failure mode of that shape is a tool the model can
+// call with nothing behind it. One table is harder to leave a hole in.
+//
+// Every path here was checked against the live API. The ones that answered
+// 404 — `collections/{s}/holder_stats`, `mmm/token_pools`, anything
+// "magic_ticket" — are absent on purpose: they do not exist, so they come out
+// of the catalogue rather than get implemented against a guess.
+
+/// One shape for every read: the caller supplies whichever identifier the
+/// endpoint needs, and paging where it is supported.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeReadParams {
+    /// Collection symbol, e.g. "mad_lads".
+    #[serde(default, alias = "collection", alias = "collectionSymbol")]
+    pub symbol: Option<String>,
+    /// NFT mint address.
+    #[serde(default, alias = "mint", alias = "tokenMint", alias = "nft")]
+    pub mint_address: Option<String>,
+    /// Wallet address.
+    #[serde(default, alias = "address", alias = "owner")]
+    pub wallet: Option<String>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub offset: Option<u32>,
+    /// `collections/batch/listings` takes a comma-separated symbol list.
+    #[serde(default)]
+    pub symbols: Option<String>,
+    /// The NFT's number within its collection — "#8051". How people refer to
+    /// an NFT, and the only handle most of them have.
+    #[serde(default, alias = "tokenId", alias = "id", alias = "index")]
+    pub number: Option<String>,
+}
+
+fn need<'a>(v: &'a Option<String>, what: &str) -> Result<&'a str, AppError> {
+    v.as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| AppError::InvalidParams(format!("{what} is required")))
+}
+
+/// Resolve an action name to a Magic Eden URL.
+fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
+    let base = MAGIC_EDEN_API;
+    let limit = p.limit.unwrap_or(20).min(500);
+    let off = p.offset.unwrap_or(0);
+    let url = match action {
+        // Magic Eden rejects a limit that is not a multiple of 20, and an
+        // offset that is not a multiple of the limit, with a 400 that reads
+        // like a bug in us. Round rather than pass it through.
+        "me_collections" => {
+            let l = ((limit as f64 / 20.0).round().max(1.0) as u32) * 20;
+            format!("{base}/collections?offset={}&limit={l}", (off / l) * l)
+        }
+        "me_collection_stats" => {
+            format!("{base}/collections/{}/stats", need(&p.symbol, "collection")?)
+        }
+        "me_collection_attributes" => format!(
+            "{base}/collections/{}/attributes",
+            need(&p.symbol, "collection")?
+        ),
+        "me_collection_leaderboard" => format!(
+            "{base}/collections/{}/leaderboard",
+            need(&p.symbol, "collection")?
+        ),
+        "me_collection_listings" => format!(
+            "{base}/collections/{}/listings?limit={limit}&offset={off}",
+            need(&p.symbol, "collection")?
+        ),
+        "me_collection_activities" => format!(
+            "{base}/collections/{}/activities?limit={limit}&offset={off}",
+            need(&p.symbol, "collection")?
+        ),
+        "me_collections_batch_listings" => format!(
+            "{base}/collections/batch/listings?limit={limit}&collectionSymbols={}",
+            need(&p.symbols, "collections")?
+        ),
+        "me_launchpad_collections" => {
+            format!("{base}/launchpad/collections?limit={limit}&offset={off}")
+        }
+        "me_marketplace_popular" => format!("{base}/marketplace/popular_collections"),
+
+        "me_token" => format!("{base}/tokens/{}", need(&p.mint_address, "NFT mint")?),
+        "me_token_activities" => format!(
+            "{base}/tokens/{}/activities?limit={limit}&offset={off}",
+            need(&p.mint_address, "NFT mint")?
+        ),
+        "me_token_listings" => format!(
+            "{base}/tokens/{}/listings",
+            need(&p.mint_address, "NFT mint")?
+        ),
+        "me_token_offers_received" => format!(
+            "{base}/tokens/{}/offers_received?limit={limit}&offset={off}",
+            need(&p.mint_address, "NFT mint")?
+        ),
+
+        "me_wallet" => format!("{base}/wallets/{}", need(&p.wallet, "wallet")?),
+        "me_wallet_tokens" => format!(
+            "{base}/wallets/{}/tokens?limit={limit}&offset={off}",
+            need(&p.wallet, "wallet")?
+        ),
+        "me_wallet_activities" | "me_owner_activities" => format!(
+            "{base}/wallets/{}/activities?limit={limit}&offset={off}",
+            need(&p.wallet, "wallet")?
+        ),
+        "me_wallet_escrow_balance" => format!(
+            "{base}/wallets/{}/escrow_balance",
+            need(&p.wallet, "wallet")?
+        ),
+        "me_wallet_offers_made" => format!(
+            "{base}/wallets/{}/offers_made?limit={limit}&offset={off}",
+            need(&p.wallet, "wallet")?
+        ),
+        "me_wallet_offers_received" => format!(
+            "{base}/wallets/{}/offers_received?limit={limit}&offset={off}",
+            need(&p.wallet, "wallet")?
+        ),
+
+        // Without a collection the pool list comes back empty — Magic Eden
+        // will not enumerate every pool on the marketplace. Pass the symbol
+        // through, and let the card say so when there isn't one.
+        "me_mmm_pools" => match p.symbol.as_deref().filter(|x| !x.is_empty()) {
+            Some(sym) => format!(
+                "{base}/mmm/pools?collectionSymbol={sym}&limit={limit}&offset={off}"
+            ),
+            None => {
+                return Err(AppError::InvalidParams(
+                    "Name a collection to see its pools".into(),
+                ))
+            }
+        },
+
+        other => {
+            return Err(AppError::InvalidParams(format!(
+                "Unknown Magic Eden query: {other}"
+            )))
+        }
+    };
+    Ok(url)
+}
+
+/// Human-readable label for the card header.
+fn me_read_title(action: &str, p: &MeReadParams) -> String {
+    let who = p.symbol.clone().unwrap_or_default();
+    match action {
+        "me_collections" => "Magic Eden collections".into(),
+        "me_collection_stats" => format!("{who} — collection stats"),
+        "me_collection_attributes" => format!("{who} — traits"),
+        "me_collection_leaderboard" => format!("{who} — top holders"),
+        "me_collection_listings" => format!("{who} — listings"),
+        "me_collection_activities" => format!("{who} — activity"),
+        "me_collections_batch_listings" => "Listings across collections".into(),
+        "me_launchpad_collections" => "Magic Eden Launchpad".into(),
+        "me_marketplace_popular" => "Popular collections".into(),
+        "me_token" => "NFT details".into(),
+        "me_token_activities" => "NFT activity".into(),
+        "me_token_listings" => "NFT listings".into(),
+        "me_token_offers_received" => "Offers on this NFT".into(),
+        "me_wallet" => "Wallet profile".into(),
+        "me_wallet_tokens" => "Wallet NFTs".into(),
+        "me_wallet_activities" | "me_owner_activities" => "Wallet activity".into(),
+        "me_wallet_escrow_balance" => "Magic Eden balance".into(),
+        "me_wallet_offers_made" => "Offers you made".into(),
+        "me_wallet_offers_received" => "Offers you received".into(),
+        "me_mmm_pools" => "Magic Eden AMM pools".into(),
+        _ => "Magic Eden".into(),
+    }
+}
+
+/// Run any of the table's reads and hand back the payload.
+/// The collection's cover art, name and description, read from the chain.
+///
+/// Magic Eden's `/collections/{symbol}` carries all three and is closed to us
+/// (429, every collection, every attempt). The same facts are on-chain: any
+/// NFT in the collection points at the collection's own metadata account, and
+/// that account has the cover.
+///
+/// Two hops from a listing we can already fetch: mint → its collection →
+/// that collection's metadata. Cached, because it does not change.
+async fn me_collection_identity(
+    http: &reqwest::Client,
+    symbol: &str,
+) -> Option<serde_json::Value> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    static CACHE: OnceLock<Mutex<HashMap<String, (Instant, serde_json::Value)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    const TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
+    if let Ok(map) = cache.lock() {
+        if let Some((at, v)) = map.get(symbol) {
+            if at.elapsed() < TTL {
+                return Some(v.clone());
+            }
+        }
+    }
+
+    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let rpc = format!("https://mainnet.helius-rpc.com/?api-key={key}");
+    let get_asset = |id: String| {
+        let rpc = rpc.clone();
+        async move {
+            http.post(&rpc)
+                .json(&serde_json::json!({
+                    "jsonrpc": "2.0", "id": 1, "method": "getAsset",
+                    "params": { "id": id }
+                }))
+                .send()
+                .await
+                .ok()?
+                .json::<serde_json::Value>()
+                .await
+                .ok()
+        }
+    };
+
+    // Any listed NFT will do — we only need something that belongs to it.
+    let listings = me_get_json(
+        http,
+        &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1"),
+    )
+    .await
+    .ok()?;
+    let mint = listings
+        .as_array()?
+        .first()?
+        .get("tokenMint")?
+        .as_str()?
+        .to_string();
+
+    let asset = get_asset(mint).await?;
+    let collection_mint = asset
+        .pointer("/result/grouping")?
+        .as_array()?
+        .iter()
+        .find(|g| g.get("group_key").and_then(|k| k.as_str()) == Some("collection"))?
+        .get("group_value")?
+        .as_str()?
+        .to_string();
+
+    let coll = get_asset(collection_mint).await?;
+    let content = coll.pointer("/result/content")?;
+    let out = serde_json::json!({
+        "name": content.pointer("/metadata/name").and_then(|v| v.as_str()),
+        "image": content.pointer("/links/image").and_then(|v| v.as_str()),
+        "description": content.pointer("/metadata/description").and_then(|v| v.as_str()),
+    });
+    if out.get("name").map(|v| v.is_null()).unwrap_or(true)
+        && out.get("image").map(|v| v.is_null()).unwrap_or(true)
+    {
+        return None;
+    }
+    if let Ok(mut map) = cache.lock() {
+        map.insert(symbol.to_string(), (Instant::now(), out.clone()));
+    }
+    Some(out)
+}
+
+/// A collection's identity and its numbers, merged.
+///
+/// Magic Eden splits them across two endpoints and neither is a collection
+/// card on its own: `/collections/{s}` has the name, art, description and
+/// links but no prices, and `/stats` has floor, listed count, 7-day volume
+/// and 24-hour average price but nothing that says which collection it is.
+/// Asked for one, a user means both.
+async fn me_collection_detail(
+    http: &reqwest::Client,
+    symbol: &str,
+) -> Result<serde_json::Value, AppError> {
+    let info_url = format!("{MAGIC_EDEN_API}/collections/{symbol}");
+    let stats_url = format!("{MAGIC_EDEN_API}/collections/{symbol}/stats");
+    let (info, stats) = futures::join!(
+        me_get_json(http, &info_url),
+        me_get_json(http, &stats_url)
+    );
+    // `/collections/{symbol}` answers 429 for every collection we ask about,
+    // on every attempt, with 90 seconds of silence in between — while its own
+    // sibling paths return 200. It is not a limit we are tripping; that route
+    // is closed to us. When it fails, the name, cover and description come
+    // from the chain instead — see `me_collection_identity`.
+    let mut out = match info {
+        Ok(serde_json::Value::Object(m)) => serde_json::Value::Object(m),
+        _ => match me_collection_identity(http, symbol).await {
+            Some(mut id) => {
+                if let Some(obj) = id.as_object_mut() {
+                    obj.insert("symbol".into(), serde_json::json!(symbol));
+                    obj.retain(|_, v| !v.is_null());
+                }
+                id
+            }
+            None => serde_json::json!({ "symbol": symbol }),
+        },
+    };
+    if let Ok(serde_json::Value::Object(m)) = stats {
+        if let Some(obj) = out.as_object_mut() {
+            for (k, v) in m {
+                obj.insert(k, v);
+            }
+        }
+    } else if out.get("name").is_none() {
+        return Err(AppError::NotFound(
+            "Magic Eden has no collection by that name".into(),
+        ));
+    }
+    Ok(out)
+}
+
+/// How a collection's metadata URIs are addressed, learned from one sample.
+///
+/// Most collections number their metadata: Mad Lads is `.../json/8051.json`,
+/// Famous Foxes `.../metadata/1001.json`, Claynosaurz `.../claynosaurz/8003`.
+/// Where that holds, one indexed query finds any piece — listed or not —
+/// instead of paging a marketplace that only knows about what is for sale.
+///
+/// It does not always hold. Okay Bears and Cets address theirs by content
+/// hash, and DeGods is numbered but OFF BY ONE — "DeGod #5899" lives at
+/// `5898.json`. Substituting blindly there returns the wrong NFT, which is
+/// worse than returning none, so the offset is measured from the sample and
+/// every hit is checked against the name before it is believed.
+#[derive(Clone)]
+struct MeUriTemplate {
+    collection: String,
+    /// The URI with the number replaced by `{}`.
+    pattern: Option<String>,
+    /// name_number - uri_number. Zero for most, -1 for DeGods.
+    offset: i64,
+}
+
+/// Learn a collection's addressing from any one of its NFTs. Cached — it is
+/// a property of the collection, not of the question.
+async fn me_uri_template(http: &reqwest::Client, symbol: &str) -> Option<MeUriTemplate> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    static CACHE: OnceLock<Mutex<HashMap<String, (Instant, MeUriTemplate)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    const TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
+    if let Ok(map) = cache.lock() {
+        if let Some((at, t)) = map.get(symbol) {
+            if at.elapsed() < TTL {
+                return Some(t.clone());
+            }
+        }
+    }
+
+    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let listings = me_get_json(
+        http,
+        &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1"),
+    )
+    .await
+    .ok()?;
+    let sample_mint = listings.as_array()?.first()?.get("tokenMint")?.as_str()?;
+
+    let asset: serde_json::Value = http
+        .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "getAsset", "params": { "id": sample_mint }
+        }))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let result = asset.get("result")?;
+    let collection = result
+        .get("grouping")?
+        .as_array()?
+        .iter()
+        .find(|g| g.get("group_key").and_then(|k| k.as_str()) == Some("collection"))?
+        .get("group_value")?
+        .as_str()?
+        .to_string();
+
+    let content = result.get("content")?;
+    let name = content.pointer("/metadata/name")?.as_str()?;
+    let uri = content.get("json_uri")?.as_str()?;
+    let name_num: i64 = name.rsplit('#').next()?.trim().parse().ok()?;
+
+    // The number in the URI is the last run of digits that is a segment or a
+    // filename stem — not a fragment of a hash.
+    let mut pattern = None;
+    let mut offset = 0;
+    for (idx, ch) in uri.char_indices().rev() {
+        if !ch.is_ascii_digit() {
+            continue;
+        }
+        let end = uri[..=idx]
+            .char_indices()
+            .rev()
+            .take_while(|(_, c)| c.is_ascii_digit())
+            .count();
+        let start = idx + 1 - end;
+        let digits = &uri[start..=idx];
+        if let Ok(uri_num) = digits.parse::<i64>() {
+            // Guard against matching a digit buried in a hash: the run has to
+            // be bounded by a separator or the end of the string.
+            let before_ok = start == 0
+                || matches!(uri.as_bytes()[start - 1], b'/' | b'-' | b'_' | b'=');
+            let after_ok = idx + 1 == uri.len()
+                || matches!(uri.as_bytes()[idx + 1], b'.' | b'/' | b'?' | b'&');
+            if before_ok && after_ok && (name_num - uri_num).abs() <= 2 {
+                pattern = Some(format!("{}{{}}{}", &uri[..start], &uri[idx + 1..]));
+                offset = name_num - uri_num;
+            }
+        }
+        break;
+    }
+
+    let t = MeUriTemplate {
+        collection,
+        pattern,
+        offset,
+    };
+    if let Ok(mut map) = cache.lock() {
+        if map.len() >= 32 {
+            map.clear();
+        }
+        map.insert(symbol.to_string(), (Instant::now(), t.clone()));
+    }
+    Some(t)
+}
+
+/// Find a numbered NFT through its metadata URI. One indexed lookup, and it
+/// does not care whether the piece is for sale.
+async fn me_find_by_uri(
+    http: &reqwest::Client,
+    symbol: &str,
+    number: i64,
+) -> Option<String> {
+    let t = me_uri_template(http, symbol).await?;
+    let pattern = t.pattern.as_ref()?;
+    let uri = pattern.replacen("{}", &(number - t.offset).to_string(), 1);
+    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+
+    let resp: serde_json::Value = http
+        .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "searchAssets",
+            "params": {
+                "jsonUri": uri,
+                "grouping": ["collection", t.collection],
+                "page": 1, "limit": 2
+            }
+        }))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+
+    let item = resp.pointer("/result/items")?.as_array()?.first()?;
+    // Believe it only if it says what we asked for. The offset is inferred
+    // from a single sample, and a collection that numbers irregularly would
+    // otherwise hand back a neighbour.
+    let name = item.pointer("/content/metadata/name")?.as_str()?;
+    if !name.trim().ends_with(&format!("#{number}")) {
+        return None;
+    }
+    item.get("id")?.as_str().map(str::to_string)
+}
+
+/// Resolve "Mad Lads #8051" to a mint address.
+///
+/// People refer to an NFT by its number — it is on the picture and it is what
+/// anyone types. Neither API can look one up: Magic Eden has no name search
+/// (`search`, `q` and a name filter all 400 or 500) and DAS `searchAssets`
+/// rejects every name filter it was offered.
+///
+/// So we search the collection's LISTINGS, which is the set that matters on a
+/// marketplace: a question about a specific NFT is nearly always about one
+/// someone can see and might buy.
+///
+/// What this deliberately does NOT do is index the whole collection. The
+/// earlier version did, off DAS, and the numbers made the case against it:
+/// 2.4 MB per thousand assets, 24 MB and fourteen seconds for a ten-thousand
+/// piece collection, eighty seconds for Okay Bears — all to extract one mint,
+/// into a map that dies with the process. An unlisted NFT is answered by
+/// saying so and asking for the mint address, which costs the user one
+/// copy-paste and costs us nothing.
+async fn me_resolve_mint_by_number(
+    http: &reqwest::Client,
+    symbol: &str,
+    number: &str,
+) -> Option<String> {
+    let suffix = format!("#{number}");
+
+    // The metadata URI first: it finds unlisted pieces too, which is most of
+    // any collection, and costs one query.
+    if let Ok(n) = number.parse::<i64>() {
+        if let Some(mint) = me_find_by_uri(http, symbol, n).await {
+            return Some(mint);
+        }
+    }
+
+    // 100 is the cap. Asking for 500 returns an error OBJECT, not a longer
+    // list — which the previous version read as "no match", so this search
+    // never actually ran.
+    const PAGE: u32 = 100;
+    const MAX_PAGES: u32 = 12; // 1,200 listings — past any collection's depth
+
+    // The pages are independent, so read them together. Sequentially, a miss
+    // on a collection with seven hundred listings took ten seconds — one
+    // round-trip after another for an answer that was never going to change.
+    // Four at a time keeps it quick without opening twelve connections to a
+    // marketplace that rate-limits.
+    const BATCH: u32 = 4;
+    let mut page = 0u32;
+    while page < MAX_PAGES {
+        let batch: Vec<u32> = (page..(page + BATCH).min(MAX_PAGES)).collect();
+        let results = futures::future::join_all(batch.iter().map(|p| {
+            let url = format!(
+                "{MAGIC_EDEN_API}/collections/{symbol}/listings?limit={PAGE}&offset={}",
+                p * PAGE
+            );
+            async move { me_get_json(http, &url).await.ok() }
+        }))
+        .await;
+
+        let mut exhausted = false;
+        for rows in results.into_iter().flatten() {
+            let arr = match rows.as_array() {
+                Some(a) => a,
+                None => continue,
+            };
+            if (arr.len() as u32) < PAGE {
+                exhausted = true; // past the end of the book
+            }
+            for r in arr {
+                let name = r
+                    .pointer("/token/name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                if name.trim().ends_with(&suffix) {
+                    if let Some(m) = r.get("tokenMint").and_then(|v| v.as_str()) {
+                        return Some(m.to_string());
+                    }
+                }
+            }
+        }
+        if exhausted {
+            break;
+        }
+        page += BATCH;
+    }
+    None
+}
+
+/// Rarity and floor for the traits a given NFT actually has.
+///
+/// Returns `{ "Background|Pink": { count, share, floor } }`. The collection's
+/// supply is derived by summing one trait type's counts — every piece has
+/// exactly one value of each trait, so any single type sums to the whole.
+async fn me_trait_stats(
+    http: &reqwest::Client,
+    symbol: &str,
+    token: &serde_json::Value,
+) -> serde_json::Value {
+    use std::collections::{HashMap, HashSet};
+
+    let wanted: HashSet<(String, String)> = token
+        .get("attributes")
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|a| {
+                    let t = a.get("trait_type")?.as_str()?.to_string();
+                    let v = match a.get("value")? {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    Some((t, v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if wanted.is_empty() {
+        return serde_json::json!({});
+    }
+
+    let url = format!("{MAGIC_EDEN_API}/collections/{symbol}/attributes");
+    let data = match me_get_json(http, &url).await {
+        Ok(d) => d,
+        Err(_) => return serde_json::json!({}),
+    };
+    let available = match data.pointer("/results/availableAttributes").and_then(|v| v.as_array()) {
+        Some(a) => a,
+        None => return serde_json::json!({}),
+    };
+
+    // Supply, from the totals of one trait type.
+    let mut totals: HashMap<String, u64> = HashMap::new();
+    for row in available {
+        if let Some(t) = row.pointer("/attribute/trait_type").and_then(|v| v.as_str()) {
+            *totals.entry(t.to_string()).or_default() +=
+                row.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
+        }
+    }
+    let supply = totals.values().copied().max().unwrap_or(0);
+
+    let mut out = serde_json::Map::new();
+    for row in available {
+        let t = match row.pointer("/attribute/trait_type").and_then(|v| v.as_str()) {
+            Some(t) => t.to_string(),
+            None => continue,
+        };
+        let v = match row.pointer("/attribute/value") {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(other) => other.to_string(),
+            None => continue,
+        };
+        if !wanted.contains(&(t.clone(), v.clone())) {
+            continue;
+        }
+        let count = row.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
+        out.insert(
+            format!("{t}|{v}"),
+            serde_json::json!({
+                "count": count,
+                "share": if supply > 0 { count as f64 / supply as f64 } else { 0.0 },
+                "floor": row.get("floor").and_then(|f| f.as_f64()),
+            }),
+        );
+    }
+    serde_json::Value::Object(out)
+}
+
+/// On-chain facts about a mint: its collection account, its token standard,
+/// and whether it is frozen. Best-effort — a card without them is still a
+/// card.
+async fn me_asset_facts(http: &reqwest::Client, mint: &str) -> serde_json::Value {
+    let key = match std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty()) {
+        Some(k) => k,
+        None => return serde_json::json!({}),
+    };
+    let resp: serde_json::Value = match http
+        .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "getAsset", "params": { "id": mint }
+        }))
+        .send()
+        .await
+    {
+        Ok(r) => match r.json().await {
+            Ok(v) => v,
+            Err(_) => return serde_json::json!({}),
+        },
+        Err(_) => return serde_json::json!({}),
+    };
+    let result = match resp.get("result") {
+        Some(r) => r,
+        None => return serde_json::json!({}),
+    };
+    // Anyone can mint a picture and call it Mad Lads. What they cannot forge
+    // is a signature: a creator is `verified` only if that key signed the
+    // metadata, and a collection grouping is only reported once the
+    // collection authority has verified the membership. Those two are the
+    // difference between the real thing and a copy of its art.
+    let creators_verified = result
+        .get("creators")
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            !arr.is_empty()
+                && arr
+                    .iter()
+                    .any(|c| c.get("verified").and_then(|v| v.as_bool()) == Some(true))
+        });
+
+    serde_json::json!({
+        "collectionMint": result
+            .get("grouping")
+            .and_then(|g| g.as_array())
+            .and_then(|arr| arr.iter()
+                .find(|g| g.get("group_key").and_then(|k| k.as_str()) == Some("collection")))
+            .and_then(|g| g.get("group_value"))
+            .and_then(|v| v.as_str()),
+        "standard": result.get("interface").and_then(|v| v.as_str()),
+        "frozen": result.pointer("/ownership/frozen").and_then(|v| v.as_bool()),
+        "compressed": result.pointer("/compression/compressed").and_then(|v| v.as_bool()),
+        "creatorsVerified": creators_verified,
+        // Metadata that can still be rewritten after you own it: the picture
+        // you bought is not guaranteed to stay the picture you bought.
+        "mutable": result.get("mutable").and_then(|v| v.as_bool()),
+        "burnt": result.get("burnt").and_then(|v| v.as_bool()),
+    })
+}
+
+/// Everything worth knowing about one NFT, in one reply.
+///
+/// "Tell me about this NFT" is four questions — what is it, what are its
+/// traits, who has bid on it, what has happened to it — and Magic Eden
+/// answers each on a different endpoint. Three cards for one question is
+/// three round-trips and three headers; the traits already ride along with
+/// the token itself.
+///
+/// Offers and activity are best-effort: an NFT nobody has bid on is a normal
+/// NFT, and it should not fail to render because one of its lists is empty
+/// or its endpoint is having a bad minute.
+async fn me_nft_detail(
+    http: &reqwest::Client,
+    mint: &str,
+) -> Result<serde_json::Value, AppError> {
+    let token_url = format!("{MAGIC_EDEN_API}/tokens/{mint}");
+    let offers_url = format!("{MAGIC_EDEN_API}/tokens/{mint}/offers_received?limit=20");
+    let acts_url = format!("{MAGIC_EDEN_API}/tokens/{mint}/activities?limit=20");
+    let (token, offers, activities) = futures::join!(
+        me_get_json(http, &token_url),
+        me_get_json(http, &offers_url),
+        me_get_json(http, &acts_url),
+    );
+    let token = token?;
+    if token.get("mintAddress").is_none() {
+        return Err(AppError::NotFound(
+            "Magic Eden has no record of that NFT".into(),
+        ));
+    }
+
+    // What each of this NFT's traits is worth and how rare it is.
+    //
+    // A trait list on its own is a description. With the share of the
+    // collection that carries it and the floor of the pieces that do, it is
+    // the thing people actually read an NFT page for — the difference between
+    // "Background: Pink" and "Background: Pink, 10%, floor 7.6 SOL".
+    //
+    // Only this NFT's traits are kept: the full attribute table for a
+    // ten-thousand piece collection is far more than a card needs.
+    let trait_stats = match token.get("collection").and_then(|c| c.as_str()) {
+        Some(symbol) => me_trait_stats(http, symbol, &token).await,
+        None => serde_json::json!({}),
+    };
+
+    // The chain facts Magic Eden shows under Details and its own API does
+    // not carry: which collection account this belongs to, and whether it is
+    // a programmable NFT — the difference decides whether a marketplace can
+    // move it at all.
+    let chain = me_asset_facts(http, mint).await;
+
+    Ok(serde_json::json!({
+        "token": token,
+        "offers": offers.unwrap_or_else(|_| serde_json::json!([])),
+        "activities": activities.unwrap_or_else(|_| serde_json::json!([])),
+        "traitStats": trait_stats,
+        "chain": chain,
+    }))
+}
+
+pub async fn build_me_read(
+    http: &reqwest::Client,
+    action: &str,
+    params: &MeReadParams,
+) -> Result<BuildResponse, AppError> {
+    if matches!(action, "me_token" | "me_nft_info") {
+        // A mint if we were given one; otherwise the collection and the
+        // number, which is what a person actually has.
+        let mint = match params.mint_address.as_deref().filter(|m| !m.is_empty()) {
+            Some(m) => m.to_string(),
+            None => {
+                let symbol = need(&params.symbol, "collection")?;
+                let number = need(&params.number, "NFT number")?;
+                let digits = number.trim_start_matches('#').trim().to_string();
+                match me_resolve_mint_by_number(http, symbol, &digits).await {
+                    Some(m) => m,
+                    None => {
+                        return Err(AppError::NotFound(format!(
+                            "#{digits} is not currently listed, so I can't find it by number. \
+                             Paste its mint address and I'll pull it up."
+                        )))
+                    }
+                }
+            }
+        };
+        let data = me_nft_detail(http, &mint).await?;
+        return Ok(BuildResponse {
+            preview: ActionPreview {
+                id: Uuid::new_v4().to_string(),
+                action_type: action.to_string(),
+                description: me_read_title(action, params),
+                estimated_fee: "0".to_string(),
+                estimated_refund: None,
+                params: serde_json::json!({}),
+                warnings: vec![],
+                requires_approval: false,
+            },
+            transaction: None,
+            additional_signers_required: 0,
+            execution_steps: None,
+            quote: None,
+            is_cross_chain: false,
+            data: Some(data),
+        });
+    }
+    if matches!(action, "me_collection_stats" | "me_collection_info") {
+        let symbol = need(&params.symbol, "collection")?.to_string();
+        let data = me_collection_detail(http, &symbol).await?;
+        return Ok(BuildResponse {
+            preview: ActionPreview {
+                id: Uuid::new_v4().to_string(),
+                action_type: action.to_string(),
+                description: me_read_title(action, params),
+                estimated_fee: "0".to_string(),
+                estimated_refund: None,
+                params: serde_json::json!({}),
+                warnings: vec![],
+                requires_approval: false,
+            },
+            transaction: None,
+            additional_signers_required: 0,
+            execution_steps: None,
+            quote: None,
+            is_cross_chain: false,
+            data: Some(data),
+        });
+    }
+    let url = me_read_url(action, params)?;
+    let data = me_get_json(http, &url).await?;
+    Ok(BuildResponse {
+        preview: ActionPreview {
+            id: Uuid::new_v4().to_string(),
+            action_type: action.to_string(),
+            description: me_read_title(action, params),
+            estimated_fee: "0".to_string(),
+            estimated_refund: None,
+            params: serde_json::json!({}),
+            warnings: vec![],
+            requires_approval: false,
+        },
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: Some(data),
+    })
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MMM — Magic Eden's NFT AMM pools
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// A pool quotes both sides of a collection: it buys NFTs at its bid and sells
+// them at its ask, moving the price along a curve after each fill. The seven
+// endpoints below are the whole lifecycle — create, retune, fund, defund,
+// trade against, close.
+//
+// The required parameters are not guesses. Each endpoint was asked with no
+// arguments and answers with the list it wants; these structs mirror that.
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeMmmCreatePoolParams {
+    /// Starting price in SOL.
+    pub spot_price: String,
+    /// "linear" or "exp".
+    pub curve_type: String,
+    /// How far the price moves per fill — SOL for linear, basis points for exp.
+    pub curve_delta: String,
+    pub collection_symbol: String,
+    #[serde(default)]
+    pub reinvest_buy: Option<bool>,
+    #[serde(default)]
+    pub reinvest_sell: Option<bool>,
+    #[serde(default)]
+    pub expiry: Option<i64>,
+    /// The pool's own fee, in basis points.
+    #[serde(default)]
+    pub lp_fee_bp: Option<u32>,
+    #[serde(default)]
+    pub buyside_creator_royalty_bp: Option<u32>,
+    /// Defaults to SOL.
+    #[serde(default)]
+    pub payment_mint: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeMmmUpdatePoolParams {
+    pub pool: String,
+    pub spot_price: String,
+    pub curve_type: String,
+    pub curve_delta: String,
+    #[serde(default)]
+    pub reinvest_buy: Option<bool>,
+    #[serde(default)]
+    pub reinvest_sell: Option<bool>,
+    #[serde(default)]
+    pub expiry: Option<i64>,
+    #[serde(default)]
+    pub lp_fee_bp: Option<u32>,
+    #[serde(default)]
+    pub buyside_creator_royalty_bp: Option<u32>,
+    #[serde(default)]
+    pub payment_mint: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeMmmPoolParams {
+    pub pool: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeMmmFundParams {
+    pub pool: String,
+    /// SOL to move in or out of the pool's buy side.
+    #[serde(alias = "amount")]
+    pub payment_amount: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeMmmFulfillBuyParams {
+    pub pool: String,
+    pub asset_mint: String,
+    #[serde(default)]
+    pub asset_amount: Option<u32>,
+    /// Floor on what you receive — the pool's bid can move before you land.
+    #[serde(default)]
+    pub min_payment_amount: Option<String>,
+    #[serde(default)]
+    pub asset_token_account: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeMmmFulfillSellParams {
+    pub pool: String,
+    pub asset_mint: String,
+    #[serde(default)]
+    pub asset_amount: Option<u32>,
+    /// Ceiling on what you pay.
+    #[serde(default)]
+    pub max_payment_amount: Option<String>,
+    #[serde(default)]
+    pub buyside_creator_royalty_bp: Option<u32>,
+}
+
+const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
+
+fn bool_str(v: Option<bool>, default: bool) -> String {
+    v.unwrap_or(default).to_string()
+}
+
+pub async fn build_me_mmm_create_pool(
+    http: &reqwest::Client,
+    user: &Pubkey,
+    p: &MeMmmCreatePoolParams,
+) -> Result<BuildResponse, AppError> {
+    let spot: f64 = p
+        .spot_price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Enter a starting price in SOL".into()))?;
+    if spot <= 0.0 {
+        return Err(AppError::InvalidParams(
+            "Starting price must be above zero".into(),
+        ));
+    }
+    let curve = p.curve_type.to_lowercase();
+    if curve != "linear" && curve != "exp" {
+        return Err(AppError::InvalidParams(
+            "Curve must be either linear or exp".into(),
+        ));
+    }
+    let tx = me_instruction(
+        http,
+        "mmm/create-pool",
+        &[
+            ("owner", user.to_string()),
+            ("collectionSymbol", p.collection_symbol.clone()),
+            ("spotPrice", spot.to_string()),
+            ("curveType", curve.clone()),
+            ("curveDelta", p.curve_delta.clone()),
+            ("reinvestBuy", bool_str(p.reinvest_buy, true)),
+            ("reinvestSell", bool_str(p.reinvest_sell, true)),
+            ("expiry", p.expiry.unwrap_or(0).to_string()),
+            ("lpFeeBp", p.lp_fee_bp.unwrap_or(0).to_string()),
+            (
+                "buysideCreatorRoyaltyBp",
+                p.buyside_creator_royalty_bp.unwrap_or(0).to_string(),
+            ),
+            (
+                "paymentMint",
+                p.payment_mint
+                    .clone()
+                    .unwrap_or_else(|| SOL_MINT.to_string()),
+            ),
+        ],
+    )
+    .await?;
+    Ok(me_tx_response(
+        "me_mmm_create_pool",
+        format!(
+            "Create a {curve} pool on {} at {spot} SOL",
+            p.collection_symbol
+        ),
+        tx,
+        serde_json::json!({
+            "collectionSymbol": p.collection_symbol,
+            "spotPrice": spot,
+            "curveType": curve,
+            "curveDelta": p.curve_delta,
+            "lpFeeBp": p.lp_fee_bp.unwrap_or(0),
+        }),
+        vec!["The pool starts empty — deposit SOL before it can buy anything".into()],
+    ))
+}
+
+pub async fn build_me_mmm_update_pool(
+    http: &reqwest::Client,
+    _user: &Pubkey,
+    p: &MeMmmUpdatePoolParams,
+) -> Result<BuildResponse, AppError> {
+    let spot: f64 = p
+        .spot_price
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Enter a price in SOL".into()))?;
+    let curve = p.curve_type.to_lowercase();
+    let tx = me_instruction(
+        http,
+        "mmm/update-pool",
+        &[
+            ("pool", p.pool.clone()),
+            ("spotPrice", spot.to_string()),
+            ("curveType", curve.clone()),
+            ("curveDelta", p.curve_delta.clone()),
+            ("reinvestBuy", bool_str(p.reinvest_buy, true)),
+            ("reinvestSell", bool_str(p.reinvest_sell, true)),
+            ("expiry", p.expiry.unwrap_or(0).to_string()),
+            ("lpFeeBp", p.lp_fee_bp.unwrap_or(0).to_string()),
+            (
+                "buysideCreatorRoyaltyBp",
+                p.buyside_creator_royalty_bp.unwrap_or(0).to_string(),
+            ),
+            (
+                "paymentMint",
+                p.payment_mint
+                    .clone()
+                    .unwrap_or_else(|| SOL_MINT.to_string()),
+            ),
+        ],
+    )
+    .await?;
+    Ok(me_tx_response(
+        "me_mmm_update_pool",
+        format!("Retune pool to {spot} SOL"),
+        tx,
+        serde_json::json!({ "pool": p.pool, "spotPrice": spot, "curveType": curve }),
+        vec![],
+    ))
+}
+
+pub async fn build_me_mmm_close_pool(
+    http: &reqwest::Client,
+    _user: &Pubkey,
+    p: &MeMmmPoolParams,
+) -> Result<BuildResponse, AppError> {
+    let tx = me_instruction(http, "mmm/sol-close-pool", &[("pool", p.pool.clone())]).await?;
+    Ok(me_tx_response(
+        "me_mmm_sol_close_pool",
+        "Close the pool and take back its balance".to_string(),
+        tx,
+        serde_json::json!({ "pool": p.pool }),
+        vec!["Withdraw any NFTs the pool still holds first".into()],
+    ))
+}
+
+pub async fn build_me_mmm_deposit_buy(
+    http: &reqwest::Client,
+    _user: &Pubkey,
+    p: &MeMmmFundParams,
+) -> Result<BuildResponse, AppError> {
+    let amount: f64 = p
+        .payment_amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?;
+    let tx = me_instruction(
+        http,
+        "mmm/sol-deposit-buy",
+        &[
+            ("pool", p.pool.clone()),
+            ("paymentAmount", amount.to_string()),
+        ],
+    )
+    .await?;
+    Ok(me_tx_response(
+        "me_mmm_sol_deposit_buy",
+        format!("Fund the pool with {amount} SOL"),
+        tx,
+        serde_json::json!({ "pool": p.pool, "amount": amount }),
+        vec!["This is what the pool bids with".into()],
+    ))
+}
+
+pub async fn build_me_mmm_withdraw_buy(
+    http: &reqwest::Client,
+    _user: &Pubkey,
+    p: &MeMmmFundParams,
+) -> Result<BuildResponse, AppError> {
+    let amount: f64 = p
+        .payment_amount
+        .parse()
+        .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?;
+    let tx = me_instruction(
+        http,
+        "mmm/sol-withdraw-buy",
+        &[
+            ("pool", p.pool.clone()),
+            ("paymentAmount", amount.to_string()),
+        ],
+    )
+    .await?;
+    Ok(me_tx_response(
+        "me_mmm_sol_withdraw_buy",
+        format!("Take {amount} SOL out of the pool"),
+        tx,
+        serde_json::json!({ "pool": p.pool, "amount": amount }),
+        vec!["The pool bids less, or stops bidding, once this is out".into()],
+    ))
+}
+
+/// Sell an NFT INTO a pool's bid.
+pub async fn build_me_mmm_fulfill_buy(
+    http: &reqwest::Client,
+    user: &Pubkey,
+    p: &MeMmmFulfillBuyParams,
+) -> Result<BuildResponse, AppError> {
+    let token_account = match p.asset_token_account.clone() {
+        Some(t) => t,
+        None => resolve_token_account(http, user, &p.asset_mint).await,
+    };
+    let tx = me_instruction(
+        http,
+        "mmm/sol-fulfill-buy",
+        &[
+            ("pool", p.pool.clone()),
+            ("seller", user.to_string()),
+            ("assetMint", p.asset_mint.clone()),
+            ("assetTokenAccount", token_account.clone()),
+            ("assetAmount", p.asset_amount.unwrap_or(1).to_string()),
+            (
+                "minPaymentAmount",
+                p.min_payment_amount.clone().unwrap_or_else(|| "0".into()),
+            ),
+        ],
+    )
+    .await?;
+    let (name, image, collection) = nft_display(http, &p.asset_mint).await;
+    Ok(me_tx_response(
+        "me_mmm_sol_fulfill_buy",
+        format!("Sell {name} into the pool"),
+        tx,
+        serde_json::json!({
+            "pool": p.pool, "mintAddress": p.asset_mint,
+            "nftName": name, "nftImage": image, "collectionName": collection,
+        }),
+        vec![],
+    ))
+}
+
+/// Buy an NFT OUT of a pool.
+pub async fn build_me_mmm_fulfill_sell(
+    http: &reqwest::Client,
+    user: &Pubkey,
+    p: &MeMmmFulfillSellParams,
+) -> Result<BuildResponse, AppError> {
+    let tx = me_instruction(
+        http,
+        "mmm/sol-fulfill-sell",
+        &[
+            ("pool", p.pool.clone()),
+            ("buyer", user.to_string()),
+            ("assetMint", p.asset_mint.clone()),
+            ("assetAmount", p.asset_amount.unwrap_or(1).to_string()),
+            (
+                "maxPaymentAmount",
+                p.max_payment_amount.clone().unwrap_or_else(|| "0".into()),
+            ),
+            (
+                "buysideCreatorRoyaltyBp",
+                p.buyside_creator_royalty_bp.unwrap_or(0).to_string(),
+            ),
+        ],
+    )
+    .await?;
+    let (name, image, collection) = nft_display(http, &p.asset_mint).await;
+    Ok(me_tx_response(
+        "me_mmm_sol_fulfill_sell",
+        format!("Buy {name} from the pool"),
+        tx,
+        serde_json::json!({
+            "pool": p.pool, "mintAddress": p.asset_mint,
+            "nftName": name, "nftImage": image, "collectionName": collection,
+        }),
+        vec![],
+    ))
 }

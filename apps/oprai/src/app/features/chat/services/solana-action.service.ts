@@ -2141,8 +2141,10 @@ export class SolanaActionService {
         console.error('[Sim] err:', JSON.stringify(sim.value.err), '\nlogs:', sim.value.logs);
         throw new Error(SolanaActionService.parseSimulationError(sim.value.err, sim.value.logs ?? []));
       }
+      await this.assertSpendMatchesClaim(action, transaction, feCon, web3);
     } catch (simErr: any) {
       if (simErr.message?.startsWith('sim:')) throw simErr;
+      if (simErr.message?.startsWith('guard:')) throw simErr;
       // RPC error — skip simulation, don't block the transaction
     }
 
@@ -2164,6 +2166,90 @@ export class SolanaActionService {
       .catch(() => callbacks.onConfirm?.());
 
     return signature;
+  }
+
+  /**
+   * The most SOL this action is allowed to take out of the wallet, in SOL.
+   *
+   * Returns null when we cannot state a number, and the check is skipped —
+   * a guard that guesses a ceiling would block real transactions, which
+   * teaches people to distrust it.
+   */
+  private static claimedMaxOutflow(action: ParsedAction): number | null {
+    const num = (v: unknown) => {
+      const n = parseFloat(String(v ?? ''));
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    const t = action.type;
+    const p = action.params;
+
+    // Buying: the ask, plus room for the taker fee and network fees.
+    if (/^(me_buy|me_buy_now|me_buy_instruction|me_buy_now_transfer_nft|tensor_buy)$/.test(t)) {
+      const price = num(p['price']);
+      return price === null ? null : price * 1.05 + 0.02;
+    }
+    // Bidding and escrow deposits: the amount leaves the wallet.
+    if (/^(me_make_offer|me_deposit|me_mmm_sol_deposit_buy)$/.test(t)) {
+      const amt = num(p['price']) ?? num(p['amount']) ?? num(p['paymentAmount']);
+      return amt === null ? null : amt * 1.02 + 0.02;
+    }
+    // Listing, delisting, repricing, withdrawing, accepting a bid: none of
+    // these buy anything. They cost rent and fees and nothing else — an
+    // outflow beyond that means the transaction is not what it says it is.
+    if (/^(me_list|me_sell|me_cancel_listing|me_sell_cancel|me_sell_change_price|me_buy_change_price|me_cancel_offer|me_buy_cancel|me_accept_offer|me_sell_now|me_withdraw|me_mmm_sol_withdraw_buy|me_mmm_sol_close_pool)$/.test(t)) {
+      return 0.05;
+    }
+    return null;
+  }
+
+  /**
+   * Refuse to hand over a transaction that spends more than the card said.
+   *
+   * We display a price we composed from our own parameters, next to bytes a
+   * marketplace API composed from its own. Nothing checked that the two
+   * agreed — so a crossed parameter, a changed price, an API having a bad
+   * day, or a bug of mine would all reach the wallet looking exactly like a
+   * correct request, and the user would find out afterwards.
+   *
+   * The simulation already runs; this reads what it did. If more SOL leaves
+   * the wallet than the action could justify, nothing gets signed.
+   */
+  private async assertSpendMatchesClaim(
+    action: ParsedAction,
+    transaction: any,
+    connection: any,
+    web3: any,
+  ): Promise<void> {
+    const allowed = SolanaActionService.claimedMaxOutflow(action);
+    if (allowed === null) return;
+
+    const address = this.walletService.publicKey();
+    if (!address) return;
+
+    const owner = new web3.PublicKey(String(address));
+    const before = await connection.getBalance(owner);
+
+    const opts = {
+      replaceRecentBlockhash: true,
+      sigVerify: false,
+      accounts: { encoding: 'base64', addresses: [address] },
+    };
+    const sim = transaction instanceof web3.VersionedTransaction
+      ? await connection.simulateTransaction(transaction, opts)
+      : await connection.simulateTransaction(transaction.compileMessage(), opts);
+
+    const after = sim?.value?.accounts?.[0]?.lamports;
+    if (typeof after !== 'number' || sim.value.err) return; // can't tell — don't block
+
+    const spentSol = (before - after) / 1e9;
+    if (spentSol <= allowed) return;
+
+    console.error('[Guard] outflow', spentSol, 'SOL exceeds claim', allowed, 'for', action.type);
+    throw new Error(
+      `guard:This transaction would take ${spentSol.toFixed(4)} SOL from your wallet, `
+      + `but this action should cost at most ${allowed.toFixed(4)} SOL. `
+      + `Nothing has been signed — ask again to rebuild it.`,
+    );
   }
 
   // ─── Param Normalization ──────────────────────────────────────────────────

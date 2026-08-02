@@ -2331,3 +2331,680 @@
     color: var(--op-text-primary);
   }
 }
+
+// ── Magic Eden ───────────────────────────────────────────────────────────────
+//
+// The one place in the app where the thing being traded is a picture. Every
+// other card can lead with a symbol and a number; an NFT list that does that
+// is unusable — you recognise a Mad Lad by looking at it. So these lead with
+// the art and keep the same tokens, buttons and pager as the pool tables.
+
+.me-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 4px 0;
+
+  &--nft {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+}
+
+.me-art__fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06b6d4));
+  color: #fff;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+// Collection row — art, name, the three numbers that decide whether to look.
+.me-coll {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 45%, transparent);
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+  }
+
+  &__art {
+    display: block;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--op-radius-sm, 8px);
+    overflow: hidden;
+    background: var(--op-bg-surface-1, #14151a);
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    &--lg {
+      width: 52px;
+      height: 52px;
+      border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.08));
+    }
+  }
+
+  &__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+
+  &__name {
+    font-weight: 600;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__stats { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  &__go { flex-shrink: 0; opacity: 0.5; }
+}
+
+.me-stat {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--op-text-secondary, #a1a1aa);
+
+  &__k { color: var(--op-text-tertiary, #71717a); margin-right: 4px; }
+}
+
+// NFT tile.
+.me-nft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+
+  &__art {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: var(--op-radius-sm, 8px);
+    overflow: hidden;
+    background: var(--op-bg-surface-1, #14151a);
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  }
+
+  &__rank {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__name {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__coll {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary, #71717a);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: -4px;
+  }
+
+  &__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  &__price { font-size: 0.8125rem; font-weight: 600; }
+
+  &__unlisted { color: var(--op-text-tertiary, #71717a); font-weight: 400; }
+
+  &__traits { display: flex; flex-wrap: wrap; gap: 4px; }
+}
+
+.me-trait {
+  padding: 2px 6px;
+  border-radius: var(--op-radius-sm, 6px);
+  background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+  font-size: 0.625rem;
+  color: var(--op-text-secondary, #a1a1aa);
+  white-space: nowrap;
+
+  &__k { color: var(--op-text-tertiary, #71717a); margin-right: 3px; }
+}
+
+// Activity verb. Buys and lists are the two a reader scans for.
+.me-evt {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+  color: var(--op-text-secondary, #a1a1aa);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: capitalize;
+
+  &--buy {
+    background: color-mix(in srgb, var(--op-success, #22c55e) 16%, transparent);
+    color: var(--op-success, #22c55e);
+  }
+
+  &--list {
+    background: color-mix(in srgb, var(--op-brand-accent, #06b6d4) 16%, transparent);
+    color: var(--op-brand-accent, #06b6d4);
+  }
+}
+
+.result-table__header--me-act,
+.result-table__row--me-act {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) 100px 80px;
+  align-items: center;
+  gap: 8px;
+}
+
+.result-table__header--me-offer,
+.result-table__row--me-offer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px 90px 96px;
+  align-items: center;
+  gap: 8px;
+}
+
+// Single-record cards: collection stats, escrow balance.
+// Collection / escrow detail. Same shape as the PnL card's metric block —
+// each number in its own bordered tile with an uppercase label — rather than
+// four bare columns of text, which is what this was and which reads as a
+// paragraph that happens to contain digits.
+.me-stats-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--op-border-default, rgba(255, 255, 255, 0.09));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-1, rgba(255, 255, 255, 0.02));
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.06));
+  }
+
+  &__name {
+    display: block;
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.3;
+  }
+
+  &__sym {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: var(--op-text-tertiary, #71717a);
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 8px;
+  }
+
+  &__cta { align-self: flex-start; }
+}
+
+.me-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--op-border-default, rgba(255, 255, 255, 0.09));
+  border-radius: var(--op-radius-sm, 8px);
+
+  &__k {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--op-text-tertiary, #71717a);
+  }
+
+  &__v {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--op-text-primary, #fafafa);
+  }
+
+  // The escrow card is a single number, so it carries the card.
+  &--hero {
+    padding: 14px 16px;
+
+    .me-kpi__v { font-size: 1.5rem; }
+  }
+}
+
+.me-escrow {
+  &__note { font-size: 0.75rem; color: var(--op-text-tertiary, #71717a); }
+  &__actions { display: flex; gap: 8px; }
+}
+
+.result-table__header--me-trait,
+.result-table__row--me-trait {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 70px 100px;
+  align-items: center;
+  gap: 8px;
+}
+
+.result-table__header--me-pool,
+.result-table__row--me-pool {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 100px 110px minmax(0, 1fr) 120px;
+  align-items: center;
+  gap: 8px;
+}
+
+.me-pool__acts { display: inline-flex; gap: 6px; justify-content: flex-end; }
+
+.result-table__header--me-trader,
+.result-table__row--me-trader {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 120px 96px;
+  align-items: center;
+  gap: 8px;
+}
+
+.me-nft__acts { display: inline-flex; gap: 5px; }
+
+.me-stats-card__desc {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--op-text-secondary, #a1a1aa);
+}
+
+.me-badge {
+  margin-left: 5px;
+  vertical-align: -2px;
+  color: var(--op-brand-accent, #06b6d4);
+}
+
+.me-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  &__a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: 999px;
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+    color: var(--op-text-secondary, #a1a1aa);
+    font-size: 0.75rem;
+    text-decoration: none;
+    transition: border-color 0.15s ease, color 0.15s ease;
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 50%, transparent);
+      color: var(--op-text-primary, #fafafa);
+    }
+  }
+}
+
+// Actions on one line: the thing to do, then where else to look. They were
+// two stacked rows, which made a link look like a second call to action.
+.me-stats-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+// ── One NFT, in full ─────────────────────────────────────────────────────────
+// Art on the left at size, everything read on the right — the shape Magic
+// Eden uses. A 140px thumbnail next to a wall of text had the emphasis
+// backwards: the picture is the thing being valued.
+.me-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--op-border-default, rgba(255, 255, 255, 0.09));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-1, rgba(255, 255, 255, 0.02));
+
+  &__hero {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  // Sized, not stretched. A full-height column made it 300px and left a gap
+  // under it as tall as the trait list.
+  &__art {
+    flex-shrink: 0;
+    width: 168px;
+    aspect-ratio: 1;
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  }
+
+  &__main { display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1; }
+
+  &__name {
+    font-size: 1.375rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  &__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+  }
+
+  &__coll { color: var(--op-text-secondary, #a1a1aa); font-weight: 600; }
+
+  &__owner {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--op-text-tertiary, #71717a);
+    font-size: 0.75rem;
+  }
+
+  // The same panel the swap card uses for an amount: 16px, surface-2, subtle
+  // border. This is the equivalent statement — what it costs.
+  &__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 16px;
+    background: var(--op-bg-surface-2);
+  }
+
+  &__price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+  &__price-k { font-size: 0.75rem; font-weight: 600; color: var(--op-text-primary); }
+  &__price-v { font-size: 1.25rem; font-weight: 700; }
+  &__price-sub { font-size: 0.6875rem; color: var(--op-text-tertiary); }
+
+  &__grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-top: 2px; }
+
+  &__section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.06));
+  }
+
+  &__h {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--op-text-tertiary, #71717a);
+  }
+
+  // Three across, like the reference. Each tile is name, value, then the two
+  // numbers that make it worth reading.
+  &__traits {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+    gap: 8px;
+  }
+
+  // Same construction as a swap panel, scaled down: 16px corners, surface-2,
+  // subtle border. Nine of them next to a swap card should look like they
+  // came out of the same app.
+  &__trait {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 14px;
+    background: var(--op-bg-surface-2);
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 16px;
+    min-width: 0;
+    transition: border-color 0.12s;
+
+    &:hover { border-color: color-mix(in srgb, var(--op-brand) 35%, var(--op-border-subtle)); }
+
+    &-k {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--op-text-tertiary);
+    }
+
+    &-v {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--op-text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}
+
+.result-table__row--me-hist {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 90px;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .me-detail__hero { flex-direction: column; }
+  .me-detail__art { width: 100%; }
+}
+
+// Tabs on the NFT detail. The four faces are read at different moments —
+// traits when deciding, offers when selling, activity when pricing — and
+// stacking them turned the card into a scroll.
+.me-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.06));
+}
+
+.me-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--op-text-tertiary, #71717a);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+
+  &:hover { color: var(--op-text-secondary, #a1a1aa); }
+
+  &--on {
+    color: var(--op-text-primary, #fafafa);
+    border-bottom-color: var(--op-brand-accent, #06b6d4);
+  }
+
+  &__n {
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.06));
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+}
+
+// A trait tile carries three things now: what it is, how rare, what the
+// pieces holding it sell for.
+.me-detail__trait-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.05));
+}
+
+// The floor is what the trait is WORTH, and it was the dimmest thing on the
+// tile. It reads at the same weight as the value now.
+.me-detail__trait-floor {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.me-rar {
+  padding: 1px 6px;
+  border-radius: var(--op-radius-sm, 5px);
+  font-size: 0.625rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+
+  &--gold   { background: rgba(245, 158, 11, 0.18); color: #fbbf24; }
+  &--mid    { background: rgba(217, 70, 239, 0.18);  color: #e879f9; }
+  &--common { background: rgba(139, 92, 246, 0.14);  color: #a78bfa; }
+}
+
+// Details tab: plain rows, because they are facts and not figures.
+.me-detail__rows { display: flex; flex-direction: column; }
+
+.me-detail__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.05));
+
+  &:last-child { border-bottom: none; }
+
+  > span:first-child { color: var(--op-text-tertiary, #71717a); }
+}
+
+// Rank and royalty, as chips beside the collection.
+.me-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--op-radius-sm, 6px);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+
+  &--rank    { background: rgba(34, 197, 94, 0.16);  color: #4ade80; }
+  &--royalty { background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
+}
+
+// Offers can run long; the card should not. Scrolls in place instead of
+// pushing the conversation down.
+.me-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  border-radius: 12px;
+}
+
+.result-table__header--me-bid,
+.result-table__row--me-bid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 100px 104px;
+  align-items: center;
+  gap: 8px;
+}
+
+.me-bid__price { font-weight: 700; font-size: 0.875rem; }
+
+// Explorer links: an address is only useful if you can go and look at it.
+.me-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--op-text-secondary);
+  text-decoration: none;
+  transition: color 0.12s;
+
+  &:hover { color: var(--op-brand-accent, #06b6d4); }
+}
+
+.me-frozen { color: var(--op-warning, #f59e0b); font-weight: 600; }
+
+// Pre-purchase checks. Not a verdict — the facts a buyer would look up
+// themselves, in one place, before spending.
+.me-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.me-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 12px;
+  background: var(--op-bg-surface-2);
+  font-size: 0.75rem;
+  color: var(--op-success, #22c55e);
+
+  &__k { font-weight: 600; color: var(--op-text-primary); }
+  &__v { margin-left: auto; color: var(--op-text-tertiary); text-align: right; }
+
+  &--bad {
+    color: var(--op-warning, #f59e0b);
+    border-color: color-mix(in srgb, var(--op-warning, #f59e0b) 30%, var(--op-border-subtle));
+    background: color-mix(in srgb, var(--op-warning, #f59e0b) 7%, var(--op-bg-surface-2));
+  }
+}

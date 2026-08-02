@@ -1437,7 +1437,29 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--op-bg-surface-2);
+  position: relative;
+
+  // Under the logo, so a missing or slow asset still names the protocol.
+  &__letter {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06b6d4));
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  // No plate. These icons are transparent cut-outs and a background behind
+  // them is a black square on a coloured header — which is what putting one
+  // here produced.
+  &__img {
+    position: relative;
+    z-index: 1;
+  }
 
   img {
     width: 100%;
@@ -5344,5 +5366,178 @@
       color: var(--op-text-tertiary);
       font-size: 0.6875rem;
     }
+  }
+}
+
+// ── Magic Eden action panel ──────────────────────────────────────────────────
+// Leads with the art because that is how anyone identifies an NFT. The fee
+// breakdown is only shown on the actions where the user pays it.
+.me-act {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+
+  &__art {
+    flex-shrink: 0;
+    width: 84px;
+    height: 84px;
+    border-radius: var(--op-radius-sm, 8px);
+    overflow: hidden;
+    background: var(--op-bg-surface-1, #14151a);
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  }
+
+  &__fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06b6d4));
+    color: #fff;
+    font-size: 1.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  &__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+
+  &__name {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__coll { font-size: 0.75rem; color: var(--op-text-tertiary, #71717a); }
+
+  &__price { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+  &__price-k { font-size: 0.75rem; color: var(--op-text-tertiary, #71717a); }
+  &__price-v { font-size: 1.125rem; font-weight: 700; }
+
+  &__fee,
+  &__net {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.75rem;
+    color: var(--op-text-tertiary, #71717a);
+  }
+
+  &__net { color: var(--op-text-secondary, #a1a1aa); font-weight: 600; }
+}
+
+.me-act__ref {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--op-text-secondary, #a1a1aa);
+
+  span { display: inline-flex; gap: 5px; align-items: baseline; }
+}
+
+.me-act__ref-k { color: var(--op-text-tertiary, #71717a); }
+
+// ── Magic Eden amount + expiry ───────────────────────────────────────────────
+.me-amount { margin-top: 10px; }
+
+.me-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+
+  &__btn {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: 999px;
+    background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
+    color: var(--op-text-secondary, #a1a1aa);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+
+    &:hover:not(:disabled) {
+      border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 50%, transparent);
+      color: var(--op-text-primary, #fafafa);
+    }
+
+    &--active {
+      border-color: color-mix(in srgb, var(--op-brand, #5b5fc7) 65%, transparent);
+      background: color-mix(in srgb, var(--op-brand, #5b5fc7) 16%, transparent);
+      color: var(--op-text-primary, #fafafa);
+    }
+
+    &:disabled { opacity: 0.5; cursor: default; }
+  }
+}
+
+.me-expiry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+
+  &__label {
+    font-size: 0.75rem;
+    color: var(--op-text-tertiary, #71717a);
+  }
+
+  &__opts { display: flex; flex-wrap: wrap; gap: 6px; }
+}
+
+// ── Token safety ─────────────────────────────────────────────────────────────
+// Only ever rendered when there is something to say. Amber for a cost to
+// weigh, red for a token built so someone else can take the money.
+.tok-safety {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--op-warning, #f59e0b) 35%, transparent);
+  background: color-mix(in srgb, var(--op-warning, #f59e0b) 8%, var(--op-bg-surface-2));
+
+  &--block {
+    border-color: color-mix(in srgb, var(--op-loss, #ef4444) 40%, transparent);
+    background: color-mix(in srgb, var(--op-loss, #ef4444) 9%, var(--op-bg-surface-2));
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--op-warning, #f59e0b);
+  }
+
+  &--block &__head { color: var(--op-loss, #ef4444); }
+
+  &__item { display: flex; flex-direction: column; gap: 2px; }
+  &__title { font-size: 0.8125rem; font-weight: 600; color: var(--op-text-primary); }
+  &__detail { font-size: 0.75rem; line-height: 1.5; color: var(--op-text-secondary); }
+
+  &__ack {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: var(--op-text-secondary);
+    cursor: pointer;
+
+    input { accent-color: var(--op-loss, #ef4444); cursor: pointer; }
   }
 }

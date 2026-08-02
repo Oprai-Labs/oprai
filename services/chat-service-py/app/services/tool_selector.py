@@ -530,7 +530,6 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_collections":          _A({"nft", "magic_eden"}),
     "me_collection_listings":  _A({"nft", "magic_eden"}),
     "me_collections_batch_listings":_A({"nft", "magic_eden"}),
-    "me_collection_holder_stats":_A({"nft", "magic_eden", "analysis"}),
     "me_collection_leaderboard":_A({"nft", "magic_eden", "analysis"}),
     "me_launchpad_collections":_A({"nft", "magic_eden"}),
     "me_buy_instruction":      _A({"nft", "magic_eden"}),
@@ -547,6 +546,13 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_collection_attributes":_A({"nft", "magic_eden"}),
     "me_owner_activities":     _A({"nft", "magic_eden"}),
     "me_wallet_tokens":        _A({"nft", "magic_eden", "portfolio"}),
+    # Offered on every token question — the check has to be reachable
+    # whenever a token is being discussed, not only when someone asks
+    # whether it is a scam.
+    "token_safety":            _A({"analysis", "dex", "portfolio", "trading", "pumpfun"}),
+    "honeypot_check":          _A({"analysis", "dex", "trading"}),
+    "scam_check":              _A({"analysis", "dex", "trading"}),
+    "rug_check":               _A({"analysis", "dex", "trading"}),
     "me_token":                _A({"nft", "magic_eden"}),
     "me_token_listings":       _A({"nft", "magic_eden"}),
     "me_token_offers_received":_A({"nft", "magic_eden"}),
@@ -561,7 +567,6 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_mmm_sol_fulfill_buy":  _A({"nft", "magic_eden"}),
     "me_mmm_sol_fulfill_sell": _A({"nft", "magic_eden"}),
     "me_marketplace_popular":  _A({"nft", "magic_eden", "analysis"}),
-    "me_magic_ticket_burns":   _A({"nft", "magic_eden"}),
     # Knowledge + Strategy
     "knowledge": _A({"always", "core"}),
     "strategy":  _A({"analysis"}),

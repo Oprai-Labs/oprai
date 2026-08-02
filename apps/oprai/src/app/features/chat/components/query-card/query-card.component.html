@@ -115,6 +115,549 @@
         }
       }
 
+      <!-- ── Magic Eden ──────────────────────────────────────────────────
+           Twenty-six query types, four renderers. The card switches on the
+           SHAPE of what came back rather than on the endpoint name, because
+           a collection's listings and a wallet's NFTs are the same thing to
+           the person looking at them: pictures with prices and a button. -->
+      @if (meShape(); as shape) {
+
+        @if (meFetching() && meRowCount() === 0) {
+          <div class="dlmm-empty">Loading from Magic Eden…</div>
+        }
+
+        <!-- Collections: floor, volume, listed count, and a way in. -->
+        @if (shape === 'collections') {
+          <div class="me-grid">
+            @for (c of mePagedCollections(); track c.symbol) {
+              <button type="button" class="me-coll" (click)="browseMeCollection(c)">
+                <span class="me-coll__art">
+                  @if (c.image) {
+                    <img [src]="nftArtSrc(c.image)" [alt]="c.name" loading="lazy" decoding="async"
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="me-art__fallback">{{ (c.name || '?').charAt(0) }}</span>
+                  }
+                </span>
+                <span class="me-coll__body">
+                  <span class="me-coll__name">{{ c.name || c.symbol }}</span>
+                  <span class="me-coll__stats">
+                    @if (meSol(c.floorPrice); as f) {
+                      <span class="me-stat"><span class="me-stat__k">Floor</span> {{ f | number:'1.0-3' }} SOL</span>
+                    }
+                    @if (meSol(c.volumeAll); as v) {
+                      <span class="me-stat"><span class="me-stat__k">Vol</span> {{ v | number:'1.0-0' }} SOL</span>
+                    }
+                    @if (c.listedCount) {
+                      <span class="me-stat"><span class="me-stat__k">Listed</span> {{ c.listedCount }}</span>
+                    }
+                  </span>
+                </span>
+                <lucide-icon name="arrow-right" [size]="14" class="me-coll__go" />
+              </button>
+            }
+          </div>
+        }
+
+        <!-- NFTs: the grid you buy, list or bid from. -->
+        @if (shape === 'tokens') {
+          <div class="me-grid me-grid--nft">
+            @for (t of mePagedTokens(); track t.mintAddress) {
+              <div class="me-nft">
+                <div class="me-nft__art">
+                  @if (t.image) {
+                    <img [src]="nftArtSrc(t.image)" [alt]="t.name" loading="lazy" decoding="async"
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="me-art__fallback">{{ (t.name || '?').charAt(0) }}</span>
+                  }
+                  @if (t.rarityRank) {
+                    <span class="me-nft__rank">#{{ t.rarityRank }}</span>
+                  }
+                </div>
+                <div class="me-nft__name" [attr.title]="t.name">{{ t.name || (t.mintAddress.slice(0,4) + '…' + t.mintAddress.slice(-4)) }}</div>
+                @if (t.collectionName) {
+                  <div class="me-nft__coll">{{ t.collectionName }}</div>
+                }
+                <div class="me-nft__foot">
+                  <span class="me-nft__price mono">
+                    @if (t.price) { {{ t.price | number:'1.0-3' }} SOL } @else { <span class="me-nft__unlisted">Not listed</span> }
+                  </span>
+                  <!-- The button follows from who owns it and whether it is
+                       listed — one action, the one that applies. -->
+                  <!-- Buying is not the only thing you can do with a listed
+                       NFT: an offer below the ask is a normal move, and a
+                       browser that only offers Buy quietly decides otherwise
+                       for the user. Both are shown; Buy leads because it is
+                       the one with a price already on it. -->
+                  @if (meOwnsToken(t)) {
+                    @if (meIsListed(t)) {
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(t)">Delist</button>
+                    } @else {
+                      <button type="button" class="dlmm-use-btn" (click)="listMeToken(t)">List
+                        <lucide-icon name="arrow-right" [size]="12" /></button>
+                    }
+                  } @else {
+                    <span class="me-nft__acts">
+                      @if (meIsListed(t)) {
+                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(t)">Buy</button>
+                      }
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                              [attr.title]="'Bid below the asking price'"
+                              (click)="offerOnMeToken(t)">Offer</button>
+                    </span>
+                  }
+                </div>
+                @if (meTraits(t).length) {
+                  <div class="me-nft__traits">
+                    @for (tr of meTraits(t).slice(0, 4); track tr.label) {
+                      <span class="me-trait"><span class="me-trait__k">{{ tr.label }}</span>{{ tr.value }}</span>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        <!-- Activity: a ledger, so a table. -->
+        @if (shape === 'activities') {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--me-act">
+              <span>Event</span><span>Item</span>
+              <span class="text-right">Price</span><span class="text-right">When</span>
+            </div>
+            @for (a of mePagedActivities(); track a.signature ?? $index) {
+              <div class="result-table__row result-table__row--me-act dlmm-row">
+                <span><span class="me-evt" [class.me-evt--buy]="a.type === 'buyNow'"
+                            [class.me-evt--list]="a.type === 'list'">{{ a.type || '—' }}</span></span>
+                <span class="km-pair">
+                  <span class="km-icon-slot">
+                    <span class="km-icon km-icon--fallback">{{ (a.tokenName || a.tokenMint || '?').charAt(0) }}</span>
+                    @if (a.image) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(a.image)" [alt]="a.tokenName"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-pair__text">
+                    <span class="km-pair__name">{{ a.tokenName || (a.tokenMint ? a.tokenMint.slice(0,4) + '…' + a.tokenMint.slice(-4) : '—') }}</span>
+                    @if (a.collection) { <span class="km-pair__sub">{{ a.collection }}</span> }
+                  </span>
+                </span>
+                <span class="text-right mono">@if (a.price) { {{ a.price | number:'1.0-3' }} SOL } @else { — }</span>
+                <span class="text-right dlmm-muted">{{ meWhen(a.blockTime) }}</span>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- Offers: each row is a decision, so each row carries its button. -->
+        @if (shape === 'offers') {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--me-offer">
+              <span>Item</span><span class="text-right">Offer</span>
+              <span class="text-right">Expires</span><span></span>
+            </div>
+            @for (o of mePagedOffers(); track o.pdaAddress ?? $index) {
+              <div class="result-table__row result-table__row--me-offer dlmm-row">
+                <span class="km-pair">
+                  <span class="km-icon-slot">
+                    <span class="km-icon km-icon--fallback">{{ (o.name || o.tokenMint || '?').charAt(0) }}</span>
+                    @if (o.image) {
+                      <img class="km-icon km-icon--img" [src]="logoSrc(o.image)" [alt]="o.name"
+                           loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-pair__text">
+                    <span class="km-pair__name">{{ o.name || (o.tokenMint ? o.tokenMint.slice(0,4) + '…' + o.tokenMint.slice(-4) : '—') }}</span>
+                    @if (o.buyer) { <span class="km-pair__sub mono">from {{ o.buyer.slice(0,4) }}…{{ o.buyer.slice(-4) }}</span> }
+                  </span>
+                </span>
+                <span class="text-right mono">@if (o.price) { {{ o.price | number:'1.0-3' }} SOL } @else { — }</span>
+                <span class="text-right dlmm-muted">{{ meExpiry(o.expiry) }}</span>
+                <span class="text-right">
+                  @if (meIsOwnOffer(o)) {
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeOffer(o)">Withdraw</button>
+                  } @else {
+                    <button type="button" class="dlmm-use-btn" (click)="acceptMeOffer(o)">Accept
+                      <lucide-icon name="arrow-right" [size]="12" /></button>
+                  }
+                </span>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- Traits, ranked by what they are worth. A trait list without a
+             floor is trivia; with one it is how you decide what to bid. -->
+        @if (shape === 'traits') {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--me-trait">
+              <span>Trait</span><span>Value</span>
+              <span class="text-right">Count</span><span class="text-right">Floor</span>
+            </div>
+            @for (tr of mePagedTraits(); track tr.trait + tr.value) {
+              <div class="result-table__row result-table__row--me-trait dlmm-row">
+                <span class="dlmm-muted">{{ tr.trait }}</span>
+                <span>{{ tr.value }}</span>
+                <span class="text-right mono">{{ tr.count }}</span>
+                <span class="text-right mono">@if (tr.floor) { {{ tr.floor | number:'1.0-2' }} SOL } @else { — }</span>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- MMM pools. A pool is a standing two-way quote on a collection,
+             so the row leads with the price and which way it faces, and the
+             buttons are the two trades it will actually take. -->
+        @if (shape === 'pools') {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--me-pool">
+              <span>Pool</span><span class="text-right">Quote</span>
+              <span class="text-right">Curve</span><span>Holds</span><span></span>
+            </div>
+            @for (pl of mePagedPools(); track pl['poolKey']) {
+              <div class="result-table__row result-table__row--me-pool dlmm-row">
+                <span class="km-pair__text">
+                  <span class="km-pair__name">{{ pl['collectionName'] || pl['collectionSymbol'] }}</span>
+                  <button type="button"
+                          class="dlmm-pair__addr mono dlmm-copy-btn km-pair__sub"
+                          [class.dlmm-copy-btn--copied]="copiedAddress() === pl['poolKey']"
+                          (click)="copyPoolAddress(pl['poolKey']); $event.stopPropagation()"
+                          [attr.title]="'Copy pool address: ' + pl['poolKey']">
+                    <span class="dlmm-pair__addr-text">{{ pl['poolKey'].slice(0, 4) }}…{{ pl['poolKey'].slice(-4) }}</span>
+                    <lucide-icon [name]="copiedAddress() === pl['poolKey'] ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                  </button>
+                </span>
+                <span class="text-right mono">@if (mePoolSpot(pl); as sp) { {{ sp | number:'1.0-3' }} SOL } @else { — }</span>
+                <span class="text-right dlmm-muted">{{ mePoolCurve(pl) }}</span>
+                <span class="dlmm-muted">{{ mePoolInventory(pl) }}</span>
+                <span class="text-right me-pool__acts">
+                  @if (mePoolCanBuyFrom(pl)) {
+                    <button type="button" class="dlmm-use-btn" (click)="buyFromMePool(pl)">Buy</button>
+                  }
+                  @if (mePoolCanSellTo(pl)) {
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="sellToMePool(pl)">Sell</button>
+                  }
+                </span>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- A collection's biggest traders. -->
+        @if (shape === 'traders') {
+          <div class="result-table">
+            <div class="result-table__header result-table__header--me-trader">
+              <span>#</span><span>Wallet</span>
+              <span class="text-right">Volume</span><span class="text-right">Last trade</span>
+            </div>
+            @for (tr of mePagedTraders(); track tr.wallet; let i = $index) {
+              <div class="result-table__row result-table__row--me-trader dlmm-row">
+                <span class="dlmm-muted mono">{{ (mePage() - 1) * requestedPageSize(ME_PAGE_SIZE) + i + 1 }}</span>
+                <button type="button"
+                        class="dlmm-pair__addr mono dlmm-copy-btn"
+                        [class.dlmm-copy-btn--copied]="copiedAddress() === tr.wallet"
+                        (click)="copyPoolAddress(tr.wallet); $event.stopPropagation()"
+                        [attr.title]="'Copy wallet: ' + tr.wallet">
+                  <span class="dlmm-pair__addr-text">{{ tr.wallet.slice(0, 4) }}…{{ tr.wallet.slice(-4) }}</span>
+                  <lucide-icon [name]="copiedAddress() === tr.wallet ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                </button>
+                <span class="text-right mono">@if (tr.volume) { {{ tr.volume | number:'1.0-1' }} SOL } @else { — }</span>
+                <span class="text-right dlmm-muted">{{ meWhen(tr.lastTradeAt) }}</span>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- One NFT, everything about it: what it is, what it is worth, what
+             it is made of, who has bid, and what has happened to it. Four
+             questions that used to be four cards. -->
+        @if (shape === 'nft') {
+          @if (meNft(); as n) {
+            <div class="me-detail">
+              <!-- Art beside the identity, then everything else across the
+                   full width. As two full-height columns the art stretched to
+                   300px and left a tall empty gap under itself while the
+                   traits squeezed into half the card. -->
+              <div class="me-detail__hero">
+              <div class="me-detail__art">
+                @if (n.image) {
+                  <img [src]="nftArtSrc(n.image)" [alt]="n.name" loading="eager" decoding="async"
+                       (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="me-art__fallback">{{ (n.name || '?').charAt(0) }}</span>
+                }
+              </div>
+
+              <div class="me-detail__main">
+                <div class="me-detail__name">{{ n.name || 'NFT' }}</div>
+
+                <div class="me-detail__meta">
+                  @if (n.collectionName) {
+                    <span class="me-detail__coll">{{ n.collectionName }}</span>
+                  }
+                  @if (n.rarityRank) {
+                    <span class="me-chip me-chip--rank"><lucide-icon name="shield-check" [size]="11" />{{ n.rarityRank }}</span>
+                  }
+                  @if (meRoyaltyPct(); as r) {
+                    <span class="me-chip me-chip--royalty"><lucide-icon name="crown" [size]="11" />{{ r | number:'1.0-2' }}%</span>
+                  }
+                  @if (n.owner) {
+                    <span class="me-detail__owner">Owned by
+                      <button type="button" class="dlmm-pair__addr mono dlmm-copy-btn"
+                              [class.dlmm-copy-btn--copied]="copiedAddress() === n.owner"
+                              (click)="copyPoolAddress(n.owner!)"
+                              [attr.title]="'Copy owner: ' + n.owner">
+                        <span class="dlmm-pair__addr-text">{{ n.owner.slice(0,4) }}…{{ n.owner.slice(-4) }}</span>
+                        <lucide-icon [name]="copiedAddress() === n.owner ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                      </button>
+                    </span>
+                  }
+                </div>
+
+                <div class="me-detail__bar">
+                  <div class="me-detail__price">
+                    <span class="me-detail__price-k">{{ meIsListed(n) ? 'Asking' : 'Not listed' }}</span>
+                    @if (n.price) {
+                      <span class="me-detail__price-v mono">{{ n.price | number:'1.0-3' }} SOL</span>
+                    }
+                    @if (meTopOffer(); as o) {
+                      <span class="me-detail__price-sub">Top offer <span class="mono">{{ o | number:'1.0-3' }} SOL</span></span>
+                    }
+                  </div>
+                  <div class="me-stats-card__actions">
+                    @if (meOwnsToken(n)) {
+                      @if (meIsListed(n)) {
+                        <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(n)">Delist</button>
+                      } @else {
+                        <button type="button" class="dlmm-use-btn" (click)="listMeToken(n)">List
+                          <lucide-icon name="arrow-right" [size]="12" /></button>
+                      }
+                    } @else {
+                      @if (meIsListed(n)) {
+                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(n)">Buy</button>
+                      }
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="offerOnMeToken(n)">Offer</button>
+                    }
+                  </div>
+                </div>
+
+              </div>
+              </div>
+
+              <!-- Tabs, the way Magic Eden splits an NFT page: the four are
+                   read at different moments and stacking them makes the card
+                   a scroll. -->
+              <div class="me-tabs">
+                <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'traits'"
+                        (click)="setMeTab('traits')">Traits</button>
+                <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'details'"
+                        (click)="setMeTab('details')">Details</button>
+              </div>
+
+              @if (meTab() === 'traits') {
+                @if (meNftTraits().length) {
+                  <div class="me-detail__traits">
+                    @for (tr of meNftTraits(); track tr.label) {
+                      <div class="me-detail__trait">
+                        <span class="me-detail__trait-k">{{ tr.label }}</span>
+                        <span class="me-detail__trait-v">{{ tr.value }}</span>
+                        <span class="me-detail__trait-foot">
+                          @if (tr.share !== null) {
+                            <span class="me-rar" [class]="'me-rar ' + meRarityClass(tr.share)">
+                              {{ tr.share * 100 | number:'1.0-1' }}%
+                            </span>
+                          }
+                          @if (tr.floor) {
+                            <span class="me-detail__trait-floor mono">{{ tr.floor | number:'1.0-3' }} SOL</span>
+                          }
+                        </span>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="dlmm-empty">No traits recorded for this NFT.</div>
+                }
+              }
+
+              @if (meTab() === 'details') {
+                @if (meChecks().length) {
+                  <div class="me-checks">
+                    @for (c of meChecks(); track c.label) {
+                      <div class="me-check" [class.me-check--bad]="!c.ok">
+                        <lucide-icon [name]="c.ok ? 'shield-check' : 'shield-alert'" [size]="13" />
+                        <span class="me-check__k">{{ c.label }}</span>
+                        <span class="me-check__v">{{ c.note }}</span>
+                      </div>
+                    }
+                  </div>
+                }
+                <div class="me-detail__rows">
+                  <div class="me-detail__row"><span>Mint</span>
+                    <a class="me-link mono" [href]="solscan(n.mintAddress)" target="_blank" rel="noopener noreferrer">
+                      {{ n.mintAddress.slice(0,4) }}…{{ n.mintAddress.slice(-4) }}
+                      <lucide-icon name="external-link" [size]="11" />
+                    </a>
+                  </div>
+                  @if (n.owner) {
+                    <div class="me-detail__row"><span>Owner</span>
+                      <a class="me-link mono" [href]="solscanAccount(n.owner)" target="_blank" rel="noopener noreferrer">
+                        {{ n.owner.slice(0,4) }}…{{ n.owner.slice(-4) }}
+                        <lucide-icon name="external-link" [size]="11" />
+                      </a>
+                    </div>
+                  }
+                  @if (meChain().collectionMint; as cm) {
+                    <div class="me-detail__row"><span>On-chain collection</span>
+                      <a class="me-link mono" [href]="solscan(cm)" target="_blank" rel="noopener noreferrer">
+                        {{ cm.slice(0,4) }}…{{ cm.slice(-4) }}
+                        <lucide-icon name="external-link" [size]="11" />
+                      </a>
+                    </div>
+                  }
+                  @if (meStandardLabel(); as std) {
+                    <div class="me-detail__row"><span>Token standard</span><span>{{ std }}</span></div>
+                  }
+                  @if (n.collectionName) {
+                    <div class="me-detail__row"><span>Collection</span><span>{{ n.collectionName }}</span></div>
+                  }
+                  @if (meRoyaltyPct(); as r) {
+                    <div class="me-detail__row"><span>Creator royalty</span><span class="mono">{{ r | number:'1.0-2' }}%</span></div>
+                  }
+                  <div class="me-detail__row"><span>Marketplace fee</span><span class="mono">2%</span></div>
+                  <div class="me-detail__row"><span>Status</span>
+                    <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
+                  <div class="me-detail__row"><span>Magic Eden</span>
+                    <a class="me-link" [href]="'https://magiceden.io/item-details/' + n.mintAddress"
+                       target="_blank" rel="noopener noreferrer">
+                      Open <lucide-icon name="external-link" [size]="11" />
+                    </a>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        }
+
+        <!-- A single collection's numbers. -->
+        @if (shape === 'stats') {
+          @if (meStats(); as st) {
+            <div class="me-stats-card">
+              <div class="me-stats-card__head">
+                <span class="me-coll__art me-coll__art--lg">
+                  @if (st.image) {
+                    <img [src]="nftArtSrc(st.image)" [alt]="st.name" loading="lazy" decoding="async"
+                         (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="me-art__fallback">{{ (st.name || '?').charAt(0) }}</span>
+                  }
+                </span>
+                <span>
+                  <span class="me-stats-card__name">{{ st.name || st.symbol }}@if (st.isBadged) {
+                      <lucide-icon name="shield-check" [size]="13" class="me-badge" />
+                    }</span>
+                  @if (st.symbol) { <span class="me-stats-card__sym mono">{{ st.symbol }}</span> }
+                </span>
+              </div>
+              @if (st.description) {
+                <p class="me-stats-card__desc">{{ st.description }}</p>
+              }
+              <!-- The four the API actually returns. It sends volume7d and
+                   avgPrice24hr; the 24h and all-time volumes this used to show
+                   are not in the response, so both rendered as dashes. -->
+              <div class="me-stats-card__grid">
+                <div class="me-kpi"><span class="me-kpi__k">Floor</span>
+                  <span class="me-kpi__v mono">@if (meSol(st.floorPrice); as f) { {{ f | number:'1.0-3' }} SOL } @else { — }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Listed</span>
+                  <span class="me-kpi__v mono">{{ st.listedCount ?? '—' }}</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">7d volume</span>
+                  <span class="me-kpi__v mono">@if (meSol(st.volume7d); as v) { {{ v | number:'1.0-0' }} SOL } @else { — }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">24h avg price</span>
+                  <span class="me-kpi__v mono">@if (meSol(st.avgPrice24hr); as v) { {{ v | number:'1.0-2' }} SOL } @else { — }</span></div>
+              </div>
+              <div class="me-stats-card__actions">
+                @if (st.symbol) {
+                  <button type="button" class="dlmm-use-btn" (click)="browseMeCollection(st)">
+                    Browse listings <lucide-icon name="arrow-right" [size]="12" />
+                  </button>
+                }
+                @for (l of meCollectionLinks(st); track l.href) {
+                  <a class="me-links__a" [href]="l.href" target="_blank" rel="noopener noreferrer">
+                    <lucide-icon [name]="l.icon" [size]="12" />{{ l.label }}
+                  </a>
+                }
+              </div>
+
+            </div>
+          }
+        }
+
+        <!-- The escrow that funds bids. -->
+        @if (shape === 'escrow') {
+          <div class="me-stats-card">
+            <div class="me-kpi me-kpi--hero">
+              <span class="me-kpi__k">Your Magic Eden balance</span>
+              <span class="me-kpi__v mono">{{ (meEscrowSol() ?? 0) | number:'1.0-4' }} SOL</span>
+            </div>
+            <div class="me-escrow__note">Offers are paid from this balance, not from your wallet.</div>
+            <div class="me-escrow__actions">
+              <button type="button" class="dlmm-use-btn" (click)="meDepositEscrow()">Deposit</button>
+              <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
+                      [disabled]="!meEscrowSol()" (click)="meWithdrawEscrow()">Withdraw</button>
+            </div>
+          </div>
+        }
+
+        @if (!meFetching() && meRowCount() === 0 && shape !== 'stats' && shape !== 'escrow') {
+          <div class="dlmm-empty">
+            <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
+            <div>Nothing here on Magic Eden.</div>
+          </div>
+        }
+
+        @if (meTotalPages() > 1) {
+          <div class="dlmm-showing">
+            Showing <strong>{{ (mePage() - 1) * requestedPageSize(ME_PAGE_SIZE) + 1 }}–{{
+              (mePage() - 1) * requestedPageSize(ME_PAGE_SIZE) + (shape === 'collections' ? mePagedCollections().length
+                : shape === 'tokens' ? mePagedTokens().length
+                : shape === 'activities' ? mePagedActivities().length
+                : shape === 'traits' ? mePagedTraits().length
+                : shape === 'pools' ? mePagedPools().length
+                : shape === 'traders' ? mePagedTraders().length : mePagedOffers().length)
+            }}</strong> of <strong>{{ meRowCount() }}</strong>
+          </div>
+          <div class="dlmm-pagination">
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="meGoToPage(1)"
+                    [disabled]="mePage() <= 1" title="First page" aria-label="First page">
+              <lucide-icon name="chevrons-left" [size]="14" />
+            </button>
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="mePrevPage()"
+                    [disabled]="mePage() <= 1" title="Previous page" aria-label="Previous page">
+              <lucide-icon name="chevron-left" [size]="14" />
+            </button>
+            @for (n of mePageNumbers(); track $index) {
+              @if (n === '…') {
+                <span class="dlmm-page-ellipsis">…</span>
+              } @else {
+                <button class="dlmm-page-btn" [class.dlmm-page-btn--active]="n === mePage()"
+                        (click)="meGoToPage(n)">{{ n }}</button>
+              }
+            }
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="meNextPage()"
+                    [disabled]="mePage() >= meTotalPages()" title="Next page" aria-label="Next page">
+              <lucide-icon name="chevron-right" [size]="14" />
+            </button>
+            <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="meGoToPage(meTotalPages())"
+                    [disabled]="mePage() >= meTotalPages()" title="Last page" aria-label="Last page">
+              <lucide-icon name="chevrons-right" [size]="14" />
+            </button>
+          </div>
+        }
+      }
+
       <!-- ── Orca Whirlpools: pool list ──────────────────────────────────
            Same table language as the DLMM / DAMM v2 / Raydium lists: search,
            sortable headers, pair logos over a copyable address, and a Use

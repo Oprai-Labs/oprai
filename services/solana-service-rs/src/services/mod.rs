@@ -34,3 +34,4 @@ pub mod tensor;
 pub mod transfer;
 pub mod validators;
 pub mod vanity;
+pub mod token_safety;

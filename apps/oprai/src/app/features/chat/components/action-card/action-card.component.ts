@@ -28,6 +28,8 @@ import { JupSolService } from '@core/services/market/jupsol.service';
 import { MeteoraService } from '@core/services/market/meteora.service';
 import { ApiService } from '@core/services/api.service';
 import { OrcaService } from '@core/services/market/orca.service';
+import { MagicEdenService } from '@core/services/market/magic-eden.service';
+import { environment } from '../../../../../environments/environment';
 import { AppVersionService } from '@core/services/app-version.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
 import { firstValueFrom, timeout } from 'rxjs';
@@ -340,6 +342,14 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
     ? ` This action's minimum is ${minCfg.amount}${minCfg.unit ? ` ${minCfg.unit}` : ''}.`
     : '';
 
+  // The spend guard speaks for itself: it compared what the transaction would
+  // actually take against what the card promised, and the numbers it names are
+  // the point. Strip the marker and pass it through untouched.
+  const guarded = out.match(/guard:(.+)$/s);
+  if (guarded) {
+    return guarded[1].trim();
+  }
+
   // Translate machine codes from `parseSimulationError`. The shape is one of:
   //   sim:insufficient_tokens
   //   sim:slippage_exceeded
@@ -482,7 +492,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   marinade:  { name: 'Marinade',   icon: 'assets/icons/protocols/marinade.webp',  accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)' },
   solend:    { name: 'Solend',     icon: 'assets/icons/protocols/solend.svg',     accent: '#3B82F6', accentBg: 'rgba(59,130,246,0.12)' },
   tensor:    { name: 'Tensor',     icon: 'assets/icons/protocols/tensor.webp',    accent: '#00D4AA', accentBg: 'rgba(0,212,170,0.12)' },
-  'magic-eden': { name: 'Magic Eden', icon: 'assets/icons/protocols/magic-eden.svg', accent: '#E42575', accentBg: 'rgba(228,37,117,0.12)' },
+  'magic-eden': { name: 'Magic Eden', icon: 'assets/icons/protocols/magiceden.webp', accent: '#E42575', accentBg: 'rgba(228,37,117,0.12)' },
   streamflow:{ name: 'Streamflow', icon: 'assets/icons/protocols/streamflow.svg', accent: '#00D4FF', accentBg: 'rgba(0,212,255,0.12)' },
   pumpfun:   { name: 'pump.fun',   icon: 'assets/icons/protocols/pumpfun.png',    accent: '#AD6DFF', accentBg: 'rgba(173,109,255,0.12)' },
   default:   { name: 'Solana',     icon: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
@@ -1393,87 +1403,79 @@ function getActionFields(
   } else if (t === 'marginfi_points' || t === 'marginfi_user_accounts') {
     fields.push({ key: 'wallet', label: 'Wallet (optional)', type: 'address', placeholder: 'Wallet address...' });
   // ── Magic Eden TX ─────────────────────────────────────────────────────────
-  } else if (t === 'me_buy') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: "Seller's wallet (from listing)..." },
-      { key: 'tokenAddress', label: 'Token Account', type: 'address', placeholder: 'Escrow token account...' },
-    );
-  } else if (t === 'me_buy_instruction') {
-    fields.push(
-      { key: 'buyer', label: 'Buyer', type: 'address', placeholder: 'Buyer wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
-  } else if (t === 'me_buy_now') {
-    fields.push(
-      { key: 'buyer', label: 'Buyer', type: 'address', placeholder: 'Buyer wallet...', required: true },
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: 'Seller wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'tokenATA', label: 'Token ATA', type: 'address', placeholder: "Seller's ATA...", required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
-  } else if (t === 'me_list') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'expiry', label: 'Expiry', type: 'number', placeholder: '0 = no expiry', hint: 'Unix timestamp' },
-    );
-  } else if (t === 'me_sell') {
-    fields.push(
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: 'Seller wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'tokenAccount', label: 'Token Account', type: 'address', placeholder: 'Token account...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
-  } else if (t === 'me_cancel_listing') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'tokenAddress', label: 'Token Account', type: 'address', placeholder: 'Escrow token account...' },
-    );
-  } else if (t === 'me_buy_cancel' || t === 'me_sell_cancel') {
-    fields.push(
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: 'Seller wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'tokenAccount', label: 'Token Account', type: 'address', placeholder: 'Token account...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
+  // ── Magic Eden ────────────────────────────────────────────────────────────
+  //
+  // These used to ask the user to type a mint address, a seller's wallet and a
+  // token ATA. Nobody has those to hand, and the backend now reads all of them
+  // off the live listing or offer — asking for them was asking the user to
+  // re-derive what we already know, and getting one wrong meant a card that
+  // failed on submit.
+  //
+  // What is left is what only the user can decide: the price, and how long the
+  // offer stands. The mint travels in the params from the row that spawned the
+  // action; when it did not (someone typed the request), it is the one field
+  // still worth showing.
+  } else if (t === 'me_buy' || t === 'me_buy_now' || t === 'me_buy_instruction'
+             || t === 'me_buy_now_transfer_nft') {
+    // Nothing to fill in — the listing sets the price, and paying anything
+    // else is not a thing Magic Eden will accept.
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
+  } else if (t === 'me_list' || t === 'me_sell') {
+    // Price and expiry are rendered by the amount panel, not as form rows.
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
+  } else if (t === 'me_cancel_listing' || t === 'me_sell_cancel'
+             || t === 'me_cancel_offer' || t === 'me_buy_cancel'
+             || t === 'me_accept_offer' || t === 'me_sell_now') {
+    // Cancelling or accepting has no parameters at all: which listing, which
+    // offer, at what price — all of it is looked up.
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
   } else if (t === 'me_make_offer') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Offer Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'expiry', label: 'Expiry', type: 'number', placeholder: '0 = no expiry', hint: 'Unix timestamp' },
-    );
-  } else if (t === 'me_accept_offer') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-      { key: 'buyer', label: 'Buyer', type: 'address', placeholder: "Offer maker's wallet..." },
-    );
-  } else if (t === 'me_sell_now') {
-    fields.push(
-      { key: 'seller', label: 'Seller', type: 'address', placeholder: 'Seller wallet...', required: true },
-      { key: 'buyer', label: 'Buyer', type: 'address', placeholder: 'Buyer wallet...', required: true },
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
-  } else if (t === 'me_cancel_offer') {
-    fields.push(
-      { key: 'mintAddress', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
-    );
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
   } else if (t === 'me_buy_change_price' || t === 'me_sell_change_price') {
-    fields.push(
-      { key: 'tokenMint', label: 'NFT Mint', type: 'address', placeholder: 'NFT mint address...', required: true },
-      { key: 'price', label: 'Current Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true, half: true },
-      { key: 'newPrice', label: 'New Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true, half: true },
-    );
+    // Only the NEW price. The current one is read from the live listing —
+    // asking the user to restate it is how the two disagree.
+    if (!params['mintAddress'] && !params['tokenMint']) {
+      fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
+    }
+    // The new price is the amount panel's.
   } else if (t === 'me_deposit' || t === 'me_withdraw') {
+    // The wallet is the connected one; the amount is the panel's.
+  // ── Magic Eden MMM (NFT AMM pools) ────────────────────────────────────────
+  } else if (t === 'me_mmm_create_pool') {
     fields.push(
-      { key: 'buyer', label: 'Wallet', type: 'address', placeholder: 'Wallet address...', required: true },
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
+      { key: 'collectionSymbol', label: 'Collection', type: 'text', placeholder: 'e.g. mad_lads', required: true },
+      { key: 'spotPrice', label: 'Starting price', type: 'number', placeholder: '0', suffix: 'SOL', required: true, half: true },
+      { key: 'curveType', label: 'Curve', type: 'text', placeholder: 'linear or exp', required: true, half: true },
+      { key: 'curveDelta', label: 'Step', type: 'number', placeholder: '0', required: true, half: true,
+        hint: 'SOL per fill for linear, basis points for exp' },
+      { key: 'lpFeeBp', label: 'Pool fee', type: 'number', placeholder: '0', suffix: 'bps', half: true },
+    );
+  } else if (t === 'me_mmm_update_pool') {
+    fields.push(
+      { key: 'pool', label: 'Pool', type: 'address', placeholder: 'Pool address…', required: true },
+      { key: 'spotPrice', label: 'Price', type: 'number', placeholder: '0', suffix: 'SOL', required: true, half: true },
+      { key: 'curveType', label: 'Curve', type: 'text', placeholder: 'linear or exp', required: true, half: true },
+      { key: 'curveDelta', label: 'Step', type: 'number', placeholder: '0', required: true },
+    );
+  } else if (t === 'me_mmm_sol_close_pool') {
+    fields.push({ key: 'pool', label: 'Pool', type: 'address', placeholder: 'Pool address…', required: true });
+  } else if (t === 'me_mmm_sol_deposit_buy' || t === 'me_mmm_sol_withdraw_buy') {
+    fields.push(
+      { key: 'pool', label: 'Pool', type: 'address', placeholder: 'Pool address…', required: true },
+      { key: 'paymentAmount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'SOL', required: true },
+    );
+  } else if (t === 'me_mmm_sol_fulfill_buy' || t === 'me_mmm_sol_fulfill_sell') {
+    fields.push(
+      { key: 'pool', label: 'Pool', type: 'address', placeholder: 'Pool address…', required: true },
+      { key: 'assetMint', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true },
     );
   // ── Bridge / Cross-Chain ──────────────────────────────────────────────────
   } else if (t === 'relay_bridge' || t === 'bridge' || t === 'cross_chain_swap') {
@@ -1568,6 +1570,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly jupiterLend = inject(JupiterLendService);
   private readonly kamino = inject(KaminoService);
   private readonly walletService = inject(WalletService);
+  private readonly magicEden = inject(MagicEdenService);
   private readonly tokenRegistry = inject(TokenRegistryService);
   private readonly previewService = inject(TransactionPreviewService);
   private readonly swapService = inject(JupiterSwapService);
@@ -2463,7 +2466,305 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * quoting a pool-specific trade against the aggregator would show a price
    * from a route this action will not take.
    */
-  readonly isSwapPanel = computed(() => {
+  /**
+   * A Magic Eden action on a specific NFT.
+   *
+   * These cards used to be a column of address inputs. What the user actually
+   * needs to see is the picture — you recognise an NFT by looking at it, not
+   * by reading its mint — plus the price and what it costs. The mint, seller,
+   * token account and auction house are resolved server-side and never shown.
+   */
+  /**
+   * Magic Eden actions that ask for an amount.
+   *
+   * They were rendering as bare form rows — a small uppercase label and an
+   * input — while every other amount in the app is a panel with the token,
+   * the balance it comes from and a Max. The amount IS the decision on these
+   * cards; it should not look like a settings field.
+   */
+  // ── Token safety ──────────────────────────────────────────────────────────
+  //
+  // Runs on the action, not on request: someone who knows to ask "is this a
+  // scam" is not the person at risk. The one at risk types a ticker they saw
+  // and presses Confirm.
+  //
+  // It renders NOTHING when nothing was found. A panel that says "no problems"
+  // on every clean token is noise, and noise is what teaches people to stop
+  // reading the panel that matters.
+  readonly tokenSafety = signal<{
+    severity: 'note' | 'warn' | 'block';
+    findings: Array<{ severity: string; title: string; detail: string }>;
+    clean: boolean;
+    limits: string[];
+  } | null>(null);
+  readonly safetyAcknowledged = signal(false);
+  private safetyCheckedMint = '';
+
+  /** The mint this action would put INTO the wallet. That is the one whose
+   *  danger the user has not chosen yet. */
+  private acquiredMint(): string | null {
+    const t = this.action.type;
+    const p = this.action.params;
+    if (/swap|convert|exchange/.test(t)) {
+      return (this.getEditParam('outputMint') || p['outputMint'] || p['toToken'] || null) as string | null;
+    }
+    if (/pumpfun_buy|pumpswap_buy|_buy$/.test(t) && !t.startsWith('me_')) {
+      return (this.getEditParam('mint') || p['mint'] || p['tokenMint'] || null) as string | null;
+    }
+    return null;
+  }
+
+  /** Only findings worth interrupting for. Notes are carried for the answer,
+   *  not for the card. */
+  readonly safetyAlerts = computed(() =>
+    (this.tokenSafety()?.findings ?? []).filter(f => f.severity !== 'note'));
+
+  readonly safetyBlocks = computed(() =>
+    this.safetyAlerts().some(f => f.severity === 'block'));
+
+  /** True while a block is unacknowledged — Confirm stays shut. */
+  readonly safetyGated = computed(() => this.safetyBlocks() && !this.safetyAcknowledged());
+
+  private async runTokenSafety(): Promise<void> {
+    const mint = this.acquiredMint();
+    if (!mint || mint.length < 32) return;
+    if (this.safetyCheckedMint === mint) return;
+    this.safetyCheckedMint = mint;
+    this.safetyAcknowledged.set(false);
+    const data = await this.magicEden.read<any>('token_safety', { mintAddress: mint });
+    // A check that could not run must not read as a clean bill of health.
+    this.tokenSafety.set(data ?? null);
+  }
+
+  readonly isMeAmountPanel = computed(() => {
+    const t = this.action.type;
+    return /^me_(make_offer|list|sell|sell_change_price|buy_change_price|deposit|withdraw)$/.test(t);
+  });
+
+  /** The amount field this panel owns, so the generic list can skip it. */
+  meAmountKey(): string {
+    const t = this.action.type;
+    if (t === 'me_deposit' || t === 'me_withdraw') return 'amount';
+    if (/change_price/.test(t)) return 'newPrice';
+    return 'price';
+  }
+
+  meAmountLabel(): string {
+    const t = this.action.type;
+    if (t === 'me_deposit') return 'Deposit';
+    if (t === 'me_withdraw') return 'Withdraw';
+    if (/change_price/.test(t)) return 'New price';
+    if (/list|_sell$/.test(t)) return 'Your ask';
+    return 'Your offer';
+  }
+
+  /** Only offers and listings expire. */
+  meHasExpiry(): boolean {
+    return /^me_(make_offer|list|sell)$/.test(this.action.type);
+  }
+
+  readonly ME_EXPIRY_CHOICES: ReadonlyArray<{ label: string; days: number }> = [
+    { label: 'No expiry', days: 0 },
+    { label: '1 day', days: 1 },
+    { label: '3 days', days: 3 },
+    { label: '7 days', days: 7 },
+    { label: '30 days', days: 30 },
+  ];
+
+  /**
+   * Expiry was a raw unix timestamp box. Nobody knows what 1785521483 is, and
+   * a user who wants "a week" should not have to compute one.
+   */
+  meExpiryDays(): number {
+    const raw = Number(this.getEditParam('expiry'));
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    const secs = raw - Math.floor(Date.now() / 1000);
+    if (secs <= 0) return 0;
+    return this.ME_EXPIRY_CHOICES
+      .filter(c => c.days > 0)
+      .reduce((best, c) => (Math.abs(c.days * 86400 - secs) < Math.abs(best.days * 86400 - secs) ? c : best),
+              { label: '', days: 1 }).days;
+  }
+
+  setMeExpiry(days: number): void {
+    this.setEditParam('expiry', days === 0 ? '' : String(Math.floor(Date.now() / 1000) + days * 86400));
+  }
+
+  /**
+   * Quick-fills, each labelled with the number it puts in. A chip the user
+   * clicks is their choice; a value the card pre-fills is the card's, which
+   * is why the box still starts empty.
+   */
+  meQuickFills(): Array<{ label: string; value: number }> {
+    const out: Array<{ label: string; value: number }> = [];
+    const ask = this.meAskPrice();
+    const floor = this.meFloorPrice();
+    if (floor) out.push({ label: 'Floor', value: floor });
+    if (ask && (!floor || Math.abs(ask - floor) > 1e-9)) out.push({ label: 'Ask', value: ask });
+    const ref = ask ?? floor;
+    if (ref && /make_offer/.test(this.action.type)) {
+      out.push({ label: '−5%', value: Math.round(ref * 0.95 * 1e4) / 1e4 });
+      out.push({ label: '−10%', value: Math.round(ref * 0.9 * 1e4) / 1e4 });
+    }
+    return out;
+  }
+
+  applyMeQuickFill(v: number): void {
+    this.setEditParam(this.meAmountKey(), String(v));
+  }
+
+  /** The Magic Eden balance an offer is paid from. Fetched once per card. */
+  readonly meEscrowSol = signal<number | null>(null);
+  private meEscrowAsked = false;
+
+  private ensureMeEscrow(): void {
+    if (this.meEscrowAsked) return;
+    const w = this.walletService.publicKey()?.toString();
+    if (!w) return;
+    this.meEscrowAsked = true;
+    void this.magicEden.read<Record<string, unknown>>('me_wallet_escrow_balance', { wallet: w })
+      .then(d => {
+        const raw = (d?.['buyerEscrow'] ?? d?.['balance']) as number | undefined;
+        this.meEscrowSol.set(MagicEdenService.solFromMaybeLamports(raw ?? null));
+      });
+  }
+
+  /** Shown beside the amount: where the money comes from, or goes to. */
+  meBalanceNote(): string | null {
+    const t = this.action.type;
+    if (!/make_offer|withdraw/.test(t)) return null;
+    this.ensureMeEscrow();
+    const bal = this.meEscrowSol();
+    if (bal === null) return null;
+    return `Magic Eden balance ${bal.toFixed(4)} SOL`;
+  }
+
+    /** Set once the protocol logo actually renders. The initial shows only
+   *  while it hasn't — a plate behind a transparent icon is a black square. */
+  readonly protoIconLoaded = signal(false);
+
+  readonly isMeNftPanel = computed(() => {
+    const t = this.action.type;
+    if (!t.startsWith('me_') || t.startsWith('me_mmm_')) return false;
+    if (t === 'me_deposit' || t === 'me_withdraw') return false;
+    this.ensureMeNftDisplay();
+    return !!this.meNftName() || !!this.meNftImage()
+      || !!this.getEditParam('mintAddress') || !!this.getEditParam('tokenMint');
+  });
+
+  /**
+   * The NFT's name and picture.
+   *
+   * Normally they ride in from the row that spawned the action. When someone
+   * types the request instead ("buy this mint"), there is nothing but an
+   * address — so the card looks it up rather than showing the user a base58
+   * string and asking them to recognise it.
+   */
+  private readonly meFetchedNft = signal<{ name?: string; image?: string; collectionName?: string } | null>(null);
+
+  private meNftLookupDone = '';
+
+  private ensureMeNftDisplay(): void {
+    const mint = this.getEditParam('mintAddress') || this.getEditParam('tokenMint')
+      || this.getEditParam('assetMint');
+    if (!mint || this.meNftLookupDone === mint) return;
+    if (this.action.params?.['nftName'] || this.action.params?.['nftImage']) return;
+    this.meNftLookupDone = mint;
+    void this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: mint })
+      .then(d => {
+        if (!d) return;
+        this.meFetchedNft.set({
+          name: d['name'] as string | undefined,
+          image: d['image'] as string | undefined,
+          collectionName: d['collectionName'] as string | undefined,
+        });
+      });
+  }
+
+  meNftName(): string {
+    return this.getEditParam('nftName')
+      || this.action.params?.['nftName']
+      || this.meFetchedNft()?.name
+      || '';
+  }
+
+  meNftImage(): string {
+    return this.getEditParam('nftImage')
+      || this.action.params?.['nftImage']
+      || this.meFetchedNft()?.image
+      || '';
+  }
+
+  /** The NFT's art, through the gateway's image cache at panel resolution.
+   *  Issuer-hosted art is routinely hundreds of KB for a picture drawn at
+   *  84px. */
+  meArtSrc(): string | null {
+    const url = this.meNftImage();
+    if (!url) return null;
+    if (!/^https:\/\//i.test(url)) return url;
+    return `${environment.apiBase}/token-image?url=${encodeURIComponent(url)}&size=256`;
+  }
+
+  meCollectionName(): string {
+    return this.getEditParam('collectionName')
+      || this.action.params?.['collectionName']
+      || this.meFetchedNft()?.collectionName
+      || '';
+  }
+
+  /** What the action does, in the user's terms — the verb on the button and
+   *  the sentence above the price both come from here. */
+  meVerb(): string {
+    const t = this.action.type;
+    if (/change_price/.test(t)) return 'New price';
+    if (/accept_offer|sell_now/.test(t)) return 'You receive';
+    if (/make_offer/.test(t)) return 'Your offer';
+    if (/list|_sell$/.test(t)) return 'Ask';
+    if (/cancel/.test(t)) return '';
+    return 'You pay';
+  }
+
+  /** The asking price, when this action was spawned from a listed NFT. */
+  meAskPrice(): number | null {
+    const n = Number(this.getEditParam('askPrice') || this.action.params?.['askPrice']);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  /** The collection floor, as the other reference an offer is judged against. */
+  meFloorPrice(): number | null {
+    const n = Number(this.getEditParam('floorPrice') || this.action.params?.['floorPrice']);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  /** True while making an offer — the one action with real reference prices
+   *  worth showing next to an empty box. */
+  meShowsReference(): boolean {
+    return /make_offer/.test(this.action.type) && (!!this.meAskPrice() || !!this.meFloorPrice());
+  }
+
+  /** The number the card leads with. */
+  meHeadlinePrice(): number | null {
+    const raw = this.getEditParam('newPrice') || this.getEditParam('price');
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  /** Magic Eden's cut, shown on the actions where the user is the one paying
+   *  it — a seller who sees only the ask is reading the wrong number. */
+  meFeeSol(): number | null {
+    const t = this.action.type;
+    if (!/list|_sell$|accept_offer|sell_now|change_price/.test(t)) return null;
+    const p = this.meHeadlinePrice();
+    return p ? p * 0.02 : null;
+  }
+
+  meNetSol(): number | null {
+    const p = this.meHeadlinePrice();
+    const f = this.meFeeSol();
+    return p && f ? p - f : null;
+  }
+
+    readonly isSwapPanel = computed(() => {
     const t = this.action?.type ?? '';
     return t === 'swap' || t === 'raydium_swap'
       || t === 'meteora_swap' || t === 'meteora_dammv1_swap'
@@ -6692,6 +6993,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   async showTransactionPreview(): Promise<void> {
     this.showPreview.set(true); this.loadingPreview.set(true);
+    // The safety check runs alongside the preview rather than after it — this
+    // is the last screen before a signature, and it is where someone who has
+    // never heard of a freeze authority needs to be told about one.
+    void this.runTokenSafety();
     try {
       const previewParams: Record<string, string> = Object.fromEntries(
         Object.entries(this.editParams()).filter(([, v]) => v !== undefined),
