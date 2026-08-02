@@ -1264,6 +1264,63 @@ async fn ensure_jupiter_sol_fee_account(rpc: &SolanaRpc, payer: &Pubkey) -> Opti
     crate::services::fees::ensure_fee_account_ix(payer, &wsol)
 }
 
+/// OPRAI's commission on a sale, as a share of the SOL guaranteed to arrive.
+///
+/// A buy's commission comes out of a number the user chose; a sale's has to
+/// come out of a number the market decides, and the only figure known at build
+/// time that the transaction cannot fall below is the slippage-protected
+/// minimum. Charging on that is deliberately conservative — when the sale does
+/// better than its floor, the difference stays with the seller.
+fn oprai_sell_fee_ix(seller: &Pubkey, min_sol_output: u64) -> Option<Instruction> {
+    let wallet = crate::services::fees::fee_wallet()?;
+    let fee = crate::services::fees::pumpfun_fee_lamports(min_sol_output);
+    if fee == 0 {
+        return None;
+    }
+    Some(system_instruction::transfer(seller, &wallet, fee))
+}
+
+/// Whether an instruction is already OPRAI's commission transfer.
+///
+/// The bonding-curve buy adds it inline; the shared tail adds it for the paths
+/// that do not. Charging twice for one trade is the kind of bug a user only
+/// finds by reading the transaction, so the tail checks first.
+fn is_oprai_fee_transfer(ix: &Instruction) -> bool {
+    let Some(wallet) = crate::services::fees::fee_wallet() else {
+        return false;
+    };
+    ix.program_id == solana_sdk::system_program::id()
+        && ix.accounts.len() == 2
+        && ix.accounts[1].pubkey == wallet
+}
+
+/// Refuse a trade on a Mayhem token instead of building one that will fail.
+///
+/// A token launched in pump.fun's Mayhem mode does not trade through the
+/// bonding curve — it goes through the Mayhem program, whose instruction
+/// arguments are still undecoded (see docs/mayhem-reverse-engineering.md).
+/// Building a bonding-curve trade for one produces a transaction that the
+/// program rejects on chain with NotAuthorized, after the user has signed it
+/// and paid the fee. Detecting it costs one account read and turns a confusing
+/// on-chain failure into a sentence.
+async fn reject_if_mayhem(rpc: &SolanaRpc, mint: &Pubkey) -> Result<(), AppError> {
+    let state = find_mayhem_state_pda(mint);
+    let rpc2 = rpc.clone();
+    let exists = tokio::task::spawn_blocking(move || rpc2.client().get_account(&state).is_ok())
+        .await
+        .unwrap_or(false);
+    if exists {
+        tracing::info!(%mint, "refusing a trade on a Mayhem token");
+        return Err(AppError::InvalidParams(
+            "This token was launched in pump.fun's Mayhem mode, which trades through a \
+             different program that OPRAI doesn't support yet. You can trade it on \
+             pump.fun directly."
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 /// The SOL the user asked to spend, before OPRAI's cut is taken out of it.
 ///
 /// `parse_buy_amounts_with_fee` sizes the trade net of the commission, so the
@@ -3154,6 +3211,7 @@ pub async fn build_pumpfun_buy(
     // Raydium listing, anything. Reading the curve replaced an API call that
     // used to notice that and fall through; without this it became an error
     // on a trade that works perfectly well somewhere else.
+    reject_if_mayhem(rpc, &mint).await?;
     let curve = match read_bonding_curve(rpc, &mint).await {
         Ok(c) => c,
         Err(_) => {
@@ -3226,6 +3284,12 @@ pub async fn build_pumpfun_buy(
             instructions.push(ix);
         }
     }
+    let mut instructions = instructions;
+    if !instructions.iter().any(is_oprai_fee_transfer) {
+        if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params)) {
+            instructions.push(fee_ix);
+        }
+    }
     let instructions = with_oprai_memo(instructions, &buyer);
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&buyer), &blockhash);
@@ -3281,6 +3345,7 @@ pub async fn build_pumpfun_sell(
     // Raydium listing, anything. Reading the curve replaced an API call that
     // used to notice that and fall through; without this it became an error
     // on a trade that works perfectly well somewhere else.
+    reject_if_mayhem(rpc, &mint).await?;
     let curve = match read_bonding_curve(rpc, &mint).await {
         Ok(c) => c,
         Err(_) => {
@@ -3311,6 +3376,7 @@ pub async fn build_pumpfun_sell(
         .unwrap_or_else(|| params.mint.clone());
 
     let (token_amount, min_sol_output) = parse_sell_amounts(params, v_sol, v_tok)?;
+    let oprai_sell_basis = min_sol_output;
 
     let priority_fee_sol = params.priority_fee.unwrap_or(0.0005);
     let [cu_limit_ix, cu_price_ix] = build_compute_budget_instructions(priority_fee_sol);
@@ -3328,6 +3394,10 @@ pub async fn build_pumpfun_sell(
     )?;
     let instructions = vec![cu_limit_ix, cu_price_ix, sell_ix];
 
+    let mut instructions = instructions;
+    if let Some(fee_ix) = oprai_sell_fee_ix(&seller, oprai_sell_basis) {
+        instructions.push(fee_ix);
+    }
     let instructions = with_oprai_memo(instructions, &seller);
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&seller), &blockhash);
@@ -3493,6 +3563,12 @@ pub async fn build_pumpswap_buy(
     instructions.push(swap_ix);
     instructions.push(close_wsol_ix);
 
+    let mut instructions = instructions;
+    if !instructions.iter().any(is_oprai_fee_transfer) {
+        if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params)) {
+            instructions.push(fee_ix);
+        }
+    }
     let instructions = with_oprai_memo(instructions, &buyer);
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&buyer), &blockhash);
@@ -3614,6 +3690,7 @@ pub async fn build_pumpswap_sell(
     };
 
     let (base_amount_in, min_quote_out) = parse_sell_amounts(params, v_sol, v_tok)?;
+    let oprai_sell_basis = min_quote_out;
 
     let priority_fee_sol = params.priority_fee.unwrap_or(0.0005);
     let [cu_limit_ix, cu_price_ix] = build_compute_budget_instructions(priority_fee_sol);
@@ -3645,6 +3722,10 @@ pub async fn build_pumpswap_sell(
         close_wsol_ix,
     ];
 
+    let mut instructions = instructions;
+    if let Some(fee_ix) = oprai_sell_fee_ix(&seller, oprai_sell_basis) {
+        instructions.push(fee_ix);
+    }
     let instructions = with_oprai_memo(instructions, &seller);
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&seller), &blockhash);
