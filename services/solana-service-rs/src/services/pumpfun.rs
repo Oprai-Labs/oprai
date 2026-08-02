@@ -1863,19 +1863,21 @@ pub fn validate_launch_params(params: &LaunchTokenParams) -> Result<(), AppError
 fn resolve_metadata_uri(params: &LaunchTokenParams) -> Result<String, AppError> {
     if let Some(ref uri) = params.metadata_uri {
         if !uri.trim().is_empty() {
+            let uri = check_uri_is_publicly_fetchable(uri.trim())?;
             tracing::info!(metadata_uri = %uri, "Using pre-uploaded metadata URI");
-            return Ok(uri.clone());
+            return Ok(uri);
         }
     }
 
     // Fallback: use image URL directly (works for pump.fun minimal tokens)
     if let Some(ref image_url) = params.image_url {
         if !image_url.trim().is_empty() {
+            let uri = check_uri_is_publicly_fetchable(image_url.trim())?;
             tracing::warn!(
                 "No metadata_uri provided; falling back to image_url as token URI. \
                  Consider calling POST /upload/metadata first for rich metadata."
             );
-            return Ok(image_url.clone());
+            return Ok(uri);
         }
     }
 
@@ -1884,6 +1886,56 @@ fn resolve_metadata_uri(params: &LaunchTokenParams) -> Result<String, AppError> 
          Upload image via POST /upload/image, then metadata via POST /upload/metadata."
             .into(),
     ))
+}
+
+/// Refuse to write a URI that nothing outside this browser can fetch.
+///
+/// A mint is permanent and its URI is how every indexer — pump.fun's included —
+/// finds the token's name, image and description. A launch went out carrying
+/// `blob:https://app.oprai.xyz/6493a1f9-…`, a browser object URL that exists
+/// only inside the tab that created it: the transaction succeeded, the token
+/// is real, and it will never appear on pump.fun, because the one pointer that
+/// makes it a coin rather than an anonymous mint leads nowhere. That cannot be
+/// undone afterwards.
+///
+/// So the check is here, at the last point before the bytes are signed, rather
+/// than trusting whatever produced the URL. Being strict costs a failed build;
+/// being permissive costs a token.
+fn check_uri_is_publicly_fetchable(uri: &str) -> Result<String, AppError> {
+    let reject = |why: &str| {
+        Err(AppError::InvalidParams(format!(
+            "The token's image could not be saved, so the launch was stopped — {why}. \
+             Re-upload the image and try again. Launching now would create a token \
+             with no picture or name anywhere, and that cannot be fixed later."
+        )))
+    };
+
+    let lower = uri.to_ascii_lowercase();
+    if lower.starts_with("blob:") || lower.starts_with("data:") || lower.starts_with("file:") {
+        return reject("the address points at your browser's memory, not the internet");
+    }
+    if !lower.starts_with("http://") && !lower.starts_with("https://") {
+        return reject("the address is not a web address");
+    }
+    // localhost is reachable from the machine that wrote it and from nowhere
+    // else — the same failure, one step further along.
+    let host = lower
+        .split_once("://")
+        .map(|(_, rest)| rest.split(['/', ':', '?']).next().unwrap_or(""))
+        .unwrap_or("");
+    if host.is_empty() {
+        return reject("the address has no host");
+    }
+    if host == "localhost"
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host.ends_with(".local")
+        || host.ends_with(".localhost")
+    {
+        return reject("the address only works on the machine that created it");
+    }
+
+    Ok(uri.to_string())
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -3544,6 +3596,35 @@ pub async fn build_pumpswap_pool_info(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A launch must never carry a URI that only the author's browser can read.
+    ///
+    /// One did: `blob:https://app.oprai.xyz/…`, which made a perfectly valid
+    /// token invisible to pump.fun forever, because that address resolves in
+    /// exactly one tab on one machine.
+    #[test]
+    fn launch_refuses_a_uri_nothing_can_fetch() {
+        for bad in [
+            "blob:https://app.oprai.xyz/6493a1f9-741f-4d8e-a79c-2b580d47a5ab",
+            "data:application/json;base64,e30=",
+            "file:///tmp/meta.json",
+            "http://localhost:3001/m/abc.json",
+            "http://127.0.0.1/m/abc.json",
+            "/m/abc.json",
+            "abc.json",
+        ] {
+            assert!(
+                check_uri_is_publicly_fetchable(bad).is_err(),
+                "{bad} should never reach the chain",
+            );
+        }
+        for good in [
+            "https://api.oprai.xyz/m/1a2b3c4d5e.json",
+            "https://ipfs.io/ipfs/QmSomething",
+        ] {
+            assert!(check_uri_is_publicly_fetchable(good).is_ok(), "{good}");
+        }
+    }
 
     /// The ceiling a buy passes has to cover the fee.
     ///

@@ -332,12 +332,22 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	r.With(defaultTimeout).Get("/token-image", marketProxy.GetTokenImage)
 
 	// Upload handler — stores files locally, serves via /uploads/*
+	//
+	// Check the directory now rather than on someone's first upload. It was
+	// unwritable in production for as long as the feature had existed, and the
+	// only report was a 500 buried in the request log — by which point a user
+	// was mid-launch and the frontend quietly carried on with a URL that
+	// pointed at their own browser.
+	handlers.CheckUploadDirWritable(cfg.UploadDir)
 	uploadHandler := handlers.NewUploadHandler(cfg.UploadDir, cfg.PublicBaseURL)
 	r.Route("/upload", func(r chi.Router) {
 		r.Use(defaultTimeout)
 		r.Use(middleware.RequireWallet)
 		r.Post("/image", uploadHandler.UploadImage)
 		r.Post("/metadata", uploadHandler.UploadMetadata)
+		// Server-side because the browser cannot: pump.fun's IPFS endpoint
+		// sends no CORS headers, so the direct call always failed.
+		r.Post("/pumpfun-ipfs", uploadHandler.UploadToPumpFunIPFS)
 	})
 	// Serve uploaded files as static assets (public, no auth required)
 	staticHandler := handlers.NewStaticHandler(cfg.UploadDir, cfg.PublicBaseURL)

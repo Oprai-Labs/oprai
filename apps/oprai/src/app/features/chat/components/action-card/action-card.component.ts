@@ -1655,6 +1655,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly imageUploadError = signal<string | null>(null);
   private uploadedImageUrl = signal<string | null>(null);
   readonly effectiveImageUrl = computed(() => this.uploadedImageUrl() || this.action?.params['image'] || this.action?.params['imageUrl'] || null);
+  /**
+   * The image URL that may be SENT, as opposed to shown.
+   *
+   * When the server upload fails the card falls back to a `blob:` URL so the
+   * user still sees their picture. That is fine on screen and catastrophic on
+   * chain: one launch went out with `blob:https://app.oprai.xyz/…` as its
+   * permanent metadata URI, so the token exists, works, and is invisible to
+   * pump.fun forever. Preview and payload are different things and no longer
+   * share a signal.
+   */
+  readonly publicImageUrl = computed(() => {
+    const url = this.effectiveImageUrl();
+    return url && /^https?:\/\//i.test(url) ? url : null;
+  });
   readonly isDragOver = signal(false);
   // Raw resized file kept for pump.fun IPFS upload at launch time
   private resizedImageFile: File | null = null;
@@ -5411,10 +5425,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       mergedParams['cashback'] = String(this.editCashback());
       // Tokenized Agent: backend has no ix wired up — always send false.
       mergedParams['tokenizedAgent'] = 'false';
-      if (this.effectiveBannerUrl()) mergedParams['bannerUrl'] = this.effectiveBannerUrl()!;
-      if (this.effectiveImageUrl()) mergedParams['imageUrl'] = this.effectiveImageUrl()!;
-      // Keep legacy 'image' key for backward compat
-      if (this.effectiveImageUrl()) mergedParams['image'] = this.effectiveImageUrl()!;
+      const publicBanner = this.effectiveBannerUrl();
+      if (publicBanner && /^https?:\/\//i.test(publicBanner)) mergedParams['bannerUrl'] = publicBanner;
+      if (this.publicImageUrl()) {
+        mergedParams['imageUrl'] = this.publicImageUrl()!;
+        // Keep legacy 'image' key for backward compat
+        mergedParams['image'] = this.publicImageUrl()!;
+      } else {
+        delete mergedParams['imageUrl'];
+        delete mergedParams['image'];
+      }
 
       // Upload image + metadata to pump.fun IPFS so their indexer can always reach it.
       // Falls back to our own server metadata upload if IPFS upload fails.
@@ -5442,18 +5462,32 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         }
 
         // Fallback: our own metadata endpoint (works in prod; localhost won't show on pump.fun).
-        if (!mergedParams['metadataUri'] && this.effectiveImageUrl()) {
+        if (!mergedParams['metadataUri'] && this.publicImageUrl()) {
           try {
             const metaRes = await this.uploadService.uploadMetadata({
               ...metaPayload,
-              image: this.effectiveImageUrl()!,
-              ...(this.effectiveBannerUrl() ? { banner: this.effectiveBannerUrl()! } : {}),
+              image: this.publicImageUrl()!,
+              ...(mergedParams['bannerUrl'] ? { banner: mergedParams['bannerUrl'] } : {}),
               showName: true,
             }).toPromise();
             if (metaRes?.url) mergedParams['metadataUri'] = metaRes.url;
           } catch (metaErr: any) {
-            console.warn('[launch_token] metadata upload failed, using imageUrl fallback:', metaErr?.message);
+            console.warn('[launch_token] metadata upload failed:', metaErr?.message);
           }
+        }
+
+        // Every route to a public address failed. Stop here.
+        //
+        // This used to fall through and launch anyway, using whatever was in
+        // `imageUrl` — including a browser blob: URL. The transaction then
+        // succeeded and produced a token that no indexer can describe, which
+        // is worse than not launching, because a mint cannot be taken back.
+        if (!mergedParams['metadataUri']) {
+          throw new Error(
+            'guard:Your token image could not be saved, so the launch was stopped before ' +
+            'anything was signed. Re-upload the image and try again — launching now would ' +
+            'create a token with no picture or name on pump.fun, and that cannot be fixed later.',
+          );
         }
       }
     }
@@ -5695,8 +5729,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         const result = await this.uploadService.uploadImage(toUpload).toPromise();
         if (result) this.uploadedImageUrl.set(this.uploadService.getGatewayUrl(result.url));
       } catch {
-        // Server upload failed (e.g. dev env) — use a local blob URL just for preview.
+        // Server upload failed. Show the picture so the form still makes
+        // sense, but say so — this URL is local to this tab and cannot be
+        // used for the launch, and staying quiet about it is how a token
+        // ended up on chain pointing at it.
         this.uploadedImageUrl.set(URL.createObjectURL(toUpload));
+        this.imageUploadError.set(
+          'Image preview only — it could not be saved to the server yet. Try uploading it again before launching.',
+        );
       }
     } catch (e: any) { this.imageUploadError.set(e?.message || 'Upload failed'); }
     finally { this.uploadingImage.set(false); }

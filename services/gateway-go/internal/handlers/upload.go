@@ -30,6 +30,34 @@ func NewUploadHandler(uploadDir, publicBaseURL string) *UploadHandler {
 	}
 }
 
+// CheckUploadDirWritable reports at startup whether uploads can actually be
+// stored, naming the absolute path either way.
+//
+// Uploaded files back permanent on-chain metadata URIs, so this is not a
+// cosmetic feature that can afford to fail quietly: a token minted while
+// storage is broken is broken forever. It logs rather than exits — the rest
+// of the gateway is unaffected, and taking the whole API down would be a
+// worse outcome than a loud line at boot.
+func CheckUploadDirWritable(uploadDir string) {
+	abs, err := filepath.Abs(uploadDir)
+	if err != nil {
+		abs = uploadDir
+	}
+	probe := filepath.Join(abs, ".writable")
+	if err := os.MkdirAll(abs, 0o755); err != nil {
+		slog.Error("Upload storage is NOT writable — token launches will be refused",
+			"dir", abs, "error", err)
+		return
+	}
+	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
+		slog.Error("Upload storage is NOT writable — token launches will be refused",
+			"dir", abs, "error", err)
+		return
+	}
+	_ = os.Remove(probe)
+	slog.Info("Upload storage ready", "dir", abs)
+}
+
 // UploadResponse is the JSON body returned to the client after a successful upload.
 type UploadResponse struct {
 	URL      string `json:"url"`      // Public HTTP URL
@@ -218,6 +246,61 @@ func (u *UploadHandler) UploadMetadata(w http.ResponseWriter, r *http.Request) {
 		URL:      publicURL,
 		Filename: generatedName,
 	})
+}
+
+// UploadToPumpFunIPFS handles POST /upload/pumpfun-ipfs.
+//
+// It forwards a multipart form to pump.fun's own IPFS endpoint and returns
+// their JSON verbatim. The frontend used to call `https://pump.fun/api/ipfs`
+// straight from the browser, where it fails on CORS every time — silently, in
+// a `catch` that logged a warning and moved on to the next fallback. Server
+// to server the same request answers 200, so the preferred path was never
+// actually available and every launch was running on fallbacks.
+//
+// Hosting the metadata on pump.fun's own IPFS is the surest way for their
+// indexer to resolve a new token, which makes this the primary route and not
+// a nicety.
+func (u *UploadHandler) UploadToPumpFunIPFS(w http.ResponseWriter, r *http.Request) {
+	const maxUpload = 30 << 20 // matches the image/video ceiling above
+
+	contentType := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "multipart/form-data") {
+		writeError(w, http.StatusBadRequest, "Expected a multipart/form-data body")
+		return
+	}
+
+	// Pass the body through untouched — re-encoding the form would mean
+	// re-deriving the boundary and every field for no benefit.
+	body := http.MaxBytesReader(w, r.Body, maxUpload)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, "https://pump.fun/api/ipfs", body)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Could not reach pump.fun")
+		return
+	}
+	req.Header.Set("Content-Type", contentType)
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		slog.Error("pump.fun IPFS upload failed", "error", err)
+		writeError(w, http.StatusBadGateway, "Could not reach pump.fun to store the token image")
+		return
+	}
+	defer resp.Body.Close()
+
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "pump.fun returned an unreadable response")
+		return
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Error("pump.fun IPFS upload rejected", "status", resp.StatusCode, "body", string(payload[:min(len(payload), 300)]))
+		writeError(w, http.StatusBadGateway, "pump.fun could not store the token image")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(payload)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
