@@ -5531,6 +5531,28 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         this.clearDraft();
         this.actionComplete.emit(stored);
       },
+      // The transaction landed and reverted. It arrives here rather than
+      // through the thrown-error path because submission already succeeded —
+      // the card is past `signing` and holding a real signature, which stays
+      // on the card so the user can open it in an explorer.
+      onFail: (message: string, sig: string) => {
+        this.stopSubmittedTick();
+        this.txSignature.set(sig);
+        this.errorMessage.set(
+          sanitizeErrorMessage(message, this.action?.type) || 'The transaction failed on-chain.',
+        );
+        this.status.set('error');
+        // Persist it. A failed transaction is as much a receipt as a
+        // successful one, and re-hydrating it as "submitted" would leave the
+        // card spinning forever on every reload.
+        this.persistResult({
+          status: 'error',
+          txSignature: sig,
+          errorMessage: this.errorMessage(),
+          executedParams: mergedParams,
+          swapView: this.lastSwapView ?? undefined,
+        });
+      },
     };
 
     // Race the chain against a stall timeout so the card never sits on
