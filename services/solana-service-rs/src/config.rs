@@ -85,9 +85,14 @@ impl Config {
             helius_api_key: env::var("HELIUS_API_KEY").ok().filter(|s| !s.is_empty()),
             streamflow_sdk_url: env::var("STREAMFLOW_SDK_URL")
                 .unwrap_or_else(|_| "http://localhost:3031".into()),
+            // Relay's app fee goes to the same place as everything else unless
+            // deliberately overridden. Keeping a second env var that has to be
+            // set separately is how a configured commission ends up collected
+            // on some paths and not others.
             relay_fee_recipient: env::var("RELAY_FEE_RECIPIENT")
                 .ok()
-                .filter(|s| !s.is_empty()),
+                .filter(|s| !s.is_empty())
+                .or_else(|| env::var("OPRAI_FEE_WALLET").ok().filter(|s| !s.is_empty())),
             relay_api_key: env::var("RELAY_API_KEY").ok().filter(|s| !s.is_empty()),
             auth_service_url: env::var("AUTH_SERVICE_HTTP")
                 .unwrap_or_else(|_| "http://localhost:3010".into()),

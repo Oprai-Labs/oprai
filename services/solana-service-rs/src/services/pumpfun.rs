@@ -7,6 +7,7 @@ use solana_sdk::{
     message::Message,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
+    system_instruction,
     transaction::Transaction,
 };
 use std::str::FromStr;
@@ -1188,6 +1189,38 @@ async fn fetch_pumpfun_global(rpc: &SolanaRpc) -> (Pubkey, u64) {
     }
 }
 
+/// The SOL the user asked to spend, before OPRAI's cut is taken out of it.
+///
+/// `parse_buy_amounts_with_fee` sizes the trade net of the commission, so the
+/// commission itself has to be computed from the original figure — otherwise
+/// it would be a cut of a number that already had the cut removed.
+fn parse_requested_lamports(params: &PumpFunTradeParams) -> u64 {
+    if !params.denominated_in_sol.unwrap_or(true) {
+        return 0; // token-denominated buys: the SOL side is derived, not given
+    }
+    params
+        .amount
+        .parse::<f64>()
+        .map(|a| (a * 1_000_000_000.0) as u64)
+        .unwrap_or(0)
+}
+
+/// Move OPRAI's commission on a pump.fun trade to the fee wallet.
+///
+/// A plain SOL transfer rather than anything protocol-specific: pump.fun has
+/// no fee plumbing for third parties, and native SOL needs no token account,
+/// so this can never be skipped for a missing ATA the way the Jupiter path
+/// can. Returns `None` when no fee wallet is configured, which is the
+/// pre-commission behaviour exactly.
+fn oprai_fee_transfer_ix(payer: &Pubkey, requested_lamports: u64) -> Option<Instruction> {
+    let wallet = crate::services::fees::fee_wallet()?;
+    let fee = crate::services::fees::pumpfun_fee_lamports(requested_lamports);
+    if fee == 0 {
+        return None;
+    }
+    Some(system_instruction::transfer(payer, &wallet, fee))
+}
+
 fn build_buy_instruction(
     buyer: &Pubkey,
     mint: &Pubkey,
@@ -1709,7 +1742,14 @@ fn parse_buy_amounts_with_fee(
     let denominated_in_sol = params.denominated_in_sol.unwrap_or(true);
 
     if denominated_in_sol {
-        let sol_lamports = (amount * 1_000_000_000.0) as u64;
+        let requested = (amount * 1_000_000_000.0) as u64;
+        // OPRAI's commission comes OUT of the amount, not on top of it.
+        //
+        // Adding it would mean "buy 1 SOL of X" quietly spends more than 1
+        // SOL, which breaks the promise the card makes and trips the
+        // frontend's spend guard. Taking it from inside keeps the total the
+        // user agreed to exactly what they see.
+        let sol_lamports = requested.saturating_sub(crate::services::fees::pumpfun_fee_lamports(requested));
         // Use real pool reserves (k-invariant): tokens_out = v_tok * sol_in / (v_sol + sol_in)
         let tokens = if v_sol > 0 && v_tok > 0 {
             ((v_tok as u128 * sol_lamports as u128) / (v_sol as u128 + sol_lamports as u128)) as u64
@@ -2481,6 +2521,13 @@ pub fn build_launch_token_transaction_blocking(
             token_amount,
             max_sol_cost,
         )?);
+        // The dev-buy pays commission like any other buy. It rides in the same
+        // atomic transaction, so it cannot be separated from the launch.
+        if let Some(fee_ix) =
+            oprai_fee_transfer_ix(creator_pubkey, (initial_buy_sol * 1_000_000_000.0) as u64)
+        {
+            create_instructions.push(fee_ix);
+        }
         atomic_buy = true;
     }
 
@@ -3070,7 +3117,10 @@ pub async fn build_pumpfun_buy(
         max_sol_cost,
     )?;
 
-    let instructions = vec![cu_limit_ix, cu_price_ix, create_ata_ix, buy_ix];
+    let mut instructions = vec![cu_limit_ix, cu_price_ix, create_ata_ix, buy_ix];
+    if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params)) {
+        instructions.push(fee_ix);
+    }
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&buyer), &blockhash);
     let transaction = Transaction::new_unsigned(message);

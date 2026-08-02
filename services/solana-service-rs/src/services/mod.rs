@@ -2,6 +2,7 @@ pub mod amount;
 pub mod builder;
 pub mod burn;
 pub mod dca;
+pub mod fees;
 pub mod debridge;
 pub mod helius;
 pub mod jito;
