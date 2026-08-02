@@ -151,6 +151,32 @@ export class TransactionTrackerService {
 
     while (attempt < MAX_RETRIES) {
       try {
+        // Ask outright whether it already landed, before settling in to wait.
+        //
+        // `confirmTransaction` below waits on a websocket notification for a
+        // *fresh* blockhash's validity window. A transaction that confirmed
+        // before this loop started — or whose notification was missed — never
+        // arrives, so it waited out the window, threw "block height exceeded",
+        // retried, and eventually marked a perfectly good transaction failed.
+        // A launch that was already live on pump.fun was reported as a
+        // failure that way.
+        const status = await connection.getSignatureStatus(signature, {
+          searchTransactionHistory: true,
+        });
+        const conf = status?.value;
+        if (conf && (conf.confirmationStatus === 'confirmed' || conf.confirmationStatus === 'finalized')) {
+          if (conf.err) {
+            const errMsg = this.formatError(JSON.stringify(conf.err));
+            this.upsert(txId, { status: 'failed', error: errMsg });
+            await this.updateStatus(txId, 'failed', { errorMessage: errMsg });
+            return;
+          }
+          const fee = await this.fetchActualFee(connection, signature);
+          this.upsert(txId, { status: 'confirmed', confirmedAt: Date.now(), actualFee: fee });
+          await this.updateStatus(txId, 'confirmed', { txHash: signature, actualFee: fee });
+          return;
+        }
+
         const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash(CONFIRMATION_COMMITMENT);
 
         const result = await connection.confirmTransaction(
@@ -197,10 +223,31 @@ export class TransactionTrackerService {
           continue;
         }
 
-        // Unrecoverable error or retry limit reached
-        const decoded = this.formatError(errMsg);
-        this.upsert(txId, { status: 'failed', error: decoded });
-        await this.updateStatus(txId, 'failed', { errorMessage: decoded });
+        // Out of retries. One last authoritative look before deciding —
+        // everything above this point can fail for reasons that have nothing
+        // to do with the transaction.
+        try {
+          const last = await connection.getSignatureStatus(signature, { searchTransactionHistory: true });
+          if (last?.value && !last.value.err) {
+            const fee = await this.fetchActualFee(connection, signature);
+            this.upsert(txId, { status: 'confirmed', confirmedAt: Date.now(), actualFee: fee });
+            await this.updateStatus(txId, 'confirmed', { txHash: signature, actualFee: fee });
+            return;
+          }
+          if (last?.value?.err) {
+            const chainErr = this.formatError(JSON.stringify(last.value.err));
+            this.upsert(txId, { status: 'failed', error: chainErr });
+            await this.updateStatus(txId, 'failed', { errorMessage: chainErr });
+            return;
+          }
+        } catch {
+          /* nothing left to try */
+        }
+
+        // The chain never gave an answer. "Failed" would be a claim we cannot
+        // support — a transaction we lost track of is not a transaction that
+        // reverted. Leave it submitted, with its signature, and say why.
+        console.warn('[tracker] could not determine outcome', { signature, error: errMsg });
         return;
       }
     }
