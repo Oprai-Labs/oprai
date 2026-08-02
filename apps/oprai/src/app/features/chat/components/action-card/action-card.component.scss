@@ -3068,13 +3068,28 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 14px 4px;
+  // Two filled strips stacked edge to edge read as one striped block, and the
+  // red/yellow pair was the worst of it. Give them room to be separate things.
+  margin: 6px 14px;
   padding: 8px 12px;
   border-radius: 8px;
   font-size: 0.75rem;
   line-height: 1.35;
 
   strong { font-weight: 600; }
+
+  // When something else is already blocking Confirm, a price-impact NOTICE is
+  // context, not an alarm. Two loud bars competing for the same glance is how
+  // a card stops communicating severity at all — so the milder one steps back
+  // to a quiet line and lets the blocking error be the thing you see.
+  &.is-secondary {
+    background: transparent;
+    padding: 2px 12px 0;
+    opacity: 0.75;
+    color: var(--op-text-secondary);
+
+    lucide-icon { display: none; }
+  }
 
   &[data-tier="notice"] {
     background: color-mix(in srgb, #eab308 14%, transparent);

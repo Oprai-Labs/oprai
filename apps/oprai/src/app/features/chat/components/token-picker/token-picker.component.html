@@ -36,10 +36,43 @@
   </div>
 
   <div class="tp-list">
-    @if (results().length === 0) {
+    @if (results().length === 0 && heldResults().length === 0) {
       <div class="tp-empty">No tokens match.</div>
     }
-    @for (t of results(); track t.address) {
+
+    @if (walletFirst && heldResults().length > 0) {
+      <div class="tp-group">Your tokens</div>
+      @for (h of heldResults(); track h.token.address) {
+        <button class="tp-row" type="button"
+                [class.tp-row--selected]="h.token.address === currentMint"
+                (click)="pick(h.token)">
+          <div class="tp-row__icon-wrap">
+            <span class="tp-row__letter">{{ letterFor(h.token) }}</span>
+            @if (h.token.logoURI) {
+              <img [src]="h.token.logoURI" [alt]="h.token.symbol"
+                   class="tp-row__icon"
+                   (error)="onLogoError($event)" />
+            }
+          </div>
+          <div class="tp-row__info">
+            <span class="tp-row__symbol">{{ h.token.symbol }}</span>
+            <span class="tp-row__name">{{ h.token.name }}</span>
+          </div>
+          <span class="tp-row__balance">{{ formatAmount(h.amount) }}</span>
+          @if (h.token.address === currentMint) {
+            <lucide-icon name="check" [size]="14" class="tp-row__check" />
+          }
+        </button>
+      }
+      @if (otherResults().length > 0) {
+        <div class="tp-group">All tokens</div>
+      }
+    } @else if (walletFirst && holdingsLoading()) {
+      <div class="tp-group">Your tokens</div>
+      <div class="tp-empty tp-empty--quiet">Reading your wallet…</div>
+    }
+
+    @for (t of (walletFirst ? otherResults() : results()); track t.address) {
       <button class="tp-row" type="button"
               [class.tp-row--selected]="t.address === currentMint"
               (click)="pick(t)">
