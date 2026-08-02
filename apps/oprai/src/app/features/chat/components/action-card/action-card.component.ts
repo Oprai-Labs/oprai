@@ -446,7 +446,9 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
   if (/cancel dca failed|cancel the dca order/i.test(lower)) {
     return 'Couldn’t cancel the DCA order right now. Please try again in a moment.';
   }
-  if (/pumpportal|initial buy build failed|may not be indexed yet|isn.t ready to trade yet/i.test(lower)) {
+  // Kept without the PumpPortal clause: nothing waits on a third party's
+  // indexing any more, but a launch can still race the create confirmation.
+  if (/initial buy build failed|may not be indexed yet|isn.t ready to trade yet/i.test(lower)) {
     return 'The token isn’t ready to trade yet — give it a few seconds after launch and try again.';
   }
   if (/pumpfun api|pump\.fun (api|is temporarily)/i.test(lower)) {

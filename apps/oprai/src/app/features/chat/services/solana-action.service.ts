@@ -345,7 +345,7 @@ function parseBoolParam(val: unknown, defaultWhenAbsent = false): boolean {
 const FRONTEND_ACTION_TYPES = [
   // Jupiter Lend SDK — Rust only returns preview, frontend builds actual TX
   'lend', 'withdraw_lend', 'borrow', 'repay',
-  // pump.fun bonding curve trades (direct pumpportal.fun API)
+  // pump.fun bonding curve trades, built here from the curve account
   'pumpfun_buy', 'pumpfun_sell',
   // Bridge — remapped to cross_chain_swap (Relay) at execution time
   'bridge',
@@ -669,7 +669,7 @@ export class SolanaActionService {
       }
       if (!build?.transaction) { console.warn('[launch_token] initial buy: no tx from backend'); return; }
 
-      // 3) Deserialize (PumpPortal returns a versioned tx) and sign + submit.
+      // 3) Deserialize, sign and submit.
       const buf = this.base64ToUint8Array(build.transaction);
       const tx = this.isVersionedTxBytes(buf)
         ? web3.VersionedTransaction.deserialize(buf)
@@ -1691,7 +1691,7 @@ export class SolanaActionService {
         // Launch: the initial dev-buy is a follow-up. Fire it in the BACKGROUND
         // (don't await) so the card confirms the create immediately and the outer
         // submit() timeout can't trip on the confirmation wait + 2nd approval. The
-        // buy waits for the create to confirm, then builds via PumpPortal and prompts
+        // buy waits for the create to confirm, then builds from the curve and prompts
         // for its own signature.
         const ib = buildResult.data?.initialBuy;
         if (ib) {

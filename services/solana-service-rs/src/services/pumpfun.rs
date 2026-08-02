@@ -133,7 +133,7 @@ pub struct LaunchTokenParams {
     pub mint_pubkey: Option<String>,
 }
 
-/// Parameters for a pumpfun buy or sell transaction (trade-local via PumpPortal).
+/// Parameters for a pumpfun buy or sell transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PumpFunTradeParams {
@@ -147,7 +147,7 @@ pub struct PumpFunTradeParams {
     pub priority_fee: Option<f64>,
 }
 
-/// Validate trade params (buy or sell) before building the PumpPortal transaction.
+/// Validate trade params (buy or sell) before building the transaction.
 pub fn validate_pumpfun_trade_params(params: &PumpFunTradeParams) -> Result<(), AppError> {
     if params.mint.trim().is_empty() {
         return Err(AppError::InvalidParams("mint address is required".into()));
@@ -198,14 +198,14 @@ pub struct LaunchPreview {
 }
 
 /// Describes the initial dev-buy the frontend should perform after the create tx
-/// confirms. The buy itself is built by `pumpfun_initial_buy` (PumpPortal) once the
+/// confirms. The buy itself is built by `pumpfun_initial_buy` once the
 /// token exists on-chain — this just carries what to buy. `None` = no initial buy.
 #[derive(serde::Serialize)]
 pub struct InitialBuyInfo {
     pub mint: String,
     pub amount_sol: f64,
     /// Mayhem-mode token — trades route through the Mayhem program, not the
-    /// standard bonding curve. Informational; PumpPortal picks the pool.
+    /// standard bonding curve. Informational only.
     pub mayhem: bool,
 }
 
