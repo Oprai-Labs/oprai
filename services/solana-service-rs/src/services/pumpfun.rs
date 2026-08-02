@@ -139,6 +139,11 @@ pub struct LaunchTokenParams {
 pub struct PumpFunTradeParams {
     pub mint: String,
     pub amount: String,
+    /// Set on the dev-buy that follows a Mayhem launch. Those trade through
+    /// the Mayhem program rather than the bonding curve, so they take a
+    /// different route; everything else is ours to build.
+    #[serde(default)]
+    pub mayhem: Option<bool>,
     #[serde(default)]
     pub denominated_in_sol: Option<bool>,
     #[serde(default)]

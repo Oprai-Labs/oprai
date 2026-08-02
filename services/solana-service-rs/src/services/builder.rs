@@ -4026,12 +4026,28 @@ pub async fn build_action(
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
             pumpfun::build_pumpfun_buy(http, rpc, &user_pubkey.to_string(), &p).await
         }
-        // Token-launch initial dev-buy (via PumpPortal). Called by the frontend as a
-        // follow-up after the create tx confirms — handles Mayhem + freshly-created
-        // tokens that the standard bonding-curve buy can't. See build_pumpfun_initial_buy.
+        // Token-launch initial dev-buy, called by the frontend once the create
+        // transaction confirms.
+        //
+        // This used to go to PumpPortal unconditionally, because our own buy
+        // read the curve from pump.fun's API and that API 404s on a token it
+        // has not indexed yet. It reads the chain now, so a freshly created
+        // token is no longer a reason to hand the trade — and 0.5% of it — to
+        // someone else.
+        //
+        // Mayhem launches still go to PumpPortal: those trade through the
+        // Mayhem program rather than the bonding curve, and its instruction
+        // arguments are not yet decoded. See docs/mayhem-reverse-engineering.md.
         "pumpfun_initial_buy" => {
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
-            pumpfun::build_pumpfun_initial_buy(http, &user_pubkey.to_string(), &p).await
+            let is_mayhem = p
+                .mayhem
+                .unwrap_or(false);
+            if is_mayhem {
+                pumpfun::build_pumpfun_initial_buy(http, &user_pubkey.to_string(), &p).await
+            } else {
+                pumpfun::build_pumpfun_buy(http, rpc, &user_pubkey.to_string(), &p).await
+            }
         }
         "pumpfun_sell" => {
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;

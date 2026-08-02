@@ -637,8 +637,11 @@ export class SolanaActionService {
         return;
       }
 
-      // 2) Build the buy via backend (PumpPortal). Retry to absorb indexing lag —
-      //    a token created seconds ago may not be visible to PumpPortal immediately.
+      // 2) Build the buy via the backend. A plain launch is built from the
+      //    bonding curve account, which exists the moment the create lands;
+      //    only a Mayhem launch still routes through PumpPortal, so the flag
+      //    has to travel with the request. The retry stays for the Mayhem
+      //    path, which does wait on someone else's indexing.
       // slippage/priorityFee MUST be numbers — the backend PumpFunTradeParams
       // deserializes them as f64 and rejects strings ("invalid type: string ...").
       const slip = opts?.slippage != null ? Number(opts.slippage) : NaN;
@@ -649,6 +652,7 @@ export class SolanaActionService {
           mint: initialBuy.mint,
           amount: String(initialBuy.amountSol),
           denominatedInSol: true,
+          ...(initialBuy.mayhem ? { mayhem: true } : {}),
           ...(Number.isFinite(slip) ? { slippage: slip } : {}),
           ...(Number.isFinite(prio) ? { priorityFee: prio } : {}),
         },
