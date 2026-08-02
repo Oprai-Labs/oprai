@@ -231,6 +231,15 @@ carried along as a passenger. Passengers are why a "DLMM" branch ends up
 holding a favicon: each one is individually reasonable, and together they make
 the branch unreviewable and unrevertable.
 
+Branch it **when it comes up**, not at the end. `feat/magic-eden` reached
+thirty commits carrying seven that had nothing to do with Magic Eden — a
+security layer, an image cache, a title fix. By then they could not be
+separated: the passengers and the protocol work had edited the same files, so
+cherry-picking them out meant hours of conflicts to produce a history that
+never happened. The cost of a passenger is not paid when it is added; it is
+paid when someone tries to revert, review or split the branch later, and by
+then it is unpayable.
+
 **Merge when the unit is verified, not when the area is finished.** A branch
 that stays open across several sub-features grows a diff nobody can review and
 holds unrelated fixes hostage — a gateway fix that ships to prod but sits
