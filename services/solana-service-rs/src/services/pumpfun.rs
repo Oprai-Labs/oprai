@@ -1063,6 +1063,62 @@ const PUMP_FUN_FEE_RECIPIENT_FALLBACK: &str = "CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7Abi
 ///   ...
 ///
 /// Fallback to hardcoded value on RPC failure.
+/// pump.fun's own address lookup table. Every transaction they send uses it,
+/// and it already holds twelve of the thirteen accounts a launch repeats:
+/// both programs, global, event authority, the fee config and program, the
+/// sol vault, the mint authority, the volume accumulator, token-2022, the
+/// associated-token program and the system program.
+const PUMPFUN_LOOKUP_TABLE: &str = "DSaHkhDp17UexbZsg2VUnWjEuTwKNCJrnG4LW122ANfd";
+
+/// Read a lookup table so a v0 message can compile against it. An empty
+/// result is not fatal — the caller falls back to a legacy transaction.
+fn fetch_lookup_table_blocking(
+    rpc: &SolanaRpc,
+    address: &str,
+) -> Vec<solana_sdk::address_lookup_table::AddressLookupTableAccount> {
+    let key = match Pubkey::from_str(address) {
+        Ok(k) => k,
+        Err(_) => return vec![],
+    };
+    let account = match rpc.client().get_account(&key) {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::warn!(error = %e, "lookup table unreadable — launch falls back to legacy");
+            return vec![];
+        }
+    };
+    match solana_sdk::address_lookup_table::state::AddressLookupTable::deserialize(&account.data) {
+        Ok(t) => vec![
+            solana_sdk::address_lookup_table::AddressLookupTableAccount {
+                key,
+                addresses: t.addresses.to_vec(),
+            },
+        ],
+        Err(e) => {
+            tracing::warn!(error = %e, "lookup table malformed — launch falls back to legacy");
+            vec![]
+        }
+    }
+}
+
+/// The same read, on a thread that is already blocking. The launch builder
+/// runs inside `web::block`, so it cannot await — and it needs this before it
+/// can put the dev-buy in the create transaction.
+fn fetch_pumpfun_fee_recipient_blocking(rpc: &SolanaRpc) -> Pubkey {
+    const FEE_RECIPIENT_OFFSET: usize = 41;
+    if let Ok(account) = rpc.client().get_account(&find_global_pda()) {
+        if account.data.len() >= FEE_RECIPIENT_OFFSET + 32 {
+            if let Ok(pk) =
+                Pubkey::try_from(&account.data[FEE_RECIPIENT_OFFSET..FEE_RECIPIENT_OFFSET + 32])
+            {
+                return pk;
+            }
+        }
+    }
+    tracing::warn!("pump.fun global unreadable, using fallback fee_recipient");
+    Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback fee_recipient")
+}
+
 async fn fetch_pumpfun_fee_recipient(rpc: &SolanaRpc) -> Pubkey {
     let global = find_global_pda();
     let rpc2 = rpc.clone();
@@ -2269,46 +2325,122 @@ pub fn build_launch_token_transaction_blocking(
         create_ix,
     ];
 
-    // The frontend does the initial buy as a follow-up (see doc above).
-    let initial_buy = if initial_buy_sol > 0.0 {
-        Some(InitialBuyInfo {
+    // The dev-buy rides in the SAME transaction as the create.
+    //
+    // It used to be a second transaction sent after the create confirmed, and
+    // that gap is a business problem, not a cosmetic one: bots watch for new
+    // mints and buy inside it, ahead of the person who just launched the
+    // token. Atomic means there is no inside.
+    //
+    // The buy needs the curve's reserves, and the curve does not exist yet —
+    // but its opening state is fixed and known, so the price is computed from
+    // the constants pump.fun initialises it with.
+    let mut create_instructions = create_instructions;
+    let mut atomic_buy = false;
+    if initial_buy_sol > 0.0 {
+        let buy_params = PumpFunTradeParams {
             mint: mint_pubkey.to_string(),
-            amount_sol: initial_buy_sol,
-            mayhem: is_mayhem,
-        })
-    } else {
-        None
-    };
+            amount: initial_buy_sol.to_string(),
+            denominated_in_sol: Some(true),
+            slippage: params.slippage,
+            priority_fee: None,
+        };
+        let (token_amount, max_sol_cost) = parse_buy_amounts(
+            &buy_params,
+            INITIAL_VIRTUAL_SOL_RESERVES,
+            INITIAL_VIRTUAL_TOKEN_RESERVES,
+        )?;
+        let fee_recipient = fetch_pumpfun_fee_recipient_blocking(rpc);
+        let t22 = token_2022_program();
+        create_instructions.push(build_create_ata_instruction(
+            creator_pubkey,
+            &mint_pubkey,
+            &t22,
+        ));
+        create_instructions.push(build_buy_instruction(
+            creator_pubkey,
+            &mint_pubkey,
+            creator_pubkey,
+            &fee_recipient,
+            &t22,
+            token_amount,
+            max_sol_cost,
+        )?);
+        atomic_buy = true;
+    }
+
+    // Nothing for the frontend to follow up with any more.
+    let initial_buy: Option<InitialBuyInfo> = None;
 
     // Step 4: Get recent blockhash
     let blockhash = rpc
         .get_latest_blockhash_with_retry()
         .map_err(|e| AppError::Internal(format!("Failed to get blockhash: {}", e)))?;
 
-    // Step 5: Build the CREATE transaction
-    let create_message =
-        Message::new_with_blockhash(&create_instructions, Some(creator_pubkey), &blockhash);
-
-    let mut transaction = Transaction::new_unsigned(create_message);
-
-    // Step 6: Sign with mint keypair only when backend generated it.
-    // When mintPubkey was provided by the frontend, we skip signing here —
-    // the frontend will add the mint signature after wallet approval.
-    if let Some(ref kp) = mint_keypair {
-        transaction.partial_sign(&[kp], blockhash);
-    }
-
-    tracing::info!(
-        num_signatures = transaction.signatures.len(),
-        num_instructions = transaction.message.instructions.len(),
-        fee_payer = %transaction.message.account_keys[0],
-        "Created unsigned pump.fun create transaction"
-    );
-
-    // Step 7: Serialize CREATE to base64
-    let tx_bytes = bincode::serialize(&transaction)
-        .map_err(|e| AppError::Internal(format!("Failed to serialize transaction: {}", e)))?;
-    let tx_base64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
+    // Step 5: Build the transaction — versioned when the buy rides along.
+    //
+    // Create and buy together do not fit a legacy transaction: measured at
+    // 1303 bytes against the 1232 limit. A v0 message with a lookup table
+    // does, because an account in the table costs one byte instead of
+    // thirty-two, and twelve of ours are the same on every launch.
+    //
+    // The table is pump.fun's own, which every one of their transactions
+    // already uses. Borrowing it is a dependency on an account we do not
+    // control — if they close it, launches with a dev-buy stop building — so
+    // the fallback below keeps working and we should publish our own.
+    let tx_base64 = if atomic_buy {
+        let lut = fetch_lookup_table_blocking(rpc, PUMPFUN_LOOKUP_TABLE);
+        let message = solana_sdk::message::v0::Message::try_compile(
+            creator_pubkey,
+            &create_instructions,
+            lut.as_slice(),
+            blockhash,
+        )
+        .map_err(|e| AppError::Internal(format!("Failed to compile v0 message: {e}")))?;
+        let versioned = solana_sdk::message::VersionedMessage::V0(message);
+        let sig_count = versioned.header().num_required_signatures as usize;
+        let mut tx = solana_sdk::transaction::VersionedTransaction {
+            signatures: vec![solana_sdk::signature::Signature::default(); sig_count],
+            message: versioned,
+        };
+        // The mint signs here only when we generated it; otherwise the
+        // frontend adds that signature after the wallet approves.
+        if let Some(ref kp) = mint_keypair {
+            if let Ok(pos) = tx
+                .message
+                .static_account_keys()
+                .iter()
+                .position(|k| *k == kp.pubkey())
+                .ok_or(())
+            {
+                use solana_sdk::signer::Signer;
+                tx.signatures[pos] = kp.sign_message(&tx.message.serialize());
+            }
+        }
+        let bytes = bincode::serialize(&tx)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize v0 tx: {e}")))?;
+        tracing::info!(
+            bytes = bytes.len(),
+            instructions = create_instructions.len(),
+            "Created atomic pump.fun launch (create + dev-buy) as v0"
+        );
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    } else {
+        let create_message =
+            Message::new_with_blockhash(&create_instructions, Some(creator_pubkey), &blockhash);
+        let mut transaction = Transaction::new_unsigned(create_message);
+        if let Some(ref kp) = mint_keypair {
+            transaction.partial_sign(&[kp], blockhash);
+        }
+        tracing::info!(
+            num_signatures = transaction.signatures.len(),
+            num_instructions = transaction.message.instructions.len(),
+            "Created pump.fun create transaction (no dev-buy)"
+        );
+        let tx_bytes = bincode::serialize(&transaction)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize transaction: {}", e)))?;
+        base64::engine::general_purpose::STANDARD.encode(&tx_bytes)
+    };
 
     let mut warnings = Vec::new();
     if params.twitter.is_none() && params.telegram.is_none() && params.website.is_none() {

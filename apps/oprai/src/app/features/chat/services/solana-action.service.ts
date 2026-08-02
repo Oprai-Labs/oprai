@@ -1671,9 +1671,25 @@ export class SolanaActionService {
     // skipPreflight=true so Phantom never runs its internal simulation.
     let signature: string;
     if (mintKeypair) {
-      const tx = deserializedTx as { partialSign?: (...signers: Keypair[]) => void; serialize?(): Uint8Array };
-      if (typeof tx.partialSign === 'function') {
-        try { tx.partialSign(mintKeypair); } catch { /* backend signed with its own keypair — skip */ }
+      // The mint has to sign, and how depends on the transaction version.
+      // A launch WITH a dev-buy is v0 now — create and buy ride together so
+      // nobody can snipe the gap between them — and `partialSign` does not
+      // exist there. Checking only for `partialSign` would have skipped the
+      // mint signature in silence and the chain would have rejected the
+      // launch for a signature it never got.
+      const tx = deserializedTx as {
+        partialSign?: (...signers: Keypair[]) => void;
+        sign?: (signers: Keypair[]) => void;
+        version?: unknown;
+      };
+      try {
+        if (typeof tx.partialSign === 'function') {
+          tx.partialSign(mintKeypair);
+        } else if (typeof tx.sign === 'function') {
+          tx.sign([mintKeypair]);
+        }
+      } catch {
+        /* backend signed with its own keypair — skip */
       }
 
       const directSig = await Promise.race([
@@ -1688,11 +1704,10 @@ export class SolanaActionService {
         callbacks.onSubmit?.(directSig);
         if (amountUsd > 0) this.spendingLimit.record(amountUsd);
         callbacks.onConfirm?.(directSig);
-        // Launch: the initial dev-buy is a follow-up. Fire it in the BACKGROUND
-        // (don't await) so the card confirms the create immediately and the outer
-        // submit() timeout can't trip on the confirmation wait + 2nd approval. The
-        // buy waits for the create to confirm, then builds from the curve and prompts
-        // for its own signature.
+        // Legacy path. A launch with a dev-buy is one atomic transaction now,
+        // so the backend stops returning `initialBuy` and this never fires —
+        // kept only so an older card mid-flight still completes rather than
+        // losing its buy.
         const ib = buildResult.data?.initialBuy;
         if (ib) {
           void this.submitLaunchInitialBuy(connection, ib, directSig, {
