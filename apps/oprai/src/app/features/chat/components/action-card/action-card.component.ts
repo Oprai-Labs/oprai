@@ -1741,6 +1741,39 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     });
   });
 
+  /**
+   * Reload the balance lines whenever the token they describe changes.
+   *
+   * The balance was only fetched on wallet change and at a handful of
+   * hand-placed call sites, so picking a different token left the previous
+   * token's number on screen under the new symbol — a swap card showed
+   * "Balance: 0.0428" for USDC when 0.0428 was the wallet's SOL, and the
+   * insufficient-balance warning repeated the same wrong figure.
+   *
+   * An effect rather than another call in `onTokenPicked`, because every new
+   * way of changing a token would have to remember that call, and this one
+   * already had four places that did and one that didn't.
+   */
+  private _lastInputMint = '';
+  private _lastSecondaryMint = '';
+  private readonly _balanceMintEffect = effect(() => {
+    const input = this.inputBalanceMint();
+    const secondary = this.secondaryBalanceMint();
+    untracked(() => {
+      if (!this.walletService.publicKey()) return;
+      if (input !== this._lastInputMint) {
+        this._lastInputMint = input;
+        this.inputBalance.set(null);
+        if (input) void this.loadInputBalance();
+      }
+      if (secondary !== this._lastSecondaryMint) {
+        this._lastSecondaryMint = secondary;
+        this.secondaryBalance.set(null);
+        if (secondary) void this.loadSecondaryBalance();
+      }
+    });
+  });
+
   // Kamino borrow: (re)load the reserve rates + obligation whenever the wallet
   // or borrow token changes. On a page reload the card can init BEFORE the
   // wallet reconnects — the initial fetch then runs with no wallet and the

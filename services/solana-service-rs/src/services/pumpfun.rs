@@ -1242,7 +1242,21 @@ fn with_oprai_memo(mut instructions: Vec<Instruction>, payer: &Pubkey) -> Vec<In
 /// reads `true` the create instruction is included on every buy; that is
 /// harmless — an idempotent create against an existing account does nothing —
 /// and it costs a few dozen bytes until the next restart.
-async fn ensure_jupiter_sol_fee_account(rpc: &SolanaRpc, payer: &Pubkey) -> Option<Instruction> {
+async fn ensure_jupiter_sol_fee_account(
+    rpc: &SolanaRpc,
+    payer: &Pubkey,
+    spending_lamports: u64,
+) -> Option<Instruction> {
+    /// What the buyer must still have left after this trade before we add our
+    /// rent to their bill.
+    ///
+    /// A flat "only on trades above X" rule looked equivalent and is not: a
+    /// wallet holding 0.06 SOL buying 0.05 SOL of something clears any trade
+    /// threshold and still cannot afford another 0.002, which is precisely how
+    /// a simulation failed with InsufficientFundsForRent. What matters is the
+    /// headroom, so that is what gets checked.
+    const REQUIRED_HEADROOM: u64 = 20_000_000; // 0.02 SOL
+
     static NEEDED: OnceLock<bool> = OnceLock::new();
     let wsol = Pubkey::from_str(crate::services::fees::WSOL_MINT).ok()?;
     let account = crate::services::fees::fee_token_account(&wsol)?;
@@ -1261,6 +1275,21 @@ async fn ensure_jupiter_sol_fee_account(rpc: &SolanaRpc, payer: &Pubkey) -> Opti
     if !needed {
         return None;
     }
+
+    let rpc3 = rpc.clone();
+    let owner = *payer;
+    let balance = tokio::task::spawn_blocking(move || rpc3.client().get_balance(&owner).unwrap_or(0))
+        .await
+        .unwrap_or(0);
+    if balance.saturating_sub(spending_lamports) < REQUIRED_HEADROOM {
+        tracing::debug!(
+            balance,
+            spending_lamports,
+            "buyer has no headroom for the fee-account rent — leaving it for a richer trade"
+        );
+        return None;
+    }
+
     crate::services::fees::ensure_fee_account_ix(payer, &wsol)
 }
 
@@ -3274,15 +3303,10 @@ pub async fn build_pumpfun_buy(
     // transaction we assemble ourselves, so the one-time ~0.002 SOL of rent
     // rides along here instead of becoming an ops ritual that has to be
     // repeated every time the fee wallet changes.
-    // Only on a trade big enough that 0.002 SOL of rent is noise. A user
-    // spending their last few cents should not be the one who pays to open
-    // our fee account — a simulation on a nearly-empty wallet already failed
-    // for exactly that rent.
-    const PROVISION_MIN_LAMPORTS: u64 = 50_000_000; // 0.05 SOL
-    if parse_requested_lamports(params) >= PROVISION_MIN_LAMPORTS {
-        if let Some(ix) = ensure_jupiter_sol_fee_account(rpc, &buyer).await {
-            instructions.push(ix);
-        }
+    if let Some(ix) =
+        ensure_jupiter_sol_fee_account(rpc, &buyer, parse_requested_lamports(params)).await
+    {
+        instructions.push(ix);
     }
     let mut instructions = instructions;
     if !instructions.iter().any(is_oprai_fee_transfer) {

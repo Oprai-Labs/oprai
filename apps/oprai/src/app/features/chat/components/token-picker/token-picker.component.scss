@@ -223,3 +223,33 @@
     &[data-tier="unknown"] { display: none; }
   }
 }
+
+/* Section headings inside the list. "Your tokens" first, then everything else —
+   choosing what to spend is a question about your own wallet, so the answer
+   should not have to be hunted for in a list of every token on Solana. */
+.tp-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 12px 4px;
+  background: var(--op-bg-surface-1);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-text-tertiary, var(--op-text-secondary));
+}
+
+.tp-row__balance {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--op-text-primary);
+  white-space: nowrap;
+}
+
+.tp-empty--quiet {
+  opacity: 0.6;
+  font-size: 0.75rem;
+}
