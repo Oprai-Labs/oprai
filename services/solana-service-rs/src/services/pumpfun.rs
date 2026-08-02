@@ -11,6 +11,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::str::FromStr;
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -1232,6 +1233,35 @@ fn with_oprai_memo(mut instructions: Vec<Instruction>, payer: &Pubkey) -> Vec<In
         tracing::debug!(current, "no room for the OPRAI memo — skipping it");
     }
     instructions
+}
+
+/// Whether the wSOL fee account still needs creating, decided once per process.
+///
+/// Checked lazily rather than at startup because the fee wallet may be set
+/// after the service is already running, and re-checked on restart. While it
+/// reads `true` the create instruction is included on every buy; that is
+/// harmless — an idempotent create against an existing account does nothing —
+/// and it costs a few dozen bytes until the next restart.
+async fn ensure_jupiter_sol_fee_account(rpc: &SolanaRpc, payer: &Pubkey) -> Option<Instruction> {
+    static NEEDED: OnceLock<bool> = OnceLock::new();
+    let wsol = Pubkey::from_str(crate::services::fees::WSOL_MINT).ok()?;
+    let account = crate::services::fees::fee_token_account(&wsol)?;
+    let needed = if let Some(v) = NEEDED.get() {
+        *v
+    } else {
+        let rpc2 = rpc.clone();
+        let missing = tokio::task::spawn_blocking(move || rpc2.client().get_account(&account).is_err())
+            .await
+            .unwrap_or(false);
+        if missing {
+            tracing::info!(%account, "opening the wSOL fee account alongside this trade");
+        }
+        *NEEDED.get_or_init(|| missing)
+    };
+    if !needed {
+        return None;
+    }
+    crate::services::fees::ensure_fee_account_ix(payer, &wsol)
 }
 
 /// The SOL the user asked to spend, before OPRAI's cut is taken out of it.
@@ -3178,6 +3208,16 @@ pub async fn build_pumpfun_buy(
     let mut instructions = vec![cu_limit_ix, cu_price_ix, create_ata_ix, buy_ix];
     if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params)) {
         instructions.push(fee_ix);
+    }
+    // Opportunistically open the wSOL account Jupiter pays its platform fee
+    // into. Jupiter will not create it, and until it exists every SOL-side
+    // swap goes uncharged — but no wallet UI exposes "create a token account",
+    // so there is no way for us to ask for one directly. A pump.fun buy is a
+    // transaction we assemble ourselves, so the one-time ~0.002 SOL of rent
+    // rides along here instead of becoming an ops ritual that has to be
+    // repeated every time the fee wallet changes.
+    if let Some(ix) = ensure_jupiter_sol_fee_account(rpc, &buyer).await {
+        instructions.push(ix);
     }
     let instructions = with_oprai_memo(instructions, &buyer);
     let blockhash = get_blockhash(rpc).await?;

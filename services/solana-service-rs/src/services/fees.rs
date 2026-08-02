@@ -19,6 +19,7 @@
 use std::str::FromStr;
 use std::sync::OnceLock;
 
+use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
 
 use crate::solana::tokens::get_token_info;
@@ -148,6 +149,27 @@ pub fn fee_token_account(mint: &Pubkey) -> Option<Pubkey> {
     Some(spl_associated_token_account::get_associated_token_address(
         &owner, mint,
     ))
+}
+
+/// An instruction that creates the fee token account for `mint`, paid by
+/// whoever is already paying for this transaction.
+///
+/// Jupiter will not create the account it pays fees into, so until it exists
+/// every swap in that pair goes uncharged. It costs about 0.002 SOL of rent,
+/// once, ever — and the alternative is a manual ritual that has to be
+/// remembered again the next time the fee wallet changes. `Idempotent` means
+/// a transaction that includes it after the account exists simply does
+/// nothing, so this is safe to leave in.
+pub fn ensure_fee_account_ix(payer: &Pubkey, mint: &Pubkey) -> Option<Instruction> {
+    let owner = fee_wallet()?;
+    Some(
+        spl_associated_token_account::instruction::create_associated_token_account_idempotent(
+            payer,
+            &owner,
+            mint,
+            &spl_token::id(),
+        ),
+    )
 }
 
 /// The commission on a pump.fun trade, in lamports.
