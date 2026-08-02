@@ -327,6 +327,28 @@ async fn delegate_build_to_ts(
         .body(payload))
 }
 
+/// SOL an action would spend, for the cap. Only actions that name an amount
+/// in SOL — anything else is priced elsewhere or moves no value, and guessing
+/// a number here would cap the wrong thing.
+fn sol_amount_spent(action_type: &str, params: &serde_json::Value) -> Option<f64> {
+    let num = |k: &str| {
+        params
+            .get(k)
+            .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_f64().map(|f| f.to_string())))
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|n| *n > 0.0)
+    };
+    match action_type {
+        // Buying an NFT, bidding on one, funding the account bids are paid
+        // from: all denominated in SOL and all able to empty a wallet.
+        "me_buy" | "me_buy_now" | "me_buy_instruction" | "me_buy_now_transfer_nft"
+        | "tensor_buy" => num("price"),
+        "me_make_offer" => num("price"),
+        "me_deposit" | "me_mmm_sol_deposit_buy" => num("amount").or_else(|| num("paymentAmount")),
+        _ => None,
+    }
+}
+
 #[post("/build")]
 pub async fn post_build(
     req: HttpRequest,
@@ -363,6 +385,25 @@ pub async fn post_build(
 
     // Validate action type.
     builder::validate_action(&body.action_type, &body.params)?;
+
+    // Spending cap. It lived on the swap-quote path only, so an NFT purchase,
+    // a bid or an escrow deposit of any size went through uncapped — the one
+    // limit a user sets to bound their own mistakes did not apply to the
+    // actions most likely to be one. SOL-denominated actions price off the
+    // amount they name; a swap is capped at its quote, where the number is
+    // exact.
+    if let Some(sol) = sol_amount_spent(&body.action_type, &body.params) {
+        let usd = crate::services::spending_client::estimate_swap_usd(
+            &state.http,
+            "So11111111111111111111111111111111111111112",
+            "So11111111111111111111111111111111111111112",
+            &((sol * 1e9) as u64).to_string(),
+            &((sol * 1e9) as u64).to_string(),
+        )
+        .await;
+        crate::services::spending_client::enforce_spending_cap(&state.spending, &wallet, usd)
+            .await?;
+    }
 
     let user_pubkey: solana_sdk::pubkey::Pubkey = wallet
         .parse()

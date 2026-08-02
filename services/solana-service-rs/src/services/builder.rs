@@ -5398,7 +5398,13 @@ pub async fn build_action(
         // be taken, then enriches with what the indexers know.
         "token_safety" | "honeypot_check" | "scam_check" | "rug_check" => {
             let p: token_safety::TokenSafetyParams = serde_json::from_value(params)?;
-            let mut safety = token_safety::inspect_mint(rpc, &p.mint_address).await?;
+            // People ask about a ticker, not an address — "is BONK a scam".
+            // Resolving through the verified-only path also means a symbol
+            // that resolves to nothing is refused rather than guessed at,
+            // which on a safety check is the only acceptable failure.
+            let mint =
+                crate::services::mint_security::resolve_action_mint(http, &p.mint_address).await?;
+            let mut safety = token_safety::inspect_mint(rpc, &mint).await?;
             token_safety::enrich(http, &mut safety).await;
             Ok(BuildResponse {
                 preview: ActionPreview {
