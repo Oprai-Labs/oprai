@@ -139,6 +139,52 @@ pub fn swap_fee_mint<'a>(input_mint: &'a str, output_mint: &'a str, exact_out: b
     None
 }
 
+/// The fee account for `mint`, but only once the chain confirms it exists.
+///
+/// Jupiter does NOT validate the fee account when it builds a swap. It returns
+/// a perfectly ordinary transaction naming an account that is not there, and
+/// the failure arrives on chain, after the user has signed — a SOL→USDC swap
+/// failed with error 6025 exactly this way. So "build it and see" is not a
+/// design; the account has to be checked before it is named.
+///
+/// Cached per process: an account that exists never stops existing, and one
+/// that is missing is re-checked on the next restart.
+pub async fn ready_fee_account(mint: &str) -> Option<Pubkey> {
+    static SEEN: OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
+        OnceLock::new();
+    let cache = SEEN.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+    let mint_pk = Pubkey::from_str(mint).ok()?;
+    let account = fee_token_account(&mint_pk)?;
+
+    if let Some(known) = cache.lock().ok().and_then(|c| c.get(mint).copied()) {
+        return known.then_some(account);
+    }
+
+    let endpoint = std::env::var("SOLANA_RPC")
+        .unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string());
+    let exists = tokio::task::spawn_blocking(move || {
+        crate::solana::connection::SolanaRpc::new(&endpoint)
+            .client()
+            .get_account(&account)
+            .is_ok()
+    })
+    .await
+    .unwrap_or(false);
+
+    if !exists {
+        tracing::warn!(
+            mint = %mint,
+            fee_account = %account,
+            "fee account does not exist — swaps in this mint go uncharged until it is created"
+        );
+    }
+    if let Ok(mut c) = cache.lock() {
+        c.insert(mint.to_string(), exists);
+    }
+    exists.then_some(account)
+}
+
 /// The associated token account that receives the fee for a given mint.
 ///
 /// Jupiter requires this account to exist already; it will not create it. The

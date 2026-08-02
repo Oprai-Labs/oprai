@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -328,7 +326,11 @@ async fn get_swap_quote_with_fee(
     // endpoint only honours a fee that the quote already priced in — and it
     // is zero whenever no fee wallet is configured or the pair is one we
     // charge nothing for.
-    let platform_fee_qs = match fee_bps_override.unwrap_or_else(|| platform_fee_bps_for(params, swap_mode)) {
+    let declared_fee_bps = match fee_bps_override {
+        Some(v) => v,
+        None => platform_fee_bps_for(params, swap_mode).await,
+    };
+    let platform_fee_qs = match declared_fee_bps {
         0 => String::new(),
         bps => format!("&platformFeeBps={bps}"),
     };
@@ -384,48 +386,26 @@ async fn get_swap_quote_with_fee(
 /// Zero unless there is a fee wallet, the pair is one we charge for, AND one
 /// side is a mint we can actually be paid in — quoting a fee we then cannot
 /// collect would only mis-price the route.
-fn platform_fee_bps_for(params: &SwapParams, swap_mode: &str) -> u16 {
+async fn platform_fee_bps_for(params: &SwapParams, swap_mode: &str) -> u16 {
     let input = resolve_token_address(&params.input_mint);
     let output = resolve_token_address(&params.output_mint);
     let Some(mint) = fees::swap_fee_mint(&input, &output, swap_mode == "ExactOut") else {
         return 0;
     };
-    // A fee we have already learned we cannot collect must not be priced into
-    // the quote either — otherwise the preview promises one output and the
-    // transaction delivers another.
-    if unusable_fee_mints()
-        .lock()
-        .map(|set| set.contains(mint))
-        .unwrap_or(false)
-    {
+    // Only price in a fee we can actually collect. Jupiter will happily quote
+    // and build one against an account that does not exist, and the failure
+    // then lands on chain after the user has signed.
+    if fees::ready_fee_account(mint).await.is_none() {
         return 0;
     }
     fees::swap_fee_bps(&input, &output)
 }
 
-/// Fee mints we have stopped trying to use, because Jupiter rejected a build
-/// that named them and the identical build succeeded without.
-///
-/// Jupiter requires the fee's token account to exist and will not create it,
-/// so a missing ATA turns every swap in that pair into an error. Rather than
-/// carry an RPC handle down here to check, the failure is observed once and
-/// remembered: the first swap pays a retry, the rest are unaffected, and the
-/// log says exactly which account to create.
-fn unusable_fee_mints() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
-    static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
-        std::sync::OnceLock::new();
-    SET.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
-}
-
-fn fee_account_for(params: &SwapParams, swap_mode: &str) -> Option<(String, String)> {
+async fn fee_account_for(params: &SwapParams, swap_mode: &str) -> Option<(String, String)> {
     let input = resolve_token_address(&params.input_mint);
     let output = resolve_token_address(&params.output_mint);
     let mint = fees::swap_fee_mint(&input, &output, swap_mode == "ExactOut")?.to_string();
-    if unusable_fee_mints().lock().ok()?.contains(&mint) {
-        return None;
-    }
-    let mint_pk = solana_sdk::pubkey::Pubkey::from_str(&mint).ok()?;
-    let account = fees::fee_token_account(&mint_pk)?;
+    let account = fees::ready_fee_account(&mint).await?;
     Some((mint, account.to_string()))
 }
 
@@ -466,7 +446,7 @@ pub async fn build_swap_transaction(
 
     let swap_mode = params.swap_mode.as_deref().unwrap_or("ExactIn");
     let exact_out = swap_mode.eq_ignore_ascii_case("exactout") || swap_mode.eq_ignore_ascii_case("out");
-    let fee_target = fee_account_for(params, if exact_out { "ExactOut" } else { "ExactIn" });
+    let fee_target = fee_account_for(params, if exact_out { "ExactOut" } else { "ExactIn" }).await;
 
     let post_swap = |quote: &SwapQuote, fee: Option<String>| {
         let mut body = serde_json::json!({
@@ -486,38 +466,7 @@ pub async fn build_swap_transaction(
         req.send()
     };
 
-    let mut swap_response = post_swap(&quote, fee_target.as_ref().map(|(_, acct)| acct.clone())).await?;
-
-    // A build that names a fee account can fail for one reason we can fix
-    // ourselves: the account does not exist yet. Retry once without it — a
-    // user's swap must never fail because our commission plumbing is not set
-    // up — and remember, so the next swap does not pay for the same lesson.
-    if !swap_response.status().is_success() {
-        if let Some((mint, account)) = fee_target.as_ref() {
-            let status = swap_response.status();
-            // Re-quote without the fee. Reusing the priced-in quote here was
-            // the bug: Jupiter happily returns a transaction, and the chain
-            // rejects it because the route expects a fee account that the
-            // instruction never names.
-            let plain_quote =
-                get_swap_quote_with_fee(http, jupiter_api_key, params, Some(0)).await?;
-            let retry = post_swap(&plain_quote, None).await?;
-            if retry.status().is_success() {
-                tracing::error!(
-                    mint = %mint,
-                    fee_account = %account,
-                    rejected_status = %status,
-                    "Jupiter rejected the fee account — it almost certainly does not exist. \
-                     Create this associated token account to start collecting fees on this mint. \
-                     Swapping continues without a fee until then."
-                );
-                if let Ok(mut set) = unusable_fee_mints().lock() {
-                    set.insert(mint.clone());
-                }
-                swap_response = retry;
-            }
-        }
-    }
+    let swap_response = post_swap(&quote, fee_target.as_ref().map(|(_, acct)| acct.clone())).await?;
 
     if !swap_response.status().is_success() {
         let status = swap_response.status();
