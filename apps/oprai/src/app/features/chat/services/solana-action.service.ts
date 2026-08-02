@@ -43,6 +43,17 @@ export interface ActionCallbacks {
    * address into chat history so later "sell this / sell HOOD4" turns can resolve it.
    */
   onMintGenerated?: (mint: string) => void;
+  /**
+   * The transaction landed on chain and reverted.
+   *
+   * There was no way to report this: a submitted transaction either reached
+   * `onConfirm` or silently stayed "submitted" forever, and the launch path
+   * called `onConfirm` the moment the wallet returned a signature. A user
+   * whose launch failed with a slippage revert was shown a green card.
+   *
+   * A signature is a receipt of submission. Only the chain decides success.
+   */
+  onFail?: (message: string, signature: string) => void;
 }
 
 interface QuoteResponse {
@@ -761,6 +772,88 @@ export class SolanaActionService {
     }
 
     return `sim:generic:${errorCode ?? errStr.substring(0, 80)}`;
+  }
+
+  /**
+   * Ask the chain why a transaction reverted, in the card's own vocabulary.
+   *
+   * The tracker knows a transaction failed but not why in any form a user can
+   * read — it has the error object, not the program logs. Fetching the
+   * transaction gets both, and `parseSimulationError` already turns that pair
+   * into the machine codes the card translates. Same wording whether the
+   * failure was caught before signing or after landing.
+   */
+  private async describeChainFailure(signature: string, fallbackErr?: unknown): Promise<string> {
+    try {
+      const connection = createSolanaConnection('confirmed');
+      const tx = await connection.getTransaction(signature, {
+        maxSupportedTransactionVersion: 0,
+        commitment: 'confirmed',
+      });
+      if (tx?.meta) {
+        return SolanaActionService.parseSimulationError(tx.meta.err, tx.meta.logMessages ?? []);
+      }
+    } catch {
+      /* the explanation is a nicety; the failure itself is already known */
+    }
+    return SolanaActionService.parseSimulationError(fallbackErr ?? null, []);
+  }
+
+  /**
+   * Follow a submitted transaction until the chain settles it, then report.
+   *
+   * Every submit path used to fire-and-forget: on success the tracker called
+   * `onConfirm`, on failure it unsubscribed in silence, and if the tracker
+   * itself threw, `onConfirm` was called anyway. So a reverted transaction
+   * showed as either a permanently spinning card or an outright success.
+   *
+   * Confirmation is not a detail of one action type, so it lives in one place
+   * and every path routes through it.
+   */
+  private watchSettlement(
+    signature: string,
+    action: string,
+    callbacks: ActionCallbacks,
+    options: Parameters<TransactionTrackerService['track']>[2] = {},
+  ): void {
+    const settleFailed = async (err?: unknown) => {
+      const message = await this.describeChainFailure(signature, err);
+      callbacks.onFail?.(message, signature);
+    };
+
+    this.tracker
+      .track(signature, action, options)
+      .then(txId => {
+        const sub = this.tracker.transactions$.subscribe(map => {
+          const tx = map.get(txId);
+          if (tx?.status === 'confirmed') {
+            sub.unsubscribe();
+            callbacks.onConfirm?.(signature);
+          } else if (tx?.status === 'failed') {
+            sub.unsubscribe();
+            void settleFailed(tx.error);
+          }
+        });
+      })
+      .catch(async () => {
+        // The tracker couldn't record the transaction — a database or auth
+        // problem, which says nothing about the transaction. Read the chain
+        // directly rather than assuming the optimistic answer.
+        try {
+          const connection = createSolanaConnection('confirmed');
+          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+          const res = await connection.confirmTransaction(
+            { signature, blockhash, lastValidBlockHeight },
+            'confirmed',
+          );
+          if (res.value.err) { await settleFailed(res.value.err); return; }
+          callbacks.onConfirm?.(signature);
+        } catch {
+          // Neither the tracker nor the RPC could tell us. Saying "confirmed"
+          // here is the exact lie this method exists to prevent; leave the
+          // card submitted, with its explorer link, and let the user look.
+        }
+      });
   }
 
   // ─── Dynamic Slippage Management ─────────────────────────────────────────────
@@ -1703,7 +1796,14 @@ export class SolanaActionService {
         // Wallet signed + sent atomically — skip the separate sendRawTransaction step.
         callbacks.onSubmit?.(directSig);
         if (amountUsd > 0) this.spendingLimit.record(amountUsd);
-        callbacks.onConfirm?.(directSig);
+        // Watch it land. This used to call onConfirm right here, which reported
+        // a launch as successful the instant the wallet handed back a
+        // signature — including the launches that reverted on chain.
+        this.watchSettlement(directSig, action.type, callbacks, {
+          protocol: action.params['protocol'],
+          params: action.params as Record<string, unknown>,
+          estUsd: backendEstUsd ?? (amountUsd > 0 ? amountUsd : undefined),
+        });
         // Legacy path. A launch with a dev-buy is one atomic transaction now,
         // so the backend stops returning `initialBuy` and this never fires —
         // kept only so an older card mid-flight still completes rather than
@@ -1871,29 +1971,12 @@ export class SolanaActionService {
       }
     }
 
-    // Step 5: Track via TransactionTracker (retry + DB sync)
-    this.tracker
-      .track(signature, action.type, {
-        protocol: action.params['protocol'],
-        params: action.params as Record<string, unknown>,
-        estUsd: backendEstUsd ?? (amountUsd > 0 ? amountUsd : undefined),
-      })
-      .then(txId => {
-        // Call onConfirm callback when tracker confirms
-        const sub = this.tracker.transactions$.subscribe(map => {
-          const tx = map.get(txId);
-          if (tx?.status === 'confirmed') {
-            callbacks.onConfirm?.();
-            sub.unsubscribe();
-          } else if (tx?.status === 'failed') {
-            sub.unsubscribe();
-          }
-        });
-      })
-      .catch(() => {
-        // If tracker fails, at least call the callback
-        callbacks.onConfirm?.();
-      });
+    // Step 5: follow it to a settled state — confirmed or reverted.
+    this.watchSettlement(signature, action.type, callbacks, {
+      protocol: action.params['protocol'],
+      params: action.params as Record<string, unknown>,
+      estUsd: backendEstUsd ?? (amountUsd > 0 ? amountUsd : undefined),
+    });
 
     return signature;
     } finally {
@@ -2117,16 +2200,7 @@ export class SolanaActionService {
           const rpcConn = createSolanaConnection('confirmed');
           const sig = await rpcConn.sendRawTransaction(signedVtx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
           callbacks.onSubmit?.(sig);
-          this.tracker
-            .track(sig, action.type, { protocol: action.params['protocol'] })
-            .then(txId => {
-              const sub = this.tracker.transactions$.subscribe(map => {
-                const tx = map.get(txId);
-                if (tx?.status === 'confirmed') { callbacks.onConfirm?.(); sub.unsubscribe(); }
-                else if (tx?.status === 'failed') { sub.unsubscribe(); }
-              });
-            })
-            .catch(() => callbacks.onConfirm?.());
+          this.watchSettlement(sig, action.type, callbacks, { protocol: action.params['protocol'] });
           return sig;
         }
 
@@ -2170,17 +2244,7 @@ export class SolanaActionService {
     const signature = await this.lendService.signAndSubmit(transaction);
     callbacks.onSubmit?.(signature);
 
-    // Tracker'a bildir
-    this.tracker
-      .track(signature, action.type, { protocol: action.params['protocol'] })
-      .then(txId => {
-        const sub = this.tracker.transactions$.subscribe(map => {
-          const tx = map.get(txId);
-          if (tx?.status === 'confirmed') { callbacks.onConfirm?.(); sub.unsubscribe(); }
-          else if (tx?.status === 'failed') { sub.unsubscribe(); }
-        });
-      })
-      .catch(() => callbacks.onConfirm?.());
+    this.watchSettlement(signature, action.type, callbacks, { protocol: action.params['protocol'] });
 
     return signature;
   }
