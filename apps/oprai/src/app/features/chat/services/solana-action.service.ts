@@ -775,29 +775,44 @@ export class SolanaActionService {
   }
 
   /**
-   * Ask the chain why a transaction reverted, in the card's own vocabulary.
+   * Ask the chain what actually happened to a transaction.
    *
-   * The tracker knows a transaction failed but not why in any form a user can
-   * read — it has the error object, not the program logs. Fetching the
-   * transaction gets both, and `parseSimulationError` already turns that pair
-   * into the machine codes the card translates. Same wording whether the
-   * failure was caught before signing or after landing.
+   * Returns `{ok: true}` when it landed and succeeded, `{ok: false}` with a
+   * user-readable reason when it reverted, and `null` when the chain cannot
+   * say yet — a transaction can be a second ahead of the indexer.
+   *
+   * The distinction is the whole point. The first version asked only "why did
+   * this fail?", assumed the answer existed, and when it did not, produced
+   * "The transaction simulation failed before signing" for a launch that had
+   * succeeded and was already live on pump.fun. A tracker that gives up is
+   * reporting on itself, not on the transaction.
    */
-  private async describeChainFailure(signature: string, fallbackErr?: unknown): Promise<string> {
-    try {
-      const connection = createSolanaConnection('confirmed');
-      const tx = await connection.getTransaction(signature, {
-        maxSupportedTransactionVersion: 0,
-        commitment: 'confirmed',
-      });
-      if (tx?.meta) {
-        return SolanaActionService.parseSimulationError(tx.meta.err, tx.meta.logMessages ?? []);
+  private async readChainOutcome(
+    signature: string,
+  ): Promise<{ ok: true } | { ok: false; reason: string } | null> {
+    const connection = createSolanaConnection('confirmed');
+    // The indexer lags the ledger by a moment; a single miss is not a verdict.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const tx = await connection.getTransaction(signature, {
+          maxSupportedTransactionVersion: 0,
+          commitment: 'confirmed',
+        });
+        if (tx?.meta) {
+          if (!tx.meta.err) return { ok: true };
+          return {
+            ok: false,
+            reason: SolanaActionService.parseSimulationError(tx.meta.err, tx.meta.logMessages ?? []),
+          };
+        }
+      } catch {
+        /* fall through to the retry */
       }
-    } catch {
-      /* the explanation is a nicety; the failure itself is already known */
+      if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
     }
-    return SolanaActionService.parseSimulationError(fallbackErr ?? null, []);
+    return null;
   }
+
 
   /**
    * Follow a submitted transaction until the chain settles it, then report.
@@ -816,9 +831,18 @@ export class SolanaActionService {
     callbacks: ActionCallbacks,
     options: Parameters<TransactionTrackerService['track']>[2] = {},
   ): void {
-    const settleFailed = async (err?: unknown) => {
-      const message = await this.describeChainFailure(signature, err);
-      callbacks.onFail?.(message, signature);
+    // The tracker saying "failed" is a prompt to go and look, not a verdict.
+    // It marks a transaction failed when its own confirmation loop gives up —
+    // an RPC hiccup, a missed notification, an expired polling window — none
+    // of which say anything about the transaction. So confirm against the
+    // chain before telling the user their launch failed.
+    const settleFromChain = async () => {
+      const outcome = await this.readChainOutcome(signature);
+      if (outcome?.ok) { callbacks.onConfirm?.(signature); return; }
+      if (outcome) { callbacks.onFail?.(outcome.reason, signature); return; }
+      // The chain has no answer. Leave the card submitted with its explorer
+      // link rather than invent either result.
+      console.warn('[settlement] chain could not resolve', signature);
     };
 
     this.tracker
@@ -831,7 +855,7 @@ export class SolanaActionService {
             callbacks.onConfirm?.(signature);
           } else if (tx?.status === 'failed') {
             sub.unsubscribe();
-            void settleFailed(tx.error);
+            void settleFromChain();
           }
         });
       })
@@ -839,20 +863,7 @@ export class SolanaActionService {
         // The tracker couldn't record the transaction — a database or auth
         // problem, which says nothing about the transaction. Read the chain
         // directly rather than assuming the optimistic answer.
-        try {
-          const connection = createSolanaConnection('confirmed');
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-          const res = await connection.confirmTransaction(
-            { signature, blockhash, lastValidBlockHeight },
-            'confirmed',
-          );
-          if (res.value.err) { await settleFailed(res.value.err); return; }
-          callbacks.onConfirm?.(signature);
-        } catch {
-          // Neither the tracker nor the RPC could tell us. Saying "confirmed"
-          // here is the exact lie this method exists to prevent; leave the
-          // card submitted, with its explorer link, and let the user look.
-        }
+        await settleFromChain();
       });
   }
 
