@@ -389,13 +389,13 @@ async fn get_swap_quote_with_fee(
 async fn platform_fee_bps_for(params: &SwapParams, swap_mode: &str) -> u16 {
     let input = resolve_token_address(&params.input_mint);
     let output = resolve_token_address(&params.output_mint);
-    let Some(mint) = fees::swap_fee_mint(&input, &output, swap_mode == "ExactOut") else {
-        return 0;
-    };
     // Only price in a fee we can actually collect. Jupiter will happily quote
     // and build one against an account that does not exist, and the failure
     // then lands on chain after the user has signed.
-    if fees::ready_fee_account(mint).await.is_none() {
+    if fees::ready_swap_fee_mint(&input, &output, swap_mode == "ExactOut")
+        .await
+        .is_none()
+    {
         return 0;
     }
     fees::swap_fee_bps(&input, &output)
@@ -404,9 +404,9 @@ async fn platform_fee_bps_for(params: &SwapParams, swap_mode: &str) -> u16 {
 async fn fee_account_for(params: &SwapParams, swap_mode: &str) -> Option<(String, String)> {
     let input = resolve_token_address(&params.input_mint);
     let output = resolve_token_address(&params.output_mint);
-    let mint = fees::swap_fee_mint(&input, &output, swap_mode == "ExactOut")?.to_string();
-    let account = fees::ready_fee_account(&mint).await?;
-    Some((mint, account.to_string()))
+    let (mint, account) =
+        fees::ready_swap_fee_mint(&input, &output, swap_mode == "ExactOut").await?;
+    Some((mint.to_string(), account.to_string()))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

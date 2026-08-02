@@ -117,23 +117,47 @@ pub fn swap_fee_bps(input_mint: &str, output_mint: &str) -> u16 {
     STANDARD_BPS
 }
 
-/// Which mint to be paid in, if any.
+/// Every mint on this pair we would accept payment in, best first.
 ///
 /// Jupiter's constraint: on an ExactIn swap the fee account's mint may be
-/// either side; on ExactOut it may only be the input. Within that, we take the
-/// first side that is a mint we actually want to hold — and if neither is, we
-/// take nothing rather than accumulate a long tail of dust.
-pub fn swap_fee_mint<'a>(input_mint: &'a str, output_mint: &'a str, exact_out: bool) -> Option<&'a str> {
-    let candidates: &[&str] = if exact_out {
+/// either side; on ExactOut it may only be the input. Within that we only want
+/// SOL, USDC or USDT — a cut of every memecoin traded would be dust worth less
+/// than its own rent.
+///
+/// A list rather than a single choice, because the preferred mint's account
+/// may not exist yet. Returning only the favourite meant a SOL→USDC swap went
+/// uncharged while sitting next to a perfectly good USDC fee account, purely
+/// because wSOL is listed first.
+pub fn swap_fee_mints<'a>(
+    input_mint: &'a str,
+    output_mint: &'a str,
+    exact_out: bool,
+) -> Vec<&'a str> {
+    let sides: &[&str] = if exact_out {
         &[input_mint]
     } else {
         &[output_mint, input_mint]
     };
+    let mut out = Vec::new();
     for want in PAYABLE_MINTS {
-        for c in candidates {
-            if c.eq_ignore_ascii_case(want) {
-                return Some(*c);
+        for c in sides {
+            if c.eq_ignore_ascii_case(want) && !out.contains(c) {
+                out.push(*c);
             }
+        }
+    }
+    out
+}
+
+/// The first mint on this pair whose fee account actually exists.
+pub async fn ready_swap_fee_mint<'a>(
+    input_mint: &'a str,
+    output_mint: &'a str,
+    exact_out: bool,
+) -> Option<(&'a str, Pubkey)> {
+    for mint in swap_fee_mints(input_mint, output_mint, exact_out) {
+        if let Some(account) = ready_fee_account(mint).await {
+            return Some((mint, account));
         }
     }
     None
@@ -258,14 +282,20 @@ mod tests {
     fn we_are_only_paid_in_tokens_worth_holding() {
         let meme = "9HiJnsEY9rFiaBDgRVPBtGDEbWUx9Rdhh6fnrkvDpump";
         // A memecoin bought with SOL pays us in SOL, not in the memecoin.
-        assert_eq!(swap_fee_mint(WSOL_MINT, meme, false), Some(WSOL_MINT));
+        assert_eq!(swap_fee_mints(WSOL_MINT, meme, false), vec![WSOL_MINT]);
         // Selling it for USDC pays us in USDC.
-        assert_eq!(swap_fee_mint(meme, USDC_MINT, false), Some(USDC_MINT));
+        assert_eq!(swap_fee_mints(meme, USDC_MINT, false), vec![USDC_MINT]);
         // Memecoin to memecoin pays us nothing — dust is not revenue.
-        assert_eq!(swap_fee_mint(meme, "AnotherMintxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", false), None);
+        assert!(swap_fee_mints(meme, "AnotherMintxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", false).is_empty());
+        // Both sides payable: every option is offered, best first, so a
+        // missing account on the favourite does not cost the fee.
+        assert_eq!(
+            swap_fee_mints(USDC_MINT, WSOL_MINT, false),
+            vec![WSOL_MINT, USDC_MINT],
+        );
         // ExactOut may only use the input side.
-        assert_eq!(swap_fee_mint(meme, USDC_MINT, true), None);
-        assert_eq!(swap_fee_mint(USDC_MINT, meme, true), Some(USDC_MINT));
+        assert!(swap_fee_mints(meme, USDC_MINT, true).is_empty());
+        assert_eq!(swap_fee_mints(USDC_MINT, meme, true), vec![USDC_MINT]);
     }
 
     #[test]
