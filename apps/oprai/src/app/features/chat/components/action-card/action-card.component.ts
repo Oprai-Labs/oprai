@@ -138,6 +138,16 @@ const ORCA_WHIRLPOOL_HINTS: Record<string, string> = {
   '101': "Whirlpool constraint failed — usually tick alignment or stale pool data. Try a wider range, or refresh the pool and retry.",
 };
 
+/**
+ * pump.fun's bonding curve prices every trade off reserves that move with each
+ * buy. A transaction carries a ceiling; when the curve has moved past it by the
+ * time the transaction lands, the program rejects it rather than overspending.
+ */
+const PUMPFUN_CURVE_HINTS: Record<string, string> = {
+  '6002': "The token's price moved before this trade landed, so it would have cost more SOL than the transaction allowed. Raise the slippage a little and try again.",
+  '6003': "The token's price moved before this trade landed, so the sale would have returned less SOL than the transaction allowed. Raise the slippage a little and try again.",
+};
+
 const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
   orca_open_position:     ORCA_WHIRLPOOL_HINTS,
   orca_increase_position: ORCA_WHIRLPOOL_HINTS,
@@ -216,6 +226,14 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
     '6091': "This pool's debt reserve only accepts borrows inside its elevation group, which this position can't use. You can't add leverage to this pool.",
     '6011': "This addition would push the position past its allowed loan-to-value. Add a smaller amount.",
   },
+  // pump.fun bonding curve. 6002 = TooMuchSolRequired on a buy, 6003 =
+  // TooLittleSolReceived on a sell — both are the price moving past the
+  // ceiling the transaction carried. Action-scoped because 6003 means
+  // something else entirely on a Jupiter route.
+  pumpfun_buy:  { ...PUMPFUN_CURVE_HINTS },
+  pumpfun_sell: { ...PUMPFUN_CURVE_HINTS },
+  launch_token: { ...PUMPFUN_CURVE_HINTS },
+  pumpfun_launch: { ...PUMPFUN_CURVE_HINTS },
 };
 
 /**

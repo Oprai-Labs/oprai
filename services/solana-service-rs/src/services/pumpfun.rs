@@ -1105,48 +1105,87 @@ fn fetch_lookup_table_blocking(
 /// runs inside `web::block`, so it cannot await — and it needs this before it
 /// can put the dev-buy in the create transaction.
 fn fetch_pumpfun_fee_recipient_blocking(rpc: &SolanaRpc) -> Pubkey {
-    const FEE_RECIPIENT_OFFSET: usize = 41;
-    if let Ok(account) = rpc.client().get_account(&find_global_pda()) {
-        if account.data.len() >= FEE_RECIPIENT_OFFSET + 32 {
-            if let Ok(pk) =
-                Pubkey::try_from(&account.data[FEE_RECIPIENT_OFFSET..FEE_RECIPIENT_OFFSET + 32])
-            {
-                return pk;
-            }
-        }
-    }
-    tracing::warn!("pump.fun global unreadable, using fallback fee_recipient");
-    Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback fee_recipient")
+    read_pumpfun_global_blocking(rpc).0
 }
 
-async fn fetch_pumpfun_fee_recipient(rpc: &SolanaRpc) -> Pubkey {
-    let global = find_global_pda();
-    let rpc2 = rpc.clone();
-    let result = tokio::task::spawn_blocking(move || rpc2.client().get_account(&global)).await;
+/// pump.fun's protocol fee, in basis points, when the global account cannot
+/// be read. Measured on chain: 95 = 0.95%.
+const PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK: u64 = 95;
 
-    match result {
-        Ok(Ok(account)) => {
-            const FEE_RECIPIENT_OFFSET: usize = 41; // 8 disc + 1 bool + 32 pubkey
-            if account.data.len() >= FEE_RECIPIENT_OFFSET + 32 {
-                if let Ok(pk) =
-                    Pubkey::try_from(&account.data[FEE_RECIPIENT_OFFSET..FEE_RECIPIENT_OFFSET + 32])
-                {
-                    return pk;
-                }
-            }
-            tracing::warn!(
-                "pump.fun global account data too short or invalid, using fallback fee_recipient"
-            );
+/// The coin-creator fee, which the program charges on top of the protocol fee
+/// and pays to the token's creator.
+///
+/// Unlike the protocol fee this one is not in the global account, so it is
+/// measured rather than read: decoding pump.fun's own buys shows every one of
+/// them passing `max_sol_cost = trade x 1.0125` with no scatter — 95 bps from
+/// the global plus 30 here. If pump.fun changes it, the user's slippage
+/// absorbs the difference; at the 0.5% default there is room for it to double.
+const PUMPFUN_CREATOR_FEE_BPS: u64 = 30;
+
+/// The fee recipient and the total trading fee, in basis points.
+///
+/// The fee has to be read, not assumed. A buy passes `max_sol_cost`, and the
+/// program charges the trade PLUS this fee against it; leaving the fee for
+/// slippage to absorb means the trade fails whenever the user's slippage is
+/// tighter than the fee. That is exactly what happened: the launch card sends
+/// 0.5% and the fee is 0.95%, so every launch with a dev-buy reverted 6002.
+fn read_pumpfun_global_blocking(rpc: &SolanaRpc) -> (Pubkey, u64) {
+    const FEE_RECIPIENT_OFFSET: usize = 41;
+    const FEE_BPS_OFFSET: usize = 105;
+    let fallback = || {
+        Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback fee_recipient")
+    };
+    match rpc.client().get_account(&find_global_pda()) {
+        Ok(account) => {
+            let d = &account.data;
+            let recipient = if d.len() >= FEE_RECIPIENT_OFFSET + 32 {
+                Pubkey::try_from(&d[FEE_RECIPIENT_OFFSET..FEE_RECIPIENT_OFFSET + 32])
+                    .unwrap_or_else(|_| fallback())
+            } else {
+                fallback()
+            };
+            let bps = if d.len() >= FEE_BPS_OFFSET + 8 {
+                u64::from_le_bytes(d[FEE_BPS_OFFSET..FEE_BPS_OFFSET + 8].try_into().unwrap())
+            } else {
+                PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK
+            };
+            // A nonsense value is worse than the fallback — it would either
+            // reject every trade or leave the ceiling too low.
+            let bps = if (1..=1_000).contains(&bps) {
+                bps
+            } else {
+                PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK
+            };
+            (recipient, bps + PUMPFUN_CREATOR_FEE_BPS)
         }
-        Ok(Err(e)) => {
-            tracing::warn!(error = %e, "RPC error fetching pump.fun global, using fallback fee_recipient")
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "spawn_blocking error fetching pump.fun global, using fallback fee_recipient")
+        Err(_) => {
+            tracing::warn!("pump.fun global unreadable, using fallbacks");
+            (
+                fallback(),
+                PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK + PUMPFUN_CREATOR_FEE_BPS,
+            )
         }
     }
+}
 
-    Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback fee_recipient")
+/// The async twin of [`read_pumpfun_global_blocking`], for the request paths
+/// that are already on the async runtime.
+///
+/// It parsed only the recipient and duplicated the offset by hand; the fee
+/// lives in the same account and every buy needs both, so it returns the pair
+/// and defers the parsing to the one place that knows the layout.
+async fn fetch_pumpfun_global(rpc: &SolanaRpc) -> (Pubkey, u64) {
+    let rpc2 = rpc.clone();
+    match tokio::task::spawn_blocking(move || read_pumpfun_global_blocking(&rpc2)).await {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::warn!(error = %e, "spawn_blocking failed reading pump.fun global");
+            (
+                Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback"),
+                PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK + PUMPFUN_CREATOR_FEE_BPS,
+            )
+        }
+    }
 }
 
 fn build_buy_instruction(
@@ -1641,6 +1680,27 @@ fn parse_buy_amounts(
     v_sol: u64,
     v_tok: u64,
 ) -> Result<(u64, u64), AppError> {
+    parse_buy_amounts_with_fee(
+        params,
+        v_sol,
+        v_tok,
+        PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK + PUMPFUN_CREATOR_FEE_BPS,
+    )
+}
+
+/// `max_sol_cost` has to cover the trade AND the protocol fee.
+///
+/// It used to be the trade plus slippage, on the assumption that slippage
+/// would absorb the fee. It does when slippage is the 10% default, and it does
+/// not when the launch card sends 0.5% against a 0.95% fee — every launch with
+/// a dev-buy failed with 6002. Slippage is for the price moving; a published
+/// fee is not price movement and should not be paid out of it.
+fn parse_buy_amounts_with_fee(
+    params: &PumpFunTradeParams,
+    v_sol: u64,
+    v_tok: u64,
+    fee_bps: u64,
+) -> Result<(u64, u64), AppError> {
     let amount: f64 = params
         .amount
         .parse()
@@ -1656,13 +1716,15 @@ fn parse_buy_amounts(
         } else {
             estimate_tokens_for_sol(sol_lamports)
         };
-        let max_cost = apply_slippage(sol_lamports, slippage_bps);
+        let with_fee = sol_lamports + (sol_lamports * fee_bps).div_ceil(10_000);
+        let max_cost = apply_slippage(with_fee, slippage_bps);
         Ok((tokens, max_cost))
     } else {
         // Amount in human-readable tokens → convert to base units (6 decimals)
         let token_base = (amount * PUMP_TOKEN_DECIMALS as f64) as u64;
         let sol_needed = estimate_sol_for_tokens_out(v_sol, v_tok, token_base);
-        let max_cost = apply_slippage(sol_needed, slippage_bps);
+        let with_fee = sol_needed + (sol_needed * fee_bps).div_ceil(10_000);
+        let max_cost = apply_slippage(with_fee, slippage_bps);
         Ok((token_base, max_cost))
     }
 }
@@ -2345,12 +2407,13 @@ pub fn build_launch_token_transaction_blocking(
             slippage: params.slippage,
             priority_fee: None,
         };
-        let (token_amount, max_sol_cost) = parse_buy_amounts(
+        let (fee_recipient, fee_bps) = read_pumpfun_global_blocking(rpc);
+        let (token_amount, max_sol_cost) = parse_buy_amounts_with_fee(
             &buy_params,
             INITIAL_VIRTUAL_SOL_RESERVES,
             INITIAL_VIRTUAL_TOKEN_RESERVES,
+            fee_bps,
         )?;
-        let fee_recipient = fetch_pumpfun_fee_recipient_blocking(rpc);
         let t22 = token_2022_program();
         create_instructions.push(build_create_ata_instruction(
             creator_pubkey,
@@ -2935,13 +2998,14 @@ pub async fn build_pumpfun_buy(
         .and_then(|c| c.get("name").and_then(|v| v.as_str()).map(str::to_string))
         .unwrap_or_else(|| params.mint.clone());
 
-    let (token_amount, max_sol_cost) = parse_buy_amounts(params, v_sol, v_tok)?;
+    // The fee recipient and the fee itself come from the same account, and the
+    // buy needs both — the ceiling it passes has to cover the fee, not hope
+    // the user's slippage is wider than it.
+    let (fee_recipient, fee_bps) = fetch_pumpfun_global(rpc).await;
+    let (token_amount, max_sol_cost) = parse_buy_amounts_with_fee(params, v_sol, v_tok, fee_bps)?;
 
     let priority_fee_sol = params.priority_fee.unwrap_or(0.0005);
     let [cu_limit_ix, cu_price_ix] = build_compute_budget_instructions(priority_fee_sol);
-
-    // Fetch fee_recipient dynamically from on-chain global account (falls back to known address)
-    let fee_recipient = fetch_pumpfun_fee_recipient(rpc).await;
 
     let create_ata_ix = build_create_ata_instruction(&buyer, &mint, &token_prog);
     let buy_ix = build_buy_instruction(
@@ -3043,7 +3107,7 @@ pub async fn build_pumpfun_sell(
     let priority_fee_sol = params.priority_fee.unwrap_or(0.0005);
     let [cu_limit_ix, cu_price_ix] = build_compute_budget_instructions(priority_fee_sol);
 
-    let fee_recipient = fetch_pumpfun_fee_recipient(rpc).await;
+    let (fee_recipient, _fee_bps) = fetch_pumpfun_global(rpc).await;
 
     let sell_ix = build_sell_instruction(
         &seller,
@@ -3480,6 +3544,42 @@ pub async fn build_pumpswap_pool_info(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The ceiling a buy passes has to cover the fee.
+    ///
+    /// It did not: `max_sol_cost` was the trade plus slippage, and the launch
+    /// card's default slippage is 0.5% against a 1.25% fee — so every launch
+    /// with a dev-buy reverted with 6002, "Too much SOL required". The fee is
+    /// a published number, not price movement, and slippage is not the place
+    /// to hide it.
+    #[test]
+    fn buy_ceiling_covers_the_protocol_fee() {
+        const FEE_BPS: u64 = PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK + PUMPFUN_CREATOR_FEE_BPS;
+        let params = PumpFunTradeParams {
+            mint: "So11111111111111111111111111111111111111112".into(),
+            amount: "0.5".into(),
+            denominated_in_sol: Some(true),
+            slippage: Some(0.5), // per cent — the launch card's default
+            priority_fee: None,
+        };
+
+        let (_tokens, max_sol_cost) = parse_buy_amounts_with_fee(
+            &params,
+            INITIAL_VIRTUAL_SOL_RESERVES,
+            INITIAL_VIRTUAL_TOKEN_RESERVES,
+            FEE_BPS,
+        )
+        .expect("amounts parse");
+
+        let spend = 500_000_000u64;
+        let required = spend + (spend * FEE_BPS).div_ceil(10_000);
+        assert!(
+            max_sol_cost >= required,
+            "ceiling {max_sol_cost} is below the {required} the program will charge — this is 6002",
+        );
+        // And it must not be open-ended: slippage still bounds the overspend.
+        assert!(max_sol_cost <= required + (spend / 100));
+    }
 
     /// Verify the discriminators
     #[test]
