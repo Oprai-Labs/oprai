@@ -3216,8 +3216,15 @@ pub async fn build_pumpfun_buy(
     // transaction we assemble ourselves, so the one-time ~0.002 SOL of rent
     // rides along here instead of becoming an ops ritual that has to be
     // repeated every time the fee wallet changes.
-    if let Some(ix) = ensure_jupiter_sol_fee_account(rpc, &buyer).await {
-        instructions.push(ix);
+    // Only on a trade big enough that 0.002 SOL of rent is noise. A user
+    // spending their last few cents should not be the one who pays to open
+    // our fee account — a simulation on a nearly-empty wallet already failed
+    // for exactly that rent.
+    const PROVISION_MIN_LAMPORTS: u64 = 50_000_000; // 0.05 SOL
+    if parse_requested_lamports(params) >= PROVISION_MIN_LAMPORTS {
+        if let Some(ix) = ensure_jupiter_sol_fee_account(rpc, &buyer).await {
+            instructions.push(ix);
+        }
     }
     let instructions = with_oprai_memo(instructions, &buyer);
     let blockhash = get_blockhash(rpc).await?;
