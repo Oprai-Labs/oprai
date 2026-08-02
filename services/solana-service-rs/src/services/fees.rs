@@ -147,18 +147,28 @@ pub fn swap_fee_mint<'a>(input_mint: &'a str, output_mint: &'a str, exact_out: b
 /// failed with error 6025 exactly this way. So "build it and see" is not a
 /// design; the account has to be checked before it is named.
 ///
-/// Cached per process: an account that exists never stops existing, and one
-/// that is missing is re-checked on the next restart.
+/// Cached, but asymmetrically: an account that exists never stops existing, so
+/// that answer is kept for the life of the process. A missing one is only
+/// trusted for a few minutes — the account may be created at any moment, by a
+/// pump.fun trade carrying the idempotent create or by hand, and the fee
+/// should start flowing then rather than at the next restart.
 pub async fn ready_fee_account(mint: &str) -> Option<Pubkey> {
-    static SEEN: OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
-        OnceLock::new();
-    let cache = SEEN.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    /// How long to believe an account is still missing.
+    const MISSING_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+    type Cache = std::collections::HashMap<String, (bool, std::time::Instant)>;
+    static SEEN: OnceLock<std::sync::Mutex<Cache>> = OnceLock::new();
+    let cache = SEEN.get_or_init(|| std::sync::Mutex::new(Cache::new()));
 
     let mint_pk = Pubkey::from_str(mint).ok()?;
     let account = fee_token_account(&mint_pk)?;
 
-    if let Some(known) = cache.lock().ok().and_then(|c| c.get(mint).copied()) {
-        return known.then_some(account);
+    if let Some((known, at)) = cache.lock().ok().and_then(|c| c.get(mint).copied()) {
+        if known {
+            return Some(account);
+        }
+        if at.elapsed() < MISSING_TTL {
+            return None;
+        }
     }
 
     let endpoint = std::env::var("SOLANA_RPC")
@@ -180,7 +190,7 @@ pub async fn ready_fee_account(mint: &str) -> Option<Pubkey> {
         );
     }
     if let Ok(mut c) = cache.lock() {
-        c.insert(mint.to_string(), exists);
+        c.insert(mint.to_string(), (exists, std::time::Instant::now()));
     }
     exists.then_some(account)
 }
