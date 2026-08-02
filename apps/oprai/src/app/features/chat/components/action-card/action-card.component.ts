@@ -138,6 +138,16 @@ const ORCA_WHIRLPOOL_HINTS: Record<string, string> = {
   '101': "Whirlpool constraint failed — usually tick alignment or stale pool data. Try a wider range, or refresh the pool and retry.",
 };
 
+/**
+ * pump.fun's bonding curve prices every trade off reserves that move with each
+ * buy. A transaction carries a ceiling; when the curve has moved past it by the
+ * time the transaction lands, the program rejects it rather than overspending.
+ */
+const PUMPFUN_CURVE_HINTS: Record<string, string> = {
+  '6002': "The token's price moved before this trade landed, so it would have cost more SOL than the transaction allowed. Raise the slippage a little and try again.",
+  '6003': "The token's price moved before this trade landed, so the sale would have returned less SOL than the transaction allowed. Raise the slippage a little and try again.",
+};
+
 const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
   orca_open_position:     ORCA_WHIRLPOOL_HINTS,
   orca_increase_position: ORCA_WHIRLPOOL_HINTS,
@@ -216,6 +226,14 @@ const SIM_HINTS_BY_ACTION: Record<string, Record<string, string>> = {
     '6091': "This pool's debt reserve only accepts borrows inside its elevation group, which this position can't use. You can't add leverage to this pool.",
     '6011': "This addition would push the position past its allowed loan-to-value. Add a smaller amount.",
   },
+  // pump.fun bonding curve. 6002 = TooMuchSolRequired on a buy, 6003 =
+  // TooLittleSolReceived on a sell — both are the price moving past the
+  // ceiling the transaction carried. Action-scoped because 6003 means
+  // something else entirely on a Jupiter route.
+  pumpfun_buy:  { ...PUMPFUN_CURVE_HINTS },
+  pumpfun_sell: { ...PUMPFUN_CURVE_HINTS },
+  launch_token: { ...PUMPFUN_CURVE_HINTS },
+  pumpfun_launch: { ...PUMPFUN_CURVE_HINTS },
 };
 
 /**
@@ -446,7 +464,9 @@ function sanitizeErrorMessage(msg: string, actionType?: string): string {
   if (/cancel dca failed|cancel the dca order/i.test(lower)) {
     return 'Couldn’t cancel the DCA order right now. Please try again in a moment.';
   }
-  if (/pumpportal|initial buy build failed|may not be indexed yet|isn.t ready to trade yet/i.test(lower)) {
+  // Kept without the PumpPortal clause: nothing waits on a third party's
+  // indexing any more, but a launch can still race the create confirmation.
+  if (/initial buy build failed|may not be indexed yet|isn.t ready to trade yet/i.test(lower)) {
     return 'The token isn’t ready to trade yet — give it a few seconds after launch and try again.';
   }
   if (/pumpfun api|pump\.fun (api|is temporarily)/i.test(lower)) {
@@ -1625,7 +1645,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly editTwitter = signal('');
   readonly editTelegram = signal('');
   readonly editWebsite = signal('');
-  readonly editMayhemMode = signal(false);
   readonly editCashback = signal(false);
   readonly editTokenizedAgent = signal(false);
   /** Mint (contract) of the token created by this launch card, once known. */
@@ -1676,7 +1695,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       editTwitter: this.editTwitter(),
       editTelegram: this.editTelegram(),
       editWebsite: this.editWebsite(),
-      editMayhemMode: this.editMayhemMode(),
       editCashback: this.editCashback(),
       editTokenizedAgent: this.editTokenizedAgent(),
       editSlippage: this.editSlippage(),
@@ -5244,7 +5262,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.editTwitter.set(p['twitter'] ?? '');
     this.editTelegram.set(p['telegram'] ?? '');
     this.editWebsite.set(p['website'] ?? '');
-    this.editMayhemMode.set(p['mayhemMode'] === 'true' || p['mayhemMode'] === true as any);
     this.editCashback.set(p['cashback'] === 'true' || p['cashback'] === true as any);
     // Tokenized Agent has no on-chain ix in our backend yet — force off regardless of LLM/draft.
     this.editTokenizedAgent.set(false);
@@ -5281,7 +5298,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           if (draft.editTwitter != null) this.editTwitter.set(draft.editTwitter);
           if (draft.editTelegram != null) this.editTelegram.set(draft.editTelegram);
           if (draft.editWebsite != null) this.editWebsite.set(draft.editWebsite);
-          if (draft.editMayhemMode != null) this.editMayhemMode.set(draft.editMayhemMode);
           if (draft.editCashback != null) this.editCashback.set(draft.editCashback);
           // Tokenized Agent intentionally not restored — backend rejects it.
           if (draft.editSlippage != null) this.editSlippage.set(draft.editSlippage);
@@ -5392,7 +5408,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       mergedParams['twitter'] = this.editTwitter();
       mergedParams['telegram'] = this.editTelegram();
       mergedParams['website'] = this.editWebsite();
-      mergedParams['mayhemMode'] = String(this.editMayhemMode());
       mergedParams['cashback'] = String(this.editCashback());
       // Tokenized Agent: backend has no ix wired up — always send false.
       mergedParams['tokenizedAgent'] = 'false';
@@ -5633,18 +5648,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   triggerImageUpload(): void { this.imageFileInput?.nativeElement?.click(); }
 
-  // pump.fun rule: Mayhem-mode launches require >= 0.05 SOL initial buy.
-  // Auto-bump the user's input when they enable Mayhem so the backend doesn't reject the launch.
-  toggleMayhemMode(): void {
-    const next = !this.editMayhemMode();
-    this.editMayhemMode.set(next);
-    if (next) {
-      const current = parseFloat(this.editInitialBuy() || '0');
-      if (!Number.isFinite(current) || current < 0.05) {
-        this.editInitialBuy.set('0.05');
-      }
-    }
-  }
 
   onTickerInput(event: Event): void {
     const input = event.target as HTMLInputElement;

@@ -97,7 +97,7 @@ interface BuildResponse {
   // (via `pumpfun_initial_buy`) after the create tx confirms. For streamflow batch,
   // `data.transactions` is the full array.
   data?: {
-    initialBuy?: { mint: string; amountSol: number; mayhem?: boolean };
+    initialBuy?: { mint: string; amountSol: number };
     transactions?: string[];
     [k: string]: unknown;
   };
@@ -345,7 +345,7 @@ function parseBoolParam(val: unknown, defaultWhenAbsent = false): boolean {
 const FRONTEND_ACTION_TYPES = [
   // Jupiter Lend SDK — Rust only returns preview, frontend builds actual TX
   'lend', 'withdraw_lend', 'borrow', 'repay',
-  // pump.fun bonding curve trades (direct pumpportal.fun API)
+  // pump.fun bonding curve trades, built here from the curve account
   'pumpfun_buy', 'pumpfun_sell',
   // Bridge — remapped to cross_chain_swap (Relay) at execution time
   'bridge',
@@ -588,12 +588,13 @@ export class SolanaActionService {
    * Perform a token launch's initial dev-buy as a follow-up, AFTER the create tx
    * confirms (the token/curve must exist on-chain first).
    *
-   * The buy is built by the backend via `pumpfun_initial_buy` (PumpPortal), which
-   * returns the correct transaction for ANY pool — standard bonding curve OR Mayhem.
-   * We hand-built bonding-curve buy can't do Mayhem-mode tokens (they route through
-   * the Mayhem program) and 404s on freshly-created tokens, so this path is used for
-   * all launch buys. It's a second wallet approval. Any failure leaves the token
-   * created (just without the dev buy) and is logged, not thrown.
+   * Built by the backend from the bonding curve account, which exists the
+   * moment the create transaction lands. It used to go to PumpPortal, who take
+   * 0.5%, because our own buy read the curve from pump.fun's API and that API
+   * 404s on a token it has not indexed yet. It reads the chain now.
+   *
+   * It is a second wallet approval. Any failure leaves the token created, just
+   * without the dev buy, and is logged rather than thrown.
    */
   /**
    * Acquire the mint keypair for a pump.fun launch. Prefers a pre-ground
@@ -624,7 +625,7 @@ export class SolanaActionService {
 
   private async submitLaunchInitialBuy(
     connection: any,
-    initialBuy: { mint: string; amountSol: number; mayhem?: boolean },
+    initialBuy: { mint: string; amountSol: number },
     createSig: string,
     opts?: { slippage?: string; priorityFee?: string },
   ): Promise<void> {
@@ -637,8 +638,9 @@ export class SolanaActionService {
         return;
       }
 
-      // 2) Build the buy via backend (PumpPortal). Retry to absorb indexing lag —
-      //    a token created seconds ago may not be visible to PumpPortal immediately.
+      // 2) Build the buy via the backend, from the bonding curve account. The
+      //    retry is vestigial now that nothing waits on a third party's
+      //    indexing, but a launch is not the place to find out otherwise.
       // slippage/priorityFee MUST be numbers — the backend PumpFunTradeParams
       // deserializes them as f64 and rejects strings ("invalid type: string ...").
       const slip = opts?.slippage != null ? Number(opts.slippage) : NaN;
@@ -667,7 +669,7 @@ export class SolanaActionService {
       }
       if (!build?.transaction) { console.warn('[launch_token] initial buy: no tx from backend'); return; }
 
-      // 3) Deserialize (PumpPortal returns a versioned tx) and sign + submit.
+      // 3) Deserialize, sign and submit.
       const buf = this.base64ToUint8Array(build.transaction);
       const tx = this.isVersionedTxBytes(buf)
         ? web3.VersionedTransaction.deserialize(buf)
@@ -1669,9 +1671,25 @@ export class SolanaActionService {
     // skipPreflight=true so Phantom never runs its internal simulation.
     let signature: string;
     if (mintKeypair) {
-      const tx = deserializedTx as { partialSign?: (...signers: Keypair[]) => void; serialize?(): Uint8Array };
-      if (typeof tx.partialSign === 'function') {
-        try { tx.partialSign(mintKeypair); } catch { /* backend signed with its own keypair — skip */ }
+      // The mint has to sign, and how depends on the transaction version.
+      // A launch WITH a dev-buy is v0 now — create and buy ride together so
+      // nobody can snipe the gap between them — and `partialSign` does not
+      // exist there. Checking only for `partialSign` would have skipped the
+      // mint signature in silence and the chain would have rejected the
+      // launch for a signature it never got.
+      const tx = deserializedTx as {
+        partialSign?: (...signers: Keypair[]) => void;
+        sign?: (signers: Keypair[]) => void;
+        version?: unknown;
+      };
+      try {
+        if (typeof tx.partialSign === 'function') {
+          tx.partialSign(mintKeypair);
+        } else if (typeof tx.sign === 'function') {
+          tx.sign([mintKeypair]);
+        }
+      } catch {
+        /* backend signed with its own keypair — skip */
       }
 
       const directSig = await Promise.race([
@@ -1686,11 +1704,10 @@ export class SolanaActionService {
         callbacks.onSubmit?.(directSig);
         if (amountUsd > 0) this.spendingLimit.record(amountUsd);
         callbacks.onConfirm?.(directSig);
-        // Launch: the initial dev-buy is a follow-up. Fire it in the BACKGROUND
-        // (don't await) so the card confirms the create immediately and the outer
-        // submit() timeout can't trip on the confirmation wait + 2nd approval. The
-        // buy waits for the create to confirm, then builds via PumpPortal and prompts
-        // for its own signature.
+        // Legacy path. A launch with a dev-buy is one atomic transaction now,
+        // so the backend stops returning `initialBuy` and this never fires —
+        // kept only so an older card mid-flight still completes rather than
+        // losing its buy.
         const ib = buildResult.data?.initialBuy;
         if (ib) {
           void this.submitLaunchInitialBuy(connection, ib, directSig, {
@@ -2933,7 +2950,6 @@ export class SolanaActionService {
           telegram:         p['telegram'] ?? undefined,
           website:          p['website'] ?? undefined,
           bannerUrl:        p['bannerUrl'] ?? p['banner_url'] ?? undefined,
-          mayhemMode:       p['mayhemMode'] ?? undefined,
           cashback:         p['cashback'] ?? undefined,
           tokenizedAgent:   p['tokenizedAgent'] ?? undefined,
         };

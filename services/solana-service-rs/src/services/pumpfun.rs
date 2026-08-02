@@ -133,7 +133,7 @@ pub struct LaunchTokenParams {
     pub mint_pubkey: Option<String>,
 }
 
-/// Parameters for a pumpfun buy or sell transaction (trade-local via PumpPortal).
+/// Parameters for a pumpfun buy or sell transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PumpFunTradeParams {
@@ -147,7 +147,7 @@ pub struct PumpFunTradeParams {
     pub priority_fee: Option<f64>,
 }
 
-/// Validate trade params (buy or sell) before building the PumpPortal transaction.
+/// Validate trade params (buy or sell) before building the transaction.
 pub fn validate_pumpfun_trade_params(params: &PumpFunTradeParams) -> Result<(), AppError> {
     if params.mint.trim().is_empty() {
         return Err(AppError::InvalidParams("mint address is required".into()));
@@ -198,14 +198,14 @@ pub struct LaunchPreview {
 }
 
 /// Describes the initial dev-buy the frontend should perform after the create tx
-/// confirms. The buy itself is built by `pumpfun_initial_buy` (PumpPortal) once the
+/// confirms. The buy itself is built by `pumpfun_initial_buy` once the
 /// token exists on-chain — this just carries what to buy. `None` = no initial buy.
 #[derive(serde::Serialize)]
 pub struct InitialBuyInfo {
     pub mint: String,
     pub amount_sol: f64,
     /// Mayhem-mode token — trades route through the Mayhem program, not the
-    /// standard bonding curve. Informational; PumpPortal picks the pool.
+    /// standard bonding curve. Informational only.
     pub mayhem: bool,
 }
 
@@ -314,6 +314,89 @@ struct PumpSwapSellArgs {
 fn find_bonding_curve_pda(mint: &Pubkey) -> Pubkey {
     let program_id = Pubkey::from_str(PUMP_FUN_PROGRAM_ID).expect("valid hardcoded address");
     Pubkey::find_program_address(&[b"bonding-curve", mint.as_ref()], &program_id).0
+}
+
+/// The bonding curve, read from the chain.
+///
+/// Everything the buy and sell paths need — reserves, graduation state, the
+/// creator — lives in this account, and it exists the instant the create
+/// transaction lands.
+///
+/// They were reading it from pump.fun's HTTP API instead, which 404s on a
+/// token it has not indexed yet. That is precisely the first minutes of a
+/// token's life, which for pump.fun is most of what anyone trades, and it is
+/// why the initial buy after a launch had to be handed to PumpPortal. There
+/// was never anything PumpPortal could do that we could not; it reads the
+/// chain and we were reading an indexer.
+#[derive(Debug, Clone)]
+pub struct BondingCurveState {
+    pub virtual_token_reserves: u64,
+    pub virtual_sol_reserves: u64,
+    pub real_token_reserves: u64,
+    pub real_sol_reserves: u64,
+    pub token_total_supply: u64,
+    pub complete: bool,
+    pub creator: Option<Pubkey>,
+}
+
+/// Layout, verified against a live account (115 bytes):
+///   0..8    anchor discriminator
+///   8..16   virtual_token_reserves   u64
+///   16..24  virtual_sol_reserves     u64
+///   24..32  real_token_reserves      u64
+///   32..40  real_sol_reserves        u64
+///   40..48  token_total_supply       u64
+///   48      complete                 bool
+///   49..81  creator                  Pubkey
+pub async fn read_bonding_curve(
+    rpc: &SolanaRpc,
+    mint: &Pubkey,
+) -> Result<BondingCurveState, AppError> {
+    let pda = find_bonding_curve_pda(mint);
+    let rpc2 = rpc.clone();
+    let account = tokio::task::spawn_blocking(move || rpc2.client().get_account(&pda))
+        .await
+        .map_err(|e| AppError::Internal(format!("bonding curve read failed: {e}")))?
+        .map_err(|_| {
+            AppError::NotFound(
+                "That token has no pump.fun bonding curve — it may have graduated or never \
+                 existed"
+                    .into(),
+            )
+        })?;
+
+    let d = &account.data;
+    if d.len() < 49 {
+        return Err(AppError::ProtocolError(
+            "That token's bonding curve could not be read".into(),
+        ));
+    }
+    let u64_at = |o: usize| u64::from_le_bytes(d[o..o + 8].try_into().unwrap_or([0; 8]));
+
+    Ok(BondingCurveState {
+        virtual_token_reserves: u64_at(8),
+        virtual_sol_reserves: u64_at(16),
+        real_token_reserves: u64_at(24),
+        real_sol_reserves: u64_at(32),
+        token_total_supply: u64_at(40),
+        complete: d[48] != 0,
+        creator: if d.len() >= 81 {
+            Pubkey::try_from(&d[49..81]).ok()
+        } else {
+            None
+        },
+    })
+}
+
+/// Which token program a mint belongs to, from the mint account's owner.
+/// The API reported this too; the chain cannot be out of date about it.
+pub async fn read_token_program(rpc: &SolanaRpc, mint: &Pubkey) -> Pubkey {
+    let rpc2 = rpc.clone();
+    let m = *mint;
+    match tokio::task::spawn_blocking(move || rpc2.client().get_account(&m)).await {
+        Ok(Ok(acc)) => acc.owner,
+        _ => token_2022_program(),
+    }
 }
 
 /// Find PDA for bonding-curve-v2: ["bonding-curve-v2", mint].
@@ -980,34 +1063,129 @@ const PUMP_FUN_FEE_RECIPIENT_FALLBACK: &str = "CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7Abi
 ///   ...
 ///
 /// Fallback to hardcoded value on RPC failure.
-async fn fetch_pumpfun_fee_recipient(rpc: &SolanaRpc) -> Pubkey {
-    let global = find_global_pda();
-    let rpc2 = rpc.clone();
-    let result = tokio::task::spawn_blocking(move || rpc2.client().get_account(&global)).await;
+/// pump.fun's own address lookup table. Every transaction they send uses it,
+/// and it already holds twelve of the thirteen accounts a launch repeats:
+/// both programs, global, event authority, the fee config and program, the
+/// sol vault, the mint authority, the volume accumulator, token-2022, the
+/// associated-token program and the system program.
+const PUMPFUN_LOOKUP_TABLE: &str = "DSaHkhDp17UexbZsg2VUnWjEuTwKNCJrnG4LW122ANfd";
 
-    match result {
-        Ok(Ok(account)) => {
-            const FEE_RECIPIENT_OFFSET: usize = 41; // 8 disc + 1 bool + 32 pubkey
-            if account.data.len() >= FEE_RECIPIENT_OFFSET + 32 {
-                if let Ok(pk) =
-                    Pubkey::try_from(&account.data[FEE_RECIPIENT_OFFSET..FEE_RECIPIENT_OFFSET + 32])
-                {
-                    return pk;
-                }
-            }
-            tracing::warn!(
-                "pump.fun global account data too short or invalid, using fallback fee_recipient"
-            );
-        }
-        Ok(Err(e)) => {
-            tracing::warn!(error = %e, "RPC error fetching pump.fun global, using fallback fee_recipient")
-        }
+/// Read a lookup table so a v0 message can compile against it. An empty
+/// result is not fatal — the caller falls back to a legacy transaction.
+fn fetch_lookup_table_blocking(
+    rpc: &SolanaRpc,
+    address: &str,
+) -> Vec<solana_sdk::address_lookup_table::AddressLookupTableAccount> {
+    let key = match Pubkey::from_str(address) {
+        Ok(k) => k,
+        Err(_) => return vec![],
+    };
+    let account = match rpc.client().get_account(&key) {
+        Ok(a) => a,
         Err(e) => {
-            tracing::warn!(error = %e, "spawn_blocking error fetching pump.fun global, using fallback fee_recipient")
+            tracing::warn!(error = %e, "lookup table unreadable — launch falls back to legacy");
+            return vec![];
+        }
+    };
+    match solana_sdk::address_lookup_table::state::AddressLookupTable::deserialize(&account.data) {
+        Ok(t) => vec![
+            solana_sdk::address_lookup_table::AddressLookupTableAccount {
+                key,
+                addresses: t.addresses.to_vec(),
+            },
+        ],
+        Err(e) => {
+            tracing::warn!(error = %e, "lookup table malformed — launch falls back to legacy");
+            vec![]
         }
     }
+}
 
-    Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback fee_recipient")
+/// The same read, on a thread that is already blocking. The launch builder
+/// runs inside `web::block`, so it cannot await — and it needs this before it
+/// can put the dev-buy in the create transaction.
+fn fetch_pumpfun_fee_recipient_blocking(rpc: &SolanaRpc) -> Pubkey {
+    read_pumpfun_global_blocking(rpc).0
+}
+
+/// pump.fun's protocol fee, in basis points, when the global account cannot
+/// be read. Measured on chain: 95 = 0.95%.
+const PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK: u64 = 95;
+
+/// The coin-creator fee, which the program charges on top of the protocol fee
+/// and pays to the token's creator.
+///
+/// Unlike the protocol fee this one is not in the global account, so it is
+/// measured rather than read: decoding pump.fun's own buys shows every one of
+/// them passing `max_sol_cost = trade x 1.0125` with no scatter — 95 bps from
+/// the global plus 30 here. If pump.fun changes it, the user's slippage
+/// absorbs the difference; at the 0.5% default there is room for it to double.
+const PUMPFUN_CREATOR_FEE_BPS: u64 = 30;
+
+/// The fee recipient and the total trading fee, in basis points.
+///
+/// The fee has to be read, not assumed. A buy passes `max_sol_cost`, and the
+/// program charges the trade PLUS this fee against it; leaving the fee for
+/// slippage to absorb means the trade fails whenever the user's slippage is
+/// tighter than the fee. That is exactly what happened: the launch card sends
+/// 0.5% and the fee is 0.95%, so every launch with a dev-buy reverted 6002.
+fn read_pumpfun_global_blocking(rpc: &SolanaRpc) -> (Pubkey, u64) {
+    const FEE_RECIPIENT_OFFSET: usize = 41;
+    const FEE_BPS_OFFSET: usize = 105;
+    let fallback = || {
+        Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback fee_recipient")
+    };
+    match rpc.client().get_account(&find_global_pda()) {
+        Ok(account) => {
+            let d = &account.data;
+            let recipient = if d.len() >= FEE_RECIPIENT_OFFSET + 32 {
+                Pubkey::try_from(&d[FEE_RECIPIENT_OFFSET..FEE_RECIPIENT_OFFSET + 32])
+                    .unwrap_or_else(|_| fallback())
+            } else {
+                fallback()
+            };
+            let bps = if d.len() >= FEE_BPS_OFFSET + 8 {
+                u64::from_le_bytes(d[FEE_BPS_OFFSET..FEE_BPS_OFFSET + 8].try_into().unwrap())
+            } else {
+                PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK
+            };
+            // A nonsense value is worse than the fallback — it would either
+            // reject every trade or leave the ceiling too low.
+            let bps = if (1..=1_000).contains(&bps) {
+                bps
+            } else {
+                PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK
+            };
+            (recipient, bps + PUMPFUN_CREATOR_FEE_BPS)
+        }
+        Err(_) => {
+            tracing::warn!("pump.fun global unreadable, using fallbacks");
+            (
+                fallback(),
+                PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK + PUMPFUN_CREATOR_FEE_BPS,
+            )
+        }
+    }
+}
+
+/// The async twin of [`read_pumpfun_global_blocking`], for the request paths
+/// that are already on the async runtime.
+///
+/// It parsed only the recipient and duplicated the offset by hand; the fee
+/// lives in the same account and every buy needs both, so it returns the pair
+/// and defers the parsing to the one place that knows the layout.
+async fn fetch_pumpfun_global(rpc: &SolanaRpc) -> (Pubkey, u64) {
+    let rpc2 = rpc.clone();
+    match tokio::task::spawn_blocking(move || read_pumpfun_global_blocking(&rpc2)).await {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::warn!(error = %e, "spawn_blocking failed reading pump.fun global");
+            (
+                Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback"),
+                PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK + PUMPFUN_CREATOR_FEE_BPS,
+            )
+        }
+    }
 }
 
 fn build_buy_instruction(
@@ -1502,6 +1680,27 @@ fn parse_buy_amounts(
     v_sol: u64,
     v_tok: u64,
 ) -> Result<(u64, u64), AppError> {
+    parse_buy_amounts_with_fee(
+        params,
+        v_sol,
+        v_tok,
+        PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK + PUMPFUN_CREATOR_FEE_BPS,
+    )
+}
+
+/// `max_sol_cost` has to cover the trade AND the protocol fee.
+///
+/// It used to be the trade plus slippage, on the assumption that slippage
+/// would absorb the fee. It does when slippage is the 10% default, and it does
+/// not when the launch card sends 0.5% against a 0.95% fee — every launch with
+/// a dev-buy failed with 6002. Slippage is for the price moving; a published
+/// fee is not price movement and should not be paid out of it.
+fn parse_buy_amounts_with_fee(
+    params: &PumpFunTradeParams,
+    v_sol: u64,
+    v_tok: u64,
+    fee_bps: u64,
+) -> Result<(u64, u64), AppError> {
     let amount: f64 = params
         .amount
         .parse()
@@ -1517,13 +1716,15 @@ fn parse_buy_amounts(
         } else {
             estimate_tokens_for_sol(sol_lamports)
         };
-        let max_cost = apply_slippage(sol_lamports, slippage_bps);
+        let with_fee = sol_lamports + (sol_lamports * fee_bps).div_ceil(10_000);
+        let max_cost = apply_slippage(with_fee, slippage_bps);
         Ok((tokens, max_cost))
     } else {
         // Amount in human-readable tokens → convert to base units (6 decimals)
         let token_base = (amount * PUMP_TOKEN_DECIMALS as f64) as u64;
         let sol_needed = estimate_sol_for_tokens_out(v_sol, v_tok, token_base);
-        let max_cost = apply_slippage(sol_needed, slippage_bps);
+        let with_fee = sol_needed + (sol_needed * fee_bps).div_ceil(10_000);
+        let max_cost = apply_slippage(with_fee, slippage_bps);
         Ok((token_base, max_cost))
     }
 }
@@ -2072,12 +2273,16 @@ pub fn build_launch_token_transaction_blocking(
     // Step 1: Resolve metadata URI (pre-uploaded to our own storage, no IPFS)
     let metadata_uri = resolve_metadata_uri(params)?;
 
-    // Step 2: Build the create_v2 instruction (Token-2022, Mayhem mode)
-    let is_mayhem = params
-        .mayhem_mode
-        .as_deref()
-        .map(|s| s == "true")
-        .unwrap_or(false);
+    // Step 2: Build the create_v2 instruction (Token-2022)
+    //
+    // Mayhem mode is not offered. A Mayhem token does not trade through the
+    // bonding curve, so the dev-buy that follows the launch — and every later
+    // trade — has to be routed through PumpPortal, who take 0.5% of it. Its
+    // own instruction arguments are still undecoded, so we cannot build those
+    // trades ourselves. Offering a switch that quietly sends the user's money
+    // through a third party, for a volatility gimmick, is not a trade worth
+    // making. `create_v2` still takes the flag; we always pass false.
+    let is_mayhem = false;
     let is_cashback = params
         .cashback
         .as_deref()
@@ -2089,22 +2294,15 @@ pub fn build_launch_token_transaction_blocking(
         .map(|s| s == "true")
         .unwrap_or(false);
 
-    // pump.fun requires a minimum 0.05 SOL initial buy for Mayhem launches (UI rule
-    // that's likely also enforced on-chain — the original 0.023 SOL attempt reverted
-    // in simulation). Enforce it here so the launch either meets the rule or fails fast.
-    if is_mayhem {
-        const MAYHEM_MIN_INITIAL_BUY_SOL: f64 = 0.05;
-        let initial_buy_sol = params
-            .initial_buy_amount
-            .as_ref()
-            .and_then(|s| s.parse::<f64>().ok())
-            .unwrap_or(0.0);
-        if initial_buy_sol < MAYHEM_MIN_INITIAL_BUY_SOL {
-            return Err(AppError::InvalidParams(format!(
-                "Mayhem Mode requires a minimum initial buy of {} SOL. You entered {} SOL — increase it and try again.",
-                MAYHEM_MIN_INITIAL_BUY_SOL, initial_buy_sol
-            )));
-        }
+    // The user may still ask for Mayhem in words; say why it is not there
+    // rather than launching something different from what they asked for.
+    if params.mayhem_mode.as_deref() == Some("true") {
+        return Err(AppError::InvalidParams(
+            "Mayhem Mode isn't available here. Those tokens trade outside the bonding \
+             curve, which means every trade on them would have to be routed through a \
+             third party that takes a cut. The launch works the same without it."
+                .into(),
+        ));
     }
 
     // Tokenized Agent flag has no slot in pump.fun's create_v2 args struct (only
@@ -2189,46 +2387,123 @@ pub fn build_launch_token_transaction_blocking(
         create_ix,
     ];
 
-    // The frontend does the initial buy as a follow-up (see doc above).
-    let initial_buy = if initial_buy_sol > 0.0 {
-        Some(InitialBuyInfo {
+    // The dev-buy rides in the SAME transaction as the create.
+    //
+    // It used to be a second transaction sent after the create confirmed, and
+    // that gap is a business problem, not a cosmetic one: bots watch for new
+    // mints and buy inside it, ahead of the person who just launched the
+    // token. Atomic means there is no inside.
+    //
+    // The buy needs the curve's reserves, and the curve does not exist yet —
+    // but its opening state is fixed and known, so the price is computed from
+    // the constants pump.fun initialises it with.
+    let mut create_instructions = create_instructions;
+    let mut atomic_buy = false;
+    if initial_buy_sol > 0.0 {
+        let buy_params = PumpFunTradeParams {
             mint: mint_pubkey.to_string(),
-            amount_sol: initial_buy_sol,
-            mayhem: is_mayhem,
-        })
-    } else {
-        None
-    };
+            amount: initial_buy_sol.to_string(),
+            denominated_in_sol: Some(true),
+            slippage: params.slippage,
+            priority_fee: None,
+        };
+        let (fee_recipient, fee_bps) = read_pumpfun_global_blocking(rpc);
+        let (token_amount, max_sol_cost) = parse_buy_amounts_with_fee(
+            &buy_params,
+            INITIAL_VIRTUAL_SOL_RESERVES,
+            INITIAL_VIRTUAL_TOKEN_RESERVES,
+            fee_bps,
+        )?;
+        let t22 = token_2022_program();
+        create_instructions.push(build_create_ata_instruction(
+            creator_pubkey,
+            &mint_pubkey,
+            &t22,
+        ));
+        create_instructions.push(build_buy_instruction(
+            creator_pubkey,
+            &mint_pubkey,
+            creator_pubkey,
+            &fee_recipient,
+            &t22,
+            token_amount,
+            max_sol_cost,
+        )?);
+        atomic_buy = true;
+    }
+
+    // Nothing for the frontend to follow up with any more.
+    let initial_buy: Option<InitialBuyInfo> = None;
 
     // Step 4: Get recent blockhash
     let blockhash = rpc
         .get_latest_blockhash_with_retry()
         .map_err(|e| AppError::Internal(format!("Failed to get blockhash: {}", e)))?;
 
-    // Step 5: Build the CREATE transaction
-    let create_message =
-        Message::new_with_blockhash(&create_instructions, Some(creator_pubkey), &blockhash);
-
-    let mut transaction = Transaction::new_unsigned(create_message);
-
-    // Step 6: Sign with mint keypair only when backend generated it.
-    // When mintPubkey was provided by the frontend, we skip signing here —
-    // the frontend will add the mint signature after wallet approval.
-    if let Some(ref kp) = mint_keypair {
-        transaction.partial_sign(&[kp], blockhash);
-    }
-
-    tracing::info!(
-        num_signatures = transaction.signatures.len(),
-        num_instructions = transaction.message.instructions.len(),
-        fee_payer = %transaction.message.account_keys[0],
-        "Created unsigned pump.fun create transaction"
-    );
-
-    // Step 7: Serialize CREATE to base64
-    let tx_bytes = bincode::serialize(&transaction)
-        .map_err(|e| AppError::Internal(format!("Failed to serialize transaction: {}", e)))?;
-    let tx_base64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
+    // Step 5: Build the transaction — versioned when the buy rides along.
+    //
+    // Create and buy together do not fit a legacy transaction: measured at
+    // 1303 bytes against the 1232 limit. A v0 message with a lookup table
+    // does, because an account in the table costs one byte instead of
+    // thirty-two, and twelve of ours are the same on every launch.
+    //
+    // The table is pump.fun's own, which every one of their transactions
+    // already uses. Borrowing it is a dependency on an account we do not
+    // control — if they close it, launches with a dev-buy stop building — so
+    // the fallback below keeps working and we should publish our own.
+    let tx_base64 = if atomic_buy {
+        let lut = fetch_lookup_table_blocking(rpc, PUMPFUN_LOOKUP_TABLE);
+        let message = solana_sdk::message::v0::Message::try_compile(
+            creator_pubkey,
+            &create_instructions,
+            lut.as_slice(),
+            blockhash,
+        )
+        .map_err(|e| AppError::Internal(format!("Failed to compile v0 message: {e}")))?;
+        let versioned = solana_sdk::message::VersionedMessage::V0(message);
+        let sig_count = versioned.header().num_required_signatures as usize;
+        let mut tx = solana_sdk::transaction::VersionedTransaction {
+            signatures: vec![solana_sdk::signature::Signature::default(); sig_count],
+            message: versioned,
+        };
+        // The mint signs here only when we generated it; otherwise the
+        // frontend adds that signature after the wallet approves.
+        if let Some(ref kp) = mint_keypair {
+            if let Ok(pos) = tx
+                .message
+                .static_account_keys()
+                .iter()
+                .position(|k| *k == kp.pubkey())
+                .ok_or(())
+            {
+                use solana_sdk::signer::Signer;
+                tx.signatures[pos] = kp.sign_message(&tx.message.serialize());
+            }
+        }
+        let bytes = bincode::serialize(&tx)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize v0 tx: {e}")))?;
+        tracing::info!(
+            bytes = bytes.len(),
+            instructions = create_instructions.len(),
+            "Created atomic pump.fun launch (create + dev-buy) as v0"
+        );
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    } else {
+        let create_message =
+            Message::new_with_blockhash(&create_instructions, Some(creator_pubkey), &blockhash);
+        let mut transaction = Transaction::new_unsigned(create_message);
+        if let Some(ref kp) = mint_keypair {
+            transaction.partial_sign(&[kp], blockhash);
+        }
+        tracing::info!(
+            num_signatures = transaction.signatures.len(),
+            num_instructions = transaction.message.instructions.len(),
+            "Created pump.fun create transaction (no dev-buy)"
+        );
+        let tx_bytes = bincode::serialize(&transaction)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize transaction: {}", e)))?;
+        base64::engine::general_purpose::STANDARD.encode(&tx_bytes)
+    };
 
     let mut warnings = Vec::new();
     if params.twitter.is_none() && params.telegram.is_none() && params.website.is_none() {
@@ -2263,99 +2538,6 @@ pub fn build_launch_token_transaction_blocking(
 // isn't in pump.fun's `/coins` index yet AND Mayhem-mode tokens don't trade via the
 // standard bonding curve — so PumpPortal (which derives the correct tx from on-chain
 // state for any pool) is the safe way to build that specific buy.
-
-/// Build a pump.fun buy via PumpPortal's `trade-local` endpoint, for the token-launch
-/// initial dev-buy only. PumpPortal returns a base64 (versioned, ALT-compacted) tx the
-/// frontend signs + submits. Retries to absorb indexer/propagation lag right after the
-/// create tx confirms.
-pub async fn build_pumpfun_initial_buy(
-    http: &reqwest::Client,
-    wallet: &str,
-    params: &PumpFunTradeParams,
-) -> Result<BuildResponse, AppError> {
-    let amount_sol: f64 = params
-        .amount
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?;
-    if amount_sol <= 0.0 {
-        return Err(AppError::InvalidParams(
-            "Amount must be greater than 0".into(),
-        ));
-    }
-    let slippage = params.slippage.unwrap_or(15.0);
-    let priority_fee = params.priority_fee.unwrap_or(0.0005);
-
-    let body = serde_json::json!({
-        "publicKey": wallet,
-        "action": "buy",
-        "mint": params.mint,
-        "amount": amount_sol,
-        "denominatedInSol": "true",
-        "slippage": slippage,
-        "priorityFee": priority_fee,
-        // "auto" lets PumpPortal pick the pool (bonding curve, Mayhem, PumpSwap, …).
-        "pool": "auto",
-    });
-
-    let mut last_err = String::new();
-    for attempt in 0..4u32 {
-        if attempt > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        }
-        match http
-            .post("https://pumpportal.fun/api/trade-local")
-            .json(&body)
-            .send()
-            .await
-        {
-            Ok(r) => {
-                let status = r.status();
-                if status.is_success() {
-                    let bytes = r
-                        .bytes()
-                        .await
-                        .map_err(|e| AppError::Internal(format!("PumpPortal read error: {e}")))?;
-                    if bytes.len() < 64 {
-                        // Too small to be a real tx — usually an error body; retry.
-                        last_err = format!("PumpPortal returned {} bytes", bytes.len());
-                        continue;
-                    }
-                    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    return Ok(BuildResponse {
-                        preview: ActionPreview {
-                            id: Uuid::new_v4().to_string(),
-                            action_type: "pumpfun_initial_buy".into(),
-                            description: format!("Initial buy of {} SOL", amount_sol),
-                            estimated_fee: format!("~{} SOL", amount_sol + priority_fee),
-                            estimated_refund: None,
-                            params: serde_json::to_value(params).unwrap_or(serde_json::Value::Null),
-                            warnings: vec![],
-                            requires_approval: true,
-                        },
-                        transaction: Some(tx_b64),
-                        additional_signers_required: 0,
-                        execution_steps: None,
-                        quote: None,
-                        is_cross_chain: false,
-                        data: None,
-                    });
-                }
-                last_err = format!(
-                    "PumpPortal {}: {}",
-                    status,
-                    r.text().await.unwrap_or_default()
-                );
-            }
-            Err(e) => last_err = format!("PumpPortal request error: {e}"),
-        }
-    }
-    // Log the raw upstream detail; return a clean, user-facing message.
-    tracing::warn!("PumpPortal initial-buy build failed: {last_err}");
-    Err(AppError::Internal(
-        "The token isn't ready to trade yet — give it a few seconds after launch and try again."
-            .into(),
-    ))
-}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Pump.fun REST API helpers
@@ -2778,57 +2960,52 @@ pub async fn build_pumpfun_buy(
     // Using the API's token_program is authoritative and avoids an extra RPC call
     // that can fail under rate limits, causing a silent fallback to SPL Token and
     // then a ConstraintSeeds error on associated_bonding_curve.
-    let coin = pumpfun_get(http, &format!("/coins/{}", params.mint)).await?;
+    // Everything that decides the trade comes from the chain. The API is asked
+    // afterwards, and only for a display name — a token minted seconds ago is
+    // absent from it, and that absence used to fail the whole buy.
+    // No bonding curve at all means this was never a pump.fun token — BONK, a
+    // Raydium listing, anything. Reading the curve replaced an API call that
+    // used to notice that and fall through; without this it became an error
+    // on a trade that works perfectly well somewhere else.
+    let curve = match read_bonding_curve(rpc, &mint).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::info!(mint = %mint, "No pump.fun curve — routing pumpfun_buy → Jupiter aggregator");
+            return build_graduated_swap(http, rpc, wallet, params, true).await;
+        }
+    };
 
-    // Graduated tokens (complete: true) live on an external AMM (Raydium for older
-    // tokens, PumpSwap for newer) — route through Jupiter, which handles either.
-    if coin
-        .get("complete")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
+    // Graduated tokens live on an external AMM (Raydium for older tokens,
+    // PumpSwap for newer) — Jupiter handles either.
+    if curve.complete {
         tracing::info!(mint = %mint, "Token graduated — routing pumpfun_buy → Jupiter aggregator");
         return build_graduated_swap(http, rpc, wallet, params, true).await;
     }
 
-    let creator_str = coin
-        .get("creator")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Internal("Missing creator field in coin data".into()))?;
-    let creator = Pubkey::from_str(creator_str)
-        .map_err(|_| AppError::Internal("Invalid creator pubkey from API".into()))?;
-    let name = coin
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&params.mint)
-        .to_string();
-    let v_sol = coin
-        .get("virtual_sol_reserves")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(INITIAL_VIRTUAL_SOL_RESERVES as f64) as u64;
-    let v_tok = coin
-        .get("virtual_token_reserves")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(INITIAL_VIRTUAL_TOKEN_RESERVES as f64) as u64;
+    let creator = curve.creator.ok_or_else(|| {
+        AppError::ProtocolError("That token's bonding curve does not name a creator".into())
+    })?;
+    let v_sol = curve.virtual_sol_reserves;
+    let v_tok = curve.virtual_token_reserves;
+    let token_prog = read_token_program(rpc, &mint).await;
+    tracing::info!(mint = %mint, token_program = %token_prog, "Token program from chain for buy");
 
-    // token_program from API: "TokenzQd..." for Token-2022, "Tokenkeg..." for legacy SPL.
-    // Falls back to Token-2022 (all current pump.fun tokens use it).
-    let token_prog = {
-        let tp_str = coin
-            .get("token_program")
-            .and_then(|v| v.as_str())
-            .unwrap_or(TOKEN_2022_PROGRAM_ID);
-        Pubkey::from_str(tp_str).unwrap_or_else(|_| token_2022_program())
-    };
-    tracing::info!(mint = %mint, token_program = %token_prog, "Token program from API for buy");
+    // Cosmetic only. A missing name costs the card a label; it must never cost
+    // the user the trade.
+    let name = pumpfun_get(http, &format!("/coins/{}", params.mint))
+        .await
+        .ok()
+        .and_then(|c| c.get("name").and_then(|v| v.as_str()).map(str::to_string))
+        .unwrap_or_else(|| params.mint.clone());
 
-    let (token_amount, max_sol_cost) = parse_buy_amounts(params, v_sol, v_tok)?;
+    // The fee recipient and the fee itself come from the same account, and the
+    // buy needs both — the ceiling it passes has to cover the fee, not hope
+    // the user's slippage is wider than it.
+    let (fee_recipient, fee_bps) = fetch_pumpfun_global(rpc).await;
+    let (token_amount, max_sol_cost) = parse_buy_amounts_with_fee(params, v_sol, v_tok, fee_bps)?;
 
     let priority_fee_sol = params.priority_fee.unwrap_or(0.0005);
     let [cu_limit_ix, cu_price_ix] = build_compute_budget_instructions(priority_fee_sol);
-
-    // Fetch fee_recipient dynamically from on-chain global account (falls back to known address)
-    let fee_recipient = fetch_pumpfun_fee_recipient(rpc).await;
 
     let create_ata_ix = build_create_ata_instruction(&buyer, &mint, &token_prog);
     let buy_ix = build_buy_instruction(
@@ -2891,54 +3068,46 @@ pub async fn build_pumpfun_sell(
     let mint = Pubkey::from_str(&params.mint)
         .map_err(|_| AppError::InvalidParams(format!("Invalid mint: {}", params.mint)))?;
 
-    let coin = pumpfun_get(http, &format!("/coins/{}", params.mint)).await?;
+    // Same as the buy path: the chain decides, the API is decoration.
+    // No bonding curve at all means this was never a pump.fun token — BONK, a
+    // Raydium listing, anything. Reading the curve replaced an API call that
+    // used to notice that and fall through; without this it became an error
+    // on a trade that works perfectly well somewhere else.
+    let curve = match read_bonding_curve(rpc, &mint).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::info!(mint = %mint, "No pump.fun curve — routing pumpfun_sell → Jupiter aggregator");
+            return build_graduated_swap(http, rpc, wallet, params, false).await;
+        }
+    };
 
-    // Graduated tokens live on an external AMM (Raydium/PumpSwap) — route through
-    // Jupiter, which handles either venue.
-    if coin
-        .get("complete")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
+    // Graduated tokens live on an external AMM (Raydium for older tokens,
+    // PumpSwap for newer) — Jupiter handles either.
+    if curve.complete {
         tracing::info!(mint = %mint, "Token graduated — routing pumpfun_sell → Jupiter aggregator");
         return build_graduated_swap(http, rpc, wallet, params, false).await;
     }
 
-    let creator_str = coin
-        .get("creator")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Internal("Missing creator field in coin data".into()))?;
-    let creator = Pubkey::from_str(creator_str)
-        .map_err(|_| AppError::Internal("Invalid creator pubkey from API".into()))?;
-    let name = coin
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&params.mint)
-        .to_string();
-    let v_sol = coin
-        .get("virtual_sol_reserves")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(INITIAL_VIRTUAL_SOL_RESERVES as f64) as u64;
-    let v_tok = coin
-        .get("virtual_token_reserves")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(INITIAL_VIRTUAL_TOKEN_RESERVES as f64) as u64;
+    let creator = curve.creator.ok_or_else(|| {
+        AppError::ProtocolError("That token's bonding curve does not name a creator".into())
+    })?;
+    let v_sol = curve.virtual_sol_reserves;
+    let v_tok = curve.virtual_token_reserves;
+    let token_prog = read_token_program(rpc, &mint).await;
+    tracing::info!(mint = %mint, token_program = %token_prog, "Token program from chain for sell");
 
-    let token_prog = {
-        let tp_str = coin
-            .get("token_program")
-            .and_then(|v| v.as_str())
-            .unwrap_or(TOKEN_2022_PROGRAM_ID);
-        Pubkey::from_str(tp_str).unwrap_or_else(|_| token_2022_program())
-    };
-    tracing::info!(mint = %mint, token_program = %token_prog, "Token program from API for sell");
+    let name = pumpfun_get(http, &format!("/coins/{}", params.mint))
+        .await
+        .ok()
+        .and_then(|c| c.get("name").and_then(|v| v.as_str()).map(str::to_string))
+        .unwrap_or_else(|| params.mint.clone());
 
     let (token_amount, min_sol_output) = parse_sell_amounts(params, v_sol, v_tok)?;
 
     let priority_fee_sol = params.priority_fee.unwrap_or(0.0005);
     let [cu_limit_ix, cu_price_ix] = build_compute_budget_instructions(priority_fee_sol);
 
-    let fee_recipient = fetch_pumpfun_fee_recipient(rpc).await;
+    let (fee_recipient, _fee_bps) = fetch_pumpfun_global(rpc).await;
 
     let sell_ix = build_sell_instruction(
         &seller,
@@ -3375,6 +3544,42 @@ pub async fn build_pumpswap_pool_info(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The ceiling a buy passes has to cover the fee.
+    ///
+    /// It did not: `max_sol_cost` was the trade plus slippage, and the launch
+    /// card's default slippage is 0.5% against a 1.25% fee — so every launch
+    /// with a dev-buy reverted with 6002, "Too much SOL required". The fee is
+    /// a published number, not price movement, and slippage is not the place
+    /// to hide it.
+    #[test]
+    fn buy_ceiling_covers_the_protocol_fee() {
+        const FEE_BPS: u64 = PUMPFUN_PROTOCOL_FEE_BPS_FALLBACK + PUMPFUN_CREATOR_FEE_BPS;
+        let params = PumpFunTradeParams {
+            mint: "So11111111111111111111111111111111111111112".into(),
+            amount: "0.5".into(),
+            denominated_in_sol: Some(true),
+            slippage: Some(0.5), // per cent — the launch card's default
+            priority_fee: None,
+        };
+
+        let (_tokens, max_sol_cost) = parse_buy_amounts_with_fee(
+            &params,
+            INITIAL_VIRTUAL_SOL_RESERVES,
+            INITIAL_VIRTUAL_TOKEN_RESERVES,
+            FEE_BPS,
+        )
+        .expect("amounts parse");
+
+        let spend = 500_000_000u64;
+        let required = spend + (spend * FEE_BPS).div_ceil(10_000);
+        assert!(
+            max_sol_cost >= required,
+            "ceiling {max_sol_cost} is below the {required} the program will charge — this is 6002",
+        );
+        // And it must not be open-ended: slippage still bounds the overspend.
+        assert!(max_sol_cost <= required + (spend / 100));
+    }
 
     /// Verify the discriminators
     #[test]

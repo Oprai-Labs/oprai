@@ -284,7 +284,7 @@ export class PumpFunService {
 
   /**
    * Build a trade transaction for a graduated token on PumpSwap AMM.
-   * Uses PumpPortal trade-local API with pool: "pump-amm".
+   * Routed through the backend, which builds it from the pool state.
    */
   async buildPumpSwap(
     wallet: string,

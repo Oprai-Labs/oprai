@@ -4026,12 +4026,12 @@ pub async fn build_action(
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
             pumpfun::build_pumpfun_buy(http, rpc, &user_pubkey.to_string(), &p).await
         }
-        // Token-launch initial dev-buy (via PumpPortal). Called by the frontend as a
-        // follow-up after the create tx confirms — handles Mayhem + freshly-created
-        // tokens that the standard bonding-curve buy can't. See build_pumpfun_initial_buy.
+        // Token-launch initial dev-buy, called by the frontend once the create
+        // transaction confirms. Same builder as any other bonding-curve buy —
+        // it reads the curve account, which exists the moment create lands.
         "pumpfun_initial_buy" => {
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
-            pumpfun::build_pumpfun_initial_buy(http, &user_pubkey.to_string(), &p).await
+            pumpfun::build_pumpfun_buy(http, rpc, &user_pubkey.to_string(), &p).await
         }
         "pumpfun_sell" => {
             let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
