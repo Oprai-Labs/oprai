@@ -3321,7 +3321,45 @@ fn streamflow_to_build_response(
 }
 
 /// Build a transaction for the given action type.
+/// Build an action's transaction, with OPRAI's name on it.
+///
+/// The stamping happens here, once, instead of in every builder below. Most of
+/// them never assemble instructions of their own — they get a finished
+/// transaction back from Jupiter, a Kamino SDK call or Magic Eden — so there
+/// is no earlier point that all of them share. `memo::attach` returns the
+/// transaction untouched whenever stamping it would not be safe.
+#[allow(clippy::too_many_arguments)]
 pub async fn build_action(
+    http: &reqwest::Client,
+    rpc: &SolanaRpc,
+    jupiter_api_key: Option<&str>,
+    helius_api_key: Option<&str>,
+    relay_fee_recipient: Option<&str>,
+    relay_api_key: Option<&str>,
+    user_pubkey: &Pubkey,
+    action_type: &str,
+    params: serde_json::Value,
+) -> Result<BuildResponse, AppError> {
+    let mut built = build_action_inner(
+        http,
+        rpc,
+        jupiter_api_key,
+        helius_api_key,
+        relay_fee_recipient,
+        relay_api_key,
+        user_pubkey,
+        action_type,
+        params,
+    )
+    .await?;
+    built.transaction = built
+        .transaction
+        .map(|tx| crate::services::memo::attach(&tx));
+    Ok(built)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn build_action_inner(
     http: &reqwest::Client,
     rpc: &SolanaRpc,
     jupiter_api_key: Option<&str>,

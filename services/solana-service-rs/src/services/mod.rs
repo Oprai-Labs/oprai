@@ -15,6 +15,7 @@ pub mod limit_order;
 pub mod magic_eden;
 pub mod marginfi;
 pub mod marinade;
+pub mod memo;
 pub mod meteora;
 pub mod mint_security;
 pub mod native_stake;
