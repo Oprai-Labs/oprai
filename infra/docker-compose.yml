@@ -372,6 +372,9 @@ services:
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
       DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
       SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
+      # Where OPRAI's cut of a trade is sent. Empty = no fee is taken on any
+      # path, which is exactly how the service behaved before commissions.
+      OPRAI_FEE_WALLET: ${OPRAI_FEE_WALLET:-}
       SOLANA_NETWORK: ${SOLANA_NETWORK:-mainnet-beta}
       JUPITER_API_KEY: ${JUPITER_API_KEY:-}
       HELIUS_API_KEY: ${HELIUS_API_KEY:-}
