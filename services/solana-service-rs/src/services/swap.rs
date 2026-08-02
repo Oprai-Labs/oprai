@@ -264,6 +264,22 @@ pub async fn get_swap_quote(
     jupiter_api_key: Option<&str>,
     params: &SwapParams,
 ) -> Result<SwapQuote, AppError> {
+    get_swap_quote_with_fee(http, jupiter_api_key, params, None).await
+}
+
+/// The quote, with an explicit say over the platform fee.
+///
+/// The fee has to be declared here and honoured on the build, and the two must
+/// agree: a quote that prices in a platform fee, sent to a build that names no
+/// fee account, produces a route Jupiter accepts and the chain rejects (error
+/// 6025). So the retry path re-quotes with the fee forced off rather than
+/// reusing the priced-in one.
+async fn get_swap_quote_with_fee(
+    http: &reqwest::Client,
+    jupiter_api_key: Option<&str>,
+    params: &SwapParams,
+    fee_bps_override: Option<u16>,
+) -> Result<SwapQuote, AppError> {
     let input_mint = resolve_token_address(&params.input_mint);
     let output_mint = resolve_token_address(&params.output_mint);
     let slippage_bps = params.slippage_bps.unwrap_or(50);
@@ -312,7 +328,7 @@ pub async fn get_swap_quote(
     // endpoint only honours a fee that the quote already priced in — and it
     // is zero whenever no fee wallet is configured or the pair is one we
     // charge nothing for.
-    let platform_fee_qs = match platform_fee_bps_for(params, swap_mode) {
+    let platform_fee_qs = match fee_bps_override.unwrap_or_else(|| platform_fee_bps_for(params, swap_mode)) {
         0 => String::new(),
         bps => format!("&platformFeeBps={bps}"),
     };
@@ -371,7 +387,17 @@ pub async fn get_swap_quote(
 fn platform_fee_bps_for(params: &SwapParams, swap_mode: &str) -> u16 {
     let input = resolve_token_address(&params.input_mint);
     let output = resolve_token_address(&params.output_mint);
-    if fees::swap_fee_mint(&input, &output, swap_mode == "ExactOut").is_none() {
+    let Some(mint) = fees::swap_fee_mint(&input, &output, swap_mode == "ExactOut") else {
+        return 0;
+    };
+    // A fee we have already learned we cannot collect must not be priced into
+    // the quote either — otherwise the preview promises one output and the
+    // transaction delivers another.
+    if unusable_fee_mints()
+        .lock()
+        .map(|set| set.contains(mint))
+        .unwrap_or(false)
+    {
         return 0;
     }
     fees::swap_fee_bps(&input, &output)
@@ -442,7 +468,7 @@ pub async fn build_swap_transaction(
     let exact_out = swap_mode.eq_ignore_ascii_case("exactout") || swap_mode.eq_ignore_ascii_case("out");
     let fee_target = fee_account_for(params, if exact_out { "ExactOut" } else { "ExactIn" });
 
-    let post_swap = |fee: Option<String>| {
+    let post_swap = |quote: &SwapQuote, fee: Option<String>| {
         let mut body = serde_json::json!({
             "quoteResponse": quote,
             "userPublicKey": user_pubkey,
@@ -460,7 +486,7 @@ pub async fn build_swap_transaction(
         req.send()
     };
 
-    let mut swap_response = post_swap(fee_target.as_ref().map(|(_, acct)| acct.clone())).await?;
+    let mut swap_response = post_swap(&quote, fee_target.as_ref().map(|(_, acct)| acct.clone())).await?;
 
     // A build that names a fee account can fail for one reason we can fix
     // ourselves: the account does not exist yet. Retry once without it — a
@@ -469,7 +495,13 @@ pub async fn build_swap_transaction(
     if !swap_response.status().is_success() {
         if let Some((mint, account)) = fee_target.as_ref() {
             let status = swap_response.status();
-            let retry = post_swap(None).await?;
+            // Re-quote without the fee. Reusing the priced-in quote here was
+            // the bug: Jupiter happily returns a transaction, and the chain
+            // rejects it because the route expects a fee account that the
+            // instruction never names.
+            let plain_quote =
+                get_swap_quote_with_fee(http, jupiter_api_key, params, Some(0)).await?;
+            let retry = post_swap(&plain_quote, None).await?;
             if retry.status().is_success() {
                 tracing::error!(
                     mint = %mint,
