@@ -40,6 +40,11 @@
   --op-loss-subtle: rgba(220, 38, 38, 0.10);
   --op-warning: #d97706;
   --op-warning-subtle: rgba(217, 119, 6, 0.10);
+  // Errors share the loss red. Named separately because "this action cannot
+  // proceed" and "this position is down" are different ideas that happen to
+  // look alike, and component code should say which one it means.
+  --op-danger: var(--op-loss);
+  --op-danger-subtle: var(--op-loss-subtle);
   --op-info: #2563eb;
   --op-info-subtle: rgba(37, 99, 235, 0.10);
 
@@ -142,6 +147,8 @@ html.dark {
   --op-loss-subtle: rgba(248, 113, 113, 0.12);
   --op-warning: #FBBF24;
   --op-warning-subtle: rgba(251, 191, 36, 0.12);
+  --op-danger: var(--op-loss);
+  --op-danger-subtle: var(--op-loss-subtle);
   --op-info: #60A5FA;
   --op-info-subtle: rgba(96, 165, 250, 0.12);
 
