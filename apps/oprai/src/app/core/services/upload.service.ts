@@ -58,9 +58,14 @@ export class UploadService {
   }
 
   /**
-   * Upload token image + metadata directly to pump.fun's IPFS.
-   * Returns a public metadataUri usable as the on-chain token URI.
-   * This guarantees pump.fun's indexer can always reach the metadata.
+   * Upload token image + metadata to pump.fun's IPFS, through our gateway.
+   * Returns a public metadataUri usable as the on-chain token URI, hosted
+   * where pump.fun's own indexer is certain to reach it.
+   *
+   * This used to `fetch('https://pump.fun/api/ipfs')` from the browser, which
+   * cannot work — pump.fun sends no CORS headers, so it failed on every
+   * launch and fell through to a fallback nobody realised was carrying the
+   * whole feature. Server to server the identical request answers 200.
    */
   async uploadToPumpFunIpfs(
     imageFile: File,
@@ -80,17 +85,7 @@ export class UploadService {
     formData.append('showName', 'true');
     formData.append('createdOn', 'https://pump.fun');
 
-    const res = await fetch('https://pump.fun/api/ipfs', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(`pump.fun IPFS upload failed (${res.status}): ${txt}`);
-    }
-
-    const data: PumpIpfsResponse = await res.json();
+    const data = await this.postWithAuth<PumpIpfsResponse>('/upload/pumpfun-ipfs', formData);
     const uri = data.metadataUri;
     if (!uri) throw new Error('pump.fun IPFS upload returned no metadataUri');
     return uri;

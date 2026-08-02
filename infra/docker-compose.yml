@@ -174,6 +174,18 @@ services:
       BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:-}
       JUPITER_API_KEY: ${JUPITER_API_KEY:-}
       OPRAI_RPC_FALLBACKS: ${OPRAI_RPC_FALLBACKS:-}
+      # Where uploaded token images and metadata JSON are written, and the
+      # base URL they are served under. PUBLIC_BASE_URL becomes part of a
+      # token's permanent on-chain URI, so it must be the public API domain —
+      # the default (localhost:3001) would mint a token whose picture and name
+      # nothing on the internet can fetch.
+      UPLOAD_DIR: /data/uploads
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://api.oprai.xyz}
+    volumes:
+      # Durable, not incidental: these files sit behind immutable on-chain
+      # URIs. If the volume is lost, every token launched through OPRAI loses
+      # its image and name everywhere they are displayed.
+      - gateway-uploads:/data
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3001/health || exit 1"]
       interval: 15s
@@ -433,6 +445,7 @@ services:
       start_period: 10s
 
 volumes:
+  gateway-uploads:
   postgres-data:
   redis-data:
   qdrant-storage:
