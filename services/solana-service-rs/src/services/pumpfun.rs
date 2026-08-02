@@ -2768,10 +2768,20 @@ pub async fn build_pumpfun_buy(
     // Everything that decides the trade comes from the chain. The API is asked
     // afterwards, and only for a display name — a token minted seconds ago is
     // absent from it, and that absence used to fail the whole buy.
-    let curve = read_bonding_curve(rpc, &mint).await?;
+    // No bonding curve at all means this was never a pump.fun token — BONK, a
+    // Raydium listing, anything. Reading the curve replaced an API call that
+    // used to notice that and fall through; without this it became an error
+    // on a trade that works perfectly well somewhere else.
+    let curve = match read_bonding_curve(rpc, &mint).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::info!(mint = %mint, "No pump.fun curve — routing pumpfun_buy → Jupiter aggregator");
+            return build_graduated_swap(http, rpc, wallet, params, true).await;
+        }
+    };
 
-    // Graduated tokens (complete: true) live on an external AMM (Raydium for older
-    // tokens, PumpSwap for newer) — route through Jupiter, which handles either.
+    // Graduated tokens live on an external AMM (Raydium for older tokens,
+    // PumpSwap for newer) — Jupiter handles either.
     if curve.complete {
         tracing::info!(mint = %mint, "Token graduated — routing pumpfun_buy → Jupiter aggregator");
         return build_graduated_swap(http, rpc, wallet, params, true).await;
@@ -2863,10 +2873,20 @@ pub async fn build_pumpfun_sell(
         .map_err(|_| AppError::InvalidParams(format!("Invalid mint: {}", params.mint)))?;
 
     // Same as the buy path: the chain decides, the API is decoration.
-    let curve = read_bonding_curve(rpc, &mint).await?;
+    // No bonding curve at all means this was never a pump.fun token — BONK, a
+    // Raydium listing, anything. Reading the curve replaced an API call that
+    // used to notice that and fall through; without this it became an error
+    // on a trade that works perfectly well somewhere else.
+    let curve = match read_bonding_curve(rpc, &mint).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::info!(mint = %mint, "No pump.fun curve — routing pumpfun_sell → Jupiter aggregator");
+            return build_graduated_swap(http, rpc, wallet, params, false).await;
+        }
+    };
 
-    // Graduated tokens live on an external AMM (Raydium/PumpSwap) — route through
-    // Jupiter, which handles either venue.
+    // Graduated tokens live on an external AMM (Raydium for older tokens,
+    // PumpSwap for newer) — Jupiter handles either.
     if curve.complete {
         tracing::info!(mint = %mint, "Token graduated — routing pumpfun_sell → Jupiter aggregator");
         return build_graduated_swap(http, rpc, wallet, params, false).await;
