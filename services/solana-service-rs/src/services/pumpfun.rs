@@ -316,6 +316,89 @@ fn find_bonding_curve_pda(mint: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[b"bonding-curve", mint.as_ref()], &program_id).0
 }
 
+/// The bonding curve, read from the chain.
+///
+/// Everything the buy and sell paths need — reserves, graduation state, the
+/// creator — lives in this account, and it exists the instant the create
+/// transaction lands.
+///
+/// They were reading it from pump.fun's HTTP API instead, which 404s on a
+/// token it has not indexed yet. That is precisely the first minutes of a
+/// token's life, which for pump.fun is most of what anyone trades, and it is
+/// why the initial buy after a launch had to be handed to PumpPortal. There
+/// was never anything PumpPortal could do that we could not; it reads the
+/// chain and we were reading an indexer.
+#[derive(Debug, Clone)]
+pub struct BondingCurveState {
+    pub virtual_token_reserves: u64,
+    pub virtual_sol_reserves: u64,
+    pub real_token_reserves: u64,
+    pub real_sol_reserves: u64,
+    pub token_total_supply: u64,
+    pub complete: bool,
+    pub creator: Option<Pubkey>,
+}
+
+/// Layout, verified against a live account (115 bytes):
+///   0..8    anchor discriminator
+///   8..16   virtual_token_reserves   u64
+///   16..24  virtual_sol_reserves     u64
+///   24..32  real_token_reserves      u64
+///   32..40  real_sol_reserves        u64
+///   40..48  token_total_supply       u64
+///   48      complete                 bool
+///   49..81  creator                  Pubkey
+pub async fn read_bonding_curve(
+    rpc: &SolanaRpc,
+    mint: &Pubkey,
+) -> Result<BondingCurveState, AppError> {
+    let pda = find_bonding_curve_pda(mint);
+    let rpc2 = rpc.clone();
+    let account = tokio::task::spawn_blocking(move || rpc2.client().get_account(&pda))
+        .await
+        .map_err(|e| AppError::Internal(format!("bonding curve read failed: {e}")))?
+        .map_err(|_| {
+            AppError::NotFound(
+                "That token has no pump.fun bonding curve — it may have graduated or never \
+                 existed"
+                    .into(),
+            )
+        })?;
+
+    let d = &account.data;
+    if d.len() < 49 {
+        return Err(AppError::ProtocolError(
+            "That token's bonding curve could not be read".into(),
+        ));
+    }
+    let u64_at = |o: usize| u64::from_le_bytes(d[o..o + 8].try_into().unwrap_or([0; 8]));
+
+    Ok(BondingCurveState {
+        virtual_token_reserves: u64_at(8),
+        virtual_sol_reserves: u64_at(16),
+        real_token_reserves: u64_at(24),
+        real_sol_reserves: u64_at(32),
+        token_total_supply: u64_at(40),
+        complete: d[48] != 0,
+        creator: if d.len() >= 81 {
+            Pubkey::try_from(&d[49..81]).ok()
+        } else {
+            None
+        },
+    })
+}
+
+/// Which token program a mint belongs to, from the mint account's owner.
+/// The API reported this too; the chain cannot be out of date about it.
+pub async fn read_token_program(rpc: &SolanaRpc, mint: &Pubkey) -> Pubkey {
+    let rpc2 = rpc.clone();
+    let m = *mint;
+    match tokio::task::spawn_blocking(move || rpc2.client().get_account(&m)).await {
+        Ok(Ok(acc)) => acc.owner,
+        _ => token_2022_program(),
+    }
+}
+
 /// Find PDA for bonding-curve-v2: ["bonding-curve-v2", mint].
 /// Used as remaining_accounts[0] (READONLY, typically uninitialized) in bonding-curve buy/sell
 /// to satisfy the BuybackFeeRecipientMissing check (error 6023).
@@ -2778,49 +2861,33 @@ pub async fn build_pumpfun_buy(
     // Using the API's token_program is authoritative and avoids an extra RPC call
     // that can fail under rate limits, causing a silent fallback to SPL Token and
     // then a ConstraintSeeds error on associated_bonding_curve.
-    let coin = pumpfun_get(http, &format!("/coins/{}", params.mint)).await?;
+    // Everything that decides the trade comes from the chain. The API is asked
+    // afterwards, and only for a display name — a token minted seconds ago is
+    // absent from it, and that absence used to fail the whole buy.
+    let curve = read_bonding_curve(rpc, &mint).await?;
 
     // Graduated tokens (complete: true) live on an external AMM (Raydium for older
     // tokens, PumpSwap for newer) — route through Jupiter, which handles either.
-    if coin
-        .get("complete")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
+    if curve.complete {
         tracing::info!(mint = %mint, "Token graduated — routing pumpfun_buy → Jupiter aggregator");
         return build_graduated_swap(http, rpc, wallet, params, true).await;
     }
 
-    let creator_str = coin
-        .get("creator")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Internal("Missing creator field in coin data".into()))?;
-    let creator = Pubkey::from_str(creator_str)
-        .map_err(|_| AppError::Internal("Invalid creator pubkey from API".into()))?;
-    let name = coin
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&params.mint)
-        .to_string();
-    let v_sol = coin
-        .get("virtual_sol_reserves")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(INITIAL_VIRTUAL_SOL_RESERVES as f64) as u64;
-    let v_tok = coin
-        .get("virtual_token_reserves")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(INITIAL_VIRTUAL_TOKEN_RESERVES as f64) as u64;
+    let creator = curve.creator.ok_or_else(|| {
+        AppError::ProtocolError("That token's bonding curve does not name a creator".into())
+    })?;
+    let v_sol = curve.virtual_sol_reserves;
+    let v_tok = curve.virtual_token_reserves;
+    let token_prog = read_token_program(rpc, &mint).await;
+    tracing::info!(mint = %mint, token_program = %token_prog, "Token program from chain for buy");
 
-    // token_program from API: "TokenzQd..." for Token-2022, "Tokenkeg..." for legacy SPL.
-    // Falls back to Token-2022 (all current pump.fun tokens use it).
-    let token_prog = {
-        let tp_str = coin
-            .get("token_program")
-            .and_then(|v| v.as_str())
-            .unwrap_or(TOKEN_2022_PROGRAM_ID);
-        Pubkey::from_str(tp_str).unwrap_or_else(|_| token_2022_program())
-    };
-    tracing::info!(mint = %mint, token_program = %token_prog, "Token program from API for buy");
+    // Cosmetic only. A missing name costs the card a label; it must never cost
+    // the user the trade.
+    let name = pumpfun_get(http, &format!("/coins/{}", params.mint))
+        .await
+        .ok()
+        .and_then(|c| c.get("name").and_then(|v| v.as_str()).map(str::to_string))
+        .unwrap_or_else(|| params.mint.clone());
 
     let (token_amount, max_sol_cost) = parse_buy_amounts(params, v_sol, v_tok)?;
 
@@ -2891,47 +2958,29 @@ pub async fn build_pumpfun_sell(
     let mint = Pubkey::from_str(&params.mint)
         .map_err(|_| AppError::InvalidParams(format!("Invalid mint: {}", params.mint)))?;
 
-    let coin = pumpfun_get(http, &format!("/coins/{}", params.mint)).await?;
+    // Same as the buy path: the chain decides, the API is decoration.
+    let curve = read_bonding_curve(rpc, &mint).await?;
 
     // Graduated tokens live on an external AMM (Raydium/PumpSwap) — route through
     // Jupiter, which handles either venue.
-    if coin
-        .get("complete")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
+    if curve.complete {
         tracing::info!(mint = %mint, "Token graduated — routing pumpfun_sell → Jupiter aggregator");
         return build_graduated_swap(http, rpc, wallet, params, false).await;
     }
 
-    let creator_str = coin
-        .get("creator")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Internal("Missing creator field in coin data".into()))?;
-    let creator = Pubkey::from_str(creator_str)
-        .map_err(|_| AppError::Internal("Invalid creator pubkey from API".into()))?;
-    let name = coin
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&params.mint)
-        .to_string();
-    let v_sol = coin
-        .get("virtual_sol_reserves")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(INITIAL_VIRTUAL_SOL_RESERVES as f64) as u64;
-    let v_tok = coin
-        .get("virtual_token_reserves")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(INITIAL_VIRTUAL_TOKEN_RESERVES as f64) as u64;
+    let creator = curve.creator.ok_or_else(|| {
+        AppError::ProtocolError("That token's bonding curve does not name a creator".into())
+    })?;
+    let v_sol = curve.virtual_sol_reserves;
+    let v_tok = curve.virtual_token_reserves;
+    let token_prog = read_token_program(rpc, &mint).await;
+    tracing::info!(mint = %mint, token_program = %token_prog, "Token program from chain for sell");
 
-    let token_prog = {
-        let tp_str = coin
-            .get("token_program")
-            .and_then(|v| v.as_str())
-            .unwrap_or(TOKEN_2022_PROGRAM_ID);
-        Pubkey::from_str(tp_str).unwrap_or_else(|_| token_2022_program())
-    };
-    tracing::info!(mint = %mint, token_program = %token_prog, "Token program from API for sell");
+    let name = pumpfun_get(http, &format!("/coins/{}", params.mint))
+        .await
+        .ok()
+        .and_then(|c| c.get("name").and_then(|v| v.as_str()).map(str::to_string))
+        .unwrap_or_else(|| params.mint.clone());
 
     let (token_amount, min_sol_output) = parse_sell_amounts(params, v_sol, v_tok)?;
 
