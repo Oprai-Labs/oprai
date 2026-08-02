@@ -1189,6 +1189,51 @@ async fn fetch_pumpfun_global(rpc: &SolanaRpc) -> (Pubkey, u64) {
     }
 }
 
+/// Solana's memo program. A note attached to a transaction, nothing more.
+const MEMO_PROGRAM: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
+
+/// What a memo of ours costs a transaction: the program's address in the
+/// account list plus the instruction itself. Measured, not guessed — see the
+/// test at the bottom of this file.
+const MEMO_TX_COST_BYTES: usize = 48;
+
+/// Solana's hard transaction limit.
+const MAX_TX_BYTES: usize = 1232;
+
+/// Put OPRAI's name on the transaction.
+///
+/// Explorers render a memo's text directly — no registry to apply to and
+/// nothing to deploy — so a user who opens their trade on Solscan sees who
+/// built it. Deliberately short: every byte here is a byte the transaction
+/// itself cannot use, and pump.fun launches already run close to the limit.
+fn oprai_memo_ix() -> Instruction {
+    Instruction {
+        program_id: Pubkey::from_str(MEMO_PROGRAM).expect("valid memo program id"),
+        accounts: vec![],
+        data: b"OPRAI".to_vec(),
+    }
+}
+
+/// Append the memo, unless the transaction cannot spare the room.
+///
+/// Attribution is worth a few bytes and never worth a failed transaction. A
+/// launch with a dev-buy is already 866 bytes of a 1232-byte budget, and the
+/// leveraged paths have had to be split across several transactions to fit at
+/// all — so this measures the real serialised size and steps aside when the
+/// memo would be what pushes it over.
+fn with_oprai_memo(mut instructions: Vec<Instruction>, payer: &Pubkey) -> Vec<Instruction> {
+    let probe = Message::new(&instructions, Some(payer));
+    let current = bincode::serialize(&Transaction::new_unsigned(probe))
+        .map(|b| b.len())
+        .unwrap_or(MAX_TX_BYTES);
+    if current + MEMO_TX_COST_BYTES <= MAX_TX_BYTES {
+        instructions.push(oprai_memo_ix());
+    } else {
+        tracing::debug!(current, "no room for the OPRAI memo — skipping it");
+    }
+    instructions
+}
+
 /// The SOL the user asked to spend, before OPRAI's cut is taken out of it.
 ///
 /// `parse_buy_amounts_with_fee` sizes the trade net of the commission, so the
@@ -2550,59 +2595,72 @@ pub fn build_launch_token_transaction_blocking(
     // already uses. Borrowing it is a dependency on an account we do not
     // control — if they close it, launches with a dev-buy stop building — so
     // the fallback below keeps working and we should publish our own.
-    let tx_base64 = if atomic_buy {
-        let lut = fetch_lookup_table_blocking(rpc, PUMPFUN_LOOKUP_TABLE);
-        let message = solana_sdk::message::v0::Message::try_compile(
-            creator_pubkey,
-            &create_instructions,
-            lut.as_slice(),
-            blockhash,
-        )
-        .map_err(|e| AppError::Internal(format!("Failed to compile v0 message: {e}")))?;
-        let versioned = solana_sdk::message::VersionedMessage::V0(message);
-        let sig_count = versioned.header().num_required_signatures as usize;
-        let mut tx = solana_sdk::transaction::VersionedTransaction {
-            signatures: vec![solana_sdk::signature::Signature::default(); sig_count],
-            message: versioned,
-        };
-        // The mint signs here only when we generated it; otherwise the
-        // frontend adds that signature after the wallet approves.
-        if let Some(ref kp) = mint_keypair {
-            if let Ok(pos) = tx
-                .message
-                .static_account_keys()
-                .iter()
-                .position(|k| *k == kp.pubkey())
-                .ok_or(())
-            {
-                use solana_sdk::signer::Signer;
-                tx.signatures[pos] = kp.sign_message(&tx.message.serialize());
+    // The memo goes on the launch too, but a launch is the one transaction
+    // with no room to spare — the atomic form only fits at all because a
+    // lookup table shrinks its accounts. So it is added, the finished bytes
+    // are measured, and if the memo is what put it over the limit it is
+    // dropped and the transaction rebuilt without. A name on the transaction
+    // is not worth a launch that cannot be sent.
+    let build_launch_tx = |instructions: &[Instruction]| -> Result<Vec<u8>, AppError> {
+        if atomic_buy {
+            let lut = fetch_lookup_table_blocking(rpc, PUMPFUN_LOOKUP_TABLE);
+            let message = solana_sdk::message::v0::Message::try_compile(
+                creator_pubkey,
+                instructions,
+                lut.as_slice(),
+                blockhash,
+            )
+            .map_err(|e| AppError::Internal(format!("Failed to compile v0 message: {e}")))?;
+            let versioned = solana_sdk::message::VersionedMessage::V0(message);
+            let sig_count = versioned.header().num_required_signatures as usize;
+            let mut tx = solana_sdk::transaction::VersionedTransaction {
+                signatures: vec![solana_sdk::signature::Signature::default(); sig_count],
+                message: versioned,
+            };
+            // The mint signs here only when we generated it; otherwise the
+            // frontend adds that signature after the wallet approves.
+            if let Some(ref kp) = mint_keypair {
+                if let Ok(pos) = tx
+                    .message
+                    .static_account_keys()
+                    .iter()
+                    .position(|k| *k == kp.pubkey())
+                    .ok_or(())
+                {
+                    use solana_sdk::signer::Signer;
+                    tx.signatures[pos] = kp.sign_message(&tx.message.serialize());
+                }
             }
+            bincode::serialize(&tx)
+                .map_err(|e| AppError::Internal(format!("Failed to serialize v0 tx: {e}")))
+        } else {
+            let create_message =
+                Message::new_with_blockhash(instructions, Some(creator_pubkey), &blockhash);
+            let mut transaction = Transaction::new_unsigned(create_message);
+            if let Some(ref kp) = mint_keypair {
+                transaction.partial_sign(&[kp], blockhash);
+            }
+            bincode::serialize(&transaction)
+                .map_err(|e| AppError::Internal(format!("Failed to serialize transaction: {e}")))
         }
-        let bytes = bincode::serialize(&tx)
-            .map_err(|e| AppError::Internal(format!("Failed to serialize v0 tx: {e}")))?;
-        tracing::info!(
-            bytes = bytes.len(),
-            instructions = create_instructions.len(),
-            "Created atomic pump.fun launch (create + dev-buy) as v0"
-        );
-        base64::engine::general_purpose::STANDARD.encode(&bytes)
-    } else {
-        let create_message =
-            Message::new_with_blockhash(&create_instructions, Some(creator_pubkey), &blockhash);
-        let mut transaction = Transaction::new_unsigned(create_message);
-        if let Some(ref kp) = mint_keypair {
-            transaction.partial_sign(&[kp], blockhash);
-        }
-        tracing::info!(
-            num_signatures = transaction.signatures.len(),
-            num_instructions = transaction.message.instructions.len(),
-            "Created pump.fun create transaction (no dev-buy)"
-        );
-        let tx_bytes = bincode::serialize(&transaction)
-            .map_err(|e| AppError::Internal(format!("Failed to serialize transaction: {}", e)))?;
-        base64::engine::general_purpose::STANDARD.encode(&tx_bytes)
     };
+
+    let mut with_memo = create_instructions.clone();
+    with_memo.push(oprai_memo_ix());
+    let mut bytes = build_launch_tx(&with_memo)?;
+    let mut carried_memo = true;
+    if bytes.len() > MAX_TX_BYTES {
+        bytes = build_launch_tx(&create_instructions)?;
+        carried_memo = false;
+    }
+    tracing::info!(
+        bytes = bytes.len(),
+        instructions = create_instructions.len(),
+        atomic = atomic_buy,
+        memo = carried_memo,
+        "Built pump.fun launch transaction"
+    );
+    let tx_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
     let mut warnings = Vec::new();
     if params.twitter.is_none() && params.telegram.is_none() && params.website.is_none() {
@@ -3121,6 +3179,7 @@ pub async fn build_pumpfun_buy(
     if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params)) {
         instructions.push(fee_ix);
     }
+    let instructions = with_oprai_memo(instructions, &buyer);
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&buyer), &blockhash);
     let transaction = Transaction::new_unsigned(message);
@@ -3222,6 +3281,7 @@ pub async fn build_pumpfun_sell(
     )?;
     let instructions = vec![cu_limit_ix, cu_price_ix, sell_ix];
 
+    let instructions = with_oprai_memo(instructions, &seller);
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&seller), &blockhash);
     let transaction = Transaction::new_unsigned(message);
@@ -3386,6 +3446,7 @@ pub async fn build_pumpswap_buy(
     instructions.push(swap_ix);
     instructions.push(close_wsol_ix);
 
+    let instructions = with_oprai_memo(instructions, &buyer);
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&buyer), &blockhash);
     let transaction = Transaction::new_unsigned(message);
@@ -3537,6 +3598,7 @@ pub async fn build_pumpswap_sell(
         close_wsol_ix,
     ];
 
+    let instructions = with_oprai_memo(instructions, &seller);
     let blockhash = get_blockhash(rpc).await?;
     let message = Message::new_with_blockhash(&instructions, Some(&seller), &blockhash);
     let transaction = Transaction::new_unsigned(message);
@@ -3646,6 +3708,30 @@ pub async fn build_pumpswap_pool_info(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The memo's real cost in bytes, so the size guard is not guesswork.
+    ///
+    /// `MEMO_TX_COST_BYTES` decides whether a transaction close to the limit
+    /// keeps its attribution or drops it. An estimate that is too low would
+    /// let the memo push a launch past 1232 bytes and make it unsendable, so
+    /// the constant is measured against a real serialised transaction.
+    #[test]
+    fn the_memo_costs_what_we_think_it_does() {
+        let payer = Pubkey::new_unique();
+        let base = vec![system_instruction::transfer(&payer, &Pubkey::new_unique(), 1)];
+        let size_of = |ixs: &[Instruction]| {
+            bincode::serialize(&Transaction::new_unsigned(Message::new(ixs, Some(&payer))))
+                .expect("serialises")
+                .len()
+        };
+        let mut with_memo = base.clone();
+        with_memo.push(oprai_memo_ix());
+        let cost = size_of(&with_memo) - size_of(&base);
+        assert!(
+            cost <= MEMO_TX_COST_BYTES,
+            "the memo costs {cost} bytes, more than the {MEMO_TX_COST_BYTES} the guard budgets",
+        );
+    }
 
     /// A launch must never carry a URI that only the author's browser can read.
     ///
