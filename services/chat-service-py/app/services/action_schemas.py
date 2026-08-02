@@ -1304,7 +1304,7 @@ OPRAI_TOOLS: list[dict] = [
                 "If you stripped characters, mention it briefly after calling the tool. Never ask for the ticker. "
                 "Optional params: description (only if user gave one — never auto-generate), "
                 "initialBuyAmount (SOL), twitter/telegram/website, "
-                "cashback='true', mayhemMode='true', tokenizedAgent='true'. "
+                "cashback='true'. "
                 "Never ask for description or image — the UI handles them."
             ),
             "parameters": {

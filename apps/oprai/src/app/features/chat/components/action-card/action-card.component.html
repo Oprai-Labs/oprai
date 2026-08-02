@@ -101,18 +101,14 @@
           </div>
         </details>
 
-        <!-- 4. Launch options: Mayhem / Cash Back -->
+        <!-- 4. Launch options: Cash Back
+             Mayhem Mode was here. A Mayhem launch does not trade through the
+             bonding curve, so the dev-buy that follows it had to be handed to
+             PumpPortal, who take 0.5% of it. Offering a switch that quietly
+             routes the user's money through a third party — for a volatility
+             gimmick — is not a trade worth making. -->
         @if (isTokenLaunch()) {
           <div class="pf-opts">
-            <button class="pf-opt" [class.pf-opt--on]="editMayhemMode()" type="button"
-              (click)="isEditable() && toggleMayhemMode()">
-              <span class="pf-opt__icon pf-opt__icon--mayhem"><span class="pf-opt__ring-inner"><lucide-icon name="activity" [size]="14" /></span></span>
-              <span class="pf-opt__text">
-                <span class="pf-opt__title">Mayhem Mode</span>
-                <span class="pf-opt__sub">Increased price volume · min 0.05 SOL initial buy</span>
-              </span>
-              <span class="pf-switch" [class.pf-switch--on]="editMayhemMode()"><span class="pf-switch__knob"></span></span>
-            </button>
             <button class="pf-opt" [class.pf-opt--on]="editCashback()" type="button"
               (click)="isEditable() && editCashback.set(!editCashback())">
               <span class="pf-opt__icon pf-opt__icon--cash"><lucide-icon name="circle-dollar-sign" [size]="15" /></span>

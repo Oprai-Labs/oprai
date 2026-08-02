@@ -1625,7 +1625,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly editTwitter = signal('');
   readonly editTelegram = signal('');
   readonly editWebsite = signal('');
-  readonly editMayhemMode = signal(false);
   readonly editCashback = signal(false);
   readonly editTokenizedAgent = signal(false);
   /** Mint (contract) of the token created by this launch card, once known. */
@@ -1676,7 +1675,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       editTwitter: this.editTwitter(),
       editTelegram: this.editTelegram(),
       editWebsite: this.editWebsite(),
-      editMayhemMode: this.editMayhemMode(),
       editCashback: this.editCashback(),
       editTokenizedAgent: this.editTokenizedAgent(),
       editSlippage: this.editSlippage(),
@@ -5244,7 +5242,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.editTwitter.set(p['twitter'] ?? '');
     this.editTelegram.set(p['telegram'] ?? '');
     this.editWebsite.set(p['website'] ?? '');
-    this.editMayhemMode.set(p['mayhemMode'] === 'true' || p['mayhemMode'] === true as any);
     this.editCashback.set(p['cashback'] === 'true' || p['cashback'] === true as any);
     // Tokenized Agent has no on-chain ix in our backend yet — force off regardless of LLM/draft.
     this.editTokenizedAgent.set(false);
@@ -5281,7 +5278,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           if (draft.editTwitter != null) this.editTwitter.set(draft.editTwitter);
           if (draft.editTelegram != null) this.editTelegram.set(draft.editTelegram);
           if (draft.editWebsite != null) this.editWebsite.set(draft.editWebsite);
-          if (draft.editMayhemMode != null) this.editMayhemMode.set(draft.editMayhemMode);
           if (draft.editCashback != null) this.editCashback.set(draft.editCashback);
           // Tokenized Agent intentionally not restored — backend rejects it.
           if (draft.editSlippage != null) this.editSlippage.set(draft.editSlippage);
@@ -5392,7 +5388,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       mergedParams['twitter'] = this.editTwitter();
       mergedParams['telegram'] = this.editTelegram();
       mergedParams['website'] = this.editWebsite();
-      mergedParams['mayhemMode'] = String(this.editMayhemMode());
       mergedParams['cashback'] = String(this.editCashback());
       // Tokenized Agent: backend has no ix wired up — always send false.
       mergedParams['tokenizedAgent'] = 'false';
@@ -5633,18 +5628,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   triggerImageUpload(): void { this.imageFileInput?.nativeElement?.click(); }
 
-  // pump.fun rule: Mayhem-mode launches require >= 0.05 SOL initial buy.
-  // Auto-bump the user's input when they enable Mayhem so the backend doesn't reject the launch.
-  toggleMayhemMode(): void {
-    const next = !this.editMayhemMode();
-    this.editMayhemMode.set(next);
-    if (next) {
-      const current = parseFloat(this.editInitialBuy() || '0');
-      if (!Number.isFinite(current) || current < 0.05) {
-        this.editInitialBuy.set('0.05');
-      }
-    }
-  }
 
   onTickerInput(event: Event): void {
     const input = event.target as HTMLInputElement;

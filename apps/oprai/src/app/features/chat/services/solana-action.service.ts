@@ -97,7 +97,7 @@ interface BuildResponse {
   // (via `pumpfun_initial_buy`) after the create tx confirms. For streamflow batch,
   // `data.transactions` is the full array.
   data?: {
-    initialBuy?: { mint: string; amountSol: number; mayhem?: boolean };
+    initialBuy?: { mint: string; amountSol: number };
     transactions?: string[];
     [k: string]: unknown;
   };
@@ -588,12 +588,13 @@ export class SolanaActionService {
    * Perform a token launch's initial dev-buy as a follow-up, AFTER the create tx
    * confirms (the token/curve must exist on-chain first).
    *
-   * The buy is built by the backend via `pumpfun_initial_buy` (PumpPortal), which
-   * returns the correct transaction for ANY pool — standard bonding curve OR Mayhem.
-   * We hand-built bonding-curve buy can't do Mayhem-mode tokens (they route through
-   * the Mayhem program) and 404s on freshly-created tokens, so this path is used for
-   * all launch buys. It's a second wallet approval. Any failure leaves the token
-   * created (just without the dev buy) and is logged, not thrown.
+   * Built by the backend from the bonding curve account, which exists the
+   * moment the create transaction lands. It used to go to PumpPortal, who take
+   * 0.5%, because our own buy read the curve from pump.fun's API and that API
+   * 404s on a token it has not indexed yet. It reads the chain now.
+   *
+   * It is a second wallet approval. Any failure leaves the token created, just
+   * without the dev buy, and is logged rather than thrown.
    */
   /**
    * Acquire the mint keypair for a pump.fun launch. Prefers a pre-ground
@@ -624,7 +625,7 @@ export class SolanaActionService {
 
   private async submitLaunchInitialBuy(
     connection: any,
-    initialBuy: { mint: string; amountSol: number; mayhem?: boolean },
+    initialBuy: { mint: string; amountSol: number },
     createSig: string,
     opts?: { slippage?: string; priorityFee?: string },
   ): Promise<void> {
@@ -637,11 +638,9 @@ export class SolanaActionService {
         return;
       }
 
-      // 2) Build the buy via the backend. A plain launch is built from the
-      //    bonding curve account, which exists the moment the create lands;
-      //    only a Mayhem launch still routes through PumpPortal, so the flag
-      //    has to travel with the request. The retry stays for the Mayhem
-      //    path, which does wait on someone else's indexing.
+      // 2) Build the buy via the backend, from the bonding curve account. The
+      //    retry is vestigial now that nothing waits on a third party's
+      //    indexing, but a launch is not the place to find out otherwise.
       // slippage/priorityFee MUST be numbers — the backend PumpFunTradeParams
       // deserializes them as f64 and rejects strings ("invalid type: string ...").
       const slip = opts?.slippage != null ? Number(opts.slippage) : NaN;
@@ -652,7 +651,6 @@ export class SolanaActionService {
           mint: initialBuy.mint,
           amount: String(initialBuy.amountSol),
           denominatedInSol: true,
-          ...(initialBuy.mayhem ? { mayhem: true } : {}),
           ...(Number.isFinite(slip) ? { slippage: slip } : {}),
           ...(Number.isFinite(prio) ? { priorityFee: prio } : {}),
         },
@@ -2937,7 +2935,6 @@ export class SolanaActionService {
           telegram:         p['telegram'] ?? undefined,
           website:          p['website'] ?? undefined,
           bannerUrl:        p['bannerUrl'] ?? p['banner_url'] ?? undefined,
-          mayhemMode:       p['mayhemMode'] ?? undefined,
           cashback:         p['cashback'] ?? undefined,
           tokenizedAgent:   p['tokenizedAgent'] ?? undefined,
         };

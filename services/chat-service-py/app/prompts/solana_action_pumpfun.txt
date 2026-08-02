@@ -116,7 +116,7 @@ details yourself.
    ("HOOD ticker"), set `symbol` to it. Leave `name` OUT when the user gave only a
    ticker — symbol and name are different things, and the user should type the real
    name in the form (do not copy the ticker into `name`). Set `initialBuyAmount`,
-   `twitter`/`telegram`/`website`, `mayhemMode` etc. only if explicitly stated.
+   `twitter`/`telegram`/`website` etc. only if explicitly stated.
 3. NEVER call `request_clarification` for a launch. NEVER ask the user for an image
    URL, description, or name in chat — the form's uploader and fields handle all of
    it. There is no "public image URL" step; the user uploads directly in the card.
@@ -138,10 +138,8 @@ Parameters (all optional to EMIT — the form enforces what's truly required):
     live SOL equivalent — do NOT convert to SOL yourself and do NOT put a dollar
     figure in `initialBuyAmount`. "10 dolar" is $10 (≈ 0.13 SOL), never 10 SOL.
   - Set exactly one of the two. Default "0" (no initial buy) when unstated.
-- `mayhemMode`: `"true"` ONLY if the user explicitly says "mayhem mode" / "with
-  mayhem". Never enable by default.
 - `cashback`: `"true"` ONLY if the user explicitly asks for cashback / "cash back".
-- `mayhemMode` and `cashback` map 1:1 to the form's switches — set them so the card
+- `cashback` maps 1:1 to the form's switch — set it so the card
   opens with the switch already in the state the user asked for.
 
 Examples:

@@ -139,11 +139,6 @@ pub struct LaunchTokenParams {
 pub struct PumpFunTradeParams {
     pub mint: String,
     pub amount: String,
-    /// Set on the dev-buy that follows a Mayhem launch. Those trade through
-    /// the Mayhem program rather than the bonding curve, so they take a
-    /// different route; everything else is ours to build.
-    #[serde(default)]
-    pub mayhem: Option<bool>,
     #[serde(default)]
     pub denominated_in_sol: Option<bool>,
     #[serde(default)]
@@ -2160,12 +2155,16 @@ pub fn build_launch_token_transaction_blocking(
     // Step 1: Resolve metadata URI (pre-uploaded to our own storage, no IPFS)
     let metadata_uri = resolve_metadata_uri(params)?;
 
-    // Step 2: Build the create_v2 instruction (Token-2022, Mayhem mode)
-    let is_mayhem = params
-        .mayhem_mode
-        .as_deref()
-        .map(|s| s == "true")
-        .unwrap_or(false);
+    // Step 2: Build the create_v2 instruction (Token-2022)
+    //
+    // Mayhem mode is not offered. A Mayhem token does not trade through the
+    // bonding curve, so the dev-buy that follows the launch — and every later
+    // trade — has to be routed through PumpPortal, who take 0.5% of it. Its
+    // own instruction arguments are still undecoded, so we cannot build those
+    // trades ourselves. Offering a switch that quietly sends the user's money
+    // through a third party, for a volatility gimmick, is not a trade worth
+    // making. `create_v2` still takes the flag; we always pass false.
+    let is_mayhem = false;
     let is_cashback = params
         .cashback
         .as_deref()
@@ -2177,22 +2176,15 @@ pub fn build_launch_token_transaction_blocking(
         .map(|s| s == "true")
         .unwrap_or(false);
 
-    // pump.fun requires a minimum 0.05 SOL initial buy for Mayhem launches (UI rule
-    // that's likely also enforced on-chain — the original 0.023 SOL attempt reverted
-    // in simulation). Enforce it here so the launch either meets the rule or fails fast.
-    if is_mayhem {
-        const MAYHEM_MIN_INITIAL_BUY_SOL: f64 = 0.05;
-        let initial_buy_sol = params
-            .initial_buy_amount
-            .as_ref()
-            .and_then(|s| s.parse::<f64>().ok())
-            .unwrap_or(0.0);
-        if initial_buy_sol < MAYHEM_MIN_INITIAL_BUY_SOL {
-            return Err(AppError::InvalidParams(format!(
-                "Mayhem Mode requires a minimum initial buy of {} SOL. You entered {} SOL — increase it and try again.",
-                MAYHEM_MIN_INITIAL_BUY_SOL, initial_buy_sol
-            )));
-        }
+    // The user may still ask for Mayhem in words; say why it is not there
+    // rather than launching something different from what they asked for.
+    if params.mayhem_mode.as_deref() == Some("true") {
+        return Err(AppError::InvalidParams(
+            "Mayhem Mode isn't available here. Those tokens trade outside the bonding \
+             curve, which means every trade on them would have to be routed through a \
+             third party that takes a cut. The launch works the same without it."
+                .into(),
+        ));
     }
 
     // Tokenized Agent flag has no slot in pump.fun's create_v2 args struct (only
@@ -2351,99 +2343,6 @@ pub fn build_launch_token_transaction_blocking(
 // isn't in pump.fun's `/coins` index yet AND Mayhem-mode tokens don't trade via the
 // standard bonding curve — so PumpPortal (which derives the correct tx from on-chain
 // state for any pool) is the safe way to build that specific buy.
-
-/// Build a pump.fun buy via PumpPortal's `trade-local` endpoint, for the token-launch
-/// initial dev-buy only. PumpPortal returns a base64 (versioned, ALT-compacted) tx the
-/// frontend signs + submits. Retries to absorb indexer/propagation lag right after the
-/// create tx confirms.
-pub async fn build_pumpfun_initial_buy(
-    http: &reqwest::Client,
-    wallet: &str,
-    params: &PumpFunTradeParams,
-) -> Result<BuildResponse, AppError> {
-    let amount_sol: f64 = params
-        .amount
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?;
-    if amount_sol <= 0.0 {
-        return Err(AppError::InvalidParams(
-            "Amount must be greater than 0".into(),
-        ));
-    }
-    let slippage = params.slippage.unwrap_or(15.0);
-    let priority_fee = params.priority_fee.unwrap_or(0.0005);
-
-    let body = serde_json::json!({
-        "publicKey": wallet,
-        "action": "buy",
-        "mint": params.mint,
-        "amount": amount_sol,
-        "denominatedInSol": "true",
-        "slippage": slippage,
-        "priorityFee": priority_fee,
-        // "auto" lets PumpPortal pick the pool (bonding curve, Mayhem, PumpSwap, …).
-        "pool": "auto",
-    });
-
-    let mut last_err = String::new();
-    for attempt in 0..4u32 {
-        if attempt > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        }
-        match http
-            .post("https://pumpportal.fun/api/trade-local")
-            .json(&body)
-            .send()
-            .await
-        {
-            Ok(r) => {
-                let status = r.status();
-                if status.is_success() {
-                    let bytes = r
-                        .bytes()
-                        .await
-                        .map_err(|e| AppError::Internal(format!("PumpPortal read error: {e}")))?;
-                    if bytes.len() < 64 {
-                        // Too small to be a real tx — usually an error body; retry.
-                        last_err = format!("PumpPortal returned {} bytes", bytes.len());
-                        continue;
-                    }
-                    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    return Ok(BuildResponse {
-                        preview: ActionPreview {
-                            id: Uuid::new_v4().to_string(),
-                            action_type: "pumpfun_initial_buy".into(),
-                            description: format!("Initial buy of {} SOL", amount_sol),
-                            estimated_fee: format!("~{} SOL", amount_sol + priority_fee),
-                            estimated_refund: None,
-                            params: serde_json::to_value(params).unwrap_or(serde_json::Value::Null),
-                            warnings: vec![],
-                            requires_approval: true,
-                        },
-                        transaction: Some(tx_b64),
-                        additional_signers_required: 0,
-                        execution_steps: None,
-                        quote: None,
-                        is_cross_chain: false,
-                        data: None,
-                    });
-                }
-                last_err = format!(
-                    "PumpPortal {}: {}",
-                    status,
-                    r.text().await.unwrap_or_default()
-                );
-            }
-            Err(e) => last_err = format!("PumpPortal request error: {e}"),
-        }
-    }
-    // Log the raw upstream detail; return a clean, user-facing message.
-    tracing::warn!("PumpPortal initial-buy build failed: {last_err}");
-    Err(AppError::Internal(
-        "The token isn't ready to trade yet — give it a few seconds after launch and try again."
-            .into(),
-    ))
-}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Pump.fun REST API helpers

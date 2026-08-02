@@ -160,7 +160,7 @@ open it, not to gather details.
   it. Only ask a plain question if the user gave NOTHING at all (no ticker/name/theme).
 
 Parameters (set only if stated): `symbol`, `name`, `description`, `initialBuyAmount`
-(SOL), `slippage`, `priorityFee`, `twitter`/`telegram`/`website`, `mayhemMode`
+(SOL), `slippage`, `priorityFee`, `twitter`/`telegram`/`website`
 (`"true"` only on explicit request).
 
 Examples:
