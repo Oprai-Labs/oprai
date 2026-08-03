@@ -5603,3 +5603,30 @@
     input { accent-color: var(--op-loss, #ef4444); cursor: pointer; }
   }
 }
+
+/* Rate + platform fee, under the swap panels. Quiet by design: facts you can
+   check, not things demanding a decision. */
+.swap-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--op-border-subtle);
+
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.75rem;
+  }
+
+  &__label { color: var(--op-text-secondary); }
+
+  &__value {
+    color: var(--op-text-primary);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+}

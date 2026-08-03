@@ -14,6 +14,10 @@ export interface SwapQuote {
   priceImpactPct: string;
   routePlan: RoutePlanStep[];
   contextSlot?: number;
+  /** OPRAI's cut, as Jupiter priced it into this quote. Present only when the
+   *  backend declared a fee it can actually collect, so the card can show the
+   *  real number for this trade rather than a rule copied from the server. */
+  platformFee?: { amount?: string; feeBps?: number } | null;
 }
 
 export interface RoutePlanStep {

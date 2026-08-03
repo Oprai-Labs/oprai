@@ -4791,6 +4791,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     counterIsOutput: boolean; // true if counter is the output side (ExactIn)
     pricePerInput: number;    // output per 1 input
     priceImpactPct: number;   // Jupiter quote priceImpactPct × 100 (e.g. 3.2 = 3.2%)
+    platformFeeBps: number;   // what this trade actually pays OPRAI
   } | null>(null);
 
   /**
@@ -4877,6 +4878,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly swapUsdDeltaSevere = computed(() => {
     const d = this.swapUsdDeltaPct();
     return d !== null && d <= -5;
+  });
+
+  /** "1 USDC ≈ 53,051.89 CATE" — the exchange rate this quote implies. */
+  readonly swapRateLine = computed(() => {
+    const est = this.swapEstimate();
+    if (!est || !(est.pricePerInput > 0)) return null;
+    const pay = this.resolveTokenDisplay(this.getEditParam('inputMint')).symbol;
+    const recv = this.resolveTokenDisplay(this.getEditParam('outputMint')).symbol;
+    if (!pay || !recv) return null;
+    const rate = est.pricePerInput;
+    const shown = rate >= 1
+      ? rate.toLocaleString(undefined, { maximumFractionDigits: 2 })
+      : rate.toLocaleString(undefined, { maximumFractionDigits: 8 });
+    return `1 ${pay} ≈ ${shown} ${recv}`;
+  });
+
+  /** What this particular trade pays OPRAI, as the quote priced it. */
+  readonly swapPlatformFeePct = computed(() => {
+    const bps = this.swapEstimate()?.platformFeeBps ?? 0;
+    return bps > 0 ? bps / 100 : 0;
   });
 
   formatUsdCompact(v: number | null): string {
@@ -5169,6 +5190,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         counterIsOutput: !isExactOut,
         pricePerInput,
         priceImpactPct,
+        // Read from the quote rather than re-deriving the rule here: the fee
+        // is decided by the backend and priced in by Jupiter, and a second
+        // copy of that logic on the client would drift the day either changes.
+        platformFeeBps: Number((quote as { platformFee?: { feeBps?: number } }).platformFee?.feeBps ?? 0),
       });
     } catch {
       // Quote failure (no route, network error, etc.) is itself a danger

@@ -22,7 +22,13 @@ import { WalletService } from '@core/services/wallet.service';
 import { environment } from '../../../../../environments/environment';
 import { createSolanaConnection } from '@core/utils/solana-connection';
 
-type Category = 'all' | 'stable' | 'lst';
+/**
+ * The three questions a token picker actually answers: what do I have, what is
+ * moving, and what equities can I buy. "All / Stables / LSTs" answered none of
+ * them — a category filter over an alphabetical list of every mint on Solana,
+ * which is a way to browse, not to choose.
+ */
+type Category = 'holdings' | 'trending' | 'stocks';
 
 /**
  * Modal token picker used inside the swap action card. Click the FROM or TO
@@ -57,7 +63,7 @@ export class TokenPickerComponent implements OnInit {
   /** Mint to hide from the list (the OTHER side of a swap). */
   @Input() excludeMint = '';
   /** Default category filter when the modal opens. */
-  @Input() initialCategory: Category = 'all';
+  @Input() initialCategory: Category = 'holdings';
   /**
    * Show what the wallet actually holds, above everything else.
    *
@@ -71,7 +77,7 @@ export class TokenPickerComponent implements OnInit {
   @Output() picked = new EventEmitter<string>();
   @Output() closed = new EventEmitter<void>();
 
-  readonly category = signal<Category>('all');
+  readonly category = signal<Category>('holdings');
   readonly searchQuery = signal('');
   readonly registryVersion = this.tokenRegistry.version;
 
@@ -86,38 +92,40 @@ export class TokenPickerComponent implements OnInit {
   readonly holdings = signal<Array<{ token: TokenMeta; amount: number }>>([]);
   readonly holdingsLoading = signal(false);
 
-  /** Held tokens that survive the current search box and exclusion. */
-  readonly heldResults = computed(() => {
-    this.registryVersion();
-    const q = this.searchQuery().trim().toLowerCase();
-    return this.holdings().filter(h => {
-      if (h.token.address === this.excludeMint) return false;
-      if (!q) return true;
-      return (
-        h.token.symbol.toLowerCase().includes(q) ||
-        h.token.name.toLowerCase().includes(q) ||
-        h.token.address.toLowerCase() === q
-      );
-    });
-  });
+  readonly heldResults = computed(() =>
+    this.holdings().filter(h => h.token.address !== this.excludeMint),
+  );
 
-  /** The full list, minus anything already shown under "Your tokens". */
-  readonly otherResults = computed(() => {
-    const held = new Set(this.heldResults().map(h => h.token.address));
-    return this.results().filter(t => !held.has(t.address));
-  });
+  /** Trending and stocks, fetched from Jupiter and cached for this modal. */
+  readonly trending = signal<TokenMeta[]>([]);
+  readonly stocks = signal<TokenMeta[]>([]);
+  readonly tabLoading = signal(false);
 
+  /**
+   * A search query overrides the tab.
+   *
+   * Someone typing a symbol wants that token, not that token filtered down to
+   * whichever tab happens to be open — and the mint they are hunting for is
+   * usually in none of the three.
+   */
   readonly results = computed<TokenMeta[]>(() => {
-    // Touch registry version so the list re-derives when Jupiter loads more
-    // tokens after the modal is already open.
     this.registryVersion();
-    const list = this.tokenRegistry.listByCategory(
-      this.category(),
-      this.searchQuery(),
-    );
+    const q = this.searchQuery().trim();
+    const list = q
+      ? this.tokenRegistry.listByCategory('all', q)
+      : this.category() === 'trending'
+        ? this.trending()
+        : this.category() === 'stocks'
+          ? this.stocks()
+          : [];
     if (!this.excludeMint) return list;
     return list.filter(t => t.address !== this.excludeMint);
   });
+
+  /** Held tokens are the Holdings tab, and are hidden once a search starts. */
+  readonly showHoldings = computed(
+    () => this.category() === 'holdings' && this.searchQuery().trim() === '',
+  );
 
   // Re-fetch liquidities whenever the visible results set changes (category
   // tab switch, search-query narrowing, registry version bump). The fetcher
@@ -129,8 +137,8 @@ export class TokenPickerComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.category.set(this.initialCategory);
-    if (this.walletFirst) void this.loadHoldings();
+    this.category.set(this.walletFirst ? this.initialCategory : 'trending');
+    void this.loadHoldings();
     // Fire the full Jupiter list fetch in the background; modal stays usable
     // from bootstrap tokens while the network call resolves.
     void this.tokenRegistry.ensureLoaded().then(() => this.fetchLiquidities());
@@ -281,6 +289,44 @@ export class TokenPickerComponent implements OnInit {
 
   setCategory(c: Category): void {
     this.category.set(c);
+    if (c === 'trending' && this.trending().length === 0) void this.loadTab('trending');
+    if (c === 'stocks' && this.stocks().length === 0) void this.loadTab('stocks');
+  }
+
+  /**
+   * Fill a tab from Jupiter.
+   *
+   * Trending has a dedicated endpoint. Stocks does not — the tag API rejects
+   * "stocks" and "rwa" — but searching "xstock" returns the tokenised equities
+   * (SPYx, NVDAx, TSLAx …), which is what the tab means. Both go straight to
+   * jup.ag, the same host the token registry already reads from.
+   */
+  private async loadTab(which: 'trending' | 'stocks'): Promise<void> {
+    this.tabLoading.set(true);
+    try {
+      const url = which === 'trending'
+        ? 'https://api.jup.ag/tokens/v2/toptrending/24h?limit=40'
+        : 'https://api.jup.ag/tokens/v2/search?query=xstock&limit=40';
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const raw = (await res.json()) as Array<Record<string, unknown>>;
+      if (!Array.isArray(raw)) return;
+      const list: TokenMeta[] = raw
+        .map(t => ({
+          address: String(t['id'] ?? t['address'] ?? ''),
+          symbol: String(t['symbol'] ?? ''),
+          name: String(t['name'] ?? ''),
+          decimals: Number(t['decimals'] ?? 0),
+          logoURI: (t['icon'] as string) ?? (t['logoURI'] as string) ?? null,
+        }))
+        .filter(t => t.address && t.symbol);
+      (which === 'trending' ? this.trending : this.stocks).set(list);
+      void this.fetchLiquidities();
+    } catch {
+      // An empty tab is honest; a broken modal is not.
+    } finally {
+      this.tabLoading.set(false);
+    }
   }
 
   onSearch(value: string): void {
