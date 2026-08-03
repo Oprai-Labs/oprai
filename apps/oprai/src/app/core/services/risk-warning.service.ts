@@ -32,6 +32,15 @@ export interface RiskWarningPayload {
   severity: 'info' | 'warning' | 'danger';
   items: RiskWarningItem[];
   figures?: RiskWarningFigure[];
+  /** The mint this warning is about, shown verbatim with a copy button.
+   *  A look-alike token is identified by its address and nothing else, so
+   *  telling someone to "check the token" without showing it is empty advice. */
+  mint?: string;
+  /** Gate the confirm button behind a deliberate tick. Reserved for warnings
+   *  where the danger is that the user is about to act on an assumption. */
+  requireAck?: boolean;
+  /** What the tick says. */
+  ackLabel?: string;
   confirmLabel: string;
   resolve: (confirmed: boolean) => void;
 }
@@ -90,7 +99,7 @@ export class RiskWarningService {
    * Jupiter returned so a vanity-prefix imposter (`J1toso1u…<garbage>`) can't
    * masquerade as JitoSOL through prompt manipulation.
    */
-  async confirmUnverifiedMint(symbol: string, name: string): Promise<boolean> {
+  async confirmUnverifiedMint(symbol: string, name: string, mint?: string): Promise<boolean> {
     return new Promise<boolean>(resolve => {
       this.warning$.next({
         title: 'Unverified Token',
@@ -99,11 +108,17 @@ export class RiskWarningService {
           `Jupiter recognises it as “${symbol}${name && name !== symbol ? ` (${name})` : ''}” — ` +
           `make sure that is what you intended to trade.`,
         severity: 'danger',
-        confirmLabel: 'I understand, proceed',
+        confirmLabel: 'Continue',
+        mint,
+        // The whole risk here is mistaken identity, and the only thing that
+        // settles it is the address. Asking for the tick makes checking it a
+        // step rather than a suggestion.
+        requireAck: !!mint,
+        ackLabel: 'I checked the mint address',
         items: [
-          { icon: 'shield-alert', text: `Symbol returned by Jupiter: ${symbol}` },
-          { icon: 'alert-circle', text: 'Vanity-prefix scams can mimic well-known tokens.' },
-          { icon: 'rotate-ccw', text: 'Once signed, the swap cannot be reversed.' },
+          { icon: 'shield-alert', text: `Token symbols aren't unique — ${symbol} can be duplicated.` },
+          { icon: 'alert-circle', text: 'Look-alike mint addresses are a common scam.' },
+          { icon: 'rotate-ccw', text: "Signed swaps can't be reversed." },
         ],
         resolve,
       });

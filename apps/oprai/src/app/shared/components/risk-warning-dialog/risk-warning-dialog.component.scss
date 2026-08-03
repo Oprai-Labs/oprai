@@ -18,102 +18,99 @@
   transform: translate(-50%, -50%);
   z-index: 501;
   width: min(440px, calc(100vw - 32px));
+  // Softer and larger than a card's corner: this is a sheet that interrupts,
+  // and the extra radius is what keeps it from reading as an error box.
+  border-radius: 28px;
   background: var(--op-bg-surface-1);
-  border: 1px solid var(--op-border-default);
-  // Same shell as an action card: rounded, clipped, no padding of its own —
-  // the header strip has to reach the edges the way the card's does.
-  border-radius: var(--op-radius-lg);
-  overflow: hidden;
-  box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.5);
-  animation: pop-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  border: 1px solid var(--op-border-subtle);
+  box-shadow: 0 24px 64px -20px rgba(0, 0, 0, 0.7);
+  padding: 28px 28px 22px;
+  display: flex;
+  flex-direction: column;
+  animation: pop-in 0.28s cubic-bezier(0.2, 0, 0, 1);
 
+  // Severity is a single accent, used on the glyph and its halo. Everything
+  // else stays neutral — one coloured thing reads as serious, five read as
+  // decoration.
   --sev: var(--op-brand);
   &--danger  { --sev: var(--op-danger); }
   &--warning { --sev: var(--op-warning); }
   &--info    { --sev: var(--op-brand); }
 }
 
-// ── Header strip ─────────────────────────────────────────────────────────────
-// Mirrors .proto-header: tinted band, 36px badge, name + subtitle, status pill.
+// ── Lede: one glyph, one line ────────────────────────────────────────────────
 
-.dialog-header {
+.dialog-lede {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px 11px;
-  background: color-mix(in srgb, var(--sev) 6%, transparent);
-  border-bottom: 1px solid var(--op-border-subtle);
+  flex-direction: column;
+  gap: 16px;
 }
 
 .dialog-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
-  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
   color: var(--sev);
-  background: var(--op-bg-surface-2);
-  border: 1px solid var(--op-border-subtle);
+  background: color-mix(in srgb, var(--sev) 16%, transparent);
 }
 
-.dialog-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  flex: 1;
-  min-width: 0;
-}
-
-.dialog-name {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  color: var(--op-text-primary);
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-}
-
-.dialog-sub {
-  font-size: 0.6875rem;
-  color: var(--op-text-secondary);
-  line-height: 1.2;
-}
-
-// The severity goes where the card puts "Ready": a pill, right-aligned.
-.dialog-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 99px;
-  font-size: 0.6875rem;
+.dialog-title {
+  margin: 0;
+  font-size: 21px;
   font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-  color: var(--sev);
-  background: color-mix(in srgb, var(--sev) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--sev) 32%, transparent);
-}
-
-// ── Body ─────────────────────────────────────────────────────────────────────
-
-.dialog-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--op-text-primary);
 }
 
 .dialog-message {
-  font-size: 13px;
-  color: var(--op-text-secondary);
+  margin: 12px 0 0;
+  font-size: 14px;
   line-height: 1.6;
-  margin: 0;
+  color: var(--op-text-secondary);
+  text-wrap: pretty;
+}
+
+// ── Facts ────────────────────────────────────────────────────────────────────
+// Unboxed. The panel around them was competing with the panels on the card
+// underneath, and a list of three short sentences does not need a frame.
+
+.dialog-items {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dialog-item {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 10px;
+  align-items: start;
+
+  &__mark {
+    width: 3px;
+    height: 3px;
+    margin: 9px 0 0 6px;
+    border-radius: 50%;
+    background: var(--op-text-tertiary, var(--op-text-secondary));
+  }
+  &__text {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--op-text-secondary);
+    text-wrap: pretty;
+  }
 }
 
 .dialog-figures {
   display: flex;
   gap: 8px;
+  margin-top: 18px;
 }
 
 .figure {
@@ -123,9 +120,8 @@
   flex-direction: column;
   gap: 4px;
   padding: 11px 12px;
-  background: var(--op-bg-surface-2);
-  border: 1px solid var(--op-border-subtle);
-  border-radius: var(--op-radius-lg);
+  background: color-mix(in srgb, var(--op-text-primary) 3.5%, transparent);
+  border-radius: 12px;
 
   &__label {
     font-size: 11px;
@@ -141,91 +137,146 @@
     color: var(--op-text-primary);
     letter-spacing: -0.01em;
   }
-  &--emphasis { background: var(--op-bg-surface-3, var(--op-bg-surface-2)); }
 }
 
-// The points sit in the same panel the swap card uses for "You pay": surface,
-// subtle border, no accent bar. The header already says how serious this is,
-// and saying it twice is what made the dialog look like a different product.
-.dialog-items {
-  list-style: none;
-  margin: 0;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  background: var(--op-bg-surface-2);
-  border: 1px solid var(--op-border-subtle);
-  border-radius: var(--op-radius-lg);
-}
+// ── The address ──────────────────────────────────────────────────────────────
 
-.dialog-item {
+.dialog-mint {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  font-size: 13px;
-  line-height: 1.5;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  margin-top: 22px;
+  padding: 0 6px 0 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--op-text-primary) 3.5%, transparent);
 
-  &__mark {
+  &__label {
+    font-size: 12.5px;
+    color: var(--op-text-tertiary, var(--op-text-secondary));
     flex-shrink: 0;
-    width: 4px;
-    height: 4px;
-    margin-top: 7px;
-    border-radius: 50%;
-    background: var(--op-text-tertiary);
   }
-  &__text { color: var(--op-text-secondary); }
+  &__value {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12.5px;
+    color: var(--op-text-primary);
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  &__copy {
+    flex-shrink: 0;
+    height: 32px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--op-brand);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.18s cubic-bezier(0.2, 0, 0, 1);
+
+    &:hover { background: color-mix(in srgb, var(--op-brand) 14%, transparent); }
+  }
 }
 
-// ── Footer ───────────────────────────────────────────────────────────────────
-// Same proportions as an action card's: the primary fills the row, the
-// secondary sits beside it.
+// ── Acknowledgement ──────────────────────────────────────────────────────────
+
+.dialog-ack {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  user-select: none;
+  text-align: left;
+
+  &__box {
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 2px solid var(--op-text-tertiary, var(--op-text-secondary));
+    color: transparent;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+    &.is-on {
+      background: var(--op-brand);
+      border-color: var(--op-brand);
+      color: #fff;
+    }
+  }
+  &__text {
+    font-size: 13.5px;
+    color: var(--op-text-secondary);
+  }
+}
+
+// ── Footer: pills, right-aligned ─────────────────────────────────────────────
 
 .dialog-footer {
   display: flex;
-  gap: 8px;
-  padding: 0 14px 14px;
-}
-
-.btn-confirm {
-  flex: 1;
-  display: inline-flex;
+  justify-content: flex-end;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 10px 18px;
-  border-radius: var(--op-radius-md);
-  font-size: 0.875rem;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  color: #fff;
-  background: var(--op-gradient, var(--op-brand));
-  box-shadow: 0 2px 12px color-mix(in srgb, var(--op-brand) 30%, transparent);
-  transition: filter 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
-
-  &:hover {
-    filter: brightness(1.08);
-    box-shadow: 0 4px 20px color-mix(in srgb, var(--op-brand) 44%, transparent);
-    transform: translateY(-1px);
-  }
-  &:active { transform: translateY(0); }
+  gap: 8px;
+  margin-top: 26px;
 }
 
 .btn-cancel {
-  padding: 10px 16px;
-  border-radius: var(--op-radius-md);
-  font-size: 0.875rem;
-  font-weight: 500;
-  border: none;
-  background: var(--op-bg-surface-2);
+  height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
   color: var(--op-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.18s cubic-bezier(0.2, 0, 0, 1), color 0.18s ease;
 
   &:hover {
-    background: var(--op-bg-surface-3, var(--op-bg-surface-2));
+    background: color-mix(in srgb, var(--op-text-primary) 7%, transparent);
     color: var(--op-text-primary);
+  }
+}
+
+.btn-confirm {
+  height: 40px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--op-gradient, var(--op-brand));
+  box-shadow: 0 2px 12px -2px color-mix(in srgb, var(--op-brand) 55%, transparent);
+  transition: filter 0.18s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.18s ease, opacity 0.15s ease;
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow: 0 4px 18px -2px color-mix(in srgb, var(--op-brand) 70%, transparent);
+  }
+
+  // Until the box is ticked this is not a button you can press, and it should
+  // not look like one.
+  &:disabled {
+    background: color-mix(in srgb, var(--op-text-primary) 7%, transparent);
+    color: var(--op-text-tertiary, var(--op-text-secondary));
+    box-shadow: none;
+    cursor: not-allowed;
   }
 }
 
