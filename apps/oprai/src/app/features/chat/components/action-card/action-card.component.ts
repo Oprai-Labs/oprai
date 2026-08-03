@@ -5109,6 +5109,29 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this._pollSecondsSinceQuote = 0;
       this.quoteCountdown.set(this.POLL_INTERVAL_S);
       this.refreshQuoteSilently();
+      // The balance rides the same tick rather than getting a timer of its
+      // own: it then inherits the 60-second lifetime and the hidden-tab pause
+      // for free, and can never outlive the quote it sits next to.
+      this.refreshBalancesSilently();
+    }
+  }
+
+  /**
+   * Re-read the wallet balance without the loading state.
+   *
+   * `loadInputBalance` flips a spinner, which is right when the user changed
+   * the token and wrong three seconds into staring at the card — it would
+   * blink "···" over a number that is almost always identical. The value is
+   * simply replaced when it arrives.
+   */
+  private refreshBalancesSilently(): void {
+    if (!this.walletService.publicKey()) return;
+    const noop = () => {};
+    if (this.inputBalanceMint()) {
+      void this.fetchBalanceFor(this.inputBalanceMint(), v => this.inputBalance.set(v), noop);
+    }
+    if (this.secondaryBalanceMint()) {
+      void this.fetchBalanceFor(this.secondaryBalanceMint(), v => this.secondaryBalance.set(v), noop);
     }
   }
 
