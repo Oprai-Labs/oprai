@@ -2544,12 +2544,11 @@
   // length, so they wrapped one per line and read as a ragged pile. As rows of
   // key and value they align, and four of them take less height than the pile
   // did.
+  // The traits themselves are the shared `.me-detail__traits` cards; this only
+  // sets them off from the price above.
   &__traits {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
     margin: 0;
-    padding: 8px 0 0;
+    padding-top: 10px;
     border-top: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
   }
 

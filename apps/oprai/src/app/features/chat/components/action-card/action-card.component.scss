@@ -5633,34 +5633,38 @@
 
 /* NFT traits on a buy / list / offer card — the same key-and-value rows the
    browse tile uses, so the thing you chose looks the same when you confirm it. */
+/* Trait cards, the same construction the NFT-detail view uses: a small
+   surface-2 panel per trait, label above value. A trait should look the same
+   whether you are reading about an NFT or about to pay for one. */
 .me-act__traits {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin: 8px 0 0;
-  padding-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-top: 10px;
   border-top: 1px solid var(--op-border-subtle);
 }
 
 .me-act__trait {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
-  font-size: 0.6875rem;
+  padding: 8px 10px;
+  border-radius: var(--op-radius-md);
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
 }
 
 .me-act__trait-k {
+  font-size: 0.625rem;
   color: var(--op-text-tertiary, var(--op-text-secondary));
-  flex-shrink: 0;
 }
 
 .me-act__trait-v {
-  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
   color: var(--op-text-primary);
-  font-weight: 500;
-  text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

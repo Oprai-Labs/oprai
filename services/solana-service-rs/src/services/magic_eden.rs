@@ -1999,13 +1999,35 @@ pub async fn build_me_collection_nfts(
 #[serde(rename_all = "camelCase")]
 pub struct MeReadParams {
     /// Collection symbol, e.g. "mad_lads".
-    #[serde(default, alias = "collection", alias = "collectionSymbol")]
+    #[serde(
+        default,
+        alias = "collection",
+        alias = "collectionSymbol",
+        alias = "collection_symbol",
+        alias = "collectionName",
+        alias = "name"
+    )]
     pub symbol: Option<String>,
     /// NFT mint address.
-    #[serde(default, alias = "mint", alias = "tokenMint", alias = "nft")]
+    #[serde(
+        default,
+        alias = "mint",
+        alias = "tokenMint",
+        alias = "nft",
+        alias = "nftMint",
+        alias = "token_mint",
+        alias = "assetMint"
+    )]
     pub mint_address: Option<String>,
     /// Wallet address.
-    #[serde(default, alias = "address", alias = "owner")]
+    #[serde(
+        default,
+        alias = "address",
+        alias = "owner",
+        alias = "walletAddress",
+        alias = "wallet_address",
+        alias = "ownerAddress"
+    )]
     pub wallet: Option<String>,
     #[serde(default)]
     pub limit: Option<u32>,
@@ -2016,7 +2038,25 @@ pub struct MeReadParams {
     pub symbols: Option<String>,
     /// The NFT's number within its collection — "#8051". How people refer to
     /// an NFT, and the only handle most of them have.
-    #[serde(default, alias = "tokenId", alias = "id", alias = "index")]
+    ///
+    /// Generously aliased on purpose. The caller is a language model, and it
+    /// will keep inventing plausible names for the same field: asked for
+    /// "madlads 5050" it sent `tokenNumber` and got "NFT number is required",
+    /// then sent `number` for the next NFT and succeeded. Refusing a request
+    /// over the spelling of a key nobody sees is a bad trade — the value was
+    /// right both times.
+    #[serde(
+        default,
+        alias = "tokenId",
+        alias = "id",
+        alias = "index",
+        alias = "tokenNumber",
+        alias = "nftNumber",
+        alias = "token_number",
+        alias = "nft_number",
+        alias = "edition",
+        alias = "serial"
+    )]
     pub number: Option<String>,
 }
 

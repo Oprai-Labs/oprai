@@ -450,14 +450,14 @@
                    picks an NFT for these and was then asked to confirm on a
                    name and a picture alone. -->
               @if (meNftTraits().length) {
-                <dl class="me-act__traits">
+                <div class="me-act__traits">
                   @for (tr of meNftTraits(); track tr.label) {
                     <div class="me-act__trait">
-                      <dt class="me-act__trait-k">{{ tr.label }}</dt>
-                      <dd class="me-act__trait-v" [attr.title]="tr.value">{{ tr.value }}</dd>
+                      <span class="me-act__trait-k">{{ tr.label }}</span>
+                      <span class="me-act__trait-v" [attr.title]="tr.value">{{ tr.value }}</span>
                     </div>
                   }
-                </dl>
+                </div>
               }
             </div>
           </div>

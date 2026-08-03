@@ -190,15 +190,17 @@
                     @if (t.price) { {{ t.price | number:'1.0-3' }} SOL } @else { <span class="me-nft__unlisted">Not listed</span> }
                   </span>
                 </div>
+                <!-- The same trait cards the NFT-detail view uses, so a trait
+                     looks the same wherever it is read. -->
                 @if (meTraits(t).length) {
-                  <dl class="me-nft__traits">
-                    @for (tr of meTraits(t).slice(0, 4); track tr.label) {
-                      <div class="me-trait">
-                        <dt class="me-trait__k">{{ tr.label }}</dt>
-                        <dd class="me-trait__v" [attr.title]="tr.value">{{ tr.value }}</dd>
+                  <div class="me-detail__traits me-nft__traits">
+                    @for (tr of meTraits(t).slice(0, 8); track tr.label) {
+                      <div class="me-detail__trait">
+                        <span class="me-detail__trait-k">{{ tr.label }}</span>
+                        <span class="me-detail__trait-v" [attr.title]="tr.value">{{ tr.value }}</span>
                       </div>
                     }
-                  </dl>
+                  </div>
                 }
                 <div class="me-nft__foot">
                   <!-- The button follows from who owns it and whether it is
