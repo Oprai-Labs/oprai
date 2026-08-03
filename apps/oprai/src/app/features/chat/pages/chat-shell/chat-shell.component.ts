@@ -863,6 +863,29 @@ export class ChatShellComponent implements OnInit, OnDestroy {
   onUseAction(payload: { sourceMessageId: string; action: ParsedAction }): void {
     const { action } = payload;
     const sessionId = this.sessionStorage.activeSessionId() ?? `local:${Date.now()}`;
+
+    // A card can emit a QUERY as well as an action — "Browse listings" wants
+    // the listings themselves, not a form asking which collection. This used
+    // to make an action card regardless, so the button answered a question the
+    // user had already answered by clicking it: a two-field form pre-filled
+    // with the collection they were looking at, and a Confirm to press.
+    if (action.raw?.startsWith('[QUERY:')) {
+      const queryMsgId = `use-query-${Date.now()}`;
+      this.messages.update(msgs => [...msgs, {
+        id: queryMsgId,
+        sessionId,
+        role: 'assistant' as const,
+        content: '',
+        createdAt: new Date().toISOString(),
+      }]);
+      this.messageQueries.update(map => {
+        const next = new Map(map);
+        next.set(queryMsgId, [{ type: action.type, params: action.params, raw: action.raw }]);
+        return next;
+      });
+      return;
+    }
+
     const actionMsgId = `use-action-${Date.now()}`;
     const msg: ChatMessage = {
       id: actionMsgId,
