@@ -64,8 +64,6 @@
       <button class="btn-cancel" (click)="cancel()">Cancel</button>
       <button
         class="btn-confirm"
-        [class.btn-confirm--danger]="p.severity === 'danger'"
-        [class.btn-confirm--warning]="p.severity === 'warning'"
         (click)="confirm()"
       >{{ p.confirmLabel }}</button>
     </div>
