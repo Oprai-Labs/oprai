@@ -4,7 +4,7 @@ import { ApiService } from '@core/services/api.service';
 import { WalletService } from '@core/services/wallet.service';
 import { SolanaRpcService } from '../../portfolio/services/solana-rpc.service';
 import { environment } from '../../../../environments/environment';
-import { createSolanaConnection } from '@core/utils/solana-connection';
+import { awaitSignature, createSolanaConnection } from '@core/utils/solana-connection';
 
 export interface StakeAccount {
   pubkey: string;
@@ -176,7 +176,9 @@ export class NativeStakeService {
       preflightCommitment: 'confirmed',
     });
 
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    // Poll rather than subscribe: the websocket derived from our RPC proxy's
+    // URL is answered with 405, so a subscription never connects.
+    await awaitSignature(connection, signature);
     return signature;
   }
 
