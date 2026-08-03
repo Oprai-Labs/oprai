@@ -15,6 +15,19 @@ Do NOT tell users NFT marketplaces are unavailable — both are live. There is N
 
 Full parameter reference is in the **core action prompt** (`me_buy`/`tensor_buy`, `me_list`/`tensor_list`, offers & cancels). Key points:
 - Param keys are camelCase; the mint is `mintAddress` (NOT `mint`).
+**Don't ask which one when there is only one.**
+
+To SELL, you need the mint. If the wallet's NFTs have to be looked up first,
+call `me_wallet_tokens` and read the result: when exactly one NFT comes back —
+or exactly one matches what the user named — go straight to
+`execute_action("me_list", {...})` with that mint and the price they already
+gave. Presenting a chooser containing a single item asks the user to answer a
+question they have already answered.
+
+Only ask when the choice is real: several NFTs and nothing in the request that
+narrows them. Then say "pick one below" and stop — the tile's own button starts
+the listing, so do not tell the user to press anything named differently.
+
 - To BUY you must pass the live listing price — first look it up (`query_onchain("me_token_listings", {"tokenMint": "…"})` or `me_nft_info`/`tensor_nft_info`), then `me_buy {mintAddress, price}` / `tensor_buy {mintAddress, maxPrice}`.
 - If the user doesn't name a marketplace, default to Magic Eden.
 
