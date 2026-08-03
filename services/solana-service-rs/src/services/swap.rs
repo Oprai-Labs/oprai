@@ -456,6 +456,41 @@ fn sol_side_fee_lamports(params: &SwapParams, quote: &SwapQuote) -> Option<u64> 
     (fee > 0).then_some(fee)
 }
 
+/// Split a SOL-funded swap into "what gets traded" and "what we take".
+///
+/// Returns the params to quote with — the requested amount less the fee — and
+/// the fee itself, so the user's total outflow is the number they typed.
+/// Only applies when SOL is the INPUT: on a sale into SOL the fee comes out of
+/// the proceeds, which is already money the user is receiving rather than
+/// spending.
+fn sol_input_fee_split(params: &SwapParams, taking_sol_fee: bool) -> Option<(SwapParams, u64)> {
+    if !taking_sol_fee {
+        return None;
+    }
+    let input = resolve_token_address(&params.input_mint);
+    if !input.eq_ignore_ascii_case(fees::WSOL_MINT) {
+        return None;
+    }
+    // ExactOut fixes the amount RECEIVED, so there is no input figure to take
+    // the fee out of without changing what the user gets.
+    if matches!(params.swap_mode.as_deref(), Some(m) if m.eq_ignore_ascii_case("exactout") || m.eq_ignore_ascii_case("out")) {
+        return None;
+    }
+    let output = resolve_token_address(&params.output_mint);
+    let bps = fees::swap_fee_bps(&input, &output) as u64;
+    if bps == 0 {
+        return None;
+    }
+    let requested = (params.amount.trim().parse::<f64>().ok()? * 1_000_000_000.0) as u64;
+    let fee = requested.saturating_mul(bps) / 10_000;
+    if fee == 0 || fee >= requested {
+        return None;
+    }
+    let mut net = params.clone();
+    net.amount = format!("{:.9}", (requested - fee) as f64 / 1_000_000_000.0);
+    Some((net, fee))
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Jupiter swap TX
 // ──────────────────────────────────────────────────────────────────────────────
@@ -472,6 +507,35 @@ pub async fn build_swap_transaction(
 ) -> Result<SwapBuildResult, AppError> {
     validate_swap_params(params)?;
 
+    // Which route the fee takes has to be settled BEFORE quoting: the SOL
+    // route changes the amount we quote for.
+    let swap_mode = params.swap_mode.as_deref().unwrap_or("ExactIn");
+    let exact_out = swap_mode.eq_ignore_ascii_case("exactout") || swap_mode.eq_ignore_ascii_case("out");
+    let mode = if exact_out { "ExactOut" } else { "ExactIn" };
+    // Only name a fee account when there is a fee to put in it. Jupiter
+    // rejects the whole build otherwise — "platformFee must be greater than 0
+    // when feeAccount is set" — which broke every stablecoin pair, the one
+    // case we deliberately charge nothing for.
+    let fee_target = if platform_fee_bps_for(params, mode).await > 0 {
+        fee_account_for(params, mode).await
+    } else {
+        None
+    };
+
+    // When the commission is a SOL transfer, it has to come OUT of the amount,
+    // not sit on top of it.
+    //
+    // A user typing "0.1 SOL" paid 0.1024: the swap took the full 0.1 and our
+    // transfer was appended after it. That breaks the promise the card makes,
+    // it is the opposite of what the pump.fun path does, and it is the kind of
+    // difference someone only discovers by reading their own transaction. So
+    // the trade is quoted for the amount minus the fee, and the two together
+    // add up to what was asked for.
+    let (params_for_quote, prepaid_sol_fee) = match sol_input_fee_split(params, fee_target.is_none()) {
+        Some((net_params, fee)) => (net_params, Some(fee)),
+        None => (params.clone(), None),
+    };
+    let params = &params_for_quote;
     let quote = get_swap_quote(http, jupiter_api_key, params).await?;
 
     let prioritization_fee = match params.priority_fee.as_deref() {
@@ -491,18 +555,6 @@ pub async fn build_swap_transaction(
         JUPITER_PUB_SWAP
     };
 
-    let swap_mode = params.swap_mode.as_deref().unwrap_or("ExactIn");
-    let exact_out = swap_mode.eq_ignore_ascii_case("exactout") || swap_mode.eq_ignore_ascii_case("out");
-    // Only name a fee account when there is a fee to put in it. Jupiter
-    // rejects the whole build otherwise — "platformFee must be greater than 0
-    // when feeAccount is set" — which broke every stablecoin pair, the one
-    // case we deliberately charge nothing for.
-    let mode = if exact_out { "ExactOut" } else { "ExactIn" };
-    let fee_target = if platform_fee_bps_for(params, mode).await > 0 {
-        fee_account_for(params, mode).await
-    } else {
-        None
-    };
 
     let post_swap = |quote: &SwapQuote, fee: Option<String>| {
         let mut body = serde_json::json!({
@@ -547,7 +599,7 @@ pub async fn build_swap_transaction(
     // and a commission that depends on an unrelated action is not a commission.
     if fee_target.is_none() {
         if let (Some(wallet), Ok(payer)) = (fees::fee_wallet(), Pubkey::from_str(user_pubkey)) {
-            if let Some(fee) = sol_side_fee_lamports(params, &quote) {
+            if let Some(fee) = prepaid_sol_fee.or_else(|| sol_side_fee_lamports(params, &quote)) {
                 let before = tx_base64.len();
                 tx_base64 =
                     crate::services::memo::attach_sol_transfer(&tx_base64, &payer, &wallet, fee);
