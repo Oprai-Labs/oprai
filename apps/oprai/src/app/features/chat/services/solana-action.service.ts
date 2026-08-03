@@ -1516,9 +1516,13 @@ export class SolanaActionService {
             : output?.trust === 'jupiter_known' ? output
             : null;
           if (unverified && unverified.trust === 'jupiter_known') {
+            const unverifiedMint = unverified === input
+              ? (action.params['inputMint'] ?? action.params['input_mint'])
+              : (action.params['outputMint'] ?? action.params['output_mint']);
             const confirmed = await this.riskWarning.confirmUnverifiedMint(
               unverified.symbol,
               unverified.name,
+              unverifiedMint,
             );
             if (!confirmed) {
               throw new Error('Swap cancelled — token is not in the verified registry.');
