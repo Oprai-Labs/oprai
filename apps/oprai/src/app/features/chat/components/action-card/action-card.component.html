@@ -434,14 +434,26 @@
                   <span class="me-act__price-v mono">{{ price | number:'1.0-4' }} SOL</span>
                 </div>
                 @if (meFeeSol(); as fee) {
-                  <!-- A seller who reads only the ask is reading the wrong
-                       number: Magic Eden's 2% comes out of it. -->
+                  <!-- Both numbers, because they are both real and they differ.
+                       Listing at 500 put 555 on Magic Eden's grid: their 2% and
+                       the collection's royalty are added on top of the ask. -->
+                  @if (meRoyaltySol(); as roy) {
+                    <div class="me-act__fee">
+                      <span>Creator royalty {{ (meRoyaltyPct() ?? 0) * 100 | number:'1.0-2' }}%</span>
+                      <span class="mono">+{{ roy | number:'1.0-4' }} SOL</span>
+                    </div>
+                  }
                   <div class="me-act__fee">
-                    <span>Magic Eden fee 2%</span><span class="mono">−{{ fee | number:'1.0-4' }} SOL</span>
+                    <span>Magic Eden fee 2%</span><span class="mono">+{{ fee | number:'1.0-4' }} SOL</span>
                   </div>
+                  @if (meBuyerPaysSol(); as total) {
+                    <div class="me-act__fee">
+                      <span>Buyer pays</span><span class="mono">{{ total | number:'1.0-4' }} SOL</span>
+                    </div>
+                  }
                   @if (meNetSol(); as net) {
                     <div class="me-act__net">
-                      <span>You keep</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
+                      <span>You receive</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
                     </div>
                   }
                 }

@@ -2730,6 +2730,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     image?: string;
     collectionName?: string;
     attributes?: Array<{ trait_type?: string; traitType?: string; value?: unknown }>;
+    sellerFeeBasisPoints?: number;
   } | null>(null);
 
   private meNftLookupDone = '';
@@ -2751,6 +2752,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           image: d['image'] as string | undefined,
           collectionName: d['collectionName'] as string | undefined,
           attributes: d['attributes'] as Array<{ trait_type?: string; value?: unknown }> | undefined,
+          sellerFeeBasisPoints: d['sellerFeeBasisPoints'] as number | undefined,
         });
       });
   }
@@ -2843,6 +2845,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   /** Magic Eden's cut, shown on the actions where the user is the one paying
    *  it — a seller who sees only the ask is reading the wrong number. */
+  /** The collection's creator royalty, as a fraction. */
+  meRoyaltyPct(): number | null {
+    const bps = this.meFetchedNft()?.sellerFeeBasisPoints;
+    return typeof bps === 'number' && bps > 0 ? bps / 10_000 : null;
+  }
+
+  meRoyaltySol(): number | null {
+    const p = this.meHeadlinePrice();
+    const r = this.meRoyaltyPct();
+    return p && r ? p * r : null;
+  }
+
   meFeeSol(): number | null {
     const t = this.action.type;
     if (!/list|_sell$|accept_offer|sell_now|change_price/.test(t)) return null;
@@ -2850,10 +2864,25 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return p ? p * 0.02 : null;
   }
 
+  /**
+   * What a buyer will be shown.
+   *
+   * Listing at 500 SOL put "555 SOL" on Magic Eden's grid, and the card had
+   * said nothing about why: their marketplace fee and the collection's 9%
+   * royalty are added on top of the ask. The seller's number and the buyer's
+   * number are both real and they are not the same, so the card names both
+   * rather than letting the marketplace deliver the surprise.
+   */
+  meBuyerPaysSol(): number | null {
+    const p = this.meHeadlinePrice();
+    if (!p) return null;
+    const total = p + (this.meRoyaltySol() ?? 0) + (this.meFeeSol() ?? 0);
+    return total > p ? total : null;
+  }
+
   meNetSol(): number | null {
     const p = this.meHeadlinePrice();
-    const f = this.meFeeSol();
-    return p && f ? p - f : null;
+    return p ? p : null;
   }
 
     readonly isSwapPanel = computed(() => {
