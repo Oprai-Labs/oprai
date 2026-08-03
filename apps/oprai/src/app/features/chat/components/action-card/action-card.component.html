@@ -671,6 +671,9 @@
                   @if (isEditable()) { <lucide-icon name="chevron-down" [size]="14" class="pump-token__caret" /> }
                 </button>
               </div>
+              @if (swapPayUsd() !== null) {
+                <div class="pump-panel__usd">{{ formatUsdCompact(swapPayUsd()) }}</div>
+              }
             </div>
 
             <!-- Flip direction -->
@@ -710,20 +713,20 @@
                   @if (isEditable()) { <lucide-icon name="chevron-down" [size]="14" class="pump-token__caret" /> }
                 </button>
               </div>
+              @if (swapRecvUsd() !== null) {
+                <div class="pump-panel__usd">
+                  {{ formatUsdCompact(swapRecvUsd()) }}
+                  @if (swapUsdDeltaPct(); as delta) {
+                    <span class="pump-panel__delta" [class.is-severe]="swapUsdDeltaSevere()">
+                      ({{ delta > 0 ? '+' : '' }}{{ delta | number:'1.0-2' }}%)
+                    </span>
+                  }
+                </div>
+              }
             </div>
 
-            <!-- Slippage + Direct routes -->
+            <!-- Direct routes -->
             <div class="pump-swap__settings">
-              <div class="pump-setting">
-                <label class="pump-setting__label">Slippage</label>
-                <div class="pump-setting__input">
-                  <input type="number"
-                         [value]="((+(editParams()['slippageBps'] ?? '50')) / 100)"
-                         (input)="setEditParam('slippageBps', '' + (+$any($event.target).value * 100))"
-                         [disabled]="!isEditable()" min="0" max="100" step="0.1" />
-                  <span class="pump-setting__suffix">%</span>
-                </div>
-              </div>
               @if (action.type !== 'raydium_swap') {
                 <div class="pump-setting">
                   <label class="pump-setting__label">Direct routes only</label>

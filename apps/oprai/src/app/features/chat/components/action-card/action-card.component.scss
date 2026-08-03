@@ -2233,6 +2233,24 @@
   }
 }
 
+.pump-panel__usd {
+  margin-top: -2px;
+  font-size: 0.78rem;
+  color: var(--op-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pump-panel__delta {
+  margin-left: 4px;
+  color: var(--op-text-tertiary, var(--op-text-secondary));
+
+  // Past a few per cent the gap stops being rounding and starts being money.
+  &.is-severe {
+    color: var(--op-danger);
+    font-weight: 600;
+  }
+}
+
 .pump-panel {
   display: flex;
   flex-direction: column;

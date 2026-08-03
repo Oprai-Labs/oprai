@@ -4793,6 +4793,65 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     priceImpactPct: number;   // Jupiter quote priceImpactPct × 100 (e.g. 3.2 = 3.2%)
   } | null>(null);
 
+  /**
+   * What each side of a swap is worth in dollars, and how far apart they are.
+   *
+   * A token amount is not a quantity anyone can judge — "877.276.509282 CATE"
+   * says nothing about whether the trade is good. The dollar figure on each
+   * side does, and the gap between them is the real cost of the swap: route
+   * quality, price impact and fees all land in that one number, which is why
+   * Jupiter puts it there instead of the raw price-impact percentage.
+   */
+  readonly swapPayUsdPrice = signal<number | null>(null);
+  readonly swapRecvUsdPrice = signal<number | null>(null);
+  private readonly _swapUsdPriceEffect = effect(() => {
+    const pay = this.resolveToMint(this.getEditParam('inputMint'));
+    const recv = this.resolveToMint(this.getEditParam('outputMint'));
+    const t = this.action?.type;
+    if (t !== 'swap' && t !== 'raydium_swap') return;
+    untracked(() => {
+      this.swapPayUsdPrice.set(null);
+      this.swapRecvUsdPrice.set(null);
+      if (pay) void this.priceFeed.getPrice(pay).then(p => this.swapPayUsdPrice.set(p));
+      if (recv) void this.priceFeed.getPrice(recv).then(p => this.swapRecvUsdPrice.set(p));
+    });
+  });
+
+  private sideUsd(side: 'inputMint' | 'outputMint'): number | null {
+    const price = side === 'inputMint' ? this.swapPayUsdPrice() : this.swapRecvUsdPrice();
+    if (!price || price <= 0) return null;
+    const raw = !this.isEditable() && this.executedSwapView()
+      ? (side === 'inputMint' ? this.executedSwapView()!.pay : this.executedSwapView()!.receive)
+      : this.swapInputValueFor(side);
+    const amt = parseFloat(String(raw ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(amt) || amt <= 0) return null;
+    return amt * price;
+  }
+
+  readonly swapPayUsd = computed(() => this.sideUsd('inputMint'));
+  readonly swapRecvUsd = computed(() => this.sideUsd('outputMint'));
+
+  /** How much value the swap costs, as a percentage of what goes in. */
+  readonly swapUsdDeltaPct = computed(() => {
+    const pay = this.swapPayUsd();
+    const recv = this.swapRecvUsd();
+    if (pay === null || recv === null || pay <= 0) return null;
+    return ((recv - pay) / pay) * 100;
+  });
+
+  /** Beyond this the swap is losing real money, and it should look like it. */
+  readonly swapUsdDeltaSevere = computed(() => {
+    const d = this.swapUsdDeltaPct();
+    return d !== null && d <= -5;
+  });
+
+  formatUsdCompact(v: number | null): string {
+    if (v === null) return '';
+    if (v >= 1000) return `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    if (v >= 1) return `$${v.toFixed(2)}`;
+    return `$${v.toFixed(4)}`;
+  }
+
   // Separate from `swapEstimate=null` (which also covers "not quoted yet" /
   // "inputs missing"). True only after a quote attempt with valid inputs
   // came back as "no route" — Jupiter literally has no path between these
