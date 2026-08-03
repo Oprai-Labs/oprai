@@ -1721,13 +1721,24 @@ _ME_LAMPORT_FIELDS = (
 
 
 def _me_prices_to_sol(payload: Any) -> Any:
+    """Rename every lamport price to a `…Sol` field holding SOL.
+
+    Applied to lists and nested dicts too: a collection list carries a floor
+    per row, and one un-normalised row is enough for the model to quote a
+    price a thousand times too high.
+    """
+    if isinstance(payload, list):
+        return [_me_prices_to_sol(i) for i in payload]
     if not isinstance(payload, dict):
         return payload
-    out = dict(payload)
-    for field in _ME_LAMPORT_FIELDS:
-        raw = out.pop(field, None)
-        if isinstance(raw, (int, float)) and raw >= 0:
-            out[f"{field}Sol"] = round(raw / 1e9, 9)
+    out = {}
+    for key, value in payload.items():
+        if key in _ME_LAMPORT_FIELDS and isinstance(value, (int, float)) and value >= 0:
+            out[f"{key}Sol"] = round(value / 1e9, 9)
+        elif isinstance(value, (dict, list)):
+            out[key] = _me_prices_to_sol(value)
+        else:
+            out[key] = value
     return out
 
 
@@ -2284,6 +2295,13 @@ async def call(action_type: str, params: dict, wallet: str | None = None) -> Any
         raw = await _solana_action_data(action_type, params, wallet=wallet)
         if action_type == "pumpfun_token_info":
             raw = _enrich_pumpfun_ath(raw)
+        # Magic Eden reads come back from the Rust service with prices in
+        # lamports. The card converts them; the model was handed the bare
+        # number and read 5_000_000 as "5 SOL". Normalise here, on the way to
+        # the model only — the card fetches this payload separately and does
+        # its own conversion, so touching the Rust side would double it.
+        if action_type.startswith("me_"):
+            raw = _me_prices_to_sol(raw)
         return _cap(raw)
 
     if action_type not in _DISPATCH:
