@@ -182,13 +182,32 @@
                 @if (t.collectionName) {
                   <div class="me-nft__coll">{{ t.collectionName }}</div>
                 }
-                <!-- Price gets its own line. It is the number the whole tile
-                     exists to convey, and it was sharing a row with a button. -->
-                <div class="me-nft__price-row">
-                  <span class="me-nft__price-k">Price</span>
-                  <span class="me-nft__price mono">
-                    @if (t.price) { {{ t.price | number:'1.0-3' }} SOL } @else { <span class="me-nft__unlisted">Not listed</span> }
-                  </span>
+                <!-- The price bar, exactly as the NFT-detail view builds it:
+                     a panel with the standing price on the left and the one
+                     action on the right. Browsing and reading about an NFT
+                     should not be two different products. -->
+                <div class="me-detail__bar me-nft__bar">
+                  <div class="me-detail__price">
+                    <span class="me-detail__price-k">{{ t.price ? 'Asking' : 'Not listed' }}</span>
+                    @if (t.price) {
+                      <span class="me-detail__price-v mono">{{ t.price | number:'1.0-3' }} SOL</span>
+                    }
+                  </div>
+                  <div class="me-stats-card__actions">
+                    @if (meOwnsToken(t)) {
+                      @if (meIsListed(t)) {
+                        <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(t)">Delist</button>
+                      } @else {
+                        <button type="button" class="dlmm-use-btn" (click)="listMeToken(t)">List
+                          <lucide-icon name="arrow-right" [size]="12" /></button>
+                      }
+                    } @else {
+                      @if (meIsListed(t)) {
+                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(t)">Buy</button>
+                      }
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="offerOnMeToken(t)">Offer</button>
+                    }
+                  </div>
                 </div>
                 <!-- The same trait cards the NFT-detail view uses, so a trait
                      looks the same wherever it is read. -->
@@ -202,32 +221,6 @@
                     }
                   </div>
                 }
-                <div class="me-nft__foot">
-                  <!-- The button follows from who owns it and whether it is
-                       listed — one action, the one that applies. -->
-                  <!-- Buying is not the only thing you can do with a listed
-                       NFT: an offer below the ask is a normal move, and a
-                       browser that only offers Buy quietly decides otherwise
-                       for the user. Both are shown; Buy leads because it is
-                       the one with a price already on it. -->
-                  @if (meOwnsToken(t)) {
-                    @if (meIsListed(t)) {
-                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(t)">Delist</button>
-                    } @else {
-                      <button type="button" class="dlmm-use-btn" (click)="listMeToken(t)">List
-                        <lucide-icon name="arrow-right" [size]="12" /></button>
-                    }
-                  } @else {
-                    <span class="me-nft__acts">
-                      @if (meIsListed(t)) {
-                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(t)">Buy</button>
-                      }
-                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
-                              [attr.title]="'Bid below the asking price'"
-                              (click)="offerOnMeToken(t)">Offer</button>
-                    </span>
-                  }
-                </div>
               </div>
             }
           </div>
