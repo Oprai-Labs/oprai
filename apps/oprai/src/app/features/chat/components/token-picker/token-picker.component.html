@@ -52,9 +52,16 @@
           </div>
           <div class="tp-row__info">
             <span class="tp-row__symbol">{{ h.token.symbol }}</span>
-            <span class="tp-row__name">{{ h.token.name }}</span>
+            <span class="tp-row__name">
+              {{ h.token.name }} <span class="tp-row__dot">·</span> {{ shortMint(h.token.address) }}
+            </span>
           </div>
-          <span class="tp-row__balance">{{ formatAmount(h.amount) }}</span>
+          <div class="tp-row__amounts">
+            <span class="tp-row__balance">{{ formatAmount(h.amount) }} {{ h.token.symbol }}</span>
+            @if (h.usd !== null) {
+              <span class="tp-row__usd">{{ formatUsd(h.usd) }}</span>
+            }
+          </div>
           @if (h.token.address === currentMint) {
             <lucide-icon name="check" [size]="14" class="tp-row__check" />
           }
@@ -84,10 +91,6 @@
             <span class="tp-row__symbol">{{ t.symbol }}</span>
             <span class="tp-row__name">{{ t.name }}</span>
           </div>
-          @let badge = liquidityBadge(t.address);
-          @if (badge.label) {
-            <span class="tp-row__badge" [attr.data-tier]="badge.tier">{{ badge.label }}</span>
-          }
           @if (t.address === currentMint) {
             <lucide-icon name="check" [size]="14" class="tp-row__check" />
           }
