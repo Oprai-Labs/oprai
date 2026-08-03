@@ -301,23 +301,19 @@ async fn try_attach(tx_base64: &str) -> Option<String> {
     // the route, so it broke swaps intermittently and passed every test that
     // took the other path.
     //
-    // When the table already offers it, use the index the table gives.
+    // When the table already offers it, this transaction cannot carry a memo
+    // at all, and it must be left alone.
+    //
+    // Adding the program statically duplicates the account (AccountLoadedTwice),
+    // and invoking it from the table is not allowed either: a program id has to
+    // be a static key, so pointing an instruction at a table-resolved index
+    // produces a transaction the runtime cannot even parse — "failed to
+    // sanitize accounts offsets correctly". Both roads are closed, so the
+    // honest move is no memo on this route rather than a broken swap.
     if let VersionedMessage::V0(m) = &tx.message {
-        if let Some(index) = lookup_index_of(&memo, m).await {
-            let ix = CompiledInstruction {
-                program_id_index: index,
-                accounts: vec![],
-                data: MEMO_TEXT.to_vec(),
-            };
-            let mut tx = tx;
-            if let VersionedMessage::V0(m) = &mut tx.message {
-                m.instructions.push(ix);
-            }
-            let out = bincode::serialize(&tx).ok()?;
-            if out.len() > MAX_TX_BYTES {
-                return None;
-            }
-            return Some(base64::engine::general_purpose::STANDARD.encode(&out));
+        if lookup_index_of(&memo, m).await.is_some() {
+            tracing::debug!("memo program lives in a lookup table here — leaving the transaction unstamped");
+            return None;
         }
     }
 
