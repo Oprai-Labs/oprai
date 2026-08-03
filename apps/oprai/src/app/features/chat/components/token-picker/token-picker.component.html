@@ -2,11 +2,20 @@
 
 <div class="tp-modal" role="dialog" aria-modal="true" [attr.aria-label]="title">
 
-  <div class="tp-header">
-    <h3 class="tp-title">{{ title }}</h3>
-    <button class="tp-close" type="button" (click)="dismiss()" aria-label="Close">
-      <lucide-icon name="x" [size]="16" />
-    </button>
+  <!-- Search first: the fastest way to a specific token is to type it. -->
+  <div class="tp-search">
+    <lucide-icon name="search" [size]="15" class="tp-search__icon" />
+    <input
+      type="text"
+      class="tp-search__input"
+      placeholder="Search any token, or paste a mint address"
+      autocomplete="off"
+      autocapitalize="off"
+      spellcheck="false"
+      [value]="searchQuery()"
+      (input)="onSearch($any($event.target).value)"
+      autofocus />
+    <button class="tp-esc" type="button" (click)="dismiss()" aria-label="Close">Esc</button>
   </div>
 
   <div class="tp-categories">
@@ -23,20 +32,6 @@
             (click)="setCategory('stocks')">Stocks</button>
   </div>
 
-  <div class="tp-search">
-    <lucide-icon name="search" [size]="14" class="tp-search__icon" />
-    <input
-      type="text"
-      class="tp-search__input"
-      placeholder="Search by symbol, name, or paste a mint…"
-      autocomplete="off"
-      autocapitalize="off"
-      spellcheck="false"
-      [value]="searchQuery()"
-      (input)="onSearch($any($event.target).value)"
-      autofocus />
-  </div>
-
   <div class="tp-list">
     @if (showHoldings()) {
       @for (h of heldResults(); track h.token.address) {
@@ -51,7 +46,12 @@
             }
           </div>
           <div class="tp-row__info">
-            <span class="tp-row__symbol">{{ h.token.symbol }}</span>
+            <span class="tp-row__symbol">
+              {{ h.token.symbol }}
+              @if (isVerified(h.token.address)) {
+                <lucide-icon name="badge-check" [size]="13" class="tp-row__verified" />
+              }
+            </span>
             <span class="tp-row__name">
               {{ h.token.name }} <span class="tp-row__dot">·</span> {{ shortMint(h.token.address) }}
             </span>
@@ -88,8 +88,15 @@
             }
           </div>
           <div class="tp-row__info">
-            <span class="tp-row__symbol">{{ t.symbol }}</span>
-            <span class="tp-row__name">{{ t.name }}</span>
+            <span class="tp-row__symbol">
+              {{ t.symbol }}
+              @if (isVerified(t.address)) {
+                <lucide-icon name="badge-check" [size]="13" class="tp-row__verified" />
+              }
+            </span>
+            <span class="tp-row__name">
+              {{ t.name }} <span class="tp-row__dot">·</span> {{ shortMint(t.address) }}
+            </span>
           </div>
           @if (t.address === currentMint) {
             <lucide-icon name="check" [size]="14" class="tp-row__check" />
