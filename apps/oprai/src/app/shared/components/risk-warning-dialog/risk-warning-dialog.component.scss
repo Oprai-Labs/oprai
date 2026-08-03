@@ -20,30 +20,29 @@
   width: min(440px, calc(100vw - 32px));
   background: var(--op-bg-surface-1);
   border: 1px solid var(--op-border-default);
-  // Matches the action-card panels (14px), not a shape of its own — this
-  // dialog interrupts a card, so it should look like it came from one.
+  // Same shell as an action card: rounded, clipped, no padding of its own —
+  // the header strip has to reach the edges the way the card's does.
   border-radius: var(--op-radius-lg);
-  padding: 22px 22px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  overflow: hidden;
   box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.5);
   animation: pop-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 
-  // Severity tints only the header icon, the small label and the confirm
-  // button. Everything else stays neutral so it reads as part of the app.
   --sev: var(--op-brand);
-  &--danger  { --sev: var(--op-loss); }
+  &--danger  { --sev: var(--op-danger); }
   &--warning { --sev: var(--op-warning); }
   &--info    { --sev: var(--op-brand); }
 }
 
-// ── Header ──────────────────────────────────────────────────────────────────
+// ── Header strip ─────────────────────────────────────────────────────────────
+// Mirrors .proto-header: tinted band, 36px badge, name + subtitle, status pill.
 
 .dialog-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  padding: 12px 14px 11px;
+  background: color-mix(in srgb, var(--sev) 6%, transparent);
+  border-bottom: 1px solid var(--op-border-subtle);
 }
 
 .dialog-icon {
@@ -52,7 +51,7 @@
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: var(--op-radius-lg);
+  border-radius: 9px;
   flex-shrink: 0;
   color: var(--sev);
   background: var(--op-bg-surface-2);
@@ -63,27 +62,47 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+  flex: 1;
   min-width: 0;
 }
 
-.dialog-sev {
-  font-size: 10.5px;
+.dialog-name {
+  font-size: 0.8125rem;
   font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--sev);
-}
-
-.dialog-title {
-  font-size: 16px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
   color: var(--op-text-primary);
-  margin: 0;
-  line-height: 1.25;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
-// ── Message ──────────────────────────────────────────────────────────────────
+.dialog-sub {
+  font-size: 0.6875rem;
+  color: var(--op-text-secondary);
+  line-height: 1.2;
+}
+
+// The severity goes where the card puts "Ready": a pill, right-aligned.
+.dialog-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: var(--sev);
+  background: color-mix(in srgb, var(--sev) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sev) 32%, transparent);
+}
+
+// ── Body ─────────────────────────────────────────────────────────────────────
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
 
 .dialog-message {
   font-size: 13px;
@@ -91,8 +110,6 @@
   line-height: 1.6;
   margin: 0;
 }
-
-// ── Key figures ──────────────────────────────────────────────────────────────
 
 .dialog-figures {
   display: flex;
@@ -124,21 +141,13 @@
     color: var(--op-text-primary);
     letter-spacing: -0.01em;
   }
-
-  // "Max at risk" carries weight through the label + bold value, not colour.
-  &--emphasis {
-    background: var(--op-bg-surface-3, var(--op-bg-surface-2));
-    .figure__value { color: var(--op-text-primary); }
-  }
+  &--emphasis { background: var(--op-bg-surface-3, var(--op-bg-surface-2)); }
 }
 
-// ── Risk points ───────────────────────────────────────────────────────────────
-
-// The same panel the action cards use for an alert: a surface, a hairline of
-// severity down the leading edge, and no colour anywhere else. A loose list of
-// grey dots floating on the dialog background belonged to no design at all.
+// The points sit in the same panel the swap card uses for "You pay": surface,
+// subtle border, no accent bar. The header already says how serious this is,
+// and saying it twice is what made the dialog look like a different product.
 .dialog-items {
-  position: relative;
   list-style: none;
   margin: 0;
   padding: 12px 14px;
@@ -148,15 +157,6 @@
   background: var(--op-bg-surface-2);
   border: 1px solid var(--op-border-subtle);
   border-radius: var(--op-radius-lg);
-  overflow: hidden;
-
-  &::before {
-    content: '';
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 2px;
-    background: var(--sev);
-  }
 }
 
 .dialog-item {
@@ -172,63 +172,60 @@
     height: 4px;
     margin-top: 7px;
     border-radius: 50%;
-    background: var(--sev);
-    opacity: 0.7;
+    background: var(--op-text-tertiary);
   }
-  &__text {
-    color: var(--op-text-secondary);
-  }
+  &__text { color: var(--op-text-secondary); }
 }
 
-// ── Actions ──────────────────────────────────────────────────────────────────
+// ── Footer ───────────────────────────────────────────────────────────────────
+// Same proportions as an action card's: the primary fills the row, the
+// secondary sits beside it.
 
-.dialog-actions {
+.dialog-footer {
   display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 4px;
+  gap: 8px;
+  padding: 0 14px 14px;
 }
 
-// Same buttons as an action card's footer.
-//
-// The confirm was a solid saturated slab in the severity colour, which is the
-// one pattern the app deliberately does not use — the action cards already
-// carry a comment explaining why their CTA is always the brand gradient
-// rather than a protocol's own accent. A dialog that interrupts a card should
-// not answer that question differently. The risk is carried by the icon, the
-// severity label and the words; the button is just the button.
-.btn-cancel,
 .btn-confirm {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   padding: 10px 18px;
   border-radius: var(--op-radius-md);
-  font-size: 13px;
+  font-size: 0.875rem;
   font-weight: 600;
   border: none;
   cursor: pointer;
-  transition: filter 0.12s ease, background 0.15s ease, color 0.15s ease, transform 0.12s ease;
-
-  &:active { transform: translateY(1px); }
-}
-
-.btn-cancel {
-  background: var(--op-bg-surface-2);
-  color: var(--op-text-secondary);
-  font-weight: 500;
-
-  &:hover {
-    background: var(--op-bg-surface-3, var(--op-bg-surface-2));
-    color: var(--op-text-primary);
-  }
-}
-
-.btn-confirm {
   color: #fff;
   background: var(--op-gradient, var(--op-brand));
   box-shadow: 0 2px 12px color-mix(in srgb, var(--op-brand) 30%, transparent);
+  transition: filter 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
 
   &:hover {
     filter: brightness(1.08);
     box-shadow: 0 4px 20px color-mix(in srgb, var(--op-brand) 44%, transparent);
+    transform: translateY(-1px);
+  }
+  &:active { transform: translateY(0); }
+}
+
+.btn-cancel {
+  padding: 10px 16px;
+  border-radius: var(--op-radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: none;
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: var(--op-bg-surface-3, var(--op-bg-surface-2));
+    color: var(--op-text-primary);
   }
 }
 

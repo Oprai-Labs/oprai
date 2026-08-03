@@ -2,7 +2,15 @@
   <!-- Backdrop -->
   <div class="dialog-backdrop" (click)="cancel()"></div>
 
-  <!-- Dialog -->
+  <!--
+    Built as an action card, not as a generic modal.
+
+    It interrupts a card, so it borrows that card's anatomy: a tinted header
+    strip with a badge on the left and a status pill on the right, a body of
+    surface panels, and a footer whose primary action fills the width with the
+    secondary beside it. The severity lives in the pill — the same slot the
+    card uses for "Ready" — instead of shouting in red above the title.
+  -->
   <div
     class="dialog"
     role="alertdialog"
@@ -11,7 +19,7 @@
     [class.dialog--danger]="p.severity === 'danger'"
     [class.dialog--info]="p.severity === 'info'"
   >
-    <!-- Header -->
+    <!-- Header strip -->
     <div class="dialog-header">
       <div class="dialog-icon">
         @switch (p.severity) {
@@ -21,53 +29,52 @@
         }
       </div>
       <div class="dialog-heading">
-        <span class="dialog-sev">
-          @switch (p.severity) {
-            @case ('danger')  { High risk }
-            @case ('warning') { Caution }
-            @default          { Notice }
-          }
-        </span>
-        <h3 class="dialog-title">{{ p.title }}</h3>
+        <span class="dialog-name">{{ p.title }}</span>
+        <span class="dialog-sub">Read this before you sign</span>
       </div>
+      <span class="dialog-badge">
+        @switch (p.severity) {
+          @case ('danger')  { High risk }
+          @case ('warning') { Caution }
+          @default          { Notice }
+        }
+      </span>
     </div>
 
-    <!-- Message -->
-    <p class="dialog-message">{{ p.message }}</p>
+    <!-- Body -->
+    <div class="dialog-body">
+      <p class="dialog-message">{{ p.message }}</p>
 
-    <!-- Key figures -->
-    @if (p.figures && p.figures.length > 0) {
-      <div class="dialog-figures">
-        @for (fig of p.figures; track $index) {
-          <div class="figure" [class.figure--emphasis]="fig.emphasis">
-            <span class="figure__label">{{ fig.label }}</span>
-            <span class="figure__value">{{ fig.value }}</span>
-          </div>
-        }
-      </div>
-    }
+      @if (p.figures && p.figures.length > 0) {
+        <div class="dialog-figures">
+          @for (fig of p.figures; track $index) {
+            <div class="figure" [class.figure--emphasis]="fig.emphasis">
+              <span class="figure__label">{{ fig.label }}</span>
+              <span class="figure__value">{{ fig.value }}</span>
+            </div>
+          }
+        </div>
+      }
 
-    <!-- Risk points, in the same panel the action cards use for an alert:
-         surface, hairline accent, colour only where it means something. A
-         warning that interrupts a card should look like it belongs to it. -->
-    @if (p.items.length > 0) {
-      <ul class="dialog-items">
-        @for (item of p.items; track $index) {
-          <li class="dialog-item">
-            <span class="dialog-item__mark" aria-hidden="true"></span>
-            <span class="dialog-item__text">{{ item.text }}</span>
-          </li>
-        }
-      </ul>
-    }
+      @if (p.items.length > 0) {
+        <ul class="dialog-items">
+          @for (item of p.items; track $index) {
+            <li class="dialog-item">
+              <span class="dialog-item__mark" aria-hidden="true"></span>
+              <span class="dialog-item__text">{{ item.text }}</span>
+            </li>
+          }
+        </ul>
+      }
+    </div>
 
-    <!-- Actions -->
-    <div class="dialog-actions">
+    <!-- Footer -->
+    <div class="dialog-footer">
+      <button class="btn-confirm" (click)="confirm()">
+        <lucide-icon name="shield-check" [size]="15" />
+        {{ p.confirmLabel }}
+      </button>
       <button class="btn-cancel" (click)="cancel()">Cancel</button>
-      <button
-        class="btn-confirm"
-        (click)="confirm()"
-      >{{ p.confirmLabel }}</button>
     </div>
   </div>
 }
