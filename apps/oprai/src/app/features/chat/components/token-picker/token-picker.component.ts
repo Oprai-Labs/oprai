@@ -1,9 +1,11 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   EventEmitter,
   HostListener,
   Input,
+  OnDestroy,
   OnInit,
   Output,
   computed,
@@ -53,8 +55,9 @@ type Category = 'holdings' | 'trending' | 'stocks';
   templateUrl: './token-picker.component.html',
   styleUrls: ['./token-picker.component.scss'],
 })
-export class TokenPickerComponent implements OnInit {
+export class TokenPickerComponent implements OnInit, OnDestroy {
   private readonly tokenRegistry = inject(TokenRegistryService);
+  private readonly host = inject(ElementRef<HTMLElement>);
   private readonly wallet = inject(WalletService);
   private readonly priceFeed = inject(PriceFeedService);
 
@@ -148,6 +151,18 @@ export class TokenPickerComponent implements OnInit {
   );
 
   ngOnInit(): void {
+    // Move this overlay to the document root.
+    //
+    // `position: fixed` is only relative to the viewport while no ancestor has
+    // a transform. The action card animates in with `transform` and
+    // `animation-fill-mode: both`, so that transform never goes away — which
+    // makes the card a containing block, and the picker was being positioned
+    // and clipped inside it: its top slid under the chat bubble and its bottom
+    // ran off the screen. Relocating the element sidesteps every such ancestor,
+    // now and in future, without asking the rest of the app to avoid
+    // transforms.
+    try { document.body.appendChild(this.host.nativeElement); } catch { /* SSR */ }
+
     this.category.set(this.walletFirst ? this.initialCategory : 'trending');
     void this.loadHoldings();
     // Fire the full Jupiter list fetch in the background; modal stays usable
@@ -333,6 +348,12 @@ export class TokenPickerComponent implements OnInit {
 
   onSearch(value: string): void {
     this.searchQuery.set(value);
+  }
+
+  ngOnDestroy(): void {
+    // Angular removes the view, but the element now lives outside the parent's
+    // DOM subtree, so it has to be taken away by hand.
+    try { this.host.nativeElement.remove(); } catch { /* already gone */ }
   }
 
   /** Short form of a mint, for the second line of a row. */

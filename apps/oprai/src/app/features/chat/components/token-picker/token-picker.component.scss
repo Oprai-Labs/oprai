@@ -1,7 +1,7 @@
+// The host is relocated to <body> on init (see the component), so it needs no
+// position of its own — its two children are fixed. `display: contents` keeps
+// it out of the layout entirely.
 :host {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
   display: contents;
 }
 
@@ -10,7 +10,7 @@
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(2px);
-  z-index: 1000;
+  z-index: 2000;
 }
 
 .tp-modal {
@@ -30,7 +30,7 @@
   border: 1px solid var(--op-border-subtle);
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-  z-index: 1001;
+  z-index: 2001;
   overflow: hidden;
 }
 
