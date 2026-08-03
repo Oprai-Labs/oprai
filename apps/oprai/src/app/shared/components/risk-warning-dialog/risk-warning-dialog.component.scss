@@ -50,9 +50,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: var(--op-radius-md);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--op-radius-lg);
   flex-shrink: 0;
   color: var(--sev);
   background: var(--op-bg-surface-2);
@@ -108,7 +108,7 @@
   padding: 11px 12px;
   background: var(--op-bg-surface-2);
   border: 1px solid var(--op-border-subtle);
-  border-radius: var(--op-radius-md);
+  border-radius: var(--op-radius-lg);
 
   &__label {
     font-size: 11px;
@@ -134,13 +134,29 @@
 
 // ── Risk points ───────────────────────────────────────────────────────────────
 
+// The same panel the action cards use for an alert: a surface, a hairline of
+// severity down the leading edge, and no colour anywhere else. A loose list of
+// grey dots floating on the dialog background belonged to no design at all.
 .dialog-items {
+  position: relative;
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 9px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-lg);
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 2px;
+    background: var(--sev);
+  }
 }
 
 .dialog-item {
@@ -152,11 +168,12 @@
 
   &__mark {
     flex-shrink: 0;
-    width: 5px;
-    height: 5px;
+    width: 4px;
+    height: 4px;
     margin-top: 7px;
     border-radius: 50%;
-    background: var(--op-text-tertiary);
+    background: var(--sev);
+    opacity: 0.7;
   }
   &__text {
     color: var(--op-text-secondary);
