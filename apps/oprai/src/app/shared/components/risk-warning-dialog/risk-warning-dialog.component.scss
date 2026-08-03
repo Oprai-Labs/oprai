@@ -20,7 +20,9 @@
   width: min(440px, calc(100vw - 32px));
   background: var(--op-bg-surface-1);
   border: 1px solid var(--op-border-default);
-  border-radius: var(--op-radius-xl);
+  // Matches the action-card panels (14px), not a shape of its own — this
+  // dialog interrupts a card, so it should look like it came from one.
+  border-radius: var(--op-radius-lg);
   padding: 22px 22px 18px;
   display: flex;
   flex-direction: column;
@@ -170,44 +172,46 @@
   margin-top: 4px;
 }
 
+// Same buttons as an action card's footer.
+//
+// The confirm was a solid saturated slab in the severity colour, which is the
+// one pattern the app deliberately does not use — the action cards already
+// carry a comment explaining why their CTA is always the brand gradient
+// rather than a protocol's own accent. A dialog that interrupts a card should
+// not answer that question differently. The risk is carried by the icon, the
+// severity label and the words; the button is just the button.
 .btn-cancel,
 .btn-confirm {
   padding: 10px 18px;
   border-radius: var(--op-radius-md);
   font-size: 13px;
   font-weight: 600;
+  border: none;
   cursor: pointer;
-  transition: transform 0.12s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: filter 0.12s ease, background 0.15s ease, color 0.15s ease, transform 0.12s ease;
 
   &:active { transform: translateY(1px); }
 }
 
 .btn-cancel {
-  border: 1px solid var(--op-border-default);
-  background: transparent;
+  background: var(--op-bg-surface-2);
   color: var(--op-text-secondary);
+  font-weight: 500;
 
   &:hover {
-    background: var(--op-bg-surface-2);
+    background: var(--op-bg-surface-3, var(--op-bg-surface-2));
     color: var(--op-text-primary);
-    border-color: var(--op-border-strong);
   }
 }
 
 .btn-confirm {
-  border: 1px solid transparent;
   color: #fff;
-  background: var(--op-brand);
+  background: var(--op-gradient, var(--op-brand));
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--op-brand) 30%, transparent);
 
-  &:hover { background: var(--op-brand-hover); }
-
-  &--warning {
-    background: var(--op-warning);
-    &:hover { background: color-mix(in srgb, var(--op-warning) 82%, #000); }
-  }
-  &--danger {
-    background: var(--op-loss);
-    &:hover { background: color-mix(in srgb, var(--op-loss) 82%, #000); }
+  &:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 4px 20px color-mix(in srgb, var(--op-brand) 44%, transparent);
   }
 }
 
