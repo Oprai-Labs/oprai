@@ -36,8 +36,8 @@ fn memo_program() -> Pubkey {
 /// carries a memo, cannot be parsed, or would exceed the size limit. Those are
 /// not failures worth reporting — the transaction is still perfectly good,
 /// just anonymous.
-pub fn attach(tx_base64: &str) -> String {
-    match try_attach(tx_base64) {
+pub async fn attach(tx_base64: &str) -> String {
+    match try_attach(tx_base64).await {
         Some(updated) => updated,
         None => tx_base64.to_string(),
     }
@@ -49,16 +49,15 @@ pub fn attach(tx_base64: &str) -> String {
 /// table order, then every table's readonly entries. Reading the tables costs
 /// one account fetch each, cached for the life of the process — a table's
 /// contents only ever grow, and an address that is in one stays in it.
-fn lookup_index_of(wanted: &Pubkey, m: &solana_sdk::message::v0::Message) -> Option<u8> {
+async fn lookup_index_of(wanted: &Pubkey, m: &solana_sdk::message::v0::Message) -> Option<u8> {
     if m.address_table_lookups.is_empty() {
         return None;
     }
     let statics = m.account_keys.len();
-    let tables: Vec<Vec<Pubkey>> = m
-        .address_table_lookups
-        .iter()
-        .map(|l| read_lookup_table(&l.account_key))
-        .collect();
+    let mut tables: Vec<Vec<Pubkey>> = Vec::with_capacity(m.address_table_lookups.len());
+    for l in &m.address_table_lookups {
+        tables.push(read_lookup_table(l.account_key).await);
+    }
 
     let writable_total: usize = m
         .address_table_lookups
@@ -88,33 +87,43 @@ fn lookup_index_of(wanted: &Pubkey, m: &solana_sdk::message::v0::Message) -> Opt
 }
 
 /// The addresses a lookup table holds. Cached; tables only grow.
-fn read_lookup_table(key: &Pubkey) -> Vec<Pubkey> {
+///
+/// The read goes through `spawn_blocking`: `RpcClient` is synchronous, and
+/// calling it directly from an async handler panics the Actix worker with
+/// "can call blocking only when running on the multi-threaded runtime" — which
+/// is exactly what happened, and turned every Jupiter swap into an empty
+/// response.
+async fn read_lookup_table(key: Pubkey) -> Vec<Pubkey> {
     use std::sync::{Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<std::collections::HashMap<Pubkey, Vec<Pubkey>>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    if let Some(hit) = cache.lock().ok().and_then(|c| c.get(key).cloned()) {
+    if let Some(hit) = cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
         return hit;
     }
     let endpoint = std::env::var("SOLANA_RPC")
         .unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string());
-    let addrs = crate::solana::connection::SolanaRpc::new(&endpoint)
-        .client()
-        .get_account(key)
-        .ok()
-        .map(|acc| {
-            const HEADER: usize = 56;
-            acc.data
-                .get(HEADER..)
-                .map(|rest| {
-                    rest.chunks_exact(32)
-                        .filter_map(|c| Pubkey::try_from(c).ok())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        })
-        .unwrap_or_default();
+    let addrs = tokio::task::spawn_blocking(move || {
+        crate::solana::connection::SolanaRpc::new(&endpoint)
+            .client()
+            .get_account(&key)
+            .ok()
+            .map(|acc| {
+                const HEADER: usize = 56;
+                acc.data
+                    .get(HEADER..)
+                    .map(|rest| {
+                        rest.chunks_exact(32)
+                            .filter_map(|c| Pubkey::try_from(c).ok())
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default();
     if let Ok(mut c) = cache.lock() {
-        c.insert(*key, addrs.clone());
+        c.insert(key, addrs.clone());
     }
     addrs
 }
@@ -262,7 +271,7 @@ fn shift_indices_from(tx: &mut VersionedTransaction, from: usize) -> Option<()> 
     Some(())
 }
 
-fn try_attach(tx_base64: &str) -> Option<String> {
+async fn try_attach(tx_base64: &str) -> Option<String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(tx_base64)
         .ok()?;
@@ -294,7 +303,7 @@ fn try_attach(tx_base64: &str) -> Option<String> {
     //
     // When the table already offers it, use the index the table gives.
     if let VersionedMessage::V0(m) = &tx.message {
-        if let Some(index) = lookup_index_of(&memo, m) {
+        if let Some(index) = lookup_index_of(&memo, m).await {
             let ix = CompiledInstruction {
                 program_id_index: index,
                 accounts: vec![],
@@ -390,15 +399,15 @@ mod tests {
             .unwrap()
     }
 
-    #[test]
-    fn legacy_transaction_gains_the_memo() {
+    #[tokio::test]
+    async fn legacy_transaction_gains_the_memo() {
         let payer = Pubkey::new_unique();
         let to = Pubkey::new_unique();
         let msg = Message::new(&[system_instruction::transfer(&payer, &to, 5)], Some(&payer));
         let tx: VersionedTransaction = Transaction::new_unsigned(msg).into();
         let before = tx.message.instructions().len();
 
-        let out = decode(&attach(&encode(&tx)));
+        let out = decode(&attach(&encode(&tx)).await);
         assert_eq!(out.message.instructions().len(), before + 1);
         assert!(out.message.static_account_keys().contains(&memo_program()));
     }
@@ -407,8 +416,8 @@ mod tests {
     /// its static keys in a single index space, so adding a static key moves
     /// them all. If the indices are not corrected the transaction still builds
     /// and still signs — it just touches the wrong accounts.
-    #[test]
-    fn v0_lookup_table_accounts_still_resolve_after_the_memo() {
+    #[tokio::test]
+    async fn v0_lookup_table_accounts_still_resolve_after_the_memo() {
         let payer = Keypair::new();
         let in_table: Vec<Pubkey> = (0..4).map(|_| Pubkey::new_unique()).collect();
         let lut = AddressLookupTableAccount {
@@ -432,7 +441,7 @@ mod tests {
             message: VersionedMessage::V0(msg),
         };
 
-        let out = decode(&attach(&encode(&tx)));
+        let out = decode(&attach(&encode(&tx)).await);
         let VersionedMessage::V0(m) = &out.message else {
             panic!("still v0");
         };
@@ -528,8 +537,8 @@ mod tests {
         assert!(fee_idx < writable_end, "fee wallet landed in the read-only region");
     }
 
-    #[test]
-    fn a_signed_transaction_is_left_alone() {
+    #[tokio::test]
+    async fn a_signed_transaction_is_left_alone() {
         // Magic Eden co-signs before we see it; changing the message would
         // silently invalidate their signature.
         let payer = Keypair::new();
@@ -539,11 +548,11 @@ mod tests {
         );
         let tx: VersionedTransaction = Transaction::new(&[&payer], msg, Hash::default()).into();
         let encoded = encode(&tx);
-        assert_eq!(attach(&encoded), encoded);
+        assert_eq!(attach(&encoded).await, encoded);
     }
 
-    #[test]
-    fn a_transaction_that_already_says_oprai_is_not_stamped_twice() {
+    #[tokio::test]
+    async fn a_transaction_that_already_says_oprai_is_not_stamped_twice() {
         let payer = Pubkey::new_unique();
         let msg = Message::new(
             &[Instruction {
@@ -555,12 +564,12 @@ mod tests {
         );
         let tx: VersionedTransaction = Transaction::new_unsigned(msg).into();
         let encoded = encode(&tx);
-        assert_eq!(attach(&encoded), encoded);
+        assert_eq!(attach(&encoded).await, encoded);
     }
 
-    #[test]
-    fn garbage_in_is_garbage_out_not_a_panic() {
-        assert_eq!(attach("not base64 at all!!"), "not base64 at all!!");
-        assert_eq!(attach(""), "");
+    #[tokio::test]
+    async fn garbage_in_is_garbage_out_not_a_panic() {
+        assert_eq!(attach("not base64 at all!!").await, "not base64 at all!!");
+        assert_eq!(attach("").await, "");
     }
 }
