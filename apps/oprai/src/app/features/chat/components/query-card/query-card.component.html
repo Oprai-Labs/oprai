@@ -160,9 +160,14 @@
 
         <!-- NFTs: the grid you buy, list or bid from. -->
         @if (shape === 'tokens') {
-          <div class="me-grid me-grid--nft">
+          <!-- Few items lay out as rows, many as a grid.
+               A single tile in a grid sized for a dozen leaves most of the
+               card empty and reads as a layout that went wrong. As a row —
+               art left, everything else right — it fills the width and matches
+               the panel the action card uses for the same NFT. -->
+          <div class="me-grid me-grid--nft" [class.me-grid--rows]="mePagedTokens().length <= 2">
             @for (t of mePagedTokens(); track t.mintAddress) {
-              <div class="me-nft">
+              <div class="me-nft" [class.me-nft--row]="mePagedTokens().length <= 2">
                 <div class="me-nft__art">
                   <span class="me-art__fallback">{{ (t.name || '?').charAt(0) }}</span>
                   @if (t.image) {
