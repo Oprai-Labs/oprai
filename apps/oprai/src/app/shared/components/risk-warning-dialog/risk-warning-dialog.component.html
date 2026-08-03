@@ -47,7 +47,9 @@
       </div>
     }
 
-    <!-- Risk points -->
+    <!-- Risk points, in the same panel the action cards use for an alert:
+         surface, hairline accent, colour only where it means something. A
+         warning that interrupts a card should look like it belongs to it. -->
     @if (p.items.length > 0) {
       <ul class="dialog-items">
         @for (item of p.items; track $index) {
