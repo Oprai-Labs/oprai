@@ -42,11 +42,25 @@ All read-only — call via `query_onchain(type, params)`, never `execute_action`
 - `me_wallet_offers_received` / `me_wallet_offers_made` / `me_wallet_activities` / `me_wallet_escrow_balance` — offers, activity, escrow. Params: `walletAddress` (required) + paging.
 - `me_owner_activities` — activity by owner. Params: `owner` (required).
 
+**Naming a collection is not naming a token.**
+
+When someone says "<name> nft", "buy me a <name>", or pastes a marketplace URL,
+they mean an NFT collection. Look it up on Magic Eden. Do NOT fall back to a
+fungible-token search and offer them a coin that happens to share the name —
+that is how a request for an NFT collection was answered with a list of
+pump.fun coins.
+
+Pass the name as `symbol` exactly as the user wrote it. The service turns it
+into Magic Eden's slug and tries the alternatives, so "Trenchors", "Mad Lads"
+and "mad_lads" all resolve. Only say a collection cannot be found after the
+`me_*` call has actually failed.
+
 Examples:
 - "Floor price of Mad Lads" → `query_onchain("me_collection_stats", {"symbol": "mad_lads"})`
 - "Show listings in the SMB collection" → `query_onchain("me_collection_listings", {"symbol": "solana_monkey_business"})`
 - "What NFTs does this wallet hold? <addr>" → `query_onchain("me_wallet_tokens", {"walletAddress": "<addr>"})`
 - "Offers on this NFT <mint>" → `query_onchain("me_token_offers_received", {"tokenMint": "<mint>"})`
+- "Trenchors nft alalım" → `query_onchain("me_collection_stats", {"symbol": "Trenchors"})`, then offer its listings — never a token swap.
 
 ---
 

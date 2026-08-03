@@ -2026,6 +2026,56 @@ fn need<'a>(v: &'a Option<String>, what: &str) -> Result<&'a str, AppError> {
         .ok_or_else(|| AppError::InvalidParams(format!("{what} is required")))
 }
 
+/// Turn whatever the user called a collection into Magic Eden's symbol.
+///
+/// Their symbols are slugs — lowercase, words joined by underscores — and a
+/// person says "Trenchors" or "Mad Lads", not "trenchors" or "mad_lads".
+/// Asking the model to perform this transformation reliably is asking for the
+/// day it does not: the answer that started this was OPRAI deciding no such
+/// NFT collection existed and offering the user a pump.fun coin of the same
+/// name instead.
+///
+/// Already-slug input passes through unchanged, so a symbol from a URL is
+/// untouched.
+fn collection_symbol(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    {
+        return trimmed.to_string();
+    }
+    let mut out = String::with_capacity(trimmed.len());
+    let mut pending_sep = false;
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if pending_sep && !out.is_empty() {
+                out.push('_');
+            }
+            pending_sep = false;
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            pending_sep = true;
+        }
+    }
+    out
+}
+
+/// The symbols worth trying for a name, best first.
+///
+/// Collections are inconsistent: some join words with underscores, some run
+/// them together. Two cheap attempts beat telling the user their collection
+/// does not exist.
+fn collection_symbol_candidates(raw: &str) -> Vec<String> {
+    let primary = collection_symbol(raw);
+    let joined: String = primary.chars().filter(|c| *c != '_').collect();
+    if joined == primary {
+        vec![primary]
+    } else {
+        vec![primary, joined]
+    }
+}
+
 /// Resolve an action name to a Magic Eden URL.
 fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
     let base = MAGIC_EDEN_API;
@@ -2040,23 +2090,23 @@ fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
             format!("{base}/collections?offset={}&limit={l}", (off / l) * l)
         }
         "me_collection_stats" => {
-            format!("{base}/collections/{}/stats", need(&p.symbol, "collection")?)
+            format!("{base}/collections/{}/stats", &collection_symbol(need(&p.symbol, "collection")?))
         }
         "me_collection_attributes" => format!(
             "{base}/collections/{}/attributes",
-            need(&p.symbol, "collection")?
+            &collection_symbol(need(&p.symbol, "collection")?)
         ),
         "me_collection_leaderboard" => format!(
             "{base}/collections/{}/leaderboard",
-            need(&p.symbol, "collection")?
+            &collection_symbol(need(&p.symbol, "collection")?)
         ),
         "me_collection_listings" => format!(
             "{base}/collections/{}/listings?limit={limit}&offset={off}",
-            need(&p.symbol, "collection")?
+            &collection_symbol(need(&p.symbol, "collection")?)
         ),
         "me_collection_activities" => format!(
             "{base}/collections/{}/activities?limit={limit}&offset={off}",
-            need(&p.symbol, "collection")?
+            &collection_symbol(need(&p.symbol, "collection")?)
         ),
         "me_collections_batch_listings" => format!(
             "{base}/collections/batch/listings?limit={limit}&collectionSymbols={}",
@@ -2783,7 +2833,7 @@ pub async fn build_me_read(
     }
     if matches!(action, "me_collection_stats" | "me_collection_info") {
         let symbol = need(&params.symbol, "collection")?.to_string();
-        let data = me_collection_detail(http, &symbol).await?;
+        let data = me_collection_detail(http, &collection_symbol(&symbol)).await?;
         return Ok(BuildResponse {
             preview: ActionPreview {
                 id: Uuid::new_v4().to_string(),
@@ -2804,7 +2854,30 @@ pub async fn build_me_read(
         });
     }
     let url = me_read_url(action, params)?;
-    let data = me_get_json(http, &url).await?;
+    let data = match me_get_json(http, &url).await {
+        Ok(d) => d,
+        Err(first) => {
+            // Collections are inconsistent about joining words: "mad_lads" but
+            // also "trenchors". If the underscore form misses, try the runs-
+            // together form before telling someone their collection does not
+            // exist — which is what OPRAI did, offering a same-named pump.fun
+            // coin instead.
+            let alt = params
+                .symbol
+                .as_deref()
+                .map(collection_symbol_candidates)
+                .and_then(|c| c.into_iter().nth(1));
+            match alt {
+                Some(other) => {
+                    let mut retry = params.clone();
+                    retry.symbol = Some(other);
+                    let url = me_read_url(action, &retry)?;
+                    me_get_json(http, &url).await.map_err(|_| first)?
+                }
+                None => return Err(first),
+            }
+        }
+    };
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -3185,4 +3258,34 @@ pub async fn build_me_mmm_fulfill_sell(
         }),
         vec![],
     ))
+}
+
+#[cfg(test)]
+mod symbol_tests {
+    use super::*;
+
+    /// A person names a collection; Magic Eden wants a slug.
+    ///
+    /// Asked for "Trenchors nft", OPRAI reported that no such collection
+    /// existed and offered a pump.fun coin of the same name — because the
+    /// name was never turned into the symbol the API answers to.
+    #[test]
+    fn a_name_becomes_a_symbol() {
+        assert_eq!(collection_symbol("Trenchors"), "trenchors");
+        assert_eq!(collection_symbol("Mad Lads"), "mad_lads");
+        assert_eq!(collection_symbol("  Solana Monkey Business "), "solana_monkey_business");
+        assert_eq!(collection_symbol("DeGods #1"), "degods_1");
+        // Already a symbol — untouched, so a slug pasted from a URL survives.
+        assert_eq!(collection_symbol("solana_monkey_business"), "solana_monkey_business");
+    }
+
+    #[test]
+    fn multi_word_names_offer_both_spellings() {
+        assert_eq!(
+            collection_symbol_candidates("Mad Lads"),
+            vec!["mad_lads".to_string(), "madlads".to_string()],
+        );
+        // One word has only one spelling; no wasted second request.
+        assert_eq!(collection_symbol_candidates("Trenchors"), vec!["trenchors".to_string()]);
+    }
 }
