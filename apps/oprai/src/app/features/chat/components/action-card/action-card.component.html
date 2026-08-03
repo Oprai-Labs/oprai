@@ -725,6 +725,28 @@
               }
             </div>
 
+            <!-- What the trade is, in one line each: the rate it implies and
+                 what OPRAI takes. Both come from the quote, so they describe
+                 this trade rather than a rule that might have changed. -->
+            @if (swapRateLine(); as rate) {
+              <div class="swap-facts">
+                <div class="swap-facts__row">
+                  <span class="swap-facts__label">Rate</span>
+                  <span class="swap-facts__value">{{ rate }}</span>
+                </div>
+                <div class="swap-facts__row">
+                  <span class="swap-facts__label">Platform fee</span>
+                  <span class="swap-facts__value">
+                    @if (swapPlatformFeePct() > 0) {
+                      {{ swapPlatformFeePct() | number:'1.0-2' }}%
+                    } @else {
+                      Free
+                    }
+                  </span>
+                </div>
+              </div>
+            }
+
             <!-- No settings row.
                  Slippage and "direct routes only" both lived here. Each was a
                  number or a switch the user was invited to tune with nothing
@@ -4269,7 +4291,7 @@
     [currentMint]="currentPickerMint()"
     [excludeMint]="excludedPickerMint()"
     [walletFirst]="fieldKey !== 'outputMint'"
-    initialCategory="all"
+    initialCategory="holdings"
     (picked)="onTokenPicked($event)"
     (closed)="closeTokenPicker()" />
 }
