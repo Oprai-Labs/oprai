@@ -1,5 +1,9 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use solana_sdk::pubkey::Pubkey;
 
 use crate::error::AppError;
 use crate::services::amount::parse_amount_to_base_units;
@@ -114,6 +118,15 @@ pub struct SwapQuote {
     pub route_plan: Vec<serde_json::Value>,
     #[serde(default)]
     pub platform_fee: Option<serde_json::Value>,
+    /// What OPRAI will actually take on this trade, in basis points.
+    ///
+    /// Not from Jupiter — we attach it on the way out. The card used to read
+    /// `platformFee.feeBps`, which is only present when the fee goes through
+    /// Jupiter's own mechanism; on the SOL-transfer route that field is empty
+    /// and the card cheerfully announced "Free" while charging 0.5%. One field
+    /// that always means the same thing.
+    #[serde(default, skip_deserializing)]
+    pub oprai_fee_bps: Option<u16>,
 }
 
 /// Quote request body used for the REST endpoint.
@@ -367,12 +380,20 @@ async fn get_swap_quote_with_fee(
         ));
     }
 
-    let quote: SwapQuote = response.json().await.map_err(|e| {
+    let mut quote: SwapQuote = response.json().await.map_err(|e| {
         tracing::warn!("Failed to parse Jupiter quote: {e}");
         AppError::JupiterApiError(
             "Couldn't read the swap quote. Please try again in a moment.".into(),
         )
     })?;
+    // Whichever route the fee takes, say the same number.
+    quote.oprai_fee_bps = Some(if declared_fee_bps > 0 {
+        declared_fee_bps
+    } else if sol_side_fee_lamports(params, &quote).is_some() {
+        fees::swap_fee_bps(&input_mint, &output_mint)
+    } else {
+        0
+    });
     Ok(quote)
 }
 
@@ -407,6 +428,32 @@ async fn fee_account_for(params: &SwapParams, swap_mode: &str) -> Option<(String
     let (mint, account) =
         fees::ready_swap_fee_mint(&input, &output, swap_mode == "ExactOut").await?;
     Some((mint.to_string(), account.to_string()))
+}
+
+/// The commission on a swap where SOL is one of the two sides, in lamports.
+///
+/// Taken from the SOL leg because SOL is the one thing every wallet holds and
+/// the one balance that needs no account to receive. On a sale into SOL the
+/// basis is the slippage-protected minimum rather than the expected proceeds —
+/// the same rule the pump.fun sell uses, and for the same reason: it is the
+/// only figure at build time the transaction cannot fall below.
+fn sol_side_fee_lamports(params: &SwapParams, quote: &SwapQuote) -> Option<u64> {
+    let input = resolve_token_address(&params.input_mint);
+    let output = resolve_token_address(&params.output_mint);
+    let bps = fees::swap_fee_bps(&input, &output) as u64;
+    if bps == 0 {
+        return None;
+    }
+    let lamports = if input.eq_ignore_ascii_case(fees::WSOL_MINT) {
+        quote.in_amount.parse::<u64>().ok()?
+    } else if output.eq_ignore_ascii_case(fees::WSOL_MINT) {
+        // What the swap guarantees to deliver, not what it hopes to.
+        quote.other_amount_threshold.parse::<u64>().ok()?
+    } else {
+        return None;
+    };
+    let fee = lamports.saturating_mul(bps) / 10_000;
+    (fee > 0).then_some(fee)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -478,10 +525,29 @@ pub async fn build_swap_transaction(
     }
 
     let swap_data: serde_json::Value = swap_response.json().await?;
-    let tx_base64 = swap_data["swapTransaction"]
+    let mut tx_base64 = swap_data["swapTransaction"]
         .as_str()
         .ok_or_else(|| AppError::JupiterApiError("Missing swapTransaction in response".into()))?
         .to_string();
+
+    // When Jupiter's own fee mechanism is unavailable, take the commission the
+    // way every trading bot does: a plain SOL transfer riding along in the same
+    // transaction. It needs no token account to exist first, which is the whole
+    // problem with the platform-fee route — that one left every SOL-side swap
+    // uncharged until somebody happened to make an unrelated pump.fun trade,
+    // and a commission that depends on an unrelated action is not a commission.
+    if fee_target.is_none() {
+        if let (Some(wallet), Ok(payer)) = (fees::fee_wallet(), Pubkey::from_str(user_pubkey)) {
+            if let Some(fee) = sol_side_fee_lamports(params, &quote) {
+                let before = tx_base64.len();
+                tx_base64 =
+                    crate::services::memo::attach_sol_transfer(&tx_base64, &payer, &wallet, fee);
+                if tx_base64.len() == before {
+                    tracing::warn!(fee, "could not attach the SOL fee — swap goes uncharged");
+                }
+            }
+        }
+    }
 
     // Build preview.
     let input_token = get_token_info(&params.input_mint);

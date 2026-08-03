@@ -18,6 +18,8 @@ export interface SwapQuote {
    *  backend declared a fee it can actually collect, so the card can show the
    *  real number for this trade rather than a rule copied from the server. */
   platformFee?: { amount?: string; feeBps?: number } | null;
+  /** What OPRAI takes, whichever route the fee goes through. Backend-attached. */
+  opraiFeeBps?: number;
 }
 
 export interface RoutePlanStep {
