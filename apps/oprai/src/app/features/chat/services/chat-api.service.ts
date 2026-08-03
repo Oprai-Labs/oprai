@@ -11,7 +11,10 @@ export interface StoredActionResult {
   executedParams?: Record<string, string>;
   /** Frozen "You pay / You receive" amounts for a swap, captured at submit so a
    *  re-hydrated card shows exactly what was swapped (not a live/blank quote). */
-  swapView?: { pay: string; receive: string };
+  /** Frozen at submit. `payUsd`/`recvUsd` are what the two sides were worth at
+   *  the moment of the trade — a completed card must not re-price itself from
+   *  a live feed, or a memecoin's next tick rewrites what the user paid. */
+  swapView?: { pay: string; receive: string; payUsd?: number; recvUsd?: number };
   /** Frozen Jupiter Lend info panel (APY, conversion, deposit) captured at
    *  submit so a completed lend/withdraw card keeps showing WHAT was withdrawn
    *  and from where — rendered statically, without re-running the live loader

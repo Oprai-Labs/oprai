@@ -4810,6 +4810,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const recv = this.resolveToMint(this.getEditParam('outputMint'));
     const t = this.action?.type;
     if (t !== 'swap' && t !== 'raydium_swap') return;
+    // A settled card reads its dollars from the receipt, so there is nothing
+    // to price.
+    if (!this.isEditable()) return;
     untracked(() => {
       this.swapPayUsdPrice.set(null);
       this.swapRecvUsdPrice.set(null);
@@ -4850,6 +4853,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private sideUsd(side: 'inputMint' | 'outputMint'): number | null {
+    // A finished trade is a receipt. Show what it was worth when it happened,
+    // not what it would be worth now.
+    const frozen = this.executedSwapView();
+    if (!this.isEditable() && frozen) {
+      const v = side === 'inputMint' ? frozen.payUsd : frozen.recvUsd;
+      return v ?? null;
+    }
     const price = side === 'inputMint' ? this.swapPayUsdPrice() : this.swapRecvUsdPrice();
     if (!price || price <= 0) return null;
     const amt = this.sideAmount(side);
@@ -4920,7 +4930,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * and last quote and would otherwise drift to the remaining balance. Rendered
    * only when the card is no longer editable (submitted / confirmed).
    */
-  readonly executedSwapView = signal<{ pay: string; receive: string } | null>(null);
+  readonly executedSwapView = signal<{ pay: string; receive: string; payUsd?: number; recvUsd?: number } | null>(null);
 
   /** The exact (user-edited) params handed to the last submit. Used by the
    *  async confirmation callbacks so they persist what was submitted rather
@@ -4928,7 +4938,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private lastSubmittedParams: Record<string, string> | null = null;
 
   /** Frozen swap pay/receive captured at submit, persisted with the result. */
-  private lastSwapView: { pay: string; receive: string } | null = null;
+  private lastSwapView: { pay: string; receive: string; payUsd?: number; recvUsd?: number } | null = null;
 
   /** Re-arms the execute() stall timeout; set per-run, called on each progress event. */
   private resetStallTimeout: () => void = () => {};
@@ -5582,6 +5592,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.lastSwapView = {
         pay: this.swapInputValueFor('inputMint'),
         receive: this.swapInputValueFor('outputMint'),
+        // Freeze the dollar figures alongside the amounts. Recomputing them
+        // from a live price after the trade meant a completed card drifted
+        // with the market — a memecoin ticking down a minute later made it
+        // look as though the swap had lost money the instant it landed.
+        payUsd: this.swapPayUsd() ?? undefined,
+        recvUsd: this.swapRecvUsd() ?? undefined,
       };
       this.executedSwapView.set(this.lastSwapView);
     }
