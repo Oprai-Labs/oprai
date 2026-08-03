@@ -1710,10 +1710,31 @@ async def _me_token_activities(tokenMint: str, offset=0, limit=100) -> Any:
     from app.clients.magic_eden import get_token_activities
     return await get_token_activities(tokenMint, offset=int(offset), limit=int(limit))
 
+# Magic Eden quotes prices in lamports on its stats endpoints and in SOL almost
+# everywhere else. The model has no way to tell which it is looking at, and it
+# guessed: a floor of 5_000_000 lamports was reported to the user as "5 SOL",
+# a thousandfold overstatement of what the card beside it said. So the numbers
+# reach the model already in SOL, under names that say so.
+_ME_LAMPORT_FIELDS = (
+    "floorPrice", "avgPrice24hr", "volumeAll", "volume24hr", "volume7d", "listedTotalValue",
+)
+
+
+def _me_prices_to_sol(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    out = dict(payload)
+    for field in _ME_LAMPORT_FIELDS:
+        raw = out.pop(field, None)
+        if isinstance(raw, (int, float)) and raw >= 0:
+            out[f"{field}Sol"] = round(raw / 1e9, 9)
+    return out
+
+
 async def _me_collection_stats(symbol: str, timeWindow=None, listingAggMode=False) -> Any:
     from app.clients.magic_eden import get_collection_stats
     agg = str(listingAggMode).lower() in ("true", "1", "yes")
-    return await get_collection_stats(symbol, time_window=timeWindow, listing_agg_mode=agg)
+    return _me_prices_to_sol(await get_collection_stats(symbol, time_window=timeWindow, listing_agg_mode=agg))
 
 async def _me_collection_activities(symbol: str, offset=0, limit=100) -> Any:
     from app.clients.magic_eden import get_collection_activities
@@ -1722,7 +1743,7 @@ async def _me_collection_activities(symbol: str, offset=0, limit=100) -> Any:
 async def _me_collections(offset=0, limit=200) -> Any:
     from app.clients.magic_eden import get_collections
     items, paging = await get_collections(offset=int(offset), limit=int(limit))
-    return {"collections": items, "paging": paging}
+    return {"collections": [_me_prices_to_sol(i) for i in items], "paging": paging}
 
 async def _me_collection_listings(symbol: str, offset=0, limit=20, minPrice=None, maxPrice=None, sort="listPrice", sortDirection="asc", listingAggMode=False) -> Any:
     from app.clients.magic_eden import get_collection_listings
