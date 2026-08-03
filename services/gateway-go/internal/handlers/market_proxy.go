@@ -948,13 +948,16 @@ func (m *MarketProxy) GetHolders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), "POST", "https://mainnet.helius-rpc.com", bytes.NewReader(payloadBytes))
+	// Helius takes its key as a query parameter. The Authorization header form
+	// that used to be here is answered with a flat "Unauthorized", so every
+	// call through this proxy had been failing since it was written — which is
+	// why token names and logos never resolved.
+	req, err := http.NewRequestWithContext(r.Context(), "POST", heliusRPCURL(m.heliusAPIKey), bytes.NewReader(payloadBytes))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create request")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -1097,13 +1100,15 @@ func (m *MarketProxy) GetMintTransactions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	apiURL := fmt.Sprintf("https://api.helius.xyz/v0/addresses/%s/transactions?limit=50", mint)
+	apiURL := fmt.Sprintf(
+		"https://api.helius.xyz/v0/addresses/%s/transactions?limit=50&api-key=%s",
+		mint, url.QueryEscape(m.heliusAPIKey),
+	)
 	req, err := http.NewRequestWithContext(r.Context(), "GET", apiURL, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create request")
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -1367,6 +1372,7 @@ func (m *MarketProxy) GetAccountTransactions(w http.ResponseWriter, r *http.Requ
 	}
 
 	values := url.Values{}
+	values.Set("api-key", m.heliusAPIKey)
 	values.Set("limit", strconv.Itoa(limit))
 	if before != "" {
 		values.Set("before", before)
@@ -1383,7 +1389,6 @@ func (m *MarketProxy) GetAccountTransactions(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "failed to create request")
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -2151,7 +2156,6 @@ func (m *MarketProxy) PostHeliusTransactions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -2318,6 +2322,19 @@ type tokenMetaResult struct {
 // alternate source (jup.ag) was intermittently unresolvable. Doing it here
 // (parallel goroutines, no browser cap, cached 30m) is fast and dependable.
 // POST body: {"mints":[...]}. Response: {mint: {name, symbol, image}}.
+// heliusRPCURL puts the API key where Helius actually reads it.
+//
+// The key was being sent as an Authorization: Bearer header, which Helius
+// answers with "Unauthorized" — so every RPC and metadata call through this
+// proxy silently failed and fell back to whatever came next. It is why tokens
+// showed as their own mint address with no name and no logo.
+func heliusRPCURL(key string) string {
+	if key == "" {
+		return "https://mainnet.helius-rpc.com"
+	}
+	return "https://mainnet.helius-rpc.com/?api-key=" + url.QueryEscape(key)
+}
+
 func (m *MarketProxy) PostTokenMeta(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	if err != nil {
@@ -2389,12 +2406,11 @@ func (m *MarketProxy) resolveTokenMeta(ctx context.Context, mint string) (tokenM
 	if err != nil {
 		return tokenMetaResult{}, false
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://mainnet.helius-rpc.com", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, heliusRPCURL(m.heliusAPIKey), bytes.NewReader(payload))
 	if err != nil {
 		return tokenMetaResult{}, false
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+m.heliusAPIKey)
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return tokenMetaResult{}, false

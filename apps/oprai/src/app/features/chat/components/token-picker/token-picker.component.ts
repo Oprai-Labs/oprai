@@ -19,6 +19,7 @@ import {
   TokenRegistryService,
 } from '@core/services/market/token-registry.service';
 import { WalletService } from '@core/services/wallet.service';
+import { PriceFeedService } from '@core/services/market/price-feed.service';
 import { environment } from '../../../../../environments/environment';
 import { createSolanaConnection } from '@core/utils/solana-connection';
 
@@ -55,6 +56,7 @@ type Category = 'holdings' | 'trending' | 'stocks';
 export class TokenPickerComponent implements OnInit {
   private readonly tokenRegistry = inject(TokenRegistryService);
   private readonly wallet = inject(WalletService);
+  private readonly priceFeed = inject(PriceFeedService);
 
   /** Side label shown in the modal header — "From token" / "To token". */
   @Input() title = 'Select token';
@@ -81,15 +83,8 @@ export class TokenPickerComponent implements OnInit {
   readonly searchQuery = signal('');
   readonly registryVersion = this.tokenRegistry.version;
 
-  // Per-mint liquidity (USD). null = unknown (failed fetch or pending),
-  // undefined = not yet attempted. Populated lazily via fetchLiquidities()
-  // whenever the visible result set changes. We only batch-fetch what's
-  // actually visible — full registry has ~hundreds of tokens, sending all
-  // of them to Birdeye on modal-open would be wasteful.
-  readonly liquidityMap = signal<Map<string, number | null>>(new Map());
-
   /** What the connected wallet holds, largest balance first. */
-  readonly holdings = signal<Array<{ token: TokenMeta; amount: number }>>([]);
+  readonly holdings = signal<Array<{ token: TokenMeta; amount: number; usd: number | null }>>([]);
   readonly holdingsLoading = signal(false);
 
   readonly heldResults = computed(() =>
@@ -127,22 +122,12 @@ export class TokenPickerComponent implements OnInit {
     () => this.category() === 'holdings' && this.searchQuery().trim() === '',
   );
 
-  // Re-fetch liquidities whenever the visible results set changes (category
-  // tab switch, search-query narrowing, registry version bump). The fetcher
-  // dedupes against already-known mints so repeated triggers are cheap.
-  private readonly _liquidityRefreshEffect = effect(() => {
-    const visible = this.results();
-    if (visible.length === 0) return;
-    void this.fetchLiquidities();
-  });
-
   ngOnInit(): void {
     this.category.set(this.walletFirst ? this.initialCategory : 'trending');
     void this.loadHoldings();
     // Fire the full Jupiter list fetch in the background; modal stays usable
     // from bootstrap tokens while the network call resolves.
-    void this.tokenRegistry.ensureLoaded().then(() => this.fetchLiquidities());
-    this.fetchLiquidities();
+    void this.tokenRegistry.ensureLoaded();
   }
 
   /**
@@ -174,7 +159,7 @@ export class TokenPickerComponent implements OnInit {
           .catch(() => ({ value: [] as Array<{ account: { data: { parsed: { info: Record<string, any> } } } }> })),
       ]);
 
-      const rows: Array<{ token: TokenMeta; amount: number }> = [];
+      const rows: Array<{ token: TokenMeta; amount: number; usd: number | null }> = [];
       const SOL_MINT = 'So11111111111111111111111111111111111111112';
       if (sol > 0) {
         rows.push({
@@ -182,6 +167,7 @@ export class TokenPickerComponent implements OnInit {
             address: SOL_MINT, symbol: 'SOL', name: 'Solana', decimals: 9, logoURI: null,
           },
           amount: sol / 1e9,
+          usd: null,
         });
       }
       for (const acc of [...classic.value, ...(t22 as { value: any[] }).value]) {
@@ -198,6 +184,7 @@ export class TokenPickerComponent implements OnInit {
             logoURI: null,
           },
           amount,
+          usd: null,
         });
       }
       // Largest first: the token you are most likely to spend is the one you
@@ -205,10 +192,34 @@ export class TokenPickerComponent implements OnInit {
       rows.sort((a, b) => b.amount - a.amount);
       this.holdings.set(rows);
       void this.nameTheUnknown(rows);
+      void this.priceHoldings(rows);
     } catch {
       // Holdings are an aid, not the feature. The full list still works.
     } finally {
       this.holdingsLoading.set(false);
+    }
+  }
+
+  /**
+   * Put a dollar figure beside each balance.
+   *
+   * "663.827,77" of something is not a quantity anyone can rank against
+   * "5.460,75" of something else. The dollar value is what makes the list
+   * sortable by eye, which is the whole point of showing holdings first.
+   */
+  private async priceHoldings(rows: Array<{ token: TokenMeta; amount: number; usd: number | null }>): Promise<void> {
+    const mints = rows.map(r => r.token.address);
+    if (mints.length === 0) return;
+    try {
+      const prices = await this.priceFeed.getPrices(mints);
+      this.holdings.update(list =>
+        list.map(r => {
+          const p = prices.get(r.token.address)?.price;
+          return p && p > 0 ? { ...r, usd: r.amount * p } : r;
+        }),
+      );
+    } catch {
+      // A balance without a price is still a balance.
     }
   }
 
@@ -222,7 +233,7 @@ export class TokenPickerComponent implements OnInit {
    * asked. Runs after the list renders, so balances appear immediately and
    * names fill in behind them.
    */
-  private async nameTheUnknown(rows: Array<{ token: TokenMeta; amount: number }>): Promise<void> {
+  private async nameTheUnknown(rows: Array<{ token: TokenMeta; amount: number; usd: number | null }>): Promise<void> {
     const unknown = rows.filter(r => r.token.name === 'Unknown token').map(r => r.token.address);
     if (unknown.length === 0) return;
     try {
@@ -252,39 +263,6 @@ export class TokenPickerComponent implements OnInit {
     } catch {
       // The address is still a usable label; a missing name is not a failure.
     }
-  }
-
-  /** Pull liquidity USD for the currently visible result set, batch-style. */
-  private async fetchLiquidities(): Promise<void> {
-    const visible = this.results();
-    if (visible.length === 0) return;
-    const mints = visible.map(t => t.address);
-    // Skip mints we already have a liquidity reading for — Map.has covers
-    // both real numbers and the explicit-null "we tried, came up empty" case.
-    const have = this.liquidityMap();
-    const missing = mints.filter(m => !have.has(m));
-    if (missing.length === 0) return;
-    const fresh = await this.tokenRegistry.getLiquidities(missing);
-    if (fresh.size === 0) return;
-    const merged = new Map(have);
-    for (const [k, v] of fresh) merged.set(k, v);
-    this.liquidityMap.set(merged);
-  }
-
-  /**
-   * Human badge for a token's liquidity. Tier thresholds mirror the swap
-   * card's price-impact tiers so the user sees consistent severity language
-   * end-to-end: "$10M+" green, "$1M+" neutral, "<$100K" orange (low), "—"
-   * grey (unknown).
-   */
-  liquidityBadge(mint: string): { label: string; tier: 'high' | 'mid' | 'low' | 'unknown' } {
-    const v = this.liquidityMap().get(mint);
-    if (v == null) return { label: '', tier: 'unknown' };
-    if (v >= 10_000_000) return { label: '$10M+', tier: 'high' };
-    if (v >= 1_000_000)  return { label: '$1M+',  tier: 'mid' };
-    if (v >= 100_000)    return { label: '$100K+', tier: 'mid' };
-    if (v > 0)           return { label: '<$100K', tier: 'low' };
-    return { label: 'No liquidity', tier: 'low' };
   }
 
   setCategory(c: Category): void {
@@ -321,7 +299,6 @@ export class TokenPickerComponent implements OnInit {
         }))
         .filter(t => t.address && t.symbol);
       (which === 'trending' ? this.trending : this.stocks).set(list);
-      void this.fetchLiquidities();
     } catch {
       // An empty tab is honest; a broken modal is not.
     } finally {
@@ -331,6 +308,18 @@ export class TokenPickerComponent implements OnInit {
 
   onSearch(value: string): void {
     this.searchQuery.set(value);
+  }
+
+  /** Short form of a mint, for the second line of a row. */
+  shortMint(mint: string): string {
+    return mint.length > 12 ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : mint;
+  }
+
+  formatUsd(v: number | null): string {
+    if (v === null) return '';
+    if (v >= 1000) return `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    if (v >= 1) return `$${v.toFixed(2)}`;
+    return `$${v.toFixed(4)}`;
   }
 
   /** Trim a balance to something readable without lying about the size. */

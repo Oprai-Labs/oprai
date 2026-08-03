@@ -56,12 +56,17 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
             // Portfolio cost-basis fetch) can be healed via GET /auth/session
             // with NO wallet-signature popup and NO lost state. Only if the
             // cookie is also gone do we fall back to a fresh SIWS signature.
+            // Silent recovery only. The fallback used to call authenticate(),
+            // which opens a wallet signature prompt — so any background read
+            // that happened to 401 asked the user to sign. Browsing the token
+            // picker's tabs did exactly that: switching to Trending fetched
+            // liquidity from a wallet-gated route, got a 401, and popped the
+            // wallet. A signature is something a user asks for, never
+            // something a failed background fetch demands of them. If the
+            // cookie is gone too, the next deliberate action will re-auth.
             authService.restoreSession({ preserveSessionsOnFail: true }).then(() => {
-              if (!authService.isAuthenticated() && walletService.connected()) {
-                authService.authenticate().subscribe({
-                  error: (authErr) =>
-                    console.warn('[Auth] Re-authentication after 401 failed:', authErr),
-                });
+              if (!authService.isAuthenticated()) {
+                console.warn('[Auth] Session could not be restored silently; will re-auth on next action.');
               }
             });
           }

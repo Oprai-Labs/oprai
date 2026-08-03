@@ -87,15 +87,20 @@
 }
 
 .dialog-item {
+  // A narrow fixed column for the marker and one for the text, so every dot
+  // sits on the same vertical line and a wrapped second line starts under the
+  // first word rather than under the dot. The old 16px column with a 6px
+  // nudge inside it left the three markers visibly unequal.
   display: grid;
-  grid-template-columns: 16px 1fr;
-  gap: 10px;
+  grid-template-columns: 10px 1fr;
+  column-gap: 10px;
   align-items: start;
 
   &__mark {
+    justify-self: center;
     width: 3px;
     height: 3px;
-    margin: 9px 0 0 6px;
+    margin-top: 9px;
     border-radius: 50%;
     background: var(--op-text-tertiary, var(--op-text-secondary));
   }
