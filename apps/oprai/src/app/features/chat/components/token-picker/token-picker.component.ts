@@ -19,6 +19,7 @@ import {
   TokenRegistryService,
 } from '@core/services/market/token-registry.service';
 import { WalletService } from '@core/services/wallet.service';
+import { environment } from '../../../../../environments/environment';
 import { createSolanaConnection } from '@core/utils/solana-connection';
 
 type Category = 'all' | 'stable' | 'lst';
@@ -195,10 +196,53 @@ export class TokenPickerComponent implements OnInit {
       // have most of, and an alphabetical wallet list helps nobody.
       rows.sort((a, b) => b.amount - a.amount);
       this.holdings.set(rows);
+      void this.nameTheUnknown(rows);
     } catch {
       // Holdings are an aid, not the feature. The full list still works.
     } finally {
       this.holdingsLoading.set(false);
+    }
+  }
+
+  /**
+   * Give the unnamed mints their names.
+   *
+   * A pump.fun token minted this morning is in no curated list, so the wallet
+   * showed rows reading "CSJq…pump / Unknown token" — the user is asked to
+   * choose between two anonymous addresses. Their metadata is on chain, and
+   * the gateway already resolves it for the portfolio; the picker just never
+   * asked. Runs after the list renders, so balances appear immediately and
+   * names fill in behind them.
+   */
+  private async nameTheUnknown(rows: Array<{ token: TokenMeta; amount: number }>): Promise<void> {
+    const unknown = rows.filter(r => r.token.name === 'Unknown token').map(r => r.token.address);
+    if (unknown.length === 0) return;
+    try {
+      const res = await fetch(`${environment.apiBase}/token-meta`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'include',
+        body: JSON.stringify({ mints: unknown.slice(0, 100) }),
+      });
+      if (!res.ok) return;
+      const meta = (await res.json()) as Record<string, { name?: string; symbol?: string; image?: string }>;
+      this.holdings.update(list =>
+        list.map(r => {
+          const m = meta?.[r.token.address];
+          if (!m || (!m.symbol && !m.name)) return r;
+          return {
+            ...r,
+            token: {
+              ...r.token,
+              symbol: m.symbol || r.token.symbol,
+              name: m.name || r.token.name,
+              logoURI: m.image || r.token.logoURI,
+            },
+          };
+        }),
+      );
+    } catch {
+      // The address is still a usable label; a missing name is not a failure.
     }
   }
 
