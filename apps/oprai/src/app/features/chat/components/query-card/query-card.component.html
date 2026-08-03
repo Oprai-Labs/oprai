@@ -177,10 +177,25 @@
                 @if (t.collectionName) {
                   <div class="me-nft__coll">{{ t.collectionName }}</div>
                 }
-                <div class="me-nft__foot">
+                <!-- Price gets its own line. It is the number the whole tile
+                     exists to convey, and it was sharing a row with a button. -->
+                <div class="me-nft__price-row">
+                  <span class="me-nft__price-k">Price</span>
                   <span class="me-nft__price mono">
                     @if (t.price) { {{ t.price | number:'1.0-3' }} SOL } @else { <span class="me-nft__unlisted">Not listed</span> }
                   </span>
+                </div>
+                @if (meTraits(t).length) {
+                  <dl class="me-nft__traits">
+                    @for (tr of meTraits(t).slice(0, 4); track tr.label) {
+                      <div class="me-trait">
+                        <dt class="me-trait__k">{{ tr.label }}</dt>
+                        <dd class="me-trait__v" [attr.title]="tr.value">{{ tr.value }}</dd>
+                      </div>
+                    }
+                  </dl>
+                }
+                <div class="me-nft__foot">
                   <!-- The button follows from who owns it and whether it is
                        listed — one action, the one that applies. -->
                   <!-- Buying is not the only thing you can do with a listed
@@ -206,13 +221,6 @@
                     </span>
                   }
                 </div>
-                @if (meTraits(t).length) {
-                  <div class="me-nft__traits">
-                    @for (tr of meTraits(t).slice(0, 4); track tr.label) {
-                      <span class="me-trait"><span class="me-trait__k">{{ tr.label }}</span>{{ tr.value }}</span>
-                    }
-                  </div>
-                }
               </div>
             }
           </div>

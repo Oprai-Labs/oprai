@@ -2346,8 +2346,8 @@
   padding: 4px 0;
 
   &--nft {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+    gap: 12px;
   }
 }
 
@@ -2437,7 +2437,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
+  padding: 10px;
   border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
   border-radius: var(--op-radius-md, 10px);
   background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
@@ -2483,29 +2483,76 @@
     margin-top: -4px;
   }
 
-  &__foot {
+  // Price on its own line, label left and figure right — the same rhythm the
+  // swap card uses for its facts, so a number the eye is hunting for is always
+  // in the same place.
+  &__price-row {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
-    gap: 6px;
+    gap: 8px;
+    padding-top: 2px;
   }
 
-  &__price { font-size: 0.8125rem; font-weight: 600; }
+  &__price-k {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary, #71717a);
+  }
 
-  &__unlisted { color: var(--op-text-tertiary, #71717a); font-weight: 400; }
+  &__price {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
 
-  &__traits { display: flex; flex-wrap: wrap; gap: 4px; }
+  &__unlisted { color: var(--op-text-tertiary, #71717a); font-weight: 500; font-size: 0.8125rem; }
+
+  // Traits were inline chips. Each one is a label and a value of unpredictable
+  // length, so they wrapped one per line and read as a ragged pile. As rows of
+  // key and value they align, and four of them take less height than the pile
+  // did.
+  &__traits {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 0;
+    padding: 8px 0 0;
+    border-top: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  }
+
+  // The action fills the width. It is the one thing to do with this tile, and
+  // a small button floated beside a price looked like an afterthought.
+  &__foot {
+    display: flex;
+    gap: 6px;
+    padding-top: 2px;
+
+    .dlmm-use-btn { flex: 1; justify-content: center; }
+  }
 }
 
 .me-trait {
-  padding: 2px 6px;
-  border-radius: var(--op-radius-sm, 6px);
-  background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
-  font-size: 0.625rem;
-  color: var(--op-text-secondary, #a1a1aa);
-  white-space: nowrap;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  font-size: 0.6875rem;
 
-  &__k { color: var(--op-text-tertiary, #71717a); margin-right: 3px; }
+  &__k {
+    color: var(--op-text-tertiary, #71717a);
+    flex-shrink: 0;
+  }
+
+  &__v {
+    margin: 0;
+    color: var(--op-text-primary);
+    font-weight: 500;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 // Activity verb. Buys and lists are the two a reader scans for.
@@ -2653,7 +2700,7 @@
   gap: 8px;
 }
 
-.me-nft__acts { display: inline-flex; gap: 5px; }
+.me-nft__acts { display: flex; flex: 1; gap: 6px; }
 
 .me-stats-card__desc {
   margin: 0;
