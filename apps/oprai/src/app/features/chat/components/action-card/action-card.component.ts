@@ -5216,7 +5216,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         // Read from the quote rather than re-deriving the rule here: the fee
         // is decided by the backend and priced in by Jupiter, and a second
         // copy of that logic on the client would drift the day either changes.
-        platformFeeBps: Number((quote as { platformFee?: { feeBps?: number } }).platformFee?.feeBps ?? 0),
+        // `opraiFeeBps` is attached by our backend and means the same thing on
+        // both fee routes; `platformFee.feeBps` only exists on Jupiter's own,
+        // and reading it alone made the card say "Free" on a trade that was
+        // charging 0.5%.
+        platformFeeBps: Number(
+          (quote as { opraiFeeBps?: number; platformFee?: { feeBps?: number } }).opraiFeeBps
+            ?? (quote as { platformFee?: { feeBps?: number } }).platformFee?.feeBps
+            ?? 0,
+        ),
       });
     } catch {
       // Quote failure (no route, network error, etc.) is itself a danger

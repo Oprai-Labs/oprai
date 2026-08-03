@@ -43,6 +43,149 @@ pub fn attach(tx_base64: &str) -> String {
     }
 }
 
+/// Append a plain SOL transfer to an unsigned transaction.
+///
+/// This is how a fee gets taken without depending on anything existing first.
+/// Jupiter's own platform fee needs a token account that Jupiter will not
+/// create, which left every SOL-side swap uncharged until someone happened to
+/// make a pump.fun trade — a commission that depended on an unrelated action
+/// is not a commission. A transfer needs no account: native SOL is the balance
+/// itself.
+///
+/// Returns the transaction unchanged if it is already signed, cannot be
+/// parsed, or would exceed the size limit.
+pub fn attach_sol_transfer(tx_base64: &str, from: &Pubkey, to: &Pubkey, lamports: u64) -> String {
+    if lamports == 0 {
+        return tx_base64.to_string();
+    }
+    match try_attach_transfer(tx_base64, from, to, lamports) {
+        Some(updated) => updated,
+        None => tx_base64.to_string(),
+    }
+}
+
+fn try_attach_transfer(
+    tx_base64: &str,
+    from: &Pubkey,
+    to: &Pubkey,
+    lamports: u64,
+) -> Option<String> {
+    let bytes = base64::engine::general_purpose::STANDARD.decode(tx_base64).ok()?;
+    let mut tx: VersionedTransaction = bincode::deserialize(&bytes).ok()?;
+    if tx.signatures.iter().any(|s| *s != Signature::default()) {
+        return None;
+    }
+
+    let system = solana_sdk::system_program::id();
+    let mut data = Vec::with_capacity(12);
+    data.extend_from_slice(&2u32.to_le_bytes()); // SystemInstruction::Transfer
+    data.extend_from_slice(&lamports.to_le_bytes());
+
+    let (keys, header) = match &mut tx.message {
+        VersionedMessage::Legacy(m) => (&mut m.account_keys, &mut m.header),
+        VersionedMessage::V0(m) => (&mut m.account_keys, &mut m.header),
+    };
+    let from_idx = u8::try_from(keys.iter().position(|k| k == from)?).ok()?;
+
+    // The recipient must be WRITABLE, and a writable non-signer does not live
+    // at the end of the key list — it lives before the readonly ones. So it is
+    // inserted at that boundary, and every index at or past it moves along by
+    // one, lookup-table accounts included. Appending it at the end instead
+    // would silently make it read-only and the transfer would fail.
+    let insert_at = keys.len() - header.num_readonly_unsigned_accounts as usize;
+    let to_idx = match keys.iter().position(|k| k == to) {
+        Some(existing) => u8::try_from(existing).ok()?,
+        None => {
+            let at = u8::try_from(insert_at).ok()?;
+            shift_indices_from(&mut tx, insert_at)?;
+            match &mut tx.message {
+                VersionedMessage::Legacy(m) => m.account_keys.insert(insert_at, *to),
+                VersionedMessage::V0(m) => m.account_keys.insert(insert_at, *to),
+            }
+            at
+        }
+    };
+
+    // The system program is read-only, so it goes on the end of the static
+    // keys — but "the end" is not free either: the lookup-table accounts are
+    // numbered immediately after the static ones, so appending still pushes
+    // every one of them along. A test caught exactly this: the swap's own
+    // accounts came back renumbered by one.
+    let existing_sys = match &tx.message {
+        VersionedMessage::Legacy(m) => m.account_keys.iter().position(|k| *k == system),
+        VersionedMessage::V0(m) => m.account_keys.iter().position(|k| *k == system),
+    };
+    let sys_idx = match existing_sys {
+        Some(existing) => u8::try_from(existing).ok()?,
+        None => {
+            let at_usize = match &tx.message {
+                VersionedMessage::Legacy(m) => m.account_keys.len(),
+                VersionedMessage::V0(m) => m.account_keys.len(),
+            };
+            let at = u8::try_from(at_usize).ok()?;
+            shift_indices_from(&mut tx, at_usize)?;
+            match &mut tx.message {
+                VersionedMessage::Legacy(m) => {
+                    m.account_keys.push(system);
+                    m.header.num_readonly_unsigned_accounts =
+                        m.header.num_readonly_unsigned_accounts.checked_add(1)?;
+                }
+                VersionedMessage::V0(m) => {
+                    m.account_keys.push(system);
+                    m.header.num_readonly_unsigned_accounts =
+                        m.header.num_readonly_unsigned_accounts.checked_add(1)?;
+                }
+            }
+            at
+        }
+    };
+
+    let ix = CompiledInstruction {
+        program_id_index: sys_idx,
+        accounts: vec![from_idx, to_idx],
+        data,
+    };
+    match &mut tx.message {
+        VersionedMessage::Legacy(m) => m.instructions.push(ix),
+        VersionedMessage::V0(m) => m.instructions.push(ix),
+    }
+
+    let required = tx.message.header().num_required_signatures as usize;
+    if tx.signatures.len() != required {
+        return None;
+    }
+    let out = bincode::serialize(&tx).ok()?;
+    if out.len() > MAX_TX_BYTES {
+        tracing::warn!(bytes = out.len(), "no room for the fee transfer — trade goes uncharged");
+        return None;
+    }
+    Some(base64::engine::general_purpose::STANDARD.encode(&out))
+}
+
+/// Move every account index at or past `from` along by one.
+///
+/// A message addresses its static keys and its lookup-table accounts in one
+/// continuous space, so inserting a static key renumbers everything after it.
+/// Getting this wrong does not fail loudly — the transaction builds, signs,
+/// and touches the wrong accounts.
+fn shift_indices_from(tx: &mut VersionedTransaction, from: usize) -> Option<()> {
+    let instructions = match &mut tx.message {
+        VersionedMessage::Legacy(m) => &mut m.instructions,
+        VersionedMessage::V0(m) => &mut m.instructions,
+    };
+    for ix in instructions.iter_mut() {
+        if ix.program_id_index as usize >= from {
+            ix.program_id_index = ix.program_id_index.checked_add(1)?;
+        }
+        for a in ix.accounts.iter_mut() {
+            if *a as usize >= from {
+                *a = a.checked_add(1)?;
+            }
+        }
+    }
+    Some(())
+}
+
 fn try_attach(tx_base64: &str) -> Option<String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(tx_base64)
@@ -215,6 +358,71 @@ mod tests {
         let memo_ix = m.instructions.last().unwrap();
         assert_eq!(resolve(memo_ix.program_id_index as usize), memo_program());
         assert_eq!(memo_ix.data, MEMO_TEXT);
+    }
+
+    /// The fee transfer must reach the fee wallet, and everything else must
+    /// still reach what it reached before.
+    ///
+    /// The recipient is a WRITABLE account, which has to be inserted in the
+    /// middle of the key list rather than appended — writable non-signers come
+    /// before read-only ones. That renumbers every account after it, including
+    /// the ones the swap resolves through its lookup table. If the shift is
+    /// wrong the transaction still builds and still signs; it just moves the
+    /// wrong money.
+    #[test]
+    fn a_fee_transfer_lands_without_renumbering_the_swap() {
+        let payer = Keypair::new();
+        let fee_wallet = Pubkey::new_unique();
+        let in_table: Vec<Pubkey> = (0..4).map(|_| Pubkey::new_unique()).collect();
+        let lut = AddressLookupTableAccount { key: Pubkey::new_unique(), addresses: in_table.clone() };
+        let program = Pubkey::new_unique();
+        let ix = Instruction::new_with_bytes(
+            program,
+            &[9, 9],
+            vec![
+                solana_sdk::instruction::AccountMeta::new(in_table[0], false),
+                solana_sdk::instruction::AccountMeta::new_readonly(in_table[2], false),
+            ],
+        );
+        let msg = v0::Message::try_compile(&payer.pubkey(), &[ix], &[lut], Hash::default())
+            .expect("compiles");
+        let tx = VersionedTransaction {
+            signatures: vec![Signature::default()],
+            message: VersionedMessage::V0(msg),
+        };
+
+        let out = decode(&attach_sol_transfer(&encode(&tx), &payer.pubkey(), &fee_wallet, 12_345));
+        let VersionedMessage::V0(m) = &out.message else { panic!("still v0") };
+
+        let lookups = &m.address_table_lookups[0];
+        let resolve = |i: usize| -> Pubkey {
+            let statics = m.account_keys.len();
+            if i < statics { return m.account_keys[i]; }
+            let w = lookups.writable_indexes.len();
+            if i - statics < w { in_table[lookups.writable_indexes[i - statics] as usize] }
+            else { in_table[lookups.readonly_indexes[i - statics - w] as usize] }
+        };
+
+        // The swap instruction is untouched in meaning.
+        let swap = &m.instructions[0];
+        assert_eq!(resolve(swap.program_id_index as usize), program);
+        assert_eq!(
+            swap.accounts.iter().map(|a| resolve(*a as usize)).collect::<Vec<_>>(),
+            vec![in_table[0], in_table[2]],
+            "the swap's accounts were renumbered",
+        );
+
+        // And the transfer says what it should.
+        let transfer = m.instructions.last().unwrap();
+        assert_eq!(resolve(transfer.program_id_index as usize), solana_sdk::system_program::id());
+        assert_eq!(resolve(transfer.accounts[0] as usize), payer.pubkey());
+        assert_eq!(resolve(transfer.accounts[1] as usize), fee_wallet);
+        assert_eq!(u64::from_le_bytes(transfer.data[4..12].try_into().unwrap()), 12_345);
+
+        // The recipient must be writable, or the transfer fails on chain.
+        let fee_idx = m.account_keys.iter().position(|k| *k == fee_wallet).expect("present");
+        let writable_end = m.account_keys.len() - m.header.num_readonly_unsigned_accounts as usize;
+        assert!(fee_idx < writable_end, "fee wallet landed in the read-only region");
     }
 
     #[test]
