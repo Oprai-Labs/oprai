@@ -2725,7 +2725,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * address — so the card looks it up rather than showing the user a base58
    * string and asking them to recognise it.
    */
-  private readonly meFetchedNft = signal<{ name?: string; image?: string; collectionName?: string } | null>(null);
+  private readonly meFetchedNft = signal<{
+    name?: string;
+    image?: string;
+    collectionName?: string;
+    attributes?: Array<{ trait_type?: string; traitType?: string; value?: unknown }>;
+  } | null>(null);
 
   private meNftLookupDone = '';
 
@@ -2733,7 +2738,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const mint = this.getEditParam('mintAddress') || this.getEditParam('tokenMint')
       || this.getEditParam('assetMint');
     if (!mint || this.meNftLookupDone === mint) return;
-    if (this.action.params?.['nftName'] || this.action.params?.['nftImage']) return;
+    // Don't skip just because a name and picture came in with the click. The
+    // tile passes those two and nothing else, so bailing here meant the panel
+    // never learned the traits on the one path people actually take — clicking
+    // List or Buy on a tile they chose for its traits.
     this.meNftLookupDone = mint;
     void this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: mint })
       .then(d => {
@@ -2742,8 +2750,27 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           name: d['name'] as string | undefined,
           image: d['image'] as string | undefined,
           collectionName: d['collectionName'] as string | undefined,
+          attributes: d['attributes'] as Array<{ trait_type?: string; value?: unknown }> | undefined,
         });
       });
+  }
+
+  /**
+   * What the NFT actually is.
+   *
+   * The browse tile shows traits and the action card did not, so confirming a
+   * purchase meant deciding on a name and a picture alone — after choosing the
+   * item precisely because of its traits. Same rows, same order, same card.
+   */
+  meNftTraits(): Array<{ label: string; value: string }> {
+    const raw = this.meFetchedNft()?.attributes ?? [];
+    return raw
+      .map(a => ({
+        label: String(a.trait_type ?? a.traitType ?? ''),
+        value: String(a.value ?? ''),
+      }))
+      .filter(a => a.label && a.value)
+      .slice(0, 6);
   }
 
   meNftName(): string {
