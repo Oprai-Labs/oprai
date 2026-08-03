@@ -18,8 +18,12 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(420px, calc(100vw - 32px));
-  max-height: min(560px, calc(100vh - 64px));
+  width: min(448px, calc(100vw - 32px));
+  // A FIXED height, not a maximum. The modal used to grow and shrink with the
+  // number of tokens, so a wallet holding three of them opened a stub and the
+  // list jumped as tabs changed. A picker is a place you scroll, and it should
+  // be the same size every time you open it.
+  height: min(78dvh, 620px);
   display: flex;
   flex-direction: column;
   background: var(--op-bg-surface-1);
@@ -272,4 +276,51 @@
 .tp-empty--quiet {
   opacity: 0.6;
   font-size: 0.75rem;
+}
+
+/* ── Search: first thing in the sheet, with an Esc affordance ─────────────── */
+.tp-esc {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-tertiary, var(--op-text-secondary));
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: var(--op-bg-surface-3, var(--op-bg-surface-2));
+    color: var(--op-text-primary);
+  }
+}
+
+/* ── Rows: two lines each side, 64px tall, like the reference ─────────────── */
+.tp-row {
+  min-height: 64px;
+}
+
+.tp-row__icon-wrap {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.tp-row__symbol {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tp-row__verified {
+  color: var(--op-brand);
+  flex-shrink: 0;
+}
+
+.tp-list {
+  flex: 1 1 auto;
+  min-height: 0;
 }

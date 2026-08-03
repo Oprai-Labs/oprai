@@ -87,9 +87,34 @@ export class TokenPickerComponent implements OnInit {
   readonly holdings = signal<Array<{ token: TokenMeta; amount: number; usd: number | null }>>([]);
   readonly holdingsLoading = signal(false);
 
-  readonly heldResults = computed(() =>
-    this.holdings().filter(h => h.token.address !== this.excludeMint),
-  );
+  /**
+   * Tokens worth offering even at a zero balance.
+   *
+   * A wallet with three tokens produced a three-row Holdings tab, which reads
+   * as though the app knows nothing. Jupiter fills the same tab with the
+   * majors at 0.00 — the list stays a list, and the tokens most people
+   * actually want are one click away instead of behind a search.
+   */
+  private static readonly MAJORS = [
+    'SOL', 'USDC', 'USDT', 'JUP', 'JLP', 'BONK', 'JTO', 'WIF', 'PYUSD', 'cbBTC',
+  ];
+
+  readonly heldResults = computed<Array<{ token: TokenMeta; amount: number; usd: number | null }>>(() => {
+    this.registryVersion();
+    const owned = this.holdings().filter(h => h.token.address !== this.excludeMint);
+    const seen = new Set(owned.map(h => h.token.address));
+    const filler = TokenPickerComponent.MAJORS
+      .map(sym => this.tokenRegistry.getBySymbol(sym))
+      .filter((t): t is TokenMeta => !!t)
+      .filter(t => !seen.has(t.address) && t.address !== this.excludeMint)
+      .map(token => ({ token, amount: 0, usd: null }));
+    return [...owned, ...filler];
+  });
+
+  /** True when this row is in OPRAI's own registry, not merely known to Jupiter. */
+  isVerified(mint: string): boolean {
+    return !!this.tokenRegistry.getToken(mint);
+  }
 
   /** Trending and stocks, fetched from Jupiter and cached for this modal. */
   readonly trending = signal<TokenMeta[]>([]);
