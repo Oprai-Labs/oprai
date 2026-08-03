@@ -167,17 +167,33 @@ func (m *MarketProxy) warmImage(raw, key string, size int) <-chan struct{} {
 			m.cache.Set(key, b, imageFailTTL)
 		}
 
+		// Try the URL as given, then the same content through a gateway that is
+		// actually up. An IPFS image is addressed by its CID, so the host in the
+		// URL is only one of many doors to identical bytes — and collections
+		// routinely name a door that has since closed. Trenchors' images point
+		// at w3s.link, which answers 504 for every one of them.
 		resp, err := client.Get(raw)
-		if err != nil {
+		ok := err == nil && resp.StatusCode == http.StatusOK &&
+			strings.HasPrefix(resp.Header.Get("Content-Type"), "image/")
+		if !ok {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			if alt := ipfsFallbackURL(raw); alt != "" {
+				resp, err = client.Get(alt)
+				ok = err == nil && resp.StatusCode == http.StatusOK &&
+					strings.HasPrefix(resp.Header.Get("Content-Type"), "image/")
+			}
+		}
+		if !ok {
+			if resp != nil {
+				resp.Body.Close()
+			}
 			fail()
 			return
 		}
 		defer resp.Body.Close()
 		ct := resp.Header.Get("Content-Type")
-		if resp.StatusCode != http.StatusOK || !strings.HasPrefix(ct, "image/") {
-			fail()
-			return
-		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, imageMaxBytes+1))
 		if err != nil || len(body) == 0 || len(body) > imageMaxBytes {
 			fail()
@@ -288,4 +304,32 @@ func isPrivateIP(ip net.IP) bool {
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified() ||
 		ip.Equal(net.IPv4bcast)
+}
+
+// ipfsFallbackURL rewrites an IPFS URL to a gateway we know answers.
+//
+// Two shapes are in the wild: the subdomain form <cid>.ipfs.<host>/<path> and
+// the path form <host>/ipfs/<cid>/<path>. Both carry the CID, which is the
+// only part that identifies the content — the host is just whoever agreed to
+// serve it, and those agreements lapse. Returns "" when the URL is not IPFS or
+// is already pointed at the fallback.
+func ipfsFallbackURL(raw string) string {
+	const fallbackHost = "https://ipfs.io/ipfs/"
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, fallbackHost) {
+		return ""
+	}
+	// Subdomain form: the CID is the first label, "ipfs" the second.
+	labels := strings.Split(u.Hostname(), ".")
+	if len(labels) >= 3 && labels[1] == "ipfs" {
+		return fallbackHost + labels[0] + u.EscapedPath()
+	}
+	// Path form.
+	if idx := strings.Index(u.EscapedPath(), "/ipfs/"); idx >= 0 {
+		return fallbackHost + strings.TrimPrefix(u.EscapedPath()[idx+len("/ipfs/"):], "/")
+	}
+	return ""
 }
