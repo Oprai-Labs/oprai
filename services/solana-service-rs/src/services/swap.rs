@@ -364,17 +364,30 @@ async fn get_swap_quote_with_fee(
          restrictIntermediateTokens={restrict_intermediate}{dexes_qs}{platform_fee_qs}",
     );
 
-    let mut req = http.get(&url);
-    if let Some(key) = jupiter_api_key {
-        req = req.header("x-api-key", key);
+    // One retry on a rate limit. Jupiter's 429s are bursty — several cards
+    // polling at once is enough to trip one — and they clear in well under a
+    // second, so a single short wait turns a visible failure into a pause
+    // nobody notices.
+    let mut response = send_quote(http, &url, jupiter_api_key).await?;
+    if response.status().as_u16() == 429 {
+        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        response = send_quote(http, &url, jupiter_api_key).await?;
     }
-    let response = req.send().await?;
+
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         // Log the raw upstream body for debugging, but return a clean message —
         // never surface Jupiter's raw response to the user.
         tracing::warn!("Jupiter quote failed ({status}): {body}");
+        // A rate limit is our problem, not the user's token. Telling someone
+        // their pair lacks liquidity when we were simply throttled sends them
+        // off to change a perfectly good trade.
+        if status.as_u16() == 429 {
+            return Err(AppError::JupiterApiError(
+                "Pricing is busy right now. Give it a moment and try again — nothing is wrong with this trade.".into(),
+            ));
+        }
         return Err(AppError::JupiterApiError(
             "No route available for this trade right now. The pair may lack liquidity or the amount may be too small.".into(),
         ));
@@ -454,6 +467,19 @@ fn sol_side_fee_lamports(params: &SwapParams, quote: &SwapQuote) -> Option<u64> 
     };
     let fee = lamports.saturating_mul(bps) / 10_000;
     (fee > 0).then_some(fee)
+}
+
+/// One quote request, so the retry above does not duplicate the header setup.
+async fn send_quote(
+    http: &reqwest::Client,
+    url: &str,
+    jupiter_api_key: Option<&str>,
+) -> Result<reqwest::Response, AppError> {
+    let mut req = http.get(url);
+    if let Some(key) = jupiter_api_key {
+        req = req.header("x-api-key", key);
+    }
+    Ok(req.send().await?)
 }
 
 /// Split a SOL-funded swap into "what gets traded" and "what we take".
