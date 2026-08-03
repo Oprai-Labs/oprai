@@ -39,7 +39,7 @@ import BN from 'bn.js';
 import { getDepositIxs, getWithdrawIxs } from '@jup-ag/lend/earn';
 import { MAX_REPAY_AMOUNT, MAX_WITHDRAW_AMOUNT } from '@jup-ag/lend/borrow';
 import { WalletService } from '@core/services/wallet.service';
-import { createSolanaConnection } from '@core/utils/solana-connection';
+import { awaitSignature, createSolanaConnection } from '@core/utils/solana-connection';
 
 const LEND_API = 'https://lite-api.jup.ag/lend';
 
@@ -911,15 +911,9 @@ export class JupiterLendService {
       throw err;
     }
 
-    this.connection
-      .getLatestBlockhash()
-      .then(({ blockhash, lastValidBlockHeight }) =>
-        this.connection.confirmTransaction(
-          { signature, blockhash, lastValidBlockHeight },
-          'confirmed'
-        )
-      )
-      .catch(() => {});
+    // Fire-and-forget confirmation, by polling. The websocket confirmTransaction
+    // wants cannot connect through our HTTP-only RPC proxy.
+    void awaitSignature(this.connection, signature).catch(() => {});
 
     return signature;
   }

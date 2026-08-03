@@ -17,7 +17,7 @@ import { Injectable, inject } from '@angular/core';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 import { SolanaErrorDecoderService } from './solana-error-decoder.service';
-import { createSolanaConnection } from '@core/utils/solana-connection';
+import { awaitSignature, createSolanaConnection } from '@core/utils/solana-connection';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const MAX_RETRIES = 3;
@@ -177,12 +177,14 @@ export class TransactionTrackerService {
           return;
         }
 
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash(CONFIRMATION_COMMITMENT);
-
-        const result = await connection.confirmTransaction(
-          { signature, blockhash, lastValidBlockHeight },
-          CONFIRMATION_COMMITMENT
-        );
+        // Ask, don't subscribe — the websocket confirmTransaction needs cannot
+        // connect through our HTTP-only RPC proxy, so it never fired and every
+        // confirmation waited out the full window before giving up.
+        const settled = await awaitSignature(connection, signature);
+        if (settled === undefined) {
+          throw new Error('confirmation timed out');
+        }
+        const result = { value: { err: settled } };
 
         if (result.value.err) {
           // On-chain error — TX landed but failed
