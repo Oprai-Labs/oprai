@@ -493,7 +493,16 @@ pub async fn build_swap_transaction(
 
     let swap_mode = params.swap_mode.as_deref().unwrap_or("ExactIn");
     let exact_out = swap_mode.eq_ignore_ascii_case("exactout") || swap_mode.eq_ignore_ascii_case("out");
-    let fee_target = fee_account_for(params, if exact_out { "ExactOut" } else { "ExactIn" }).await;
+    // Only name a fee account when there is a fee to put in it. Jupiter
+    // rejects the whole build otherwise — "platformFee must be greater than 0
+    // when feeAccount is set" — which broke every stablecoin pair, the one
+    // case we deliberately charge nothing for.
+    let mode = if exact_out { "ExactOut" } else { "ExactIn" };
+    let fee_target = if platform_fee_bps_for(params, mode).await > 0 {
+        fee_account_for(params, mode).await
+    } else {
+        None
+    };
 
     let post_swap = |quote: &SwapQuote, fee: Option<String>| {
         let mut body = serde_json::json!({
