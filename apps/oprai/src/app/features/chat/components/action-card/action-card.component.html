@@ -725,23 +725,14 @@
               }
             </div>
 
-            <!-- Direct routes -->
-            <div class="pump-swap__settings">
-              @if (action.type !== 'raydium_swap') {
-                <div class="pump-setting">
-                  <label class="pump-setting__label">Direct routes only</label>
-                  <button type="button" class="pump-setting__toggle"
-                          [class.is-on]="getEditParam('onlyDirectRoutes') === 'true'"
-                          [disabled]="!isEditable()"
-                          (click)="isEditable() && toggleEditParam('onlyDirectRoutes')"
-                          role="switch"
-                          [attr.aria-checked]="getEditParam('onlyDirectRoutes') === 'true'">
-                    <span class="pump-setting__switch"><span class="pump-setting__knob"></span></span>
-                    <span class="pump-setting__toggle-text">{{ getEditParam('onlyDirectRoutes') === 'true' ? 'Enabled' : 'Disabled' }}</span>
-                  </button>
-                </div>
-              }
-            </div>
+            <!-- No settings row.
+                 Slippage and "direct routes only" both lived here. Each was a
+                 number or a switch the user was invited to tune with nothing
+                 on screen to tune it against — and "direct routes only"
+                 carried its own hint saying off is better most of the time.
+                 Routing and slippage are the aggregator's job; the card's job
+                 is to show what the trade costs, which it now does in dollars
+                 under the amount. -->
           </div>
         } @else if (action.type === 'limit_order') {
           <!-- ─────── Jupiter limit order: sell N of X to receive M of Y ─────── -->
@@ -3914,7 +3905,12 @@
     <!-- Insufficient balance → inline QuickSwap widget or compact warning.
          Only while the card is still actionable — a submitted/confirmed/done
          order already spent the balance, so the warning is stale noise. -->
-    @if (isEditable() && insufficientFunds() && inputBalance() !== null && !inputBalanceLoading()) {
+    <!-- On a swap the Confirm button already reads "Insufficient balance" and
+         the receive panel already carries the cost of the trade, so this strip
+         repeated two things the user could see without it. Other actions have
+         neither, and keep it. -->
+    @if (isEditable() && insufficientFunds() && inputBalance() !== null && !inputBalanceLoading()
+         && action.type !== 'swap' && action.type !== 'raydium_swap') {
 
       @if (!showQuickSwap()) {
         <!-- Compact warning with "Buy via swap" CTA -->
@@ -4098,10 +4094,11 @@
         <!-- Price-impact warning strip — informational at <1% (no strip),
              notice 1-5%, warning 5-10%, danger 10%+ or no-route. Drives both
              the strip colour and (for `danger`) Swap-button hard-disable. -->
-        @if (action.type === 'swap' && swapImpactTier() !== 'safe') {
-          <div class="proto-impact"
-               [attr.data-tier]="swapImpactTier()"
-               [class.is-secondary]="insufficientFunds() && swapImpactTier() === 'notice'">
+        <!-- Kept only for the case the receive panel cannot cover: no route at
+             all. A percentage is a worse way to say "this trade costs you
+             money" than the dollar gap now shown under the amount. -->
+        @if (action.type === 'swap' && swapNoRoute()) {
+          <div class="proto-impact" [attr.data-tier]="'danger'">
             <lucide-icon name="alert-circle" [size]="14" />
             @if (swapNoRoute()) {
               <span>No liquidity for this pair — Jupiter can't route it. Pick a different token.</span>

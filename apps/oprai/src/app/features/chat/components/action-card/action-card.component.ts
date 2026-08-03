@@ -4817,14 +4817,42 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     });
   });
 
+  /**
+   * The amount on one side of the swap, as a number.
+   *
+   * Read from the quote's own figures rather than the text in the box. The
+   * displayed value is formatted for a human — "877.276,509282" under a
+   * Turkish locale — and parsing that back gave 877.276, which turned a
+   * fair trade into a "-100%" loss on the card.
+   */
+  private sideAmount(side: 'inputMint' | 'outputMint'): number | null {
+    if (!this.isEditable() && this.executedSwapView()) {
+      const done = side === 'inputMint'
+        ? this.executedSwapView()!.pay
+        : this.executedSwapView()!.receive;
+      const n = parseFloat(String(done ?? '').replace(/[^0-9.eE-]/g, ''));
+      return Number.isFinite(n) && n > 0 ? n : null;
+    }
+    const p = this.editParams();
+    const mode = String(p['swapMode'] ?? '').toLowerCase();
+    const exactOut = mode === 'exactout' || mode === 'out';
+    const typed = parseFloat(p['amount'] ?? '');
+    if (!Number.isFinite(typed) || typed <= 0) return null;
+
+    const isTypedSide = (side === 'inputMint' && !exactOut) || (side === 'outputMint' && exactOut);
+    if (isTypedSide) return typed;
+
+    // The other side comes from the quote's ratio, which is a number.
+    const rate = this.swapEstimate()?.pricePerInput;
+    if (!rate || !Number.isFinite(rate) || rate <= 0) return null;
+    return exactOut ? typed / rate : typed * rate;
+  }
+
   private sideUsd(side: 'inputMint' | 'outputMint'): number | null {
     const price = side === 'inputMint' ? this.swapPayUsdPrice() : this.swapRecvUsdPrice();
     if (!price || price <= 0) return null;
-    const raw = !this.isEditable() && this.executedSwapView()
-      ? (side === 'inputMint' ? this.executedSwapView()!.pay : this.executedSwapView()!.receive)
-      : this.swapInputValueFor(side);
-    const amt = parseFloat(String(raw ?? '').replace(/,/g, ''));
-    if (!Number.isFinite(amt) || amt <= 0) return null;
+    const amt = this.sideAmount(side);
+    if (amt === null) return null;
     return amt * price;
   }
 
@@ -4836,7 +4864,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const pay = this.swapPayUsd();
     const recv = this.swapRecvUsd();
     if (pay === null || recv === null || pay <= 0) return null;
-    return ((recv - pay) / pay) * 100;
+    const delta = ((recv - pay) / pay) * 100;
+    // A figure this extreme is a pricing failure, not a trade. Illiquid and
+    // brand-new tokens routinely have no usable price, and reporting that as
+    // "you will lose 100%" is worse than saying nothing: it is confidently
+    // wrong about the user's money.
+    if (!Number.isFinite(delta) || delta < -90 || delta > 90) return null;
+    return delta;
   });
 
   /** Beyond this the swap is losing real money, and it should look like it. */
