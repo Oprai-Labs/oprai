@@ -3354,7 +3354,10 @@ pub async fn build_action(
     .await?;
     built.transaction = built
         .transaction
-        .map(|tx| crate::services::memo::attach(&tx));
+        ;
+    if let Some(tx) = built.transaction.take() {
+        built.transaction = Some(crate::services::memo::attach(&tx).await);
+    }
     Ok(built)
 }
 
