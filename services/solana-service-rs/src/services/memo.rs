@@ -43,6 +43,82 @@ pub fn attach(tx_base64: &str) -> String {
     }
 }
 
+/// Where a lookup table already places `wanted`, in the message's index space.
+///
+/// Resolved order is: static keys, then every table's writable entries in
+/// table order, then every table's readonly entries. Reading the tables costs
+/// one account fetch each, cached for the life of the process — a table's
+/// contents only ever grow, and an address that is in one stays in it.
+fn lookup_index_of(wanted: &Pubkey, m: &solana_sdk::message::v0::Message) -> Option<u8> {
+    if m.address_table_lookups.is_empty() {
+        return None;
+    }
+    let statics = m.account_keys.len();
+    let tables: Vec<Vec<Pubkey>> = m
+        .address_table_lookups
+        .iter()
+        .map(|l| read_lookup_table(&l.account_key))
+        .collect();
+
+    let writable_total: usize = m
+        .address_table_lookups
+        .iter()
+        .map(|l| l.writable_indexes.len())
+        .sum();
+
+    let mut seen = 0usize;
+    for (lookup, addrs) in m.address_table_lookups.iter().zip(tables.iter()) {
+        for (n, idx) in lookup.writable_indexes.iter().enumerate() {
+            if addrs.get(*idx as usize) == Some(wanted) {
+                return u8::try_from(statics + seen + n).ok();
+            }
+        }
+        seen += lookup.writable_indexes.len();
+    }
+    let mut seen = 0usize;
+    for (lookup, addrs) in m.address_table_lookups.iter().zip(tables.iter()) {
+        for (n, idx) in lookup.readonly_indexes.iter().enumerate() {
+            if addrs.get(*idx as usize) == Some(wanted) {
+                return u8::try_from(statics + writable_total + seen + n).ok();
+            }
+        }
+        seen += lookup.readonly_indexes.len();
+    }
+    None
+}
+
+/// The addresses a lookup table holds. Cached; tables only grow.
+fn read_lookup_table(key: &Pubkey) -> Vec<Pubkey> {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<Pubkey, Vec<Pubkey>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    if let Some(hit) = cache.lock().ok().and_then(|c| c.get(key).cloned()) {
+        return hit;
+    }
+    let endpoint = std::env::var("SOLANA_RPC")
+        .unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string());
+    let addrs = crate::solana::connection::SolanaRpc::new(&endpoint)
+        .client()
+        .get_account(key)
+        .ok()
+        .map(|acc| {
+            const HEADER: usize = 56;
+            acc.data
+                .get(HEADER..)
+                .map(|rest| {
+                    rest.chunks_exact(32)
+                        .filter_map(|c| Pubkey::try_from(c).ok())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    if let Ok(mut c) = cache.lock() {
+        c.insert(*key, addrs.clone());
+    }
+    addrs
+}
+
 /// Append a plain SOL transfer to an unsigned transaction.
 ///
 /// This is how a fee gets taken without depending on anything existing first.
@@ -207,6 +283,33 @@ fn try_attach(tx_base64: &str) -> Option<String> {
     };
     if already_present {
         return None;
+    }
+
+    // A v0 message can reach an account through a lookup table without listing
+    // it statically — and Jupiter's tables contain the memo program. Adding it
+    // as a static key then names the same account twice, which the runtime
+    // rejects outright with AccountLoadedTwice. Whether it happens depends on
+    // the route, so it broke swaps intermittently and passed every test that
+    // took the other path.
+    //
+    // When the table already offers it, use the index the table gives.
+    if let VersionedMessage::V0(m) = &tx.message {
+        if let Some(index) = lookup_index_of(&memo, m) {
+            let ix = CompiledInstruction {
+                program_id_index: index,
+                accounts: vec![],
+                data: MEMO_TEXT.to_vec(),
+            };
+            let mut tx = tx;
+            if let VersionedMessage::V0(m) = &mut tx.message {
+                m.instructions.push(ix);
+            }
+            let out = bincode::serialize(&tx).ok()?;
+            if out.len() > MAX_TX_BYTES {
+                return None;
+            }
+            return Some(base64::engine::general_purpose::STANDARD.encode(&out));
+        }
     }
 
     match &mut tx.message {
