@@ -403,12 +403,16 @@
                are not the user's to supply. What remains editable is the price
                and the expiry, rendered by the generic field list below. -->
           <div class="me-act">
+            <!-- The fallback sits BEHIND the art rather than in an @else:
+                 an image that 404s hides itself, and an @else has already been
+                 skipped by then, which left an empty square. -->
             <div class="me-act__art">
+              <span class="me-act__fallback">
+                <img class="me-act__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
+              </span>
               @if (meNftImage()) {
-                <img [src]="meArtSrc()" [alt]="meNftName()" loading="eager" decoding="async"
+                <img class="me-act__img" [src]="meArtSrc()" [alt]="meNftName()" loading="eager" decoding="async"
                      (error)="$any($event.target).style.display='none'" />
-              } @else {
-                <span class="me-act__fallback">{{ (meNftName() || '?').charAt(0) }}</span>
               }
             </div>
             <div class="me-act__body">

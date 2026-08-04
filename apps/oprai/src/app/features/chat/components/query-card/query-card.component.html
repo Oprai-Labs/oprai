@@ -132,7 +132,7 @@
             @for (c of mePagedCollections(); track c.symbol) {
               <button type="button" class="me-coll" (click)="browseMeCollection(c)">
                 <span class="me-coll__art">
-                  <span class="me-art__fallback">{{ (c.name || '?').charAt(0) }}</span>
+                  <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
                   @if (c.image) {
                     <img [src]="nftArtSrc(c.image)" [alt]="c.name" loading="lazy" decoding="async"
                          (error)="$any($event.target).style.display='none'" />
@@ -169,7 +169,10 @@
             @for (t of mePagedTokens(); track t.mintAddress) {
               <div class="me-nft" [class.me-nft--row]="mePagedTokens().length <= 2">
                 <div class="me-nft__art">
-                  <span class="me-art__fallback">{{ (t.name || '?').charAt(0) }}</span>
+                  <span class="me-art__fallback me-art__fallback--lg">
+                    <img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
+                    <span class="me-art__note">Media not available</span>
+                  </span>
                   @if (t.image) {
                     <img [src]="nftArtSrc(t.image)" [alt]="t.name" loading="lazy" decoding="async"
                          (error)="$any($event.target).style.display='none'" />
@@ -216,7 +219,7 @@
                 <div class="me-nft__foot">
                   @if (meOwnsToken(t)) {
                     @if (meIsListed(t)) {
-                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
+                      <button type="button" class="dlmm-use-btn me-nft__foot-btn"
                               (click)="cancelMeListing(t)">Remove listing</button>
                     } @else {
                       <button type="button" class="dlmm-use-btn me-nft__foot-btn" (click)="listMeToken(t)">List for sale
@@ -399,7 +402,10 @@
                    traits squeezed into half the card. -->
               <div class="me-detail__hero">
               <div class="me-detail__art">
-                <span class="me-art__fallback">{{ (n.name || '?').charAt(0) }}</span>
+                <span class="me-art__fallback me-art__fallback--lg">
+                    <img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
+                    <span class="me-art__note">Media not available</span>
+                  </span>
                 @if (n.image) {
                   <img [src]="nftArtSrc(n.image)" [alt]="n.name" loading="eager" decoding="async"
                        (error)="$any($event.target).style.display='none'" />
@@ -565,7 +571,7 @@
             <div class="me-stats-card">
               <div class="me-stats-card__head">
                 <span class="me-coll__art me-coll__art--lg">
-                  <span class="me-art__fallback">{{ (st.name || '?').charAt(0) }}</span>
+                  <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
                   @if (st.image) {
                     <img [src]="nftArtSrc(st.image)" [alt]="st.name" loading="lazy" decoding="async"
                          (error)="$any($event.target).style.display='none'" />

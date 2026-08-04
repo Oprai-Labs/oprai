@@ -2363,16 +2363,44 @@
 // which is what a collection whose IPFS host has gone dark looks like: not
 // "no artwork", but "broken app". Now the image failing simply reveals what
 // was already behind it.
+// What is shown when the artwork cannot be fetched — which happens: this
+// collection's CID is unreachable on every public IPFS gateway, and Magic
+// Eden's own grid shows an empty box for it too.
+//
+// It used to be a bright brand gradient with the NFT's initial on it, which
+// looked like deliberate cover art rather than a missing file: a wall of them
+// reads as a collection of coloured squares. A quiet surface, our mark, and a
+// caption that says what happened.
 .me-art__fallback {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06b6d4));
-  color: #fff;
-  font-weight: 700;
-  text-transform: uppercase;
+  gap: 10px;
+  background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+}
+
+.me-art__mark {
+  width: 30%;
+  max-width: 64px;
+  min-width: 18px;
+  opacity: 0.3;
+}
+
+.me-art__note {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--op-text-tertiary, #71717a);
+  text-align: center;
+  padding: 0 8px;
+}
+
+// On the big art the mark can breathe; on a thumbnail the caption is dropped
+// entirely rather than rendered at a size nobody can read.
+.me-art__fallback--lg {
+  .me-art__mark { width: 34%; max-width: 72px; }
 }
 
 // Collection row — art, name, the three numbers that decide whether to look.
