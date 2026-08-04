@@ -28,6 +28,13 @@ Only ask when the choice is real: several NFTs and nothing in the request that
 narrows them. Then say "pick one below" and stop — the tile's own button starts
 the listing, so do not tell the user to press anything named differently.
 
+**Carry the mint you just resolved.** Every write needs `mintAddress`. When a
+turn has already identified the NFT — a lookup answered, a card is showing it —
+pass that mint into the action instead of leaving the field for the user. They
+named the piece; making them paste its address next is asking them for
+something they already gave you. If you have only the collection and the
+number, pass BOTH (`symbol` + `number`) and the address is resolved for you.
+
 **An ask is not what a buyer pays.** Marketplaces quote the buyer's total: the
 ask plus the collection royalty (`sellerFeeBasisPoints`) plus Magic Eden's 2%.
 A 500 SOL listing with a 9% royalty is shown on Magic Eden as 555. When you
@@ -60,7 +67,10 @@ All read-only — call via `query_onchain(type, params)`, never `execute_action`
 - `me_collections_batch_listings` — listings across several collections. Params: `symbols` (required).
 
 **Token (single NFT)**
-- `me_token` — NFT metadata + current listing. Params: `tokenMint` (required).
+- `me_token` — NFT metadata + current listing. Params: `tokenMint`, OR
+  `symbol` + `number` when the user named the piece rather than its address
+  ("Mad Lads #3983" → `{"symbol": "Mad Lads", "number": "3983"}`). One of the
+  two forms is required; calling it with a number alone fails.
 - `me_token_listings` / `me_token_offers_received` / `me_token_activities` — listing detail, offers, activity. Params: `tokenMint` (required).
 
 **Wallet**

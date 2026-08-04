@@ -2877,6 +2877,70 @@ async fn me_nft_detail(
     }))
 }
 
+/// Resolve `collection + #number -> mint`, trying both slug spellings.
+async fn mint_by_number_any_spelling(
+    http: &reqwest::Client,
+    raw_symbol: &str,
+    digits: &str,
+) -> Option<String> {
+    for candidate in collection_symbol_candidates(raw_symbol) {
+        if let Some(mint) = me_resolve_mint_by_number(http, &candidate, digits).await {
+            return Some(mint);
+        }
+    }
+    None
+}
+
+/// Fill in `mintAddress` on a Magic Eden write that named the NFT the way a
+/// person does.
+///
+/// "Offer 0.1 on Mad Lads #3983" is a complete instruction, but every builder
+/// needs a mint. Without this the card rendered an empty "NFT mint address"
+/// box under a panel that was already showing the piece — asking the user for
+/// the one thing the conversation had just established.
+pub async fn resolve_me_action_mint(
+    http: &reqwest::Client,
+    action: &str,
+    mut params: serde_json::Value,
+) -> serde_json::Value {
+    if !action.starts_with("me_") || action.starts_with("me_mmm_") {
+        return params;
+    }
+    let non_empty = |v: Option<&serde_json::Value>| -> Option<String> {
+        let v = v?;
+        let s = match v {
+            serde_json::Value::String(s) => s.trim().to_string(),
+            serde_json::Value::Number(n) => n.to_string(),
+            _ => return None,
+        };
+        if s.is_empty() { None } else { Some(s) }
+    };
+    let obj = match params.as_object() {
+        Some(o) => o,
+        None => return params,
+    };
+    if non_empty(obj.get("mintAddress")).is_some() {
+        return params;
+    }
+    let symbol = ["symbol", "collectionSymbol", "collection", "collectionName"]
+        .iter()
+        .find_map(|k| non_empty(obj.get(*k)));
+    let number = ["number", "tokenNumber", "nftNumber", "edition", "serial"]
+        .iter()
+        .find_map(|k| non_empty(obj.get(*k)));
+    let (symbol, number) = match (symbol, number) {
+        (Some(s), Some(n)) => (s, n),
+        _ => return params,
+    };
+    let digits = number.trim_start_matches('#').trim().to_string();
+    if let Some(mint) = mint_by_number_any_spelling(http, &symbol, &digits).await {
+        if let Some(o) = params.as_object_mut() {
+            o.insert("mintAddress".into(), serde_json::json!(mint));
+        }
+    }
+    params
+}
+
 pub async fn build_me_read(
     http: &reqwest::Client,
     action: &str,
@@ -2891,7 +2955,10 @@ pub async fn build_me_read(
                 let symbol = need(&params.symbol, "collection")?;
                 let number = need(&params.number, "NFT number")?;
                 let digits = number.trim_start_matches('#').trim().to_string();
-                match me_resolve_mint_by_number(http, symbol, &digits).await {
+                // The model names a collection the way a person does — "Mad
+                // Lads" — and this passed it through as a slug, so a lookup by
+                // number only ever worked when the name happened to be one.
+                match mint_by_number_any_spelling(http, symbol, &digits).await {
                     Some(m) => m,
                     None => {
                         return Err(AppError::NotFound(format!(
