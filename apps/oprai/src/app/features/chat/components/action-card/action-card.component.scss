@@ -5467,9 +5467,13 @@
     background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
   }
 
-  &__mark {
-    width: 34% !important;
-    height: auto !important;
+  // Scoped under the fallback so it outranks `&__art img`, which would
+  // otherwise stretch the mark to fill the square.
+  &__fallback &__mark {
+    flex: 0 0 auto;
+    width: 34%;
+    height: auto;
+    object-fit: contain;
     opacity: 0.3;
   }
 

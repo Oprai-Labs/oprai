@@ -2382,10 +2382,17 @@
   background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
 }
 
-.me-art__mark {
+// Scoped to the fallback ON PURPOSE. Every art container carries an
+// `img { width:100%; height:100%; object-fit:cover }` rule that is one point
+// more specific than a bare `.me-art__mark`, so the mark was stretched to fill
+// the square and clipped by its own rounded corners.
+.me-art__fallback .me-art__mark {
+  flex: 0 0 auto;
   width: 30%;
+  height: auto;
   max-width: 64px;
   min-width: 18px;
+  object-fit: contain;
   opacity: 0.3;
 }
 
@@ -2399,8 +2406,9 @@
 
 // On the big art the mark can breathe; on a thumbnail the caption is dropped
 // entirely rather than rendered at a size nobody can read.
-.me-art__fallback--lg {
-  .me-art__mark { width: 34%; max-width: 72px; }
+.me-art__fallback--lg .me-art__mark {
+  width: 34%;
+  max-width: 72px;
 }
 
 // Collection row — art, name, the three numbers that decide whether to look.
