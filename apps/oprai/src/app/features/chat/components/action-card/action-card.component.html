@@ -437,6 +437,15 @@
                   @if (meVerb()) { <span class="me-act__price-k">{{ meVerb() }}</span> }
                   <span class="me-act__price-v mono">{{ price | number:'1.0-4' }} SOL</span>
                 </div>
+                <!-- Withdrawing a listing: name the number the marketplace is
+                     showing, so the card matches the grid it is undoing. -->
+                @if (meIsCancelListing()) {
+                  @if (meListedTotalSol(); as total) {
+                    <div class="me-act__fee">
+                      <span>Shown on Magic Eden</span><span class="mono">{{ total | number:'1.0-4' }} SOL</span>
+                    </div>
+                  }
+                }
                 @if (meFeeSol(); as fee) {
                   <!-- Both numbers, because they are both real and they differ.
                        Listing at 500 put 555 on Magic Eden's grid: their 2% and

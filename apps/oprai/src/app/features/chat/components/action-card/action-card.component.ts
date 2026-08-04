@@ -2731,6 +2731,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     collectionName?: string;
     attributes?: Array<{ trait_type?: string; traitType?: string; value?: unknown }>;
     sellerFeeBasisPoints?: number;
+    price?: number;
   } | null>(null);
 
   private meNftLookupDone = '';
@@ -2747,12 +2748,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     void this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: mint })
       .then(d => {
         if (!d) return;
+        // `me_token` answers either flat or wrapped in `token` depending on
+        // which upstream served it; read through both rather than betting.
+        const src = (d['token'] as Record<string, unknown> | undefined) ?? d;
         this.meFetchedNft.set({
-          name: d['name'] as string | undefined,
-          image: d['image'] as string | undefined,
-          collectionName: d['collectionName'] as string | undefined,
-          attributes: d['attributes'] as Array<{ trait_type?: string; value?: unknown }> | undefined,
-          sellerFeeBasisPoints: d['sellerFeeBasisPoints'] as number | undefined,
+          name: src['name'] as string | undefined,
+          image: src['image'] as string | undefined,
+          collectionName: src['collectionName'] as string | undefined,
+          attributes: src['attributes'] as Array<{ trait_type?: string; value?: unknown }> | undefined,
+          sellerFeeBasisPoints: src['sellerFeeBasisPoints'] as number | undefined,
+          price: src['price'] as number | undefined,
         });
       });
   }
@@ -2814,6 +2819,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (/accept_offer|sell_now/.test(t)) return 'You receive';
     if (/make_offer/.test(t)) return 'Your offer';
     if (/list|_sell$/.test(t)) return 'Ask';
+    if (/cancel_listing/.test(t)) return 'Listed at';
     if (/cancel/.test(t)) return '';
     return 'You pay';
   }
@@ -2838,9 +2844,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   /** The number the card leads with. */
   meHeadlinePrice(): number | null {
-    const raw = this.getEditParam('newPrice') || this.getEditParam('price');
+    // `listPrice` is what a Remove-listing card is spawned with. It is named
+    // apart from `price` on purpose: nothing downstream should be able to read
+    // it as an amount to spend.
+    const raw = this.getEditParam('newPrice') || this.getEditParam('price')
+      || this.getEditParam('listPrice');
     const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : null;
+    if (Number.isFinite(n) && n > 0) return n;
+    const live = this.meFetchedNft()?.price;
+    return typeof live === 'number' && live > 0 ? live : null;
+  }
+
+  /** What Magic Eden shows for this listing, on the card that withdraws it. */
+  meListedTotalSol(): number | null {
+    const p = this.meHeadlinePrice();
+    const r = this.meRoyaltyPct();
+    if (!p) return null;
+    const total = p * (1 + (r ?? 0) + 0.02);
+    return total > p ? total : null;
   }
 
   /** Magic Eden's cut, shown on the actions where the user is the one paying
@@ -2855,6 +2876,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const p = this.meHeadlinePrice();
     const r = this.meRoyaltyPct();
     return p && r ? p * r : null;
+  }
+
+  /** Withdrawing a listing: the card's job is to show which listing. */
+  meIsCancelListing(): boolean {
+    return /cancel_listing/.test(this.action.type);
   }
 
   meFeeSol(): number | null {

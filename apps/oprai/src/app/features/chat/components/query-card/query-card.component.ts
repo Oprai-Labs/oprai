@@ -1692,7 +1692,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   cancelMeListing(t: MeTokenRow): void {
-    this.meEmit('me_cancel_listing', this.meNftContext(t));
+    this.meEmit('me_cancel_listing', {
+      ...this.meNftContext(t),
+      // Which listing is being withdrawn. Named apart from `price` so no
+      // builder can mistake it for an amount to spend.
+      ...(t.price ? { listPrice: String(t.price) } : {}),
+    });
   }
 
   /**
