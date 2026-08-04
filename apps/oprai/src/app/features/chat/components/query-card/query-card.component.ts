@@ -95,15 +95,6 @@ interface AnalyticsResult {
   topTokens: { symbol: string; pnl: number; trades: number }[];
 }
 
-interface NftItem {
-  name: string;
-  collection: string;
-  image: string;
-  floorPrice: number;
-  rarity: string;
-  lastSale: number;
-}
-
 interface AirdropResult {
   protocol: string;
   status: string;
@@ -649,7 +640,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   networkResult: NetworkResult | null = null;
   yieldResults: YieldResult[] = [];
   analyticsResult: AnalyticsResult | null = null;
-  nftResults: NftItem[] = [];
   airdropResults: AirdropResult[] = [];
   gasResult: GasResult | null = null;
   walletInfoResult: WalletInfoResult | null = null;
@@ -743,6 +733,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // `nft_collection` used to render four invented NFTs — Mad Lads, Claynosaurz,
+    // SMBs nobody owned, with invented floor prices — under the user's own
+    // wallet heading. It is the same question `me_wallet_tokens` answers for
+    // real, so it is now that question. A snapshot taken while it was still
+    // mock data has nothing worth restoring, so those cards refetch.
+    if (this.query.type === 'nft_collection') {
+      const p = this.query.params ?? {};
+      this.query = {
+        ...this.query,
+        type: 'me_wallet_tokens',
+        params: { ...p, wallet: p['wallet'] ?? p['walletAddress'] ?? 'self' },
+      };
+      const restored = this.snapshot?.data as Record<string, unknown> | undefined;
+      if (this.snapshot && !restored?.['meShape']) this.snapshot = null;
+    }
+
     if (this.snapshot) {
       this.restoreSnapshot(this.snapshot);
       // Snapshot freshness check — restored snapshots older than 60s are
@@ -865,7 +871,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['yieldResults'])      this.yieldResults      = d['yieldResults']      as YieldResult[];
     if (d['perpPositions'])     this.perpPositions     = d['perpPositions']     as PerpPosition[];
     if (d['analyticsResult'])   this.analyticsResult   = d['analyticsResult']   as AnalyticsResult;
-    if (d['nftResults'])        this.nftResults        = d['nftResults']        as NftItem[];
     if (d['airdropResults'])    this.airdropResults    = d['airdropResults']    as AirdropResult[];
     if (d['gasResult'])         this.gasResult         = d['gasResult']         as GasResult;
     if (d['walletInfoResult'])  this.walletInfoResult  = d['walletInfoResult']  as WalletInfoResult;
@@ -963,7 +968,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.yieldResults.length)       d['yieldResults']       = this.yieldResults;
     if (this.perpPositions.length)      d['perpPositions']      = this.perpPositions;
     if (this.analyticsResult)           d['analyticsResult']    = this.analyticsResult;
-    if (this.nftResults.length)         d['nftResults']         = this.nftResults;
     if (this.airdropResults.length)     d['airdropResults']     = this.airdropResults;
     if (this.gasResult)                 d['gasResult']          = this.gasResult;
     if (this.walletInfoResult)          d['walletInfoResult']   = this.walletInfoResult;
@@ -3731,34 +3735,28 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         this.error.set('Use the action card to execute this request.');
         this.loading.set(false);
         return;
-      default:
-        // Mock data for queries without a real backend yet (nft_collection, airdrops, tax_report, alerts).
-        // `analytics` and `yield` are handled above with live fetches — no mock fallback.
-        setTimeout(() => {
-          switch (this.query.type) {
-            case 'nft_collection':
-              this.nftResults = this.getMockNfts();
-              break;
-            case 'airdrops':
-              this.airdropResults = this.getMockAirdrops();
-              break;
-            case 'tax_report':
-              this.loading.set(true);
-              this.fetchTaxReport().catch(() => {
-                this.taxResult = this.getMockTax();
-                this.loading.set(false);
-                this.persistSnapshot();
-              });
-              return;
-            case 'alerts':
-              this.alertResults = this.getMockAlerts();
-              break;
-            default:
-              this.error.set('Unknown query type');
-          }
+      case 'tax_report':
+        this.loading.set(true);
+        await this.fetchTaxReport().catch(() => {
+          this.error.set('Could not build your tax report right now.');
           this.loading.set(false);
           this.persistSnapshot();
-        }, 600);
+        });
+        return;
+      // Nothing backs these yet. They used to render invented rows — claimable
+      // airdrops nobody was eligible for, alerts nobody had set — which is
+      // worse than an empty card, because the user acts on it.
+      case 'airdrops':
+        this.error.set('Airdrop eligibility isn\'t available yet.');
+        this.loading.set(false);
+        return;
+      case 'alerts':
+        this.error.set('Alerts aren\'t available yet.');
+        this.loading.set(false);
+        return;
+      default:
+        this.error.set('Unknown query type');
+        this.loading.set(false);
     }
   }
 
@@ -4142,7 +4140,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.loading.set(false);
       this.persistSnapshot();
     } catch {
-      this.gasResult = this.getMockGas();
+      this.error.set('Could not read network fees right now.');
       this.loading.set(false);
       this.persistSnapshot();
     }
@@ -4321,35 +4319,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
-  private getMockNfts(): NftItem[] {
-    return [
-      { name: 'Mad Lad #4521', collection: 'Mad Lads', image: 'ML', floorPrice: 142.5, rarity: 'Top 10%', lastSale: 155.0 },
-      { name: 'Clayno #892', collection: 'Claynosaurz', image: 'CL', floorPrice: 28.4, rarity: 'Top 25%', lastSale: 32.0 },
-      { name: 'SMB #3341', collection: 'SMB Gen2', image: 'SM', floorPrice: 18.2, rarity: 'Top 40%', lastSale: 20.5 },
-      { name: 'Tensorian #127', collection: 'Tensorians', image: 'TN', floorPrice: 8.5, rarity: 'Top 15%', lastSale: 9.8 },
-    ];
-  }
-
-  private getMockAirdrops(): AirdropResult[] {
-    return [
-      { protocol: 'Jupiter', status: 'Claimable', amount: '1,247', token: 'JUP', deadline: '2025-03-15', eligible: true },
-      { protocol: 'Tensor', status: 'Claimable', amount: '340', token: 'TNSR', deadline: '2025-04-01', eligible: true },
-      { protocol: 'Kamino', status: 'Expired', amount: '—', token: 'KMNO', deadline: 'Expired', eligible: false },
-      { protocol: 'Parcl', status: 'Upcoming', amount: 'TBD', token: 'PRCL', deadline: 'Q2 2025', eligible: false },
-    ];
-  }
-
-  private getMockGas(): GasResult {
-    return {
-      baseFee: 0.000005,
-      priorityLow: 0.00001,
-      priorityMedium: 0.0001,
-      priorityHigh: 0.001,
-      swapCost: '~$0.02',
-      transferCost: '~$0.001',
-    };
-  }
-
 
   private async fetchTaxReport(): Promise<void> {
     const currentYear = new Date().getFullYear();
@@ -4365,7 +4334,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       })
     );
     if (!resp?.success || !resp.report) {
-      this.taxResult = this.getMockTax();
+      this.error.set('Could not build your tax report right now.');
       this.loading.set(false);
       this.persistSnapshot();
       return;
@@ -4397,33 +4366,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     };
     this.loading.set(false);
     this.persistSnapshot();
-  }
-
-  private getMockTax(): TaxResult {
-    return {
-      year: 2025,
-      totalGains: 4280.50,
-      totalLosses: 1433.18,
-      netGains: 2847.32,
-      shortTermGains: 2100.00,
-      longTermGains: 747.32,
-      totalTxs: 142,
-      categories: [
-        { type: 'Swaps', amount: 1890.40, count: 85 },
-        { type: 'Staking Rewards', amount: 420.50, count: 24 },
-        { type: 'LP Fees', amount: 340.12, count: 18 },
-        { type: 'Airdrops', amount: 196.30, count: 15 },
-      ],
-    };
-  }
-
-  private getMockAlerts(): AlertItem[] {
-    return [
-      { id: 'al-1', type: 'Price Above', token: 'SOL', condition: '>', targetValue: '$200.00', currentValue: '$178.05', status: 'active', createdAt: '1d ago' },
-      { id: 'al-2', type: 'Price Below', token: 'JUP', condition: '<', targetValue: '$0.20', currentValue: '$0.2503', status: 'active', createdAt: '3d ago' },
-      { id: 'al-3', type: 'Whale Alert', token: 'BONK', condition: 'Whale >$1M', targetValue: '$1,000,000', currentValue: '—', status: 'active', createdAt: '5d ago' },
-      { id: 'al-4', type: 'Price Above', token: 'WIF', condition: '>', targetValue: '$2.00', currentValue: '$2.45', status: 'triggered', createdAt: '7d ago' },
-    ];
   }
 
   /** True when at least one token row has a non-zero trade count. Used by

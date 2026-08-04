@@ -1620,6 +1620,19 @@ def _validate_query_onchain(
     str_params = {str(k): str(v) for k, v in raw_params.items()
                   if isinstance(k, str) and isinstance(v, (str, int, float))}
 
+    # `nft_collection` had no backend — the card invented four NFTs and their
+    # floor prices. Magic Eden answers the same question with the wallet's real
+    # holdings and their real listing state, so the query becomes that one.
+    if query_type is QueryType.NFT_COLLECTION:
+        query_type = QueryType.ME_WALLET_TOKENS
+        wallet = (
+            str_params.pop("wallet", "")
+            or str_params.pop("address", "")
+            or str_params.pop("owner", "")
+            or "self"
+        )
+        str_params["walletAddress"] = wallet
+
     # jup_token_search resolves a SINGLE token symbol/name/mint to its mint
     # address. The Rust handler does not understand pair-shaped queries, so a
     # call like "JupSOL-SOL" returns 0 results AND its description text

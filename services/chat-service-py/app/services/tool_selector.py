@@ -497,8 +497,6 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "risk":           _A({"analysis", "lending"}),
     "yield":          _A({"analysis", "staking", "lending"}),
     "analytics":      _A({"analysis"}),
-    "nft_collection": _A({"nft", "analysis"}),
-    "airdrops":       _A({"portfolio", "analysis"}),
     "gas":            _A({"always", "core"}),
     "wallet_info":    _A({"always", "core", "portfolio"}),
     "tax_report":     _A({"portfolio", "analysis"}),

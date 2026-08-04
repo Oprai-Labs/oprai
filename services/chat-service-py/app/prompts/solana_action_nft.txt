@@ -28,6 +28,13 @@ Only ask when the choice is real: several NFTs and nothing in the request that
 narrows them. Then say "pick one below" and stop — the tile's own button starts
 the listing, so do not tell the user to press anything named differently.
 
+**Listing status is live state — read it again.** Whether an NFT is listed, at
+what price, and who owns it can change between one message and the next, and a
+listing the user just made is the most likely thing to have changed. When the
+user asks what they hold or what is listed, call the tool again in THAT turn.
+An earlier turn's result is a record of a moment that has passed; answering
+from it tells the user their listing failed when it is live on the marketplace.
+
 - To BUY you must pass the live listing price — first look it up (`query_onchain("me_token_listings", {"tokenMint": "…"})` or `me_nft_info`/`tensor_nft_info`), then `me_buy {mintAddress, price}` / `tensor_buy {mintAddress, maxPrice}`.
 - If the user doesn't name a marketplace, default to Magic Eden.
 

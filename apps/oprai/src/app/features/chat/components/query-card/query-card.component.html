@@ -2272,25 +2272,6 @@
         </div>
       }
 
-      <!-- NFT Collection results -->
-      @if (query.type === 'nft_collection') {
-        <div class="nft-grid">
-          @for (nft of nftResults; track nft.name) {
-            <div class="nft-item">
-              <div class="nft-item__image">{{ nft.image }}</div>
-              <div class="nft-item__info">
-                <span class="nft-item__name">{{ nft.name }}</span>
-                <span class="nft-item__collection">{{ nft.collection }}</span>
-              </div>
-              <div class="nft-item__meta">
-                <span class="nft-item__floor">Floor: {{ nft.floorPrice }} SOL</span>
-                <span class="nft-item__rarity">{{ nft.rarity }}</span>
-              </div>
-            </div>
-          }
-        </div>
-      }
-
       <!-- Airdrop results -->
       @if (query.type === 'airdrops') {
         <div class="result-table">
