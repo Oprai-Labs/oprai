@@ -2877,6 +2877,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  it — a seller who sees only the ask is reading the wrong number. */
   /** The collection's creator royalty, as a fraction. */
   meRoyaltyPct(): number | null {
+    // Prefer what came with the click: the tile already knows the collection's
+    // royalty, so the total can be stated immediately instead of after a round
+    // trip. The lookup is the fallback for cards the model spawned.
+    const carried = Number(this.getEditParam('royaltyBps') || this.action.params?.['royaltyBps']);
+    if (Number.isFinite(carried) && carried > 0) return carried / 10_000;
     const bps = this.meFetchedNft()?.sellerFeeBasisPoints;
     return typeof bps === 'number' && bps > 0 ? bps / 10_000 : null;
   }
@@ -2913,7 +2918,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** True once the NFT lookup has answered, so the royalty is a fact rather
    *  than an absence. */
   meRoyaltyKnown(): boolean {
-    return this.meFetchedNft() !== null;
+    const carried = Number(this.getEditParam('royaltyBps') || this.action.params?.['royaltyBps']);
+    return (Number.isFinite(carried) && carried > 0) || this.meFetchedNft() !== null;
   }
 
   /** True on the actions where the user is the one paying the total, not
@@ -4384,6 +4390,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
+    // Also here, not only from the panel's computed: a computed evaluates once
+    // and memoises, so a first evaluation that ran before the params landed
+    // left the lookup permanently unfired — which is why no Magic Eden action
+    // card ever showed traits.
+    this.ensureMeNftDisplay();
   }
 
   /** Borrow needs a collateral asset; when the user didn't name one ("borrow

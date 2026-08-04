@@ -1665,6 +1665,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ...(t.collectionName ? { collectionName: t.collectionName } : {}),
       ...(t.collection ? { collectionSymbol: t.collection } : {}),
       ...(t.rarityRank ? { rarityRank: String(t.rarityRank) } : {}),
+      // The collection's royalty, carried across rather than looked up again.
+      // The action card was waiting on a second request for a number the row
+      // already holds, and until it answered the card could not state a total
+      // at all.
+      ...(typeof t.sellerFeeBasisPoints === 'number'
+        ? { royaltyBps: String(t.sellerFeeBasisPoints) } : {}),
     };
   }
 
