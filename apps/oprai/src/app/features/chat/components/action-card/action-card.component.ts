@@ -2815,12 +2815,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  the sentence above the price both come from here. */
   meVerb(): string {
     const t = this.action.type;
+    // Order matters, and "me_cancel_listing" contains "list": the withdrawal
+    // has to be recognised BEFORE anything that matches on the word.
+    if (/cancel_listing/.test(t)) return 'Listed at';
+    if (/cancel/.test(t)) return '';
     if (/change_price/.test(t)) return 'New price';
     if (/accept_offer|sell_now/.test(t)) return 'You receive';
     if (/make_offer/.test(t)) return 'Your offer';
     if (/list|_sell$/.test(t)) return 'Ask';
-    if (/cancel_listing/.test(t)) return 'Listed at';
-    if (/cancel/.test(t)) return '';
     return 'You pay';
   }
 
@@ -2858,9 +2860,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** What Magic Eden shows for this listing, on the card that withdraws it. */
   meListedTotalSol(): number | null {
     const p = this.meHeadlinePrice();
-    const r = this.meRoyaltyPct();
-    if (!p) return null;
-    const total = p * (1 + (r ?? 0) + 0.02);
+    if (!p || !this.meRoyaltyKnown()) return null;
+    const total = p * (1 + (this.meRoyaltyPct() ?? 0) + 0.02);
     return total > p ? total : null;
   }
 
@@ -2885,9 +2886,22 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   meFeeSol(): number | null {
     const t = this.action.type;
+    // Withdrawing a listing costs neither fee nor royalty — nothing is sold.
+    // It reached this branch only because its name contains "list".
+    if (this.meIsCancelListing()) return null;
     if (!/list|_sell$|accept_offer|sell_now|change_price|buy/.test(t)) return null;
     const p = this.meHeadlinePrice();
+    // A total assembled from half its parts is a wrong number stated
+    // confidently: without the collection's royalty this said 510 where
+    // Magic Eden says 555. Wait for the lookup rather than publish a subtotal.
+    if (!this.meRoyaltyKnown()) return null;
     return p ? p * 0.02 : null;
+  }
+
+  /** True once the NFT lookup has answered, so the royalty is a fact rather
+   *  than an absence. */
+  meRoyaltyKnown(): boolean {
+    return this.meFetchedNft() !== null;
   }
 
   /** True on the actions where the user is the one paying the total, not

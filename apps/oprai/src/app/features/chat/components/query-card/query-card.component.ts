@@ -1739,9 +1739,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    */
   meBuyerPays(t: MeTokenRow): number | null {
     const ask = t.price ?? 0;
-    if (ask <= 0) return null;
-    const royalty = Math.max(0, t.sellerFeeBasisPoints ?? 0) / 10_000;
-    const total = ask * (1 + royalty + this.ME_TAKER_FEE);
+    const bps = t.sellerFeeBasisPoints;
+    // No royalty figure means no total. Treating a missing one as zero prints
+    // a confident number that is short by the largest part of the difference —
+    // 510 where the marketplace says 555.
+    if (ask <= 0 || typeof bps !== 'number') return null;
+    const total = ask * (1 + Math.max(0, bps) / 10_000 + this.ME_TAKER_FEE);
     return total > ask ? total : null;
   }
 
