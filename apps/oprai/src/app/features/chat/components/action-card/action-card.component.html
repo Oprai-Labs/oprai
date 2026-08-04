@@ -446,15 +446,23 @@
                   <div class="me-act__fee">
                     <span>Magic Eden fee 2%</span><span class="mono">+{{ fee | number:'1.0-4' }} SOL</span>
                   </div>
-                  @if (meBuyerPaysSol(); as total) {
-                    <div class="me-act__fee">
-                      <span>Buyer pays</span><span class="mono">{{ total | number:'1.0-4' }} SOL</span>
-                    </div>
-                  }
-                  @if (meNetSol(); as net) {
-                    <div class="me-act__net">
-                      <span>You receive</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
-                    </div>
+                  @if (meIsBuySide()) {
+                    @if (meBuyerPaysSol(); as total) {
+                      <div class="me-act__net">
+                        <span>You pay</span><span class="mono">{{ total | number:'1.0-4' }} SOL</span>
+                      </div>
+                    }
+                  } @else {
+                    @if (meBuyerPaysSol(); as total) {
+                      <div class="me-act__fee">
+                        <span>Buyer pays</span><span class="mono">{{ total | number:'1.0-4' }} SOL</span>
+                      </div>
+                    }
+                    @if (meNetSol(); as net) {
+                      <div class="me-act__net">
+                        <span>You receive</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
+                      </div>
+                    }
                   }
                 }
               }

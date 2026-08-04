@@ -188,12 +188,12 @@
                      should not be two different products. -->
                 <div class="me-detail__bar me-nft__bar">
                   <div class="me-detail__price">
-                    <span class="me-detail__price-k">{{ t.price ? 'Asking' : 'Not listed' }}</span>
-                    @if (t.price) {
-                      <span class="me-detail__price-v mono">{{ t.price | number:'1.0-3' }} SOL</span>
+                    <span class="me-detail__price-k">{{ t.price ? 'Price' : 'Not listed' }}</span>
+                    @if (meMarketPrice(t); as price) {
+                      <span class="me-detail__price-v mono">{{ price | number:'1.0-3' }} SOL</span>
                     }
-                    @if (meBuyerPays(t); as total) {
-                      <span class="me-detail__price-sub">Buyer pays <span class="mono">{{ total | number:'1.0-3' }} SOL</span> with royalty + fee</span>
+                    @if (mePriceNote(t); as note) {
+                      <span class="me-detail__price-sub">{{ note }}</span>
                     }
                   </div>
                   <div class="me-stats-card__actions">
@@ -428,12 +428,12 @@
 
                 <div class="me-detail__bar">
                   <div class="me-detail__price">
-                    <span class="me-detail__price-k">{{ meIsListed(n) ? 'Asking' : 'Not listed' }}</span>
-                    @if (n.price) {
-                      <span class="me-detail__price-v mono">{{ n.price | number:'1.0-3' }} SOL</span>
+                    <span class="me-detail__price-k">{{ meIsListed(n) ? 'Price' : 'Not listed' }}</span>
+                    @if (meMarketPrice(n); as price) {
+                      <span class="me-detail__price-v mono">{{ price | number:'1.0-3' }} SOL</span>
                     }
-                    @if (meBuyerPays(n); as total) {
-                      <span class="me-detail__price-sub">Buyer pays <span class="mono">{{ total | number:'1.0-3' }} SOL</span> with royalty + fee</span>
+                    @if (mePriceNote(n); as note) {
+                      <span class="me-detail__price-sub">{{ note }}</span>
                     }
                     @if (meTopOffer(); as o) {
                       <span class="me-detail__price-sub">Top offer <span class="mono">{{ o | number:'1.0-3' }} SOL</span></span>

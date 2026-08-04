@@ -2859,9 +2859,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   meFeeSol(): number | null {
     const t = this.action.type;
-    if (!/list|_sell$|accept_offer|sell_now|change_price/.test(t)) return null;
+    if (!/list|_sell$|accept_offer|sell_now|change_price|buy/.test(t)) return null;
     const p = this.meHeadlinePrice();
     return p ? p * 0.02 : null;
+  }
+
+  /** True on the actions where the user is the one paying the total, not
+   *  receiving the ask — a buyer sending 500 has 555 leave their wallet. */
+  meIsBuySide(): boolean {
+    return /buy/.test(this.action.type);
   }
 
   /**

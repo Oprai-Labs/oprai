@@ -1740,6 +1740,26 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return total > ask ? total : null;
   }
 
+  /**
+   * The headline: the number Magic Eden prints next to this NFT, so the two
+   * products don't quote different prices for the same thing. What the seller
+   * set survives underneath as "You receive" — it is the second question, not
+   * the first, for everyone except the seller.
+   */
+  meMarketPrice(t: MeTokenRow): number | null {
+    return this.meBuyerPays(t) ?? (t.price && t.price > 0 ? t.price : null);
+  }
+
+  /** How the headline is built, for whoever is looking at it. */
+  mePriceNote(t: MeTokenRow): string | null {
+    const ask = t.price ?? 0;
+    if (ask <= 0 || this.meBuyerPays(t) === null) return null;
+    const fmt = (n: number) => `${Number(n.toFixed(3))} SOL`;
+    if (this.meOwnsToken(t)) return `You receive ${fmt(ask)}`;
+    const royaltyPct = Math.max(0, t.sellerFeeBasisPoints ?? 0) / 100;
+    return `${fmt(ask)} ask + ${Number(royaltyPct.toFixed(2))}% royalty + 2% fee`;
+  }
+
   /** Magic Eden's taker fee on Solana. */
   private readonly ME_TAKER_FEE = 0.02;
 
