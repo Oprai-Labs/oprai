@@ -210,9 +210,9 @@
                         <span class="me-detail__trait-v" [attr.title]="tr.value">{{ tr.value }}</span>
                         @if (tr.share !== null || tr.floor) {
                           <span class="me-detail__trait-foot">
-                            @if (tr.share !== null) {
+                            @if (tr.count) {
                               <span class="me-rar" [class]="'me-rar ' + meRarityClass(tr.share)">
-                                {{ tr.share * 100 | number:'1.0-1' }}%
+                                {{ tr.count }} listed
                               </span>
                             }
                             @if (tr.floor) {
@@ -504,9 +504,9 @@
                         <span class="me-detail__trait-k">{{ tr.label }}</span>
                         <span class="me-detail__trait-v">{{ tr.value }}</span>
                         <span class="me-detail__trait-foot">
-                          @if (tr.share !== null) {
+                          @if (tr.count) {
                             <span class="me-rar" [class]="'me-rar ' + meRarityClass(tr.share)">
-                              {{ tr.share * 100 | number:'1.0-1' }}%
+                              {{ tr.count }} listed
                             </span>
                           }
                           @if (tr.floor) {

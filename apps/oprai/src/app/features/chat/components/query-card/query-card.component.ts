@@ -2391,22 +2391,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    * carrying it, and the floor of the pieces that do, is what people open an
    * NFT page to read.
    */
-  meNftTraits(): Array<{ label: string; value: string; share: number | null; floor: number | null }> {
+  meNftTraits(): Array<{ label: string; value: string; share: number | null; count: number | null; floor: number | null }> {
     const n = this.meNft();
     if (!n) return [];
-    const stats = this.meTraitStats();
-    return this.meTraits(n).map(t => {
-      const s = stats[`${t.label}|${t.value}`];
-      return {
-        ...t,
-        share: s ? s.share : null,
-        floor: s ? MagicEdenService.solFromMaybeLamports(s.floor) : null,
-      };
-    });
+    return this.meRowTraits(n);
   }
 
-  /** Three bands, matching the reference: gold under 5%, magenta to 15%,
-   *  muted above. A trait 89% of the collection has should not shout. */
+  /**
+   * Three bands: gold under 5%, magenta to 15%, muted above. A trait most of
+   * the listed pieces share should not shout.
+   *
+   * The share is over the LISTED set, not the collection — Magic Eden's
+   * attribute table only counts what is for sale (202 listed pieces plus 5
+   * one-of-ones = its own listedCount of 207, against a collection of 2,421).
+   * So it colours the chip but is never printed as a rarity percentage: it
+   * would read as Magic Eden's 18% and say 21.7%.
+   */
   meRarityClass(share: number | null): string {
     if (share === null) return '';
     if (share <= 0.05) return 'me-rar--gold';
@@ -2440,13 +2440,14 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    * whether the piece is worth anything is how few others carry the trait and
    * what those trade for — which is what Magic Eden shows and we did not.
    */
-  meRowTraits(t: MeTokenRow): Array<{ label: string; value: string; share: number | null; floor: number | null }> {
+  meRowTraits(t: MeTokenRow): Array<{ label: string; value: string; share: number | null; count: number | null; floor: number | null }> {
     const stats = this.meTraitStats();
     return this.meTraits(t).map(tr => {
       const s = stats[`${tr.label}|${tr.value}`];
       return {
         ...tr,
         share: s ? s.share : null,
+        count: s ? s.count : null,
         floor: s ? MagicEdenService.solFromMaybeLamports(s.floor) : null,
       };
     });
