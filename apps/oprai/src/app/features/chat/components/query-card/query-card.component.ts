@@ -2135,8 +2135,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // from this list — so they render as the NFT grid, not as a table of
       // addresses.
       const rows = MagicEdenService.rowsFrom<Record<string, unknown>>(data, 'listings');
-      this.meTokens.set(rows.map(r => this.meListingToToken(r)));
+      const tokens = rows.map(r => this.meListingToToken(r));
+      this.meTokens.set(tokens);
       this.meShape.set('tokens');
+      void this.loadTraitStatsForRows(tokens);
       return;
     }
     if (t === 'me_mmm_pools') {
@@ -2184,6 +2186,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const rows = MagicEdenService.rowsFrom<MeTokenRow>(data, 'tokens', 'nfts', 'pools');
     this.meTokens.set(rows);
     this.meShape.set('tokens');
+    void this.loadTraitStatsForRows(rows);
   }
 
   /** A listing row carries the NFT under `token` on some endpoints and inline
@@ -2428,6 +2431,46 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       label: String(a.trait_type ?? a.traitType ?? ''),
       value: String(a.value ?? ''),
     })).filter(a => a.label);
+  }
+
+  /**
+   * A tile's traits, scored the way the detail view scores them.
+   *
+   * A list of trait names is a description of the picture. What tells you
+   * whether the piece is worth anything is how few others carry the trait and
+   * what those trade for — which is what Magic Eden shows and we did not.
+   */
+  meRowTraits(t: MeTokenRow): Array<{ label: string; value: string; share: number | null; floor: number | null }> {
+    const stats = this.meTraitStats();
+    return this.meTraits(t).map(tr => {
+      const s = stats[`${tr.label}|${tr.value}`];
+      return {
+        ...tr,
+        share: s ? s.share : null,
+        floor: s ? MagicEdenService.solFromMaybeLamports(s.floor) : null,
+      };
+    });
+  }
+
+  /**
+   * Rarity for a whole list, from one request.
+   *
+   * Magic Eden's attribute table is collection-wide, so scoring twenty tiles
+   * costs the same as scoring one. Asking per NFT would be twenty identical
+   * requests for the same answer.
+   */
+  private async loadTraitStatsForRows(rows: MeTokenRow[]): Promise<void> {
+    if (Object.keys(this.meTraitStats()).length) return;
+    const symbol = rows.map(r => r.collection).find((c): c is string => !!c);
+    if (!symbol) return;
+    const data = await this.magicEden.read<{ traitStats?: Record<string, { count: number; share: number; floor: number | null }> }>(
+      'me_collection_attributes', { symbol },
+    );
+    const stats = data?.traitStats;
+    if (stats && Object.keys(stats).length) {
+      this.meTraitStats.set(stats);
+      this.persistSnapshot();
+    }
   }
 
   meWhen(blockTime: number | null | undefined): string {

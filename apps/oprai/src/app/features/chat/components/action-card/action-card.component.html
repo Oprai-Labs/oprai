@@ -555,6 +555,11 @@
                           (click)="setMeExpiry(c.days)">{{ c.label }}</button>
                 }
               </div>
+              <!-- The chip says "7 days"; this says which day. A listing that
+                   expires is a date, and the card knew it without saying it. -->
+              @if (meExpiryOn(); as on) {
+                <div class="me-act__fee"><span>Expires</span><span>{{ on }}</span></div>
+              }
             </div>
           }
         }

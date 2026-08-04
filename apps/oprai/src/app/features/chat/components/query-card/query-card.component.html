@@ -204,10 +204,22 @@
                      looks the same wherever it is read. -->
                 @if (meTraits(t).length) {
                   <div class="me-detail__traits me-nft__traits">
-                    @for (tr of meTraits(t).slice(0, 8); track tr.label) {
+                    @for (tr of meRowTraits(t).slice(0, 8); track tr.label) {
                       <div class="me-detail__trait">
                         <span class="me-detail__trait-k">{{ tr.label }}</span>
                         <span class="me-detail__trait-v" [attr.title]="tr.value">{{ tr.value }}</span>
+                        @if (tr.share !== null || tr.floor) {
+                          <span class="me-detail__trait-foot">
+                            @if (tr.share !== null) {
+                              <span class="me-rar" [class]="'me-rar ' + meRarityClass(tr.share)">
+                                {{ tr.share * 100 | number:'1.0-1' }}%
+                              </span>
+                            }
+                            @if (tr.floor) {
+                              <span class="me-detail__trait-floor mono">{{ tr.floor | number:'1.0-3' }} SOL</span>
+                            }
+                          </span>
+                        }
                       </div>
                     }
                   </div>

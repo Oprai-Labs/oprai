@@ -2651,6 +2651,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
               { label: '', days: 1 }).days;
   }
 
+  /** The date the chosen expiry lands on, or null for an open-ended listing. */
+  meExpiryOn(): string | null {
+    const raw = Number(this.getEditParam('expiry'));
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return new Date(raw * 1000).toLocaleString(undefined, {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  }
+
   setMeExpiry(days: number): void {
     this.setEditParam('expiry', days === 0 ? '' : String(Math.floor(Date.now() / 1000) + days * 86400));
   }

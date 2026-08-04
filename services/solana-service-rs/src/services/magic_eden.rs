@@ -11,6 +11,38 @@ use crate::solana::connection::SolanaRpc;
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// Read an optional unix timestamp that may arrive as a number OR as a string.
+///
+/// Every caller we have sends strings: the action card's parameters are a
+/// `Record<string, string>`, and the LLM emits JSON strings too. With a plain
+/// `Option<u64>` the whole parameter object failed to deserialize, so choosing
+/// any expiry other than "no expiry" turned the build into a 400 — which is
+/// why every listing we have made carries `seller_expiry: -1` on chain
+/// regardless of what was picked.
+fn de_opt_timestamp<'de, D>(d: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    match v {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Number(n)) => Ok(n.as_u64()),
+        Some(serde_json::Value::String(s)) => {
+            let s = s.trim();
+            // An empty string is how "no expiry" reaches us from a cleared
+            // field; it is an absent value, not a malformed one.
+            if s.is_empty() {
+                return Ok(None);
+            }
+            s.parse::<u64>().map(Some).map_err(D::Error::custom)
+        }
+        Some(other) => Err(D::Error::custom(format!(
+            "expiry must be a unix timestamp, got {other}"
+        ))),
+    }
+}
+
 /// Magic Eden API v2 base URL
 pub const MAGIC_EDEN_API: &str = "https://api-mainnet.magiceden.dev/v2";
 
@@ -326,6 +358,7 @@ pub struct MeListParams {
     /// Price in SOL
     pub price: String,
     /// Optional expiry (unix timestamp)
+    #[serde(default, deserialize_with = "de_opt_timestamp")]
     pub expiry: Option<u64>,
     /// The wallet's token account for this mint. Resolved when absent.
     #[serde(default)]
@@ -393,6 +426,7 @@ pub struct MeMakeOfferParams {
     /// Offer price in SOL
     pub price: String,
     /// Optional expiry (unix timestamp)
+    #[serde(default, deserialize_with = "de_opt_timestamp")]
     pub expiry: Option<u64>,
     #[serde(default)]
     pub auction_house: Option<String>,
@@ -2670,7 +2704,22 @@ async fn me_trait_stats(
         None => return serde_json::json!({}),
     };
 
-    // Supply, from the totals of one trait type.
+    normalize_trait_stats(available, Some(&wanted))
+}
+
+/// `type|value -> {count, share, floor}` from Magic Eden's attribute table.
+///
+/// Shared by the single-NFT read (which keeps only that NFT's traits) and the
+/// collection read (which keeps all of them, so a list of tiles can be scored
+/// from one request instead of one per tile).
+fn normalize_trait_stats(
+    available: &[serde_json::Value],
+    wanted: Option<&std::collections::HashSet<(String, String)>>,
+) -> serde_json::Value {
+    use std::collections::HashMap;
+
+    // Supply, from the totals of one trait type: every piece carries exactly
+    // one value of each type, so the largest per-type total is the supply.
     let mut totals: HashMap<String, u64> = HashMap::new();
     for row in available {
         if let Some(t) = row.pointer("/attribute/trait_type").and_then(|v| v.as_str()) {
@@ -2691,8 +2740,10 @@ async fn me_trait_stats(
             Some(other) => other.to_string(),
             None => continue,
         };
-        if !wanted.contains(&(t.clone(), v.clone())) {
-            continue;
+        if let Some(w) = wanted {
+            if !w.contains(&(t.clone(), v.clone())) {
+                continue;
+            }
         }
         let count = row.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
         out.insert(
@@ -2918,6 +2969,20 @@ pub async fn build_me_read(
             }
         }
     };
+    // A tile list needs rarity per trait, and asking per NFT would be one
+    // collection-wide request each. Normalise once here so the whole list can
+    // be scored from a single read.
+    let data = if action == "me_collection_attributes" {
+        let stats = data
+            .pointer("/results/availableAttributes")
+            .and_then(|v| v.as_array())
+            .map(|a| normalize_trait_stats(a, None))
+            .unwrap_or_else(|| serde_json::json!({}));
+        serde_json::json!({ "attributes": data, "traitStats": stats })
+    } else {
+        data
+    };
+
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
