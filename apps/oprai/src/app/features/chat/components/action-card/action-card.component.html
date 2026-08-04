@@ -438,6 +438,11 @@
                   @if (meVerb()) { <span class="me-act__price-k">{{ meVerb() }}</span> }
                   <span class="me-act__price-v mono">{{ price | number:'1.0-4' }} SOL</span>
                 </div>
+                @if (meCurrentPrice(); as current) {
+                  <div class="me-act__fee">
+                    <span>Currently</span><span class="mono">{{ current | number:'1.0-4' }} SOL</span>
+                  </div>
+                }
                 <!-- Withdrawing a listing: name the number the marketplace is
                      showing, so the card matches the grid it is undoing. -->
                 @if (meIsCancelListing()) {

@@ -1691,6 +1691,33 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Move a live listing to a different price.
+   *
+   * Magic Eden does this in one instruction. Without it, re-pricing meant
+   * cancel-then-relist: two transactions, two fees, and a window where the
+   * NFT is not for sale at all.
+   */
+  changeMeListingPrice(t: MeTokenRow): void {
+    this.meEmit('me_sell_change_price', {
+      ...this.meNftContext(t),
+      // Seeded at the current price so the field opens on a real number the
+      // user edits, rather than an empty box asking what it already knows.
+      ...(t.price ? { newPrice: String(t.price), listPrice: String(t.price) } : {}),
+    });
+  }
+
+  /** Same, for a bid the user has standing. */
+  changeMeOfferPrice(o: MeOfferRow): void {
+    if (!o.tokenMint) return;
+    this.meEmit('me_buy_change_price', {
+      mintAddress: o.tokenMint,
+      ...(o.price ? { newPrice: String(o.price), listPrice: String(o.price) } : {}),
+      ...(o.name ? { nftName: o.name } : {}),
+      ...(o.image ? { nftImage: o.image } : {}),
+    });
+  }
+
   cancelMeListing(t: MeTokenRow): void {
     this.meEmit('me_cancel_listing', {
       ...this.meNftContext(t),

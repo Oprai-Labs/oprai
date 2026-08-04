@@ -2844,6 +2844,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return /make_offer/.test(this.action.type) && (!!this.meAskPrice() || !!this.meFloorPrice());
   }
 
+  /** What a re-price is moving away from. A card that shows only the number
+   *  being typed cannot tell you whether you are raising or lowering. */
+  meCurrentPrice(): number | null {
+    if (!/change_price/.test(this.action.type)) return null;
+    const n = Number(this.action.params?.['listPrice']);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
   /** The number the card leads with. */
   meHeadlinePrice(): number | null {
     // `listPrice` is what a Remove-listing card is spawned with. It is named
@@ -2889,6 +2897,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Withdrawing a listing costs neither fee nor royalty — nothing is sold.
     // It reached this branch only because its name contains "list".
     if (this.meIsCancelListing()) return null;
+    // Re-pricing a BID adds nothing on top: the bidder's number is the whole
+    // number, and Magic Eden takes its cut from the seller when it is taken.
+    // Only the sell side has a fee and a royalty stacked on the ask.
+    if (/buy_change_price/.test(t)) return null;
     if (!/list|_sell$|accept_offer|sell_now|change_price|buy/.test(t)) return null;
     const p = this.meHeadlinePrice();
     // A total assembled from half its parts is a wrong number stated
@@ -2907,7 +2919,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** True on the actions where the user is the one paying the total, not
    *  receiving the ask — a buyer sending 500 has 555 leave their wallet. */
   meIsBuySide(): boolean {
-    return /buy/.test(this.action.type);
+    return /buy/.test(this.action.type) && !/buy_change_price|buy_cancel/.test(this.action.type);
   }
 
   /**

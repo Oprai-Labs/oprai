@@ -219,6 +219,8 @@
                 <div class="me-nft__foot">
                   @if (meOwnsToken(t)) {
                     @if (meIsListed(t)) {
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
+                              (click)="changeMeListingPrice(t)">Change price</button>
                       <button type="button" class="dlmm-use-btn me-nft__foot-btn"
                               (click)="cancelMeListing(t)">Remove listing</button>
                     } @else {
@@ -297,6 +299,7 @@
                 <span class="text-right dlmm-muted">{{ meExpiry(o.expiry) }}</span>
                 <span class="text-right">
                   @if (meIsOwnOffer(o)) {
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="changeMeOfferPrice(o)">Change price</button>
                     <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeOffer(o)">Withdraw</button>
                   } @else {
                     <button type="button" class="dlmm-use-btn" (click)="acceptMeOffer(o)">Accept
