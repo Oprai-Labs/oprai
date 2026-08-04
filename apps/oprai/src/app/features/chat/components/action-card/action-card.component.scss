@@ -5445,8 +5445,10 @@
   &__art {
     position: relative;
     flex-shrink: 0;
-    width: 84px;
-    height: 84px;
+    // 96px rather than 84: the placeholder has to hold a mark and a line of
+    // text, and at 84 the caption had nowhere to go.
+    width: 96px;
+    height: 96px;
     border-radius: var(--op-radius-sm, 8px);
     overflow: hidden;
     background: var(--op-bg-surface-1, #14151a);
@@ -5462,16 +5464,30 @@
     position: absolute;
     inset: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 7px;
+    padding: 6px;
     background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+  }
+
+  // Say what happened. A mark on its own reads as branding rather than as an
+  // explanation, and the artwork really is gone — Magic Eden shows an empty
+  // box for the same NFT.
+  &__mark-note {
+    font-size: 0.5625rem;
+    line-height: 1.25;
+    font-weight: 500;
+    text-align: center;
+    color: var(--op-text-tertiary, #71717a);
   }
 
   // Scoped under the fallback so it outranks `&__art img`, which would
   // otherwise stretch the mark to fill the square.
   &__fallback &__mark {
     flex: 0 0 auto;
-    width: 34%;
+    width: 32px;
     height: auto;
     object-fit: contain;
     opacity: 0.3;
