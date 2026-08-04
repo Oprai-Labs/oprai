@@ -2580,12 +2580,55 @@
 
   // The action fills the width. It is the one thing to do with this tile, and
   // a small button floated beside a price looked like an afterthought.
+  //
+  // It is NOT a stretched row chip. `.dlmm-use-btn` is sized for a table row —
+  // 4px of padding, 12px type, a 5px corner — and pulled to full width it
+  // reads as a grey slab rather than a button. A card's own call to action is
+  // built like the action card's Confirm: 10/18 padding, the shared radius,
+  // 14px semibold.
   &__foot {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     padding-top: 2px;
 
-    .dlmm-use-btn { flex: 1; justify-content: center; }
+    .dlmm-use-btn {
+      flex: 1;
+      justify-content: center;
+      padding: 10px 18px;
+      border-radius: var(--op-radius-md);
+      font-size: 0.875rem;
+      font-weight: 600;
+      box-shadow: 0 2px 12px color-mix(in srgb, var(--op-brand) 30%, transparent);
+      transition: filter var(--op-fast), box-shadow var(--op-fast), transform var(--op-fast),
+                  background var(--op-fast), border-color var(--op-fast), color var(--op-fast);
+
+      &:hover:not(:disabled) {
+        filter: brightness(1.08);
+        box-shadow: 0 4px 20px color-mix(in srgb, var(--op-brand) 44%, transparent);
+        transform: translateY(-1px);
+      }
+      &:active:not(:disabled) { transform: translateY(0); }
+    }
+
+    // Withdrawing a listing is not the loud action, but it is still the only
+    // action on the card — a secondary button, not a disabled-looking one.
+    .dlmm-use-btn--ghost {
+      padding: 9px 17px;   // 1px less, so the border keeps the primary's height
+      background: var(--op-bg-surface-2);
+      border: 1px solid var(--op-border-subtle);
+      color: var(--op-text-primary);
+      font-weight: 500;
+      box-shadow: none;
+
+      &:hover:not(:disabled) {
+        background: var(--op-bg-surface-3);
+        border-color: var(--op-border-strong);
+        color: var(--op-text-primary);
+        box-shadow: none;
+        filter: none;
+        transform: translateY(-1px);
+      }
+    }
   }
 }
 
