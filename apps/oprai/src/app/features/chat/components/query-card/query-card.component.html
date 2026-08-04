@@ -196,21 +196,6 @@
                       <span class="me-detail__price-sub">{{ note }}</span>
                     }
                   </div>
-                  <div class="me-stats-card__actions">
-                    @if (meOwnsToken(t)) {
-                      @if (meIsListed(t)) {
-                        <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(t)">Delist</button>
-                      } @else {
-                        <button type="button" class="dlmm-use-btn" (click)="listMeToken(t)">List
-                          <lucide-icon name="arrow-right" [size]="12" /></button>
-                      }
-                    } @else {
-                      @if (meIsListed(t)) {
-                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(t)">Buy</button>
-                      }
-                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="offerOnMeToken(t)">Offer</button>
-                    }
-                  </div>
                 </div>
                 <!-- The same trait cards the NFT-detail view uses, so a trait
                      looks the same wherever it is read. -->
@@ -224,6 +209,27 @@
                     }
                   </div>
                 }
+                <!-- The action, at the foot of the card where someone looks
+                     once they have finished reading it — and named for what it
+                     does. It used to be a chip beside the price called
+                     "Delist", which is both easy to miss and jargon. -->
+                <div class="me-nft__foot">
+                  @if (meOwnsToken(t)) {
+                    @if (meIsListed(t)) {
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
+                              (click)="cancelMeListing(t)">Remove listing</button>
+                    } @else {
+                      <button type="button" class="dlmm-use-btn me-nft__foot-btn" (click)="listMeToken(t)">List for sale
+                        <lucide-icon name="arrow-right" [size]="12" /></button>
+                    }
+                  } @else {
+                    @if (meIsListed(t)) {
+                      <button type="button" class="dlmm-use-btn me-nft__foot-btn" (click)="buyMeToken(t)">Buy</button>
+                    }
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
+                            (click)="offerOnMeToken(t)">Make offer</button>
+                  }
+                </div>
               </div>
             }
           </div>
