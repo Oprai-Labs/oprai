@@ -192,6 +192,9 @@
                     @if (t.price) {
                       <span class="me-detail__price-v mono">{{ t.price | number:'1.0-3' }} SOL</span>
                     }
+                    @if (meBuyerPays(t); as total) {
+                      <span class="me-detail__price-sub">Buyer pays <span class="mono">{{ total | number:'1.0-3' }} SOL</span> with royalty + fee</span>
+                    }
                   </div>
                   <div class="me-stats-card__actions">
                     @if (meOwnsToken(t)) {
@@ -428,6 +431,9 @@
                     <span class="me-detail__price-k">{{ meIsListed(n) ? 'Asking' : 'Not listed' }}</span>
                     @if (n.price) {
                       <span class="me-detail__price-v mono">{{ n.price | number:'1.0-3' }} SOL</span>
+                    }
+                    @if (meBuyerPays(n); as total) {
+                      <span class="me-detail__price-sub">Buyer pays <span class="mono">{{ total | number:'1.0-3' }} SOL</span> with royalty + fee</span>
                     }
                     @if (meTopOffer(); as o) {
                       <span class="me-detail__price-sub">Top offer <span class="mono">{{ o | number:'1.0-3' }} SOL</span></span>

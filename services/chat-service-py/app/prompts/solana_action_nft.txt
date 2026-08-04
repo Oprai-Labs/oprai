@@ -28,6 +28,12 @@ Only ask when the choice is real: several NFTs and nothing in the request that
 narrows them. Then say "pick one below" and stop — the tile's own button starts
 the listing, so do not tell the user to press anything named differently.
 
+**An ask is not what a buyer pays.** Marketplaces quote the buyer's total: the
+ask plus the collection royalty (`sellerFeeBasisPoints`) plus Magic Eden's 2%.
+A 500 SOL listing with a 9% royalty is shown on Magic Eden as 555. When you
+state a listing price, say which one it is, so the user isn't left comparing
+your number against the marketplace's and concluding one of them is wrong.
+
 **Listing status is live state — read it again.** Whether an NFT is listed, at
 what price, and who owns it can change between one message and the next, and a
 listing the user just made is the most likely thing to have changed. When the

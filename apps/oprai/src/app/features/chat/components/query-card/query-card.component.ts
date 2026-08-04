@@ -1723,6 +1723,26 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return t.listStatus === 'listed' || (t.price ?? 0) > 0;
   }
 
+  /**
+   * What a buyer is charged for this listing: the ask, plus the collection's
+   * royalty, plus Magic Eden's 2% taker fee.
+   *
+   * Magic Eden's own grid shows this number, not the ask — a 500 SOL listing
+   * reads there as 555. Showing only the ask left the two products
+   * contradicting each other over the same NFT, so the card names both: what
+   * the seller set, and what the marketplace will quote for it.
+   */
+  meBuyerPays(t: MeTokenRow): number | null {
+    const ask = t.price ?? 0;
+    if (ask <= 0) return null;
+    const royalty = Math.max(0, t.sellerFeeBasisPoints ?? 0) / 10_000;
+    const total = ask * (1 + royalty + this.ME_TAKER_FEE);
+    return total > ask ? total : null;
+  }
+
+  /** Magic Eden's taker fee on Solana. */
+  private readonly ME_TAKER_FEE = 0.02;
+
   /** Take a bid on an NFT you own, or withdraw one you made. */
   acceptMeOffer(o: MeOfferRow): void {
     if (!o.tokenMint) return;
