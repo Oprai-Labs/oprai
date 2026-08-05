@@ -1568,6 +1568,7 @@ pub async fn build_me_accept_offer(
             "mintAddress": params.mint_address,
             "price": offer.price,
             "buyer": offer.buyer,
+            "expiry": offer.expiry,
             "nftName": name,
             "nftImage": image,
             "collectionName": collection,
@@ -1617,6 +1618,7 @@ pub async fn build_me_cancel_offer(
         serde_json::json!({
             "mintAddress": params.mint_address,
             "price": offer.price,
+            "expiry": offer.expiry,
             "nftName": name,
             "nftImage": image,
             "collectionName": collection,

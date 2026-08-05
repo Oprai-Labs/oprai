@@ -438,6 +438,9 @@
                   @if (meVerb()) { <span class="me-act__price-k">{{ meVerb() }}</span> }
                   <span class="me-act__price-v mono">{{ price | number:'1.0-4' }} SOL</span>
                 </div>
+                @if (meOfferExpiry(); as on) {
+                  <div class="me-act__fee"><span>Offer expires</span><span>{{ on }}</span></div>
+                }
                 @if (meCurrentPrice(); as current) {
                   <div class="me-act__fee">
                     <span>Currently</span><span class="mono">{{ current | number:'1.0-4' }} SOL</span>
@@ -459,16 +462,26 @@
                   @if (meRoyaltySol(); as roy) {
                     <div class="me-act__fee">
                       <span>Creator royalty {{ (meRoyaltyPct() ?? 0) * 100 | number:'1.0-2' }}%</span>
-                      <span class="mono">+{{ roy | number:'1.0-4' }} SOL</span>
+                      <span class="mono">{{ meIsProceedsSide() ? '−' : '+' }}{{ roy | number:'1.0-4' }} SOL</span>
                     </div>
                   }
                   <div class="me-act__fee">
-                    <span>Magic Eden fee 2%</span><span class="mono">+{{ fee | number:'1.0-4' }} SOL</span>
+                    <span>Magic Eden fee 2%</span>
+                    <span class="mono">{{ meIsProceedsSide() ? '−' : '+' }}{{ fee | number:'1.0-4' }} SOL</span>
                   </div>
                   @if (meIsBuySide()) {
                     @if (meBuyerPaysSol(); as total) {
                       <div class="me-act__net">
                         <span>You pay</span><span class="mono">{{ total | number:'1.0-4' }} SOL</span>
+                      </div>
+                    }
+                  } @else if (meIsProceedsSide()) {
+                    <!-- A bid is already funded, so nothing is added to it: the
+                         royalty and the fee come out of the number the bidder
+                         escrowed. -->
+                    @if (meProceedsSol(); as net) {
+                      <div class="me-act__net">
+                        <span>You receive</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
                       </div>
                     }
                   } @else {

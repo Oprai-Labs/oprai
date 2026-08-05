@@ -2856,9 +2856,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Order matters, and "me_cancel_listing" contains "list": the withdrawal
     // has to be recognised BEFORE anything that matches on the word.
     if (/cancel_listing/.test(t)) return 'Listed at';
+    if (/cancel_offer|buy_cancel/.test(t)) return 'Your offer';
     if (/cancel/.test(t)) return '';
     if (/change_price/.test(t)) return 'New price';
-    if (/accept_offer|sell_now/.test(t)) return 'You receive';
+    // The bid, not the proceeds. What the seller keeps is the row below, after
+    // the royalty and the fee come out of it.
+    if (/accept_offer|sell_now/.test(t)) return 'Offer';
     if (/make_offer/.test(t)) return 'Your offer';
     if (/list|_sell$/.test(t)) return 'Ask';
     return 'You pay';
@@ -2964,6 +2967,37 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  receiving the ask — a buyer sending 500 has 555 leave their wallet. */
   meIsBuySide(): boolean {
     return /buy/.test(this.action.type) && !/buy_change_price|buy_cancel/.test(this.action.type);
+  }
+
+  /**
+   * Taking a bid runs the fees the other way.
+   *
+   * On a listing the royalty and the 2% are ADDED to the ask — the buyer pays
+   * more and the seller keeps what they asked. On a bid the buyer has already
+   * escrowed exactly their number, so the same two come OUT of it and the
+   * seller keeps less. Same fees, opposite direction, and the card was showing
+   * a seller a "buyer pays" figure for money nobody was going to send.
+   */
+  meIsProceedsSide(): boolean {
+    return /accept_offer|sell_now/.test(this.action.type);
+  }
+
+  /** What actually lands in the seller's wallet when a bid is taken. */
+  meProceedsSol(): number | null {
+    const p = this.meHeadlinePrice();
+    if (!p || !this.meRoyaltyKnown()) return null;
+    const net = p - (this.meRoyaltySol() ?? 0) - (this.meFeeSol() ?? 0);
+    return net > 0 ? net : null;
+  }
+
+  /** When a standing offer runs out, on the cards that act on one. */
+  meOfferExpiry(): string | null {
+    if (!/offer/.test(this.action?.type ?? '')) return null;
+    const raw = Number(this.action.params?.['expiry']);
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return new Date(raw * 1000).toLocaleString(undefined, {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
   }
 
   /**
