@@ -440,8 +440,12 @@ pub struct MeMakeOfferParams {
 pub struct MeAcceptOfferParams {
     /// NFT mint address
     pub mint_address: String,
-    /// Offer price to accept
-    pub price: String,
+    /// Offer price, if the caller happens to know it. Ignored: the builder
+    /// takes the price off the live offer, because a bid can be raised or
+    /// withdrawn between reading it and signing. Requiring it here rejected
+    /// requests over a field the service was going to look up anyway.
+    #[serde(default)]
+    pub price: Option<String>,
     /// Buyer's wallet address (offer maker)
     pub buyer: Option<String>,
 }
@@ -452,8 +456,10 @@ pub struct MeAcceptOfferParams {
 pub struct MeCancelOfferParams {
     /// NFT mint address
     pub mint_address: String,
-    /// Offer price to cancel
-    pub price: String,
+    /// Ignored — the offer being withdrawn is resolved live. See
+    /// `MeAcceptOfferParams::price`.
+    #[serde(default)]
+    pub price: Option<String>,
 }
 
 /// Parameters for getting collection info
@@ -623,12 +629,15 @@ pub fn validate_me_accept_offer_params(params: &MeAcceptOfferParams) -> Result<(
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    let price: f64 = params
-        .price
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid price format".into()))?;
-    if price <= 0.0 {
-        return Err(AppError::InvalidParams("Price must be positive".into()));
+    // A price is not required, and when one is supplied it is only checked for
+    // being a number — the offer's own price is what gets signed.
+    if let Some(raw) = params.price.as_deref().filter(|p| !p.is_empty()) {
+        let price: f64 = raw
+            .parse()
+            .map_err(|_| AppError::InvalidParams("Invalid price format".into()))?;
+        if price <= 0.0 {
+            return Err(AppError::InvalidParams("Price must be positive".into()));
+        }
     }
     params
         .mint_address
