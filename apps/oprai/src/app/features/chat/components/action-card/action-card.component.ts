@@ -2633,6 +2633,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   readonly ME_MIN_OFFER_SOL = 0.00089088;
 
+  /**
+   * Stated up front, not only once it has been broken.
+   *
+   * A floor a user meets by accident is a floor they never learn; the first
+   * they hear of it is a rejected number they have already typed. Rounded up
+   * from the exact 890,880 lamports so the figure shown is always one that
+   * works.
+   */
+  meOfferMinNote(): string | null {
+    if (!/make_offer|buy_change_price/.test(this.action?.type ?? '')) return null;
+    return 'Minimum 0.0009 SOL — Magic Eden escrows the bid, and the escrow pays its own rent';
+  }
+
   meOfferBelowMin(): boolean {
     if (!/make_offer|buy_change_price/.test(this.action?.type ?? '')) return false;
     const v = Number(this.getEditParam(this.meAmountKey()));

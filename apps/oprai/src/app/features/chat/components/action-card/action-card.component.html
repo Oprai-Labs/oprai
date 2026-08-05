@@ -507,6 +507,9 @@
              fills labelled with what they put in. It was a form row with a
              small uppercase label, which is what a setting looks like — this
              is the decision the card exists for. -->
+        @if (meOfferMinNote(); as note) {
+          <div class="me-min-note">{{ note }}</div>
+        }
         @if (isMeAmountPanel()) {
           <div class="pump-panel me-amount">
             <div class="pump-panel__top">

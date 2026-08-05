@@ -5696,3 +5696,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+// The bid floor, said before it is hit. Sits above the amount panel because a
+// constraint learned after typing is a constraint learned too late.
+.me-min-note {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--op-text-tertiary, #71717a);
+}

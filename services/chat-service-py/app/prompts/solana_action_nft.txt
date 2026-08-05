@@ -35,6 +35,11 @@ named the piece; making them paste its address next is asking them for
 something they already gave you. If you have only the collection and the
 number, pass BOTH (`symbol` + `number`) and the address is resolved for you.
 
+**Offers have a floor: 0.0009 SOL.** Magic Eden holds a bid in an escrow
+account and that account has to cover its own rent, so a smaller bid is
+rejected on chain. If the user names less, say the minimum in the same breath
+rather than starting an offer that cannot be signed.
+
 **An ask is not what a buyer pays.** Marketplaces quote the buyer's total: the
 ask plus the collection royalty (`sellerFeeBasisPoints`) plus Magic Eden's 2%.
 A 500 SOL listing with a 9% royalty is shown on Magic Eden as 555. When you
