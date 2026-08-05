@@ -1895,7 +1895,10 @@
               <!-- Angular 19: `; as` binds only on a PRIMARY @if, never on an
                    @else if — so the alias is hoisted to a @let. -->
               @let pd = meteoraPositionDetail();
-              @if (meteoraPositionGone()) {
+              @if (meOfferBelowMin()) {
+            <lucide-icon name="alert-circle" [size]="14" />
+            Minimum offer {{ ME_MIN_OFFER_SOL }} SOL
+          } @else if (meteoraPositionGone()) {
                 <div class="clmm-min-hint clmm-min-hint--warn">
                   <lucide-icon name="alert-circle" [size]="13" />
                   This position is no longer open — it was closed after this card was
@@ -4200,8 +4203,8 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
             @if (meteoraPositionGone()) {
               <lucide-icon name="alert-circle" [size]="14" />

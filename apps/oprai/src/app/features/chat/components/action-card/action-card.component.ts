@@ -2623,6 +2623,22 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return 'Your offer';
   }
 
+  /**
+   * A bid below the escrow's rent-exemption cannot exist.
+   *
+   * Magic Eden holds the bid in an escrow account and that account has to
+   * cover its own rent, so the chain rejects anything smaller with
+   * InsufficientFundsForRent — which surfaced as "not enough balance" on a
+   * wallet holding 0.245 SOL. Say the floor before they sign, not after.
+   */
+  readonly ME_MIN_OFFER_SOL = 0.00089088;
+
+  meOfferBelowMin(): boolean {
+    if (!/make_offer|buy_change_price/.test(this.action?.type ?? '')) return false;
+    const v = Number(this.getEditParam(this.meAmountKey()));
+    return Number.isFinite(v) && v > 0 && v < this.ME_MIN_OFFER_SOL;
+  }
+
   /** Only offers and listings expire. */
   meHasExpiry(): boolean {
     return /^me_(make_offer|list|sell)$/.test(this.action.type);

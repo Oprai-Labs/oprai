@@ -1423,6 +1423,25 @@ pub async fn build_me_change_listing_price(
     ))
 }
 
+/// Rent exemption for the bid escrow — a system account with no data.
+/// `getMinimumBalanceForRentExemption(0)` on mainnet.
+const ESCROW_RENT_LAMPORTS: u64 = 890_880;
+
+/// What the wallet already has sitting in its Magic Eden bidding escrow.
+/// Best-effort: an unreadable balance counts as zero, which only ever makes
+/// the minimum we quote stricter, never looser.
+async fn me_escrow_lamports(http: &reqwest::Client, wallet: &str) -> u64 {
+    let url = format!("{MAGIC_EDEN_API}/wallets/{wallet}/escrow_balance");
+    match me_get_json(http, &url).await {
+        Ok(v) => v
+            .get("balance")
+            .and_then(|b| b.as_f64())
+            .map(|sol| (sol * 1e9).round() as u64)
+            .unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
 /// Bid on an NFT.
 pub async fn build_me_make_offer(
     http: &reqwest::Client,
@@ -1435,6 +1454,21 @@ pub async fn build_me_make_offer(
         .price
         .parse()
         .map_err(|_| AppError::InvalidParams("Enter an offer price in SOL".into()))?;
+
+    // A bid is escrowed, and the escrow account has to be rent-exempt. Below
+    // that minimum the bid cannot exist: the chain rejects it with
+    // InsufficientFundsForRent on the escrow, which reaches the user as "not
+    // enough balance" while their wallet plainly holds plenty. Say the real
+    // number here instead of letting them sign something that cannot land.
+    let lamports = (price * 1e9).round() as u64;
+    let escrowed = me_escrow_lamports(http, &user_pubkey.to_string()).await;
+    if lamports + escrowed < ESCROW_RENT_LAMPORTS {
+        let short = ESCROW_RENT_LAMPORTS - escrowed;
+        return Err(AppError::InvalidParams(format!(
+            "An offer has to be at least {:.5} SOL. Magic Eden holds the bid in              an escrow account, and that account has to cover its own rent.",
+            short as f64 / 1e9
+        )));
+    }
 
     // An offer needs an auction house, and an unlisted NFT has no listing to
     // take one from — fall back to the marketplace default.
