@@ -389,6 +389,7 @@ pub async fn post_build(
     let params = crate::services::magic_eden::resolve_me_action_mint(
         &state.http,
         &body.action_type,
+        &wallet,
         body.params.clone(),
     )
     .await;

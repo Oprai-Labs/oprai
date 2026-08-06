@@ -2972,6 +2972,7 @@ async fn mint_by_number_any_spelling(
 pub async fn resolve_me_action_mint(
     http: &reqwest::Client,
     action: &str,
+    wallet: &str,
     mut params: serde_json::Value,
 ) -> serde_json::Value {
     if !action.starts_with("me_") || action.starts_with("me_mmm_") {
@@ -3001,7 +3002,16 @@ pub async fn resolve_me_action_mint(
         .find_map(|k| non_empty(obj.get(*k)));
     let (symbol, number) = match (symbol, number) {
         (Some(s), Some(n)) => (s, n),
-        _ => return params,
+        _ => {
+            // Nothing to resolve from, but a cancel may not need anything: if
+            // exactly one offer or listing is open, that is the one meant.
+            if let Some(mint) = only_open_position_mint(http, action, wallet).await {
+                if let Some(o) = params.as_object_mut() {
+                    o.insert("mintAddress".into(), serde_json::json!(mint));
+                }
+            }
+            return params;
+        }
     };
     let digits = number.trim_start_matches('#').trim().to_string();
     if let Some(mint) = mint_by_number_any_spelling(http, &symbol, &digits).await {
@@ -3010,6 +3020,47 @@ pub async fn resolve_me_action_mint(
         }
     }
     params
+}
+
+/// "Cancel my offer" when there is only one offer to cancel.
+///
+/// A withdrawal names no NFT because there is nothing to name: the wallet has
+/// one bid out and the user means that one. Without this the card put an empty
+/// "NFT mint address" box in front of someone whose only open offer we could
+/// have read in a single request. With several out the choice is real, so the
+/// mint stays unresolved and the list card does its job.
+async fn only_open_position_mint(
+    http: &reqwest::Client,
+    action: &str,
+    wallet: &str,
+) -> Option<String> {
+    if wallet.is_empty() {
+        return None;
+    }
+    let (url, mint_key) = if action.contains("cancel_offer") || action.contains("buy_cancel") {
+        (
+            format!("{MAGIC_EDEN_API}/wallets/{wallet}/offers_made?limit=20"),
+            "tokenMint",
+        )
+    } else if action.contains("cancel_listing") || action.contains("sell_cancel") {
+        (
+            format!("{MAGIC_EDEN_API}/wallets/{wallet}/tokens?limit=50&listStatus=listed"),
+            "mintAddress",
+        )
+    } else {
+        return None;
+    };
+
+    let rows = me_get_json(http, &url).await.ok()?;
+    let rows = rows.as_array()?;
+    let mints: Vec<&str> = rows
+        .iter()
+        .filter_map(|r| r.get(mint_key).and_then(|m| m.as_str()))
+        .collect();
+    match mints.as_slice() {
+        [only] => Some(only.to_string()),
+        _ => None,
+    }
 }
 
 /// Attach name, art and collection to each offer row.
