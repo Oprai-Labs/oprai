@@ -2986,6 +2986,54 @@ pub async fn resolve_me_action_mint(
     params
 }
 
+/// Attach name, art and collection to each offer row.
+///
+/// Magic Eden's offer endpoints return a mint and nothing else about the
+/// piece. Bounded and concurrent: the first page is what anyone reads, and a
+/// row that cannot be resolved simply keeps its mint.
+async fn enrich_offers_with_nft(
+    http: &reqwest::Client,
+    data: serde_json::Value,
+) -> serde_json::Value {
+    const MAX: usize = 12;
+    let rows = match data.as_array() {
+        Some(r) => r.clone(),
+        None => return data,
+    };
+    let lookups = rows.iter().take(MAX).map(|row| {
+        let mint = row
+            .get("tokenMint")
+            .and_then(|m| m.as_str())
+            .unwrap_or_default()
+            .to_string();
+        async move {
+            if mint.is_empty() {
+                return None;
+            }
+            Some(nft_display(http, &mint).await)
+        }
+    });
+    let resolved = futures::future::join_all(lookups).await;
+
+    let mut out = rows;
+    for (row, display) in out.iter_mut().zip(resolved) {
+        let (name, image, collection) = match display {
+            Some(d) => d,
+            None => continue,
+        };
+        if let Some(o) = row.as_object_mut() {
+            o.insert("name".into(), serde_json::json!(name));
+            if let Some(img) = image {
+                o.insert("image".into(), serde_json::json!(img));
+            }
+            if let Some(c) = collection {
+                o.insert("collectionName".into(), serde_json::json!(c));
+            }
+        }
+    }
+    serde_json::Value::Array(out)
+}
+
 pub async fn build_me_read(
     http: &reqwest::Client,
     action: &str,
@@ -3081,6 +3129,15 @@ pub async fn build_me_read(
             }
         }
     };
+    // An offer names only a mint, so a list of offers rendered as a list of
+    // truncated addresses — you cannot tell which of your bids is which. Fill
+    // in what each one is on.
+    let data = if action.contains("offers") {
+        enrich_offers_with_nft(http, data).await
+    } else {
+        data
+    };
+
     // A tile list needs rarity per trait, and asking per NFT would be one
     // collection-wide request each. Normalise once here so the whole list can
     // be scored from a single read.

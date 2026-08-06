@@ -284,40 +284,51 @@
           </div>
         }
 
-        <!-- Offers: each row is a decision, so each row carries its button. -->
+        <!-- Offers, as the NFT they are on.
+             A bid rendered as a table row is a truncated mint and a number:
+             with several out you cannot tell which is which, and the piece you
+             bid on is the whole reason you did. Same tile as everywhere else. -->
         @if (shape === 'offers') {
-          <div class="result-table">
-            <div class="result-table__header result-table__header--me-offer">
-              <span>Item</span><span class="text-right">Offer</span>
-              <span class="text-right">Expires</span><span></span>
-            </div>
+          <div class="me-grid me-grid--nft" [class.me-grid--rows]="mePagedOffers().length <= 2">
             @for (o of mePagedOffers(); track o.pdaAddress ?? $index) {
-              <div class="result-table__row result-table__row--me-offer dlmm-row">
-                <span class="km-pair">
-                  <span class="km-icon-slot">
-                    <span class="km-icon km-icon--fallback">{{ (o.name || o.tokenMint || '?').charAt(0) }}</span>
-                    @if (o.image) {
-                      <img class="km-icon km-icon--img" [src]="logoSrc(o.image)" [alt]="o.name"
-                           loading="lazy" decoding="async"
-                           (error)="$any($event.target).style.display='none'" />
+              <div class="me-nft" [class.me-nft--row]="mePagedOffers().length <= 2">
+                <div class="me-nft__art">
+                  <span class="me-art__fallback me-art__fallback--lg">
+                    <img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
+                    <span class="me-art__note">Media not available</span>
+                  </span>
+                  @if (o.image) {
+                    <img [src]="nftArtSrc(o.image)" [alt]="o.name ?? ''" loading="lazy" decoding="async"
+                         (error)="$any($event.target).style.display='none'" />
+                  }
+                </div>
+                <div class="me-nft__name" [attr.title]="o.name ?? ''">{{ meOfferTitle(o) }}</div>
+                @if (o.collectionName) {
+                  <div class="me-nft__coll">{{ o.collectionName }}</div>
+                }
+                <div class="me-detail__bar me-nft__bar">
+                  <div class="me-detail__price">
+                    <span class="me-detail__price-k">{{ meIsOwnOffer(o) ? 'Your offer' : 'Offer' }}</span>
+                    @if (o.price) {
+                      <span class="me-detail__price-v mono">{{ o.price | number:'1.0-4' }} SOL</span>
                     }
-                  </span>
-                  <span class="km-pair__text">
-                    <span class="km-pair__name">{{ o.name || (o.tokenMint ? o.tokenMint.slice(0,4) + '…' + o.tokenMint.slice(-4) : '—') }}</span>
-                    @if (o.buyer) { <span class="km-pair__sub mono">from {{ o.buyer.slice(0,4) }}…{{ o.buyer.slice(-4) }}</span> }
-                  </span>
-                </span>
-                <span class="text-right mono">@if (o.price) { {{ o.price | number:'1.0-3' }} SOL } @else { — }</span>
-                <span class="text-right dlmm-muted">{{ meExpiry(o.expiry) }}</span>
-                <span class="text-right">
+                    <span class="me-detail__price-sub">
+                      {{ meExpiry(o.expiry) }}@if (!meIsOwnOffer(o) && o.buyer) { · from {{ o.buyer.slice(0,4) }}…{{ o.buyer.slice(-4) }} }
+                    </span>
+                  </div>
+                </div>
+                <div class="me-nft__foot">
                   @if (meIsOwnOffer(o)) {
-                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="changeMeOfferPrice(o)">Change price</button>
-                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeOffer(o)">Withdraw</button>
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
+                            (click)="changeMeOfferPrice(o)">Change price</button>
+                    <button type="button" class="dlmm-use-btn me-nft__foot-btn"
+                            (click)="cancelMeOffer(o)">Withdraw offer</button>
                   } @else {
-                    <button type="button" class="dlmm-use-btn" (click)="acceptMeOffer(o)">Accept
+                    <button type="button" class="dlmm-use-btn me-nft__foot-btn"
+                            (click)="acceptMeOffer(o)">Accept offer
                       <lucide-icon name="arrow-right" [size]="12" /></button>
                   }
-                </span>
+                </div>
               </div>
             }
           </div>

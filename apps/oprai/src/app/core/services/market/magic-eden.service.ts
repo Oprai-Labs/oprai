@@ -80,9 +80,11 @@ export interface MeOfferRow {
   expiry?: number | null;
   tokenAddress?: string | null;
   collectionSymbol?: string | null;
-  /** Present on offers_made/received; the card falls back to the mint. */
+  /** Resolved server-side from the mint, since Magic Eden's offer endpoints
+   *  carry only an address. The card falls back to the mint. */
   name?: string | null;
   image?: string | null;
+  collectionName?: string | null;
 }
 
 export interface MeEscrowBalance {

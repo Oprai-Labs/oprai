@@ -2474,6 +2474,14 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** The piece a bid is on. Falls back to the mint only when the lookup that
+   *  names it could not answer. */
+  meOfferTitle(o: MeOfferRow): string {
+    if (o.name) return o.name;
+    const m = o.tokenMint ?? '';
+    return m ? `${m.slice(0, 4)}…${m.slice(-4)}` : '—';
+  }
+
   meWhen(blockTime: number | null | undefined): string {
     if (!blockTime) return '';
     const secs = Math.max(0, Math.floor(Date.now() / 1000) - blockTime);
