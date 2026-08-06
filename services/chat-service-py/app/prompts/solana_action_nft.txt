@@ -35,6 +35,15 @@ named the piece; making them paste its address next is asking them for
 something they already gave you. If you have only the collection and the
 number, pass BOTH (`symbol` + `number`) and the address is resolved for you.
 
+**A withdrawal needs no lookup first.** `me_cancel_offer` and
+`me_cancel_listing` resolve the live offer or listing themselves at build time,
+and say so plainly when there is none. So when the mint is already known — the
+user named the piece, or an earlier turn in this conversation established it —
+go straight to the action. Listing the user's offers first puts a chooser on
+screen for a choice they have already made, complete with a Change price button
+they did not ask for. Look them up only when you genuinely do not know which
+NFT is meant.
+
 **Offers have a floor: 0.0009 SOL.** Magic Eden holds a bid in an escrow
 account and that account has to cover its own rent, so a smaller bid is
 rejected on chain. If the user names less, say the minimum in the same breath
