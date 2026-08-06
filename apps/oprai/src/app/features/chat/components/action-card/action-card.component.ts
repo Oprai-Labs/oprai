@@ -2774,6 +2774,25 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   private meNftLookupDone = '';
 
+  /**
+   * Read an NFT, retrying the failures that clear on their own.
+   *
+   * Magic Eden throttles, and one refused request left a card reading "This
+   * NFT" above a "media not available" square for a piece with perfectly good
+   * art. When the action came from a tile the name rode in with the click and
+   * hid this; when the model emits the action directly there is only a mint,
+   * and this lookup is the only thing standing between the user and a base58
+   * string.
+   */
+  private async lookupMeNft(mint: string): Promise<Record<string, unknown> | null> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 400 << attempt));
+      const d = await this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: mint });
+      if (d) return d;
+    }
+    return null;
+  }
+
   private ensureMeNftDisplay(): void {
     const mint = this.getEditParam('mintAddress') || this.getEditParam('tokenMint')
       || this.getEditParam('assetMint');
@@ -2783,9 +2802,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // never learned the traits on the one path people actually take — clicking
     // List or Buy on a tile they chose for its traits.
     this.meNftLookupDone = mint;
-    void this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: mint })
+    void this.lookupMeNft(mint)
       .then(d => {
-        if (!d) return;
+        // Nothing resolved after retrying — release the guard so a later
+        // trigger can try again rather than leaving the card on "This NFT"
+        // over an empty square for the rest of its life.
+        if (!d) { this.meNftLookupDone = ''; return; }
         // `me_token` answers either flat or wrapped in `token` depending on
         // which upstream served it; read through both rather than betting.
         const src = (d['token'] as Record<string, unknown> | undefined) ?? d;

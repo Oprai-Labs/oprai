@@ -79,21 +79,47 @@ pub async fn me_get_json(
     http: &reqwest::Client,
     url: &str,
 ) -> Result<serde_json::Value, AppError> {
-    let mut req = http.get(url);
-    if let Some(key) = me_api_key() {
-        req = req.bearer_auth(key);
+    // Magic Eden throttles and occasionally 5xxs, and both clear on their own.
+    // Without a retry those land as a card that says "This NFT" over a "media
+    // not available" square for a piece with perfectly good art — the failure
+    // is invisible and looks like missing data instead of a bad minute.
+    const ATTEMPTS: usize = 3;
+    let mut last = None;
+    for attempt in 0..ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(250 << attempt)).await;
+        }
+        let mut req = http.get(url);
+        if let Some(key) = me_api_key() {
+            req = req.bearer_auth(key);
+        }
+        let resp = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                last = Some(AppError::ProtocolError(format!(
+                    "Magic Eden request failed: {e}"
+                )));
+                continue;
+            }
+        };
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if status.is_success() {
+            return serde_json::from_str(&body).map_err(|e| {
+                AppError::ProtocolError(format!("Magic Eden returned malformed JSON: {e}"))
+            });
+        }
+        // A 404 is an answer: the thing is not there and asking again will not
+        // change that. Only throttling and server faults are worth repeating.
+        let retryable = status.as_u16() == 429 || status.is_server_error();
+        last = Some(me_api_error(status, &body));
+        if !retryable {
+            break;
+        }
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Magic Eden request failed: {e}")))?;
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(me_api_error(status, &body));
-    }
-    serde_json::from_str(&body)
-        .map_err(|e| AppError::ProtocolError(format!("Magic Eden returned malformed JSON: {e}")))
+    Err(last.unwrap_or_else(|| {
+        AppError::ProtocolError("Magic Eden could not complete that request".into())
+    }))
 }
 
 /// Turn a Magic Eden failure into something a person can act on.
