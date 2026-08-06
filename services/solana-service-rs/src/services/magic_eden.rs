@@ -3010,7 +3010,14 @@ async fn enrich_offers_with_nft(
             if mint.is_empty() {
                 return None;
             }
-            Some(nft_display(http, &mint).await)
+            // `get_nft_info`, not `nft_display`: the latter invents a
+            // truncated-mint name when the lookup fails, and a fabricated name
+            // is indistinguishable from a real one downstream — the row then
+            // looks resolved and no fallback can tell it isn't.
+            get_nft_info(http, &mint)
+                .await
+                .ok()
+                .map(|n| (n.name.clone(), n.image.clone(), n.collection_name.clone()))
         }
     });
     let resolved = futures::future::join_all(lookups).await;

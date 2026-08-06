@@ -2126,7 +2126,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       return;
     }
     if (/offer/.test(t)) {
-      this.meOffers.set(MagicEdenService.rowsFrom<MeOfferRow>(data, 'offers'));
+      const offers = MagicEdenService.rowsFrom<MeOfferRow>(data, 'offers');
+      this.meOffers.set(offers);
+      void this.nameUnresolvedOffers(offers);
       this.meShape.set('offers');
       return;
     }
@@ -2472,6 +2474,39 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meTraitStats.set(stats);
       this.persistSnapshot();
     }
+  }
+
+  /**
+   * Name any bid the server could not.
+   *
+   * The read resolves each offer's NFT, but that is one Magic Eden call per
+   * mint and they rate-limit: a throttled row arrives as a bare address, and
+   * clicking again "fixed" it, which is the signature of a transient failure
+   * rather than a missing feature. This retries the few that came back unnamed
+   * so the tile does not depend on the first attempt succeeding.
+   */
+  private async nameUnresolvedOffers(offers: MeOfferRow[]): Promise<void> {
+    const missing = offers.filter(o => !o.name && o.tokenMint).slice(0, 6);
+    if (!missing.length) return;
+    const resolved = await Promise.all(missing.map(async o => {
+      const d = await this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: o.tokenMint });
+      const src = ((d?.['token'] as Record<string, unknown> | undefined) ?? d) ?? {};
+      return { mint: o.tokenMint, ...src } as Record<string, unknown> & { mint?: string };
+    }));
+    const byMint = new Map(resolved.filter(r => r['name']).map(r => [r.mint, r]));
+    if (!byMint.size) return;
+    this.meOffers.update(rows => rows.map(r => {
+      const hit = r.tokenMint ? byMint.get(r.tokenMint) : undefined;
+      return hit
+        ? {
+            ...r,
+            name: hit['name'] as string,
+            image: (hit['image'] as string | undefined) ?? r.image,
+            collectionName: (hit['collectionName'] as string | undefined) ?? r.collectionName,
+          }
+        : r;
+    }));
+    this.persistSnapshot();
   }
 
   /** The piece a bid is on. Falls back to the mint only when the lookup that
