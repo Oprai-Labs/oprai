@@ -362,6 +362,13 @@ async fn try_attach(tx_base64: &str) -> Option<String> {
         }
     }
 
+    // Pay for what we added. Magic Eden sizes its compute budget to its own
+    // instruction and nothing more: a cancel-bid asked for 13,699 units and
+    // used 11,516, so the memo hit the ceiling and the whole transaction
+    // failed with ProgramFailedToComplete — an action that simulated fine
+    // until we stamped it.
+    widen_compute_limit(&mut tx, MEMO_COMPUTE_UNITS);
+
     // The memo is a non-signer, so the signature count must not have moved.
     // If it did, something about this transaction is not what we assumed.
     let required = tx.message.header().num_required_signatures as usize;
@@ -377,9 +384,72 @@ async fn try_attach(tx_base64: &str) -> Option<String> {
     Some(base64::engine::general_purpose::STANDARD.encode(&out))
 }
 
+/// What the memo program costs to run, measured: 3,225 units on a mainnet
+/// transaction, rounded up for the margin.
+pub const MEMO_COMPUTE_UNITS: u32 = 4_000;
+
+/// Raise an existing `SetComputeUnitLimit` by `extra`.
+///
+/// Only an explicit limit needs adjusting. Without one every instruction gets
+/// the default allowance, so an added instruction brings its own budget and
+/// there is nothing to widen.
+fn widen_compute_limit(tx: &mut VersionedTransaction, extra: u32) {
+    let budget = solana_sdk::compute_budget::id();
+    let keys: Vec<Pubkey> = match &tx.message {
+        VersionedMessage::Legacy(m) => m.account_keys.clone(),
+        VersionedMessage::V0(m) => m.account_keys.clone(),
+    };
+    let instructions = match &mut tx.message {
+        VersionedMessage::Legacy(m) => &mut m.instructions,
+        VersionedMessage::V0(m) => &mut m.instructions,
+    };
+    for ix in instructions.iter_mut() {
+        if keys.get(ix.program_id_index as usize) != Some(&budget) {
+            continue;
+        }
+        // SetComputeUnitLimit: discriminator 0x02 followed by a u32 of units.
+        if ix.data.first() != Some(&2u8) || ix.data.len() < 5 {
+            continue;
+        }
+        let current = u32::from_le_bytes([ix.data[1], ix.data[2], ix.data[3], ix.data[4]]);
+        let widened = current.saturating_add(extra).min(1_400_000);
+        ix.data[1..5].copy_from_slice(&widened.to_le_bytes());
+        return;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Magic Eden budgets its compute for its own instruction alone. Stamping
+    /// a memo on top of a tight ceiling is what turned a cancel-bid into
+    /// ProgramFailedToComplete on chain.
+    #[test]
+    fn the_memo_pays_for_its_own_compute() {
+        use solana_sdk::compute_budget::ComputeBudgetInstruction;
+        use solana_sdk::message::Message;
+
+        let payer = Pubkey::new_unique();
+        let msg = Message::new(
+            &[ComputeBudgetInstruction::set_compute_unit_limit(13_699)],
+            Some(&payer),
+        );
+        let mut tx = VersionedTransaction {
+            signatures: vec![Signature::default()],
+            message: VersionedMessage::Legacy(msg),
+        };
+
+        widen_compute_limit(&mut tx, MEMO_COMPUTE_UNITS);
+
+        let ix = match &tx.message {
+            VersionedMessage::Legacy(m) => m.instructions[0].clone(),
+            VersionedMessage::V0(m) => m.instructions[0].clone(),
+        };
+        let units = u32::from_le_bytes([ix.data[1], ix.data[2], ix.data[3], ix.data[4]]);
+        assert_eq!(units, 13_699 + MEMO_COMPUTE_UNITS);
+    }
+
     use solana_sdk::hash::Hash;
     use solana_sdk::instruction::Instruction;
     use solana_sdk::message::{v0, AddressLookupTableAccount, Message};
