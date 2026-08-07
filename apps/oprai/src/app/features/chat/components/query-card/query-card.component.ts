@@ -1026,12 +1026,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.meNft()) {
         d['meNft'] = this.meNft();
         d['meTraitStats'] = this.meTraitStats();
-        if (this.meTrending()) d['meTrending'] = this.meTrending();
-        if (this.meHolders()) d['meHolders'] = this.meHolders();
-        if (this.meSales())   d['meSales']   = this.meSales();
         d['meTab'] = this.meTab();
         d['meChain'] = this.meChain();
       }
+      // Not inside the single-NFT branch. These shapes never load an NFT, so
+      // nesting them there meant they were never written — and a reload turned
+      // a full ranking into "Nothing here on Magic Eden".
+      if (this.meTrending()) d['meTrending'] = this.meTrending();
+      if (this.meHolders())  d['meHolders']  = this.meHolders();
+      if (this.meSales())    d['meSales']    = this.meSales();
       if (this.meStats())              d['meStats'] = this.meStats();
       if (this.meEscrowSol() !== null) d['meEscrowSol'] = this.meEscrowSol();
       d['orcaCapped'] = this.orcaCapped();
