@@ -926,6 +926,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meTraders.set((d['meTraders'] as any[] | undefined) ?? []);
       this.meNft.set((d['meNft'] as MeTokenRow | undefined) ?? null);
       this.meTraitStats.set((d['meTraitStats'] as any) ?? {});
+      if (d['meTrending']) this.meTrending.set(d['meTrending'] as any);
       if (d['meHolders']) this.meHolders.set(d['meHolders'] as any);
       if (d['meSales'])   this.meSales.set(d['meSales'] as any);
       this.meTab.set((d['meTab'] as any) ?? 'traits');
@@ -1025,6 +1026,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.meNft()) {
         d['meNft'] = this.meNft();
         d['meTraitStats'] = this.meTraitStats();
+        if (this.meTrending()) d['meTrending'] = this.meTrending();
         if (this.meHolders()) d['meHolders'] = this.meHolders();
         if (this.meSales())   d['meSales']   = this.meSales();
         d['meTab'] = this.meTab();
@@ -1501,7 +1503,18 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly meFetching = signal(false);
   readonly mePage = signal(1);
   /** Which renderer this card is using: set once the payload lands. */
-  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | 'nft' | 'holders' | 'sales' | null>(null);
+  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | 'nft' | 'holders' | 'sales' | 'trending' | null>(null);
+
+  /** What is trading most, for a window. */
+  readonly meTrending = signal<{
+    window: string;
+    collections: Array<{
+      symbol: string | null; name: string | null; image: string | null; isVerified: boolean;
+      volume: number | null; volumeChange: number | null; sales: number | null;
+      floorPrice: number | null; floorChange: number | null;
+      supply: number | null; listedCount: number | null; ownerCount: number | null;
+    }>;
+  } | null>(null);
 
   /** Who holds a collection, and how tightly. */
   readonly meHolders = signal<{
@@ -2102,6 +2115,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   private applyMagicEdenPayload(data: unknown): void {
     const t = this.query.type;
 
+    if (t === 'me_trending_collections') {
+      this.meTrending.set(data as any);
+      this.meShape.set('trending');
+      return;
+    }
     if (t === 'me_collection_holder_stats') {
       this.meHolders.set(data as any);
       this.meShape.set('holders');
@@ -2543,6 +2561,23 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (o.name) return o.name;
     const m = o.tokenMint ?? '';
     return m ? `${m.slice(0, 4)}…${m.slice(-4)}` : '—';
+  }
+
+  /** How a window reads in a heading. */
+  meWindowLabel(w: string | undefined): string {
+    switch (w) {
+      case '1h': return 'last hour';
+      case '6h': return 'last 6 hours';
+      case '7d': return 'last 7 days';
+      case '30d': return 'last 30 days';
+      default:   return 'last 24 hours';
+    }
+  }
+
+  /** Open a trending row as a collection. */
+  browseTrending(row: { symbol: string | null; name: string | null }): void {
+    if (!row.symbol) return;
+    this.browseMeCollection({ symbol: row.symbol, name: row.name ?? row.symbol } as MeCollectionRow);
   }
 
   /** The busiest day, so every other bar is drawn against it. */
@@ -3892,6 +3927,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'me_collection_stats':
       case 'me_collection_info':
       case 'me_collection_attributes':
+      case 'me_trending_collections':
       case 'me_collection_holder_stats':
       case 'me_collection_sales_history':
       case 'me_collection_leaderboard':

@@ -3253,3 +3253,24 @@
   font-weight: 500;
   color: var(--op-text-tertiary);
 }
+
+.result-table__header--me-trend,
+.result-table__row--me-trend {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px 108px 64px 84px;
+  gap: 10px;
+  align-items: center;
+}
+.result-table__row--me-trend { cursor: pointer; }
+
+// A number without a direction is half the story; this is the other half.
+.me-chg {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--op-text-tertiary);
+
+  &--up   { color: var(--op-gain); }
+  &--down { color: var(--op-loss); }
+}

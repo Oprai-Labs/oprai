@@ -649,6 +649,60 @@
           }
         }
 
+        <!-- What is trading, ranked.
+             Volume is the column that answers the question, so it leads and
+             everything else reads against it. The change beside each number is
+             what turns a figure into a direction. -->
+        @if (shape === 'trending') {
+          @if (meTrending(); as tr) {
+            <div class="result-table">
+              <div class="result-table__header result-table__header--me-trend">
+                <span>Collection</span>
+                <span class="text-right">Volume</span>
+                <span class="text-right">Floor</span>
+                <span class="text-right">Sales</span>
+                <span class="text-right">Holders</span>
+              </div>
+              @for (c of tr.collections; track c.symbol ?? $index) {
+                <div class="result-table__row result-table__row--me-trend dlmm-row"
+                     (click)="browseTrending(c)">
+                  <span class="km-pair">
+                    <span class="km-icon-slot">
+                      <span class="km-icon km-icon--fallback">{{ (c.name || '?').charAt(0) }}</span>
+                      @if (c.image) {
+                        <img class="km-icon km-icon--img" [src]="nftArtSrc(c.image)" [alt]="c.name ?? ''"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
+                    <span class="km-pair__text">
+                      <span class="km-pair__name">{{ c.name || c.symbol }}@if (c.isVerified) {
+                          <lucide-icon name="shield-check" [size]="12" class="me-badge" />
+                        }</span>
+                      @if (c.supply) {
+                        <span class="km-pair__sub">{{ c.listedCount ?? 0 | number }} of {{ c.supply | number }} listed</span>
+                      }
+                    </span>
+                  </span>
+                  <span class="text-right mono">{{ c.volume | number:'1.0-1' }} SOL
+                    @if (c.volumeChange !== null) {
+                      <span class="me-chg" [class.me-chg--up]="c.volumeChange > 0" [class.me-chg--down]="c.volumeChange < 0">{{ c.volumeChange > 0 ? '+' : '' }}{{ c.volumeChange | number:'1.0-0' }}%</span>
+                    }
+                  </span>
+                  <span class="text-right mono">{{ c.floorPrice | number:'1.0-3' }}
+                    @if (c.floorChange !== null) {
+                      <span class="me-chg" [class.me-chg--up]="c.floorChange > 0" [class.me-chg--down]="c.floorChange < 0">{{ c.floorChange > 0 ? '+' : '' }}{{ c.floorChange | number:'1.0-0' }}%</span>
+                    }
+                  </span>
+                  <span class="text-right mono">{{ c.sales ?? '—' }}</span>
+                  <span class="text-right mono">{{ c.ownerCount ? (c.ownerCount | number) : '—' }}</span>
+                </div>
+              }
+            </div>
+            <div class="me-escrow__note">By volume, {{ meWindowLabel(tr.window) }}.</div>
+          }
+        }
+
         <!-- Who holds it.
              A collection's floor says what one costs; this says who is
              sitting on the rest of it, which is the other half of whether a

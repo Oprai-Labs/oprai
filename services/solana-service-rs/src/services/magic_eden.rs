@@ -2143,8 +2143,11 @@ pub struct MeReadParams {
     pub symbols: Option<String>,
     /// How far back a sales history reaches. Accepts "30" or "30d"; the model
     /// writes both, and rejecting one over its suffix helps nobody.
-    #[serde(default, alias = "period", alias = "timeWindow", alias = "range")]
+    #[serde(default, alias = "period", alias = "timeWindow", alias = "range", alias = "window")]
     pub days: Option<String>,
+    /// Which column a ranking is ordered by.
+    #[serde(default, alias = "sortBy", alias = "orderBy")]
+    pub sort: Option<String>,
     /// The NFT's number within its collection — "#8051". How people refer to
     /// an NFT, and the only handle most of them have.
     ///
@@ -2333,6 +2336,7 @@ fn me_read_title(action: &str, p: &MeReadParams) -> String {
         "me_collection_stats" => format!("{who} — collection stats"),
         "me_collection_attributes" => format!("{who} — traits"),
         "me_collection_leaderboard" => format!("{who} — top traders"),
+        "me_trending_collections" => "Trending collections".into(),
         "me_collection_holder_stats" => format!("{who} — holders"),
         "me_collection_sales_history" => format!("{who} — sales history"),
         "me_collection_listings" => format!("{who} — listings"),
@@ -2924,6 +2928,79 @@ async fn program_owned_accounts(
         }
     }
     out
+}
+
+/// Magic Eden's own stats host — the one its website reads.
+///
+/// The public v2 API has a `popular_collections` route that answers with an
+/// empty list for every time window, key or no key. This is where the numbers
+/// behind their trending page actually come from.
+const ME_STATS_API: &str = "https://stats-mainnet.magiceden.io/collection_stats";
+
+/// The collections trading most right now.
+///
+/// `window` is one of 1h, 6h, 1d, 7d, 30d — "right now" means 1d unless the
+/// user asked for something else.
+pub async fn me_trending_collections(
+    http: &reqwest::Client,
+    window: &str,
+    limit: u32,
+    sort: &str,
+) -> Result<serde_json::Value, AppError> {
+    let window = match window.trim().to_lowercase().as_str() {
+        "1h" | "hour" | "1hour" => "1h",
+        "6h" | "6hour" => "6h",
+        "7d" | "week" | "1w" => "7d",
+        "30d" | "month" | "1m" => "30d",
+        _ => "1d",
+    };
+    // Magic Eden ranks on `volume` or `floorPrice`; anything else is a request
+    // for a column it does not sort by.
+    let sort = match sort.trim().to_lowercase().as_str() {
+        "floor" | "floorprice" | "fp" => "floorPrice",
+        _ => "volume",
+    };
+    let limit = limit.clamp(1, 100);
+
+    let url = format!(
+        "{ME_STATS_API}/search/solana?window={window}&limit={limit}&offset=0&sort={sort}&direction=desc"
+    );
+    let rows = me_get_json(http, &url).await?;
+    let rows = rows.as_array().cloned().unwrap_or_default();
+
+    let out: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|c| {
+            let f = |k: &str| c.get(k).and_then(|v| v.as_f64());
+            let n = |k: &str| c.get(k).and_then(|v| v.as_u64());
+            serde_json::json!({
+                "symbol": c.get("collectionSymbol").and_then(|v| v.as_str()),
+                "name": c.get("name").and_then(|v| v.as_str()),
+                "image": c.get("image").and_then(|v| v.as_str()),
+                "isVerified": c.get("isVerified").and_then(|v| v.as_bool()).unwrap_or(false),
+                // Already SOL here, unlike the v2 endpoints which quote
+                // lamports — normalising the wrong way is a 1e9 error on a
+                // price, so these are passed through untouched.
+                "volume": f("vol"),
+                "volumeChange": f("volPctChg"),
+                "sales": n("txns"),
+                "salesChange": f("txnsPctChg"),
+                "floorPrice": f("fp"),
+                "floorChange": f("fpPctChg"),
+                "marketCap": f("marketCap"),
+                "supply": n("totalSupply"),
+                "listedCount": n("listedCount"),
+                "ownerCount": n("ownerCount"),
+                "uniqueOwnerRatio": f("uniqueOwnerRatio"),
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "window": window,
+        "sort": sort,
+        "collections": out,
+    }))
 }
 
 /// Who has this collection's listings open, one entry per listing.
@@ -3563,6 +3640,13 @@ pub async fn build_me_read(
             is_cross_chain: false,
             data: Some(data),
         });
+    }
+    if action == "me_trending_collections" {
+        let window = params.days.as_deref().unwrap_or("1d");
+        let limit = params.limit.unwrap_or(20);
+        let sort = params.sort.as_deref().unwrap_or("volume");
+        let data = me_trending_collections(http, window, limit, sort).await?;
+        return Ok(me_read_response(action, params, data));
     }
     if action == "me_collection_holder_stats" {
         let symbol = collection_symbol(need(&params.symbol, "collection")?);
