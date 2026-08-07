@@ -663,7 +663,7 @@
                 <span class="text-right">Sales</span>
                 <span class="text-right">Holders</span>
               </div>
-              @for (c of tr.collections; track c.symbol ?? $index) {
+              @for (c of mePagedTrending(); track c.symbol ?? $index) {
                 <div class="result-table__row result-table__row--me-trend dlmm-row"
                      (click)="browseTrending(c)">
                   <span class="km-pair">
@@ -799,7 +799,7 @@
           </div>
         }
 
-        @if (!meFetching() && meRowCount() === 0 && shape !== 'stats' && shape !== 'escrow') {
+        @if (!meFetching() && meRowCount() === 0 && shape !== 'stats' && shape !== 'escrow' && shape !== 'sales') {
           <div class="dlmm-empty">
             <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
             <div>Nothing here on Magic Eden.</div>
@@ -814,7 +814,8 @@
                 : shape === 'activities' ? mePagedActivities().length
                 : shape === 'traits' ? mePagedTraits().length
                 : shape === 'pools' ? mePagedPools().length
-                : shape === 'traders' ? mePagedTraders().length : mePagedOffers().length)
+                : shape === 'traders' ? mePagedTraders().length
+                : shape === 'trending' ? mePagedTrending().length : mePagedOffers().length)
             }}</strong> of <strong>{{ meRowCount() }}</strong>
           </div>
           <div class="dlmm-pagination">

@@ -1552,6 +1552,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly mePagedTokens = computed(() => this.mePageSlice(this.meTokens()));
   readonly mePagedActivities = computed(() => this.mePageSlice(this.meActivities()));
   readonly mePagedOffers = computed(() => this.mePageSlice(this.meOffers()));
+  readonly mePagedTrending = computed(() => this.mePageSlice(this.meTrending()?.collections ?? []));
   readonly mePagedTraits = computed(() => this.mePageSlice(this.meTraitRows()));
   readonly mePagedPools = computed(() => this.mePageSlice(this.mePools()));
   readonly mePagedTraders = computed(() => this.mePageSlice(this.meTraders()));
@@ -1571,6 +1572,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'traits':      return this.meTraitRows().length;
       case 'pools':       return this.mePools().length;
       case 'traders':     return this.meTraders().length;
+      case 'trending':    return this.meTrending()?.collections.length ?? 0;
+      case 'holders':     return this.meHolders()?.topHolders.length ?? 0;
       case 'nft':         return this.meNft() ? 1 : 0;
       default:            return 0;
     }
@@ -2105,7 +2108,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
     this.applyMagicEdenPayload(data);
     this.mePage.set(1);
-    this.reportEmptyState(this.meRowCount() === 0 && this.meShape() !== 'stats' && this.meShape() !== 'escrow');
+    const shapeCarriesRows = !['stats', 'escrow', 'sales'].includes(this.meShape() ?? '');
+    this.reportEmptyState(this.meRowCount() === 0 && shapeCarriesRows);
     this.persistSnapshot();
     this.meFetching.set(false);
     this.loading.set(false);

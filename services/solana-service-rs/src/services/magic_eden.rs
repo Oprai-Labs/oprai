@@ -3669,7 +3669,10 @@ pub async fn build_me_read(
     }
     if action == "me_trending_collections" {
         let window = params.days.as_deref().unwrap_or("1d");
-        let limit = params.limit.unwrap_or(20);
+        // Ask for the full ranking, not the first screen of it. The card
+        // pages through what it is given, and a list that stops at twenty
+        // cannot be paged past twenty.
+        let limit = params.limit.unwrap_or(100);
         let sort = params.sort.as_deref().unwrap_or("volume");
         let data = me_trending_collections(http, window, limit, sort).await?;
         return Ok(me_read_response(action, params, data));
