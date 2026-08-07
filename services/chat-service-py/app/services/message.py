@@ -325,6 +325,8 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     "me_collection_info",
     "me_collection_attributes",
     "me_collection_leaderboard",
+    "me_collection_holder_stats",
+    "me_collection_sales_history",
     "me_token",
     "me_nft_info",
     "me_token_activities",

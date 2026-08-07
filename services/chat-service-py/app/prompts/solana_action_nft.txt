@@ -75,9 +75,22 @@ Example:
 All read-only — call via `query_onchain(type, params)`, never `execute_action`. Use these for floor prices, listings, offers, holder stats, and activity feeds.
 
 **Collection-level**
-- `me_collection_stats` — floor, listed count, volume. Params: `symbol` (required), `timeWindow`, `listingAggMode`.
+- `me_collection_stats` — floor, listed count, 24h average, 7d volume, and
+  the collection's on-chain supply with what share of it is listed. Params:
+  `symbol` (required).
 - `me_collections` — browse collections. Params: `offset`, `limit`.
-- `me_collection_listings` / `me_collection_activities` / `me_collection_holder_stats` / `me_collection_leaderboard` — listings, activity feed, holder distribution, top holders. Params: `symbol` (required) + paging.
+- `me_collection_listings` / `me_collection_activities` — what is for sale and what has happened. Params: `symbol` (required) + paging.
+- `me_collection_leaderboard` — the wallets that have traded the most of it, by volume. Params: `symbol` (required).
+- `me_collection_holder_stats` — who HOLDS it: unique holders, how much the top
+  1/5/10/20 control, how many hold exactly one. Counted from the chain, with
+  marketplace escrows credited back to the sellers who listed them. Params:
+  `symbol` (required).
+- `me_collection_sales_history` — sales per day: count, volume, low and high.
+  Params: `symbol` (required), `days` (1–90, default 30).
+
+Holders and traders are different questions: `me_collection_leaderboard` ranks
+who has bought and sold the most, `me_collection_holder_stats` says who is
+sitting on it now. Someone asking "who owns this" means the second.
 - `me_collections_batch_listings` — listings across several collections. Params: `symbols` (required).
 
 **Token (single NFT)**

@@ -580,6 +580,8 @@ class QueryType(str, Enum):
     ME_COLLECTION_LISTINGS = "me_collection_listings"
     ME_COLLECTIONS_BATCH_LISTINGS = "me_collections_batch_listings"
     ME_COLLECTION_LEADERBOARD = "me_collection_leaderboard"
+    ME_COLLECTION_HOLDER_STATS = "me_collection_holder_stats"
+    ME_COLLECTION_SALES_HISTORY = "me_collection_sales_history"
     ME_LAUNCHPAD_COLLECTIONS = "me_launchpad_collections"
     ME_BUY_INSTRUCTION = "me_buy_instruction"
     ME_BUY_NOW_TRANSFER_NFT = "me_buy_now_transfer_nft"

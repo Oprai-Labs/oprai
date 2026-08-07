@@ -926,6 +926,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meTraders.set((d['meTraders'] as any[] | undefined) ?? []);
       this.meNft.set((d['meNft'] as MeTokenRow | undefined) ?? null);
       this.meTraitStats.set((d['meTraitStats'] as any) ?? {});
+      if (d['meHolders']) this.meHolders.set(d['meHolders'] as any);
+      if (d['meSales'])   this.meSales.set(d['meSales'] as any);
       this.meTab.set((d['meTab'] as any) ?? 'traits');
       this.meChain.set((d['meChain'] as any) ?? {});
       this.meStats.set((d['meStats'] as MeCollectionRow | undefined) ?? null);
@@ -1023,6 +1025,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.meNft()) {
         d['meNft'] = this.meNft();
         d['meTraitStats'] = this.meTraitStats();
+        if (this.meHolders()) d['meHolders'] = this.meHolders();
+        if (this.meSales())   d['meSales']   = this.meSales();
         d['meTab'] = this.meTab();
         d['meChain'] = this.meChain();
       }
@@ -1497,7 +1501,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly meFetching = signal(false);
   readonly mePage = signal(1);
   /** Which renderer this card is using: set once the payload lands. */
-  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | 'nft' | null>(null);
+  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | 'nft' | 'holders' | 'sales' | null>(null);
+
+  /** Who holds a collection, and how tightly. */
+  readonly meHolders = signal<{
+    uniqueHolders: number; held: number; scanned: number; complete: boolean;
+    singleItemHolders: number; singleItemShare: number; averageHeld: number;
+    top1Share: number; top5Share: number; top10Share: number; top20Share: number;
+    topHolders: Array<{ wallet: string; count: number; share: number }>;
+  } | null>(null);
+
+  /** Sales per day, oldest first. */
+  readonly meSales = signal<{
+    days: number; sales: number; volume: number; average: number;
+    series: Array<{ day: number; sales: number; volume: number; average: number; low: number | null; high: number | null }>;
+  } | null>(null);
   /** Trait rarity with a floor per trait — the table a buyer actually uses. */
   readonly meTraitRows = signal<Array<{ trait: string; value: string; count: number; floor: number | null }>>([]);
   /** MMM pools: an AMM quoting both sides of a collection. */
@@ -2084,6 +2102,16 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   private applyMagicEdenPayload(data: unknown): void {
     const t = this.query.type;
 
+    if (t === 'me_collection_holder_stats') {
+      this.meHolders.set(data as any);
+      this.meShape.set('holders');
+      return;
+    }
+    if (t === 'me_collection_sales_history') {
+      this.meSales.set(data as any);
+      this.meShape.set('sales');
+      return;
+    }
     if (t === 'me_wallet_escrow_balance') {
       const d = data as { buyerEscrow?: unknown; balance?: unknown } | null;
       const raw = (d?.buyerEscrow ?? d?.balance) as number | undefined;
@@ -2515,6 +2543,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (o.name) return o.name;
     const m = o.tokenMint ?? '';
     return m ? `${m.slice(0, 4)}…${m.slice(-4)}` : '—';
+  }
+
+  /** The busiest day, so every other bar is drawn against it. */
+  meSalesPeak(): number {
+    return Math.max(1, ...(this.meSales()?.series ?? []).map(s => s.volume));
+  }
+
+  meSalesDay(unix: number): string {
+    return new Date(unix * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   }
 
   meWhen(blockTime: number | null | undefined): string {
@@ -3855,6 +3892,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'me_collection_stats':
       case 'me_collection_info':
       case 'me_collection_attributes':
+      case 'me_collection_holder_stats':
+      case 'me_collection_sales_history':
       case 'me_collection_leaderboard':
       case 'me_token':
       case 'me_nft_info':

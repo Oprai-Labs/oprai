@@ -620,7 +620,13 @@
                 <div class="me-kpi"><span class="me-kpi__k">Floor</span>
                   <span class="me-kpi__v mono">@if (meSol(st.floorPrice); as f) { {{ f | number:'1.0-3' }} SOL } @else { — }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">Listed</span>
-                  <span class="me-kpi__v mono">{{ st.listedCount ?? '—' }}</span></div>
+                  <span class="me-kpi__v mono">{{ st.listedCount ?? '—' }}@if (st.listedShare) {
+                      <span class="me-kpi__sub">{{ st.listedShare * 100 | number:'1.0-2' }}% of supply</span>
+                    }</span></div>
+                @if (st.supply) {
+                  <div class="me-kpi"><span class="me-kpi__k">Supply</span>
+                    <span class="me-kpi__v mono">{{ st.supply | number }}</span></div>
+                }
                 <div class="me-kpi"><span class="me-kpi__k">7d volume</span>
                   <span class="me-kpi__v mono">@if (meSol(st.volume7d); as v) { {{ v | number:'1.0-0' }} SOL } @else { — }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">24h avg price</span>
@@ -639,6 +645,86 @@
                 }
               </div>
 
+            </div>
+          }
+        }
+
+        <!-- Who holds it.
+             A collection's floor says what one costs; this says who is
+             sitting on the rest of it, which is the other half of whether a
+             price means anything. -->
+        @if (shape === 'holders') {
+          @if (meHolders(); as h) {
+            <div class="me-stats-card">
+              <div class="me-stats-card__grid">
+                <div class="me-kpi"><span class="me-kpi__k">Holders</span>
+                  <span class="me-kpi__v mono">{{ h.uniqueHolders | number }}</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Held</span>
+                  <span class="me-kpi__v mono">{{ h.held | number }}</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Average each</span>
+                  <span class="me-kpi__v mono">{{ h.averageHeld | number:'1.0-2' }}</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Hold just one</span>
+                  <span class="me-kpi__v mono">{{ h.singleItemHolders | number }}<span class="me-kpi__sub">{{ h.singleItemShare * 100 | number:'1.0-1' }}% of holders</span></span></div>
+              </div>
+              <div class="me-stats-card__grid">
+                <div class="me-kpi"><span class="me-kpi__k">Top holder</span>
+                  <span class="me-kpi__v mono">{{ h.top1Share * 100 | number:'1.0-1' }}%</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Top 5</span>
+                  <span class="me-kpi__v mono">{{ h.top5Share * 100 | number:'1.0-1' }}%</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Top 10</span>
+                  <span class="me-kpi__v mono">{{ h.top10Share * 100 | number:'1.0-1' }}%</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Top 20</span>
+                  <span class="me-kpi__v mono">{{ h.top20Share * 100 | number:'1.0-1' }}%</span></div>
+              </div>
+              @if (!h.complete) {
+                <div class="me-escrow__note">Counted the first {{ h.scanned | number }} pieces — the collection is larger than one scan.</div>
+              }
+              <div class="result-table">
+                <div class="result-table__header result-table__header--me-holder">
+                  <span>Wallet</span><span class="text-right">Held</span><span class="text-right">Share</span>
+                </div>
+                @for (t of h.topHolders; track t.wallet) {
+                  <div class="result-table__row result-table__row--me-holder dlmm-row">
+                    <span class="mono">{{ t.wallet.slice(0,4) }}…{{ t.wallet.slice(-4) }}
+                      <button class="dlmm-copy-btn" type="button" (click)="copyPoolAddress(t.wallet)">
+                        <lucide-icon [name]="copiedAddress() === t.wallet ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                      </button>
+                    </span>
+                    <span class="text-right mono">{{ t.count }}</span>
+                    <span class="text-right mono">{{ t.share * 100 | number:'1.0-2' }}%</span>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        }
+
+        <!-- What it has been selling for.
+             Bars rather than a line: a day with two sales and a day with
+             forty are not the same evidence, and a line hides that. -->
+        @if (shape === 'sales') {
+          @if (meSales(); as sh) {
+            <div class="me-stats-card">
+              <div class="me-stats-card__grid">
+                <div class="me-kpi"><span class="me-kpi__k">Sales</span>
+                  <span class="me-kpi__v mono">{{ sh.sales | number }}<span class="me-kpi__sub">last {{ sh.days }} days</span></span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Volume</span>
+                  <span class="me-kpi__v mono">{{ sh.volume | number:'1.0-1' }} SOL</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Average sale</span>
+                  <span class="me-kpi__v mono">{{ sh.average | number:'1.0-3' }} SOL</span></div>
+              </div>
+              @if (sh.series.length) {
+                <div class="me-bars">
+                  @for (d of sh.series; track d.day) {
+                    <div class="me-bars__col" [attr.title]="meSalesDay(d.day) + ' · ' + d.sales + ' sales · ' + (d.volume | number:'1.0-2') + ' SOL'">
+                      <div class="me-bars__bar" [style.height.%]="(d.volume / meSalesPeak()) * 100"></div>
+                      <span class="me-bars__lbl">{{ meSalesDay(d.day) }}</span>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="me-escrow__note">No sales in this window.</div>
+              }
             </div>
           }
         }

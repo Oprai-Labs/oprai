@@ -2051,6 +2051,7 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "me_collections", "me_marketplace_popular", "me_launchpad_collections",
     "me_collection_listings", "me_collection_activities", "me_collection_stats",
     "me_collection_attributes", "me_collection_leaderboard",
+    "me_collection_holder_stats", "me_collection_sales_history",
     "me_token", "me_token_activities", "me_token_listings",
     "me_token_offers_received",
     # me_wallet is NOT here: /wallets/{w} answers with {walletAddress} and

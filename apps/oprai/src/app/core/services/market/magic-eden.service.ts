@@ -32,6 +32,12 @@ export interface MeCollectionRow {
   avgPrice24hr?: number | null;
   volumeAll?: number | null;
   volume24hr?: number | null;
+  /** The collection's on-chain size, and the share of it that is for sale.
+   *  Present only when the chain reports a size — MPL Core collections do,
+   *  Token Metadata ones do not, and a guessed supply poisons every
+   *  percentage derived from it. */
+  supply?: number | null;
+  listedShare?: number | null;
   twitter?: string | null;
   discord?: string | null;
   website?: string | null;
