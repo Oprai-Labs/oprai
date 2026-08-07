@@ -564,7 +564,6 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_mmm_sol_close_pool":   _A({"nft", "magic_eden"}),
     "me_mmm_sol_fulfill_buy":  _A({"nft", "magic_eden"}),
     "me_mmm_sol_fulfill_sell": _A({"nft", "magic_eden"}),
-    "me_marketplace_popular":  _A({"nft", "magic_eden", "analysis"}),
     # Knowledge + Strategy
     "knowledge": _A({"always", "core"}),
     "strategy":  _A({"analysis"}),

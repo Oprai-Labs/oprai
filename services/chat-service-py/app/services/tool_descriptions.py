@@ -139,7 +139,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "me_mmm_sol_close_pool": "Magic Eden — close an MMM pool",
     "me_mmm_sol_fulfill_buy": "Magic Eden — fulfill an MMM buy",
     "me_mmm_sol_fulfill_sell": "Magic Eden — fulfill an MMM sell",
-    "me_marketplace_popular": "Magic Eden — popular collections on the marketplace",
     # ── Orca (Whirlpool AMM reads) ──
     "orca_get_pools": (
         "Orca — list Whirlpool liquidity pools. Optional category=rwa | "

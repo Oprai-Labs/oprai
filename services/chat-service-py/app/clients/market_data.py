@@ -1801,11 +1801,6 @@ async def _me_mmm_token_pools(mintAddress: str, limit=1) -> Any:
     from app.clients.magic_eden import get_mmm_token_pools
     return await get_mmm_token_pools(mintAddress, limit=int(limit))
 
-async def _me_marketplace_popular(timeRange=None) -> Any:
-    from app.clients.magic_eden import get_marketplace_popular_collections
-    return await get_marketplace_popular_collections(time_range=timeRange)
-
-
 # ── SNS (Bonfida Name Service) data queries ──────────────────────────────────
 
 _SNS_PROXY = "https://sns-sdk-proxy.bonfida.workers.dev"
@@ -2011,7 +2006,6 @@ _DISPATCH: dict[str, tuple] = {
     "me_collection_attributes":    (_me_collection_attributes,    ["collectionSymbol"], []),
     "me_mmm_pools":                (_me_mmm_pools,                [],                ["collectionSymbol", "owner", "offset", "limit", "field", "direction"]),
     "me_mmm_token_pools":          (_me_mmm_token_pools,          ["mintAddress"],   ["limit"]),
-    "me_marketplace_popular":      (_me_marketplace_popular,      [],                ["timeRange"]),
     # SNS (Bonfida Name Service) — read-only domain data, result interpreted by LLM
     "sns_resolve":        (sns_resolve,        ["domain"],          []),
     "sns_reverse_lookup": (sns_reverse_lookup, ["pubkey"],          []),
@@ -2048,7 +2042,7 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     # resolves the auction house / token account / referral off the live
     # listing. chat-service has its own Magic Eden client for the reads the
     # LLM answers in prose; these are the ones that render as a card.
-    "me_collections", "me_marketplace_popular", "me_launchpad_collections",
+    "me_collections", "me_launchpad_collections",
     "me_collection_listings", "me_collection_activities", "me_collection_stats",
     "me_collection_attributes", "me_collection_leaderboard",
     "me_collection_holder_stats", "me_collection_sales_history",

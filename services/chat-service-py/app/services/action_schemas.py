@@ -608,7 +608,6 @@ class QueryType(str, Enum):
     ME_MMM_SOL_CLOSE_POOL = "me_mmm_sol_close_pool"
     ME_MMM_SOL_FULFILL_BUY = "me_mmm_sol_fulfill_buy"
     ME_MMM_SOL_FULFILL_SELL = "me_mmm_sol_fulfill_sell"
-    ME_MARKETPLACE_POPULAR = "me_marketplace_popular"
     # RAG knowledge base queries
     KNOWLEDGE = "knowledge"
     # Portfolio strategy generation

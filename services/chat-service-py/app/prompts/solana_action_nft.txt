@@ -79,6 +79,15 @@ All read-only — call via `query_onchain(type, params)`, never `execute_action`
   the collection's on-chain supply with what share of it is listed. Params:
   `symbol` (required).
 - `me_collections` — browse collections. Params: `offset`, `limit`.
+
+**There is no volume ranking.** Magic Eden publishes no "top collections by
+volume" — its popular-collections endpoint answers with an empty list for every
+time range, with or without a key. So a question like "which NFTs have the most
+volume right now" cannot be answered from Magic Eden, and inventing a ranking
+is worse than saying so. Say it plainly, then offer what does exist: the volume
+of a collection the user names (`me_collection_stats`), its sales over time
+(`me_collection_sales_history`), or the wallets trading it most
+(`me_collection_leaderboard`).
 - `me_collection_listings` / `me_collection_activities` — what is for sale and what has happened. Params: `symbol` (required) + paging.
 - `me_collection_leaderboard` — the wallets that have traded the most of it, by volume. Params: `symbol` (required).
 - `me_collection_holder_stats` — who HOLDS it: unique holders, how much the top
