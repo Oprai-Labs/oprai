@@ -3158,7 +3158,7 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         | "me_mmm_sol_fulfill_buy" | "me_mmm_sol_fulfill_sell" => Ok(()),
         // Reads validate themselves: `me_read_url` is where a missing symbol,
         // mint or wallet is reported, and it names which one is missing.
-        "me_collections" | "me_collection_stats" | "me_collection_attributes" | "me_collection_leaderboard" | "me_collection_listings" | "me_collection_activities" | "me_collections_batch_listings" | "me_launchpad_collections" | "me_marketplace_popular" | "me_token" | "me_token_activities" | "me_token_listings" | "me_token_offers_received" | "me_wallet" | "me_wallet_tokens" | "me_wallet_activities" | "me_owner_activities" | "me_wallet_escrow_balance" | "me_wallet_offers_made" | "me_wallet_offers_received" | "me_mmm_pools" => {
+        "me_collections" | "me_collection_stats" | "me_collection_attributes" | "me_collection_leaderboard" | "me_collection_holder_stats" | "me_collection_sales_history" | "me_collection_listings" | "me_collection_activities" | "me_collections_batch_listings" | "me_launchpad_collections" | "me_marketplace_popular" | "me_token" | "me_token_activities" | "me_token_listings" | "me_token_offers_received" | "me_wallet" | "me_wallet_tokens" | "me_wallet_activities" | "me_owner_activities" | "me_wallet_escrow_balance" | "me_wallet_offers_made" | "me_wallet_offers_received" | "me_mmm_pools" => {
             let _p: magic_eden::MeReadParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid Magic Eden query: {e}")))?;
             Ok(())
@@ -5575,7 +5575,7 @@ async fn build_action_inner(
         // Every remaining Magic Eden read, through one table. See
         // `me_read_url` — the paths there were checked against the live API,
         // and the three that 404 are deliberately not among them.
-        "me_collections" | "me_collection_stats" | "me_collection_attributes" | "me_collection_leaderboard" | "me_collection_listings" | "me_collection_activities" | "me_collections_batch_listings" | "me_launchpad_collections" | "me_marketplace_popular" | "me_token" | "me_token_activities" | "me_token_listings" | "me_token_offers_received" | "me_wallet" | "me_wallet_tokens" | "me_wallet_activities" | "me_owner_activities" | "me_wallet_escrow_balance" | "me_wallet_offers_made" | "me_wallet_offers_received" | "me_mmm_pools" => {
+        "me_collections" | "me_collection_stats" | "me_collection_attributes" | "me_collection_leaderboard" | "me_collection_holder_stats" | "me_collection_sales_history" | "me_collection_listings" | "me_collection_activities" | "me_collections_batch_listings" | "me_launchpad_collections" | "me_marketplace_popular" | "me_token" | "me_token_activities" | "me_token_listings" | "me_token_offers_received" | "me_wallet" | "me_wallet_tokens" | "me_wallet_activities" | "me_owner_activities" | "me_wallet_escrow_balance" | "me_wallet_offers_made" | "me_wallet_offers_received" | "me_mmm_pools" => {
             let p: magic_eden::MeReadParams = serde_json::from_value(params)?;
             magic_eden::build_me_read(http, action_type, &p).await
         }

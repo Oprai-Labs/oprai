@@ -2141,6 +2141,10 @@ pub struct MeReadParams {
     /// `collections/batch/listings` takes a comma-separated symbol list.
     #[serde(default)]
     pub symbols: Option<String>,
+    /// How far back a sales history reaches. Accepts "30" or "30d"; the model
+    /// writes both, and rejecting one over its suffix helps nobody.
+    #[serde(default, alias = "period", alias = "timeWindow", alias = "range")]
+    pub days: Option<String>,
     /// The NFT's number within its collection — "#8051". How people refer to
     /// an NFT, and the only handle most of them have.
     ///
@@ -2328,7 +2332,9 @@ fn me_read_title(action: &str, p: &MeReadParams) -> String {
         "me_collections" => "Magic Eden collections".into(),
         "me_collection_stats" => format!("{who} — collection stats"),
         "me_collection_attributes" => format!("{who} — traits"),
-        "me_collection_leaderboard" => format!("{who} — top holders"),
+        "me_collection_leaderboard" => format!("{who} — top traders"),
+        "me_collection_holder_stats" => format!("{who} — holders"),
+        "me_collection_sales_history" => format!("{who} — sales history"),
         "me_collection_listings" => format!("{who} — listings"),
         "me_collection_activities" => format!("{who} — activity"),
         "me_collections_batch_listings" => "Listings across collections".into(),
@@ -2743,7 +2749,7 @@ async fn me_trait_stats(
     symbol: &str,
     token: &serde_json::Value,
 ) -> serde_json::Value {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
 
     let wanted: HashSet<(String, String)> = token
         .get("attributes")
@@ -2827,6 +2833,371 @@ fn normalize_trait_stats(
         );
     }
     serde_json::Value::Object(out)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Collection analytics
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// One Helius DAS call. Returns `result`, or None on any failure — every
+/// caller here treats missing chain data as "not shown", never as a zero.
+async fn das(http: &reqwest::Client, method: &str, params: serde_json::Value) -> Option<serde_json::Value> {
+    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let resp: serde_json::Value = http
+        .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
+        .json(&serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    resp.get("result").cloned()
+}
+
+/// The on-chain collection account behind a Magic Eden symbol.
+///
+/// Magic Eden's symbol is its own; the chain knows a collection by an address.
+/// One listing gives a mint, and the mint's grouping gives the address.
+async fn me_collection_group(http: &reqwest::Client, symbol: &str) -> Option<String> {
+    let url = format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1");
+    let listings = me_get_json(http, &url).await.ok()?;
+    let mint = listings
+        .as_array()?
+        .first()?
+        .get("tokenMint")?
+        .as_str()?
+        .to_string();
+    let asset = das(http, "getAsset", serde_json::json!({ "id": mint })).await?;
+    asset
+        .get("grouping")?
+        .as_array()?
+        .iter()
+        .find(|g| g.get("group_key").and_then(|k| k.as_str()) == Some("collection"))
+        .and_then(|g| g.get("group_value"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+/// How many pieces the collection actually has.
+///
+/// Only MPL Core collections carry their own size on chain (`current_size`).
+/// Token Metadata collections do not report one at all, so this returns None
+/// rather than a guess — a supply figure that is wrong makes every percentage
+/// derived from it wrong too.
+async fn me_collection_supply(http: &reqwest::Client, group: &str) -> Option<u64> {
+    let asset = das(http, "getAsset", serde_json::json!({ "id": group })).await?;
+    asset
+        .get("mpl_core_info")
+        .and_then(|c| c.get("current_size"))
+        .and_then(|v| v.as_u64())
+}
+
+/// Which of these addresses are program-owned — escrows, vaults, pools.
+///
+/// A wallet's account belongs to the System Program. Anything else is held by
+/// a program on someone's behalf, which is what a marketplace escrow is.
+async fn program_owned_accounts(
+    http: &reqwest::Client,
+    addresses: &[String],
+) -> std::collections::HashSet<String> {
+    use std::collections::HashSet;
+    let mut out = HashSet::new();
+    if addresses.is_empty() {
+        return out;
+    }
+    let system = solana_sdk::system_program::id().to_string();
+    let result = das(
+        http,
+        "getMultipleAccounts",
+        serde_json::json!([addresses, { "encoding": "base64" }]),
+    )
+    .await;
+    let values = match result.as_ref().and_then(|r| r.get("value")).and_then(|v| v.as_array()) {
+        Some(v) => v,
+        None => return out,
+    };
+    for (addr, account) in addresses.iter().zip(values) {
+        let owner = account.get("owner").and_then(|o| o.as_str()).unwrap_or(&system);
+        if owner != system {
+            out.insert(addr.clone());
+        }
+    }
+    out
+}
+
+/// Who has this collection's listings open, one entry per listing.
+///
+/// Used to attribute escrowed pieces back to their sellers.
+async fn me_listing_sellers(http: &reqwest::Client, symbol: &str) -> Vec<String> {
+    const PAGE: u32 = 100;
+    const MAX_PAGES: u32 = 20; // 2,000 listings
+    let mut out = Vec::new();
+    for page in 0..MAX_PAGES {
+        let url = format!(
+            "{MAGIC_EDEN_API}/collections/{symbol}/listings?offset={}&limit={PAGE}",
+            page * PAGE
+        );
+        let rows = match me_get_json(http, &url).await {
+            Ok(v) => v,
+            Err(_) => break,
+        };
+        let rows = match rows.as_array() {
+            Some(r) if !r.is_empty() => r.clone(),
+            _ => break,
+        };
+        let got = rows.len() as u32;
+        for row in &rows {
+            if let Some(seller) = row.get("seller").and_then(|s| s.as_str()) {
+                out.push(seller.to_string());
+            }
+        }
+        if got < PAGE {
+            break;
+        }
+    }
+    out
+}
+
+/// Who owns the collection, and how concentrated it is.
+///
+/// Magic Eden documents a `holder_stats` endpoint and answers "Not Found" for
+/// every collection, so this is built from the chain: every asset in the
+/// grouping, counted by owner. Capped, because a scan is not free and the
+/// answer for the tail of a large collection does not change the shape.
+pub async fn me_collection_holders(
+    http: &reqwest::Client,
+    symbol: &str,
+) -> Result<serde_json::Value, AppError> {
+    use std::collections::HashMap;
+
+    const PAGE: u64 = 1_000;
+    const MAX_PAGES: u64 = 12; // 12,000 pieces — past all but the largest
+
+    let group = me_collection_group(http, symbol).await.ok_or_else(|| {
+        AppError::NotFound(
+            "Could not find that collection on chain, so its holders can't be counted".into(),
+        )
+    })?;
+
+    let mut owners: HashMap<String, u64> = HashMap::new();
+    let mut scanned = 0u64;
+    let mut complete = false;
+    for page in 1..=MAX_PAGES {
+        let result = das(
+            http,
+            "getAssetsByGroup",
+            serde_json::json!({
+                "groupKey": "collection",
+                "groupValue": group,
+                "page": page,
+                "limit": PAGE,
+                "displayOptions": { "showCollectionMetadata": false }
+            }),
+        )
+        .await;
+        let items = match result.as_ref().and_then(|r| r.get("items")).and_then(|i| i.as_array()) {
+            Some(i) if !i.is_empty() => i.clone(),
+            _ => { complete = true; break; }
+        };
+        let got = items.len() as u64;
+        for item in &items {
+            // A burnt asset still comes back in the grouping. Trenchors minted
+            // 3,750 and holds 2,421: counting the difference would inflate
+            // every share and contradict the collection's own supply.
+            if item.get("burnt").and_then(|b| b.as_bool()).unwrap_or(false) {
+                continue;
+            }
+            let owner = item
+                .get("ownership")
+                .and_then(|o| o.get("owner"))
+                .and_then(|o| o.as_str())
+                .unwrap_or_default();
+            if owner.is_empty() {
+                continue;
+            }
+            *owners.entry(owner.to_string()).or_default() += 1;
+        }
+        scanned += got;
+        if got < PAGE {
+            complete = true;
+            break;
+        }
+    }
+
+    if owners.is_empty() {
+        return Err(AppError::NotFound(
+            "No on-chain holders found for that collection".into(),
+        ));
+    }
+
+    let mut ranked: Vec<(String, u64)> = owners.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
+    // Drop the marketplaces. A listed NFT is held by an escrow account, so the
+    // biggest "holder" of Trenchors was Magic Eden's own program with 201 of
+    // them — which is the listed count, not a whale. Only the top of the list
+    // is checked: an escrow holding a handful changes nothing, and an escrow
+    // holding enough to matter is always near the top.
+    let suspects: Vec<String> = ranked.iter().take(25).map(|(w, _)| w.clone()).collect();
+    let escrows = program_owned_accounts(http, &suspects).await;
+    ranked.retain(|(w, _)| !escrows.contains(w));
+
+    // Then give those pieces back to the people who listed them. Someone who
+    // put their only NFT up for sale still owns it in every sense that
+    // matters, and dropping them undercounted holders against Magic Eden's own
+    // figure — 776 against their 885, the gap being sellers with nothing left
+    // outside escrow.
+    if !escrows.is_empty() {
+        let sellers = me_listing_sellers(http, symbol).await;
+        if !sellers.is_empty() {
+            let mut by_wallet: HashMap<String, u64> = ranked.into_iter().collect();
+            for seller in sellers {
+                *by_wallet.entry(seller).or_default() += 1;
+            }
+            ranked = by_wallet.into_iter().collect();
+            ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        }
+    }
+
+    let unique = ranked.len() as u64;
+    let held: u64 = ranked.iter().map(|(_, n)| *n).sum();
+    let share = |n: usize| -> f64 {
+        if held == 0 { return 0.0; }
+        ranked.iter().take(n).map(|(_, c)| *c).sum::<u64>() as f64 / held as f64
+    };
+    let singles = ranked.iter().filter(|(_, n)| *n == 1).count() as u64;
+
+    Ok(serde_json::json!({
+        "symbol": symbol,
+        "collection": group,
+        "scanned": scanned,
+        // False when the scan hit its page cap: the numbers describe what was
+        // read, and saying so beats presenting a partial count as a total.
+        "complete": complete,
+        "uniqueHolders": unique,
+        "held": held,
+        "singleItemHolders": singles,
+        "singleItemShare": if unique > 0 { singles as f64 / unique as f64 } else { 0.0 },
+        "averageHeld": if unique > 0 { held as f64 / unique as f64 } else { 0.0 },
+        "top1Share": share(1),
+        "top5Share": share(5),
+        "top10Share": share(10),
+        "top20Share": share(20),
+        "topHolders": ranked.iter().take(20).map(|(w, n)| serde_json::json!({
+            "wallet": w,
+            "count": n,
+            "share": if held > 0 { *n as f64 / held as f64 } else { 0.0 },
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+/// Sales over time, from the collection's own activity feed.
+///
+/// Magic Eden publishes activity but no time series, so the buckets are built
+/// here: one per day, with what sold and for how much. Bids and listings are
+/// excluded — an offer nobody took is not a price the market paid.
+pub async fn me_collection_sales_history(
+    http: &reqwest::Client,
+    symbol: &str,
+    days: u32,
+) -> Result<serde_json::Value, AppError> {
+    use std::collections::BTreeMap;
+
+    const PAGE: u32 = 500;
+    const MAX_PAGES: u32 = 6; // 3,000 events
+
+    let days = days.clamp(1, 90);
+    let cutoff = chrono::Utc::now().timestamp() - (days as i64 * 86_400);
+
+    #[derive(Default)]
+    struct Bucket {
+        sales: u64,
+        volume: f64,
+        low: Option<f64>,
+        high: Option<f64>,
+    }
+    let mut buckets: BTreeMap<i64, Bucket> = BTreeMap::new();
+    let mut reached_cutoff = false;
+
+    for page in 0..MAX_PAGES {
+        // Filter at the source. Unfiltered, the feed is overwhelmingly bids
+        // and pool updates — two hundred events covered twenty-two minutes of
+        // Mad Lads, so six pages reached back a few hours and found one sale
+        // in what was meant to be a fortnight.
+        let url = format!(
+            "{MAGIC_EDEN_API}/collections/{symbol}/activities?offset={}&limit={PAGE}&type=buyNow,buy",
+            page * PAGE
+        );
+        let events = match me_get_json(http, &url).await {
+            Ok(v) => v,
+            Err(e) if page == 0 => return Err(e),
+            Err(_) => break,
+        };
+        let events = match events.as_array() {
+            Some(e) if !e.is_empty() => e.clone(),
+            _ => break,
+        };
+        let got = events.len();
+        for ev in &events {
+            let at = ev.get("blockTime").and_then(|t| t.as_i64()).unwrap_or(0);
+            if at == 0 {
+                continue;
+            }
+            if at < cutoff {
+                reached_cutoff = true;
+                continue;
+            }
+            // The feed is already filtered to sales; this only guards against
+            // the filter being ignored, which is how `activityTypes=` behaves.
+            let kind = ev.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if !matches!(kind, "buyNow" | "buy" | "sale" | "acceptBid") {
+                continue;
+            }
+            let price = match ev.get("price").and_then(|p| p.as_f64()) {
+                Some(p) if p > 0.0 => p,
+                _ => continue,
+            };
+            let day = at - at.rem_euclid(86_400);
+            let b = buckets.entry(day).or_default();
+            b.sales += 1;
+            b.volume += price;
+            b.low = Some(b.low.map_or(price, |l: f64| l.min(price)));
+            b.high = Some(b.high.map_or(price, |h: f64| h.max(price)));
+        }
+        if reached_cutoff || got < PAGE as usize {
+            break;
+        }
+    }
+
+    let series: Vec<serde_json::Value> = buckets
+        .iter()
+        .map(|(day, b)| {
+            serde_json::json!({
+                "day": day,
+                "sales": b.sales,
+                "volume": b.volume,
+                "average": if b.sales > 0 { b.volume / b.sales as f64 } else { 0.0 },
+                "low": b.low,
+                "high": b.high,
+            })
+        })
+        .collect();
+
+    let sales: u64 = buckets.values().map(|b| b.sales).sum();
+    let volume: f64 = buckets.values().map(|b| b.volume).sum();
+
+    Ok(serde_json::json!({
+        "symbol": symbol,
+        "days": days,
+        // The feed is read newest-first and capped; `covers` says how far back
+        // the numbers actually reach, so a quiet week is not read as a crash.
+        "covers": series.first().and_then(|s| s.get("day").cloned()),
+        "sales": sales,
+        "volume": volume,
+        "average": if sales > 0 { volume / sales as f64 } else { 0.0 },
+        "series": series,
+    }))
 }
 
 /// On-chain facts about a mint: its collection account, its token standard,
@@ -3118,6 +3489,33 @@ async fn enrich_offers_with_nft(
     serde_json::Value::Array(out)
 }
 
+/// The read envelope, which is the same for every read: no transaction, no
+/// approval, just the data and a title.
+fn me_read_response(
+    action: &str,
+    params: &MeReadParams,
+    data: serde_json::Value,
+) -> BuildResponse {
+    BuildResponse {
+        preview: ActionPreview {
+            id: Uuid::new_v4().to_string(),
+            action_type: action.to_string(),
+            description: me_read_title(action, params),
+            estimated_fee: "0".to_string(),
+            estimated_refund: None,
+            params: serde_json::json!({}),
+            warnings: vec![],
+            requires_approval: false,
+        },
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: Some(data),
+    }
+}
+
 pub async fn build_me_read(
     http: &reqwest::Client,
     action: &str,
@@ -3166,9 +3564,45 @@ pub async fn build_me_read(
             data: Some(data),
         });
     }
+    if action == "me_collection_holder_stats" {
+        let symbol = collection_symbol(need(&params.symbol, "collection")?);
+        let data = me_collection_holders(http, &symbol).await?;
+        return Ok(me_read_response(action, params, data));
+    }
+    if action == "me_collection_sales_history" {
+        let symbol = collection_symbol(need(&params.symbol, "collection")?);
+        let days = params
+            .days
+            .as_deref()
+            .and_then(|d| d.trim().trim_end_matches('d').parse::<u32>().ok())
+            .unwrap_or(30);
+        let data = me_collection_sales_history(http, &symbol, days).await?;
+        return Ok(me_read_response(action, params, data));
+    }
     if matches!(action, "me_collection_stats" | "me_collection_info") {
         let symbol = need(&params.symbol, "collection")?.to_string();
-        let data = me_collection_detail(http, &collection_symbol(&symbol)).await?;
+        let mut data = me_collection_detail(http, &collection_symbol(&symbol)).await?;
+        // Magic Eden reports how many are for sale and never how many exist,
+        // so "244 listed" has no scale. The chain has the number when the
+        // collection is MPL Core; when it is not, the field is simply absent
+        // rather than guessed, since every percentage built on a wrong supply
+        // is wrong too.
+        if let Some(group) = me_collection_group(http, &collection_symbol(&symbol)).await {
+            if let Some(supply) = me_collection_supply(http, &group).await {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("supply".into(), serde_json::json!(supply));
+                    obj.insert("collection".into(), serde_json::json!(group));
+                    let listed = obj.get("listedCount").and_then(|v| v.as_u64()).unwrap_or(0);
+                    if supply > 0 {
+                        obj.insert(
+                            "listedShare".into(),
+                            serde_json::json!(listed as f64 / supply as f64),
+                        );
+                    }
+                }
+            }
+        }
+        let data = data;
         return Ok(BuildResponse {
             preview: ActionPreview {
                 id: Uuid::new_v4().to_string(),
