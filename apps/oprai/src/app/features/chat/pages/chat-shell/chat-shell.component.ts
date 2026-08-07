@@ -46,6 +46,11 @@ export class ChatShellComponent implements OnInit, OnDestroy {
   readonly messages = signal<ChatMessage[]>([]);
   readonly streaming = signal(false);
   readonly loadingMessages = signal(false);
+
+  /** True once the cookie-based restore has finished, so "not authenticated"
+   *  means signed out rather than not-yet-known. Without it the boot moment —
+   *  when both flags are false — reads as a failed sign-in. */
+  private _authSettled = false;
   readonly authError = signal<string | null>(null);
   readonly currentThinking = signal<string | null>(null);
   readonly chatLimitReached = signal(false);
@@ -111,6 +116,11 @@ export class ChatShellComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     console.log('[ChatShell] ngOnInit');
 
+    // The cookie restore decides whether "signed out" is a fact or just a
+    // moment that hasn't resolved. Only after it lands can a signed-out state
+    // be reported as one.
+    void this.authService.whenAuthReady().finally(() => { this._authSettled = true; });
+
     // Reset chat state when "New Chat" is triggered from the sidebar,
     // including when we're already on '/' (route won't change, paramMap won't fire).
     this.newChatSub = this.sessionStorage.newChat$.subscribe(() => {
@@ -171,6 +181,20 @@ export class ChatShellComponent implements OnInit, OnDestroy {
             this.loadingMessages.set(true);
             this.loadMessages(sessionId);
           }
+        });
+      } else if (!isAuthenticated && !isAuthenticating && this._authSettled) {
+        // Sign-in finished and we are STILL signed out: the attempt failed, or
+        // the wallet never answered. Nothing is coming, and a skeleton is a
+        // promise that something is — this is the state the app sat in forever
+        // after a signature request that went unanswered.
+        untracked(() => {
+          if (!this.loadingMessages() || this.authError()) return;
+          this.loadingMessages.set(false);
+          this.authError.set(
+            this.walletService.publicKey()
+              ? 'Your wallet hasn\'t approved the sign-in request yet. Open your wallet, approve it, then try again.'
+              : 'Connect your wallet to open this conversation.',
+          );
         });
       }
     }, { injector: this.injector });
@@ -237,6 +261,20 @@ export class ChatShellComponent implements OnInit, OnDestroy {
 
   retryLoad(): void {
     const sessionId = this.sessionStorage.activeSessionId();
+    // Signed out is the common reason to be here, and it has nothing to do with
+    // a session. Returning early left the button doing nothing at all on a
+    // fresh tab, which is where a failed sign-in most often lands.
+    if (!this.authService.isAuthenticated() && this.walletService.publicKey()) {
+      this.authError.set(null);
+      this.authService.authenticate().subscribe({
+        next: () => { if (sessionId) this.retryLoad(); },
+        error: (err: unknown) => this.authError.set(
+          (err as { message?: string })?.message
+            || 'Sign-in failed. Open your wallet, approve the request, and try again.',
+        ),
+      });
+      return;
+    }
     if (!sessionId) return;
     this.authError.set(null);
     this.msgSub?.unsubscribe();
