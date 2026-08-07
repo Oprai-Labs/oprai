@@ -3257,20 +3257,38 @@
 .result-table__header--me-trend,
 .result-table__row--me-trend {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 132px 108px 64px 84px;
+  grid-template-columns: minmax(0, 1fr) 150px 132px 64px 84px;
   gap: 10px;
   align-items: center;
 }
 .result-table__row--me-trend { cursor: pointer; }
 
+// The ranking's figures follow the pool tables: the number is the hero, its
+// direction rides beside it rather than under it. Stacked, every cell was two
+// lines tall and the rows grew to seventy pixels — a table that scrolls twice
+// as far to say the same thing.
+.result-table__row--me-trend .me-num {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  white-space: nowrap;
+}
+
 // A number without a direction is half the story; this is the other half.
 .me-chg {
-  display: block;
-  margin-top: 1px;
-  font-size: 0.625rem;
-  font-weight: 500;
+  margin-left: 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
   color: var(--op-text-tertiary);
 
   &--up   { color: var(--op-gain); }
   &--down { color: var(--op-loss); }
+}
+
+// Verification is a mark on the name, not a second line under it.
+.me-badge--inline {
+  display: inline-block;
+  vertical-align: -1px;
+  margin-left: 4px;
+  color: var(--op-brand-accent, #06b6d4);
 }
