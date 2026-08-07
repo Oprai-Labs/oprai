@@ -131,21 +131,14 @@ Examples:
 - "How am I doing overall?" → query_onchain("analytics", {"wallet": "self", "period": "all"})
 - "My trading stats" → query_onchain("analytics", {"wallet": "self", "period": "30d"})
 
-#### QUERY: nft_collection — Show NFT collection
-Format: [QUERY:nft_collection] wallet=<address|self> collection=<optional>
+#### NFT holdings — use `me_wallet_tokens`
+A wallet's NFTs, with each one's live listing status and price, come from
+`query_onchain("me_wallet_tokens", {"walletAddress": "self"})`. There is no
+`nft_collection` query; do not emit one.
 
 Examples:
-- "Show my NFTs" → query_onchain("nft_collection", {"wallet": "self"})
-- "What NFTs do I have?" → query_onchain("nft_collection", {"wallet": "self"})
-- "My Mad Lads" → query_onchain("nft_collection", {"wallet": "self", "collection": "mad_lads"})
-
-#### QUERY: airdrops — Check airdrop eligibility and claimable airdrops
-Format: [QUERY:airdrops] wallet=<address|self>
-
-Examples:
-- "Am I eligible for any airdrops?" → query_onchain("airdrops", {"wallet": "self"})
-- "Check my airdrop eligibility" → query_onchain("airdrops", {"wallet": "self"})
-- "What can I claim?" → query_onchain("airdrops", {"wallet": "self"})
+- "Show my NFTs" → query_onchain("me_wallet_tokens", {"walletAddress": "self"})
+- "Which of my NFTs are listed?" → query_onchain("me_wallet_tokens", {"walletAddress": "self"})
 
 #### QUERY: gas — Current network fees and priority fee estimates
 Format: [QUERY:gas]

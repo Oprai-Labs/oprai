@@ -95,15 +95,6 @@ interface AnalyticsResult {
   topTokens: { symbol: string; pnl: number; trades: number }[];
 }
 
-interface NftItem {
-  name: string;
-  collection: string;
-  image: string;
-  floorPrice: number;
-  rarity: string;
-  lastSale: number;
-}
-
 interface AirdropResult {
   protocol: string;
   status: string;
@@ -649,7 +640,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   networkResult: NetworkResult | null = null;
   yieldResults: YieldResult[] = [];
   analyticsResult: AnalyticsResult | null = null;
-  nftResults: NftItem[] = [];
   airdropResults: AirdropResult[] = [];
   gasResult: GasResult | null = null;
   walletInfoResult: WalletInfoResult | null = null;
@@ -743,6 +733,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // `nft_collection` used to render four invented NFTs — Mad Lads, Claynosaurz,
+    // SMBs nobody owned, with invented floor prices — under the user's own
+    // wallet heading. It is the same question `me_wallet_tokens` answers for
+    // real, so it is now that question. A snapshot taken while it was still
+    // mock data has nothing worth restoring, so those cards refetch.
+    if (this.query.type === 'nft_collection') {
+      const p = this.query.params ?? {};
+      this.query = {
+        ...this.query,
+        type: 'me_wallet_tokens',
+        params: { ...p, wallet: p['wallet'] ?? p['walletAddress'] ?? 'self' },
+      };
+      const restored = this.snapshot?.data as Record<string, unknown> | undefined;
+      if (this.snapshot && !restored?.['meShape']) this.snapshot = null;
+    }
+
     if (this.snapshot) {
       this.restoreSnapshot(this.snapshot);
       // Snapshot freshness check — restored snapshots older than 60s are
@@ -865,7 +871,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['yieldResults'])      this.yieldResults      = d['yieldResults']      as YieldResult[];
     if (d['perpPositions'])     this.perpPositions     = d['perpPositions']     as PerpPosition[];
     if (d['analyticsResult'])   this.analyticsResult   = d['analyticsResult']   as AnalyticsResult;
-    if (d['nftResults'])        this.nftResults        = d['nftResults']        as NftItem[];
     if (d['airdropResults'])    this.airdropResults    = d['airdropResults']    as AirdropResult[];
     if (d['gasResult'])         this.gasResult         = d['gasResult']         as GasResult;
     if (d['walletInfoResult'])  this.walletInfoResult  = d['walletInfoResult']  as WalletInfoResult;
@@ -963,7 +968,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.yieldResults.length)       d['yieldResults']       = this.yieldResults;
     if (this.perpPositions.length)      d['perpPositions']      = this.perpPositions;
     if (this.analyticsResult)           d['analyticsResult']    = this.analyticsResult;
-    if (this.nftResults.length)         d['nftResults']         = this.nftResults;
     if (this.airdropResults.length)     d['airdropResults']     = this.airdropResults;
     if (this.gasResult)                 d['gasResult']          = this.gasResult;
     if (this.walletInfoResult)          d['walletInfoResult']   = this.walletInfoResult;
@@ -1661,6 +1665,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ...(t.collectionName ? { collectionName: t.collectionName } : {}),
       ...(t.collection ? { collectionSymbol: t.collection } : {}),
       ...(t.rarityRank ? { rarityRank: String(t.rarityRank) } : {}),
+      // The collection's royalty, carried across rather than looked up again.
+      // The action card was waiting on a second request for a number the row
+      // already holds, and until it answered the card could not state a total
+      // at all.
+      ...(typeof t.sellerFeeBasisPoints === 'number'
+        ? { royaltyBps: String(t.sellerFeeBasisPoints) } : {}),
     };
   }
 
@@ -1687,8 +1697,40 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Move a live listing to a different price.
+   *
+   * Magic Eden does this in one instruction. Without it, re-pricing meant
+   * cancel-then-relist: two transactions, two fees, and a window where the
+   * NFT is not for sale at all.
+   */
+  changeMeListingPrice(t: MeTokenRow): void {
+    this.meEmit('me_sell_change_price', {
+      ...this.meNftContext(t),
+      // Seeded at the current price so the field opens on a real number the
+      // user edits, rather than an empty box asking what it already knows.
+      ...(t.price ? { newPrice: String(t.price), listPrice: String(t.price) } : {}),
+    });
+  }
+
+  /** Same, for a bid the user has standing. */
+  changeMeOfferPrice(o: MeOfferRow): void {
+    if (!o.tokenMint) return;
+    this.meEmit('me_buy_change_price', {
+      mintAddress: o.tokenMint,
+      ...(o.price ? { newPrice: String(o.price), listPrice: String(o.price) } : {}),
+      ...(o.name ? { nftName: o.name } : {}),
+      ...(o.image ? { nftImage: o.image } : {}),
+    });
+  }
+
   cancelMeListing(t: MeTokenRow): void {
-    this.meEmit('me_cancel_listing', this.meNftContext(t));
+    this.meEmit('me_cancel_listing', {
+      ...this.meNftContext(t),
+      // Which listing is being withdrawn. Named apart from `price` so no
+      // builder can mistake it for an amount to spend.
+      ...(t.price ? { listPrice: String(t.price) } : {}),
+    });
   }
 
   /**
@@ -1718,6 +1760,49 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   meIsListed(t: MeTokenRow): boolean {
     return t.listStatus === 'listed' || (t.price ?? 0) > 0;
   }
+
+  /**
+   * What a buyer is charged for this listing: the ask, plus the collection's
+   * royalty, plus Magic Eden's 2% taker fee.
+   *
+   * Magic Eden's own grid shows this number, not the ask — a 500 SOL listing
+   * reads there as 555. Showing only the ask left the two products
+   * contradicting each other over the same NFT, so the card names both: what
+   * the seller set, and what the marketplace will quote for it.
+   */
+  meBuyerPays(t: MeTokenRow): number | null {
+    const ask = t.price ?? 0;
+    const bps = t.sellerFeeBasisPoints;
+    // No royalty figure means no total. Treating a missing one as zero prints
+    // a confident number that is short by the largest part of the difference —
+    // 510 where the marketplace says 555.
+    if (ask <= 0 || typeof bps !== 'number') return null;
+    const total = ask * (1 + Math.max(0, bps) / 10_000 + this.ME_TAKER_FEE);
+    return total > ask ? total : null;
+  }
+
+  /**
+   * The headline: the number Magic Eden prints next to this NFT, so the two
+   * products don't quote different prices for the same thing. What the seller
+   * set survives underneath as "You receive" — it is the second question, not
+   * the first, for everyone except the seller.
+   */
+  meMarketPrice(t: MeTokenRow): number | null {
+    return this.meBuyerPays(t) ?? (t.price && t.price > 0 ? t.price : null);
+  }
+
+  /** How the headline is built, for whoever is looking at it. */
+  mePriceNote(t: MeTokenRow): string | null {
+    const ask = t.price ?? 0;
+    if (ask <= 0 || this.meBuyerPays(t) === null) return null;
+    const fmt = (n: number) => `${Number(n.toFixed(3))} SOL`;
+    if (this.meOwnsToken(t)) return `You receive ${fmt(ask)}`;
+    const royaltyPct = Math.max(0, t.sellerFeeBasisPoints ?? 0) / 100;
+    return `${fmt(ask)} ask + ${Number(royaltyPct.toFixed(2))}% royalty + 2% fee`;
+  }
+
+  /** Magic Eden's taker fee on Solana. */
+  private readonly ME_TAKER_FEE = 0.02;
 
   /** Take a bid on an NFT you own, or withdraw one you made. */
   acceptMeOffer(o: MeOfferRow): void {
@@ -2041,7 +2126,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       return;
     }
     if (/offer/.test(t)) {
-      this.meOffers.set(MagicEdenService.rowsFrom<MeOfferRow>(data, 'offers'));
+      const offers = MagicEdenService.rowsFrom<MeOfferRow>(data, 'offers');
+      this.meOffers.set(offers);
+      void this.nameUnresolvedOffers(offers);
       this.meShape.set('offers');
       return;
     }
@@ -2050,8 +2137,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // from this list — so they render as the NFT grid, not as a table of
       // addresses.
       const rows = MagicEdenService.rowsFrom<Record<string, unknown>>(data, 'listings');
-      this.meTokens.set(rows.map(r => this.meListingToToken(r)));
+      const tokens = rows.map(r => this.meListingToToken(r));
+      this.meTokens.set(tokens);
       this.meShape.set('tokens');
+      void this.loadTraitStatsForRows(tokens);
       return;
     }
     if (t === 'me_mmm_pools') {
@@ -2099,6 +2188,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const rows = MagicEdenService.rowsFrom<MeTokenRow>(data, 'tokens', 'nfts', 'pools');
     this.meTokens.set(rows);
     this.meShape.set('tokens');
+    void this.loadTraitStatsForRows(rows);
   }
 
   /** A listing row carries the NFT under `token` on some endpoints and inline
@@ -2303,22 +2393,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    * carrying it, and the floor of the pieces that do, is what people open an
    * NFT page to read.
    */
-  meNftTraits(): Array<{ label: string; value: string; share: number | null; floor: number | null }> {
+  meNftTraits(): Array<{ label: string; value: string; share: number | null; count: number | null; floor: number | null }> {
     const n = this.meNft();
     if (!n) return [];
-    const stats = this.meTraitStats();
-    return this.meTraits(n).map(t => {
-      const s = stats[`${t.label}|${t.value}`];
-      return {
-        ...t,
-        share: s ? s.share : null,
-        floor: s ? MagicEdenService.solFromMaybeLamports(s.floor) : null,
-      };
-    });
+    return this.meRowTraits(n);
   }
 
-  /** Three bands, matching the reference: gold under 5%, magenta to 15%,
-   *  muted above. A trait 89% of the collection has should not shout. */
+  /**
+   * Three bands: gold under 5%, magenta to 15%, muted above. A trait most of
+   * the listed pieces share should not shout.
+   *
+   * The share is over the LISTED set, not the collection — Magic Eden's
+   * attribute table only counts what is for sale (202 listed pieces plus 5
+   * one-of-ones = its own listedCount of 207, against a collection of 2,421).
+   * So it colours the chip but is never printed as a rarity percentage: it
+   * would read as Magic Eden's 18% and say 21.7%.
+   */
   meRarityClass(share: number | null): string {
     if (share === null) return '';
     if (share <= 0.05) return 'me-rar--gold';
@@ -2343,6 +2433,88 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       label: String(a.trait_type ?? a.traitType ?? ''),
       value: String(a.value ?? ''),
     })).filter(a => a.label);
+  }
+
+  /**
+   * A tile's traits, scored the way the detail view scores them.
+   *
+   * A list of trait names is a description of the picture. What tells you
+   * whether the piece is worth anything is how few others carry the trait and
+   * what those trade for — which is what Magic Eden shows and we did not.
+   */
+  meRowTraits(t: MeTokenRow): Array<{ label: string; value: string; share: number | null; count: number | null; floor: number | null }> {
+    const stats = this.meTraitStats();
+    return this.meTraits(t).map(tr => {
+      const s = stats[`${tr.label}|${tr.value}`];
+      return {
+        ...tr,
+        share: s ? s.share : null,
+        count: s ? s.count : null,
+        floor: s ? MagicEdenService.solFromMaybeLamports(s.floor) : null,
+      };
+    });
+  }
+
+  /**
+   * Rarity for a whole list, from one request.
+   *
+   * Magic Eden's attribute table is collection-wide, so scoring twenty tiles
+   * costs the same as scoring one. Asking per NFT would be twenty identical
+   * requests for the same answer.
+   */
+  private async loadTraitStatsForRows(rows: MeTokenRow[]): Promise<void> {
+    if (Object.keys(this.meTraitStats()).length) return;
+    const symbol = rows.map(r => r.collection).find((c): c is string => !!c);
+    if (!symbol) return;
+    const data = await this.magicEden.read<{ traitStats?: Record<string, { count: number; share: number; floor: number | null }> }>(
+      'me_collection_attributes', { symbol },
+    );
+    const stats = data?.traitStats;
+    if (stats && Object.keys(stats).length) {
+      this.meTraitStats.set(stats);
+      this.persistSnapshot();
+    }
+  }
+
+  /**
+   * Name any bid the server could not.
+   *
+   * The read resolves each offer's NFT, but that is one Magic Eden call per
+   * mint and they rate-limit: a throttled row arrives as a bare address, and
+   * clicking again "fixed" it, which is the signature of a transient failure
+   * rather than a missing feature. This retries the few that came back unnamed
+   * so the tile does not depend on the first attempt succeeding.
+   */
+  private async nameUnresolvedOffers(offers: MeOfferRow[]): Promise<void> {
+    const missing = offers.filter(o => !o.name && o.tokenMint).slice(0, 6);
+    if (!missing.length) return;
+    const resolved = await Promise.all(missing.map(async o => {
+      const d = await this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: o.tokenMint });
+      const src = ((d?.['token'] as Record<string, unknown> | undefined) ?? d) ?? {};
+      return { mint: o.tokenMint, ...src } as Record<string, unknown> & { mint?: string };
+    }));
+    const byMint = new Map(resolved.filter(r => r['name']).map(r => [r.mint, r]));
+    if (!byMint.size) return;
+    this.meOffers.update(rows => rows.map(r => {
+      const hit = r.tokenMint ? byMint.get(r.tokenMint) : undefined;
+      return hit
+        ? {
+            ...r,
+            name: hit['name'] as string,
+            image: (hit['image'] as string | undefined) ?? r.image,
+            collectionName: (hit['collectionName'] as string | undefined) ?? r.collectionName,
+          }
+        : r;
+    }));
+    this.persistSnapshot();
+  }
+
+  /** The piece a bid is on. Falls back to the mint only when the lookup that
+   *  names it could not answer. */
+  meOfferTitle(o: MeOfferRow): string {
+    if (o.name) return o.name;
+    const m = o.tokenMint ?? '';
+    return m ? `${m.slice(0, 4)}…${m.slice(-4)}` : '—';
   }
 
   meWhen(blockTime: number | null | undefined): string {
@@ -3731,34 +3903,28 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         this.error.set('Use the action card to execute this request.');
         this.loading.set(false);
         return;
-      default:
-        // Mock data for queries without a real backend yet (nft_collection, airdrops, tax_report, alerts).
-        // `analytics` and `yield` are handled above with live fetches — no mock fallback.
-        setTimeout(() => {
-          switch (this.query.type) {
-            case 'nft_collection':
-              this.nftResults = this.getMockNfts();
-              break;
-            case 'airdrops':
-              this.airdropResults = this.getMockAirdrops();
-              break;
-            case 'tax_report':
-              this.loading.set(true);
-              this.fetchTaxReport().catch(() => {
-                this.taxResult = this.getMockTax();
-                this.loading.set(false);
-                this.persistSnapshot();
-              });
-              return;
-            case 'alerts':
-              this.alertResults = this.getMockAlerts();
-              break;
-            default:
-              this.error.set('Unknown query type');
-          }
+      case 'tax_report':
+        this.loading.set(true);
+        await this.fetchTaxReport().catch(() => {
+          this.error.set('Could not build your tax report right now.');
           this.loading.set(false);
           this.persistSnapshot();
-        }, 600);
+        });
+        return;
+      // Nothing backs these yet. They used to render invented rows — claimable
+      // airdrops nobody was eligible for, alerts nobody had set — which is
+      // worse than an empty card, because the user acts on it.
+      case 'airdrops':
+        this.error.set('Airdrop eligibility isn\'t available yet.');
+        this.loading.set(false);
+        return;
+      case 'alerts':
+        this.error.set('Alerts aren\'t available yet.');
+        this.loading.set(false);
+        return;
+      default:
+        this.error.set('Unknown query type');
+        this.loading.set(false);
     }
   }
 
@@ -4142,7 +4308,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.loading.set(false);
       this.persistSnapshot();
     } catch {
-      this.gasResult = this.getMockGas();
+      this.error.set('Could not read network fees right now.');
       this.loading.set(false);
       this.persistSnapshot();
     }
@@ -4321,35 +4487,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
-  private getMockNfts(): NftItem[] {
-    return [
-      { name: 'Mad Lad #4521', collection: 'Mad Lads', image: 'ML', floorPrice: 142.5, rarity: 'Top 10%', lastSale: 155.0 },
-      { name: 'Clayno #892', collection: 'Claynosaurz', image: 'CL', floorPrice: 28.4, rarity: 'Top 25%', lastSale: 32.0 },
-      { name: 'SMB #3341', collection: 'SMB Gen2', image: 'SM', floorPrice: 18.2, rarity: 'Top 40%', lastSale: 20.5 },
-      { name: 'Tensorian #127', collection: 'Tensorians', image: 'TN', floorPrice: 8.5, rarity: 'Top 15%', lastSale: 9.8 },
-    ];
-  }
-
-  private getMockAirdrops(): AirdropResult[] {
-    return [
-      { protocol: 'Jupiter', status: 'Claimable', amount: '1,247', token: 'JUP', deadline: '2025-03-15', eligible: true },
-      { protocol: 'Tensor', status: 'Claimable', amount: '340', token: 'TNSR', deadline: '2025-04-01', eligible: true },
-      { protocol: 'Kamino', status: 'Expired', amount: '—', token: 'KMNO', deadline: 'Expired', eligible: false },
-      { protocol: 'Parcl', status: 'Upcoming', amount: 'TBD', token: 'PRCL', deadline: 'Q2 2025', eligible: false },
-    ];
-  }
-
-  private getMockGas(): GasResult {
-    return {
-      baseFee: 0.000005,
-      priorityLow: 0.00001,
-      priorityMedium: 0.0001,
-      priorityHigh: 0.001,
-      swapCost: '~$0.02',
-      transferCost: '~$0.001',
-    };
-  }
-
 
   private async fetchTaxReport(): Promise<void> {
     const currentYear = new Date().getFullYear();
@@ -4365,7 +4502,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       })
     );
     if (!resp?.success || !resp.report) {
-      this.taxResult = this.getMockTax();
+      this.error.set('Could not build your tax report right now.');
       this.loading.set(false);
       this.persistSnapshot();
       return;
@@ -4397,33 +4534,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     };
     this.loading.set(false);
     this.persistSnapshot();
-  }
-
-  private getMockTax(): TaxResult {
-    return {
-      year: 2025,
-      totalGains: 4280.50,
-      totalLosses: 1433.18,
-      netGains: 2847.32,
-      shortTermGains: 2100.00,
-      longTermGains: 747.32,
-      totalTxs: 142,
-      categories: [
-        { type: 'Swaps', amount: 1890.40, count: 85 },
-        { type: 'Staking Rewards', amount: 420.50, count: 24 },
-        { type: 'LP Fees', amount: 340.12, count: 18 },
-        { type: 'Airdrops', amount: 196.30, count: 15 },
-      ],
-    };
-  }
-
-  private getMockAlerts(): AlertItem[] {
-    return [
-      { id: 'al-1', type: 'Price Above', token: 'SOL', condition: '>', targetValue: '$200.00', currentValue: '$178.05', status: 'active', createdAt: '1d ago' },
-      { id: 'al-2', type: 'Price Below', token: 'JUP', condition: '<', targetValue: '$0.20', currentValue: '$0.2503', status: 'active', createdAt: '3d ago' },
-      { id: 'al-3', type: 'Whale Alert', token: 'BONK', condition: 'Whale >$1M', targetValue: '$1,000,000', currentValue: '—', status: 'active', createdAt: '5d ago' },
-      { id: 'al-4', type: 'Price Above', token: 'WIF', condition: '>', targetValue: '$2.00', currentValue: '$2.45', status: 'triggered', createdAt: '7d ago' },
-    ];
   }
 
   /** True when at least one token row has a non-zero trade count. Used by

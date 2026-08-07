@@ -2346,21 +2346,69 @@
   padding: 4px 0;
 
   &--nft {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+    gap: 12px;
+  }
+
+  // One or two NFTs: full-width rows instead of lonely tiles.
+  &--rows {
+    grid-template-columns: 1fr;
   }
 }
 
+// The initial sits UNDER the artwork, always rendered, and the image covers it.
+//
+// It used to be an `@else` — shown only when there was no image URL at all. A
+// URL that existed but could not load just hid the <img> and left a hole,
+// which is what a collection whose IPFS host has gone dark looks like: not
+// "no artwork", but "broken app". Now the image failing simply reveals what
+// was already behind it.
+// What is shown when the artwork cannot be fetched — which happens: this
+// collection's CID is unreachable on every public IPFS gateway, and Magic
+// Eden's own grid shows an empty box for it too.
+//
+// It used to be a bright brand gradient with the NFT's initial on it, which
+// looked like deliberate cover art rather than a missing file: a wall of them
+// reads as a collection of coloured squares. A quiet surface, our mark, and a
+// caption that says what happened.
 .me-art__fallback {
+  position: absolute;
+  inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06b6d4));
-  color: #fff;
-  font-weight: 700;
-  text-transform: uppercase;
+  gap: 10px;
+  background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+}
+
+// Scoped to the fallback ON PURPOSE. Every art container carries an
+// `img { width:100%; height:100%; object-fit:cover }` rule that is one point
+// more specific than a bare `.me-art__mark`, so the mark was stretched to fill
+// the square and clipped by its own rounded corners.
+.me-art__fallback .me-art__mark {
+  flex: 0 0 auto;
+  width: 30%;
+  height: auto;
+  max-width: 64px;
+  min-width: 18px;
+  object-fit: contain;
+  opacity: 0.3;
+}
+
+.me-art__note {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--op-text-tertiary, #71717a);
+  text-align: center;
+  padding: 0 8px;
+}
+
+// On the big art the mark can breathe; on a thumbnail the caption is dropped
+// entirely rather than rendered at a size nobody can read.
+.me-art__fallback--lg .me-art__mark {
+  width: 34%;
+  max-width: 72px;
 }
 
 // Collection row — art, name, the three numbers that decide whether to look.
@@ -2384,6 +2432,7 @@
   }
 
   &__art {
+    position: relative;
     display: block;
     flex-shrink: 0;
     width: 44px;
@@ -2392,7 +2441,7 @@
     overflow: hidden;
     background: var(--op-bg-surface-1, #14151a);
 
-    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; display: block; }
 
     &--lg {
       width: 52px;
@@ -2429,7 +2478,61 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
+  padding: 10px;
+
+  // The row form: the same parts, laid on their side. Art keeps its square,
+  // the text column takes the rest, and the action sits with the text rather
+  // than under the picture.
+  // The row form is the NFT-detail hero, at the same proportions: 160px of
+  // art, a heading you can read across the room, then the price bar. The
+  // traits fall below both columns because they are a grid of their own.
+  &--row {
+    display: grid;
+    grid-template-columns: 160px minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    gap: 6px 18px;
+    padding: 16px;
+    align-items: start;
+
+    .me-nft__art {
+      width: 160px;
+      grid-column: 1;
+      grid-row: 1 / span 3;
+      border-radius: 14px;
+    }
+
+    .me-nft__name {
+      grid-column: 2;
+      grid-row: 1;
+      font-size: 1.375rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .me-nft__coll {
+      grid-column: 2;
+      grid-row: 2;
+      font-size: 0.8125rem;
+      margin-top: 0;
+    }
+
+    .me-nft__bar {
+      grid-column: 2;
+      grid-row: 3;
+      margin-top: 8px;
+    }
+
+    // Full width under both columns, like the detail view's Traits tab.
+    .me-nft__traits {
+      grid-column: 1 / -1;
+      margin-top: 14px;
+    }
+
+    .me-nft__foot {
+      grid-column: 1 / -1;
+      margin-top: 14px;
+    }
+  }
   border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
   border-radius: var(--op-radius-md, 10px);
   background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
@@ -2442,7 +2545,7 @@
     overflow: hidden;
     background: var(--op-bg-surface-1, #14151a);
 
-    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; display: block; }
   }
 
   &__rank {
@@ -2475,29 +2578,118 @@
     margin-top: -4px;
   }
 
-  &__foot {
+  // Price on its own line, label left and figure right — the same rhythm the
+  // swap card uses for its facts, so a number the eye is hunting for is always
+  // in the same place.
+  &__price-row {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
-    gap: 6px;
+    gap: 8px;
+    padding-top: 2px;
   }
 
-  &__price { font-size: 0.8125rem; font-weight: 600; }
+  &__price-k {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary, #71717a);
+  }
 
-  &__unlisted { color: var(--op-text-tertiary, #71717a); font-weight: 400; }
+  &__price {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
 
-  &__traits { display: flex; flex-wrap: wrap; gap: 4px; }
+  &__unlisted { color: var(--op-text-tertiary, #71717a); font-weight: 500; font-size: 0.8125rem; }
+
+  // Traits were inline chips. Each one is a label and a value of unpredictable
+  // length, so they wrapped one per line and read as a ragged pile. As rows of
+  // key and value they align, and four of them take less height than the pile
+  // did.
+  // The traits themselves are the shared `.me-detail__traits` cards; this only
+  // sets them off from the price above.
+  &__traits {
+    margin: 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  }
+
+  // The action fills the width. It is the one thing to do with this tile, and
+  // a small button floated beside a price looked like an afterthought.
+  //
+  // It is NOT a stretched row chip. `.dlmm-use-btn` is sized for a table row —
+  // 4px of padding, 12px type, a 5px corner — and pulled to full width it
+  // reads as a grey slab rather than a button. A card's own call to action is
+  // built like the action card's Confirm: 10/18 padding, the shared radius,
+  // 14px semibold.
+  &__foot {
+    display: flex;
+    gap: 8px;
+    padding-top: 2px;
+
+    .dlmm-use-btn {
+      flex: 1;
+      justify-content: center;
+      padding: 10px 18px;
+      border-radius: var(--op-radius-md);
+      font-size: 0.875rem;
+      font-weight: 600;
+      box-shadow: 0 2px 12px color-mix(in srgb, var(--op-brand) 30%, transparent);
+      transition: filter var(--op-fast), box-shadow var(--op-fast), transform var(--op-fast),
+                  background var(--op-fast), border-color var(--op-fast), color var(--op-fast);
+
+      &:hover:not(:disabled) {
+        filter: brightness(1.08);
+        box-shadow: 0 4px 20px color-mix(in srgb, var(--op-brand) 44%, transparent);
+        transform: translateY(-1px);
+      }
+      &:active:not(:disabled) { transform: translateY(0); }
+    }
+
+    // Withdrawing a listing is not the loud action, but it is still the only
+    // action on the card — a secondary button, not a disabled-looking one.
+    .dlmm-use-btn--ghost {
+      padding: 9px 17px;   // 1px less, so the border keeps the primary's height
+      background: var(--op-bg-surface-2);
+      border: 1px solid var(--op-border-subtle);
+      color: var(--op-text-primary);
+      font-weight: 500;
+      box-shadow: none;
+
+      &:hover:not(:disabled) {
+        background: var(--op-bg-surface-3);
+        border-color: var(--op-border-strong);
+        color: var(--op-text-primary);
+        box-shadow: none;
+        filter: none;
+        transform: translateY(-1px);
+      }
+    }
+  }
 }
 
 .me-trait {
-  padding: 2px 6px;
-  border-radius: var(--op-radius-sm, 6px);
-  background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
-  font-size: 0.625rem;
-  color: var(--op-text-secondary, #a1a1aa);
-  white-space: nowrap;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  font-size: 0.6875rem;
 
-  &__k { color: var(--op-text-tertiary, #71717a); margin-right: 3px; }
+  &__k {
+    color: var(--op-text-tertiary, #71717a);
+    flex-shrink: 0;
+  }
+
+  &__v {
+    margin: 0;
+    color: var(--op-text-primary);
+    font-weight: 500;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 // Activity verb. Buys and lists are the two a reader scans for.
@@ -2645,7 +2837,7 @@
   gap: 8px;
 }
 
-.me-nft__acts { display: inline-flex; gap: 5px; }
+.me-nft__acts { display: flex; flex: 1; gap: 6px; }
 
 .me-stats-card__desc {
   margin: 0;
@@ -2716,6 +2908,7 @@
   // Sized, not stretched. A full-height column made it 300px and left a gap
   // under it as tall as the trait list.
   &__art {
+    position: relative;
     flex-shrink: 0;
     width: 168px;
     aspect-ratio: 1;
@@ -2723,7 +2916,7 @@
     overflow: hidden;
     background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
 
-    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; display: block; }
   }
 
   &__main { display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1; }

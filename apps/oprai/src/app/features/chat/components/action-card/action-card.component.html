@@ -403,12 +403,17 @@
                are not the user's to supply. What remains editable is the price
                and the expiry, rendered by the generic field list below. -->
           <div class="me-act">
+            <!-- The fallback sits BEHIND the art rather than in an @else:
+                 an image that 404s hides itself, and an @else has already been
+                 skipped by then, which left an empty square. -->
             <div class="me-act__art">
+              <span class="me-act__fallback">
+                <img class="me-act__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
+                <span class="me-act__mark-note">Media not available</span>
+              </span>
               @if (meNftImage()) {
-                <img [src]="meArtSrc()" [alt]="meNftName()" loading="eager" decoding="async"
+                <img class="me-act__img" [src]="meArtSrc()" [alt]="meNftName()" loading="eager" decoding="async"
                      (error)="$any($event.target).style.display='none'" />
-              } @else {
-                <span class="me-act__fallback">{{ (meNftName() || '?').charAt(0) }}</span>
               }
             </div>
             <div class="me-act__body">
@@ -433,18 +438,78 @@
                   @if (meVerb()) { <span class="me-act__price-k">{{ meVerb() }}</span> }
                   <span class="me-act__price-v mono">{{ price | number:'1.0-4' }} SOL</span>
                 </div>
-                @if (meFeeSol(); as fee) {
-                  <!-- A seller who reads only the ask is reading the wrong
-                       number: Magic Eden's 2% comes out of it. -->
+                @if (meOfferExpiry(); as on) {
+                  <div class="me-act__fee"><span>Offer expires</span><span>{{ on }}</span></div>
+                }
+                @if (meCurrentPrice(); as current) {
                   <div class="me-act__fee">
-                    <span>Magic Eden fee 2%</span><span class="mono">−{{ fee | number:'1.0-4' }} SOL</span>
+                    <span>Currently</span><span class="mono">{{ current | number:'1.0-4' }} SOL</span>
                   </div>
-                  @if (meNetSol(); as net) {
-                    <div class="me-act__net">
-                      <span>You keep</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
+                }
+                <!-- Withdrawing a listing: name the number the marketplace is
+                     showing, so the card matches the grid it is undoing. -->
+                @if (meIsCancelListing()) {
+                  @if (meListedTotalSol(); as total) {
+                    <div class="me-act__fee">
+                      <span>Shown on Magic Eden</span><span class="mono">{{ total | number:'1.0-4' }} SOL</span>
                     </div>
                   }
                 }
+                @if (meFeeSol(); as fee) {
+                  <!-- Both numbers, because they are both real and they differ.
+                       Listing at 500 put 555 on Magic Eden's grid: their 2% and
+                       the collection's royalty are added on top of the ask. -->
+                  @if (meRoyaltySol(); as roy) {
+                    <div class="me-act__fee">
+                      <span>Creator royalty {{ (meRoyaltyPct() ?? 0) * 100 | number:'1.0-2' }}%</span>
+                      <span class="mono">{{ meIsProceedsSide() ? '−' : '+' }}{{ roy | number:'1.0-4' }} SOL</span>
+                    </div>
+                  }
+                  <div class="me-act__fee">
+                    <span>Magic Eden fee 2%</span>
+                    <span class="mono">{{ meIsProceedsSide() ? '−' : '+' }}{{ fee | number:'1.0-4' }} SOL</span>
+                  </div>
+                  @if (meIsBuySide()) {
+                    @if (meBuyerPaysSol(); as total) {
+                      <div class="me-act__net">
+                        <span>You pay</span><span class="mono">{{ total | number:'1.0-4' }} SOL</span>
+                      </div>
+                    }
+                  } @else if (meIsProceedsSide()) {
+                    <!-- A bid is already funded, so nothing is added to it: the
+                         royalty and the fee come out of the number the bidder
+                         escrowed. -->
+                    @if (meProceedsSol(); as net) {
+                      <div class="me-act__net">
+                        <span>You receive</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
+                      </div>
+                    }
+                  } @else {
+                    @if (meBuyerPaysSol(); as total) {
+                      <div class="me-act__fee">
+                        <span>Buyer pays</span><span class="mono">{{ total | number:'1.0-4' }} SOL</span>
+                      </div>
+                    }
+                    @if (meNetSol(); as net) {
+                      <div class="me-act__net">
+                        <span>You receive</span><span class="mono">{{ net | number:'1.0-4' }} SOL</span>
+                      </div>
+                    }
+                  }
+                }
+              }
+              <!-- The traits, in the same rows the browse tile uses. Someone
+                   picks an NFT for these and was then asked to confirm on a
+                   name and a picture alone. -->
+              @if (meNftTraits().length) {
+                <div class="me-act__traits">
+                  @for (tr of meNftTraits(); track tr.label) {
+                    <div class="me-act__trait">
+                      <span class="me-act__trait-k">{{ tr.label }}</span>
+                      <span class="me-act__trait-v" [attr.title]="tr.value">{{ tr.value }}</span>
+                    </div>
+                  }
+                </div>
               }
             </div>
           </div>
@@ -455,6 +520,9 @@
              fills labelled with what they put in. It was a form row with a
              small uppercase label, which is what a setting looks like — this
              is the decision the card exists for. -->
+        @if (meOfferMinNote(); as note) {
+          <div class="me-min-note">{{ note }}</div>
+        }
         @if (isMeAmountPanel()) {
           <div class="pump-panel me-amount">
             <div class="pump-panel__top">
@@ -503,6 +571,11 @@
                           (click)="setMeExpiry(c.days)">{{ c.label }}</button>
                 }
               </div>
+              <!-- The chip says "7 days"; this says which day. A listing that
+                   expires is a date, and the card knew it without saying it. -->
+              @if (meExpiryOn(); as on) {
+                <div class="me-act__fee"><span>Ends</span><span>{{ on }}</span></div>
+              }
             </div>
           }
         }
@@ -1838,7 +1911,10 @@
               <!-- Angular 19: `; as` binds only on a PRIMARY @if, never on an
                    @else if — so the alias is hoisted to a @let. -->
               @let pd = meteoraPositionDetail();
-              @if (meteoraPositionGone()) {
+              @if (meOfferBelowMin()) {
+            <lucide-icon name="alert-circle" [size]="14" />
+            Minimum offer {{ ME_MIN_OFFER_SOL }} SOL
+          } @else if (meteoraPositionGone()) {
                 <div class="clmm-min-hint clmm-min-hint--warn">
                   <lucide-icon name="alert-circle" [size]="13" />
                   This position is no longer open — it was closed after this card was
@@ -4143,8 +4219,8 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
             @if (meteoraPositionGone()) {
               <lucide-icon name="alert-circle" [size]="14" />

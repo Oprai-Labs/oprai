@@ -11,6 +11,38 @@ use crate::solana::connection::SolanaRpc;
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// Read an optional unix timestamp that may arrive as a number OR as a string.
+///
+/// Every caller we have sends strings: the action card's parameters are a
+/// `Record<string, string>`, and the LLM emits JSON strings too. With a plain
+/// `Option<u64>` the whole parameter object failed to deserialize, so choosing
+/// any expiry other than "no expiry" turned the build into a 400 — which is
+/// why every listing we have made carries `seller_expiry: -1` on chain
+/// regardless of what was picked.
+fn de_opt_timestamp<'de, D>(d: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    match v {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Number(n)) => Ok(n.as_u64()),
+        Some(serde_json::Value::String(s)) => {
+            let s = s.trim();
+            // An empty string is how "no expiry" reaches us from a cleared
+            // field; it is an absent value, not a malformed one.
+            if s.is_empty() {
+                return Ok(None);
+            }
+            s.parse::<u64>().map(Some).map_err(D::Error::custom)
+        }
+        Some(other) => Err(D::Error::custom(format!(
+            "expiry must be a unix timestamp, got {other}"
+        ))),
+    }
+}
+
 /// Magic Eden API v2 base URL
 pub const MAGIC_EDEN_API: &str = "https://api-mainnet.magiceden.dev/v2";
 
@@ -47,21 +79,47 @@ pub async fn me_get_json(
     http: &reqwest::Client,
     url: &str,
 ) -> Result<serde_json::Value, AppError> {
-    let mut req = http.get(url);
-    if let Some(key) = me_api_key() {
-        req = req.bearer_auth(key);
+    // Magic Eden throttles and occasionally 5xxs, and both clear on their own.
+    // Without a retry those land as a card that says "This NFT" over a "media
+    // not available" square for a piece with perfectly good art — the failure
+    // is invisible and looks like missing data instead of a bad minute.
+    const ATTEMPTS: usize = 3;
+    let mut last = None;
+    for attempt in 0..ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(250 << attempt)).await;
+        }
+        let mut req = http.get(url);
+        if let Some(key) = me_api_key() {
+            req = req.bearer_auth(key);
+        }
+        let resp = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                last = Some(AppError::ProtocolError(format!(
+                    "Magic Eden request failed: {e}"
+                )));
+                continue;
+            }
+        };
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if status.is_success() {
+            return serde_json::from_str(&body).map_err(|e| {
+                AppError::ProtocolError(format!("Magic Eden returned malformed JSON: {e}"))
+            });
+        }
+        // A 404 is an answer: the thing is not there and asking again will not
+        // change that. Only throttling and server faults are worth repeating.
+        let retryable = status.as_u16() == 429 || status.is_server_error();
+        last = Some(me_api_error(status, &body));
+        if !retryable {
+            break;
+        }
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Magic Eden request failed: {e}")))?;
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(me_api_error(status, &body));
-    }
-    serde_json::from_str(&body)
-        .map_err(|e| AppError::ProtocolError(format!("Magic Eden returned malformed JSON: {e}")))
+    Err(last.unwrap_or_else(|| {
+        AppError::ProtocolError("Magic Eden could not complete that request".into())
+    }))
 }
 
 /// Turn a Magic Eden failure into something a person can act on.
@@ -326,6 +384,7 @@ pub struct MeListParams {
     /// Price in SOL
     pub price: String,
     /// Optional expiry (unix timestamp)
+    #[serde(default, deserialize_with = "de_opt_timestamp")]
     pub expiry: Option<u64>,
     /// The wallet's token account for this mint. Resolved when absent.
     #[serde(default)]
@@ -393,6 +452,7 @@ pub struct MeMakeOfferParams {
     /// Offer price in SOL
     pub price: String,
     /// Optional expiry (unix timestamp)
+    #[serde(default, deserialize_with = "de_opt_timestamp")]
     pub expiry: Option<u64>,
     #[serde(default)]
     pub auction_house: Option<String>,
@@ -406,8 +466,12 @@ pub struct MeMakeOfferParams {
 pub struct MeAcceptOfferParams {
     /// NFT mint address
     pub mint_address: String,
-    /// Offer price to accept
-    pub price: String,
+    /// Offer price, if the caller happens to know it. Ignored: the builder
+    /// takes the price off the live offer, because a bid can be raised or
+    /// withdrawn between reading it and signing. Requiring it here rejected
+    /// requests over a field the service was going to look up anyway.
+    #[serde(default)]
+    pub price: Option<String>,
     /// Buyer's wallet address (offer maker)
     pub buyer: Option<String>,
 }
@@ -418,8 +482,10 @@ pub struct MeAcceptOfferParams {
 pub struct MeCancelOfferParams {
     /// NFT mint address
     pub mint_address: String,
-    /// Offer price to cancel
-    pub price: String,
+    /// Ignored — the offer being withdrawn is resolved live. See
+    /// `MeAcceptOfferParams::price`.
+    #[serde(default)]
+    pub price: Option<String>,
 }
 
 /// Parameters for getting collection info
@@ -589,12 +655,15 @@ pub fn validate_me_accept_offer_params(params: &MeAcceptOfferParams) -> Result<(
     if params.mint_address.is_empty() {
         return Err(AppError::InvalidParams("Mint address is required".into()));
     }
-    let price: f64 = params
-        .price
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid price format".into()))?;
-    if price <= 0.0 {
-        return Err(AppError::InvalidParams("Price must be positive".into()));
+    // A price is not required, and when one is supplied it is only checked for
+    // being a number — the offer's own price is what gets signed.
+    if let Some(raw) = params.price.as_deref().filter(|p| !p.is_empty()) {
+        let price: f64 = raw
+            .parse()
+            .map_err(|_| AppError::InvalidParams("Invalid price format".into()))?;
+        if price <= 0.0 {
+            return Err(AppError::InvalidParams("Price must be positive".into()));
+        }
     }
     params
         .mint_address
@@ -1389,6 +1458,25 @@ pub async fn build_me_change_listing_price(
     ))
 }
 
+/// Rent exemption for the bid escrow — a system account with no data.
+/// `getMinimumBalanceForRentExemption(0)` on mainnet.
+const ESCROW_RENT_LAMPORTS: u64 = 890_880;
+
+/// What the wallet already has sitting in its Magic Eden bidding escrow.
+/// Best-effort: an unreadable balance counts as zero, which only ever makes
+/// the minimum we quote stricter, never looser.
+async fn me_escrow_lamports(http: &reqwest::Client, wallet: &str) -> u64 {
+    let url = format!("{MAGIC_EDEN_API}/wallets/{wallet}/escrow_balance");
+    match me_get_json(http, &url).await {
+        Ok(v) => v
+            .get("balance")
+            .and_then(|b| b.as_f64())
+            .map(|sol| (sol * 1e9).round() as u64)
+            .unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
 /// Bid on an NFT.
 pub async fn build_me_make_offer(
     http: &reqwest::Client,
@@ -1401,6 +1489,21 @@ pub async fn build_me_make_offer(
         .price
         .parse()
         .map_err(|_| AppError::InvalidParams("Enter an offer price in SOL".into()))?;
+
+    // A bid is escrowed, and the escrow account has to be rent-exempt. Below
+    // that minimum the bid cannot exist: the chain rejects it with
+    // InsufficientFundsForRent on the escrow, which reaches the user as "not
+    // enough balance" while their wallet plainly holds plenty. Say the real
+    // number here instead of letting them sign something that cannot land.
+    let lamports = (price * 1e9).round() as u64;
+    let escrowed = me_escrow_lamports(http, &user_pubkey.to_string()).await;
+    if lamports + escrowed < ESCROW_RENT_LAMPORTS {
+        let short = ESCROW_RENT_LAMPORTS - escrowed;
+        return Err(AppError::InvalidParams(format!(
+            "An offer has to be at least {:.5} SOL. Magic Eden holds the bid in              an escrow account, and that account has to cover its own rent.",
+            short as f64 / 1e9
+        )));
+    }
 
     // An offer needs an auction house, and an unlisted NFT has no listing to
     // take one from — fall back to the marketplace default.
@@ -1500,6 +1603,7 @@ pub async fn build_me_accept_offer(
             "mintAddress": params.mint_address,
             "price": offer.price,
             "buyer": offer.buyer,
+            "expiry": offer.expiry,
             "nftName": name,
             "nftImage": image,
             "collectionName": collection,
@@ -1549,6 +1653,7 @@ pub async fn build_me_cancel_offer(
         serde_json::json!({
             "mintAddress": params.mint_address,
             "price": offer.price,
+            "expiry": offer.expiry,
             "nftName": name,
             "nftImage": image,
             "collectionName": collection,
@@ -1999,13 +2104,35 @@ pub async fn build_me_collection_nfts(
 #[serde(rename_all = "camelCase")]
 pub struct MeReadParams {
     /// Collection symbol, e.g. "mad_lads".
-    #[serde(default, alias = "collection", alias = "collectionSymbol")]
+    #[serde(
+        default,
+        alias = "collection",
+        alias = "collectionSymbol",
+        alias = "collection_symbol",
+        alias = "collectionName",
+        alias = "name"
+    )]
     pub symbol: Option<String>,
     /// NFT mint address.
-    #[serde(default, alias = "mint", alias = "tokenMint", alias = "nft")]
+    #[serde(
+        default,
+        alias = "mint",
+        alias = "tokenMint",
+        alias = "nft",
+        alias = "nftMint",
+        alias = "token_mint",
+        alias = "assetMint"
+    )]
     pub mint_address: Option<String>,
     /// Wallet address.
-    #[serde(default, alias = "address", alias = "owner")]
+    #[serde(
+        default,
+        alias = "address",
+        alias = "owner",
+        alias = "walletAddress",
+        alias = "wallet_address",
+        alias = "ownerAddress"
+    )]
     pub wallet: Option<String>,
     #[serde(default)]
     pub limit: Option<u32>,
@@ -2016,7 +2143,25 @@ pub struct MeReadParams {
     pub symbols: Option<String>,
     /// The NFT's number within its collection — "#8051". How people refer to
     /// an NFT, and the only handle most of them have.
-    #[serde(default, alias = "tokenId", alias = "id", alias = "index")]
+    ///
+    /// Generously aliased on purpose. The caller is a language model, and it
+    /// will keep inventing plausible names for the same field: asked for
+    /// "madlads 5050" it sent `tokenNumber` and got "NFT number is required",
+    /// then sent `number` for the next NFT and succeeded. Refusing a request
+    /// over the spelling of a key nobody sees is a bad trade — the value was
+    /// right both times.
+    #[serde(
+        default,
+        alias = "tokenId",
+        alias = "id",
+        alias = "index",
+        alias = "tokenNumber",
+        alias = "nftNumber",
+        alias = "token_number",
+        alias = "nft_number",
+        alias = "edition",
+        alias = "serial"
+    )]
     pub number: Option<String>,
 }
 
@@ -2024,6 +2169,56 @@ fn need<'a>(v: &'a Option<String>, what: &str) -> Result<&'a str, AppError> {
     v.as_deref()
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| AppError::InvalidParams(format!("{what} is required")))
+}
+
+/// Turn whatever the user called a collection into Magic Eden's symbol.
+///
+/// Their symbols are slugs — lowercase, words joined by underscores — and a
+/// person says "Trenchors" or "Mad Lads", not "trenchors" or "mad_lads".
+/// Asking the model to perform this transformation reliably is asking for the
+/// day it does not: the answer that started this was OPRAI deciding no such
+/// NFT collection existed and offering the user a pump.fun coin of the same
+/// name instead.
+///
+/// Already-slug input passes through unchanged, so a symbol from a URL is
+/// untouched.
+fn collection_symbol(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    {
+        return trimmed.to_string();
+    }
+    let mut out = String::with_capacity(trimmed.len());
+    let mut pending_sep = false;
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if pending_sep && !out.is_empty() {
+                out.push('_');
+            }
+            pending_sep = false;
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            pending_sep = true;
+        }
+    }
+    out
+}
+
+/// The symbols worth trying for a name, best first.
+///
+/// Collections are inconsistent: some join words with underscores, some run
+/// them together. Two cheap attempts beat telling the user their collection
+/// does not exist.
+fn collection_symbol_candidates(raw: &str) -> Vec<String> {
+    let primary = collection_symbol(raw);
+    let joined: String = primary.chars().filter(|c| *c != '_').collect();
+    if joined == primary {
+        vec![primary]
+    } else {
+        vec![primary, joined]
+    }
 }
 
 /// Resolve an action name to a Magic Eden URL.
@@ -2040,23 +2235,23 @@ fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
             format!("{base}/collections?offset={}&limit={l}", (off / l) * l)
         }
         "me_collection_stats" => {
-            format!("{base}/collections/{}/stats", need(&p.symbol, "collection")?)
+            format!("{base}/collections/{}/stats", &collection_symbol(need(&p.symbol, "collection")?))
         }
         "me_collection_attributes" => format!(
             "{base}/collections/{}/attributes",
-            need(&p.symbol, "collection")?
+            &collection_symbol(need(&p.symbol, "collection")?)
         ),
         "me_collection_leaderboard" => format!(
             "{base}/collections/{}/leaderboard",
-            need(&p.symbol, "collection")?
+            &collection_symbol(need(&p.symbol, "collection")?)
         ),
         "me_collection_listings" => format!(
             "{base}/collections/{}/listings?limit={limit}&offset={off}",
-            need(&p.symbol, "collection")?
+            &collection_symbol(need(&p.symbol, "collection")?)
         ),
         "me_collection_activities" => format!(
             "{base}/collections/{}/activities?limit={limit}&offset={off}",
-            need(&p.symbol, "collection")?
+            &collection_symbol(need(&p.symbol, "collection")?)
         ),
         "me_collections_batch_listings" => format!(
             "{base}/collections/batch/listings?limit={limit}&collectionSymbols={}",
@@ -2580,7 +2775,22 @@ async fn me_trait_stats(
         None => return serde_json::json!({}),
     };
 
-    // Supply, from the totals of one trait type.
+    normalize_trait_stats(available, Some(&wanted))
+}
+
+/// `type|value -> {count, share, floor}` from Magic Eden's attribute table.
+///
+/// Shared by the single-NFT read (which keeps only that NFT's traits) and the
+/// collection read (which keeps all of them, so a list of tiles can be scored
+/// from one request instead of one per tile).
+fn normalize_trait_stats(
+    available: &[serde_json::Value],
+    wanted: Option<&std::collections::HashSet<(String, String)>>,
+) -> serde_json::Value {
+    use std::collections::HashMap;
+
+    // Supply, from the totals of one trait type: every piece carries exactly
+    // one value of each type, so the largest per-type total is the supply.
     let mut totals: HashMap<String, u64> = HashMap::new();
     for row in available {
         if let Some(t) = row.pointer("/attribute/trait_type").and_then(|v| v.as_str()) {
@@ -2601,8 +2811,10 @@ async fn me_trait_stats(
             Some(other) => other.to_string(),
             None => continue,
         };
-        if !wanted.contains(&(t.clone(), v.clone())) {
-            continue;
+        if let Some(w) = wanted {
+            if !w.contains(&(t.clone(), v.clone())) {
+                continue;
+            }
         }
         let count = row.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
         out.insert(
@@ -2736,6 +2948,176 @@ async fn me_nft_detail(
     }))
 }
 
+/// Resolve `collection + #number -> mint`, trying both slug spellings.
+async fn mint_by_number_any_spelling(
+    http: &reqwest::Client,
+    raw_symbol: &str,
+    digits: &str,
+) -> Option<String> {
+    for candidate in collection_symbol_candidates(raw_symbol) {
+        if let Some(mint) = me_resolve_mint_by_number(http, &candidate, digits).await {
+            return Some(mint);
+        }
+    }
+    None
+}
+
+/// Fill in `mintAddress` on a Magic Eden write that named the NFT the way a
+/// person does.
+///
+/// "Offer 0.1 on Mad Lads #3983" is a complete instruction, but every builder
+/// needs a mint. Without this the card rendered an empty "NFT mint address"
+/// box under a panel that was already showing the piece — asking the user for
+/// the one thing the conversation had just established.
+pub async fn resolve_me_action_mint(
+    http: &reqwest::Client,
+    action: &str,
+    wallet: &str,
+    mut params: serde_json::Value,
+) -> serde_json::Value {
+    if !action.starts_with("me_") || action.starts_with("me_mmm_") {
+        return params;
+    }
+    let non_empty = |v: Option<&serde_json::Value>| -> Option<String> {
+        let v = v?;
+        let s = match v {
+            serde_json::Value::String(s) => s.trim().to_string(),
+            serde_json::Value::Number(n) => n.to_string(),
+            _ => return None,
+        };
+        if s.is_empty() { None } else { Some(s) }
+    };
+    let obj = match params.as_object() {
+        Some(o) => o,
+        None => return params,
+    };
+    if non_empty(obj.get("mintAddress")).is_some() {
+        return params;
+    }
+    let symbol = ["symbol", "collectionSymbol", "collection", "collectionName"]
+        .iter()
+        .find_map(|k| non_empty(obj.get(*k)));
+    let number = ["number", "tokenNumber", "nftNumber", "edition", "serial"]
+        .iter()
+        .find_map(|k| non_empty(obj.get(*k)));
+    let (symbol, number) = match (symbol, number) {
+        (Some(s), Some(n)) => (s, n),
+        _ => {
+            // Nothing to resolve from, but a cancel may not need anything: if
+            // exactly one offer or listing is open, that is the one meant.
+            if let Some(mint) = only_open_position_mint(http, action, wallet).await {
+                if let Some(o) = params.as_object_mut() {
+                    o.insert("mintAddress".into(), serde_json::json!(mint));
+                }
+            }
+            return params;
+        }
+    };
+    let digits = number.trim_start_matches('#').trim().to_string();
+    if let Some(mint) = mint_by_number_any_spelling(http, &symbol, &digits).await {
+        if let Some(o) = params.as_object_mut() {
+            o.insert("mintAddress".into(), serde_json::json!(mint));
+        }
+    }
+    params
+}
+
+/// "Cancel my offer" when there is only one offer to cancel.
+///
+/// A withdrawal names no NFT because there is nothing to name: the wallet has
+/// one bid out and the user means that one. Without this the card put an empty
+/// "NFT mint address" box in front of someone whose only open offer we could
+/// have read in a single request. With several out the choice is real, so the
+/// mint stays unresolved and the list card does its job.
+async fn only_open_position_mint(
+    http: &reqwest::Client,
+    action: &str,
+    wallet: &str,
+) -> Option<String> {
+    if wallet.is_empty() {
+        return None;
+    }
+    let (url, mint_key) = if action.contains("cancel_offer") || action.contains("buy_cancel") {
+        (
+            format!("{MAGIC_EDEN_API}/wallets/{wallet}/offers_made?limit=20"),
+            "tokenMint",
+        )
+    } else if action.contains("cancel_listing") || action.contains("sell_cancel") {
+        (
+            format!("{MAGIC_EDEN_API}/wallets/{wallet}/tokens?limit=50&listStatus=listed"),
+            "mintAddress",
+        )
+    } else {
+        return None;
+    };
+
+    let rows = me_get_json(http, &url).await.ok()?;
+    let rows = rows.as_array()?;
+    let mints: Vec<&str> = rows
+        .iter()
+        .filter_map(|r| r.get(mint_key).and_then(|m| m.as_str()))
+        .collect();
+    match mints.as_slice() {
+        [only] => Some(only.to_string()),
+        _ => None,
+    }
+}
+
+/// Attach name, art and collection to each offer row.
+///
+/// Magic Eden's offer endpoints return a mint and nothing else about the
+/// piece. Bounded and concurrent: the first page is what anyone reads, and a
+/// row that cannot be resolved simply keeps its mint.
+async fn enrich_offers_with_nft(
+    http: &reqwest::Client,
+    data: serde_json::Value,
+) -> serde_json::Value {
+    const MAX: usize = 12;
+    let rows = match data.as_array() {
+        Some(r) => r.clone(),
+        None => return data,
+    };
+    let lookups = rows.iter().take(MAX).map(|row| {
+        let mint = row
+            .get("tokenMint")
+            .and_then(|m| m.as_str())
+            .unwrap_or_default()
+            .to_string();
+        async move {
+            if mint.is_empty() {
+                return None;
+            }
+            // `get_nft_info`, not `nft_display`: the latter invents a
+            // truncated-mint name when the lookup fails, and a fabricated name
+            // is indistinguishable from a real one downstream — the row then
+            // looks resolved and no fallback can tell it isn't.
+            get_nft_info(http, &mint)
+                .await
+                .ok()
+                .map(|n| (n.name.clone(), n.image.clone(), n.collection_name.clone()))
+        }
+    });
+    let resolved = futures::future::join_all(lookups).await;
+
+    let mut out = rows;
+    for (row, display) in out.iter_mut().zip(resolved) {
+        let (name, image, collection) = match display {
+            Some(d) => d,
+            None => continue,
+        };
+        if let Some(o) = row.as_object_mut() {
+            o.insert("name".into(), serde_json::json!(name));
+            if let Some(img) = image {
+                o.insert("image".into(), serde_json::json!(img));
+            }
+            if let Some(c) = collection {
+                o.insert("collectionName".into(), serde_json::json!(c));
+            }
+        }
+    }
+    serde_json::Value::Array(out)
+}
+
 pub async fn build_me_read(
     http: &reqwest::Client,
     action: &str,
@@ -2750,7 +3132,10 @@ pub async fn build_me_read(
                 let symbol = need(&params.symbol, "collection")?;
                 let number = need(&params.number, "NFT number")?;
                 let digits = number.trim_start_matches('#').trim().to_string();
-                match me_resolve_mint_by_number(http, symbol, &digits).await {
+                // The model names a collection the way a person does — "Mad
+                // Lads" — and this passed it through as a slug, so a lookup by
+                // number only ever worked when the name happened to be one.
+                match mint_by_number_any_spelling(http, symbol, &digits).await {
                     Some(m) => m,
                     None => {
                         return Err(AppError::NotFound(format!(
@@ -2783,7 +3168,7 @@ pub async fn build_me_read(
     }
     if matches!(action, "me_collection_stats" | "me_collection_info") {
         let symbol = need(&params.symbol, "collection")?.to_string();
-        let data = me_collection_detail(http, &symbol).await?;
+        let data = me_collection_detail(http, &collection_symbol(&symbol)).await?;
         return Ok(BuildResponse {
             preview: ActionPreview {
                 id: Uuid::new_v4().to_string(),
@@ -2804,7 +3189,53 @@ pub async fn build_me_read(
         });
     }
     let url = me_read_url(action, params)?;
-    let data = me_get_json(http, &url).await?;
+    let data = match me_get_json(http, &url).await {
+        Ok(d) => d,
+        Err(first) => {
+            // Collections are inconsistent about joining words: "mad_lads" but
+            // also "trenchors". If the underscore form misses, try the runs-
+            // together form before telling someone their collection does not
+            // exist — which is what OPRAI did, offering a same-named pump.fun
+            // coin instead.
+            let alt = params
+                .symbol
+                .as_deref()
+                .map(collection_symbol_candidates)
+                .and_then(|c| c.into_iter().nth(1));
+            match alt {
+                Some(other) => {
+                    let mut retry = params.clone();
+                    retry.symbol = Some(other);
+                    let url = me_read_url(action, &retry)?;
+                    me_get_json(http, &url).await.map_err(|_| first)?
+                }
+                None => return Err(first),
+            }
+        }
+    };
+    // An offer names only a mint, so a list of offers rendered as a list of
+    // truncated addresses — you cannot tell which of your bids is which. Fill
+    // in what each one is on.
+    let data = if action.contains("offers") {
+        enrich_offers_with_nft(http, data).await
+    } else {
+        data
+    };
+
+    // A tile list needs rarity per trait, and asking per NFT would be one
+    // collection-wide request each. Normalise once here so the whole list can
+    // be scored from a single read.
+    let data = if action == "me_collection_attributes" {
+        let stats = data
+            .pointer("/results/availableAttributes")
+            .and_then(|v| v.as_array())
+            .map(|a| normalize_trait_stats(a, None))
+            .unwrap_or_else(|| serde_json::json!({}));
+        serde_json::json!({ "attributes": data, "traitStats": stats })
+    } else {
+        data
+    };
+
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -3185,4 +3616,34 @@ pub async fn build_me_mmm_fulfill_sell(
         }),
         vec![],
     ))
+}
+
+#[cfg(test)]
+mod symbol_tests {
+    use super::*;
+
+    /// A person names a collection; Magic Eden wants a slug.
+    ///
+    /// Asked for "Trenchors nft", OPRAI reported that no such collection
+    /// existed and offered a pump.fun coin of the same name — because the
+    /// name was never turned into the symbol the API answers to.
+    #[test]
+    fn a_name_becomes_a_symbol() {
+        assert_eq!(collection_symbol("Trenchors"), "trenchors");
+        assert_eq!(collection_symbol("Mad Lads"), "mad_lads");
+        assert_eq!(collection_symbol("  Solana Monkey Business "), "solana_monkey_business");
+        assert_eq!(collection_symbol("DeGods #1"), "degods_1");
+        // Already a symbol — untouched, so a slug pasted from a URL survives.
+        assert_eq!(collection_symbol("solana_monkey_business"), "solana_monkey_business");
+    }
+
+    #[test]
+    fn multi_word_names_offer_both_spellings() {
+        assert_eq!(
+            collection_symbol_candidates("Mad Lads"),
+            vec!["mad_lads".to_string(), "madlads".to_string()],
+        );
+        // One word has only one spelling; no wasted second request.
+        assert_eq!(collection_symbol_candidates("Trenchors"), vec!["trenchors".to_string()]);
+    }
 }

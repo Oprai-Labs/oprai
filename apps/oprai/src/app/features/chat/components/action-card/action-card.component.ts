@@ -2623,6 +2623,35 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return 'Your offer';
   }
 
+  /**
+   * A bid below the escrow's rent-exemption cannot exist.
+   *
+   * Magic Eden holds the bid in an escrow account and that account has to
+   * cover its own rent, so the chain rejects anything smaller with
+   * InsufficientFundsForRent — which surfaced as "not enough balance" on a
+   * wallet holding 0.245 SOL. Say the floor before they sign, not after.
+   */
+  readonly ME_MIN_OFFER_SOL = 0.00089088;
+
+  /**
+   * Stated up front, not only once it has been broken.
+   *
+   * A floor a user meets by accident is a floor they never learn; the first
+   * they hear of it is a rejected number they have already typed. Rounded up
+   * from the exact 890,880 lamports so the figure shown is always one that
+   * works.
+   */
+  meOfferMinNote(): string | null {
+    if (!/make_offer|buy_change_price/.test(this.action?.type ?? '')) return null;
+    return 'Minimum 0.0009 SOL — Magic Eden escrows the bid, and the escrow pays its own rent';
+  }
+
+  meOfferBelowMin(): boolean {
+    if (!/make_offer|buy_change_price/.test(this.action?.type ?? '')) return false;
+    const v = Number(this.getEditParam(this.meAmountKey()));
+    return Number.isFinite(v) && v > 0 && v < this.ME_MIN_OFFER_SOL;
+  }
+
   /** Only offers and listings expire. */
   meHasExpiry(): boolean {
     return /^me_(make_offer|list|sell)$/.test(this.action.type);
@@ -2649,6 +2678,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       .filter(c => c.days > 0)
       .reduce((best, c) => (Math.abs(c.days * 86400 - secs) < Math.abs(best.days * 86400 - secs) ? c : best),
               { label: '', days: 1 }).days;
+  }
+
+  /** The date the chosen expiry lands on, or null for an open-ended listing. */
+  meExpiryOn(): string | null {
+    const raw = Number(this.getEditParam('expiry'));
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return new Date(raw * 1000).toLocaleString(undefined, {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
   }
 
   setMeExpiry(days: number): void {
@@ -2725,25 +2763,131 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * address — so the card looks it up rather than showing the user a base58
    * string and asking them to recognise it.
    */
-  private readonly meFetchedNft = signal<{ name?: string; image?: string; collectionName?: string } | null>(null);
+  private readonly meFetchedNft = signal<{
+    name?: string;
+    image?: string;
+    collectionName?: string;
+    attributes?: Array<{ trait_type?: string; traitType?: string; value?: unknown }>;
+    sellerFeeBasisPoints?: number;
+    price?: number;
+  } | null>(null);
 
   private meNftLookupDone = '';
+
+  /**
+   * Read an NFT, retrying the failures that clear on their own.
+   *
+   * Magic Eden throttles, and one refused request left a card reading "This
+   * NFT" above a "media not available" square for a piece with perfectly good
+   * art. When the action came from a tile the name rode in with the click and
+   * hid this; when the model emits the action directly there is only a mint,
+   * and this lookup is the only thing standing between the user and a base58
+   * string.
+   */
+  private async lookupMeNft(mint: string): Promise<Record<string, unknown> | null> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 400 << attempt));
+      const d = await this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: mint });
+      if (d) return d;
+    }
+    return null;
+  }
+
+  /**
+   * Fill in which offer or listing a cancel is about, when there is only one.
+   *
+   * The service already does this when it builds the transaction, but the card
+   * is drawn long before that: with no mint in the params it renders a required
+   * "NFT mint address" box and asks the user to paste an address for the single
+   * bid they have out. Resolve it here too, so the card shows the piece instead
+   * of a form.
+   */
+  private async ensureMeCancelTarget(): Promise<void> {
+    const t = this.action?.type ?? '';
+    if (this.getEditParam('mintAddress') || this.getEditParam('tokenMint')) return;
+    const wallet = this.walletService.publicKey()?.toString();
+    if (!wallet) return;
+
+    let source: string;
+    let mintKey: string;
+    if (/cancel_offer|buy_cancel/.test(t)) {
+      source = 'me_wallet_offers_made';
+      mintKey = 'tokenMint';
+    } else if (/accept_offer|sell_now/.test(t)) {
+      source = 'me_wallet_offers_received';
+      mintKey = 'tokenMint';
+    } else if (/cancel_listing|sell_cancel/.test(t)) {
+      source = 'me_wallet_tokens';
+      mintKey = 'mintAddress';
+    } else {
+      return;
+    }
+
+    const rows = await this.magicEden.read<Array<Record<string, unknown>>>(source, { wallet });
+    if (!Array.isArray(rows)) return;
+    const candidates = source === 'me_wallet_tokens'
+      ? rows.filter(r => r['listStatus'] === 'listed')
+      : rows;
+    // More than one and the choice is real — the empty box is then the honest
+    // state, and the offers list is where it gets answered.
+    if (candidates.length !== 1) return;
+
+    const only = candidates[0];
+    const mint = only[mintKey] as string | undefined;
+    if (!mint) return;
+    this.setEditParam('mintAddress', mint);
+    const price = only['price'];
+    if (typeof price === 'number' && price > 0 && !this.getEditParam('price')) {
+      this.setEditParam('price', String(price));
+    }
+    this.ensureMeNftDisplay();
+  }
 
   private ensureMeNftDisplay(): void {
     const mint = this.getEditParam('mintAddress') || this.getEditParam('tokenMint')
       || this.getEditParam('assetMint');
     if (!mint || this.meNftLookupDone === mint) return;
-    if (this.action.params?.['nftName'] || this.action.params?.['nftImage']) return;
+    // Don't skip just because a name and picture came in with the click. The
+    // tile passes those two and nothing else, so bailing here meant the panel
+    // never learned the traits on the one path people actually take — clicking
+    // List or Buy on a tile they chose for its traits.
     this.meNftLookupDone = mint;
-    void this.magicEden.read<Record<string, unknown>>('me_token', { mintAddress: mint })
+    void this.lookupMeNft(mint)
       .then(d => {
-        if (!d) return;
+        // Nothing resolved after retrying — release the guard so a later
+        // trigger can try again rather than leaving the card on "This NFT"
+        // over an empty square for the rest of its life.
+        if (!d) { this.meNftLookupDone = ''; return; }
+        // `me_token` answers either flat or wrapped in `token` depending on
+        // which upstream served it; read through both rather than betting.
+        const src = (d['token'] as Record<string, unknown> | undefined) ?? d;
         this.meFetchedNft.set({
-          name: d['name'] as string | undefined,
-          image: d['image'] as string | undefined,
-          collectionName: d['collectionName'] as string | undefined,
+          name: src['name'] as string | undefined,
+          image: src['image'] as string | undefined,
+          collectionName: src['collectionName'] as string | undefined,
+          attributes: src['attributes'] as Array<{ trait_type?: string; value?: unknown }> | undefined,
+          sellerFeeBasisPoints: src['sellerFeeBasisPoints'] as number | undefined,
+          price: src['price'] as number | undefined,
         });
       });
+  }
+
+  /**
+   * What the NFT actually is.
+   *
+   * The browse tile shows traits and the action card did not, so confirming a
+   * purchase meant deciding on a name and a picture alone — after choosing the
+   * item precisely because of its traits. Same rows, same order, same card.
+   */
+  meNftTraits(): Array<{ label: string; value: string }> {
+    const raw = this.meFetchedNft()?.attributes ?? [];
+    return raw
+      .map(a => ({
+        label: String(a.trait_type ?? a.traitType ?? ''),
+        value: String(a.value ?? ''),
+      }))
+      .filter(a => a.label && a.value)
+      .slice(0, 6);
   }
 
   meNftName(): string {
@@ -2781,11 +2925,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  the sentence above the price both come from here. */
   meVerb(): string {
     const t = this.action.type;
+    // Order matters, and "me_cancel_listing" contains "list": the withdrawal
+    // has to be recognised BEFORE anything that matches on the word.
+    if (/cancel_listing/.test(t)) return 'Listed at';
+    if (/cancel_offer|buy_cancel/.test(t)) return 'Your offer';
+    if (/cancel/.test(t)) return '';
     if (/change_price/.test(t)) return 'New price';
-    if (/accept_offer|sell_now/.test(t)) return 'You receive';
+    // The bid, not the proceeds. What the seller keeps is the row below, after
+    // the royalty and the fee come out of it.
+    if (/accept_offer|sell_now/.test(t)) return 'Offer';
     if (/make_offer/.test(t)) return 'Your offer';
     if (/list|_sell$/.test(t)) return 'Ask';
-    if (/cancel/.test(t)) return '';
     return 'You pay';
   }
 
@@ -2807,26 +2957,140 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return /make_offer/.test(this.action.type) && (!!this.meAskPrice() || !!this.meFloorPrice());
   }
 
+  /** What a re-price is moving away from. A card that shows only the number
+   *  being typed cannot tell you whether you are raising or lowering. */
+  meCurrentPrice(): number | null {
+    if (!/change_price/.test(this.action.type)) return null;
+    const n = Number(this.action.params?.['listPrice']);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
   /** The number the card leads with. */
   meHeadlinePrice(): number | null {
-    const raw = this.getEditParam('newPrice') || this.getEditParam('price');
+    // `listPrice` is what a Remove-listing card is spawned with. It is named
+    // apart from `price` on purpose: nothing downstream should be able to read
+    // it as an amount to spend.
+    const raw = this.getEditParam('newPrice') || this.getEditParam('price')
+      || this.getEditParam('listPrice');
     const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : null;
+    if (Number.isFinite(n) && n > 0) return n;
+    const live = this.meFetchedNft()?.price;
+    return typeof live === 'number' && live > 0 ? live : null;
+  }
+
+  /** What Magic Eden shows for this listing, on the card that withdraws it. */
+  meListedTotalSol(): number | null {
+    const p = this.meHeadlinePrice();
+    if (!p || !this.meRoyaltyKnown()) return null;
+    const total = p * (1 + (this.meRoyaltyPct() ?? 0) + 0.02);
+    return total > p ? total : null;
   }
 
   /** Magic Eden's cut, shown on the actions where the user is the one paying
    *  it — a seller who sees only the ask is reading the wrong number. */
+  /** The collection's creator royalty, as a fraction. */
+  meRoyaltyPct(): number | null {
+    // Prefer what came with the click: the tile already knows the collection's
+    // royalty, so the total can be stated immediately instead of after a round
+    // trip. The lookup is the fallback for cards the model spawned.
+    const carried = Number(this.getEditParam('royaltyBps') || this.action.params?.['royaltyBps']);
+    if (Number.isFinite(carried) && carried > 0) return carried / 10_000;
+    const bps = this.meFetchedNft()?.sellerFeeBasisPoints;
+    return typeof bps === 'number' && bps > 0 ? bps / 10_000 : null;
+  }
+
+  meRoyaltySol(): number | null {
+    const p = this.meHeadlinePrice();
+    const r = this.meRoyaltyPct();
+    return p && r ? p * r : null;
+  }
+
+  /** Withdrawing a listing: the card's job is to show which listing. */
+  meIsCancelListing(): boolean {
+    return /cancel_listing/.test(this.action.type);
+  }
+
   meFeeSol(): number | null {
     const t = this.action.type;
-    if (!/list|_sell$|accept_offer|sell_now|change_price/.test(t)) return null;
+    // Withdrawing a listing costs neither fee nor royalty — nothing is sold.
+    // It reached this branch only because its name contains "list".
+    if (this.meIsCancelListing()) return null;
+    // Re-pricing a BID adds nothing on top: the bidder's number is the whole
+    // number, and Magic Eden takes its cut from the seller when it is taken.
+    // Only the sell side has a fee and a royalty stacked on the ask.
+    if (/buy_change_price/.test(t)) return null;
+    if (!/list|_sell$|accept_offer|sell_now|change_price|buy/.test(t)) return null;
     const p = this.meHeadlinePrice();
+    // A total assembled from half its parts is a wrong number stated
+    // confidently: without the collection's royalty this said 510 where
+    // Magic Eden says 555. Wait for the lookup rather than publish a subtotal.
+    if (!this.meRoyaltyKnown()) return null;
     return p ? p * 0.02 : null;
+  }
+
+  /** True once the NFT lookup has answered, so the royalty is a fact rather
+   *  than an absence. */
+  meRoyaltyKnown(): boolean {
+    const carried = Number(this.getEditParam('royaltyBps') || this.action.params?.['royaltyBps']);
+    return (Number.isFinite(carried) && carried > 0) || this.meFetchedNft() !== null;
+  }
+
+  /** True on the actions where the user is the one paying the total, not
+   *  receiving the ask — a buyer sending 500 has 555 leave their wallet. */
+  meIsBuySide(): boolean {
+    return /buy/.test(this.action.type) && !/buy_change_price|buy_cancel/.test(this.action.type);
+  }
+
+  /**
+   * Taking a bid runs the fees the other way.
+   *
+   * On a listing the royalty and the 2% are ADDED to the ask — the buyer pays
+   * more and the seller keeps what they asked. On a bid the buyer has already
+   * escrowed exactly their number, so the same two come OUT of it and the
+   * seller keeps less. Same fees, opposite direction, and the card was showing
+   * a seller a "buyer pays" figure for money nobody was going to send.
+   */
+  meIsProceedsSide(): boolean {
+    return /accept_offer|sell_now/.test(this.action.type);
+  }
+
+  /** What actually lands in the seller's wallet when a bid is taken. */
+  meProceedsSol(): number | null {
+    const p = this.meHeadlinePrice();
+    if (!p || !this.meRoyaltyKnown()) return null;
+    const net = p - (this.meRoyaltySol() ?? 0) - (this.meFeeSol() ?? 0);
+    return net > 0 ? net : null;
+  }
+
+  /** When a standing offer runs out, on the cards that act on one. */
+  meOfferExpiry(): string | null {
+    if (!/offer/.test(this.action?.type ?? '')) return null;
+    const raw = Number(this.action.params?.['expiry']);
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return new Date(raw * 1000).toLocaleString(undefined, {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  /**
+   * What a buyer will be shown.
+   *
+   * Listing at 500 SOL put "555 SOL" on Magic Eden's grid, and the card had
+   * said nothing about why: their marketplace fee and the collection's 9%
+   * royalty are added on top of the ask. The seller's number and the buyer's
+   * number are both real and they are not the same, so the card names both
+   * rather than letting the marketplace deliver the surprise.
+   */
+  meBuyerPaysSol(): number | null {
+    const p = this.meHeadlinePrice();
+    if (!p) return null;
+    const total = p + (this.meRoyaltySol() ?? 0) + (this.meFeeSol() ?? 0);
+    return total > p ? total : null;
   }
 
   meNetSol(): number | null {
     const p = this.meHeadlinePrice();
-    const f = this.meFeeSol();
-    return p && f ? p - f : null;
+    return p ? p : null;
   }
 
     readonly isSwapPanel = computed(() => {
@@ -4270,6 +4534,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
+    void this.ensureMeCancelTarget();
+    // Also here, not only from the panel's computed: a computed evaluates once
+    // and memoises, so a first evaluation that ran before the params landed
+    // left the lookup permanently unfired — which is why no Magic Eden action
+    // card ever showed traits.
+    this.ensureMeNftDisplay();
   }
 
   /** Borrow needs a collateral asset; when the user didn't name one ("borrow

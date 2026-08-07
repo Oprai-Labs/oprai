@@ -5443,9 +5443,12 @@
   background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
 
   &__art {
+    position: relative;
     flex-shrink: 0;
-    width: 84px;
-    height: 84px;
+    // 96px rather than 84: the placeholder has to hold a mark and a line of
+    // text, and at 84 the caption had nowhere to go.
+    width: 96px;
+    height: 96px;
     border-radius: var(--op-radius-sm, 8px);
     overflow: hidden;
     background: var(--op-bg-surface-1, #14151a);
@@ -5453,17 +5456,41 @@
     img { width: 100%; height: 100%; object-fit: cover; display: block; }
   }
 
+  &__img { position: relative; }
+
+  // A quiet placeholder, not cover art: a bright gradient square with an
+  // initial on it reads as the NFT's own artwork.
   &__fallback {
+    position: absolute;
+    inset: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(135deg, var(--op-brand, #5b5fc7), var(--op-brand-accent, #06b6d4));
-    color: #fff;
-    font-size: 1.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
+    gap: 7px;
+    padding: 6px;
+    background: var(--op-bg-surface-3, rgba(255, 255, 255, 0.05));
+  }
+
+  // Say what happened. A mark on its own reads as branding rather than as an
+  // explanation, and the artwork really is gone — Magic Eden shows an empty
+  // box for the same NFT.
+  &__mark-note {
+    font-size: 0.5625rem;
+    line-height: 1.25;
+    font-weight: 500;
+    text-align: center;
+    color: var(--op-text-tertiary, #71717a);
+  }
+
+  // Scoped under the fallback so it outranks `&__art img`, which would
+  // otherwise stretch the mark to fill the square.
+  &__fallback &__mark {
+    flex: 0 0 auto;
+    width: 32px;
+    height: auto;
+    object-fit: contain;
+    opacity: 0.3;
   }
 
   &__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
@@ -5629,4 +5656,52 @@
     font-variant-numeric: tabular-nums;
     text-align: right;
   }
+}
+
+/* NFT traits on a buy / list / offer card — the same key-and-value rows the
+   browse tile uses, so the thing you chose looks the same when you confirm it. */
+/* Trait cards, the same construction the NFT-detail view uses: a small
+   surface-2 panel per trait, label above value. A trait should look the same
+   whether you are reading about an NFT or about to pay for one. */
+.me-act__traits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--op-border-subtle);
+}
+
+.me-act__trait {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--op-radius-md);
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+}
+
+.me-act__trait-k {
+  font-size: 0.625rem;
+  color: var(--op-text-tertiary, var(--op-text-secondary));
+}
+
+.me-act__trait-v {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--op-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// The bid floor, said before it is hit. Sits above the amount panel because a
+// constraint learned after typing is a constraint learned too late.
+.me-min-note {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--op-text-tertiary, #71717a);
 }

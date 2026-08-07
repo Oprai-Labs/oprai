@@ -383,8 +383,19 @@ pub async fn post_build(
         return delegate_build_to_ts(&state.http, &body.action_type, &wallet, &body.params).await;
     }
 
+    // "Mad Lads #3983" is how a person names an NFT; every Magic Eden builder
+    // needs a mint. Resolve it here — BEFORE validation, which is what would
+    // otherwise reject the request for the very field this fills in.
+    let params = crate::services::magic_eden::resolve_me_action_mint(
+        &state.http,
+        &body.action_type,
+        &wallet,
+        body.params.clone(),
+    )
+    .await;
+
     // Validate action type.
-    builder::validate_action(&body.action_type, &body.params)?;
+    builder::validate_action(&body.action_type, &params)?;
 
     // Spending cap. It lived on the swap-quote path only, so an NFT purchase,
     // a bid or an escrow deposit of any size went through uncapped — the one
@@ -392,7 +403,7 @@ pub async fn post_build(
     // actions most likely to be one. SOL-denominated actions price off the
     // amount they name; a swap is capped at its quote, where the number is
     // exact.
-    if let Some(sol) = sol_amount_spent(&body.action_type, &body.params) {
+    if let Some(sol) = sol_amount_spent(&body.action_type, &params) {
         let usd = crate::services::spending_client::estimate_swap_usd(
             &state.http,
             "So11111111111111111111111111111111111111112",
@@ -418,7 +429,7 @@ pub async fn post_build(
         state.relay_api_key.as_deref(),
         &user_pubkey,
         &body.action_type,
-        body.params.clone(),
+        params,
     )
     .await
     .map_err(|e| {

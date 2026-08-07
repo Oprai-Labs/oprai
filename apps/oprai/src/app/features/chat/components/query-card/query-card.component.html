@@ -132,11 +132,10 @@
             @for (c of mePagedCollections(); track c.symbol) {
               <button type="button" class="me-coll" (click)="browseMeCollection(c)">
                 <span class="me-coll__art">
+                  <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
                   @if (c.image) {
                     <img [src]="nftArtSrc(c.image)" [alt]="c.name" loading="lazy" decoding="async"
                          (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="me-art__fallback">{{ (c.name || '?').charAt(0) }}</span>
                   }
                 </span>
                 <span class="me-coll__body">
@@ -161,15 +160,22 @@
 
         <!-- NFTs: the grid you buy, list or bid from. -->
         @if (shape === 'tokens') {
-          <div class="me-grid me-grid--nft">
+          <!-- Few items lay out as rows, many as a grid.
+               A single tile in a grid sized for a dozen leaves most of the
+               card empty and reads as a layout that went wrong. As a row —
+               art left, everything else right — it fills the width and matches
+               the panel the action card uses for the same NFT. -->
+          <div class="me-grid me-grid--nft" [class.me-grid--rows]="mePagedTokens().length <= 2">
             @for (t of mePagedTokens(); track t.mintAddress) {
-              <div class="me-nft">
+              <div class="me-nft" [class.me-nft--row]="mePagedTokens().length <= 2">
                 <div class="me-nft__art">
+                  <span class="me-art__fallback me-art__fallback--lg">
+                    <img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
+                    <span class="me-art__note">Media not available</span>
+                  </span>
                   @if (t.image) {
                     <img [src]="nftArtSrc(t.image)" [alt]="t.name" loading="lazy" decoding="async"
                          (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="me-art__fallback">{{ (t.name || '?').charAt(0) }}</span>
                   }
                   @if (t.rarityRank) {
                     <span class="me-nft__rank">#{{ t.rarityRank }}</span>
@@ -179,42 +185,68 @@
                 @if (t.collectionName) {
                   <div class="me-nft__coll">{{ t.collectionName }}</div>
                 }
-                <div class="me-nft__foot">
-                  <span class="me-nft__price mono">
-                    @if (t.price) { {{ t.price | number:'1.0-3' }} SOL } @else { <span class="me-nft__unlisted">Not listed</span> }
-                  </span>
-                  <!-- The button follows from who owns it and whether it is
-                       listed — one action, the one that applies. -->
-                  <!-- Buying is not the only thing you can do with a listed
-                       NFT: an offer below the ask is a normal move, and a
-                       browser that only offers Buy quietly decides otherwise
-                       for the user. Both are shown; Buy leads because it is
-                       the one with a price already on it. -->
-                  @if (meOwnsToken(t)) {
-                    @if (meIsListed(t)) {
-                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(t)">Delist</button>
-                    } @else {
-                      <button type="button" class="dlmm-use-btn" (click)="listMeToken(t)">List
-                        <lucide-icon name="arrow-right" [size]="12" /></button>
+                <!-- The price bar, exactly as the NFT-detail view builds it:
+                     a panel with the standing price on the left and the one
+                     action on the right. Browsing and reading about an NFT
+                     should not be two different products. -->
+                <div class="me-detail__bar me-nft__bar">
+                  <div class="me-detail__price">
+                    <span class="me-detail__price-k">{{ t.price ? 'Price' : 'Not listed' }}</span>
+                    @if (meMarketPrice(t); as price) {
+                      <span class="me-detail__price-v mono">{{ price | number:'1.0-3' }} SOL</span>
                     }
-                  } @else {
-                    <span class="me-nft__acts">
-                      @if (meIsListed(t)) {
-                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(t)">Buy</button>
-                      }
-                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
-                              [attr.title]="'Bid below the asking price'"
-                              (click)="offerOnMeToken(t)">Offer</button>
-                    </span>
-                  }
+                    @if (mePriceNote(t); as note) {
+                      <span class="me-detail__price-sub">{{ note }}</span>
+                    }
+                  </div>
                 </div>
+                <!-- The same trait cards the NFT-detail view uses, so a trait
+                     looks the same wherever it is read. -->
                 @if (meTraits(t).length) {
-                  <div class="me-nft__traits">
-                    @for (tr of meTraits(t).slice(0, 4); track tr.label) {
-                      <span class="me-trait"><span class="me-trait__k">{{ tr.label }}</span>{{ tr.value }}</span>
+                  <div class="me-detail__traits me-nft__traits">
+                    @for (tr of meRowTraits(t).slice(0, 8); track tr.label) {
+                      <div class="me-detail__trait">
+                        <span class="me-detail__trait-k">{{ tr.label }}</span>
+                        <span class="me-detail__trait-v" [attr.title]="tr.value">{{ tr.value }}</span>
+                        @if (tr.share !== null || tr.floor) {
+                          <span class="me-detail__trait-foot">
+                            @if (tr.count) {
+                              <span class="me-rar" [class]="'me-rar ' + meRarityClass(tr.share)">
+                                {{ tr.count }} listed
+                              </span>
+                            }
+                            @if (tr.floor) {
+                              <span class="me-detail__trait-floor mono">{{ tr.floor | number:'1.0-3' }} SOL</span>
+                            }
+                          </span>
+                        }
+                      </div>
                     }
                   </div>
                 }
+                <!-- The action, at the foot of the card where someone looks
+                     once they have finished reading it — and named for what it
+                     does. It used to be a chip beside the price called
+                     "Delist", which is both easy to miss and jargon. -->
+                <div class="me-nft__foot">
+                  @if (meOwnsToken(t)) {
+                    @if (meIsListed(t)) {
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
+                              (click)="changeMeListingPrice(t)">Change price</button>
+                      <button type="button" class="dlmm-use-btn me-nft__foot-btn"
+                              (click)="cancelMeListing(t)">Remove listing</button>
+                    } @else {
+                      <button type="button" class="dlmm-use-btn me-nft__foot-btn" (click)="listMeToken(t)">List for sale
+                        <lucide-icon name="arrow-right" [size]="12" /></button>
+                    }
+                  } @else {
+                    @if (meIsListed(t)) {
+                      <button type="button" class="dlmm-use-btn me-nft__foot-btn" (click)="buyMeToken(t)">Buy</button>
+                    }
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
+                            (click)="offerOnMeToken(t)">Make offer</button>
+                  }
+                </div>
               </div>
             }
           </div>
@@ -252,39 +284,51 @@
           </div>
         }
 
-        <!-- Offers: each row is a decision, so each row carries its button. -->
+        <!-- Offers, as the NFT they are on.
+             A bid rendered as a table row is a truncated mint and a number:
+             with several out you cannot tell which is which, and the piece you
+             bid on is the whole reason you did. Same tile as everywhere else. -->
         @if (shape === 'offers') {
-          <div class="result-table">
-            <div class="result-table__header result-table__header--me-offer">
-              <span>Item</span><span class="text-right">Offer</span>
-              <span class="text-right">Expires</span><span></span>
-            </div>
+          <div class="me-grid me-grid--nft" [class.me-grid--rows]="mePagedOffers().length <= 2">
             @for (o of mePagedOffers(); track o.pdaAddress ?? $index) {
-              <div class="result-table__row result-table__row--me-offer dlmm-row">
-                <span class="km-pair">
-                  <span class="km-icon-slot">
-                    <span class="km-icon km-icon--fallback">{{ (o.name || o.tokenMint || '?').charAt(0) }}</span>
-                    @if (o.image) {
-                      <img class="km-icon km-icon--img" [src]="logoSrc(o.image)" [alt]="o.name"
-                           loading="lazy" decoding="async"
-                           (error)="$any($event.target).style.display='none'" />
+              <div class="me-nft" [class.me-nft--row]="mePagedOffers().length <= 2">
+                <div class="me-nft__art">
+                  <span class="me-art__fallback me-art__fallback--lg">
+                    <img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
+                    <span class="me-art__note">Media not available</span>
+                  </span>
+                  @if (o.image) {
+                    <img [src]="nftArtSrc(o.image)" [alt]="o.name ?? ''" loading="lazy" decoding="async"
+                         (error)="$any($event.target).style.display='none'" />
+                  }
+                </div>
+                <div class="me-nft__name" [attr.title]="o.name ?? ''">{{ meOfferTitle(o) }}</div>
+                @if (o.collectionName) {
+                  <div class="me-nft__coll">{{ o.collectionName }}</div>
+                }
+                <div class="me-detail__bar me-nft__bar">
+                  <div class="me-detail__price">
+                    <span class="me-detail__price-k">{{ meIsOwnOffer(o) ? 'Your offer' : 'Offer' }}</span>
+                    @if (o.price) {
+                      <span class="me-detail__price-v mono">{{ o.price | number:'1.0-4' }} SOL</span>
                     }
-                  </span>
-                  <span class="km-pair__text">
-                    <span class="km-pair__name">{{ o.name || (o.tokenMint ? o.tokenMint.slice(0,4) + '…' + o.tokenMint.slice(-4) : '—') }}</span>
-                    @if (o.buyer) { <span class="km-pair__sub mono">from {{ o.buyer.slice(0,4) }}…{{ o.buyer.slice(-4) }}</span> }
-                  </span>
-                </span>
-                <span class="text-right mono">@if (o.price) { {{ o.price | number:'1.0-3' }} SOL } @else { — }</span>
-                <span class="text-right dlmm-muted">{{ meExpiry(o.expiry) }}</span>
-                <span class="text-right">
+                    <span class="me-detail__price-sub">
+                      {{ meExpiry(o.expiry) }}@if (!meIsOwnOffer(o) && o.buyer) { · from {{ o.buyer.slice(0,4) }}…{{ o.buyer.slice(-4) }} }
+                    </span>
+                  </div>
+                </div>
+                <div class="me-nft__foot">
                   @if (meIsOwnOffer(o)) {
-                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeOffer(o)">Withdraw</button>
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
+                            (click)="changeMeOfferPrice(o)">Change price</button>
+                    <button type="button" class="dlmm-use-btn me-nft__foot-btn"
+                            (click)="cancelMeOffer(o)">Withdraw offer</button>
                   } @else {
-                    <button type="button" class="dlmm-use-btn" (click)="acceptMeOffer(o)">Accept
+                    <button type="button" class="dlmm-use-btn me-nft__foot-btn"
+                            (click)="acceptMeOffer(o)">Accept offer
                       <lucide-icon name="arrow-right" [size]="12" /></button>
                   }
-                </span>
+                </div>
               </div>
             }
           </div>
@@ -384,11 +428,13 @@
                    traits squeezed into half the card. -->
               <div class="me-detail__hero">
               <div class="me-detail__art">
+                <span class="me-art__fallback me-art__fallback--lg">
+                    <img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
+                    <span class="me-art__note">Media not available</span>
+                  </span>
                 @if (n.image) {
                   <img [src]="nftArtSrc(n.image)" [alt]="n.name" loading="eager" decoding="async"
                        (error)="$any($event.target).style.display='none'" />
-                } @else {
-                  <span class="me-art__fallback">{{ (n.name || '?').charAt(0) }}</span>
                 }
               </div>
 
@@ -420,9 +466,12 @@
 
                 <div class="me-detail__bar">
                   <div class="me-detail__price">
-                    <span class="me-detail__price-k">{{ meIsListed(n) ? 'Asking' : 'Not listed' }}</span>
-                    @if (n.price) {
-                      <span class="me-detail__price-v mono">{{ n.price | number:'1.0-3' }} SOL</span>
+                    <span class="me-detail__price-k">{{ meIsListed(n) ? 'Price' : 'Not listed' }}</span>
+                    @if (meMarketPrice(n); as price) {
+                      <span class="me-detail__price-v mono">{{ price | number:'1.0-3' }} SOL</span>
+                    }
+                    @if (mePriceNote(n); as note) {
+                      <span class="me-detail__price-sub">{{ note }}</span>
                     }
                     @if (meTopOffer(); as o) {
                       <span class="me-detail__price-sub">Top offer <span class="mono">{{ o | number:'1.0-3' }} SOL</span></span>
@@ -466,9 +515,9 @@
                         <span class="me-detail__trait-k">{{ tr.label }}</span>
                         <span class="me-detail__trait-v">{{ tr.value }}</span>
                         <span class="me-detail__trait-foot">
-                          @if (tr.share !== null) {
+                          @if (tr.count) {
                             <span class="me-rar" [class]="'me-rar ' + meRarityClass(tr.share)">
-                              {{ tr.share * 100 | number:'1.0-1' }}%
+                              {{ tr.count }} listed
                             </span>
                           }
                           @if (tr.floor) {
@@ -548,11 +597,10 @@
             <div class="me-stats-card">
               <div class="me-stats-card__head">
                 <span class="me-coll__art me-coll__art--lg">
+                  <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
                   @if (st.image) {
                     <img [src]="nftArtSrc(st.image)" [alt]="st.name" loading="lazy" decoding="async"
                          (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="me-art__fallback">{{ (st.name || '?').charAt(0) }}</span>
                   }
                 </span>
                 <span>
@@ -2263,25 +2311,6 @@
                   }
                 </div>
               }
-            </div>
-          }
-        </div>
-      }
-
-      <!-- NFT Collection results -->
-      @if (query.type === 'nft_collection') {
-        <div class="nft-grid">
-          @for (nft of nftResults; track nft.name) {
-            <div class="nft-item">
-              <div class="nft-item__image">{{ nft.image }}</div>
-              <div class="nft-item__info">
-                <span class="nft-item__name">{{ nft.name }}</span>
-                <span class="nft-item__collection">{{ nft.collection }}</span>
-              </div>
-              <div class="nft-item__meta">
-                <span class="nft-item__floor">Floor: {{ nft.floorPrice }} SOL</span>
-                <span class="nft-item__rarity">{{ nft.rarity }}</span>
-              </div>
             </div>
           }
         </div>

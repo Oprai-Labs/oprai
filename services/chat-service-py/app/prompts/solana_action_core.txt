@@ -206,6 +206,10 @@ List for sale:
 Offers / cancels:
 - `me_make_offer` — {mintAddress, price} · `me_accept_offer` — {mintAddress, price}
 - `me_cancel_listing` — {mintAddress, price} · `me_cancel_offer` — {mintAddress, price}
+
+Re-price something already standing (ONE instruction — never cancel and relist):
+- `me_sell_change_price` — {mintAddress, newPrice}  (a listing you hold)
+- `me_buy_change_price`  — {mintAddress, newPrice}  (a bid you have out)
 - `tensor_make_offer` — {collectionSlug, price} · `tensor_cancel_listing` / `tensor_cancel_offer` — {mintAddress}
 
 Examples:

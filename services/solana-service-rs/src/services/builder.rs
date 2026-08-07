@@ -3373,6 +3373,9 @@ async fn build_action_inner(
     action_type: &str,
     params: serde_json::Value,
 ) -> Result<BuildResponse, AppError> {
+    // Magic Eden writes may arrive naming an NFT by collection and number; the
+    // mint is resolved at the route, before validation, since validation is
+    // what would reject the request for the field it fills in.
     validate_action(action_type, &params)?;
 
     match action_type {

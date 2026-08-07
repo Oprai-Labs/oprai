@@ -417,6 +417,12 @@ class ActionType(str, Enum):
     ME_MAKE_OFFER = "me_make_offer"
     ME_ACCEPT_OFFER = "me_accept_offer"
     ME_CANCEL_OFFER = "me_cancel_offer"
+    # Re-pricing is one instruction on Magic Eden, not cancel-then-relist.
+    # These lived in QueryType, where they validated as reads and then hit a
+    # renderer that has no case for them — so asking to change a price in chat
+    # could only ever fail.
+    ME_SELL_CHANGE_PRICE = "me_sell_change_price"
+    ME_BUY_CHANGE_PRICE = "me_buy_change_price"
     ME_COLLECTION_INFO = "me_collection_info"
     ME_NFT_INFO = "me_nft_info"
     ME_WALLET_NFTS = "me_wallet_nfts"
@@ -534,8 +540,9 @@ class QueryType(str, Enum):
     RISK = "risk"
     YIELD = "yield"
     ANALYTICS = "analytics"
+    # Kept so a stored session can still name it; the card rewrites it to
+    # `me_wallet_tokens`, which answers the same question with real data.
     NFT_COLLECTION = "nft_collection"
-    AIRDROPS = "airdrops"
     GAS = "gas"
     WALLET_INFO = "wallet_info"
     TAX_REPORT = "tax_report"
@@ -578,9 +585,7 @@ class QueryType(str, Enum):
     ME_BUY_NOW_TRANSFER_NFT = "me_buy_now_transfer_nft"
     ME_BUY_NOW = "me_buy_now"
     ME_BUY_CANCEL = "me_buy_cancel"
-    ME_BUY_CHANGE_PRICE = "me_buy_change_price"
     ME_SELL = "me_sell"
-    ME_SELL_CHANGE_PRICE = "me_sell_change_price"
     ME_SELL_NOW = "me_sell_now"
     ME_SELL_CANCEL = "me_sell_cancel"
     ME_DEPOSIT = "me_deposit"
@@ -1619,6 +1624,19 @@ def _validate_query_onchain(
 
     str_params = {str(k): str(v) for k, v in raw_params.items()
                   if isinstance(k, str) and isinstance(v, (str, int, float))}
+
+    # `nft_collection` had no backend — the card invented four NFTs and their
+    # floor prices. Magic Eden answers the same question with the wallet's real
+    # holdings and their real listing state, so the query becomes that one.
+    if query_type is QueryType.NFT_COLLECTION:
+        query_type = QueryType.ME_WALLET_TOKENS
+        wallet = (
+            str_params.pop("wallet", "")
+            or str_params.pop("address", "")
+            or str_params.pop("owner", "")
+            or "self"
+        )
+        str_params["walletAddress"] = wallet
 
     # jup_token_search resolves a SINGLE token symbol/name/mint to its mint
     # address. The Rust handler does not understand pair-shaped queries, so a
