@@ -2793,6 +2793,56 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return null;
   }
 
+  /**
+   * Fill in which offer or listing a cancel is about, when there is only one.
+   *
+   * The service already does this when it builds the transaction, but the card
+   * is drawn long before that: with no mint in the params it renders a required
+   * "NFT mint address" box and asks the user to paste an address for the single
+   * bid they have out. Resolve it here too, so the card shows the piece instead
+   * of a form.
+   */
+  private async ensureMeCancelTarget(): Promise<void> {
+    const t = this.action?.type ?? '';
+    if (this.getEditParam('mintAddress') || this.getEditParam('tokenMint')) return;
+    const wallet = this.walletService.publicKey()?.toString();
+    if (!wallet) return;
+
+    let source: string;
+    let mintKey: string;
+    if (/cancel_offer|buy_cancel/.test(t)) {
+      source = 'me_wallet_offers_made';
+      mintKey = 'tokenMint';
+    } else if (/accept_offer|sell_now/.test(t)) {
+      source = 'me_wallet_offers_received';
+      mintKey = 'tokenMint';
+    } else if (/cancel_listing|sell_cancel/.test(t)) {
+      source = 'me_wallet_tokens';
+      mintKey = 'mintAddress';
+    } else {
+      return;
+    }
+
+    const rows = await this.magicEden.read<Array<Record<string, unknown>>>(source, { wallet });
+    if (!Array.isArray(rows)) return;
+    const candidates = source === 'me_wallet_tokens'
+      ? rows.filter(r => r['listStatus'] === 'listed')
+      : rows;
+    // More than one and the choice is real — the empty box is then the honest
+    // state, and the offers list is where it gets answered.
+    if (candidates.length !== 1) return;
+
+    const only = candidates[0];
+    const mint = only[mintKey] as string | undefined;
+    if (!mint) return;
+    this.setEditParam('mintAddress', mint);
+    const price = only['price'];
+    if (typeof price === 'number' && price > 0 && !this.getEditParam('price')) {
+      this.setEditParam('price', String(price));
+    }
+    this.ensureMeNftDisplay();
+  }
+
   private ensureMeNftDisplay(): void {
     const mint = this.getEditParam('mintAddress') || this.getEditParam('tokenMint')
       || this.getEditParam('assetMint');
@@ -4484,6 +4534,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
+    void this.ensureMeCancelTarget();
     // Also here, not only from the panel's computed: a computed evaluates once
     // and memoises, so a first evaluation that ran before the params landed
     // left the lookup permanently unfired — which is why no Magic Eden action
