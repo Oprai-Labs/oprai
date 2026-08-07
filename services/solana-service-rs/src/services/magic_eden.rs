@@ -11,6 +11,32 @@ use crate::solana::connection::SolanaRpc;
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// Read an optional count that may arrive as a number OR as a string.
+///
+/// The same trap the expiry fell into: `limit` is typed as a u32 and every
+/// caller sends strings — the action card's parameters are a
+/// `Record<string, string>` and the model emits JSON strings — so the whole
+/// parameter object failed to deserialize and the read answered 400.
+fn de_opt_u32<'de, D>(d: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    match v {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Number(n)) => Ok(n.as_u64().map(|x| x.min(u32::MAX as u64) as u32)),
+        Some(serde_json::Value::String(s)) => {
+            let s = s.trim();
+            if s.is_empty() {
+                return Ok(None);
+            }
+            s.parse::<u32>().map(Some).map_err(D::Error::custom)
+        }
+        Some(other) => Err(D::Error::custom(format!("expected a count, got {other}"))),
+    }
+}
+
 /// Read an optional unix timestamp that may arrive as a number OR as a string.
 ///
 /// Every caller we have sends strings: the action card's parameters are a
@@ -2134,9 +2160,9 @@ pub struct MeReadParams {
         alias = "ownerAddress"
     )]
     pub wallet: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_u32")]
     pub limit: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_u32")]
     pub offset: Option<u32>,
     /// `collections/batch/listings` takes a comma-separated symbol list.
     #[serde(default)]
