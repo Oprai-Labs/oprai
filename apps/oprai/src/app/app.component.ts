@@ -52,7 +52,15 @@ export class AppComponent implements OnInit, OnDestroy {
       this._lastAutoAuthKey = key;
       untracked(() =>
         this.authService.authenticate().subscribe({
-          error: (err) => console.warn('[Auth] auto sign-in on connect failed:', err),
+          // Release the latch on failure. It exists to stop a loop of signature
+          // popups, but held after a failure it also stopped the NEXT genuine
+          // attempt — reconnecting the same wallet did nothing at all. The
+          // effect only re-runs on a real state change, so clearing it here
+          // cannot spin.
+          error: (err) => {
+            this._lastAutoAuthKey = null;
+            console.warn('[Auth] auto sign-in on connect failed:', err);
+          },
         }),
       );
     });

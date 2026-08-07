@@ -108,7 +108,7 @@ export class AuthService {
         switchMap((nonceRes) => {
           const message = `OPRAI login: ${nonceRes.nonce}`;
           const messageBytes = new TextEncoder().encode(message);
-          return from(this.walletService.signMessage(messageBytes)).pipe(
+          return from(this.signWithDeadline(messageBytes)).pipe(
             switchMap((signatureBytes) => {
               const signature = bs58.encode(signatureBytes);
               return this.api.post<VerifyResponse>('/auth/verify', {
@@ -142,6 +142,36 @@ export class AuthService {
 
     this._authInFlight$ = auth$;
     return auth$;
+  }
+
+  /**
+   * Ask the wallet to sign, and give up if it never answers.
+   *
+   * A wallet popup that is dismissed, blocked, or simply never opened leaves
+   * `signMessage` pending forever. Nothing downstream can settle: the auth
+   * observable never completes, `authenticating` stays true, and the chat sits
+   * on a loading skeleton with no error, no prompt and no way out — which is
+   * exactly what "I connected my wallet and it just sits there" looks like.
+   *
+   * Two minutes is long enough to find the window behind a browser and short
+   * enough that a stuck flow becomes a message with a retry.
+   */
+  private async signWithDeadline(message: Uint8Array): Promise<Uint8Array> {
+    const TIMEOUT_MS = 120_000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(
+          'Your wallet never returned a signature. Open it, approve the sign-in request, and try again.',
+        )),
+        TIMEOUT_MS,
+      );
+    });
+    try {
+      return await Promise.race([this.walletService.signMessage(message), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
