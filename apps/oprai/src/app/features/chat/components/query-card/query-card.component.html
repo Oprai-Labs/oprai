@@ -752,7 +752,7 @@
                 <div class="result-table__header result-table__header--me-holder">
                   <span>Wallet</span><span class="text-right">Held</span><span class="text-right">Share</span>
                 </div>
-                @for (t of h.topHolders; track t.wallet) {
+                @for (t of mePagedHolders(); track t.wallet) {
                   <div class="result-table__row result-table__row--me-holder dlmm-row">
                     <span class="mono">{{ t.wallet.slice(0,4) }}…{{ t.wallet.slice(-4) }}
                       <button class="dlmm-copy-btn" type="button" (click)="copyPoolAddress(t.wallet)">
@@ -823,14 +823,15 @@
 
         @if (meTotalPages() > 1) {
           <div class="dlmm-showing">
-            Showing <strong>{{ (mePage() - 1) * requestedPageSize(ME_PAGE_SIZE) + 1 }}–{{
-              (mePage() - 1) * requestedPageSize(ME_PAGE_SIZE) + (shape === 'collections' ? mePagedCollections().length
+            Showing <strong>{{ (mePage() - 1) * meShapePageSize() + 1 }}–{{
+              (mePage() - 1) * meShapePageSize() + (shape === 'collections' ? mePagedCollections().length
                 : shape === 'tokens' ? mePagedTokens().length
                 : shape === 'activities' ? mePagedActivities().length
                 : shape === 'traits' ? mePagedTraits().length
                 : shape === 'pools' ? mePagedPools().length
                 : shape === 'traders' ? mePagedTraders().length
-                : shape === 'trending' ? mePagedTrending().length : mePagedOffers().length)
+                : shape === 'trending' ? mePagedTrending().length
+                : shape === 'holders' ? mePagedHolders().length : mePagedOffers().length)
             }}</strong> of <strong>{{ meRowCount() }}</strong>
           </div>
           <div class="dlmm-pagination">

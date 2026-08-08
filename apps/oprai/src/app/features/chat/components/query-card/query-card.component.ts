@@ -1556,12 +1556,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly mePagedActivities = computed(() => this.mePageSlice(this.meActivities()));
   readonly mePagedOffers = computed(() => this.mePageSlice(this.meOffers()));
   readonly mePagedTrending = computed(() => this.mePageSlice(this.meTrending()?.collections ?? []));
+  readonly mePagedHolders = computed(() => this.mePageSlice(this.meHolders()?.topHolders ?? []));
   readonly mePagedTraits = computed(() => this.mePageSlice(this.meTraitRows()));
   readonly mePagedPools = computed(() => this.mePageSlice(this.mePools()));
   readonly mePagedTraders = computed(() => this.mePageSlice(this.meTraders()));
 
+  /**
+   * How many rows a page holds, for the shape being shown.
+   *
+   * A holder list is read top-down and compared row against row, so ten is a
+   * screen and a page break is a natural place to pause. The wider tables
+   * carry more before they feel long.
+   */
+  meShapePageSize(): number {
+    if (this.meShape() === 'holders') return 10;
+    return this.requestedPageSize(this.ME_PAGE_SIZE);
+  }
+
   private mePageSlice<T>(rows: T[]): T[] {
-    const size = this.requestedPageSize(this.ME_PAGE_SIZE);
+    const size = this.meShapePageSize();
     const start = (this.mePage() - 1) * size;
     return rows.slice(start, start + size);
   }
@@ -1583,7 +1596,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   });
 
   readonly meTotalPages = computed(() =>
-    Math.max(1, Math.ceil(this.meRowCount() / this.requestedPageSize(this.ME_PAGE_SIZE))));
+    Math.max(1, Math.ceil(this.meRowCount() / this.meShapePageSize())));
 
   readonly mePageNumbers = computed<Array<number | '…'>>(() => {
     const total = this.meTotalPages();

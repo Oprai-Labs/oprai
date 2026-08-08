@@ -2768,34 +2768,44 @@
 
   &__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 10px;
   }
 
   &__cta { align-self: flex-start; }
 }
 
+// Built like the swap card's panels: 16px corners, surface-2, a subtle border.
+// They were 8px boxes with a harder edge and shouting uppercase labels, which
+// made a row of them read as a form rather than as figures.
 .me-kpi {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
-  border: 1px solid var(--op-border-default, rgba(255, 255, 255, 0.09));
-  border-radius: var(--op-radius-sm, 8px);
+  gap: 6px;
+  padding: 14px 16px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 16px;
+  transition: border-color var(--op-fast), background var(--op-fast);
 
+  &:hover {
+    border-color: color-mix(in srgb, var(--op-brand) 30%, var(--op-border-subtle));
+  }
+
+  // Sentence case, like the panel labels on the swap card. Uppercase with
+  // letter-spacing competes with the number it is labelling.
   &__k {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--op-text-tertiary, #71717a);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--op-text-tertiary);
   }
 
   &__v {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--op-text-primary, #fafafa);
+    font-size: 1.0625rem;
+    font-weight: 650;
+    line-height: 1.2;
+    color: var(--op-text-primary);
+    font-variant-numeric: tabular-nums;
   }
 
   // The escrow card is a single number, so it carries the card.
