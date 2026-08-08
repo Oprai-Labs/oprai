@@ -3152,31 +3152,53 @@ pub async fn me_collection_holders(
     const PAGE: u64 = 1_000;
     const MAX_PAGES: u64 = 12; // 12,000 pieces — past all but the largest
 
-    let group = me_collection_group(http, symbol).await.ok_or_else(|| {
-        AppError::NotFound(
-            "Could not find that collection on chain, so its holders can't be counted".into(),
-        )
-    })?;
+    // Magic Eden names the collection's on-chain address in its own stats
+    // record, so ask there first. The fallback — take a listing, read its
+    // mint's grouping — needs the collection to have something for sale and
+    // failed outright on DeGods, which reported "not found on chain" for a
+    // collection of ten thousand.
+    let overview = me_collection_overview(http, symbol).await;
+    let group = overview
+        .as_ref()
+        .and_then(|o| o.get("contract").and_then(|c| c.as_str()).map(str::to_string));
+    let group = match group {
+        Some(g) => g,
+        None => me_collection_group(http, symbol).await.ok_or_else(|| {
+            AppError::NotFound(
+                "Could not find that collection on chain, so its holders can't be counted".into(),
+            )
+        })?,
+    };
+
+    // The pages are independent, so read them together. Ten thousand pieces is
+    // ten sequential round trips, which is long enough for the request to be
+    // given up on before it answers.
+    let pages = futures::future::join_all((1..=MAX_PAGES).map(|page| {
+        let group = group.clone();
+        async move {
+            das(
+                http,
+                "getAssetsByGroup",
+                serde_json::json!({
+                    "groupKey": "collection",
+                    "groupValue": group,
+                    "page": page,
+                    "limit": PAGE,
+                    "displayOptions": { "showCollectionMetadata": false }
+                }),
+            )
+            .await
+        }
+    }))
+    .await;
 
     let mut owners: HashMap<String, u64> = HashMap::new();
     let mut scanned = 0u64;
     let mut complete = false;
-    for page in 1..=MAX_PAGES {
-        let result = das(
-            http,
-            "getAssetsByGroup",
-            serde_json::json!({
-                "groupKey": "collection",
-                "groupValue": group,
-                "page": page,
-                "limit": PAGE,
-                "displayOptions": { "showCollectionMetadata": false }
-            }),
-        )
-        .await;
+    for result in pages {
         let items = match result.as_ref().and_then(|r| r.get("items")).and_then(|i| i.as_array()) {
             Some(i) if !i.is_empty() => i.clone(),
-            _ => { complete = true; break; }
+            _ => { complete = true; continue; }
         };
         let got = items.len() as u64;
         for item in &items {
@@ -3199,7 +3221,6 @@ pub async fn me_collection_holders(
         scanned += got;
         if got < PAGE {
             complete = true;
-            break;
         }
     }
 
@@ -3249,7 +3270,6 @@ pub async fn me_collection_holders(
     // Magic Eden's own owner count, from the same source its collection page
     // uses. The chain scan is what makes concentration knowable; this is what
     // makes the headline agree with the marketplace beside it.
-    let overview = me_collection_overview(http, symbol).await;
     let reported_owners = overview
         .as_ref()
         .and_then(|o| o.get("ownerCount").and_then(|v| v.as_u64()));
