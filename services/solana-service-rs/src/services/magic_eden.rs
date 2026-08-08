@@ -11,6 +11,24 @@ use crate::solana::connection::SolanaRpc;
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// Read an optional string that may arrive as a number.
+///
+/// `days: 30` and `days: "30"` mean the same thing, and the third time this
+/// pattern has cost a working request — the model writes whichever it feels
+/// like, and a 400 over the JSON type of a value we would immediately parse
+/// helps nobody.
+fn de_opt_str<'de, D>(d: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(match v {
+        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => Some(s),
+        Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+        _ => None,
+    })
+}
+
 /// Read an optional count that may arrive as a number OR as a string.
 ///
 /// The same trap the expiry fell into: `limit` is typed as a u32 and every
@@ -2169,7 +2187,14 @@ pub struct MeReadParams {
     pub symbols: Option<String>,
     /// How far back a sales history reaches. Accepts "30" or "30d"; the model
     /// writes both, and rejecting one over its suffix helps nobody.
-    #[serde(default, alias = "period", alias = "timeWindow", alias = "range", alias = "window")]
+    #[serde(
+        default,
+        alias = "period",
+        alias = "timeWindow",
+        alias = "range",
+        alias = "window",
+        deserialize_with = "de_opt_str"
+    )]
     pub days: Option<String>,
     /// Which column a ranking is ordered by.
     #[serde(default, alias = "sortBy", alias = "orderBy")]

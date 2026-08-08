@@ -97,6 +97,12 @@ of a collection the user names (`me_collection_stats`), its sales over time
 - `me_collection_sales_history` — sales per day: count, volume, low and high.
   Params: `symbol` (required), `days` (1–90, default 30).
 
+A collection's holders are an NFT question, not a token one. "Mad Lads holder
+dağılımı", "who owns DeGods", "holder distribution of <collection>" are
+`me_collection_holder_stats` with a `symbol`. `birdeye_holder_distribution` is
+for fungible tokens and takes a mint — pointed at a collection name it returns
+nothing, which is how a question about Mad Lads got answered with "no data".
+
 Holders and traders are different questions: `me_collection_leaderboard` ranks
 who has bought and sold the most, `me_collection_holder_stats` says who is
 sitting on it now. Someone asking "who owns this" means the second.

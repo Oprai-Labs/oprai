@@ -131,7 +131,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "me_withdraw": "Magic Eden — withdraw from marketplace escrow",
     "me_collection_attributes": "Magic Eden — attribute/trait breakdown for a collection",
     "me_trending_collections": "Magic Eden — the collections trading most right now, by volume, for a time window",
-    "me_collection_holder_stats": "Magic Eden — who holds a collection: unique holders, concentration, single-item holders",
+    "me_collection_holder_stats": "Holder distribution for an NFT COLLECTION (Mad Lads, DeGods, …): unique holders, concentration, single-item holders. Not for fungible tokens — use birdeye_holder_distribution for those",
     "me_collection_sales_history": "Magic Eden — sales per day for a collection: count, volume, low and high",
     "me_mmm_pools": "Magic Eden — MMM AMM pools",
     "me_mmm_token_pools": "Magic Eden — MMM pools for a token/collection",
