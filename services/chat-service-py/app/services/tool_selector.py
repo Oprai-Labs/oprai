@@ -532,7 +532,6 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_trending_collections":_A({"analysis", "nft_read"}),
     "me_collection_holder_stats":_A({"analysis", "nft_read"}),
     "me_collection_sales_history":_A({"analysis", "nft_read"}),
-    "me_launchpad_collections":_A({"nft", "magic_eden"}),
     "me_buy_instruction":      _A({"nft", "magic_eden"}),
     "me_buy_now_transfer_nft": _A({"nft", "magic_eden"}),
     "me_buy_now":              _A({"nft", "magic_eden"}),

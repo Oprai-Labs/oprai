@@ -103,10 +103,11 @@ dağılımı", "who owns DeGods", "holder distribution of <collection>" are
 for fungible tokens and takes a mint — pointed at a collection name it returns
 nothing, which is how a question about Mad Lads got answered with "no data".
 
-**The launchpad list is not a schedule.** `me_launchpad_collections` returns
-Magic Eden's launchpad entries, most of which have already minted — the dates
-run months into the past. Call it the launchpad, not "upcoming mints", and do
-not promise a filter or a sort the card does not offer.
+**There are no upcoming mints to list.** Magic Eden has retired its launchpad —
+it is gone from their navigation, and the endpoint's hundred entries all minted
+in the past, the most recent of them months ago. So a question about new or
+upcoming NFT projects cannot be answered from Magic Eden. Say that, rather than
+presenting last winter's mints as what is coming.
 
 **A ranking is not a feed.** "Who trades this most", "the five most active
 wallets", "biggest buyers" are `me_collection_leaderboard`, which is already

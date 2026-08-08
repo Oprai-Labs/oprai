@@ -1785,10 +1785,6 @@ async def _me_collection_leaderboard(symbol: str, limit=100) -> Any:
     from app.clients.magic_eden import get_collection_leaderboard
     return await get_collection_leaderboard(symbol, limit=int(limit))
 
-async def _me_launchpad_collections(offset=0, limit=200) -> Any:
-    from app.clients.magic_eden import get_launchpad_collections
-    return await get_launchpad_collections(offset=int(offset), limit=int(limit))
-
 async def _me_collection_attributes(collectionSymbol: str) -> Any:
     from app.clients.magic_eden import get_collection_attributes
     return await get_collection_attributes(collectionSymbol)
@@ -2002,7 +1998,6 @@ _DISPATCH: dict[str, tuple] = {
     "me_collection_listings":      (_me_collection_listings,      ["symbol"],        ["offset", "limit", "minPrice", "maxPrice", "sort", "sortDirection", "listingAggMode"]),
     "me_collections_batch_listings":(_me_collections_batch_listings,["symbols"],     ["offset", "limit", "minPrice", "maxPrice", "sort", "sortDirection", "listingAggMode"]),
     "me_collection_leaderboard":   (_me_collection_leaderboard,   ["symbol"],        ["limit"]),
-    "me_launchpad_collections":    (_me_launchpad_collections,    [],                ["offset", "limit"]),
     "me_collection_attributes":    (_me_collection_attributes,    ["collectionSymbol"], []),
     "me_mmm_pools":                (_me_mmm_pools,                [],                ["collectionSymbol", "owner", "offset", "limit", "field", "direction"]),
     "me_mmm_token_pools":          (_me_mmm_token_pools,          ["mintAddress"],   ["limit"]),
@@ -2042,7 +2037,7 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     # resolves the auction house / token account / referral off the live
     # listing. chat-service has its own Magic Eden client for the reads the
     # LLM answers in prose; these are the ones that render as a card.
-    "me_collections", "me_launchpad_collections",
+    "me_collections",
     "me_collection_listings", "me_collection_activities", "me_collection_stats",
     "me_collection_attributes", "me_collection_leaderboard",
     "me_collection_holder_stats", "me_collection_sales_history",

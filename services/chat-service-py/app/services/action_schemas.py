@@ -583,7 +583,6 @@ class QueryType(str, Enum):
     ME_TRENDING_COLLECTIONS = "me_trending_collections"
     ME_COLLECTION_HOLDER_STATS = "me_collection_holder_stats"
     ME_COLLECTION_SALES_HISTORY = "me_collection_sales_history"
-    ME_LAUNCHPAD_COLLECTIONS = "me_launchpad_collections"
     ME_BUY_INSTRUCTION = "me_buy_instruction"
     ME_BUY_NOW_TRANSFER_NFT = "me_buy_now_transfer_nft"
     ME_BUY_NOW = "me_buy_now"

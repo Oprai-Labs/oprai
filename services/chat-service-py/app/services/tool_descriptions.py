@@ -119,7 +119,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "Magic Eden — same as me_token: one NFT with its traits, offers and "
         "activity, by mintAddress or by symbol + number"
     ),
-    "me_launchpad_collections": "Magic Eden — launchpad collections",
     "me_buy_instruction": "Magic Eden — build a buy instruction for an NFT",
     "me_buy_now_transfer_nft": "Magic Eden — buy-now with NFT transfer",
     "me_buy_now": "Magic Eden — buy-now transaction for a listed NFT",
