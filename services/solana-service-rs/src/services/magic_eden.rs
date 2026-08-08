@@ -378,15 +378,6 @@ pub struct MeChangePriceParams {
     pub new_price: String,
 }
 
-/// Move SOL in or out of the Magic Eden bidding escrow.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MeEscrowParams {
-    /// Amount in SOL.
-    pub amount: String,
-    #[serde(default)]
-    pub auction_house: Option<String>,
-}
 
 /// Parameters for buying an NFT
 #[derive(Debug, Clone, Deserialize)]
@@ -1702,83 +1693,7 @@ pub async fn build_me_change_offer_price(
     ))
 }
 
-/// Move SOL into the Magic Eden escrow that funds bids.
-pub async fn build_me_deposit(
-    http: &reqwest::Client,
-    _rpc: &SolanaRpc,
-    user_pubkey: &Pubkey,
-    params: &MeEscrowParams,
-) -> Result<BuildResponse, AppError> {
-    let amount: f64 = params
-        .amount
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?;
-    if amount <= 0.0 {
-        return Err(AppError::InvalidParams("Amount must be above zero".into()));
-    }
-    let auction_house = params
-        .auction_house
-        .clone()
-        .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string());
 
-    let tx = me_instruction(
-        http,
-        "deposit",
-        &[
-            ("buyer", user_pubkey.to_string()),
-            ("auctionHouseAddress", auction_house.clone()),
-            ("amount", amount.to_string()),
-        ],
-    )
-    .await?;
-
-    Ok(me_tx_response(
-        "me_deposit",
-        format!("Deposit {amount} SOL to your Magic Eden balance"),
-        tx,
-        serde_json::json!({ "amount": amount, "auctionHouse": auction_house }),
-        vec!["This balance is what your offers are paid from".into()],
-    ))
-}
-
-/// Take SOL back out of the Magic Eden escrow.
-pub async fn build_me_withdraw(
-    http: &reqwest::Client,
-    _rpc: &SolanaRpc,
-    user_pubkey: &Pubkey,
-    params: &MeEscrowParams,
-) -> Result<BuildResponse, AppError> {
-    let amount: f64 = params
-        .amount
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?;
-    if amount <= 0.0 {
-        return Err(AppError::InvalidParams("Amount must be above zero".into()));
-    }
-    let auction_house = params
-        .auction_house
-        .clone()
-        .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string());
-
-    let tx = me_instruction(
-        http,
-        "withdraw",
-        &[
-            ("buyer", user_pubkey.to_string()),
-            ("auctionHouseAddress", auction_house.clone()),
-            ("amount", amount.to_string()),
-        ],
-    )
-    .await?;
-
-    Ok(me_tx_response(
-        "me_withdraw",
-        format!("Withdraw {amount} SOL from your Magic Eden balance"),
-        tx,
-        serde_json::json!({ "amount": amount, "auctionHouse": auction_house }),
-        vec!["Open offers backed by this balance may be cancelled".into()],
-    ))
-}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Query Actions (no transaction, just data)
@@ -2276,10 +2191,6 @@ fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
             "{base}/wallets/{}/activities?limit={limit}&offset={off}",
             need(&p.wallet, "wallet")?
         ),
-        "me_wallet_escrow_balance" => format!(
-            "{base}/wallets/{}/escrow_balance",
-            need(&p.wallet, "wallet")?
-        ),
         "me_wallet_offers_made" => format!(
             "{base}/wallets/{}/offers_made?limit={limit}&offset={off}",
             need(&p.wallet, "wallet")?
@@ -2333,7 +2244,6 @@ fn me_read_title(action: &str, p: &MeReadParams) -> String {
         "me_wallet" => "Wallet profile".into(),
         "me_wallet_tokens" => "Wallet NFTs".into(),
         "me_wallet_activities" | "me_owner_activities" => "Wallet activity".into(),
-        "me_wallet_escrow_balance" => "Magic Eden balance".into(),
         "me_wallet_offers_made" => "Offers you made".into(),
         "me_wallet_offers_received" => "Offers you received".into(),
         "me_mmm_pools" => "Magic Eden AMM pools".into(),

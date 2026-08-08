@@ -1665,10 +1665,6 @@ async def relay_get_swap_sources(chainId: int = 900, **_: Any) -> Any:
 # ── Magic Eden data query wrappers ────────────────────────────────────────────
 # These translate camelCase LLM params → snake_case magic_eden.py function args.
 
-async def _me_wallet_escrow_balance(walletAddress: str) -> Any:
-    from app.clients.magic_eden import get_wallet_escrow_balance
-    return await get_wallet_escrow_balance(walletAddress)
-
 async def _me_wallet_offers_received(walletAddress: str, minPrice=None, maxPrice=None, offset=0, limit=100, sort="updatedAt", sortDirection="desc") -> Any:
     from app.clients.magic_eden import get_wallet_offers_received
     return await get_wallet_offers_received(walletAddress, min_price=minPrice, max_price=maxPrice, offset=int(offset), limit=int(limit), sort=sort, sort_direction=sortDirection)
@@ -1981,7 +1977,6 @@ _DISPATCH: dict[str, tuple] = {
     "relay_get_app_fee_balances": (relay_get_app_fee_balances, [],     ["chainId"]),
     "relay_get_swap_sources": (relay_get_swap_sources, [],              ["chainId"]),
     # Magic Eden — read-only NFT data queries (fetched inline, result interpreted by LLM)
-    "me_wallet_escrow_balance":    (_me_wallet_escrow_balance,    ["walletAddress"], []),
     "me_wallet_offers_received":   (_me_wallet_offers_received,   ["walletAddress"], ["minPrice", "maxPrice", "offset", "limit", "sort", "sortDirection"]),
     "me_wallet_offers_made":       (_me_wallet_offers_made,       ["walletAddress"], ["minPrice", "maxPrice", "offset", "limit", "sort", "sortDirection"]),
     "me_wallet_activities":        (_me_wallet_activities,        ["walletAddress"], ["offset", "limit"]),
@@ -2049,7 +2044,7 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     # chat-service still serves it for prose.
     "me_wallet_tokens", "me_wallet_activities",
     "me_owner_activities", "me_wallet_offers_made", "me_wallet_offers_received",
-    "me_wallet_escrow_balance", "me_mmm_pools",
+    "me_mmm_pools",
     # The older spellings of the same reads. They were reachable only as
     # ACTIONS, which is why the query card answered them with "use the action
     # card" — a dead end for something that only ever returned data.

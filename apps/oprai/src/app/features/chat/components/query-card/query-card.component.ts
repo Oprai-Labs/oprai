@@ -932,7 +932,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meTab.set((d['meTab'] as any) ?? 'traits');
       this.meChain.set((d['meChain'] as any) ?? {});
       this.meStats.set((d['meStats'] as MeCollectionRow | undefined) ?? null);
-      this.meEscrowSol.set((d['meEscrowSol'] as number | undefined) ?? null);
     }
     if (d['orcaPositions']) {
       this.orcaPositions.set(d['orcaPositions'] as OrcaUserPosition[]);
@@ -1036,7 +1035,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       if (this.meHolders())  d['meHolders']  = this.meHolders();
       if (this.meSales())    d['meSales']    = this.meSales();
       if (this.meStats())              d['meStats'] = this.meStats();
-      if (this.meEscrowSol() !== null) d['meEscrowSol'] = this.meEscrowSol();
       d['orcaCapped'] = this.orcaCapped();
     }
     if (this.orcaPositions().length) {
@@ -1502,11 +1500,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly meActivities = signal<MeActivityRow[]>([]);
   readonly meOffers = signal<MeOfferRow[]>([]);
   readonly meStats = signal<MeCollectionRow | null>(null);
-  readonly meEscrowSol = signal<number | null>(null);
   readonly meFetching = signal(false);
   readonly mePage = signal(1);
   /** Which renderer this card is using: set once the payload lands. */
-  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | 'nft' | 'holders' | 'sales' | 'trending' | null>(null);
+  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'traits' | 'pools' | 'traders' | 'nft' | 'holders' | 'sales' | 'trending' | null>(null);
 
   /** What is trading most, for a window. */
   readonly meTrending = signal<{
@@ -1888,11 +1885,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     });
   }
 
-  meDepositEscrow(): void { this.meEmit('me_deposit', {}); }
-  meWithdrawEscrow(): void {
-    const bal = this.meEscrowSol();
-    this.meEmit('me_withdraw', bal ? { amount: String(bal) } : {});
-  }
 
   useOrcaPool(row: OrcaPoolRow): void {
     const params: Record<string, string> = {
@@ -2134,7 +2126,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
     this.applyMagicEdenPayload(data);
     this.mePage.set(1);
-    const shapeCarriesRows = !['stats', 'escrow', 'sales'].includes(this.meShape() ?? '');
+    const shapeCarriesRows = !['stats', 'sales'].includes(this.meShape() ?? '');
     this.reportEmptyState(this.meRowCount() === 0 && shapeCarriesRows);
     this.persistSnapshot();
     this.meFetching.set(false);
@@ -2182,13 +2174,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (t === 'me_collection_sales_history') {
       this.meSales.set(data as any);
       this.meShape.set('sales');
-      return;
-    }
-    if (t === 'me_wallet_escrow_balance') {
-      const d = data as { buyerEscrow?: unknown; balance?: unknown } | null;
-      const raw = (d?.buyerEscrow ?? d?.balance) as number | undefined;
-      this.meEscrowSol.set(MagicEdenService.solFromMaybeLamports(raw ?? null));
-      this.meShape.set('escrow');
       return;
     }
 
@@ -4034,7 +4019,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'me_owner_activities':
       case 'me_wallet_offers_made':
       case 'me_wallet_offers_received':
-      case 'me_wallet_escrow_balance':
       case 'me_mmm_pools':
         await this.fetchMagicEden();
         return;

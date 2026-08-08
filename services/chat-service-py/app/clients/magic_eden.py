@@ -858,23 +858,6 @@ async def get_collection_activities(
         return data if isinstance(data, list) else []
 
 
-async def get_wallet_escrow_balance(wallet_address: str) -> dict[str, Any]:
-    """GET /v2/wallets/{wallet_address}/escrow_balance
-
-    Returns the Magic Eden escrow balance for a wallet.
-
-    Args:
-        wallet_address: Wallet address to look up.
-    """
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            f"{_BASE}/wallets/{wallet_address}/escrow_balance",
-            headers=_headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
-
-
 async def get_wallet_offers_received(
     wallet_address: str,
     min_price: float | None = None,

@@ -601,7 +601,6 @@ function getActionLabel(action: ParsedAction): string {
     me_buy: 'Buy NFT (Magic Eden)', me_sell: 'Sell NFT (Magic Eden)',
     me_list: 'List NFT', me_cancel_listing: 'Cancel Listing',
     me_make_offer: 'Make Offer', me_accept_offer: 'Accept Offer', me_cancel_offer: 'Cancel Offer',
-    me_deposit: 'Deposit to ME Escrow', me_withdraw: 'Withdraw from ME Escrow',
     me_buy_instruction: 'Buy NFT (Instruction)', me_buy_now: 'Buy Now', me_buy_now_transfer_nft: 'Buy & Transfer NFT',
     me_buy_cancel: 'Cancel Buy', me_buy_change_price: 'Change Buy Price',
     me_sell_now: 'Sell Now', me_sell_cancel: 'Cancel Sell', me_sell_change_price: 'Change Sell Price',
@@ -1466,9 +1465,6 @@ function getActionFields(
       fields.push({ key: 'mintAddress', label: 'NFT', type: 'address', placeholder: 'NFT mint address…', required: true });
     }
     // The new price is the amount panel's.
-  } else if (t === 'me_deposit' || t === 'me_withdraw') {
-    // The wallet is the connected one; the amount is the panel's.
-  // ── Magic Eden MMM (NFT AMM pools) ────────────────────────────────────────
   } else if (t === 'me_mmm_create_pool') {
     fields.push(
       { key: 'collectionSymbol', label: 'Collection', type: 'text', placeholder: 'e.g. mad_lads', required: true },
@@ -2609,15 +2605,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** The amount field this panel owns, so the generic list can skip it. */
   meAmountKey(): string {
     const t = this.action.type;
-    if (t === 'me_deposit' || t === 'me_withdraw') return 'amount';
     if (/change_price/.test(t)) return 'newPrice';
     return 'price';
   }
 
   meAmountLabel(): string {
     const t = this.action.type;
-    if (t === 'me_deposit') return 'Deposit';
-    if (t === 'me_withdraw') return 'Withdraw';
     if (/change_price/.test(t)) return 'New price';
     if (/list|_sell$/.test(t)) return 'Your ask';
     return 'Your offer';
@@ -2716,31 +2709,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.setEditParam(this.meAmountKey(), String(v));
   }
 
-  /** The Magic Eden balance an offer is paid from. Fetched once per card. */
-  readonly meEscrowSol = signal<number | null>(null);
   private meEscrowAsked = false;
 
-  private ensureMeEscrow(): void {
-    if (this.meEscrowAsked) return;
-    const w = this.walletService.publicKey()?.toString();
-    if (!w) return;
-    this.meEscrowAsked = true;
-    void this.magicEden.read<Record<string, unknown>>('me_wallet_escrow_balance', { wallet: w })
-      .then(d => {
-        const raw = (d?.['buyerEscrow'] ?? d?.['balance']) as number | undefined;
-        this.meEscrowSol.set(MagicEdenService.solFromMaybeLamports(raw ?? null));
-      });
-  }
 
   /** Shown beside the amount: where the money comes from, or goes to. */
-  meBalanceNote(): string | null {
-    const t = this.action.type;
-    if (!/make_offer|withdraw/.test(t)) return null;
-    this.ensureMeEscrow();
-    const bal = this.meEscrowSol();
-    if (bal === null) return null;
-    return `Magic Eden balance ${bal.toFixed(4)} SOL`;
-  }
 
     /** Set once the protocol logo actually renders. The initial shows only
    *  while it hasn't — a plate behind a transparent icon is a black square. */
@@ -2749,7 +2721,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isMeNftPanel = computed(() => {
     const t = this.action.type;
     if (!t.startsWith('me_') || t.startsWith('me_mmm_')) return false;
-    if (t === 'me_deposit' || t === 'me_withdraw') return false;
     this.ensureMeNftDisplay();
     return !!this.meNftName() || !!this.meNftImage()
       || !!this.getEditParam('mintAddress') || !!this.getEditParam('tokenMint');
