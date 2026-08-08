@@ -1496,7 +1496,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   // shape of what came back, not from the endpoint name — otherwise every new
   // Magic Eden endpoint needs its own branch and the ones that already exist
   // drift apart.
-  readonly ME_PAGE_SIZE = 12;
+  readonly ME_PAGE_SIZE = 10;
   readonly meCollections = signal<MeCollectionRow[]>([]);
   readonly meTokens = signal<MeTokenRow[]>([]);
   readonly meActivities = signal<MeActivityRow[]>([]);
@@ -1573,7 +1573,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    * carry more before they feel long.
    */
   meShapePageSize(): number {
-    if (this.meShape() === 'holders') return 10;
     return this.requestedPageSize(this.ME_PAGE_SIZE);
   }
 
@@ -2267,7 +2266,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // `{results:{availableAttributes:[{attribute:{trait_type,value},count,floor}]}}`
       // — the floor is per trait and in lamports, which is the whole reason
       // to show this rather than a bare trait list.
-      const res = (data as Record<string, any> | null)?.['results'] ?? {};
+      // The read now wraps the original response so it can carry normalised
+      // trait stats alongside it: `{attributes: <original>, traitStats}`.
+      // Reading only the old shape emptied this card the moment that landed.
+      const root = data as Record<string, any> | null;
+      const res = (root?.['attributes']?.['results'] ?? root?.['results']) ?? {};
       const avail = (res['availableAttributes'] ?? []) as Array<Record<string, any>>;
       this.meTraitRows.set(this.meCap(avail.map(a => ({
         trait: String(a['attribute']?.['trait_type'] ?? ''),
@@ -2676,6 +2679,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   meSalesDay(unix: number): string {
     return new Date(unix * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }
+
+  /**
+   * When a launchpad entry mints, and whether that has already happened.
+   *
+   * Magic Eden's launchpad list is not a schedule of what is coming — most of
+   * it has already minted. Printing the date, with past ones marked, is the
+   * difference between a list someone can act on and a list that misleads.
+   */
+  meLaunchWhen(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const at = Date.parse(iso);
+    if (!Number.isFinite(at)) return '';
+    const day = new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    return at < Date.now() ? `${day} (past)` : day;
   }
 
   meWhen(blockTime: number | null | undefined): string {

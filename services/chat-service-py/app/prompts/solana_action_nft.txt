@@ -103,6 +103,11 @@ dağılımı", "who owns DeGods", "holder distribution of <collection>" are
 for fungible tokens and takes a mint — pointed at a collection name it returns
 nothing, which is how a question about Mad Lads got answered with "no data".
 
+**The launchpad list is not a schedule.** `me_launchpad_collections` returns
+Magic Eden's launchpad entries, most of which have already minted — the dates
+run months into the past. Call it the launchpad, not "upcoming mints", and do
+not promise a filter or a sort the card does not offer.
+
 **A ranking is not a feed.** "Who trades this most", "the five most active
 wallets", "biggest buyers" are `me_collection_leaderboard`, which is already
 ranked by volume. `me_collection_activities` is the raw event stream in time

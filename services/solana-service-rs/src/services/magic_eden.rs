@@ -3847,6 +3847,25 @@ pub async fn build_me_read(
     // A tile list needs rarity per trait, and asking per NFT would be one
     // collection-wide request each. Normalise once here so the whole list can
     // be scored from a single read.
+    // A launch is a date, a price and a size. The raw list carries all three
+    // and is not in any useful order, so it is sorted newest first here —
+    // "what is coming up" read as a list of names told nobody anything.
+    let data = if action == "me_launchpad_collections" {
+        let mut rows = data.as_array().cloned().unwrap_or_default();
+        rows.sort_by(|a, b| {
+            let at = |v: &serde_json::Value| {
+                v.get("launchDatetime")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            at(b).cmp(&at(a))
+        });
+        serde_json::Value::Array(rows)
+    } else {
+        data
+    };
+
     let data = if action == "me_collection_attributes" {
         let stats = data
             .pointer("/results/availableAttributes")

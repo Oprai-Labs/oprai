@@ -150,6 +150,17 @@
                     @if (c.listedCount) {
                       <span class="me-stat"><span class="me-stat__k">Listed</span> {{ c.listedCount }}</span>
                     }
+                    <!-- A launch is a date, a price and a size. Without them
+                         the list is a column of names. -->
+                    @if (c.launchDatetime) {
+                      <span class="me-stat"><span class="me-stat__k">Mints</span> {{ meLaunchWhen(c.launchDatetime) }}</span>
+                    }
+                    @if (c.price) {
+                      <span class="me-stat"><span class="me-stat__k">Price</span> {{ c.price | number:'1.0-3' }} SOL</span>
+                    }
+                    @if (c.size) {
+                      <span class="me-stat"><span class="me-stat__k">Supply</span> {{ c.size | number }}</span>
+                    }
                   </span>
                 </span>
                 <lucide-icon name="arrow-right" [size]="14" class="me-coll__go" />

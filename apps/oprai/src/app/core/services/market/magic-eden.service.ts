@@ -52,6 +52,10 @@ export interface MeCollectionRow {
   sales24h?: number | null;
   sales7d?: number | null;
   sales30d?: number | null;
+  /** Launchpad rows: when it mints, at what price, and how many. */
+  launchDatetime?: string | null;
+  price?: number | null;
+  size?: number | null;
   twitter?: string | null;
   discord?: string | null;
   website?: string | null;
