@@ -616,21 +616,40 @@
               <!-- The four the API actually returns. It sends volume7d and
                    avgPrice24hr; the 24h and all-time volumes this used to show
                    are not in the response, so both rendered as dashes. -->
+              <!-- The market, in the order someone reads it: what one costs,
+                   what the best bid is, how much is for sale, who holds it —
+                   then how much has actually traded. -->
               <div class="me-stats-card__grid">
                 <div class="me-kpi"><span class="me-kpi__k">Floor</span>
-                  <span class="me-kpi__v mono">@if (meSol(st.floorPrice); as f) { {{ f | number:'1.0-3' }} SOL } @else { — }</span></div>
+                  <span class="me-kpi__v mono">@if (st.floorPrice) { {{ st.floorPrice | number:'1.0-3' }} SOL } @else { — }@if (st.floorChange7d) {
+                      <span class="me-chg" [class.me-chg--up]="st.floorChange7d > 0" [class.me-chg--down]="st.floorChange7d < 0">{{ st.floorChange7d > 0 ? '+' : '' }}{{ st.floorChange7d | number:'1.0-1' }}% 7d</span>
+                    }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Top offer</span>
+                  <span class="me-kpi__v mono">@if (st.topOffer) { {{ st.topOffer | number:'1.0-3' }} SOL } @else { — }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">Listed</span>
                   <span class="me-kpi__v mono">{{ st.listedCount ?? '—' }}@if (st.listedShare) {
-                      <span class="me-kpi__sub">{{ st.listedShare * 100 | number:'1.0-2' }}% of supply</span>
+                      <span class="me-kpi__sub">{{ st.listedShare * 100 | number:'1.0-1' }}% of supply</span>
                     }</span></div>
-                @if (st.supply) {
-                  <div class="me-kpi"><span class="me-kpi__k">Supply</span>
-                    <span class="me-kpi__v mono">{{ st.supply | number }}</span></div>
-                }
+                <div class="me-kpi"><span class="me-kpi__k">Holders</span>
+                  <span class="me-kpi__v mono">{{ st.ownerCount ? (st.ownerCount | number) : '—' }}@if (st.supply) {
+                      <span class="me-kpi__sub">of {{ st.supply | number }} pieces</span>
+                    }</span></div>
+              </div>
+              <div class="me-stats-card__grid">
+                <div class="me-kpi"><span class="me-kpi__k">24h volume</span>
+                  <span class="me-kpi__v mono">{{ (st.volume24h ?? 0) | number:'1.0-1' }} SOL@if (st.sales24h) {
+                      <span class="me-kpi__sub">{{ st.sales24h }} sales</span>
+                    }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">7d volume</span>
-                  <span class="me-kpi__v mono">@if (meSol(st.volume7d); as v) { {{ v | number:'1.0-0' }} SOL } @else { — }</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">24h avg price</span>
-                  <span class="me-kpi__v mono">@if (meSol(st.avgPrice24hr); as v) { {{ v | number:'1.0-2' }} SOL } @else { — }</span></div>
+                  <span class="me-kpi__v mono">{{ meSolOrRaw(st.volume7d) ?? 0 | number:'1.0-0' }} SOL@if (st.sales7d) {
+                      <span class="me-kpi__sub">{{ st.sales7d }} sales</span>
+                    }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">30d volume</span>
+                  <span class="me-kpi__v mono">{{ (st.volume30d ?? 0) | number:'1.0-0' }} SOL@if (st.sales30d) {
+                      <span class="me-kpi__sub">{{ st.sales30d }} sales</span>
+                    }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Average sale</span>
+                  <span class="me-kpi__v mono">@if (st.avgPrice7d) { {{ st.avgPrice7d | number:'1.0-2' }} SOL } @else { — }<span class="me-kpi__sub">last 7 days</span></span></div>
               </div>
               <div class="me-stats-card__actions">
                 @if (st.symbol) {

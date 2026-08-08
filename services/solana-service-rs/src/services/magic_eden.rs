@@ -2963,6 +2963,81 @@ async fn program_owned_accounts(
 /// behind their trending page actually come from.
 const ME_STATS_API: &str = "https://stats-mainnet.magiceden.io/collection_stats";
 
+/// Everything Magic Eden knows about one collection's market.
+///
+/// The public v2 `/stats` route answers with a floor and a listed count and
+/// almost nothing else. This is the same host their own collection page reads,
+/// and it carries what the page shows: volume and sales for every window, the
+/// top offer, the true supply, and how many wallets hold it.
+///
+/// `tokenCount` matters beyond its own row: it is the supply for ANY
+/// collection, where the chain only reports one for MPL Core. Every share and
+/// percentage on the card is built on it.
+async fn me_collection_overview(
+    http: &reqwest::Client,
+    symbol: &str,
+) -> Option<serde_json::Value> {
+    let url = format!("{ME_STATS_API}/stats?collectionId={symbol}&window=1d");
+    let d = me_get_json(http, &url).await.ok()?;
+    if d.get("collectionSymbol").is_none() {
+        return None;
+    }
+
+    // Amounts arrive either as `{amount, native}` or as bare lamports. Read
+    // `native` when it is there and divide when it is not — mistaking one for
+    // the other is a billion-fold error on a price.
+    let native = |k: &str| -> Option<f64> {
+        let v = d.get(k)?;
+        v.get("native")
+            .and_then(|n| n.as_f64())
+            .or_else(|| v.as_f64().map(|lamports| lamports / 1e9))
+    };
+    let sol = |k: &str| -> Option<f64> { d.get(k).and_then(|v| v.as_f64()).map(|l| l / 1e9) };
+    let count = |k: &str| -> Option<u64> {
+        d.get(k)
+            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+    };
+
+    let supply = count("tokenCount");
+    let listed = count("listedCount");
+
+    Some(serde_json::json!({
+        "symbol": d.get("collectionSymbol"),
+        "name": d.get("name"),
+        "image": d.get("image"),
+        "isVerified": d.get("isVerified"),
+        "contract": d.get("contract"),
+
+        "floorPrice": native("floorPrice"),
+        "floorChange7d": d.get("fpPctChg7d").and_then(|v| v.as_f64()),
+        "topOffer": native("topOffer"),
+
+        "supply": supply,
+        "listedCount": listed,
+        "listedShare": match (listed, supply) {
+            (Some(l), Some(s)) if s > 0 => Some(l as f64 / s as f64),
+            _ => None,
+        },
+        "ownerCount": count("ownerCount"),
+        "ownerShare": match (count("ownerCount"), supply) {
+            (Some(o), Some(s)) if s > 0 => Some(o as f64 / s as f64),
+            _ => None,
+        },
+
+        "volume1h": sol("volume1h"),
+        "volume24h": sol("volume24hr"),
+        "volume7d": sol("volume7d"),
+        "volume30d": sol("volume30d"),
+        "avgPrice24h": sol("avgPrice24hr"),
+        "avgPrice7d": sol("avgPrice7d"),
+        "avgPrice30d": sol("avgPrice30d"),
+        "sales24h": count("txns24hr"),
+        "sales7d": count("txns7d"),
+        "sales30d": count("txns30d"),
+        "salesAll": count("totalTxns"),
+    }))
+}
+
 /// The collections trading most right now.
 ///
 /// `window` is one of 1h, 6h, 1d, 7d, 30d — "right now" means 1d unless the
@@ -3171,10 +3246,18 @@ pub async fn me_collection_holders(
     };
     let singles = ranked.iter().filter(|(_, n)| *n == 1).count() as u64;
 
+    // Magic Eden's own owner count, from the same source its collection page
+    // uses. The chain scan is what makes concentration knowable; this is what
+    // makes the headline agree with the marketplace beside it.
+    let reported_owners = me_collection_overview(http, symbol)
+        .await
+        .and_then(|o| o.get("ownerCount").and_then(|v| v.as_u64()));
+
     Ok(serde_json::json!({
         "symbol": symbol,
         "collection": group,
         "scanned": scanned,
+        "reportedOwners": reported_owners,
         // False when the scan hit its page cap: the numbers describe what was
         // read, and saying so beats presenting a partial count as a total.
         "complete": complete,
@@ -3694,23 +3777,17 @@ pub async fn build_me_read(
     }
     if matches!(action, "me_collection_stats" | "me_collection_info") {
         let symbol = need(&params.symbol, "collection")?.to_string();
-        let mut data = me_collection_detail(http, &collection_symbol(&symbol)).await?;
-        // Magic Eden reports how many are for sale and never how many exist,
-        // so "244 listed" has no scale. The chain has the number when the
-        // collection is MPL Core; when it is not, the field is simply absent
-        // rather than guessed, since every percentage built on a wrong supply
-        // is wrong too.
-        if let Some(group) = me_collection_group(http, &collection_symbol(&symbol)).await {
-            if let Some(supply) = me_collection_supply(http, &group).await {
-                if let Some(obj) = data.as_object_mut() {
-                    obj.insert("supply".into(), serde_json::json!(supply));
-                    obj.insert("collection".into(), serde_json::json!(group));
-                    let listed = obj.get("listedCount").and_then(|v| v.as_u64()).unwrap_or(0);
-                    if supply > 0 {
-                        obj.insert(
-                            "listedShare".into(),
-                            serde_json::json!(listed as f64 / supply as f64),
-                        );
+        let slug = collection_symbol(&symbol);
+        let mut data = me_collection_detail(http, &slug).await?;
+        // The market numbers come from the stats host, which knows the supply,
+        // the holders and every window's volume — none of which the public v2
+        // route carries. The v2 record stays for what it is good for: the
+        // description and the project's own links.
+        if let Some(overview) = me_collection_overview(http, &slug).await {
+            if let (Some(obj), Some(extra)) = (data.as_object_mut(), overview.as_object()) {
+                for (k, v) in extra {
+                    if !v.is_null() {
+                        obj.insert(k.clone(), v.clone());
                     }
                 }
             }

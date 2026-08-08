@@ -38,6 +38,20 @@ export interface MeCollectionRow {
    *  percentage derived from it. */
   supply?: number | null;
   listedShare?: number | null;
+  /** From Magic Eden's stats host — already in SOL, unlike the v2 fields
+   *  beside them which quote lamports. */
+  floorChange7d?: number | null;
+  topOffer?: number | null;
+  ownerCount?: number | null;
+  ownerShare?: number | null;
+  volume1h?: number | null;
+  volume24h?: number | null;
+  volume30d?: number | null;
+  avgPrice24h?: number | null;
+  avgPrice7d?: number | null;
+  sales24h?: number | null;
+  sales7d?: number | null;
+  sales30d?: number | null;
   twitter?: string | null;
   discord?: string | null;
   website?: string | null;

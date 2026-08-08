@@ -2476,6 +2476,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return typeof bps === 'number' && bps > 0 ? bps / 100 : null;
   }
 
+  /**
+   * `volume7d` reaches us from two sources with two units: the stats host
+   * sends SOL, the older v2 record sends lamports. Reading one as the other is
+   * a billion-fold error, so magnitude decides — no collection trades a
+   * billion SOL in a week.
+   */
+  meSolOrRaw(v: number | null | undefined): number | null {
+    if (v === null || v === undefined || !Number.isFinite(v)) return null;
+    return v > 1e6 ? v / 1e9 : v;
+  }
+
   /** Floor prices arrive in lamports from stats, SOL elsewhere. */
   meSol(v: number | null | undefined): number | null {
     return MagicEdenService.solFromMaybeLamports(v);
