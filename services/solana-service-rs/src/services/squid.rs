@@ -117,7 +117,9 @@ pub struct CollectFees {
 pub struct SquidParams {
     // ── Required ──────────────────────────────────────────────────────────
     /// Numeric chain ID: 0/7565164=Solana, 1=ETH, 42161=Arbitrum …
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub origin_chain_id: u64,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub destination_chain_id: u64,
     /// Token address or well-known symbol ("SOL", "USDC", "0x…")
     pub origin_token: String,
@@ -133,15 +135,15 @@ pub struct SquidParams {
 
     // ── Optional ──────────────────────────────────────────────────────────
     /// Slippage % (e.g. 1.0 = 1%); None = Squid auto-calculates
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage: Option<f64>,
 
     /// Enable express route (Chainflip/CCTP) for faster bridging (~2-10 min)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub enable_express: Option<bool>,
 
     /// Airdrop destination gas token so user can transact immediately
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub receive_gas_on_destination: Option<bool>,
 
     /// Preferred bridge types in priority order: ["chainflip","cctp","axelar"]
@@ -153,11 +155,11 @@ pub struct SquidParams {
     pub bypass: Option<Vec<String>>,
 
     /// If true only return estimate, skip TX building
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub quote_only: Option<bool>,
 
     /// Enable Squid Boost for faster Axelar confirmation (default true)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub enable_boost: Option<bool>,
 
     /// Integrator fee collection config
@@ -726,14 +728,16 @@ pub struct SquidTokensResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SquidQuoteParams {
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub origin_chain_id: u64,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub destination_chain_id: u64,
     pub origin_token: String,
     pub destination_token: String,
     pub amount: String,
     #[serde(default)]
     pub from_address: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefer: Option<Vec<String>>,

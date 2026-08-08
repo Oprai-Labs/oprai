@@ -83,7 +83,7 @@ pub struct OrcaSwapParams {
     pub output_mint: String,
     pub amount: String,
     #[serde(default)]
-    #[serde(alias = "slippage_bps")]
+    #[serde(alias = "slippage_bps", deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
     /// "in" = exact input (default), "out" = exact output
     #[serde(default)]
@@ -106,7 +106,7 @@ pub struct OrcaAddLiquidityParams {
     #[serde(alias = "amount_b")]
     pub amount_b: String,
     #[serde(default)]
-    #[serde(alias = "slippage_bps")]
+    #[serde(alias = "slippage_bps", deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -117,7 +117,7 @@ pub struct OrcaRemoveLiquidityParams {
     pub whirlpool: String,
     pub liquidity: String,
     #[serde(default)]
-    #[serde(alias = "slippage_bps")]
+    #[serde(alias = "slippage_bps", deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -132,9 +132,9 @@ pub struct OrcaOpenPositionParams {
     pub input_mint: Option<String>,
     #[serde(default)]
     pub input_amount: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub tick_lower: Option<i32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub tick_upper: Option<i32>,
     #[serde(default)]
     #[serde(alias = "token_a")]
@@ -145,12 +145,12 @@ pub struct OrcaOpenPositionParams {
     #[serde(default)]
     #[serde(alias = "amount_a")]
     pub amount_a: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub min_price: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub max_price: Option<f64>,
     #[serde(default)]
-    #[serde(alias = "slippage_bps")]
+    #[serde(alias = "slippage_bps", deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -160,7 +160,7 @@ pub struct OrcaOpenPositionParams {
 pub struct OrcaClosePositionParams {
     pub position: String,
     #[serde(default)]
-    #[serde(alias = "slippage_bps")]
+    #[serde(alias = "slippage_bps", deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -173,7 +173,7 @@ pub struct OrcaIncreasePositionParams {
     pub input_mint: String,
     pub input_amount: String,
     #[serde(default)]
-    #[serde(alias = "slippage_bps")]
+    #[serde(alias = "slippage_bps", deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -198,7 +198,7 @@ pub struct OrcaDecreasePositionParams {
     #[serde(default)]
     pub input_amount: Option<String>,
     #[serde(default)]
-    #[serde(alias = "slippage_bps")]
+    #[serde(alias = "slippage_bps", deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -214,7 +214,7 @@ pub struct OrcaCollectFeesParams {
 #[serde(rename_all = "camelCase")]
 pub struct OrcaCollectRewardsParams {
     pub position: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub reward_index: Option<u8>,
 }
 
@@ -229,11 +229,12 @@ pub struct OrcaCreatePoolParams {
     #[serde(alias = "token_b")]
     pub token_b: String,
     /// Initial price (tokenB per tokenA, in display units — e.g. 190 for 1 SOL = 190 USDC)
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub initial_price: f64,
     /// Tick spacing: 1, 2, 4, 8, 16, 32, 64, 128, 256, or 32896 (splash pool).
     /// Defaults to 128 (standard concentrated pool).
     #[serde(default)]
-    #[serde(alias = "tick_spacing")]
+    #[serde(alias = "tick_spacing", deserialize_with = "crate::services::params::lenient_opt")]
     pub tick_spacing: Option<u16>,
 }
 
@@ -251,7 +252,7 @@ pub struct OrcaGetPoolsParams {
     #[serde(default)]
     #[serde(alias = "sort_direction")]
     pub sort_direction: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub size: Option<u32>,
     /// Pagination: cursor for next page (from previous response)
     #[serde(default)]
@@ -260,25 +261,25 @@ pub struct OrcaGetPoolsParams {
     #[serde(default)]
     pub previous: Option<String>,
     #[serde(default)]
-    #[serde(alias = "has_rewards")]
+    #[serde(alias = "has_rewards", deserialize_with = "crate::services::params::lenient_opt")]
     pub has_rewards: Option<bool>,
     #[serde(default)]
-    #[serde(alias = "has_warning")]
+    #[serde(alias = "has_warning", deserialize_with = "crate::services::params::lenient_opt")]
     pub has_warning: Option<bool>,
     #[serde(default)]
-    #[serde(alias = "has_adaptive_fee")]
+    #[serde(alias = "has_adaptive_fee", deserialize_with = "crate::services::params::lenient_opt")]
     pub has_adaptive_fee: Option<bool>,
     #[serde(default)]
-    #[serde(alias = "is_wavebreak")]
+    #[serde(alias = "is_wavebreak", deserialize_with = "crate::services::params::lenient_opt")]
     pub is_wavebreak: Option<bool>,
     #[serde(default)]
-    #[serde(alias = "min_tvl")]
+    #[serde(alias = "min_tvl", deserialize_with = "crate::services::params::lenient_opt")]
     pub min_tvl: Option<f64>,
     #[serde(default)]
-    #[serde(alias = "min_volume")]
+    #[serde(alias = "min_volume", deserialize_with = "crate::services::params::lenient_opt")]
     pub min_volume: Option<f64>,
     #[serde(default)]
-    #[serde(alias = "min_locked_liquidity_percent")]
+    #[serde(alias = "min_locked_liquidity_percent", deserialize_with = "crate::services::params::lenient_opt")]
     pub min_locked_liquidity_percent: Option<f64>,
     /// Filter by token mint or symbol
     #[serde(default)]
@@ -294,7 +295,7 @@ pub struct OrcaGetPoolsParams {
     #[serde(default)]
     pub stats: Option<String>,
     #[serde(default)]
-    #[serde(alias = "include_blocked")]
+    #[serde(alias = "include_blocked", deserialize_with = "crate::services::params::lenient_opt")]
     pub include_blocked: Option<bool>,
     /// Asset category of either side of the pair, e.g. "stablecoin", "security"
     /// (real-world assets), "liquid_staking_token", "memecoin". Comma-separated
@@ -309,7 +310,7 @@ pub struct OrcaGetPoolsParams {
 #[serde(rename_all = "camelCase")]
 pub struct OrcaSearchPoolsParams {
     pub q: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub size: Option<u32>,
     #[serde(default)]
     pub next: Option<String>,
@@ -320,10 +321,10 @@ pub struct OrcaSearchPoolsParams {
     #[serde(alias = "sort_direction")]
     pub sort_direction: Option<String>,
     #[serde(default)]
-    #[serde(alias = "min_tvl")]
+    #[serde(alias = "min_tvl", deserialize_with = "crate::services::params::lenient_opt")]
     pub min_tvl: Option<f64>,
     #[serde(default)]
-    #[serde(alias = "min_volume")]
+    #[serde(alias = "min_volume", deserialize_with = "crate::services::params::lenient_opt")]
     pub min_volume: Option<f64>,
     #[serde(default)]
     pub stats: Option<String>,
@@ -331,11 +332,11 @@ pub struct OrcaSearchPoolsParams {
     #[serde(default)]
     pub user_tokens: Option<String>,
     #[serde(default)]
-    #[serde(alias = "has_rewards")]
+    #[serde(alias = "has_rewards", deserialize_with = "crate::services::params::lenient_opt")]
     pub has_rewards: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub verified_only: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub has_locked_liquidity: Option<bool>,
     /// Same asset categories as the pool list, so a search can stay inside the
     /// group the user is browsing.
@@ -385,7 +386,7 @@ pub struct OrcaGetTotalSupplyParams {}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrcaGetTokensParams {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub size: Option<u32>,
     /// Pagination token
     #[serde(default)]

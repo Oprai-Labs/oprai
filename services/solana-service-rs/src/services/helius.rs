@@ -101,7 +101,7 @@ pub struct HeliusTxHistoryParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Max transactions to return (1–100). Default 25.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination cursor — signature to start before.
     #[serde(default)]
@@ -246,10 +246,10 @@ pub struct HeliusGetAssetsParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Page number (1-based). Default 1.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     /// Items per page (max 1000). Default 100.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Sort by: "created", "updated", "recent_action", "id". Default "recent_action".
     #[serde(default)]
@@ -258,7 +258,7 @@ pub struct HeliusGetAssetsParams {
     #[serde(default)]
     pub token_type: Option<String>,
     /// Include native SOL balance in response.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub show_native_balance: Option<bool>,
 }
 
@@ -419,16 +419,16 @@ pub struct HeliusSearchAssetsParams {
     #[serde(default)]
     pub collection: Option<String>,
     /// Filter only compressed NFTs.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub compressed: Option<bool>,
     /// Token type: "all", "fungible", "nonFungible", "regularNft", "compressedNft".
     #[serde(default)]
     pub token_type: Option<String>,
     /// Page (1-based). Default 1.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     /// Items per page (max 1000). Default 100.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -522,10 +522,10 @@ pub struct HeliusNftEditionsParams {
     /// Master edition mint address.
     pub mint: String,
     /// Page (1-based). Default 1.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     /// Items per page (max 1000). Default 100.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -609,10 +609,10 @@ pub struct HeliusGetTokenAccountsParams {
     #[serde(default)]
     pub owner: Option<String>,
     /// Page (1-based). Default 1.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     /// Items per page (max 1000). Default 100.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -702,10 +702,10 @@ pub struct HeliusAssetSignaturesParams {
     /// Asset mint address.
     pub id: String,
     /// Page (1-based). Default 1.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     /// Items per page (max 1000). Default 100.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -796,10 +796,10 @@ pub struct HeliusPriorityFeeParams {
     #[serde(default)]
     pub level: Option<String>,
     /// Return all priority fee levels.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub include_all_levels: Option<bool>,
     /// Lookback slots (1–150). Default 150.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub lookback_slots: Option<u32>,
 }
 
@@ -1065,7 +1065,7 @@ pub struct HeliusWalletHistoryParams {
     pub wallet: Option<String>,
     #[serde(default)]
     pub before: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -1125,7 +1125,7 @@ pub struct HeliusWalletTransfersParams {
     pub wallet: Option<String>,
     #[serde(default)]
     pub before: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -1301,11 +1301,11 @@ pub async fn build_helius_get_asset_batch(
 #[serde(rename_all = "camelCase")]
 pub struct HeliusGetAssetsByCreatorParams {
     pub creator_address: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub only_verified: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     #[serde(default)]
     pub sort_by: Option<String>,
@@ -1388,9 +1388,9 @@ pub async fn build_helius_get_assets_by_creator(
 #[serde(rename_all = "camelCase")]
 pub struct HeliusGetAssetsByAuthorityParams {
     pub authority_address: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     #[serde(default)]
     pub sort_by: Option<String>,
@@ -1475,9 +1475,9 @@ pub struct HeliusGetAssetsByGroupParams {
     pub group_key: String,
     /// Group value (e.g. collection mint address).
     pub group_value: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     #[serde(default)]
     pub sort_by: Option<String>,
@@ -1923,6 +1923,7 @@ pub async fn build_helius_update_webhook(
 #[serde(rename_all = "camelCase")]
 pub struct HeliusToggleWebhookParams {
     pub webhook_id: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub enabled: bool,
 }
 
@@ -2059,10 +2060,10 @@ pub struct HeliusSendTransactionParams {
     /// Signed transaction (base64 encoded).
     pub transaction: String,
     /// Skip preflight checks. Must be true for Sender API.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub skip_preflight: Option<bool>,
     /// Max retries. Must be 0 for Sender API.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub max_retries: Option<u32>,
 }
 
@@ -2303,9 +2304,9 @@ pub async fn build_helius_zk_multiple_compressed_accounts(
 pub struct HeliusZkOwnerParams {
     #[serde(default)]
     pub wallet: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -2437,9 +2438,9 @@ pub async fn build_helius_zk_token_balances_by_owner(
 #[serde(rename_all = "camelCase")]
 pub struct HeliusZkMintParams {
     pub mint: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -2502,9 +2503,9 @@ pub struct HeliusZkSignaturesParams {
     pub hash: Option<String>,
     #[serde(default)]
     pub wallet: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -2773,6 +2774,7 @@ pub struct HeliusSmartSendParams {
     /// "Min" | "Low" | "Medium" | "High" | "VeryHigh" | "UnsafeMax" (default: "Medium")
     pub priority_level: Option<String>,
     /// Override compute unit limit (default: 200_000)
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub compute_unit_limit: Option<u32>,
 }
 

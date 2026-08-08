@@ -24,7 +24,7 @@ pub struct JupSolParams {
     /// Human-readable amount (e.g. "1.5").
     pub amount: String,
     /// Optional slippage in basis points (default: 50 = 0.5%).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 

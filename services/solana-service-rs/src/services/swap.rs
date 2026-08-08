@@ -85,9 +85,9 @@ pub struct SwapParams {
     pub input_mint: String,
     pub output_mint: String,
     pub amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub only_direct_routes: Option<bool>,
     #[serde(default)]
     pub dexes: Option<String>,
@@ -98,7 +98,7 @@ pub struct SwapParams {
     #[serde(default)]
     pub priority_fee: Option<String>,
     /// Restrict intermediate tokens to a safe list (reduces routing complexity, lowers MEV risk).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub restrict_intermediate_tokens: Option<bool>,
 }
 

@@ -73,6 +73,7 @@ pub struct JitoStakeParams {
     /// SOL amount to stake (e.g. "1.5")
     pub amount: String,
     #[allow(dead_code)]
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -84,8 +85,10 @@ pub struct JitoUnstakeParams {
     /// When true, uses `withdraw_sol` (instant liquid SOL from reserve).
     /// When false (default), uses `withdraw_stake` (stake account, ~1-epoch cooldown).
     /// Docs: solanaStakePool.withdrawStake(conn, pool, wallet, amount, useReserve)
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub instant: Option<bool>,
     #[allow(dead_code)]
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -182,11 +185,11 @@ pub struct StakerRewardsParams {
     pub stake_authority: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validator_vote_account: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub epoch: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<String>,
@@ -218,11 +221,11 @@ pub struct StakerRewardsResponse {
 pub struct ValidatorRewardsParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vote_account: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub epoch: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<String>,
@@ -331,11 +334,11 @@ pub struct StewardEventsParams {
     pub event_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vote_account: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub epoch: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
     pub skip: Option<u64>,
 }
 
@@ -1369,6 +1372,7 @@ pub struct JitoDepositStakeParams {
     /// Native stake account to deposit.
     pub stake_account: String,
     #[allow(dead_code)]
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -1400,7 +1404,9 @@ pub struct JitoWithdrawStakeParams {
 #[serde(rename_all = "camelCase")]
 pub struct JitoGetValidatorRewardsParams {
     pub vote_account: Option<String>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub epoch: Option<u64>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u64>,
     pub sort_order: Option<String>,
 }
@@ -1416,6 +1422,7 @@ pub struct JitoGetExchangeRateParams {}
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JitoGetValidatorsParams {
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub epoch: Option<u64>,
 }
 
@@ -1424,13 +1431,16 @@ pub struct JitoGetValidatorsParams {
 pub struct JitoGetStakerRewardsParams {
     pub stake_authority: Option<String>,
     pub validator_vote_account: Option<String>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub epoch: Option<u64>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JitoGetMevRewardsParams {
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub epoch: Option<u64>,
 }
 

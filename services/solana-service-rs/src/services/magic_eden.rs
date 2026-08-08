@@ -11,81 +11,8 @@ use crate::solana::connection::SolanaRpc;
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Read an optional string that may arrive as a number.
-///
-/// `days: 30` and `days: "30"` mean the same thing, and the third time this
-/// pattern has cost a working request — the model writes whichever it feels
-/// like, and a 400 over the JSON type of a value we would immediately parse
-/// helps nobody.
-fn de_opt_str<'de, D>(d: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let v = Option::<serde_json::Value>::deserialize(d)?;
-    Ok(match v {
-        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => Some(s),
-        Some(serde_json::Value::Number(n)) => Some(n.to_string()),
-        _ => None,
-    })
-}
 
-/// Read an optional count that may arrive as a number OR as a string.
-///
-/// The same trap the expiry fell into: `limit` is typed as a u32 and every
-/// caller sends strings — the action card's parameters are a
-/// `Record<string, string>` and the model emits JSON strings — so the whole
-/// parameter object failed to deserialize and the read answered 400.
-fn de_opt_u32<'de, D>(d: D) -> Result<Option<u32>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error;
-    let v = Option::<serde_json::Value>::deserialize(d)?;
-    match v {
-        None | Some(serde_json::Value::Null) => Ok(None),
-        Some(serde_json::Value::Number(n)) => Ok(n.as_u64().map(|x| x.min(u32::MAX as u64) as u32)),
-        Some(serde_json::Value::String(s)) => {
-            let s = s.trim();
-            if s.is_empty() {
-                return Ok(None);
-            }
-            s.parse::<u32>().map(Some).map_err(D::Error::custom)
-        }
-        Some(other) => Err(D::Error::custom(format!("expected a count, got {other}"))),
-    }
-}
 
-/// Read an optional unix timestamp that may arrive as a number OR as a string.
-///
-/// Every caller we have sends strings: the action card's parameters are a
-/// `Record<string, string>`, and the LLM emits JSON strings too. With a plain
-/// `Option<u64>` the whole parameter object failed to deserialize, so choosing
-/// any expiry other than "no expiry" turned the build into a 400 — which is
-/// why every listing we have made carries `seller_expiry: -1` on chain
-/// regardless of what was picked.
-fn de_opt_timestamp<'de, D>(d: D) -> Result<Option<u64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error;
-    let v = Option::<serde_json::Value>::deserialize(d)?;
-    match v {
-        None | Some(serde_json::Value::Null) => Ok(None),
-        Some(serde_json::Value::Number(n)) => Ok(n.as_u64()),
-        Some(serde_json::Value::String(s)) => {
-            let s = s.trim();
-            // An empty string is how "no expiry" reaches us from a cleared
-            // field; it is an absent value, not a malformed one.
-            if s.is_empty() {
-                return Ok(None);
-            }
-            s.parse::<u64>().map(Some).map_err(D::Error::custom)
-        }
-        Some(other) => Err(D::Error::custom(format!(
-            "expiry must be a unix timestamp, got {other}"
-        ))),
-    }
-}
 
 /// Magic Eden API v2 base URL
 pub const MAGIC_EDEN_API: &str = "https://api-mainnet.magiceden.dev/v2";
@@ -428,7 +355,7 @@ pub struct MeListParams {
     /// Price in SOL
     pub price: String,
     /// Optional expiry (unix timestamp)
-    #[serde(default, deserialize_with = "de_opt_timestamp")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub expiry: Option<u64>,
     /// The wallet's token account for this mint. Resolved when absent.
     #[serde(default)]
@@ -496,7 +423,7 @@ pub struct MeMakeOfferParams {
     /// Offer price in SOL
     pub price: String,
     /// Optional expiry (unix timestamp)
-    #[serde(default, deserialize_with = "de_opt_timestamp")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub expiry: Option<u64>,
     #[serde(default)]
     pub auction_house: Option<String>,
@@ -557,8 +484,10 @@ pub struct MeWalletNFTsParams {
     /// Optional collection filter
     pub collection_symbol: Option<String>,
     /// Pagination limit
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 
@@ -571,8 +500,10 @@ pub struct MeCollectionActivityParams {
     /// Activity type filter (list, buy, offer, etc.)
     pub activity_type: Option<String>,
     /// Pagination limit
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 
@@ -583,8 +514,10 @@ pub struct MeListingsParams {
     /// Collection symbol
     pub symbol: String,
     /// Pagination limit
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 
@@ -595,8 +528,10 @@ pub struct MeOffersParams {
     /// NFT mint address
     pub mint_address: String,
     /// Pagination limit
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 
@@ -607,8 +542,10 @@ pub struct MeCollectionNFTsParams {
     /// Collection symbol
     pub symbol: String,
     /// Pagination limit
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 
@@ -2178,9 +2115,9 @@ pub struct MeReadParams {
         alias = "ownerAddress"
     )]
     pub wallet: Option<String>,
-    #[serde(default, deserialize_with = "de_opt_u32")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
-    #[serde(default, deserialize_with = "de_opt_u32")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
     /// `collections/batch/listings` takes a comma-separated symbol list.
     #[serde(default)]
@@ -2193,7 +2130,7 @@ pub struct MeReadParams {
         alias = "timeWindow",
         alias = "range",
         alias = "window",
-        deserialize_with = "de_opt_str"
+        deserialize_with = "crate::services::params::lenient_opt"
     )]
     pub days: Option<String>,
     /// Which column a ranking is ordered by.
@@ -3963,16 +3900,16 @@ pub struct MeMmmCreatePoolParams {
     /// How far the price moves per fill — SOL for linear, basis points for exp.
     pub curve_delta: String,
     pub collection_symbol: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub reinvest_buy: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub reinvest_sell: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub expiry: Option<i64>,
     /// The pool's own fee, in basis points.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub lp_fee_bp: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub buyside_creator_royalty_bp: Option<u32>,
     /// Defaults to SOL.
     #[serde(default)]
@@ -3986,15 +3923,15 @@ pub struct MeMmmUpdatePoolParams {
     pub spot_price: String,
     pub curve_type: String,
     pub curve_delta: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub reinvest_buy: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub reinvest_sell: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub expiry: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub lp_fee_bp: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub buyside_creator_royalty_bp: Option<u32>,
     #[serde(default)]
     pub payment_mint: Option<String>,
@@ -4020,7 +3957,7 @@ pub struct MeMmmFundParams {
 pub struct MeMmmFulfillBuyParams {
     pub pool: String,
     pub asset_mint: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub asset_amount: Option<u32>,
     /// Floor on what you receive — the pool's bid can move before you land.
     #[serde(default)]
@@ -4034,12 +3971,12 @@ pub struct MeMmmFulfillBuyParams {
 pub struct MeMmmFulfillSellParams {
     pub pool: String,
     pub asset_mint: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub asset_amount: Option<u32>,
     /// Ceiling on what you pay.
     #[serde(default)]
     pub max_payment_amount: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub buyside_creator_royalty_bp: Option<u32>,
 }
 

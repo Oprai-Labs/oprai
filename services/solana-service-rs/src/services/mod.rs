@@ -20,6 +20,7 @@ pub mod meteora;
 pub mod mint_security;
 pub mod native_stake;
 pub mod orca;
+pub mod params;
 pub mod protocol_reads;
 pub mod pumpfun;
 pub mod raydium;

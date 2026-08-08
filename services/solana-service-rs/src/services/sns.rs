@@ -268,7 +268,7 @@ pub struct SnsRecordParams {
     pub domain: String,
     /// Record type: "ETH" | "SOL" | "IPFS" | "twitter" | "discord" | etc.
     pub record: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient")]
     pub v2: bool,
 }
 
@@ -298,7 +298,7 @@ pub struct SnsRegisterParams {
     #[serde(default)]
     pub buyer_token_account: String,
     /// Storage bytes 0–10240 (default 0)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient")]
     pub space: u32,
     /// "USDC" | "FIDA" (default USDC)
     #[serde(default)]
@@ -340,6 +340,7 @@ pub struct SnsCreateSubdomainParams {
 pub struct SnsListParams {
     pub domain: String,
     /// Price in token units (e.g. 100.0 for 100 USDC)
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub price: f64,
     /// "USDC" | "FIDA" | "SOL" (default USDC)
     #[serde(default)]
@@ -360,6 +361,7 @@ pub struct SnsBuyParams {
 #[serde(rename_all = "camelCase")]
 pub struct SnsMakeOfferParams {
     pub domain: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub amount: f64,
     #[serde(default)]
     pub token: String,
@@ -396,12 +398,12 @@ pub struct SnsP2pCreateParams {
     /// Domains you want in return
     pub quote_domains: Vec<String>,
     /// SOL amount you also want (can be 0)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient")]
     pub amount_sol: f64,
     /// The specific buyer you are offering to
     pub counter_party: String,
     /// Unix timestamp expiry (0 = no expiry)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient")]
     pub expiry_ts: u64,
 }
 
@@ -1920,6 +1922,7 @@ pub async fn build_sns_subdomains(
 pub struct SnsReallocParams {
     pub domain: String,
     /// New total space in bytes (max 10240)
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub new_space: u32,
 }
 
@@ -1997,7 +2000,7 @@ pub struct SnsTransferSubdomainParams {
     pub subdomain: String,
     pub new_owner: String,
     /// true = parent domain owner is the signer (not the current subdomain owner)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient")]
     pub parent_owner_signs: bool,
 }
 
@@ -2092,7 +2095,7 @@ pub struct SnsCreateRecordParams {
     /// Initial value for the record
     pub value: String,
     /// Storage space for the record in bytes (default = value length + 32 padding)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient")]
     pub space: u32,
 }
 

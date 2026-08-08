@@ -99,6 +99,7 @@ pub struct JupiterPerpParams {
     /// Override collateral token (e.g. "USDC", "SOL")
     pub collateral_token: Option<String>,
     /// Slippage in bps (default: 200)
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u16>,
 }
 

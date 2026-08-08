@@ -189,8 +189,9 @@ pub struct KaminoMultiplyOpenParams {
     pub strategy: String,
     pub amount: String,
     pub token: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub leverage: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -201,7 +202,7 @@ pub struct KaminoMultiplyAddParams {
     pub position: String,
     pub amount: String,
     pub token: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -210,8 +211,9 @@ pub struct KaminoMultiplyAddParams {
 #[serde(rename_all = "camelCase")]
 pub struct KaminoMultiplyWithdrawParams {
     pub position: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub percent: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -220,7 +222,7 @@ pub struct KaminoMultiplyWithdrawParams {
 #[serde(rename_all = "camelCase")]
 pub struct KaminoMultiplyCloseParams {
     pub position: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -235,14 +237,15 @@ pub struct KaminoMultiplyCloseParams {
 pub struct KaminoLongOpenParams {
     pub collateral_token: String,
     pub collateral_amount: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub leverage: f64,
     #[serde(default)]
     pub debt_token: Option<String>,
     #[serde(default)]
     pub market: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub size_usd: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -253,14 +256,15 @@ pub struct KaminoLongOpenParams {
 pub struct KaminoShortOpenParams {
     pub collateral_token: String,
     pub collateral_amount: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub leverage: f64,
     #[serde(default)]
     pub debt_token: Option<String>,
     #[serde(default)]
     pub market: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub size_usd: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -270,9 +274,9 @@ pub struct KaminoShortOpenParams {
 #[serde(rename_all = "camelCase")]
 pub struct KaminoPositionCloseParams {
     pub position: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub percent: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -292,7 +296,7 @@ pub struct KaminoVaultDepositParams {
     /// Token symbol/mint — informational only (vault accepts its configured token).
     #[serde(default)]
     pub token: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -307,7 +311,7 @@ pub struct KaminoVaultWithdrawParams {
     /// Also accepted as "shares" or "amount".
     #[serde(alias = "shares", alias = "amount")]
     pub ktoken_amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -1333,7 +1337,7 @@ pub async fn build_kamino_unstake(
 #[serde(rename_all = "camelCase")]
 pub struct KaminoVaultsParams {
     /// Max number of vaults to return (default 8, top by TVL).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Optional token filter (symbol or mint) — only vaults for that token.
     /// Use it when the user wants to deposit a specific asset (e.g. "SOL vaults").
@@ -1990,10 +1994,10 @@ pub struct KaminoVaultMetricsHistoryParams {
     /// Vault address (base58). Required.
     pub vault: String,
     /// Start of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<i64>,
     /// End of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end: Option<i64>,
 }
 
@@ -2004,10 +2008,10 @@ pub struct KaminoVaultAllocationHistoryParams {
     /// Vault address (base58). Required.
     pub vault: String,
     /// Start of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<i64>,
     /// End of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end: Option<i64>,
 }
 
@@ -2068,10 +2072,10 @@ pub struct KaminoUserMetricsHistoryParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Start of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<i64>,
     /// End of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end: Option<i64>,
 }
 
@@ -2083,7 +2087,7 @@ pub struct KaminoUserTransactionsParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Max number of transactions to return. Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Cursor for pagination (transaction signature). Optional.
     #[serde(default)]
@@ -2112,10 +2116,10 @@ pub struct KaminoUserVaultMetricsHistoryParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Start of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<i64>,
     /// End of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end: Option<i64>,
 }
 
@@ -2141,10 +2145,10 @@ pub struct KaminoUserVaultPnlHistoryParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Start of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<i64>,
     /// End of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end: Option<i64>,
 }
 
@@ -2161,7 +2165,7 @@ pub struct KaminoVaultDepositInstructionsParams {
     /// Amount to deposit (decimal). Required.
     pub amount: String,
     /// Slippage tolerance in basis points. Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -2174,7 +2178,7 @@ pub struct KaminoVaultWithdrawInstructionsParams {
     /// kToken shares to redeem (decimal). Required.
     pub ktoken_amount: String,
     /// Slippage tolerance in basis points. Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -2206,10 +2210,10 @@ pub struct KaminoMarketReserveHistoryParams {
     #[serde(default)]
     pub market: Option<String>,
     /// Start of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<i64>,
     /// End of range (ISO 8601 string or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end: Option<i64>,
     /// Snapshot frequency: "hour" (default) or "day". Optional.
     #[serde(default)]
@@ -3430,7 +3434,7 @@ pub struct KaminoObligationPnlParams {
     #[serde(default)]
     pub program_id: Option<String>,
     /// For xSOL pairs, use stake rate for PnL calculation. Optional (default: false).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub use_stake_rate: Option<bool>,
 }
 
@@ -3448,13 +3452,13 @@ pub struct KaminoObligationMetricsHistoryParams {
     #[serde(default)]
     pub env: Option<String>,
     /// Start of range (ISO 8601 or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<i64>,
     /// End of range (ISO 8601 or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end: Option<i64>,
     /// Use stake rate to calculate net SOL value for xSOL pairs. Optional (default: false).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub use_stake_rate_for_obligation: Option<bool>,
 }
 
@@ -3478,10 +3482,10 @@ pub struct KaminoRewardsHistoryParams {
     /// Borrow reserve public key. Required.
     pub borrow_reserve: String,
     /// Start of range (ISO 8601 or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<i64>,
     /// End of range (ISO 8601 or epoch in milliseconds). Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end: Option<i64>,
     /// Frequency aggregation: "hour" or "day". Optional.
     #[serde(default)]
@@ -3528,12 +3532,13 @@ pub struct KaminoKswapParams {
     /// Input amount in smallest unit (lamports). Required.
     pub amount_in: String,
     /// Maximum acceptable slippage in basis points. Required.
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub max_slippage_bps: u32,
     /// Include setup instructions (create ATAs, etc.). Optional (default: true).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub include_setup_ixs: Option<bool>,
     /// Auto wrap/unwrap native SOL. Optional (default: true).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub wrap_and_unwrap_sol: Option<bool>,
 }
 
@@ -4637,7 +4642,7 @@ pub struct KaminoObligationTransactionsParams {
     #[serde(default)]
     pub sort: Option<String>,
     /// Use log prices for transaction values. Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub use_log_prices: Option<bool>,
 }
 
@@ -5698,7 +5703,7 @@ pub struct KaminoUserFarmTransactionsParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Max results per page: 1-1000, default 100. Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Sort: "asc" (default) or "desc". Optional.
     #[serde(default)]
@@ -5707,7 +5712,7 @@ pub struct KaminoUserFarmTransactionsParams {
     #[serde(default)]
     pub pagination_token: Option<String>,
     /// Return all results without pagination. Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub no_pagination: Option<bool>,
 }
 
@@ -5770,7 +5775,7 @@ pub struct KaminoFarmTransactionsParams {
     /// Farm public key (base58). Required.
     pub farm: String,
     /// Max results per page: 1-1000, default 100. Optional.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Sort: "asc" or "desc" (default: desc). Optional.
     #[serde(default)]

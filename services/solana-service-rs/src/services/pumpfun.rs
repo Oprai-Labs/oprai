@@ -106,10 +106,10 @@ pub struct LaunchTokenParams {
     #[serde(default)]
     pub initial_buy_amount: Option<String>,
     /// Slippage for initial buy in percent (e.g. 10 = 10%). Default: 10.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage: Option<f64>,
     /// Priority fee in SOL (e.g. 0.0005). Converted to microlamports/CU.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub priority_fee: Option<f64>,
     #[serde(default)]
     pub mayhem_mode: Option<String>,
@@ -141,11 +141,11 @@ pub struct LaunchTokenParams {
 pub struct PumpFunTradeParams {
     pub mint: String,
     pub amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub denominated_in_sol: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub priority_fee: Option<f64>,
 }
 
@@ -2880,16 +2880,16 @@ pub struct PumpFunMintParams {
 pub struct PumpFunSearchParams {
     #[serde(default)]
     pub query: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PumpFunListParams {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 

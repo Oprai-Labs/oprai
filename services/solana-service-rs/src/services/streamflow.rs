@@ -24,20 +24,31 @@ pub struct StreamflowCreateParams {
     pub recipient: String,
     pub mint: String,
     pub amount: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub period: u64,
     pub amount_per_period: String,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<u64>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub cliff: Option<u64>,
     pub cliff_amount: Option<String>,
     pub name: Option<String>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub can_topup: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub cancelable_by_sender: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub cancelable_by_recipient: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub transferable_by_sender: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub transferable_by_recipient: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub automatic_withdrawal: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub withdrawal_frequency: Option<u64>,
     pub partner: Option<String>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub is_native: Option<bool>,
 }
 
@@ -56,17 +67,28 @@ pub struct StreamflowRecipient {
 pub struct StreamflowCreateMultipleParams {
     pub recipients: Vec<StreamflowRecipient>,
     pub mint: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub period: u64,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub start: Option<u64>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub cliff: Option<u64>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub can_topup: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub cancelable_by_sender: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub cancelable_by_recipient: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub transferable_by_sender: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub transferable_by_recipient: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub automatic_withdrawal: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub withdrawal_frequency: Option<u64>,
     pub partner: Option<String>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub is_native: Option<bool>,
 }
 
@@ -101,9 +123,13 @@ pub struct StreamflowTopupParams {
 #[serde(rename_all = "camelCase")]
 pub struct StreamflowUpdateParams {
     pub stream_id: String,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub automatic_withdrawal: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub withdrawal_frequency: Option<u64>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub transferable_by_sender: Option<bool>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub transferable_by_recipient: Option<bool>,
 }
 

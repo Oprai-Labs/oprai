@@ -58,8 +58,10 @@ pub const NATIVE_TOKEN_ADDRESS: &str = "0x00000000000000000000000000000000000000
 #[serde(rename_all = "camelCase")]
 pub struct CrossChainSwapParams {
     /// Source chain ID (e.g., 1 for Ethereum, 42161 for Arbitrum)
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub origin_chain_id: u64,
     /// Destination chain ID
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub destination_chain_id: u64,
     /// Source token address (use NATIVE_TOKEN_ADDRESS for native tokens)
     pub origin_currency: String,
@@ -77,7 +79,7 @@ pub struct CrossChainSwapParams {
     #[serde(default)]
     pub referrer: Option<String>,
     /// Slippage tolerance in basis points (default: 50 = 0.5%)
-    #[serde(default = "default_slippage_bps")]
+    #[serde(default = "default_slippage_bps", deserialize_with = "crate::services::params::lenient")]
     pub slippage_bps: u32,
     /// Bridge provider: "relay", "wormhole", "debridge", "mayan"
     /// Currently only relay is fully supported; others are placeholders for future implementation
@@ -792,7 +794,9 @@ pub struct RelayTokenInfo {
 #[serde(rename_all = "camelCase")]
 pub struct RelayBridgeParams {
     // Required
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub origin_chain_id: u64,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub destination_chain_id: u64,
     pub origin_currency: String,
     pub destination_currency: String,
@@ -809,39 +813,39 @@ pub struct RelayBridgeParams {
     #[serde(default)]
     pub refund_type: Option<String>,
     // Optional — gas top-up on destination
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub topup_gas: Option<bool>,
     #[serde(default)]
     pub topup_gas_amount: Option<String>,
     // Optional — fees / slippage
     /// Slippage tolerance in basis points (e.g. 50 = 0.5%)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_tolerance: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub subsidize_fees: Option<bool>,
     #[serde(default)]
     pub referrer: Option<String>,
     #[serde(default)]
     pub referrer_address: Option<String>,
     // Optional — routing controls
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub use_deposit_address: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub disable_origin_swaps: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub force_solver_execution: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub fixed_rate: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub max_route_length: Option<u32>,
     /// true = fail if exact quote cannot be fulfilled (no degraded fallback)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub strict: Option<bool>,
     /// true = proceed even if price impact exceeds safe threshold
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub override_price_impact: Option<bool>,
     /// true = include Solana compute unit limit in origin TX (recommended for Solana-origin bridges)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub include_compute_unit_limit: Option<bool>,
 }
 
