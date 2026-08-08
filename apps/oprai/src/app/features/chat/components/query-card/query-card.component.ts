@@ -2142,17 +2142,41 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.loading.set(false);
   }
 
+  /**
+   * How many rows the question asked for, if it named a number.
+   *
+   * "the five most active wallets" is a request for five rows, not for a
+   * hundred paged five at a time. The model passes the number through as
+   * `limit`; anything absurd is ignored rather than trusted.
+   */
+  meRequestedCount(): number | null {
+    const raw = this.query.params?.['limit']
+      ?? this.query.params?.['count']
+      ?? this.query.params?.['top']
+      ?? this.query.params?.['n'];
+    const n = parseInt(String(raw ?? ''), 10);
+    return Number.isFinite(n) && n > 0 && n <= 200 ? n : null;
+  }
+
+  /** Trim a row list to the count the question named. */
+  private meCap<T>(rows: T[]): T[] {
+    const n = this.meRequestedCount();
+    return n === null ? rows : rows.slice(0, n);
+  }
+
   /** Decide which of the four shapes this payload is, and file it. */
   private applyMagicEdenPayload(data: unknown): void {
     const t = this.query.type;
 
     if (t === 'me_trending_collections') {
-      this.meTrending.set(data as any);
+      const tr = data as { window: string; collections: any[] };
+      this.meTrending.set({ ...tr, collections: this.meCap(tr.collections ?? []) });
       this.meShape.set('trending');
       return;
     }
     if (t === 'me_collection_holder_stats') {
-      this.meHolders.set(data as any);
+      const hs = data as any;
+      this.meHolders.set({ ...hs, topHolders: this.meCap(hs.topHolders ?? []) });
       this.meShape.set('holders');
       return;
     }
@@ -2198,12 +2222,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
 
     if (/activit/.test(t)) {
-      this.meActivities.set(MagicEdenService.rowsFrom<MeActivityRow>(data, 'activities'));
+      this.meActivities.set(this.meCap(MagicEdenService.rowsFrom<MeActivityRow>(data, 'activities')));
       this.meShape.set('activities');
       return;
     }
     if (/offer/.test(t)) {
-      const offers = MagicEdenService.rowsFrom<MeOfferRow>(data, 'offers');
+      const offers = this.meCap(MagicEdenService.rowsFrom<MeOfferRow>(data, 'offers'));
       this.meOffers.set(offers);
       void this.nameUnresolvedOffers(offers);
       this.meShape.set('offers');
@@ -2215,7 +2239,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // addresses.
       const rows = MagicEdenService.rowsFrom<Record<string, unknown>>(data, 'listings');
       const tokens = rows.map(r => this.meListingToToken(r));
-      this.meTokens.set(tokens);
+      this.meTokens.set(this.meCap(tokens));
       this.meShape.set('tokens');
       void this.loadTraitStatsForRows(tokens);
       return;
@@ -2231,11 +2255,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (t === 'me_collection_leaderboard') {
       // Wallets, not collections. Volume is in lamports here.
       const rows = MagicEdenService.rowsFrom<Record<string, any>>(data, 'results');
-      this.meTraders.set(rows.map(r => ({
+      this.meTraders.set(this.meCap(rows.map(r => ({
         wallet: String(r['wallet'] ?? ''),
         volume: MagicEdenService.solFromMaybeLamports(r['totalVolume'] ?? null),
         lastTradeAt: (r['lastTradeAt'] as number | undefined) ?? null,
-      })).filter(r => r.wallet));
+      })).filter(r => r.wallet)));
       this.meShape.set('traders');
       return;
     }
@@ -2245,17 +2269,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // to show this rather than a bare trait list.
       const res = (data as Record<string, any> | null)?.['results'] ?? {};
       const avail = (res['availableAttributes'] ?? []) as Array<Record<string, any>>;
-      this.meTraitRows.set(avail.map(a => ({
+      this.meTraitRows.set(this.meCap(avail.map(a => ({
         trait: String(a['attribute']?.['trait_type'] ?? ''),
         value: String(a['attribute']?.['value'] ?? ''),
         count: Number(a['count'] ?? 0),
         floor: MagicEdenService.solFromMaybeLamports(a['floor'] ?? null),
-      })).filter(r => r.trait).sort((x, y) => (y.floor ?? 0) - (x.floor ?? 0)));
+      })).filter(r => r.trait).sort((x, y) => (y.floor ?? 0) - (x.floor ?? 0))));
       this.meShape.set('traits');
       return;
     }
     if (/collection|launchpad|popular/.test(t) && !/nfts|token/.test(t)) {
-      this.meCollections.set(MagicEdenService.collectionsFrom(data));
+      this.meCollections.set(this.meCap(MagicEdenService.collectionsFrom(data)));
       this.meShape.set('collections');
       return;
     }
@@ -2263,7 +2287,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     // Everything else is a list of NFTs: a wallet's tokens, a collection's
     // tokens, MMM pool inventory.
     const rows = MagicEdenService.rowsFrom<MeTokenRow>(data, 'tokens', 'nfts', 'pools');
-    this.meTokens.set(rows);
+    this.meTokens.set(this.meCap(rows));
     this.meShape.set('tokens');
     void this.loadTraitStatsForRows(rows);
   }

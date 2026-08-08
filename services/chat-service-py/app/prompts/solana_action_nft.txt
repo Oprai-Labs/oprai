@@ -103,6 +103,17 @@ dağılımı", "who owns DeGods", "holder distribution of <collection>" are
 for fungible tokens and takes a mint — pointed at a collection name it returns
 nothing, which is how a question about Mad Lads got answered with "no data".
 
+**A ranking is not a feed.** "Who trades this most", "the five most active
+wallets", "biggest buyers" are `me_collection_leaderboard`, which is already
+ranked by volume. `me_collection_activities` is the raw event stream in time
+order — reading the last hundred events and naming the wallets that appear in
+them answers a different question, and answers it wrongly: the wallets that
+appear most in a feed are the ones bidding and cancelling, not the ones buying.
+
+**A number in the question is the number of rows.** "5 wallets", "top 10",
+"ilk 20" — pass it as `limit`. Every card honours it, so asking for five and
+getting a hundred is the tool ignoring the request.
+
 Holders and traders are different questions: `me_collection_leaderboard` ranks
 who has bought and sold the most, `me_collection_holder_stats` says who is
 sitting on it now. Someone asking "who owns this" means the second.
