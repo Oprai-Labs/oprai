@@ -1467,9 +1467,7 @@ export class IntentParserService {
       // "Marketplace Popular") is not how anyone would say it.
       case 'me_wallet_escrow_balance':
         return 'Your Magic Eden Balance';
-      case 'me_marketplace_popular':
         return 'Popular Collections';
-      case 'me_launchpad_collections':
         return 'Magic Eden Launchpad';
       case 'me_wallet_tokens':
       case 'me_wallet_nfts':

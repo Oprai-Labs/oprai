@@ -2281,7 +2281,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meShape.set('traits');
       return;
     }
-    if (/collection|launchpad|popular/.test(t) && !/nfts|token/.test(t)) {
+    if (/collection/.test(t) && !/nfts|token/.test(t)) {
       this.meCollections.set(this.meCap(MagicEdenService.collectionsFrom(data)));
       this.meShape.set('collections');
       return;
@@ -2679,21 +2679,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   meSalesDay(unix: number): string {
     return new Date(unix * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  }
-
-  /**
-   * When a launchpad entry mints, and whether that has already happened.
-   *
-   * Magic Eden's launchpad list is not a schedule of what is coming — most of
-   * it has already minted. Printing the date, with past ones marked, is the
-   * difference between a list someone can act on and a list that misleads.
-   */
-  meLaunchWhen(iso: string | null | undefined): string {
-    if (!iso) return '';
-    const at = Date.parse(iso);
-    if (!Number.isFinite(at)) return '';
-    const day = new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-    return at < Date.now() ? `${day} (past)` : day;
   }
 
   meWhen(blockTime: number | null | undefined): string {
@@ -4025,8 +4010,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.
       case 'me_collections':
-      case 'me_marketplace_popular':
-      case 'me_launchpad_collections':
       case 'me_collection_listings':
       case 'me_collection_nfts':
       case 'me_collection_activities':

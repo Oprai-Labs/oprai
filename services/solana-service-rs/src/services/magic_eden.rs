@@ -2252,10 +2252,6 @@ fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
             "{base}/collections/batch/listings?limit={limit}&collectionSymbols={}",
             need(&p.symbols, "collections")?
         ),
-        "me_launchpad_collections" => {
-            format!("{base}/launchpad/collections?limit={limit}&offset={off}")
-        }
-        "me_marketplace_popular" => format!("{base}/marketplace/popular_collections"),
 
         "me_token" => format!("{base}/tokens/{}", need(&p.mint_address, "NFT mint")?),
         "me_token_activities" => format!(
@@ -2330,8 +2326,6 @@ fn me_read_title(action: &str, p: &MeReadParams) -> String {
         "me_collection_listings" => format!("{who} — listings"),
         "me_collection_activities" => format!("{who} — activity"),
         "me_collections_batch_listings" => "Listings across collections".into(),
-        "me_launchpad_collections" => "Magic Eden Launchpad".into(),
-        "me_marketplace_popular" => "Popular collections".into(),
         "me_token" => "NFT details".into(),
         "me_token_activities" => "NFT activity".into(),
         "me_token_listings" => "NFT listings".into(),
@@ -3847,25 +3841,6 @@ pub async fn build_me_read(
     // A tile list needs rarity per trait, and asking per NFT would be one
     // collection-wide request each. Normalise once here so the whole list can
     // be scored from a single read.
-    // A launch is a date, a price and a size. The raw list carries all three
-    // and is not in any useful order, so it is sorted newest first here —
-    // "what is coming up" read as a list of names told nobody anything.
-    let data = if action == "me_launchpad_collections" {
-        let mut rows = data.as_array().cloned().unwrap_or_default();
-        rows.sort_by(|a, b| {
-            let at = |v: &serde_json::Value| {
-                v.get("launchDatetime")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or_default()
-                    .to_string()
-            };
-            at(b).cmp(&at(a))
-        });
-        serde_json::Value::Array(rows)
-    } else {
-        data
-    };
-
     let data = if action == "me_collection_attributes" {
         let stats = data
             .pointer("/results/availableAttributes")
