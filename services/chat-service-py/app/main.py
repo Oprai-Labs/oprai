@@ -1078,24 +1078,6 @@ async def me_buy_instruction(
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden buy transaction")
 
 
-@app.get("/nft/magic-eden/launchpad/collections")
-async def me_launchpad_collections(
-    offset: int = Query(0, ge=0, description="Number of items to skip"),
-    limit: int = Query(200, ge=1, le=500, description="Number of items to return (max 500)"),
-    _wallet: str = Depends(require_auth),
-):
-    """Get launchpad collections from Magic Eden."""
-    from app.clients.magic_eden import get_launchpad_collections
-    try:
-        collections = await get_launchpad_collections(offset, limit)
-        return {"success": True, "collections": collections, "count": len(collections)}
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
-    except Exception:
-        logger.error("ME launchpad collections failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden launchpad collections")
-
-
 @app.get("/nft/magic-eden/collections/{symbol}/leaderboard")
 async def me_collection_leaderboard(
     symbol: str,
@@ -3939,27 +3921,6 @@ async def me_magic_ticket_burns(
         logger.error("ME magic ticket burns failed wallet=%s", wallet_address, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden magic ticket burn transactions")
 
-
-@app.get("/nft/magic-eden/marketplace/popular-collections")
-async def me_marketplace_popular_collections(
-    time_range: str | None = Query(None, alias="timeRange", description="Time range: 1h, 1d, 7d, 30d. Default 1d."),
-    _wallet: str = Depends(require_auth),
-):
-    """Return popular NFT collections on Magic Eden for a given time range."""
-    from app.clients.magic_eden import get_marketplace_popular_collections
-    try:
-        result = await get_marketplace_popular_collections(time_range)
-        return {"success": True, "timeRange": time_range or "1d", "data": result}
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
-    except Exception:
-        logger.error("ME marketplace popular collections failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden popular collections")
-
-
-# ---------------------------------------------------------------------------
-# User memory (facts) endpoints
-# ---------------------------------------------------------------------------
 
 @app.get("/api/v1/memories")
 async def get_memories(

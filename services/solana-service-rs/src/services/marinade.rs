@@ -63,7 +63,7 @@ pub struct MarinadeStakeParams {
     /// Amount of SOL to stake (in SOL, not lamports)
     pub amount: String,
     /// Optional slippage in basis points (default: 50)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u16>,
 }
 
@@ -73,7 +73,7 @@ pub struct MarinadeUnstakeParams {
     /// Amount of mSOL to unstake (in mSOL, not lamports)
     pub amount: String,
     /// Optional slippage in basis points (default: 50)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u16>,
 }
 
@@ -100,7 +100,7 @@ pub struct StakeParams {
     pub validator: Option<String>,
     #[serde(default)]
     pub protocol: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub instant_unstake: Option<bool>,
 }
 

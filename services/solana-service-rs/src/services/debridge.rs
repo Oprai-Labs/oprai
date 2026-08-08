@@ -38,7 +38,9 @@ const DEBRIDGE_EVM_NATIVE: &str = "0x0000000000000000000000000000000000000000";
 #[serde(rename_all = "camelCase")]
 pub struct DebridgeParams {
     /// deBridge chain ID (7565164=Solana, 1=ETH, 56=BSC …)
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub origin_chain_id: u64,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub destination_chain_id: u64,
     /// Token symbol ("SOL", "USDC") or mint/address
     pub origin_currency: String,
@@ -46,6 +48,7 @@ pub struct DebridgeParams {
     /// Human-readable amount (e.g. "1.5")
     pub amount: String,
     pub recipient: Option<String>,
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 

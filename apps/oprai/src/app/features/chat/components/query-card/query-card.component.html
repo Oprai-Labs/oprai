@@ -616,15 +616,40 @@
               <!-- The four the API actually returns. It sends volume7d and
                    avgPrice24hr; the 24h and all-time volumes this used to show
                    are not in the response, so both rendered as dashes. -->
+              <!-- The market, in the order someone reads it: what one costs,
+                   what the best bid is, how much is for sale, who holds it —
+                   then how much has actually traded. -->
               <div class="me-stats-card__grid">
                 <div class="me-kpi"><span class="me-kpi__k">Floor</span>
-                  <span class="me-kpi__v mono">@if (meSol(st.floorPrice); as f) { {{ f | number:'1.0-3' }} SOL } @else { — }</span></div>
+                  <span class="me-kpi__v mono">@if (st.floorPrice) { {{ st.floorPrice | number:'1.0-3' }} SOL } @else { — }@if (st.floorChange7d) {
+                      <span class="me-chg" [class.me-chg--up]="st.floorChange7d > 0" [class.me-chg--down]="st.floorChange7d < 0">{{ st.floorChange7d > 0 ? '+' : '' }}{{ st.floorChange7d | number:'1.0-1' }}% 7d</span>
+                    }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Top offer</span>
+                  <span class="me-kpi__v mono">@if (st.topOffer) { {{ st.topOffer | number:'1.0-3' }} SOL } @else { — }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">Listed</span>
-                  <span class="me-kpi__v mono">{{ st.listedCount ?? '—' }}</span></div>
+                  <span class="me-kpi__v mono">{{ st.listedCount ?? '—' }}@if (st.listedShare) {
+                      <span class="me-kpi__sub">{{ st.listedShare * 100 | number:'1.0-1' }}% of supply</span>
+                    }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Holders</span>
+                  <span class="me-kpi__v mono">{{ st.ownerCount ? (st.ownerCount | number) : '—' }}@if (st.supply) {
+                      <span class="me-kpi__sub">of {{ st.supply | number }} pieces</span>
+                    }</span></div>
+              </div>
+              <div class="me-stats-card__grid">
+                <div class="me-kpi"><span class="me-kpi__k">24h volume</span>
+                  <span class="me-kpi__v mono">{{ (st.volume24h ?? 0) | number:'1.0-1' }} SOL@if (st.sales24h) {
+                      <span class="me-kpi__sub">{{ st.sales24h }} sales</span>
+                    }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">7d volume</span>
-                  <span class="me-kpi__v mono">@if (meSol(st.volume7d); as v) { {{ v | number:'1.0-0' }} SOL } @else { — }</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">24h avg price</span>
-                  <span class="me-kpi__v mono">@if (meSol(st.avgPrice24hr); as v) { {{ v | number:'1.0-2' }} SOL } @else { — }</span></div>
+                  <span class="me-kpi__v mono">{{ meSolOrRaw(st.volume7d) ?? 0 | number:'1.0-0' }} SOL@if (st.sales7d) {
+                      <span class="me-kpi__sub">{{ st.sales7d }} sales</span>
+                    }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">30d volume</span>
+                  <span class="me-kpi__v mono">{{ (st.volume30d ?? 0) | number:'1.0-0' }} SOL@if (st.sales30d) {
+                      <span class="me-kpi__sub">{{ st.sales30d }} sales</span>
+                    }</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Average sale</span>
+                  <span class="me-kpi__v mono">@if (st.avgPrice7d) { {{ st.avgPrice7d | number:'1.0-2' }} SOL } @else { — }<span class="me-kpi__sub">last 7 days</span></span></div>
               </div>
               <div class="me-stats-card__actions">
                 @if (st.symbol) {
@@ -639,6 +664,196 @@
                 }
               </div>
 
+            </div>
+          }
+        }
+
+        <!-- What is trading, ranked.
+             Volume is the column that answers the question, so it leads and
+             everything else reads against it. The change beside each number is
+             what turns a figure into a direction. -->
+        @if (shape === 'trending') {
+          @if (meTrending(); as tr) {
+            <div class="result-table">
+              <div class="result-table__header result-table__header--me-trend">
+                <span>Collection</span>
+                <span class="text-right">Volume</span>
+                <span class="text-right">Floor</span>
+                <span class="text-right">Sales</span>
+                <span class="text-right">Holders</span>
+              </div>
+              @for (c of mePagedTrending(); track c.symbol ?? $index) {
+                <div class="result-table__row result-table__row--me-trend dlmm-row"
+                     (click)="browseTrending(c)">
+                  <span class="km-pair">
+                    <span class="km-icon-slot">
+                      <span class="km-icon km-icon--fallback">{{ (c.name || '?').charAt(0) }}</span>
+                      @if (c.image) {
+                        <img class="km-icon km-icon--img" [src]="nftArtSrc(c.image)" [alt]="c.name ?? ''"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
+                    <span class="km-pair__text">
+                      <span class="km-pair__name">{{ c.name || c.symbol }}@if (c.isVerified) {
+                          <lucide-icon name="shield-check" [size]="11" class="me-badge me-badge--inline" />
+                        }</span>
+                      @if (c.supply) {
+                        <span class="km-pair__sub">{{ c.listedCount ?? 0 | number }} of {{ c.supply | number }} listed</span>
+                      }
+                    </span>
+                  </span>
+                  <span class="text-right mono me-num">{{ c.volume | number:'1.0-1' }} SOL@if (c.volumeChange !== null) {
+                      <span class="me-chg" [class.me-chg--up]="c.volumeChange > 0" [class.me-chg--down]="c.volumeChange < 0">{{ c.volumeChange > 0 ? '+' : '' }}{{ c.volumeChange | number:'1.0-0' }}%</span>
+                    }</span>
+                  <span class="text-right mono me-num">{{ c.floorPrice | number:'1.0-3' }} SOL@if (c.floorChange !== null) {
+                      <span class="me-chg" [class.me-chg--up]="c.floorChange > 0" [class.me-chg--down]="c.floorChange < 0">{{ c.floorChange > 0 ? '+' : '' }}{{ c.floorChange | number:'1.0-0' }}%</span>
+                    }</span>
+                  <span class="text-right mono">{{ c.sales ?? '—' }}</span>
+                  <span class="text-right mono">{{ c.ownerCount ? (c.ownerCount | number) : '—' }}</span>
+                </div>
+              }
+            </div>
+            <div class="me-escrow__note">By volume, {{ meWindowLabel(tr.window) }}.</div>
+          }
+        }
+
+        <!-- Who holds it.
+             A collection's floor says what one costs; this says who is
+             sitting on the rest of it, which is the other half of whether a
+             price means anything. -->
+        @if (shape === 'holders') {
+          @if (meHolders(); as h) {
+            <div class="me-stats-card">
+              <!-- Which collection this is about. A stats card headed by a
+                   name alone makes the reader carry the subject. -->
+              @if (h.name || h.image) {
+                <div class="me-stats-card__head">
+                  <span class="me-coll__art me-coll__art--lg">
+                    <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
+                    @if (h.image) {
+                      <img [src]="nftArtSrc(h.image)" [alt]="h.name ?? ''" loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span>
+                    <span class="me-stats-card__name">{{ h.name || h.symbol }}@if (h.isVerified) {
+                        <lucide-icon name="shield-check" [size]="12" class="me-badge me-badge--inline" />
+                      }</span>
+                    @if (h.floorPrice) {
+                      <span class="me-stats-card__sym mono">Floor {{ h.floorPrice | number:'1.0-3' }} SOL</span>
+                    }
+                  </span>
+                </div>
+              }
+              <div class="me-stats-card__grid">
+                <div class="me-kpi"><span class="me-kpi__k">Holders</span>
+                  <span class="me-kpi__v mono">{{ h.uniqueHolders | number }}</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Held</span>
+                  <span class="me-kpi__v mono">{{ h.held | number }}</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Average each</span>
+                  <span class="me-kpi__v mono">{{ h.averageHeld | number:'1.0-2' }}</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Hold just one</span>
+                  <span class="me-kpi__v mono">{{ h.singleItemHolders | number }}<span class="me-kpi__sub">{{ h.singleItemShare * 100 | number:'1.0-1' }}% of holders</span></span></div>
+              </div>
+              <div class="me-stats-card__grid">
+                <div class="me-kpi"><span class="me-kpi__k">Top holder</span>
+                  <span class="me-kpi__v mono">{{ h.top1Share * 100 | number:'1.0-1' }}%</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Top 5</span>
+                  <span class="me-kpi__v mono">{{ h.top5Share * 100 | number:'1.0-1' }}%</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Top 10</span>
+                  <span class="me-kpi__v mono">{{ h.top10Share * 100 | number:'1.0-1' }}%</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Top 20</span>
+                  <span class="me-kpi__v mono">{{ h.top20Share * 100 | number:'1.0-1' }}%</span></div>
+              </div>
+              @if (!h.complete) {
+                <div class="me-escrow__note">Counted the first {{ h.scanned | number }} pieces — the collection is larger than one scan.</div>
+              }
+              <div class="result-table">
+                <div class="result-table__header result-table__header--me-holder">
+                  <span>Wallet</span><span class="text-right">Held</span><span class="text-right">Share</span>
+                </div>
+                @for (t of mePagedHolders(); track t.wallet) {
+                  <div class="result-table__row result-table__row--me-holder dlmm-row">
+                    <span class="mono">{{ t.wallet.slice(0,4) }}…{{ t.wallet.slice(-4) }}
+                      <button class="dlmm-copy-btn" type="button" (click)="copyPoolAddress(t.wallet)">
+                        <lucide-icon [name]="copiedAddress() === t.wallet ? 'check' : 'copy'" [size]="11" class="dlmm-copy-btn__icon" />
+                      </button>
+                    </span>
+                    <span class="text-right mono">{{ t.count }}</span>
+                    <span class="text-right mono">{{ t.share * 100 | number:'1.0-2' }}%</span>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        }
+
+        <!-- What it has been selling for.
+             Bars rather than a line: a day with two sales and a day with
+             forty are not the same evidence, and a line hides that. -->
+        @if (shape === 'sales') {
+          @if (meSales(); as sh) {
+            <div class="me-stats-card">
+              <!-- Which collection this is about. A stats card headed by a
+                   name alone makes the reader carry the subject. -->
+              @if (sh.name || sh.image) {
+                <div class="me-stats-card__head">
+                  <span class="me-coll__art me-coll__art--lg">
+                    <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
+                    @if (sh.image) {
+                      <img [src]="nftArtSrc(sh.image)" [alt]="sh.name ?? ''" loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span>
+                    <span class="me-stats-card__name">{{ sh.name || sh.symbol }}@if (sh.isVerified) {
+                        <lucide-icon name="shield-check" [size]="12" class="me-badge me-badge--inline" />
+                      }</span>
+                    @if (sh.floorPrice) {
+                      <span class="me-stats-card__sym mono">Floor {{ sh.floorPrice | number:'1.0-3' }} SOL</span>
+                    }
+                  </span>
+                </div>
+              }
+              <div class="me-stats-card__grid">
+                <div class="me-kpi"><span class="me-kpi__k">Sales</span>
+                  <span class="me-kpi__v mono">{{ sh.sales | number }}<span class="me-kpi__sub">last {{ sh.days }} days</span></span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Volume</span>
+                  <span class="me-kpi__v mono">{{ sh.volume | number:'1.0-1' }} SOL</span></div>
+                <div class="me-kpi"><span class="me-kpi__k">Average sale</span>
+                  <span class="me-kpi__v mono">{{ sh.average | number:'1.0-3' }} SOL</span></div>
+              </div>
+              @if (sh.series.length) {
+                <!-- The readout sits above the bars and always occupies its
+                     line, so hovering never nudges the chart. -->
+                <div class="me-bars__readout">
+                  @if (meHoveredDay(); as d) {
+                    <span class="me-bars__readout-day">{{ meSalesDay(d.day) }}</span>
+                    <span class="mono">{{ d.volume | number:'1.0-2' }} SOL</span>
+                    <span class="me-bars__readout-sep">·</span>
+                    <span>{{ d.sales }} {{ d.sales === 1 ? 'sale' : 'sales' }}</span>
+                    @if (d.low && d.high) {
+                      <span class="me-bars__readout-sep">·</span>
+                      <span class="mono">{{ d.low | number:'1.0-3' }}–{{ d.high | number:'1.0-3' }}</span>
+                    }
+                  } @else {
+                    <span class="me-bars__readout-idle">Hover a day for its sales and range</span>
+                  }
+                </div>
+                <div class="me-bars" (mouseleave)="meBarHover.set(null)">
+                  @for (d of sh.series; track d.day; let i = $index) {
+                    <div class="me-bars__col" [class.is-on]="meBarHover() === i"
+                         [class.is-dim]="meBarHover() !== null && meBarHover() !== i"
+                         (mouseenter)="meBarHover.set(i)">
+                      <div class="me-bars__bar" [style.height.%]="(d.volume / meSalesPeak()) * 100"></div>
+                      <span class="me-bars__lbl">{{ meShowBarLabel(i) ? meSalesDay(d.day) : '' }}</span>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="me-escrow__note">No sales in this window.</div>
+              }
             </div>
           }
         }
@@ -659,7 +874,7 @@
           </div>
         }
 
-        @if (!meFetching() && meRowCount() === 0 && shape !== 'stats' && shape !== 'escrow') {
+        @if (!meFetching() && meRowCount() === 0 && shape !== 'stats' && shape !== 'escrow' && shape !== 'sales') {
           <div class="dlmm-empty">
             <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
             <div>Nothing here on Magic Eden.</div>
@@ -668,13 +883,15 @@
 
         @if (meTotalPages() > 1) {
           <div class="dlmm-showing">
-            Showing <strong>{{ (mePage() - 1) * requestedPageSize(ME_PAGE_SIZE) + 1 }}–{{
-              (mePage() - 1) * requestedPageSize(ME_PAGE_SIZE) + (shape === 'collections' ? mePagedCollections().length
+            Showing <strong>{{ (mePage() - 1) * meShapePageSize() + 1 }}–{{
+              (mePage() - 1) * meShapePageSize() + (shape === 'collections' ? mePagedCollections().length
                 : shape === 'tokens' ? mePagedTokens().length
                 : shape === 'activities' ? mePagedActivities().length
                 : shape === 'traits' ? mePagedTraits().length
                 : shape === 'pools' ? mePagedPools().length
-                : shape === 'traders' ? mePagedTraders().length : mePagedOffers().length)
+                : shape === 'traders' ? mePagedTraders().length
+                : shape === 'trending' ? mePagedTrending().length
+                : shape === 'holders' ? mePagedHolders().length : mePagedOffers().length)
             }}</strong> of <strong>{{ meRowCount() }}</strong>
           </div>
           <div class="dlmm-pagination">

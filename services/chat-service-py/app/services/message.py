@@ -315,8 +315,6 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # per row, the token lists a grid you can buy from, the offer lists an
     # Accept or a Cancel per row. None of that survives being flattened.
     "me_collections",
-    "me_marketplace_popular",
-    "me_launchpad_collections",
     "me_collection_listings",
     "me_collection_nfts",
     "me_collection_activities",
@@ -325,6 +323,9 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     "me_collection_info",
     "me_collection_attributes",
     "me_collection_leaderboard",
+    "me_trending_collections",
+    "me_collection_holder_stats",
+    "me_collection_sales_history",
     "me_token",
     "me_nft_info",
     "me_token_activities",

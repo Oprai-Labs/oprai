@@ -23,11 +23,13 @@ pub struct DcaParams {
     /// Total input amount to spend across all cycles (human-readable, e.g. "10").
     pub total_amount: String,
     /// Number of DCA cycles (e.g. 10).
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub number_of_orders: u32,
     /// Interval between cycles in seconds (e.g. 86400 for daily).
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub interval_seconds: u64,
     /// Optional Unix timestamp to start. None = start immediately.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_at: Option<u64>,
     /// Optional minimum execution price (Jupiter `minPrice`). Orders only fill
     /// at or above this price. Human-readable number.

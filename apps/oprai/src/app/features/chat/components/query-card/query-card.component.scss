@@ -2768,34 +2768,44 @@
 
   &__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 10px;
   }
 
   &__cta { align-self: flex-start; }
 }
 
+// Built like the swap card's panels: 16px corners, surface-2, a subtle border.
+// They were 8px boxes with a harder edge and shouting uppercase labels, which
+// made a row of them read as a form rather than as figures.
 .me-kpi {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
-  border: 1px solid var(--op-border-default, rgba(255, 255, 255, 0.09));
-  border-radius: var(--op-radius-sm, 8px);
+  gap: 6px;
+  padding: 14px 16px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 16px;
+  transition: border-color var(--op-fast), background var(--op-fast);
 
+  &:hover {
+    border-color: color-mix(in srgb, var(--op-brand) 30%, var(--op-border-subtle));
+  }
+
+  // Sentence case, like the panel labels on the swap card. Uppercase with
+  // letter-spacing competes with the number it is labelling.
   &__k {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--op-text-tertiary, #71717a);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--op-text-tertiary);
   }
 
   &__v {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--op-text-primary, #fafafa);
+    font-size: 1.0625rem;
+    font-weight: 650;
+    line-height: 1.2;
+    color: var(--op-text-primary);
+    font-variant-numeric: tabular-nums;
   }
 
   // The escrow card is a single number, so it carries the card.
@@ -3200,4 +3210,127 @@
     border-color: color-mix(in srgb, var(--op-warning, #f59e0b) 30%, var(--op-border-subtle));
     background: color-mix(in srgb, var(--op-warning, #f59e0b) 7%, var(--op-bg-surface-2));
   }
+}
+
+// A day's volume as a column. Height is the only encoding, so the tallest bar
+// is the busiest day and everything else reads against it at a glance.
+// The day under the pointer, spelled out. It holds its line whether or not
+// anything is hovered, so the chart never jumps as the pointer crosses it.
+.me-bars__readout {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 22px;
+  margin-top: 12px;
+  font-size: 0.8125rem;
+  color: var(--op-text-secondary);
+
+  &-day {
+    font-weight: 650;
+    color: var(--op-text-primary);
+  }
+  &-sep  { color: var(--op-text-tertiary); }
+  &-idle { color: var(--op-text-tertiary); font-size: 0.75rem; }
+}
+
+.me-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 148px;
+  padding: 8px 4px 0;
+  border-top: 1px solid var(--op-border-subtle);
+  overflow-x: auto;
+
+  &__col {
+    flex: 1 1 0;
+    min-width: 14px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+    cursor: default;
+    transition: opacity var(--op-fast);
+
+    // Everything else steps back so the hovered day reads on its own.
+    &.is-dim  { opacity: 0.45; }
+    &.is-on .me-bars__bar {
+      background: linear-gradient(180deg, #fff, var(--op-brand-accent, #06b6d4));
+    }
+    &.is-on .me-bars__lbl { color: var(--op-text-primary); }
+  }
+
+  &__bar {
+    width: 100%;
+    min-height: 2px;
+    border-radius: 3px 3px 0 0;
+    background: linear-gradient(180deg, var(--op-brand-accent, #06b6d4), var(--op-brand, #5b5fc7));
+    transition: background var(--op-fast);
+  }
+
+  // Only some bars are labelled; the empty ones keep the row's height so the
+  // bars all end at the same line.
+  &__lbl {
+    height: 12px;
+    font-size: 0.625rem;
+    color: var(--op-text-tertiary);
+    white-space: nowrap;
+  }
+}
+
+.result-table__header--me-holder,
+.result-table__row--me-holder {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 84px;
+  gap: 10px;
+}
+
+.me-kpi__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--op-text-tertiary);
+}
+
+.result-table__header--me-trend,
+.result-table__row--me-trend {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 132px 64px 84px;
+  gap: 10px;
+  align-items: center;
+}
+.result-table__row--me-trend { cursor: pointer; }
+
+// The ranking's figures follow the pool tables: the number is the hero, its
+// direction rides beside it rather than under it. Stacked, every cell was two
+// lines tall and the rows grew to seventy pixels — a table that scrolls twice
+// as far to say the same thing.
+.result-table__row--me-trend .me-num {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  white-space: nowrap;
+}
+
+// A number without a direction is half the story; this is the other half.
+.me-chg {
+  margin-left: 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--op-text-tertiary);
+
+  &--up   { color: var(--op-gain); }
+  &--down { color: var(--op-loss); }
+}
+
+// Verification is a mark on the name, not a second line under it.
+.me-badge--inline {
+  display: inline-block;
+  vertical-align: -1px;
+  margin-left: 4px;
+  color: var(--op-brand-accent, #06b6d4);
 }

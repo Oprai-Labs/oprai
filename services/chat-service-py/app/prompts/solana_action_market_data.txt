@@ -19,7 +19,7 @@ This section governs all read-only data queries: prices, charts, holders, wallet
 | Trending tokens by interval | `birdeye_token_trending` | — |
 | Newly listed tokens | `birdeye_new_listings` | — |
 | Token holders, top-N | `birdeye_token_holders` | `address` |
-| Holder distribution (top-N or by supply band) | `birdeye_holder_distribution` | `token_address` |
+| Holder distribution of a FUNGIBLE TOKEN (top-N or by supply band) | `birdeye_holder_distribution` | `token_address` | — an NFT collection's holders are `me_collection_holder_stats`, which takes a `symbol` |
 | Holder positions by label (sniper, bundler, insider, dev) | `birdeye_holder_positions` | `token_address` |
 | Holder growth (new / churned / net) | `birdeye_holder_profile` | `token_address` |
 | Real-time trade flow (B/S ratio, unique traders) | `birdeye_token_trade_data` | `address` |

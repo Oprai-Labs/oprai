@@ -545,10 +545,10 @@ pub struct MarginfiCreateAccountParams {
 #[serde(rename_all = "camelCase")]
 pub struct MarginfiCreateAccountPdaParams {
     /// Account index (0-based). Defaults to 0.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub account_index: Option<u16>,
     /// Optional third-party identifier.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub third_party_id: Option<u16>,
 }
 
@@ -591,7 +591,7 @@ pub struct MarginfiDepositParams {
     pub bank: String,
     pub amount: String,
     /// If true, deposit up to the bank's deposit limit.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub deposit_up_to_limit: Option<bool>,
 }
 
@@ -605,7 +605,7 @@ pub struct MarginfiWithdrawParams {
     pub bank: String,
     pub amount: String,
     /// If true, withdraw entire balance (amount is ignored).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub withdraw_all: Option<bool>,
 }
 
@@ -630,7 +630,7 @@ pub struct MarginfiRepayParams {
     pub bank: String,
     pub amount: String,
     /// If true, repay the entire debt (amount may be capped at actual debt).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub repay_all: Option<bool>,
 }
 
@@ -681,6 +681,7 @@ pub struct MarginfiFlashloanStartParams {
     pub account: Option<String>,
     /// The transaction instruction index where `lending_account_end_flashloan` appears.
     /// The on-chain program validates this so it can locate and verify the end instruction.
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub end_index: u64,
 }
 
@@ -703,6 +704,7 @@ pub struct MarginfiPlaceOrderParams {
     pub limit: String,
     pub banks: Vec<String>,
     pub max_debt_coverage: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub order_side: u8,
 }
 
@@ -868,7 +870,7 @@ pub struct MarginfiAccountInfoParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarginfiBanksParams {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -905,7 +907,7 @@ pub struct MarginfiUserAccountsParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Max accounts to check (0–9). Default: 3.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub max_index: Option<u16>,
 }
 

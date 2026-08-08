@@ -32,6 +32,30 @@ export interface MeCollectionRow {
   avgPrice24hr?: number | null;
   volumeAll?: number | null;
   volume24hr?: number | null;
+  /** The collection's on-chain size, and the share of it that is for sale.
+   *  Present only when the chain reports a size — MPL Core collections do,
+   *  Token Metadata ones do not, and a guessed supply poisons every
+   *  percentage derived from it. */
+  supply?: number | null;
+  listedShare?: number | null;
+  /** From Magic Eden's stats host — already in SOL, unlike the v2 fields
+   *  beside them which quote lamports. */
+  floorChange7d?: number | null;
+  topOffer?: number | null;
+  ownerCount?: number | null;
+  ownerShare?: number | null;
+  volume1h?: number | null;
+  volume24h?: number | null;
+  volume30d?: number | null;
+  avgPrice24h?: number | null;
+  avgPrice7d?: number | null;
+  sales24h?: number | null;
+  sales7d?: number | null;
+  sales30d?: number | null;
+  /** Launchpad rows: when it mints, at what price, and how many. */
+  launchDatetime?: string | null;
+  price?: number | null;
+  size?: number | null;
   twitter?: string | null;
   discord?: string | null;
   website?: string | null;

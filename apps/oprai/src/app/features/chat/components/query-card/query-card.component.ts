@@ -926,6 +926,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.meTraders.set((d['meTraders'] as any[] | undefined) ?? []);
       this.meNft.set((d['meNft'] as MeTokenRow | undefined) ?? null);
       this.meTraitStats.set((d['meTraitStats'] as any) ?? {});
+      if (d['meTrending']) this.meTrending.set(d['meTrending'] as any);
+      if (d['meHolders']) this.meHolders.set(d['meHolders'] as any);
+      if (d['meSales'])   this.meSales.set(d['meSales'] as any);
       this.meTab.set((d['meTab'] as any) ?? 'traits');
       this.meChain.set((d['meChain'] as any) ?? {});
       this.meStats.set((d['meStats'] as MeCollectionRow | undefined) ?? null);
@@ -1026,6 +1029,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         d['meTab'] = this.meTab();
         d['meChain'] = this.meChain();
       }
+      // Not inside the single-NFT branch. These shapes never load an NFT, so
+      // nesting them there meant they were never written — and a reload turned
+      // a full ranking into "Nothing here on Magic Eden".
+      if (this.meTrending()) d['meTrending'] = this.meTrending();
+      if (this.meHolders())  d['meHolders']  = this.meHolders();
+      if (this.meSales())    d['meSales']    = this.meSales();
       if (this.meStats())              d['meStats'] = this.meStats();
       if (this.meEscrowSol() !== null) d['meEscrowSol'] = this.meEscrowSol();
       d['orcaCapped'] = this.orcaCapped();
@@ -1487,7 +1496,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   // shape of what came back, not from the endpoint name — otherwise every new
   // Magic Eden endpoint needs its own branch and the ones that already exist
   // drift apart.
-  readonly ME_PAGE_SIZE = 12;
+  readonly ME_PAGE_SIZE = 10;
   readonly meCollections = signal<MeCollectionRow[]>([]);
   readonly meTokens = signal<MeTokenRow[]>([]);
   readonly meActivities = signal<MeActivityRow[]>([]);
@@ -1497,7 +1506,36 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly meFetching = signal(false);
   readonly mePage = signal(1);
   /** Which renderer this card is using: set once the payload lands. */
-  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | 'nft' | null>(null);
+  readonly meShape = signal<'collections' | 'tokens' | 'activities' | 'offers' | 'stats' | 'escrow' | 'traits' | 'pools' | 'traders' | 'nft' | 'holders' | 'sales' | 'trending' | null>(null);
+
+  /** What is trading most, for a window. */
+  readonly meTrending = signal<{
+    window: string;
+    collections: Array<{
+      symbol: string | null; name: string | null; image: string | null; isVerified: boolean;
+      volume: number | null; volumeChange: number | null; sales: number | null;
+      floorPrice: number | null; floorChange: number | null;
+      supply: number | null; listedCount: number | null; ownerCount: number | null;
+    }>;
+  } | null>(null);
+
+  /** Who holds a collection, and how tightly. */
+  readonly meHolders = signal<{
+    symbol?: string; name?: string | null; image?: string | null; isVerified?: boolean;
+    floorPrice?: number | null; supply?: number | null; reportedOwners?: number | null;
+    uniqueHolders: number; held: number; scanned: number; complete: boolean;
+    singleItemHolders: number; singleItemShare: number; averageHeld: number;
+    top1Share: number; top5Share: number; top10Share: number; top20Share: number;
+    topHolders: Array<{ wallet: string; count: number; share: number }>;
+  } | null>(null);
+
+  /** Sales per day, oldest first. */
+  readonly meSales = signal<{
+    symbol?: string; name?: string | null; image?: string | null; isVerified?: boolean;
+    floorPrice?: number | null;
+    days: number; sales: number; volume: number; average: number;
+    series: Array<{ day: number; sales: number; volume: number; average: number; low: number | null; high: number | null }>;
+  } | null>(null);
   /** Trait rarity with a floor per trait — the table a buyer actually uses. */
   readonly meTraitRows = signal<Array<{ trait: string; value: string; count: number; floor: number | null }>>([]);
   /** MMM pools: an AMM quoting both sides of a collection. */
@@ -1521,12 +1559,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly mePagedTokens = computed(() => this.mePageSlice(this.meTokens()));
   readonly mePagedActivities = computed(() => this.mePageSlice(this.meActivities()));
   readonly mePagedOffers = computed(() => this.mePageSlice(this.meOffers()));
+  readonly mePagedTrending = computed(() => this.mePageSlice(this.meTrending()?.collections ?? []));
+  readonly mePagedHolders = computed(() => this.mePageSlice(this.meHolders()?.topHolders ?? []));
   readonly mePagedTraits = computed(() => this.mePageSlice(this.meTraitRows()));
   readonly mePagedPools = computed(() => this.mePageSlice(this.mePools()));
   readonly mePagedTraders = computed(() => this.mePageSlice(this.meTraders()));
 
+  /**
+   * How many rows a page holds, for the shape being shown.
+   *
+   * A holder list is read top-down and compared row against row, so ten is a
+   * screen and a page break is a natural place to pause. The wider tables
+   * carry more before they feel long.
+   */
+  meShapePageSize(): number {
+    return this.requestedPageSize(this.ME_PAGE_SIZE);
+  }
+
   private mePageSlice<T>(rows: T[]): T[] {
-    const size = this.requestedPageSize(this.ME_PAGE_SIZE);
+    const size = this.meShapePageSize();
     const start = (this.mePage() - 1) * size;
     return rows.slice(start, start + size);
   }
@@ -1540,13 +1591,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'traits':      return this.meTraitRows().length;
       case 'pools':       return this.mePools().length;
       case 'traders':     return this.meTraders().length;
+      case 'trending':    return this.meTrending()?.collections.length ?? 0;
+      case 'holders':     return this.meHolders()?.topHolders.length ?? 0;
       case 'nft':         return this.meNft() ? 1 : 0;
       default:            return 0;
     }
   });
 
   readonly meTotalPages = computed(() =>
-    Math.max(1, Math.ceil(this.meRowCount() / this.requestedPageSize(this.ME_PAGE_SIZE))));
+    Math.max(1, Math.ceil(this.meRowCount() / this.meShapePageSize())));
 
   readonly mePageNumbers = computed<Array<number | '…'>>(() => {
     const total = this.meTotalPages();
@@ -2045,6 +2098,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // else, and came back as an error the card reported as unreachable.
       ...(p['number'] || p['tokenId'] || p['id']
         ? { number: String(p['number'] ?? p['tokenId'] ?? p['id']).replace(/^#/, '') } : {}),
+      // The time window the question carried. The card refetches for itself,
+      // so anything not forwarded here is silently replaced by a default —
+      // which is how "rank them by weekly volume" came back with a day's
+      // numbers and disagreed with Magic Eden by a factor of seven.
+      ...(p['window'] || p['days'] || p['period'] || p['timeWindow'] || p['range']
+        ? { window: p['window'] ?? p['days'] ?? p['period'] ?? p['timeWindow'] ?? p['range'] } : {}),
+      ...(p['sort'] || p['sortBy'] ? { sort: p['sort'] ?? p['sortBy'] } : {}),
       limit: this.requestedPageSize(this.ME_PAGE_SIZE) * 5,
     };
     // Anything wallet-scoped means the CONNECTED wallet unless the user named
@@ -2074,16 +2134,56 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
     this.applyMagicEdenPayload(data);
     this.mePage.set(1);
-    this.reportEmptyState(this.meRowCount() === 0 && this.meShape() !== 'stats' && this.meShape() !== 'escrow');
+    const shapeCarriesRows = !['stats', 'escrow', 'sales'].includes(this.meShape() ?? '');
+    this.reportEmptyState(this.meRowCount() === 0 && shapeCarriesRows);
     this.persistSnapshot();
     this.meFetching.set(false);
     this.loading.set(false);
+  }
+
+  /**
+   * How many rows the question asked for, if it named a number.
+   *
+   * "the five most active wallets" is a request for five rows, not for a
+   * hundred paged five at a time. The model passes the number through as
+   * `limit`; anything absurd is ignored rather than trusted.
+   */
+  meRequestedCount(): number | null {
+    const raw = this.query.params?.['limit']
+      ?? this.query.params?.['count']
+      ?? this.query.params?.['top']
+      ?? this.query.params?.['n'];
+    const n = parseInt(String(raw ?? ''), 10);
+    return Number.isFinite(n) && n > 0 && n <= 200 ? n : null;
+  }
+
+  /** Trim a row list to the count the question named. */
+  private meCap<T>(rows: T[]): T[] {
+    const n = this.meRequestedCount();
+    return n === null ? rows : rows.slice(0, n);
   }
 
   /** Decide which of the four shapes this payload is, and file it. */
   private applyMagicEdenPayload(data: unknown): void {
     const t = this.query.type;
 
+    if (t === 'me_trending_collections') {
+      const tr = data as { window: string; collections: any[] };
+      this.meTrending.set({ ...tr, collections: this.meCap(tr.collections ?? []) });
+      this.meShape.set('trending');
+      return;
+    }
+    if (t === 'me_collection_holder_stats') {
+      const hs = data as any;
+      this.meHolders.set({ ...hs, topHolders: this.meCap(hs.topHolders ?? []) });
+      this.meShape.set('holders');
+      return;
+    }
+    if (t === 'me_collection_sales_history') {
+      this.meSales.set(data as any);
+      this.meShape.set('sales');
+      return;
+    }
     if (t === 'me_wallet_escrow_balance') {
       const d = data as { buyerEscrow?: unknown; balance?: unknown } | null;
       const raw = (d?.buyerEscrow ?? d?.balance) as number | undefined;
@@ -2121,12 +2221,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
 
     if (/activit/.test(t)) {
-      this.meActivities.set(MagicEdenService.rowsFrom<MeActivityRow>(data, 'activities'));
+      this.meActivities.set(this.meCap(MagicEdenService.rowsFrom<MeActivityRow>(data, 'activities')));
       this.meShape.set('activities');
       return;
     }
     if (/offer/.test(t)) {
-      const offers = MagicEdenService.rowsFrom<MeOfferRow>(data, 'offers');
+      const offers = this.meCap(MagicEdenService.rowsFrom<MeOfferRow>(data, 'offers'));
       this.meOffers.set(offers);
       void this.nameUnresolvedOffers(offers);
       this.meShape.set('offers');
@@ -2138,7 +2238,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // addresses.
       const rows = MagicEdenService.rowsFrom<Record<string, unknown>>(data, 'listings');
       const tokens = rows.map(r => this.meListingToToken(r));
-      this.meTokens.set(tokens);
+      this.meTokens.set(this.meCap(tokens));
       this.meShape.set('tokens');
       void this.loadTraitStatsForRows(tokens);
       return;
@@ -2154,11 +2254,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (t === 'me_collection_leaderboard') {
       // Wallets, not collections. Volume is in lamports here.
       const rows = MagicEdenService.rowsFrom<Record<string, any>>(data, 'results');
-      this.meTraders.set(rows.map(r => ({
+      this.meTraders.set(this.meCap(rows.map(r => ({
         wallet: String(r['wallet'] ?? ''),
         volume: MagicEdenService.solFromMaybeLamports(r['totalVolume'] ?? null),
         lastTradeAt: (r['lastTradeAt'] as number | undefined) ?? null,
-      })).filter(r => r.wallet));
+      })).filter(r => r.wallet)));
       this.meShape.set('traders');
       return;
     }
@@ -2166,19 +2266,23 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // `{results:{availableAttributes:[{attribute:{trait_type,value},count,floor}]}}`
       // — the floor is per trait and in lamports, which is the whole reason
       // to show this rather than a bare trait list.
-      const res = (data as Record<string, any> | null)?.['results'] ?? {};
+      // The read now wraps the original response so it can carry normalised
+      // trait stats alongside it: `{attributes: <original>, traitStats}`.
+      // Reading only the old shape emptied this card the moment that landed.
+      const root = data as Record<string, any> | null;
+      const res = (root?.['attributes']?.['results'] ?? root?.['results']) ?? {};
       const avail = (res['availableAttributes'] ?? []) as Array<Record<string, any>>;
-      this.meTraitRows.set(avail.map(a => ({
+      this.meTraitRows.set(this.meCap(avail.map(a => ({
         trait: String(a['attribute']?.['trait_type'] ?? ''),
         value: String(a['attribute']?.['value'] ?? ''),
         count: Number(a['count'] ?? 0),
         floor: MagicEdenService.solFromMaybeLamports(a['floor'] ?? null),
-      })).filter(r => r.trait).sort((x, y) => (y.floor ?? 0) - (x.floor ?? 0)));
+      })).filter(r => r.trait).sort((x, y) => (y.floor ?? 0) - (x.floor ?? 0))));
       this.meShape.set('traits');
       return;
     }
-    if (/collection|launchpad|popular/.test(t) && !/nfts|token/.test(t)) {
-      this.meCollections.set(MagicEdenService.collectionsFrom(data));
+    if (/collection/.test(t) && !/nfts|token/.test(t)) {
+      this.meCollections.set(this.meCap(MagicEdenService.collectionsFrom(data)));
       this.meShape.set('collections');
       return;
     }
@@ -2186,7 +2290,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     // Everything else is a list of NFTs: a wallet's tokens, a collection's
     // tokens, MMM pool inventory.
     const rows = MagicEdenService.rowsFrom<MeTokenRow>(data, 'tokens', 'nfts', 'pools');
-    this.meTokens.set(rows);
+    this.meTokens.set(this.meCap(rows));
     this.meShape.set('tokens');
     void this.loadTraitStatsForRows(rows);
   }
@@ -2423,6 +2527,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return typeof bps === 'number' && bps > 0 ? bps / 100 : null;
   }
 
+  /**
+   * `volume7d` reaches us from two sources with two units: the stats host
+   * sends SOL, the older v2 record sends lamports. Reading one as the other is
+   * a billion-fold error, so magnitude decides — no collection trades a
+   * billion SOL in a week.
+   */
+  meSolOrRaw(v: number | null | undefined): number | null {
+    if (v === null || v === undefined || !Number.isFinite(v)) return null;
+    return v > 1e6 ? v / 1e9 : v;
+  }
+
   /** Floor prices arrive in lamports from stats, SOL elsewhere. */
   meSol(v: number | null | undefined): number | null {
     return MagicEdenService.solFromMaybeLamports(v);
@@ -2515,6 +2630,55 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (o.name) return o.name;
     const m = o.tokenMint ?? '';
     return m ? `${m.slice(0, 4)}…${m.slice(-4)}` : '—';
+  }
+
+  /** How a window reads in a heading. */
+  meWindowLabel(w: string | undefined): string {
+    switch (w) {
+      case '1h': return 'last hour';
+      case '6h': return 'last 6 hours';
+      case '7d': return 'last 7 days';
+      case '30d': return 'last 30 days';
+      default:   return 'last 24 hours';
+    }
+  }
+
+  /** Open a trending row as a collection. */
+  browseTrending(row: { symbol: string | null; name: string | null }): void {
+    if (!row.symbol) return;
+    this.browseMeCollection({ symbol: row.symbol, name: row.name ?? row.symbol } as MeCollectionRow);
+  }
+
+  /** The busiest day, so every other bar is drawn against it. */
+  meSalesPeak(): number {
+    return Math.max(1, ...(this.meSales()?.series ?? []).map(s => s.volume));
+  }
+
+  /** Which bar the pointer is on, so the readout can name its day. */
+  readonly meBarHover = signal<number | null>(null);
+
+  /** The day under the pointer, or nothing. */
+  meHoveredDay(): { day: number; sales: number; volume: number; average: number; low: number | null; high: number | null } | null {
+    const i = this.meBarHover();
+    if (i === null) return null;
+    return this.meSales()?.series[i] ?? null;
+  }
+
+  /**
+   * Thirty labels under thirty bars collide into a grey smear — "9 Tem10
+   * Tem11 Tem". Six is what fits, so every nth is drawn and the last is
+   * always one of them: a chart whose right edge is unlabelled does not say
+   * when it ends.
+   */
+  meShowBarLabel(index: number): boolean {
+    const n = this.meSales()?.series.length ?? 0;
+    if (n <= 8) return true;
+    const step = Math.ceil(n / 6);
+    return index % step === 0 || index === n - 1;
+  }
+
+  meSalesDay(unix: number): string {
+    return new Date(unix * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   }
 
   meWhen(blockTime: number | null | undefined): string {
@@ -3846,8 +4010,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.
       case 'me_collections':
-      case 'me_marketplace_popular':
-      case 'me_launchpad_collections':
       case 'me_collection_listings':
       case 'me_collection_nfts':
       case 'me_collection_activities':
@@ -3855,6 +4017,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'me_collection_stats':
       case 'me_collection_info':
       case 'me_collection_attributes':
+      case 'me_trending_collections':
+      case 'me_collection_holder_stats':
+      case 'me_collection_sales_history':
       case 'me_collection_leaderboard':
       case 'me_token':
       case 'me_nft_info':

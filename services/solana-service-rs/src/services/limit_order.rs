@@ -48,10 +48,10 @@ pub struct LimitOrderParams {
     /// e.g. if selling SOL for USDC at $200, target_price = "200"
     pub target_price: String,
     /// Optional slippage in basis points (default: 50 = 0.5%).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
     /// Optional order expiry in seconds from now. None = no expiry.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub expiry_seconds: Option<u64>,
 }
 

@@ -28,7 +28,7 @@ pub struct RaydiumSwapParams {
     pub input_mint: String,
     pub output_mint: String,
     pub amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
     /// "in" = exact input (default), "out" = exact output
     #[serde(default)]
@@ -62,9 +62,9 @@ pub struct RaydiumAddLiquidityParams {
     #[serde(default)]
     pub input_mint: Option<String>,
     /// true = input is the base token (default: true)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub base_in: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -76,7 +76,7 @@ pub struct RaydiumRemoveLiquidityParams {
     /// LP token amount to burn — accepts "lpAmount" or "liquidity" field name
     #[serde(alias = "liquidity")]
     pub lp_amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -92,7 +92,7 @@ pub struct RaydiumCreatePoolParams {
     pub mint_b: String,
     pub amount_a: String,
     pub amount_b: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_time: Option<u64>,
 }
 
@@ -112,10 +112,10 @@ pub struct RaydiumOpenPositionParams {
     #[serde(default)]
     pub input_amount: Option<String>,
     /// Lower tick boundary (computed from minPrice if omitted)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub tick_lower: Option<i32>,
     /// Upper tick boundary (computed from maxPrice if omitted)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub tick_upper: Option<i32>,
     // LLM-friendly alternative params
     #[serde(default)]
@@ -127,12 +127,12 @@ pub struct RaydiumOpenPositionParams {
     #[serde(default)]
     pub amount_b: Option<String>,
     /// Human-readable lower price bound (converted to tickLower)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub min_price: Option<f64>,
     /// Human-readable upper price bound (converted to tickUpper)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub max_price: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -151,7 +151,7 @@ pub struct RaydiumIncreasePositionParams {
     pub position_id: String,
     pub input_mint: String,
     pub input_amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -162,7 +162,7 @@ pub struct RaydiumDecreasePositionParams {
     pub position_id: String,
     /// Raw liquidity units to remove (from position info)
     pub liquidity: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -1385,9 +1385,9 @@ pub struct RaydiumGetPoolsParams {
     /// Sort order: "asc" or "desc"
     #[serde(default)]
     pub sort_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page_size: Option<u32>,
     /// Minimum 24h volume in USD. **Defaults to 0 (no filter)** so we
     /// mirror what raydium.io itself shows — users asking "top pools by
@@ -1395,14 +1395,14 @@ pub struct RaydiumGetPoolsParams {
     /// pegged-stable park-pools at the top. Pass a positive value
     /// (e.g. 1000) only when the LLM detects intent like "active pools
     /// only" or "exclude dust".
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub min_volume24h: Option<f64>,
     /// Minimum vol24h / TVL ratio. **Defaults to 0 (no filter)** for the
     /// same reason. Useful when the user explicitly wants to drop
     /// "parking pools" — pegged-stable curiosities like OSRUB/USDT that
     /// hold $30M+ TVL but trade <$15K/day (ratio ≈ 0.0003). Real pools
     /// clear 0.005+ easily; 0.001 is a safe threshold.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub min_vol_to_tvl_ratio: Option<f64>,
 }
 
@@ -1574,9 +1574,9 @@ pub struct RaydiumSearchPoolsParams {
     pub pool_type: Option<String>,
     #[serde(default)]
     pub sort_field: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page_size: Option<u32>,
 }
 
@@ -1955,7 +1955,7 @@ pub struct RaydiumSwapQuoteParams {
     pub input_mint: String,
     pub output_mint: String,
     pub amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
     /// "in" = exact input (default), "out" = exact output
     #[serde(default)]
@@ -2096,7 +2096,7 @@ pub struct RaydiumGetPoolsV2Params {
     #[serde(default)]
     pub mint_filter: Option<String>,
     /// Return only pools with active rewards
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub has_reward: Option<bool>,
     /// Sort field: "liquidity","volume24h","fee24h","apr24h","volume7d","fee7d","apr7d","volume30d","fee30d","apr30d"
     #[serde(default)]
@@ -2105,6 +2105,7 @@ pub struct RaydiumGetPoolsV2Params {
     #[serde(default)]
     pub sort_type: Option<String>,
     /// Records per page (required, min 1)
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub size: u32,
     /// Pagination token from previous response
     #[serde(default)]
@@ -2498,9 +2499,9 @@ pub async fn build_raydium_get_farm_info(
 pub struct RaydiumGetFarmByLpParams {
     /// LP mint address
     pub lp: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page_size: Option<u32>,
 }
 

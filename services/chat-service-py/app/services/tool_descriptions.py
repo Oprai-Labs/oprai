@@ -119,7 +119,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "Magic Eden — same as me_token: one NFT with its traits, offers and "
         "activity, by mintAddress or by symbol + number"
     ),
-    "me_launchpad_collections": "Magic Eden — launchpad collections",
     "me_buy_instruction": "Magic Eden — build a buy instruction for an NFT",
     "me_buy_now_transfer_nft": "Magic Eden — buy-now with NFT transfer",
     "me_buy_now": "Magic Eden — buy-now transaction for a listed NFT",
@@ -130,6 +129,11 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "me_deposit": "Magic Eden — deposit into marketplace escrow",
     "me_withdraw": "Magic Eden — withdraw from marketplace escrow",
     "me_collection_attributes": "Magic Eden — attribute/trait breakdown for a collection",
+    "me_collection_leaderboard": "The wallets that TRADE an NFT collection most, ranked by volume — use this for 'who trades it most', 'most active wallets', 'top buyers/sellers'",
+    "me_collection_activities": "Raw event feed for an NFT collection — every bid, listing and sale in time order. Not a ranking: for 'the most active wallets' use me_collection_leaderboard",
+    "me_trending_collections": "Magic Eden — the collections trading most right now, by volume, for a time window",
+    "me_collection_holder_stats": "Holder distribution for an NFT COLLECTION (Mad Lads, DeGods, …): unique holders, concentration, single-item holders. Not for fungible tokens — use birdeye_holder_distribution for those",
+    "me_collection_sales_history": "Magic Eden — sales per day for a collection: count, volume, low and high",
     "me_mmm_pools": "Magic Eden — MMM AMM pools",
     "me_mmm_token_pools": "Magic Eden — MMM pools for a token/collection",
     "me_mmm_create_pool": "Magic Eden — build a create-MMM-pool transaction",
@@ -139,7 +143,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "me_mmm_sol_close_pool": "Magic Eden — close an MMM pool",
     "me_mmm_sol_fulfill_buy": "Magic Eden — fulfill an MMM buy",
     "me_mmm_sol_fulfill_sell": "Magic Eden — fulfill an MMM sell",
-    "me_marketplace_popular": "Magic Eden — popular collections on the marketplace",
     # ── Orca (Whirlpool AMM reads) ──
     "orca_get_pools": (
         "Orca — list Whirlpool liquidity pools. Optional category=rwa | "

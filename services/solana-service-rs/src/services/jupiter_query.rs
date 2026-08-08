@@ -180,7 +180,7 @@ pub struct JupTokenSearchParams {
     /// Search term: token name, symbol, or mint address.
     pub query: String,
     /// Max results to return (1–50). Default: 10.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -249,7 +249,7 @@ pub struct JupTokensTagParams {
     /// Tag to filter by. E.g. "verified", "lst", "strict", "community".
     pub tag: String,
     /// Max results (1–100). Default: 20.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -314,7 +314,7 @@ pub async fn build_jup_tokens_tag(
 #[serde(rename_all = "camelCase")]
 pub struct JupTokensRecentParams {
     /// Max results (1–50). Default: 20.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -384,7 +384,7 @@ pub struct JupTokensTrendingParams {
     #[serde(default = "default_trending_interval")]
     pub interval: String,
     /// Max results (1–50). Default: 20.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
 }
 
@@ -907,7 +907,7 @@ pub struct JupPendingInvitesParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Page number for pagination (minimum 1). Default: 1.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
 }
 

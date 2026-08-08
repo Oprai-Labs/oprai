@@ -45,29 +45,6 @@ async def get_magic_ticket_burn_instructions(
         return r.json()
 
 
-async def get_marketplace_popular_collections(
-    time_range: str | None = None,
-) -> dict[str, Any]:
-    """GET /v2/marketplace/popular_collections
-
-    Returns popular NFT collections on Magic Eden for a given time range.
-
-    Args:
-        time_range: Time range — one of "1h", "1d", "7d", "30d". Defaults to "1d".
-    """
-    params: dict[str, Any] = {}
-    if time_range is not None:
-        params["timeRange"] = time_range
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(
-            f"{_BASE}/marketplace/popular_collections",
-            params=params,
-            headers=_headers(),
-        )
-        r.raise_for_status()
-        return r.json()
-
-
 async def get_withdraw_instruction(
     buyer: str,
     amount: float,
@@ -631,33 +608,6 @@ async def get_buy_instruction(
         )
         resp.raise_for_status()
         return resp.json()
-
-
-async def get_launchpad_collections(
-    offset: int = 0,
-    limit: int = 200,
-) -> list[dict[str, Any]]:
-    """GET /v2/launchpad/collections
-
-    Returns NFT collections that launched or are launching via Magic Eden Launchpad.
-
-    Args:
-        offset: Number of items to skip (default 0).
-        limit: Number of items to return (default 200, max 500).
-    """
-    params: dict[str, Any] = {
-        "offset": offset,
-        "limit": min(limit, 500),
-    }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            f"{_BASE}/launchpad/collections",
-            headers=_headers(),
-            params=params,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data if isinstance(data, list) else []
 
 
 async def get_collection_leaderboard(symbol: str, limit: int = 100) -> dict[str, Any]:

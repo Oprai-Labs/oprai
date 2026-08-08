@@ -580,7 +580,9 @@ class QueryType(str, Enum):
     ME_COLLECTION_LISTINGS = "me_collection_listings"
     ME_COLLECTIONS_BATCH_LISTINGS = "me_collections_batch_listings"
     ME_COLLECTION_LEADERBOARD = "me_collection_leaderboard"
-    ME_LAUNCHPAD_COLLECTIONS = "me_launchpad_collections"
+    ME_TRENDING_COLLECTIONS = "me_trending_collections"
+    ME_COLLECTION_HOLDER_STATS = "me_collection_holder_stats"
+    ME_COLLECTION_SALES_HISTORY = "me_collection_sales_history"
     ME_BUY_INSTRUCTION = "me_buy_instruction"
     ME_BUY_NOW_TRANSFER_NFT = "me_buy_now_transfer_nft"
     ME_BUY_NOW = "me_buy_now"
@@ -606,7 +608,6 @@ class QueryType(str, Enum):
     ME_MMM_SOL_CLOSE_POOL = "me_mmm_sol_close_pool"
     ME_MMM_SOL_FULFILL_BUY = "me_mmm_sol_fulfill_buy"
     ME_MMM_SOL_FULFILL_SELL = "me_mmm_sol_fulfill_sell"
-    ME_MARKETPLACE_POPULAR = "me_marketplace_popular"
     # RAG knowledge base queries
     KNOWLEDGE = "knowledge"
     # Portfolio strategy generation

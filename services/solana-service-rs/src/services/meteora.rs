@@ -265,7 +265,7 @@ pub struct MeteoraSwapParams {
     /// Human-readable amount of input token (e.g. "1.5").
     pub amount: String,
     /// Slippage in basis points (default: 50 = 0.5%). Max: 5000.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
     /// DLMM pool (lb_pair) address (required for direct DLMM routing).
     #[serde(default)]
@@ -291,19 +291,19 @@ pub struct MeteoraAddLiquidityParams {
     #[serde(default = "zero_amount")]
     pub amount_y: String,
     /// Lower bin ID. Required unless min_price is provided.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub min_bin_id: Option<i32>,
     /// Upper bin ID. Required unless max_price is provided.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub max_bin_id: Option<i32>,
     /// Lower price bound in token Y per token X (alternative to min_bin_id).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub min_price: Option<f64>,
     /// Upper price bound (alternative to max_bin_id).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub max_price: Option<f64>,
     /// Max active bin drift tolerance in bins (default: 3).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
     /// Liquidity shape: "spot" (flat, default) | "curve" (active-bin-heavy) | "bidask" (edge-heavy).
     #[serde(default)]
@@ -319,10 +319,10 @@ pub struct MeteoraRemoveLiquidityParams {
     #[serde(default)]
     pub bin_ids: Option<Vec<i32>>,
     /// Fraction of liquidity to remove per bin in basis points (default: 10000 = 100%).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub bps_to_remove: Option<u16>,
     /// Min output slippage in basis points (default: 100 = 1%).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -334,8 +334,10 @@ pub struct MeteoraCreatePoolParams {
     /// Token Y mint address.
     pub token_y_mint: String,
     /// Bin step in basis points (e.g. 25 = 0.25% price spacing per bin).
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub bin_step: u32,
     /// Initial active price in token Y per token X.
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub initial_price: f64,
     /// Optional: seed token X liquidity.
     #[serde(default)]
@@ -357,22 +359,22 @@ pub struct MeteoraOpenPositionParams {
     /// Token Y deposit amount (human-readable).
     pub amount_y: String,
     /// Lower bound as bin ID. Provide bin IDs OR prices, not both.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub min_bin_id: Option<i32>,
     /// Upper bound as bin ID.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub max_bin_id: Option<i32>,
     /// Lower price bound in token Y per token X.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub min_price: Option<f64>,
     /// Upper price bound.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub max_price: Option<f64>,
     /// Liquidity shape: "spot" (flat, default) | "curve" (active-bin-heavy) | "bidask" (edge-heavy).
     #[serde(default)]
     pub strategy: Option<String>,
     /// Max active bin drift in bins (default: 3).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -384,6 +386,7 @@ pub struct MeteoraClosePositionParams {
     /// Min output slippage in basis points (default: 100 = 1%).
     #[serde(default)]
     #[allow(dead_code)]
+    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -401,7 +404,7 @@ pub struct MeteoraAddToPositionParams {
     #[serde(default = "zero_amount")]
     pub amount_y: String,
     /// Max active bin drift (default: 3).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
     /// Distribution: "uniform" | "spot" (default: "uniform").
     #[serde(default)]
@@ -421,7 +424,7 @@ pub struct MeteoraClaimRewardsParams {
     /// Position address.
     pub position: String,
     /// Specific reward index to claim (0 or 1). Omit = claim all.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub reward_index: Option<u32>,
 }
 
@@ -3351,10 +3354,10 @@ async fn meteora_post(
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeteoraDlmmGetPairsParams {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size")]
+    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
@@ -3389,10 +3392,10 @@ pub struct MeteoraDlmmGetActiveBinParams {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeteoraDlmmGetPoolGroupsParams {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size")]
+    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
@@ -3416,10 +3419,10 @@ pub struct MeteoraDlmmGetPoolGroupParams {
     /// Token pair identifier returned by get_pool_groups, e.g. "MINTA-MINTB"
     #[serde(alias = "lexical_order_mints")]
     pub lexical_order_mints: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size")]
+    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
     pub page_size: Option<u32>,
     #[serde(default)]
     #[serde(alias = "sort_by")]
@@ -3436,9 +3439,9 @@ pub struct MeteoraDlmmGetPoolOhlcvParams {
     /// Candle interval: "5m", "30m", "1h", "2h", "4h", "12h", "24h"
     #[serde(default)]
     pub timeframe: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_time: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end_time: Option<i64>,
 }
 
@@ -3449,9 +3452,9 @@ pub struct MeteoraDlmmGetPoolVolumeHistoryParams {
     /// Time bucket: "5m", "30m", "1h", "2h", "4h", "12h", "24h"
     #[serde(default)]
     pub timeframe: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_time: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end_time: Option<i64>,
 }
 
@@ -3460,10 +3463,10 @@ pub struct MeteoraDlmmGetPoolVolumeHistoryParams {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeteoraDammV2GetPoolsParams {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size")]
+    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
@@ -3478,10 +3481,10 @@ pub struct MeteoraDammV2GetPoolsParams {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeteoraDammV2GetPoolGroupsParams {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size")]
+    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
@@ -3502,10 +3505,10 @@ pub struct MeteoraDammV2GetPoolGroupsParams {
 pub struct MeteoraDammV2GetPoolGroupParams {
     #[serde(alias = "lexical_order_mints")]
     pub lexical_order_mints: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size")]
+    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
@@ -3530,9 +3533,9 @@ pub struct MeteoraDammV2GetPoolOhlcvParams {
     /// Candle interval: "5m", "30m", "1h", "2h", "4h", "12h", "24h"
     #[serde(default)]
     pub timeframe: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_time: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end_time: Option<i64>,
 }
 
@@ -3543,9 +3546,9 @@ pub struct MeteoraDammV2GetPoolVolumeHistoryParams {
     /// Candle interval: "5m", "30m", "1h", "2h", "4h", "12h", "24h"
     #[serde(default)]
     pub timeframe: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_time: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end_time: Option<i64>,
 }
 
@@ -3563,19 +3566,19 @@ pub struct MeteoraDammV1GetPoolsParams {
     #[serde(default)]
     pub address: Option<String>,
     /// Include pools with unknown tokens
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub unknown: Option<bool>,
     /// Filter by pool type: "dynamic", "multitoken", "lst", "farms"
     #[serde(default)]
     pub pool_type: Option<String>,
     /// Only monitored pools
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub is_monitoring: Option<bool>,
     /// Hide pools with TVL below this value (USD)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub hide_low_tvl: Option<f64>,
     /// Hide pools with very low APR
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub hide_low_apr: Option<bool>,
     /// Filter by launchpad identifier (comma-separated)
     #[serde(default)]
@@ -3591,8 +3594,10 @@ pub struct MeteoraDammV1GetPoolConfigsParams {}
 #[serde(rename_all = "camelCase")]
 pub struct MeteoraDammV1SearchPoolsParams {
     /// Page number (0-based, required)
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub page: u32,
     /// Page size (required)
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub size: u32,
     /// Search/filter string (token name, symbol, or address)
     #[serde(default)]
@@ -3606,16 +3611,16 @@ pub struct MeteoraDammV1SearchPoolsParams {
     /// Pool addresses to force to the top (comma-separated)
     #[serde(default)]
     pub pools_to_top: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub unknown: Option<bool>,
     /// "dynamic", "multitoken", "lst", "farms"
     #[serde(default)]
     pub pool_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub is_monitoring: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub hide_low_tvl: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub hide_low_apr: Option<bool>,
     /// Allowlist of token mints to include (comma-separated)
     #[serde(default)]
@@ -3718,7 +3723,9 @@ pub struct MeteoraVaultGetApyParams {
 #[serde(rename_all = "camelCase")]
 pub struct MeteoraVaultGetApyHistoryParams {
     pub token_mint: String,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub start_timestamp: i64,
+    #[serde(deserialize_with = "crate::services::params::lenient")]
     pub end_timestamp: i64,
 }
 
@@ -3739,7 +3746,7 @@ pub struct MeteoraDammV1SwapParams {
     pub input_mint: String,
     pub output_mint: String,
     pub amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
     /// Optional: specific DAMM v1 pool address (informational; Jupiter routes automatically).
     #[serde(default)]
@@ -3753,7 +3760,7 @@ pub struct MeteoraDammV1DepositParams {
     pub pool: String,
     pub token_a_amount: String,
     pub token_b_amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
@@ -3774,7 +3781,7 @@ pub struct MeteoraDammV2SwapParams {
     pub input_mint: String,
     pub output_mint: String,
     pub amount: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
     /// Optional: specific DAMM v2 pool address (informational; Jupiter routes automatically).
     #[serde(default)]
@@ -3788,7 +3795,7 @@ pub struct MeteoraDammV2AddLiquidityParams {
     pub pool: String,
     pub max_amount_a: String,
     pub max_amount_b: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 
