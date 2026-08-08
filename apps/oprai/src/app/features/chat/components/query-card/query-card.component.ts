@@ -2082,6 +2082,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // else, and came back as an error the card reported as unreachable.
       ...(p['number'] || p['tokenId'] || p['id']
         ? { number: String(p['number'] ?? p['tokenId'] ?? p['id']).replace(/^#/, '') } : {}),
+      // The time window the question carried. The card refetches for itself,
+      // so anything not forwarded here is silently replaced by a default —
+      // which is how "rank them by weekly volume" came back with a day's
+      // numbers and disagreed with Magic Eden by a factor of seven.
+      ...(p['window'] || p['days'] || p['period'] || p['timeWindow'] || p['range']
+        ? { window: p['window'] ?? p['days'] ?? p['period'] ?? p['timeWindow'] ?? p['range'] } : {}),
+      ...(p['sort'] || p['sortBy'] ? { sort: p['sort'] ?? p['sortBy'] } : {}),
       limit: this.requestedPageSize(this.ME_PAGE_SIZE) * 5,
     };
     // Anything wallet-scoped means the CONNECTED wallet unless the user named
