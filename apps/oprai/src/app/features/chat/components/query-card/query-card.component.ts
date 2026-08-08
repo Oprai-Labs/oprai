@@ -2623,6 +2623,29 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return Math.max(1, ...(this.meSales()?.series ?? []).map(s => s.volume));
   }
 
+  /** Which bar the pointer is on, so the readout can name its day. */
+  readonly meBarHover = signal<number | null>(null);
+
+  /** The day under the pointer, or nothing. */
+  meHoveredDay(): { day: number; sales: number; volume: number; average: number; low: number | null; high: number | null } | null {
+    const i = this.meBarHover();
+    if (i === null) return null;
+    return this.meSales()?.series[i] ?? null;
+  }
+
+  /**
+   * Thirty labels under thirty bars collide into a grey smear — "9 Tem10
+   * Tem11 Tem". Six is what fits, so every nth is drawn and the last is
+   * always one of them: a chart whose right edge is unlabelled does not say
+   * when it ends.
+   */
+  meShowBarLabel(index: number): boolean {
+    const n = this.meSales()?.series.length ?? 0;
+    if (n <= 8) return true;
+    const step = Math.ceil(n / 6);
+    return index % step === 0 || index === n - 1;
+  }
+
   meSalesDay(unix: number): string {
     return new Date(unix * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   }

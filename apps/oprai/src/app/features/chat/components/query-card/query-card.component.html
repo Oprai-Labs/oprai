@@ -783,11 +783,29 @@
                   <span class="me-kpi__v mono">{{ sh.average | number:'1.0-3' }} SOL</span></div>
               </div>
               @if (sh.series.length) {
-                <div class="me-bars">
-                  @for (d of sh.series; track d.day) {
-                    <div class="me-bars__col" [attr.title]="meSalesDay(d.day) + ' · ' + d.sales + ' sales · ' + (d.volume | number:'1.0-2') + ' SOL'">
+                <!-- The readout sits above the bars and always occupies its
+                     line, so hovering never nudges the chart. -->
+                <div class="me-bars__readout">
+                  @if (meHoveredDay(); as d) {
+                    <span class="me-bars__readout-day">{{ meSalesDay(d.day) }}</span>
+                    <span class="mono">{{ d.volume | number:'1.0-2' }} SOL</span>
+                    <span class="me-bars__readout-sep">·</span>
+                    <span>{{ d.sales }} {{ d.sales === 1 ? 'sale' : 'sales' }}</span>
+                    @if (d.low && d.high) {
+                      <span class="me-bars__readout-sep">·</span>
+                      <span class="mono">{{ d.low | number:'1.0-3' }}–{{ d.high | number:'1.0-3' }}</span>
+                    }
+                  } @else {
+                    <span class="me-bars__readout-idle">Hover a day for its sales and range</span>
+                  }
+                </div>
+                <div class="me-bars" (mouseleave)="meBarHover.set(null)">
+                  @for (d of sh.series; track d.day; let i = $index) {
+                    <div class="me-bars__col" [class.is-on]="meBarHover() === i"
+                         [class.is-dim]="meBarHover() !== null && meBarHover() !== i"
+                         (mouseenter)="meBarHover.set(i)">
                       <div class="me-bars__bar" [style.height.%]="(d.volume / meSalesPeak()) * 100"></div>
-                      <span class="me-bars__lbl">{{ meSalesDay(d.day) }}</span>
+                      <span class="me-bars__lbl">{{ meShowBarLabel(i) ? meSalesDay(d.day) : '' }}</span>
                     </div>
                   }
                 </div>
