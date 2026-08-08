@@ -725,6 +725,27 @@
         @if (shape === 'holders') {
           @if (meHolders(); as h) {
             <div class="me-stats-card">
+              <!-- Which collection this is about. A stats card headed by a
+                   name alone makes the reader carry the subject. -->
+              @if (h.name || h.image) {
+                <div class="me-stats-card__head">
+                  <span class="me-coll__art me-coll__art--lg">
+                    <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
+                    @if (h.image) {
+                      <img [src]="nftArtSrc(h.image)" [alt]="h.name ?? ''" loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span>
+                    <span class="me-stats-card__name">{{ h.name || h.symbol }}@if (h.isVerified) {
+                        <lucide-icon name="shield-check" [size]="12" class="me-badge me-badge--inline" />
+                      }</span>
+                    @if (h.floorPrice) {
+                      <span class="me-stats-card__sym mono">Floor {{ h.floorPrice | number:'1.0-3' }} SOL</span>
+                    }
+                  </span>
+                </div>
+              }
               <div class="me-stats-card__grid">
                 <div class="me-kpi"><span class="me-kpi__k">Holders</span>
                   <span class="me-kpi__v mono">{{ h.uniqueHolders | number }}</span></div>
@@ -774,6 +795,27 @@
         @if (shape === 'sales') {
           @if (meSales(); as sh) {
             <div class="me-stats-card">
+              <!-- Which collection this is about. A stats card headed by a
+                   name alone makes the reader carry the subject. -->
+              @if (sh.name || sh.image) {
+                <div class="me-stats-card__head">
+                  <span class="me-coll__art me-coll__art--lg">
+                    <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
+                    @if (sh.image) {
+                      <img [src]="nftArtSrc(sh.image)" [alt]="sh.name ?? ''" loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span>
+                    <span class="me-stats-card__name">{{ sh.name || sh.symbol }}@if (sh.isVerified) {
+                        <lucide-icon name="shield-check" [size]="12" class="me-badge me-badge--inline" />
+                      }</span>
+                    @if (sh.floorPrice) {
+                      <span class="me-stats-card__sym mono">Floor {{ sh.floorPrice | number:'1.0-3' }} SOL</span>
+                    }
+                  </span>
+                </div>
+              }
               <div class="me-stats-card__grid">
                 <div class="me-kpi"><span class="me-kpi__k">Sales</span>
                   <span class="me-kpi__v mono">{{ sh.sales | number }}<span class="me-kpi__sub">last {{ sh.days }} days</span></span></div>

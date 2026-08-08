@@ -3249,12 +3249,21 @@ pub async fn me_collection_holders(
     // Magic Eden's own owner count, from the same source its collection page
     // uses. The chain scan is what makes concentration knowable; this is what
     // makes the headline agree with the marketplace beside it.
-    let reported_owners = me_collection_overview(http, symbol)
-        .await
+    let overview = me_collection_overview(http, symbol).await;
+    let reported_owners = overview
+        .as_ref()
         .and_then(|o| o.get("ownerCount").and_then(|v| v.as_u64()));
+    // Which collection this is about. A stats card headed by a name alone
+    // makes the reader carry the subject; the picture is how they recognise it.
+    let identity = |k: &str| overview.as_ref().and_then(|o| o.get(k).cloned());
 
     Ok(serde_json::json!({
         "symbol": symbol,
+        "name": identity("name"),
+        "image": identity("image"),
+        "isVerified": identity("isVerified"),
+        "supply": identity("supply"),
+        "floorPrice": identity("floorPrice"),
         "collection": group,
         "scanned": scanned,
         "reportedOwners": reported_owners,
@@ -3373,8 +3382,15 @@ pub async fn me_collection_sales_history(
     let sales: u64 = buckets.values().map(|b| b.sales).sum();
     let volume: f64 = buckets.values().map(|b| b.volume).sum();
 
+    let overview = me_collection_overview(http, symbol).await;
+    let identity = |k: &str| overview.as_ref().and_then(|o| o.get(k).cloned());
+
     Ok(serde_json::json!({
         "symbol": symbol,
+        "name": identity("name"),
+        "image": identity("image"),
+        "isVerified": identity("isVerified"),
+        "floorPrice": identity("floorPrice"),
         "days": days,
         // The feed is read newest-first and capped; `covers` says how far back
         // the numbers actually reach, so a quiet week is not read as a crash.

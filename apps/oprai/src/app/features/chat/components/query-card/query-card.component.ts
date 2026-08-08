@@ -1521,6 +1521,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   /** Who holds a collection, and how tightly. */
   readonly meHolders = signal<{
+    symbol?: string; name?: string | null; image?: string | null; isVerified?: boolean;
+    floorPrice?: number | null; supply?: number | null; reportedOwners?: number | null;
     uniqueHolders: number; held: number; scanned: number; complete: boolean;
     singleItemHolders: number; singleItemShare: number; averageHeld: number;
     top1Share: number; top5Share: number; top10Share: number; top20Share: number;
@@ -1529,6 +1531,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   /** Sales per day, oldest first. */
   readonly meSales = signal<{
+    symbol?: string; name?: string | null; image?: string | null; isVerified?: boolean;
+    floorPrice?: number | null;
     days: number; sales: number; volume: number; average: number;
     series: Array<{ day: number; sales: number; volume: number; average: number; low: number | null; high: number | null }>;
   } | null>(null);
