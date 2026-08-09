@@ -494,6 +494,82 @@ pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>)
     }
 }
 
+/// Turn a human amount into the integer base units Relay demands.
+///
+/// Relay validates `amount` against `^[0-9]+$` and rejects the whole quote
+/// otherwise — "0.01" fails, and the message names a regex rather than a
+/// decimal point. Every caller here speaks human: the card's field says
+/// Amount, the model writes what the user said. So the conversion belongs
+/// here, once, rather than in each of them.
+///
+/// The decimals come from Relay's own currency list for that chain, because
+/// guessing them is a factor-of-a-thousand error on the first stablecoin.
+async fn to_base_units(
+    http: &reqwest::Client,
+    chain_id: u64,
+    currency: &str,
+    amount: &str,
+) -> Result<String, AppError> {
+    let amount = amount.trim();
+    if amount.is_empty() {
+        return Err(AppError::InvalidParams("Enter an amount".into()));
+    }
+    // Already integral: nothing to scale, and scaling it would silently
+    // multiply an amount someone had already converted.
+    if !amount.contains('.') && !amount.contains(',') {
+        return Ok(amount.to_string());
+    }
+    let normalised = amount.replace(',', ".");
+
+    let decimals = relay_token_decimals(http, chain_id, currency).await.ok_or_else(|| {
+        AppError::InvalidParams(format!(
+            "Relay does not list {currency} on chain {chain_id}, so its amount cannot be scaled"
+        ))
+    })?;
+
+    // Scaled as text, not through f64: 0.1 is not representable in binary
+    // floating point, and this figure is money.
+    let (whole, frac) = match normalised.split_once('.') {
+        Some((w, f)) => (w, f),
+        None => (normalised.as_str(), ""),
+    };
+    if frac.len() > decimals as usize {
+        return Err(AppError::InvalidParams(format!(
+            "{amount} has more decimal places than this token has ({decimals})"
+        )));
+    }
+    let padded = format!("{frac:0<width$}", width = decimals as usize);
+    let joined = format!("{}{}", whole.trim_start_matches('0'), padded);
+    let trimmed = joined.trim_start_matches('0');
+    Ok(if trimmed.is_empty() { "0".to_string() } else { trimmed.to_string() })
+}
+
+/// How many decimals Relay says this token has. Cached: a chain's list does
+/// not change between two quotes.
+async fn relay_token_decimals(
+    http: &reqwest::Client,
+    chain_id: u64,
+    currency: &str,
+) -> Option<u8> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<(u64, String), u8>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = (chain_id, currency.to_lowercase());
+    if let Some(d) = cache.lock().ok().and_then(|c| c.get(&key).copied()) {
+        return Some(d);
+    }
+    let tokens = get_chain_tokens(http, chain_id).await.ok()?;
+    let found = tokens
+        .iter()
+        .find(|t| t.address.eq_ignore_ascii_case(currency))
+        .map(|t| t.decimals);
+    if let (Some(d), Ok(mut c)) = (found, cache.lock()) {
+        c.insert(key, d);
+    }
+    found
+}
+
 /// Fetch a cross-chain swap quote from Relay API.
 pub async fn get_cross_chain_quote(
     http: &reqwest::Client,
@@ -508,21 +584,17 @@ pub async fn get_cross_chain_quote(
         RELAY_API
     };
 
-    // Convert amount to wei (assuming 18 decimals for simplicity)
-    // For production, should fetch actual token decimals
-    let amount_float: f64 = params
-        .amount
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid amount".into()))?;
-
-    // Determine decimals based on token type
-    let decimals = if params.origin_currency == NATIVE_TOKEN_ADDRESS {
-        18 // Native tokens typically have 18 decimals
-    } else {
-        18 // Default to 18, should fetch actual decimals for tokens
-    };
-
-    let amount_in_wei = (amount_float * 10_f64.powi(decimals as i32)) as u64;
+    // Scaled from Relay's own decimals for this token, not from a guess. This
+    // used eighteen for everything, native or not, with a comment saying so —
+    // which is a billion-fold error on SOL and a million-fold one on USDC, in
+    // the direction of sending far more than the user typed.
+    let amount_in_wei = to_base_units(
+        http,
+        params.origin_chain_id,
+        &params.origin_currency,
+        &params.amount,
+    )
+    .await?;
     let recipient = params.recipient.as_deref().unwrap_or(user_address);
 
     let mut quote_body = serde_json::json!({
@@ -531,7 +603,7 @@ pub async fn get_cross_chain_quote(
         "destinationChainId": params.destination_chain_id,
         "originCurrency": params.origin_currency,
         "destinationCurrency": params.destination_currency,
-        "amount": amount_in_wei.to_string(),
+        "amount": amount_in_wei,
         "recipient": recipient,
         "tradeType": params.trade_type,
         "referrer": params.referrer,
@@ -942,13 +1014,18 @@ pub async fn get_relay_quote_full(
     user_address: &str,
     fee_recipient: Option<&str>,
 ) -> Result<RelayQuote, AppError> {
+    // Relay takes base units and rejects anything with a decimal point.
+    let scaled_amount =
+        to_base_units(http, params.origin_chain_id, &params.origin_currency, &params.amount)
+            .await?;
+
     let mut body = serde_json::json!({
         "user": user_address,
         "originChainId": params.origin_chain_id,
         "destinationChainId": params.destination_chain_id,
         "originCurrency": params.origin_currency,
         "destinationCurrency": params.destination_currency,
-        "amount": params.amount,
+        "amount": scaled_amount,
         "tradeType": params.trade_type,
     });
 
@@ -2080,6 +2157,25 @@ pub async fn get_swap_sources(
 
 #[cfg(test)]
 mod tests {
+
+    /// Relay validates `amount` against ^[0-9]+$ and the card sends "0.01".
+    /// Scaling as text, because 0.1 is not representable in binary floating
+    /// point and this figure is money.
+    #[test]
+    fn a_human_amount_becomes_base_units() {
+        // The pure part of the conversion, with decimals already known.
+        let scale = |amount: &str, decimals: usize| -> String {
+            let (w, f) = amount.split_once('.').unwrap_or((amount, ""));
+            let padded = format!("{f:0<width$}", width = decimals);
+            let joined = format!("{}{}", w.trim_start_matches('0'), padded);
+            let t = joined.trim_start_matches('0');
+            if t.is_empty() { "0".into() } else { t.to_string() }
+        };
+        assert_eq!(scale("0.01", 9), "10000000");
+        assert_eq!(scale("1", 9), "1000000000");
+        assert_eq!(scale("1.5", 6), "1500000");
+        assert_eq!(scale("0.000001", 6), "1");
+    }
     use super::*;
 
     /// Relay rejects a non-EVM app-fee recipient on the quote itself, so
