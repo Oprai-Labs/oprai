@@ -6284,7 +6284,11 @@ async fn build_action_inner(
                 transaction: None,
                 additional_signers_required: 0,
                 execution_steps: None,
-                quote: Some(quote.raw),
+                // The whole quote, not `raw`. `raw` is the #[serde(flatten)]
+                // remainder — everything we did NOT model — so details, steps
+                // and fees are exactly what it leaves out, and the card was
+                // handed the leftovers of the answer it needed.
+                quote: Some(serde_json::to_value(&quote)?),
                 is_cross_chain: true,
                 data: None,
             })

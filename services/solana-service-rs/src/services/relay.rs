@@ -137,14 +137,18 @@ pub struct RelayQuoteDetails {
     /// Exchange rate. A NUMBER on the wire — declaring it a string failed the
     /// whole quote, and the failure surfaced as "error decoding response
     /// body", which names neither the field nor the type.
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub rate: Option<String>,
     /// Price impact
     #[serde(default)]
     pub price_impact: Option<String>,
-    /// Estimated time in seconds
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    /// Estimated time in seconds. Relay calls it `timeEstimate`; asking for
+    /// `estimatedTime` meant the card never had one to show.
+    #[serde(default, alias = "timeEstimate", deserialize_with = "crate::services::params::soft_opt")]
     pub estimated_time: Option<u64>,
+    /// Price impact, as Relay reports it.
+    #[serde(default)]
+    pub total_impact: Option<serde_json::Value>,
     /// Sender address
     #[serde(default)]
     pub sender: Option<String>,
@@ -168,7 +172,7 @@ pub struct RelayAmount {
     /// The same amount, already scaled by decimals — what a card shows.
     #[serde(default)]
     pub amount_formatted: Option<String>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub amount_usd: Option<String>,
     /// What arrives in the worst allowed case, after slippage.
     #[serde(default)]
@@ -186,14 +190,18 @@ pub struct RelayCurrency {
     #[serde(default)]
     pub symbol: Option<String>,
     /// Token decimals
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub decimals: Option<u8>,
     /// Token name
     #[serde(default)]
     pub name: Option<String>,
     /// USD price
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub price: Option<f64>,
+    /// Logo and verification. Undeclared fields are dropped by serde, so the
+    /// card had a symbol and no icon — not because Relay withheld one.
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,7 +253,7 @@ pub struct RelayTransaction {
     #[serde(default)]
     pub value: Option<String>,
     /// Chain ID
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub chain_id: Option<u64>,
 }
 
@@ -797,7 +805,7 @@ pub struct RelayChainCurrency {
     pub symbol: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub decimals: Option<u8>,
     #[serde(default)]
     pub address: Option<String>,
@@ -847,12 +855,12 @@ pub struct RelayChainInfo {
     pub block_production_lagging: Option<bool>,
     #[serde(default)]
     pub status_message: Option<String>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub partial_disable_limit: Option<f64>,
     // Fees
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub withdrawal_fee: Option<f64>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub deposit_fee: Option<f64>,
     #[serde(default)]
     pub surge_enabled: Option<bool>,
@@ -872,7 +880,7 @@ pub struct RelayChainInfo {
     #[serde(default)]
     pub contracts: Option<RelayChainContracts>,
     // L2 / solver
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub base_chain_id: Option<u64>,
     #[serde(default)]
     pub solver_addresses: Vec<String>,
@@ -888,8 +896,13 @@ pub async fn get_chain_tokens(
     http: &reqwest::Client,
     chain_id: u64,
 ) -> Result<Vec<RelayTokenInfo>, AppError> {
+    // POST, not GET: `GET /currencies/v2?chainId=` answers 404 — "Route not
+    // found" — so this call has never returned a token. Its sibling
+    // `get_relay_currencies` already posts, which is how one worked and the
+    // other silently did not.
     let response = http
-        .get(format!("{}/currencies/v2?chainId={}", RELAY_API, chain_id))
+        .post(format!("{}/currencies/v2", RELAY_API))
+        .json(&serde_json::json!({ "chainIds": [chain_id] }))
         .send()
         .await?;
 
@@ -923,7 +936,7 @@ pub struct RelayTokenMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayTokenInfo {
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub chain_id: Option<u64>,
     pub address: String,
     pub name: String,
@@ -937,9 +950,9 @@ pub struct RelayTokenInfo {
     // legacy / extra fields some responses include
     #[serde(default)]
     pub logo_uri: Option<String>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub price: Option<f64>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub volume_24h: Option<f64>,
 }
 
@@ -1551,11 +1564,11 @@ pub struct RelayIntentStatus {
     #[serde(default)]
     pub tx_hashes: Vec<String>,
     /// Last updated timestamp in milliseconds
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub updated_at: Option<u64>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub origin_chain_id: Option<u64>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub destination_chain_id: Option<u64>,
 }
 
@@ -1685,7 +1698,7 @@ pub async fn execute_relay_permits(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayLiquidityItem {
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub chain_id: Option<u64>,
     #[serde(default)]
     pub currency_id: Option<String>,
@@ -1693,7 +1706,7 @@ pub struct RelayLiquidityItem {
     pub symbol: Option<String>,
     #[serde(default)]
     pub address: Option<String>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub decimals: Option<u8>,
     /// Solver balance in smallest unit (e.g. wei for ETH)
     #[serde(default)]
@@ -1758,7 +1771,7 @@ pub struct RelayCurrenciesQuery {
     #[serde(default)]
     pub verified: Option<bool>,
     /// Max results (default 20, max 100)
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub limit: Option<u32>,
     #[serde(default)]
     pub default_list: Option<bool>,
@@ -1874,7 +1887,7 @@ pub async fn get_relay_token_price(
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayRequestsQuery {
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub limit: Option<u32>,
     #[serde(default)]
     pub continuation: Option<String>,
@@ -1882,9 +1895,9 @@ pub struct RelayRequestsQuery {
     pub user: Option<String>,
     #[serde(default)]
     pub hash: Option<String>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub origin_chain_id: Option<u64>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub destination_chain_id: Option<u64>,
     /// Filter requests on either direction for a single chain (string form of chain ID)
     #[serde(default)]
@@ -1898,13 +1911,13 @@ pub struct RelayRequestsQuery {
     /// "success" | "failure" | "refund" | "pending" | "depositing" | "waiting"
     #[serde(default)]
     pub status: Option<String>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub start_timestamp: Option<u64>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub end_timestamp: Option<u64>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub start_block: Option<u64>,
-    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub end_block: Option<u64>,
     #[serde(default)]
     pub referrer: Option<String>,

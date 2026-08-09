@@ -56,6 +56,23 @@ where
     raw.parse::<T>().map(Some).map_err(D::Error::custom)
 }
 
+/// The same, for a value we only display.
+///
+/// A parameter that will not parse is the user's intent misread, and must fail
+/// loudly. A field in someone else's response is not: Relay's step data
+/// carries `chainId: "solana"` where the EVM branch carries a number, and
+/// failing there threw away an entire working quote over a field nothing was
+/// going to read. Unreadable becomes absent.
+pub fn soft_opt<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    <T as FromStr>::Err: Display,
+{
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.as_ref().and_then(from_json).and_then(|s| s.parse::<T>().ok()))
+}
+
 /// The text of a scalar, whatever shape it arrived in.
 ///
 /// `30.0` is written back as `30` because an integer field cannot parse a
