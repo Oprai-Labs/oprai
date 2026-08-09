@@ -116,16 +116,21 @@ pub struct RelayQuote {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayQuoteDetails {
-    /// Currency being sent
-    pub currency_in: RelayCurrency,
-    /// Currency being received
-    pub currency_out: RelayCurrency,
-    /// Amount being sent (in wei)
-    pub amount_in: Option<String>,
-    /// Amount being received (in wei)
-    pub amount_out: Option<String>,
-    /// Exchange rate
+    /// What is being sent, and how much of it.
+    pub currency_in: RelayAmount,
+    /// What arrives, and how much of it.
+    pub currency_out: RelayAmount,
+    /// Amount being sent (in wei). Relay carries this inside `currencyIn` now;
+    /// kept for callers that still read it.
     #[serde(default)]
+    pub amount_in: Option<String>,
+    /// Amount being received (in wei).
+    #[serde(default)]
+    pub amount_out: Option<String>,
+    /// Exchange rate. A NUMBER on the wire — declaring it a string failed the
+    /// whole quote, and the failure surfaced as "error decoding response
+    /// body", which names neither the field nor the type.
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub rate: Option<String>,
     /// Price impact
     #[serde(default)]
@@ -139,6 +144,28 @@ pub struct RelayQuoteDetails {
     /// Recipient address
     #[serde(default)]
     pub recipient: Option<String>,
+}
+
+/// A side of the trade: the token, and how much of it.
+///
+/// Relay nests the currency inside this rather than returning a bare token —
+/// modelling `currencyIn` as the token itself is what made every quote
+/// unparseable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayAmount {
+    pub currency: RelayCurrency,
+    /// Raw amount, in the token's own units.
+    #[serde(default)]
+    pub amount: Option<String>,
+    /// The same amount, already scaled by decimals — what a card shows.
+    #[serde(default)]
+    pub amount_formatted: Option<String>,
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    pub amount_usd: Option<String>,
+    /// What arrives in the worst allowed case, after slippage.
+    #[serde(default)]
+    pub minimum_amount: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -527,12 +554,12 @@ pub async fn build_cross_chain_swap(
     // Extract details for preview
     let details = &quote.details;
     let origin_symbol = details
-        .currency_in
+        .currency_in.currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
     let dest_symbol = details
-        .currency_out
+        .currency_out.currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
@@ -541,10 +568,24 @@ pub async fn build_cross_chain_swap(
     let dest_chain_name = get_chain_name(params.destination_chain_id);
 
     // Calculate output amount
-    let out_amount = details.amount_out.clone().unwrap_or_default();
-    let out_decimals = details.currency_out.decimals.unwrap_or(18);
-    let out_amount_float =
-        out_amount.parse::<u64>().unwrap_or(0) as f64 / 10_f64.powi(out_decimals as i32);
+    // Relay carries the amount inside the currency now; `amountOut` at the top
+    // level is gone, so reading only that described every bridge as delivering
+    // zero. Parsed as f64 because an 18-decimal wei figure overflows a u64.
+    let out_amount = details
+        .currency_out
+        .amount
+        .clone()
+        .or_else(|| details.amount_out.clone())
+        .unwrap_or_default();
+    let out_decimals = details.currency_out.currency.decimals.unwrap_or(18);
+    let out_amount_float = details
+        .currency_out
+        .amount_formatted
+        .as_deref()
+        .and_then(|f| f.parse::<f64>().ok())
+        .unwrap_or_else(|| {
+            out_amount.parse::<f64>().unwrap_or(0.0) / 10_f64.powi(out_decimals as i32)
+        });
 
     // Build warnings
     let mut warnings = Vec::new();
@@ -970,22 +1011,36 @@ pub async fn relay_bridge(
 
     let details = &quote.details;
     let origin_symbol = details
-        .currency_in
+        .currency_in.currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
     let dest_symbol = details
-        .currency_out
+        .currency_out.currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
     let origin_chain_name = get_chain_name(params.origin_chain_id);
     let dest_chain_name = get_chain_name(params.destination_chain_id);
 
-    let out_amount = details.amount_out.clone().unwrap_or_default();
-    let out_decimals = details.currency_out.decimals.unwrap_or(18);
-    let out_amount_float =
-        out_amount.parse::<u64>().unwrap_or(0) as f64 / 10_f64.powi(out_decimals as i32);
+    // Relay carries the amount inside the currency now; `amountOut` at the top
+    // level is gone, so reading only that described every bridge as delivering
+    // zero. Parsed as f64 because an 18-decimal wei figure overflows a u64.
+    let out_amount = details
+        .currency_out
+        .amount
+        .clone()
+        .or_else(|| details.amount_out.clone())
+        .unwrap_or_default();
+    let out_decimals = details.currency_out.currency.decimals.unwrap_or(18);
+    let out_amount_float = details
+        .currency_out
+        .amount_formatted
+        .as_deref()
+        .and_then(|f| f.parse::<f64>().ok())
+        .unwrap_or_else(|| {
+            out_amount.parse::<f64>().unwrap_or(0.0) / 10_f64.powi(out_decimals as i32)
+        });
 
     let mut warnings = vec![format!(
         "Cross-chain bridge: {} → {}",
