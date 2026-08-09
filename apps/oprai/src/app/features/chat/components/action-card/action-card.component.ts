@@ -2614,39 +2614,38 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /**
    * What is actually sitting in the Magic Eden escrow.
    *
-   * A withdraw card opened on an empty box asks the user for a number they
-   * cannot look up — the balance is not visible anywhere in the app, and the
-   * amount they mean is all of it. So the card reads it, fills it in, and
-   * shows it beside the field.
+   * Asked of the builder rather than of a separate read: `/actions/build` is
+   * the path this card already uses to confirm, so it is the one path known to
+   * work from here — and the withdraw builder answers with the balance it
+   * would empty. Building is read-only; nothing is signed by asking.
    */
   readonly meEscrowSol = signal<number | null>(null);
   private meEscrowRead = false;
 
   private ensureMeEscrow(): void {
     if (this.meEscrowRead || this.action?.type !== 'me_withdraw') return;
-    const wallet = this.walletService.publicKey()?.toString();
-    if (!wallet) return;
     this.meEscrowRead = true;
     void (async () => {
-      // Retried, like the NFT lookup: Magic Eden throttles, and one refused
-      // read here leaves the card asking for a number with nothing on screen
-      // to derive it from.
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 400 << attempt));
-        const d = await this.magicEden.read<{ balance?: number }>('me_wallet_escrow_balance', { wallet });
-        const bal = typeof d?.balance === 'number' ? d.balance : null;
-        if (bal === null) continue;
-        this.meEscrowSol.set(bal);
-        // Pre-filled, not merely offered: "withdraw my balance" is the whole
-        // request, and a card that makes them retype the number answers less
-        // of it than the sentence did.
-        if (bal > 0 && !this.getEditParam('amount')) {
-          this.setEditParam('amount', String(bal));
+        try {
+          const resp = await firstValueFrom(this.apiService.post<any>(
+            '/actions/build', { type: 'me_withdraw', params: {} },
+          ));
+          const bal = Number(resp?.preview?.params?.balance);
+          if (!Number.isFinite(bal)) continue;
+          this.meEscrowSol.set(bal);
+          if (bal > 0 && !this.getEditParam('amount')) {
+            this.setEditParam('amount', String(bal));
+          }
+          return;
+        } catch {
+          // An empty balance is a 400 from the builder, and a real answer:
+          // there is nothing to withdraw.
+          this.meEscrowSol.set(0);
+          return;
         }
-        return;
       }
-      // Nothing read — let a later render try again rather than sitting on an
-      // empty box for good.
       this.meEscrowRead = false;
     })();
   }
@@ -2655,10 +2654,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action?.type !== 'me_withdraw') return null;
     this.ensureMeEscrow();
     const bal = this.meEscrowSol();
-    // Until the balance is known, say what an empty field does. The builder
-    // withdraws everything when no amount is given, and that is worth knowing
-    // whether or not the number has arrived.
-    return bal === null ? 'Leave empty to withdraw everything' : `Magic Eden balance ${bal} SOL`;
+    if (bal === null) return null;
+    return bal > 0 ? `Balance ${bal} SOL` : 'Nothing to withdraw';
   }
 
   meAmountLabel(): string {
@@ -2746,6 +2743,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   meQuickFills(): Array<{ label: string; value: number }> {
     const out: Array<{ label: string; value: number }> = [];
+    // Withdrawing has one number worth offering, and it is all of it.
+    if (this.action.type === 'me_withdraw') {
+      const bal = this.meEscrowSol();
+      return bal && bal > 0 ? [{ label: 'Max', value: bal }] : [];
+    }
     const ask = this.meAskPrice();
     const floor = this.meFloorPrice();
     if (floor) out.push({ label: 'Floor', value: floor });
