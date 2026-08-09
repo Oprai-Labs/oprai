@@ -3534,6 +3534,30 @@
             }
           </div>
         } @else {
+          <!-- The bridge answers before it asks for a signature: what arrives,
+               what it costs and how long it takes are the whole decision, and
+               the card used to show none of them. -->
+          @if (isRelayBridge()) {
+            <div class="pump-panel pump-panel--recv relay-out">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">You receive (estimated)</span>
+                @if (relayQuoting()) { <span class="proto-balance-dots">···</span> }
+              </div>
+              @if (relayQuote(); as q) {
+                <div class="relay-out__amount mono">{{ q.out }} <span class="relay-out__sym">{{ q.outSymbol }}</span></div>
+                <div class="relay-out__meta">
+                  @if (q.feeUsd) { <span>Fee {{ q.feeUsd }}</span> }
+                  @if (q.seconds !== null) { <span>·</span><span>~{{ q.seconds }}s</span> }
+                  @if (q.impact) { <span>·</span><span>Impact {{ q.impact }}%</span> }
+                </div>
+              } @else if (relayQuoteError()) {
+                <!-- Angular does not carry an `as` alias into @else if. -->
+                <div class="relay-out__err">{{ relayQuoteError() }}</div>
+              } @else {
+                <div class="relay-out__idle">Pick both chains, both tokens and an amount for a live quote.</div>
+              }
+            </div>
+          }
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
                [class.proto-fields--swaplike]="useSwaplikeLayout">
 
@@ -3618,7 +3642,7 @@
                              [max]="field.max ?? null"
                              [step]="field.step ?? 'any'"
                              [value]="field.divisor ? (+getEditParam(field.key) / field.divisor) : getEditParam(field.key)"
-                             (input)="setEditParam(field.key, field.divisor ? ('' + (+$any($event.target).value * field.divisor)) : $any($event.target).value); field.key === 'amountA' ? noteAmountEdit('A') : (field.key === 'amountB' ? noteAmountEdit('B') : null)"
+                             (input)="setEditParam(field.key, field.divisor ? ('' + (+$any($event.target).value * field.divisor)) : $any($event.target).value); field.key === 'amountA' ? noteAmountEdit('A') : (field.key === 'amountB' ? noteAmountEdit('B') : null); relayMaybeQuote()"
                              [disabled]="!isEditable() || dlmmLocked" />
                       @if ((isPrimaryAmount || isSecondaryAmount) && fieldBalanceMint) {
                         <!-- Suffix denotes what `amount` is denominated in.
@@ -3707,7 +3731,7 @@
                     <input type="text" class="proto-input proto-input--mono"
                            [placeholder]="field.placeholder ?? 'Enter address...'"
                            [value]="getEditParam(field.key)"
-                           (input)="setEditParam(field.key, $any($event.target).value)"
+                           (input)="setEditParam(field.key, $any($event.target).value); relayMaybeQuote()"
                            [disabled]="!isEditable()" />
                     @if (getEditParam(field.key).length > 8 && isEditable()) {
                       <button class="proto-copy-btn" type="button"
@@ -3721,7 +3745,7 @@
 
                 @case ('select') {
                   <select class="proto-select"
-                          (change)="setEditParam(field.key, $any($event.target).value)"
+                          (change)="setEditParam(field.key, $any($event.target).value); relayMaybeQuote()"
                           [disabled]="!isEditable()">
                     @for (opt of field.options ?? []; track opt.value) {
                       <option [value]="opt.value"
@@ -3747,7 +3771,7 @@
                   <textarea class="proto-textarea" rows="3"
                             [placeholder]="field.placeholder ?? ''"
                             [value]="getEditParam(field.key)"
-                            (input)="setEditParam(field.key, $any($event.target).value)"
+                            (input)="setEditParam(field.key, $any($event.target).value); relayMaybeQuote()"
                             [disabled]="!isEditable()"></textarea>
                 }
 

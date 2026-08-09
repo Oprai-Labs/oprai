@@ -2703,6 +2703,82 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return !!dest && dest !== String(RELAY_SOLANA_CHAIN_ID);
   }
 
+  /** True on the bridge, which gets its own panel rather than a field list. */
+  readonly isRelayBridge = computed(() =>
+    /^(relay_bridge|bridge|cross_chain_swap)$/.test(this.action?.type ?? ''));
+
+  /** What the bridge would actually deliver, refreshed as the inputs change. */
+  readonly relayQuote = signal<{
+    out: string; outSymbol: string; inSymbol: string;
+    feeUsd: string | null; seconds: number | null; impact: string | null;
+  } | null>(null);
+  readonly relayQuoting = signal(false);
+  readonly relayQuoteError = signal<string | null>(null);
+  private relayQuoteKey = '';
+  private relayQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Quote the bridge from what is on screen.
+   *
+   * A bridge card that shows only what you are sending is asking for a
+   * signature on an unknown: the fee, the time and the amount that arrives are
+   * the whole decision. Debounced, because it re-runs on every keystroke.
+   */
+  relayMaybeQuote(): void {
+    if (!this.isRelayBridge()) return;
+    const p = this.editParams();
+    const key = [p['originChainId'], p['destinationChainId'], p['originCurrency'],
+                 p['destinationCurrency'], p['amount'], p['recipient']].join('|');
+    if (key === this.relayQuoteKey) return;
+    this.relayQuoteKey = key;
+
+    const ready = p['originChainId'] && p['destinationChainId'] && p['originCurrency']
+      && p['destinationCurrency'] && Number(p['amount']) > 0;
+    if (!ready) { this.relayQuote.set(null); this.relayQuoteError.set(null); return; }
+
+    if (this.relayQuoteTimer) clearTimeout(this.relayQuoteTimer);
+    this.relayQuoteTimer = setTimeout(() => void this.relayQuoteNow(), 450);
+  }
+
+  private async relayQuoteNow(): Promise<void> {
+    const p = this.editParams();
+    this.relayQuoting.set(true);
+    this.relayQuoteError.set(null);
+    try {
+      const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+        type: 'relay_get_quote',
+        params: {
+          originChainId: p['originChainId'],
+          destinationChainId: p['destinationChainId'],
+          originCurrency: p['originCurrency'],
+          destinationCurrency: p['destinationCurrency'],
+          amount: p['amount'],
+          tradeType: 'EXACT_INPUT',
+          ...(p['recipient'] ? { recipient: p['recipient'] } : {}),
+        },
+      }));
+      const d = resp?.quote?.details ?? resp?.details ?? {};
+      const outAmt = d?.currencyOut?.amountFormatted;
+      if (!outAmt) { this.relayQuote.set(null); return; }
+      this.relayQuote.set({
+        out: String(Number(outAmt).toFixed(6)).replace(/0+$/, '').replace(/\.$/, ''),
+        outSymbol: d?.currencyOut?.currency?.symbol ?? '',
+        inSymbol: d?.currencyIn?.currency?.symbol ?? '',
+        feeUsd: resp?.preview?.estimatedFee ?? null,
+        seconds: typeof d?.timeEstimate === 'number' ? d.timeEstimate : null,
+        impact: d?.totalImpact?.percent ?? null,
+      });
+    } catch (err: unknown) {
+      // The builder's message is the useful one — it names a blocked address,
+      // an unsupported pair, an amount below the minimum.
+      const msg = (err as { error?: { error?: string } })?.error?.error;
+      this.relayQuote.set(null);
+      this.relayQuoteError.set(msg || 'No route for this pair right now.');
+    } finally {
+      this.relayQuoting.set(false);
+    }
+  }
+
   readonly evmConnecting = signal(false);
   readonly evmError = signal<string | null>(null);
 

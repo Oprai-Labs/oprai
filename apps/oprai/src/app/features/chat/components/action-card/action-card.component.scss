@@ -5726,3 +5726,34 @@
     color: var(--op-loss);
   }
 }
+
+// What arrives, given the top billing the question deserves.
+.relay-out {
+  margin-bottom: 10px;
+
+  &__amount {
+    font-size: 1.5rem;
+    font-weight: 650;
+    line-height: 1.2;
+    color: var(--op-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__sym {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--op-text-secondary);
+  }
+
+  &__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 0.75rem;
+    color: var(--op-text-tertiary);
+  }
+
+  &__err   { font-size: 0.8125rem; color: var(--op-loss); }
+  &__idle  { font-size: 0.8125rem; color: var(--op-text-tertiary); }
+}
