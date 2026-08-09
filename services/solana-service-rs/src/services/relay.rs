@@ -466,10 +466,11 @@ fn is_valid_evm_address(address: &str) -> bool {
 // Relay quote
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Append OPRAI's 0.05% app fee to a Relay quote body if a fee recipient is
+/// Append OPRAI's app fee to a Relay quote body if a fee recipient is
 /// configured AND Relay can pay it.
 ///
-/// fee value 5 = 0.05% in Relay's basis-point scale (10000 = 100%).
+/// 20 = 0.20% on Relay's scale (10000 = 100%), the same rate every other
+/// established pair pays. It was 0.05% here for no stated reason.
 ///
 /// Relay pays app fees to an EVM address and rejects anything else outright —
 /// `INVALID_APP_FEE_RECIPIENT`, on the quote, before any route is even
@@ -480,7 +481,7 @@ fn is_valid_evm_address(address: &str) -> bool {
 pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>) {
     match fee_recipient.filter(|s| !s.is_empty()) {
         Some(addr) if is_valid_evm_address(addr) => {
-            body["appFees"] = serde_json::json!([{"recipient": addr, "fee": "5"}]);
+            body["appFees"] = serde_json::json!([{"recipient": addr, "fee": "20"}]);
         }
         Some(addr) => {
             tracing::warn!(
@@ -2091,6 +2092,6 @@ mod tests {
 
         let mut body = serde_json::json!({});
         append_app_fee(&mut body, Some("0x71C7656EC7ab88b098defB751B7401B5f6d8976F"));
-        assert_eq!(body["appFees"][0]["fee"], "5");
+        assert_eq!(body["appFees"][0]["fee"], "20");
     }
 }
