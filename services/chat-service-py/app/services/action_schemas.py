@@ -417,6 +417,7 @@ class ActionType(str, Enum):
     ME_MAKE_OFFER = "me_make_offer"
     ME_ACCEPT_OFFER = "me_accept_offer"
     ME_CANCEL_OFFER = "me_cancel_offer"
+    ME_WITHDRAW = "me_withdraw"
     # Re-pricing is one instruction on Magic Eden, not cancel-then-relist.
     # These lived in QueryType, where they validated as reads and then hit a
     # renderer that has no case for them — so asking to change a price in chat

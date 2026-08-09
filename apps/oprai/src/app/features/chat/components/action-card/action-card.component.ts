@@ -601,6 +601,7 @@ function getActionLabel(action: ParsedAction): string {
     me_buy: 'Buy NFT (Magic Eden)', me_sell: 'Sell NFT (Magic Eden)',
     me_list: 'List NFT', me_cancel_listing: 'Cancel Listing',
     me_make_offer: 'Make Offer', me_accept_offer: 'Accept Offer', me_cancel_offer: 'Cancel Offer',
+    me_withdraw: 'Withdraw Magic Eden balance',
     me_buy_instruction: 'Buy NFT (Instruction)', me_buy_now: 'Buy Now', me_buy_now_transfer_nft: 'Buy & Transfer NFT',
     me_buy_cancel: 'Cancel Buy', me_buy_change_price: 'Change Buy Price',
     me_sell_now: 'Sell Now', me_sell_cancel: 'Cancel Sell', me_sell_change_price: 'Change Sell Price',
@@ -2599,18 +2600,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   readonly isMeAmountPanel = computed(() => {
     const t = this.action.type;
-    return /^me_(make_offer|list|sell|sell_change_price|buy_change_price|deposit|withdraw)$/.test(t);
+    return /^me_(make_offer|list|sell|sell_change_price|buy_change_price|withdraw)$/.test(t);
   });
 
   /** The amount field this panel owns, so the generic list can skip it. */
   meAmountKey(): string {
     const t = this.action.type;
+    if (t === 'me_withdraw') return 'amount';
     if (/change_price/.test(t)) return 'newPrice';
     return 'price';
   }
 
   meAmountLabel(): string {
     const t = this.action.type;
+    if (t === 'me_withdraw') return 'Withdraw';
     if (/change_price/.test(t)) return 'New price';
     if (/list|_sell$/.test(t)) return 'Your ask';
     return 'Your offer';

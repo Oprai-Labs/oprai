@@ -368,6 +368,7 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "me_make_offer":      _A({"nft", "magic_eden"}),
     "me_accept_offer":    _A({"nft", "magic_eden"}),
     "me_cancel_offer":    _A({"nft", "magic_eden"}),
+    "me_withdraw":    _A({"nft", "magic_eden"}),
     "me_collection_info": _A({"analysis", "nft_read"}),
     "me_nft_info":        _A({"analysis", "nft_read"}),
     "me_wallet_nfts":     _A({"nft", "magic_eden", "portfolio"}),

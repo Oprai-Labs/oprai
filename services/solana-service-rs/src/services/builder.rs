@@ -3139,6 +3139,11 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         // parse, or is not a token at all, is named as such rather than
         // rejected as a bad parameter.
         "token_safety" | "honeypot_check" | "scam_check" | "rug_check" => Ok(()),
+        "me_withdraw" => {
+            let _p: magic_eden::MeEscrowParams = serde_json::from_value(params.clone())
+                .map_err(|e| AppError::InvalidParams(format!("Invalid withdraw params: {e}")))?;
+            Ok(())
+        }
         "me_sell_change_price" | "me_buy_change_price" => {
             let _p: magic_eden::MeChangePriceParams = serde_json::from_value(params.clone())
                 .map_err(|e| {
@@ -5496,6 +5501,10 @@ async fn build_action_inner(
         "me_cancel_offer" | "me_buy_cancel" => {
             let p: magic_eden::MeCancelOfferParams = serde_json::from_value(params)?;
             magic_eden::build_me_cancel_offer(http, rpc, user_pubkey, &p).await
+        }
+        "me_withdraw" => {
+            let p: magic_eden::MeEscrowParams = serde_json::from_value(params)?;
+            magic_eden::build_me_withdraw(http, rpc, user_pubkey, &p).await
         }
         "me_buy_change_price" => {
             let p: magic_eden::MeChangePriceParams = serde_json::from_value(params)?;

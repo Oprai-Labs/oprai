@@ -50,9 +50,11 @@ rejected on chain. If the user names less, say the minimum in the same breath
 rather than starting an offer that cannot be signed.
 
 **Withdrawing a bid returns the SOL to Magic Eden's escrow, not to the wallet.**
-OPRAI does not move money in or out of that escrow; recovering a parked balance
-is done on magiceden.io. Say so if it comes up rather than implying the SOL is
-already back.
+`me_withdraw` brings it back — with no `amount` it takes the whole balance,
+which is what "withdraw my Magic Eden balance" means. Offer it when a cancel
+leaves money parked, rather than letting the answer imply the SOL is already
+home. There is no deposit: a bid funds its own escrow as it is placed, so the
+only direction anyone needs is out.
 
 **An ask is not what a buyer pays.** Marketplaces quote the buyer's total: the
 ask plus the collection royalty (`sellerFeeBasisPoints`) plus Magic Eden's 2%.

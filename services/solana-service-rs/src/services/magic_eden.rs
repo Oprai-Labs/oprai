@@ -379,6 +379,18 @@ pub struct MeChangePriceParams {
 }
 
 
+/// Taking SOL back out of the Magic Eden bidding escrow.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeEscrowParams {
+    /// Amount in SOL. Absent means all of it — "withdraw my Magic Eden
+    /// balance" names no number because the number is whatever is there.
+    #[serde(default)]
+    pub amount: Option<String>,
+    #[serde(default)]
+    pub auction_house: Option<String>,
+}
+
 /// Parameters for buying an NFT
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1700,6 +1712,65 @@ pub async fn build_me_change_offer_price(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Get collection info action
+/// Take SOL back out of the Magic Eden escrow.
+///
+/// Cancelling a bid does not return its SOL to the wallet — it parks it here,
+/// which is the only reason this exists. Deposit does not: a bid funds its own
+/// escrow as it is placed, so the only direction a user needs is out.
+pub async fn build_me_withdraw(
+    http: &reqwest::Client,
+    _rpc: &SolanaRpc,
+    user_pubkey: &Pubkey,
+    params: &MeEscrowParams,
+) -> Result<BuildResponse, AppError> {
+    let buyer = user_pubkey.to_string();
+    let parked = me_escrow_lamports(http, &buyer).await as f64 / 1e9;
+
+    // No amount means all of it. Asking someone to name a number they would
+    // have to go and look up, to empty an account they cannot see, is a
+    // question with one sensible answer.
+    let amount: f64 = match params.amount.as_deref().filter(|a| !a.trim().is_empty()) {
+        Some(raw) => raw
+            .parse()
+            .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?,
+        None => parked,
+    };
+    if amount <= 0.0 {
+        return Err(AppError::InvalidParams(
+            "There is nothing in your Magic Eden balance to withdraw".into(),
+        ));
+    }
+    if amount > parked + 1e-9 {
+        return Err(AppError::InvalidParams(format!(
+            "Your Magic Eden balance is {parked} SOL, so {amount} cannot be withdrawn"
+        )));
+    }
+
+    let auction_house = params
+        .auction_house
+        .clone()
+        .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string());
+
+    let tx = me_instruction(
+        http,
+        "withdraw",
+        &[
+            ("buyer", buyer),
+            ("auctionHouseAddress", auction_house.clone()),
+            ("amount", amount.to_string()),
+        ],
+    )
+    .await?;
+
+    Ok(me_tx_response(
+        "me_withdraw",
+        format!("Withdraw {amount} SOL from your Magic Eden balance"),
+        tx,
+        serde_json::json!({ "amount": amount, "balance": parked, "auctionHouse": auction_house }),
+        vec!["Open offers backed by this balance may be cancelled".into()],
+    ))
+}
+
 pub async fn build_me_collection_info(
     http: &reqwest::Client,
     params: &MeCollectionInfoParams,
