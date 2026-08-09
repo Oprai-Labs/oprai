@@ -2627,24 +2627,38 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const wallet = this.walletService.publicKey()?.toString();
     if (!wallet) return;
     this.meEscrowRead = true;
-    void this.magicEden.read<{ balance?: number }>('me_wallet_escrow_balance', { wallet })
-      .then(d => {
+    void (async () => {
+      // Retried, like the NFT lookup: Magic Eden throttles, and one refused
+      // read here leaves the card asking for a number with nothing on screen
+      // to derive it from.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 400 << attempt));
+        const d = await this.magicEden.read<{ balance?: number }>('me_wallet_escrow_balance', { wallet });
         const bal = typeof d?.balance === 'number' ? d.balance : null;
+        if (bal === null) continue;
         this.meEscrowSol.set(bal);
         // Pre-filled, not merely offered: "withdraw my balance" is the whole
         // request, and a card that makes them retype the number answers less
         // of it than the sentence did.
-        if (bal && bal > 0 && !this.getEditParam('amount')) {
+        if (bal > 0 && !this.getEditParam('amount')) {
           this.setEditParam('amount', String(bal));
         }
-      });
+        return;
+      }
+      // Nothing read — let a later render try again rather than sitting on an
+      // empty box for good.
+      this.meEscrowRead = false;
+    })();
   }
 
   meBalanceNote(): string | null {
     if (this.action?.type !== 'me_withdraw') return null;
     this.ensureMeEscrow();
     const bal = this.meEscrowSol();
-    return bal === null ? null : `Magic Eden balance ${bal} SOL`;
+    // Until the balance is known, say what an empty field does. The builder
+    // withdraws everything when no amount is given, and that is worth knowing
+    // whether or not the number has arrived.
+    return bal === null ? 'Leave empty to withdraw everything' : `Magic Eden balance ${bal} SOL`;
   }
 
   meAmountLabel(): string {
