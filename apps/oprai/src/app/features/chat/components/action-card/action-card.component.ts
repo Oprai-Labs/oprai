@@ -1528,7 +1528,8 @@ function getActionFields(
       { key: 'destinationChainId', label: 'To chain', type: 'select', options: RELAY_CHAINS, required: true, half: true },
       { key: 'originCurrency', label: 'From token', type: 'token', required: true },
       { key: 'destinationCurrency', label: 'To token', type: 'token', required: true },
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', required: true },
+      // No `amount` row: the send panel above owns it, the way the swap card
+      // owns its own. Two boxes for one number is two places to disagree.
       { key: 'slippageTolerance', label: 'Slippage', type: 'number', placeholder: '50', suffix: 'bps', half: true },
       // Where it lands. On an EVM destination this is an EVM address, which
       // the user's Solana wallet cannot supply — hence the connect button the

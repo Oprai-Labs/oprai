@@ -5789,3 +5789,22 @@
     color: var(--op-text-tertiary);
   }
 }
+
+// The amount is typed where it is read — in the panel, at the size of the
+// figure it becomes — rather than in a form row underneath repeating it.
+.relay-quote__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 1.5rem;
+  font-weight: 650;
+  line-height: 1.2;
+  color: var(--op-text-primary);
+  font-variant-numeric: tabular-nums;
+
+  &::placeholder { color: var(--op-text-tertiary); }
+  &:focus { outline: none; }
+  &:disabled { opacity: 0.7; }
+}

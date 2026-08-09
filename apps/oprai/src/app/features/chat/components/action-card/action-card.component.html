@@ -3547,7 +3547,11 @@
                   <span class="pump-panel__bal">{{ relayChainName(getEditParam('originChainId')) }}</span>
                 </div>
                 <div class="relay-quote__row">
-                  <span class="relay-quote__amount mono">{{ getEditParam('amount') || '0' }}</span>
+                  <input class="relay-quote__input mono" type="text" inputmode="decimal"
+                         placeholder="0"
+                         [value]="getEditParam('amount')"
+                         [disabled]="!isEditable()"
+                         (input)="setEditParam('amount', $any($event.target).value); relayMaybeQuote()" />
                   @if (relayQuote()?.inToken; as t) {
                     <span class="pump-token">
                       @if (t.logo) {
