@@ -2775,7 +2775,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         outSymbol: d?.currencyOut?.currency?.symbol ?? '',
         inSymbol: d?.currencyIn?.currency?.symbol ?? '',
         feeUsd: resp?.preview?.estimatedFee ?? null,
-        seconds: typeof d?.timeEstimate === 'number' ? d.timeEstimate : null,
+        // Relay calls it timeEstimate; our model renames it on the way out.
+        // Reading only one of the two names is how the estimate went missing.
+        seconds: typeof d?.timeEstimate === 'number' ? d.timeEstimate
+          : (typeof d?.estimatedTime === 'number' ? d.estimatedTime : null),
         impact: d?.totalImpact?.percent ?? null,
         inToken: tok(d?.currencyIn?.currency),
         outToken: tok(d?.currencyOut?.currency),
