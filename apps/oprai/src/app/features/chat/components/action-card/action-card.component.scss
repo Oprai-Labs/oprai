@@ -5757,3 +5757,35 @@
   &__err   { font-size: 0.8125rem; color: var(--op-loss); }
   &__idle  { font-size: 0.8125rem; color: var(--op-text-tertiary); }
 }
+
+// The bridge reads top to bottom like the swap card: what leaves, an arrow,
+// what arrives.
+.relay-quote {
+  margin-bottom: 12px;
+
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  &__amount {
+    font-size: 1.5rem;
+    font-weight: 650;
+    line-height: 1.2;
+    color: var(--op-text-primary);
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__arrow {
+    display: grid;
+    place-items: center;
+    height: 22px;
+    margin: -6px 0;
+    color: var(--op-text-tertiary);
+  }
+}

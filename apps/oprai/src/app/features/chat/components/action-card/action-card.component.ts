@@ -2711,6 +2711,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly relayQuote = signal<{
     out: string; outSymbol: string; inSymbol: string;
     feeUsd: string | null; seconds: number | null; impact: string | null;
+    // The quote already carries both tokens in full — symbol, name and logo.
+    // Resolving an EVM token any other way means a second source that only
+    // knows Solana, which is why the destination read "0xA0…".
+    inToken: { symbol: string; name: string; logo: string | null } | null;
+    outToken: { symbol: string; name: string; logo: string | null } | null;
   } | null>(null);
   readonly relayQuoting = signal(false);
   readonly relayQuoteError = signal<string | null>(null);
@@ -2760,6 +2765,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const d = resp?.quote?.details ?? resp?.details ?? {};
       const outAmt = d?.currencyOut?.amountFormatted;
       if (!outAmt) { this.relayQuote.set(null); return; }
+      const tok = (c: any) => c ? {
+        symbol: c.symbol ?? '',
+        name: c.name ?? '',
+        logo: c.metadata?.logoURI ?? null,
+      } : null;
       this.relayQuote.set({
         out: String(Number(outAmt).toFixed(6)).replace(/0+$/, '').replace(/\.$/, ''),
         outSymbol: d?.currencyOut?.currency?.symbol ?? '',
@@ -2767,6 +2777,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         feeUsd: resp?.preview?.estimatedFee ?? null,
         seconds: typeof d?.timeEstimate === 'number' ? d.timeEstimate : null,
         impact: d?.totalImpact?.percent ?? null,
+        inToken: tok(d?.currencyIn?.currency),
+        outToken: tok(d?.currencyOut?.currency),
       });
     } catch (err: unknown) {
       // The builder's message is the useful one — it names a blocked address,
@@ -2777,6 +2789,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     } finally {
       this.relayQuoting.set(false);
     }
+  }
+
+  /** A chain's name, for a card that should not print ids at people. */
+  relayChainName(id: string): string {
+    return RELAY_CHAINS.find(c => c.value === id)?.label ?? (id ? `Chain ${id}` : '');
   }
 
   readonly evmConnecting = signal(false);
@@ -4712,6 +4729,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
     void this.ensureMeCancelTarget();
+    // The card arrives with its fields already filled by the model, and the
+    // quote only ran on user input — so a bridge someone never typed into sat
+    // on "pick both chains" with every chain already picked.
+    this.relayMaybeQuote();
     // Also here, not only from the panel's computed: a computed evaluates once
     // and memoises, so a first evaluation that ran before the params landed
     // left the lookup permanently unfired — which is why no Magic Eden action

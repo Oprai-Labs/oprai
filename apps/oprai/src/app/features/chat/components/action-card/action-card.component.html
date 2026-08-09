@@ -3538,24 +3538,61 @@
                what it costs and how long it takes are the whole decision, and
                the card used to show none of them. -->
           @if (isRelayBridge()) {
-            <div class="pump-panel pump-panel--recv relay-out">
-              <div class="pump-panel__top">
-                <span class="pump-panel__label">You receive (estimated)</span>
-                @if (relayQuoting()) { <span class="proto-balance-dots">···</span> }
-              </div>
-              @if (relayQuote(); as q) {
-                <div class="relay-out__amount mono">{{ q.out }} <span class="relay-out__sym">{{ q.outSymbol }}</span></div>
-                <div class="relay-out__meta">
-                  @if (q.feeUsd) { <span>Fee {{ q.feeUsd }}</span> }
-                  @if (q.seconds !== null) { <span>·</span><span>~{{ q.seconds }}s</span> }
-                  @if (q.impact) { <span>·</span><span>Impact {{ q.impact }}%</span> }
+            <!-- Both sides, the way the swap card shows them: what leaves,
+                 what arrives, and the tokens named rather than addressed. -->
+            <div class="relay-quote">
+              <div class="pump-panel">
+                <div class="pump-panel__top">
+                  <span class="pump-panel__label">You send</span>
+                  <span class="pump-panel__bal">{{ relayChainName(getEditParam('originChainId')) }}</span>
                 </div>
-              } @else if (relayQuoteError()) {
-                <!-- Angular does not carry an `as` alias into @else if. -->
-                <div class="relay-out__err">{{ relayQuoteError() }}</div>
-              } @else {
-                <div class="relay-out__idle">Pick both chains, both tokens and an amount for a live quote.</div>
-              }
+                <div class="relay-quote__row">
+                  <span class="relay-quote__amount mono">{{ getEditParam('amount') || '0' }}</span>
+                  @if (relayQuote()?.inToken; as t) {
+                    <span class="pump-token">
+                      @if (t.logo) {
+                        <img [src]="t.logo" class="pump-token__icon" alt=""
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                      <span class="pump-token__sym">{{ t.symbol }}</span>
+                    </span>
+                  }
+                </div>
+              </div>
+
+              <div class="relay-quote__arrow"><lucide-icon name="arrow-down" [size]="14" /></div>
+
+              <div class="pump-panel pump-panel--recv">
+                <div class="pump-panel__top">
+                  <span class="pump-panel__label">You receive (estimated)</span>
+                  @if (relayQuoting()) { <span class="proto-balance-dots">···</span> }
+                  @else { <span class="pump-panel__bal">{{ relayChainName(getEditParam('destinationChainId')) }}</span> }
+                </div>
+                @if (relayQuote(); as q) {
+                  <div class="relay-quote__row">
+                    <span class="relay-quote__amount mono">{{ q.out }}</span>
+                    @if (q.outToken; as t) {
+                      <span class="pump-token">
+                        @if (t.logo) {
+                          <img [src]="t.logo" class="pump-token__icon" alt=""
+                               (error)="$any($event.target).style.display='none'" />
+                        }
+                        <span class="pump-token__sym">{{ t.symbol }}</span>
+                      </span>
+                    }
+                  </div>
+                  <div class="relay-out__meta">
+                    @if (q.feeUsd) { <span>Fee {{ q.feeUsd }}</span> }
+                    @if (q.seconds !== null) { <span>·</span><span>~{{ q.seconds }}s</span> }
+                    @if (q.impact) { <span>·</span><span>Impact {{ q.impact }}%</span> }
+                  </div>
+                } @else if (relayQuoteError()) {
+                  <!-- Angular does not carry an `as` alias into @else if. -->
+                  <div class="relay-out__err">{{ relayQuoteError() }}</div>
+                } @else {
+                  <div class="relay-out__idle">Pick both chains, both tokens and an amount for a live quote.</div>
+                }
+              </div>
             </div>
           }
           <div class="proto-fields" [class.proto-fields--shake]="shake()"
