@@ -512,6 +512,15 @@ pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>)
 ///
 /// The decimals come from Relay's own currency list for that chain, because
 /// guessing them is a factor-of-a-thousand error on the first stablecoin.
+/// Relay's own id for a chain, given whatever id reached us.
+///
+/// 900 was our constant for Solana for a long time, so it is in prompts, in
+/// chat history and in every card built before it was corrected. Rejecting
+/// those is punishing the user for our own old value.
+pub fn canonical_chain_id(id: u64) -> u64 {
+    if id == chain_id::SOLANA_LEGACY_ID { chain_id::SOLANA } else { id }
+}
+
 async fn to_base_units(
     http: &reqwest::Client,
     chain_id: u64,
@@ -529,6 +538,7 @@ async fn to_base_units(
     }
     let normalised = amount.replace(',', ".");
 
+    let chain_id = canonical_chain_id(chain_id);
     let decimals = relay_token_decimals(http, chain_id, currency).await.ok_or_else(|| {
         AppError::InvalidParams(format!(
             "Relay does not list {currency} on chain {chain_id}, so its amount cannot be scaled"
@@ -607,8 +617,8 @@ pub async fn get_cross_chain_quote(
 
     let mut quote_body = serde_json::json!({
         "user": user_address,
-        "originChainId": params.origin_chain_id,
-        "destinationChainId": params.destination_chain_id,
+        "originChainId": canonical_chain_id(params.origin_chain_id),
+        "destinationChainId": canonical_chain_id(params.destination_chain_id),
         "originCurrency": params.origin_currency,
         "destinationCurrency": params.destination_currency,
         "amount": amount_in_wei,
@@ -1034,8 +1044,8 @@ pub async fn get_relay_quote_full(
 
     let mut body = serde_json::json!({
         "user": user_address,
-        "originChainId": params.origin_chain_id,
-        "destinationChainId": params.destination_chain_id,
+        "originChainId": canonical_chain_id(params.origin_chain_id),
+        "destinationChainId": canonical_chain_id(params.destination_chain_id),
         "originCurrency": params.origin_currency,
         "destinationCurrency": params.destination_currency,
         "amount": scaled_amount,

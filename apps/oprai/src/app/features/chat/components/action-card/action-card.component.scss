@@ -5808,3 +5808,26 @@
   &:focus { outline: none; }
   &:disabled { opacity: 0.7; }
 }
+
+// Slippage sits with the quote it changes, not in a form row far from it.
+.relay-out__slip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--op-border-subtle);
+
+  &-k { font-size: 0.75rem; color: var(--op-text-tertiary); }
+
+  &-input {
+    width: 64px;
+    padding: 3px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--op-border-subtle);
+    background: var(--op-bg-surface-1);
+    color: var(--op-text-primary);
+    font-size: 0.75rem;
+    &:focus { outline: none; border-color: var(--op-brand); }
+  }
+}

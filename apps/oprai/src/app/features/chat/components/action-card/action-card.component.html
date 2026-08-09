@@ -3585,6 +3585,24 @@
                       </span>
                     }
                   </div>
+                  <div class="relay-out__slip">
+                    <span class="relay-out__slip-k">Slippage</span>
+                    <button type="button" class="me-quick__btn"
+                            [class.me-quick__btn--active]="relaySlippageAuto()"
+                            [disabled]="!isEditable()"
+                            (click)="relaySetSlippageAuto(true)">Auto</button>
+                    <button type="button" class="me-quick__btn"
+                            [class.me-quick__btn--active]="!relaySlippageAuto()"
+                            [disabled]="!isEditable()"
+                            (click)="relaySetSlippageAuto(false)">Custom</button>
+                    @if (!relaySlippageAuto()) {
+                      <input class="relay-out__slip-input mono" type="text" inputmode="numeric"
+                             [value]="getEditParam('slippageTolerance')"
+                             [disabled]="!isEditable()"
+                             (input)="setEditParam('slippageTolerance', $any($event.target).value); relayMaybeQuote()" />
+                      <span class="relay-out__slip-k">bps</span>
+                    }
+                  </div>
                   <div class="relay-out__meta">
                     @if (q.feeUsd) { <span>Fee {{ q.feeUsd }}</span> }
                     @if (q.seconds !== null) { <span>·</span><span>~{{ q.seconds }}s</span> }
@@ -3819,7 +3837,9 @@
                 @case ('token') {
                   @let isSwapSide = action.type === 'swap' && (field.key === 'inputMint' || field.key === 'outputMint');
                   @if (getEditParam(field.key); as raw) {
-                    @let td = resolveTokenDisplay(raw);
+                    <!-- A bridge's tokens come from the quote: the registry
+                         knows Solana mints and nothing on Base or Ethereum. -->
+                    @let td = relayTokenDisplay(field.key) ?? resolveTokenDisplay(raw);
                     <div class="proto-token-row" [class.proto-token-row--swap]="isSwapSide">
                       <button type="button"
                               class="proto-token-chip"

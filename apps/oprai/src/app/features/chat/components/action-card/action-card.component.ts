@@ -1530,11 +1530,14 @@ function getActionFields(
       { key: 'destinationCurrency', label: 'To token', type: 'token', required: true },
       // No `amount` row: the send panel above owns it, the way the swap card
       // owns its own. Two boxes for one number is two places to disagree.
-      { key: 'slippageTolerance', label: 'Slippage', type: 'number', placeholder: '50', suffix: 'bps', half: true },
+      // Slippage is Auto unless someone says otherwise — Relay picks a
+      // tolerance per route, and a number typed into an empty box is a guess
+      // competing with a calculation. The panel offers Auto or Custom.
+
       // Where it lands. On an EVM destination this is an EVM address, which
       // the user's Solana wallet cannot supply — hence the connect button the
       // template puts beside it.
-      { key: 'recipient', label: 'Recipient', type: 'address', placeholder: 'Destination wallet…', half: true },
+      { key: 'recipient', label: 'Recipient', type: 'address', placeholder: 'Destination wallet…' },
     );
   } else if (t === 'squid_bridge') {
     fields.push(
@@ -2793,6 +2796,32 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     } finally {
       this.relayQuoting.set(false);
     }
+  }
+
+  /**
+   * Token display for a bridge side, from the quote rather than the registry.
+   *
+   * Our registry holds Solana mints. An Ethereum or Base address is not in it
+   * and never will be, so the destination rendered as a coloured circle and a
+   * truncated 0x — while the quote sitting beside it carried the symbol, the
+   * name and the logo for both sides.
+   */
+  relayTokenDisplay(key: string): { symbol: string; name: string; logoURI: string | null } | null {
+    if (!this.isRelayBridge()) return null;
+    const q = this.relayQuote();
+    if (!q) return null;
+    const t = key === 'originCurrency' ? q.inToken : key === 'destinationCurrency' ? q.outToken : null;
+    return t ? { symbol: t.symbol, name: t.name, logoURI: t.logo } : null;
+  }
+
+  /** Slippage is Relay's to choose unless the user takes it. */
+  relaySlippageAuto(): boolean {
+    return !this.getEditParam('slippageTolerance');
+  }
+
+  relaySetSlippageAuto(auto: boolean): void {
+    this.setEditParam('slippageTolerance', auto ? '' : '50');
+    this.relayMaybeQuote();
   }
 
   /** A chain's name, for a card that should not print ids at people. */
