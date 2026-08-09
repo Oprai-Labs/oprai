@@ -136,7 +136,7 @@ pub struct RelayQuoteDetails {
     #[serde(default)]
     pub price_impact: Option<String>,
     /// Estimated time in seconds
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub estimated_time: Option<u64>,
     /// Sender address
     #[serde(default)]
@@ -179,13 +179,13 @@ pub struct RelayCurrency {
     #[serde(default)]
     pub symbol: Option<String>,
     /// Token decimals
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub decimals: Option<u8>,
     /// Token name
     #[serde(default)]
     pub name: Option<String>,
     /// USD price
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub price: Option<f64>,
 }
 
@@ -238,33 +238,51 @@ pub struct RelayTransaction {
     #[serde(default)]
     pub value: Option<String>,
     /// Chain ID
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub chain_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// What a bridge costs, in Relay's own breakdown.
+///
+/// Named for what the API sends. The previous model asked for `totalUsd` and
+/// `bridge`, neither of which exists — every field was silently absent, so the
+/// costs were never shown and nothing said why.
 pub struct RelayFees {
-    /// Total fee in USD
+    /// Network gas on the origin chain.
     #[serde(default)]
-    pub total_usd: Option<f64>,
-    /// Gas fee
+    pub gas: Option<RelayAmount>,
+    /// What the relayer charges in total.
     #[serde(default)]
-    pub gas: Option<RelayFeeDetail>,
-    /// Bridge fee
+    pub relayer: Option<RelayAmount>,
+    /// The relayer's own gas on the destination chain.
     #[serde(default)]
-    pub bridge: Option<RelayFeeDetail>,
+    pub relayer_gas: Option<RelayAmount>,
+    /// The relayer's service fee.
+    #[serde(default)]
+    pub relayer_service: Option<RelayAmount>,
+    /// Ours, when Relay can pay it.
+    #[serde(default)]
+    pub app: Option<RelayAmount>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RelayFeeDetail {
-    /// Fee amount
-    #[serde(default)]
-    pub amount: Option<String>,
-    /// Fee in USD
-    #[serde(default)]
-    pub amount_usd: Option<f64>,
+impl RelayFees {
+    /// Everything the bridge costs, in dollars.
+    ///
+    /// Relay itemises rather than totalling, and the relayer figure already
+    /// contains its gas and service parts — adding those again double-counts
+    /// the largest line.
+    pub fn total_usd(&self) -> Option<f64> {
+        let usd = |a: &Option<RelayAmount>| -> f64 {
+            a.as_ref()
+                .and_then(|x| x.amount_usd.as_deref())
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0)
+        };
+        let total = usd(&self.gas) + usd(&self.relayer) + usd(&self.app);
+        if total > 0.0 { Some(total) } else { None }
+    }
 }
 
 /// Preview shown to the user before signing.
@@ -614,7 +632,7 @@ pub async fn build_cross_chain_swap(
 
     // Fee warning
     if let Some(ref fees) = quote.fees {
-        if let Some(total) = fees.total_usd {
+        if let Some(total) = fees.total_usd() {
             if total > 10.0 {
                 warnings.push(format!("Total fees: ${:.2}", total));
             }
@@ -636,7 +654,7 @@ pub async fn build_cross_chain_swap(
         estimated_fee: quote
             .fees
             .as_ref()
-            .and_then(|f| f.total_usd)
+            .and_then(|f| f.total_usd())
             .map(|f| format!("${:.2}", f))
             .unwrap_or_else(|| "~$2-5".to_string()),
         params: params.clone(),
@@ -699,7 +717,7 @@ pub struct RelayChainCurrency {
     pub symbol: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub decimals: Option<u8>,
     #[serde(default)]
     pub address: Option<String>,
@@ -749,12 +767,12 @@ pub struct RelayChainInfo {
     pub block_production_lagging: Option<bool>,
     #[serde(default)]
     pub status_message: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub partial_disable_limit: Option<f64>,
     // Fees
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub withdrawal_fee: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub deposit_fee: Option<f64>,
     #[serde(default)]
     pub surge_enabled: Option<bool>,
@@ -774,7 +792,7 @@ pub struct RelayChainInfo {
     #[serde(default)]
     pub contracts: Option<RelayChainContracts>,
     // L2 / solver
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub base_chain_id: Option<u64>,
     #[serde(default)]
     pub solver_addresses: Vec<String>,
@@ -825,7 +843,7 @@ pub struct RelayTokenMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayTokenInfo {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub chain_id: Option<u64>,
     pub address: String,
     pub name: String,
@@ -839,9 +857,9 @@ pub struct RelayTokenInfo {
     // legacy / extra fields some responses include
     #[serde(default)]
     pub logo_uri: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub price: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub volume_24h: Option<f64>,
 }
 
@@ -994,10 +1012,19 @@ pub async fn get_relay_quote_full(
         )));
     }
 
-    response
-        .json::<RelayQuote>()
+    // Read the text and parse it here rather than through `.json()`: reqwest
+    // reports every shape mismatch as "error decoding response body", which
+    // names neither the field nor the type it wanted. serde, given the string,
+    // names both — and this response has changed shape under us twice.
+    let body = response
+        .text()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse relay quote: {}", e)))
+        .map_err(|e| AppError::RelayApiError(format!("Relay quote unreadable: {e}")))?;
+    serde_json::from_str::<RelayQuote>(&body).map_err(|e| {
+        tracing::error!(error = %e, body = %body.chars().take(600).collect::<String>(),
+                        "Relay quote did not match our model");
+        AppError::RelayApiError(format!("Failed to parse relay quote: {e}"))
+    })
 }
 
 /// Execute a Relay bridge — get quote then return steps for frontend signing.
@@ -1059,7 +1086,7 @@ pub async fn relay_bridge(
         }
     }
     if let Some(ref fees) = quote.fees {
-        if let Some(total) = fees.total_usd {
+        if let Some(total) = fees.total_usd() {
             if total > 10.0 {
                 warnings.push(format!("Total fees: ${:.2}", total));
             }
@@ -1094,7 +1121,7 @@ pub async fn relay_bridge(
         estimated_fee: quote
             .fees
             .as_ref()
-            .and_then(|f| f.total_usd)
+            .and_then(|f| f.total_usd())
             .map(|f| format!("${:.2}", f))
             .unwrap_or_else(|| "~$2-5".to_string()),
         params: swap_params,
@@ -1439,11 +1466,11 @@ pub struct RelayIntentStatus {
     #[serde(default)]
     pub tx_hashes: Vec<String>,
     /// Last updated timestamp in milliseconds
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub updated_at: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub origin_chain_id: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub destination_chain_id: Option<u64>,
 }
 
@@ -1573,7 +1600,7 @@ pub async fn execute_relay_permits(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayLiquidityItem {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub chain_id: Option<u64>,
     #[serde(default)]
     pub currency_id: Option<String>,
@@ -1581,7 +1608,7 @@ pub struct RelayLiquidityItem {
     pub symbol: Option<String>,
     #[serde(default)]
     pub address: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub decimals: Option<u8>,
     /// Solver balance in smallest unit (e.g. wei for ETH)
     #[serde(default)]
@@ -1646,7 +1673,7 @@ pub struct RelayCurrenciesQuery {
     #[serde(default)]
     pub verified: Option<bool>,
     /// Max results (default 20, max 100)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     #[serde(default)]
     pub default_list: Option<bool>,
@@ -1762,7 +1789,7 @@ pub async fn get_relay_token_price(
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayRequestsQuery {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     #[serde(default)]
     pub continuation: Option<String>,
@@ -1770,9 +1797,9 @@ pub struct RelayRequestsQuery {
     pub user: Option<String>,
     #[serde(default)]
     pub hash: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub origin_chain_id: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub destination_chain_id: Option<u64>,
     /// Filter requests on either direction for a single chain (string form of chain ID)
     #[serde(default)]
@@ -1786,13 +1813,13 @@ pub struct RelayRequestsQuery {
     /// "success" | "failure" | "refund" | "pending" | "depositing" | "waiting"
     #[serde(default)]
     pub status: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_timestamp: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end_timestamp: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_block: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end_block: Option<u64>,
     #[serde(default)]
     pub referrer: Option<String>,

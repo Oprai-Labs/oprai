@@ -6249,7 +6249,7 @@ async fn build_action_inner(
                     estimated_fee: quote
                         .fees
                         .as_ref()
-                        .and_then(|f| f.total_usd)
+                        .and_then(|f| f.total_usd())
                         .map(|f| format!("${:.2}", f))
                         .unwrap_or_else(|| "~$2-5".to_string()),
                     estimated_refund: None,
