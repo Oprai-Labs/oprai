@@ -414,11 +414,30 @@ fn is_valid_evm_address(address: &str) -> bool {
 // Relay quote
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Append OPRAI's 0.05% app fee to a Relay quote body if a fee recipient is configured.
+/// Append OPRAI's 0.05% app fee to a Relay quote body if a fee recipient is
+/// configured AND Relay can pay it.
+///
 /// fee value 5 = 0.05% in Relay's basis-point scale (10000 = 100%).
+///
+/// Relay pays app fees to an EVM address and rejects anything else outright —
+/// `INVALID_APP_FEE_RECIPIENT`, on the quote, before any route is even
+/// considered. The recipient defaults to `OPRAI_FEE_WALLET`, which is a Solana
+/// address, so attaching it unconditionally did not lose us a commission: it
+/// took down every bridge quote there was. A fee we cannot collect must never
+/// cost the user the trade.
 pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>) {
-    if let Some(addr) = fee_recipient.filter(|s| !s.is_empty()) {
-        body["appFees"] = serde_json::json!([{"recipient": addr, "fee": "5"}]);
+    match fee_recipient.filter(|s| !s.is_empty()) {
+        Some(addr) if is_valid_evm_address(addr) => {
+            body["appFees"] = serde_json::json!([{"recipient": addr, "fee": "5"}]);
+        }
+        Some(addr) => {
+            tracing::warn!(
+                recipient = %addr,
+                "Relay app fee skipped: its recipient must be an EVM address. \
+                 Set RELAY_FEE_RECIPIENT to one to earn on bridges."
+            );
+        }
+        None => {}
     }
 }
 
@@ -1967,4 +1986,22 @@ pub async fn get_swap_sources(
         .json::<RelaySwapSourcesResponse>()
         .await
         .map_err(|e| AppError::RelayApiError(format!("Failed to parse swap-sources: {}", e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Relay rejects a non-EVM app-fee recipient on the quote itself, so
+    /// attaching one does not forgo a fee — it forgoes the bridge.
+    #[test]
+    fn a_solana_fee_recipient_is_not_sent_to_relay() {
+        let mut body = serde_json::json!({});
+        append_app_fee(&mut body, Some("Gf3dtGnHRkfaPpeHc2UYfu6mHrTsbFUp4Qx3RqV526h"));
+        assert!(body.get("appFees").is_none());
+
+        let mut body = serde_json::json!({});
+        append_app_fee(&mut body, Some("0x71C7656EC7ab88b098defB751B7401B5f6d8976F"));
+        assert_eq!(body["appFees"][0]["fee"], "5");
+    }
 }
