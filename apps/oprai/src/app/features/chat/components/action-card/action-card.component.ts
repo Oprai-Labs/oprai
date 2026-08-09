@@ -2611,6 +2611,42 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return 'price';
   }
 
+  /**
+   * What is actually sitting in the Magic Eden escrow.
+   *
+   * A withdraw card opened on an empty box asks the user for a number they
+   * cannot look up — the balance is not visible anywhere in the app, and the
+   * amount they mean is all of it. So the card reads it, fills it in, and
+   * shows it beside the field.
+   */
+  readonly meEscrowSol = signal<number | null>(null);
+  private meEscrowRead = false;
+
+  private ensureMeEscrow(): void {
+    if (this.meEscrowRead || this.action?.type !== 'me_withdraw') return;
+    const wallet = this.walletService.publicKey()?.toString();
+    if (!wallet) return;
+    this.meEscrowRead = true;
+    void this.magicEden.read<{ balance?: number }>('me_wallet_escrow_balance', { wallet })
+      .then(d => {
+        const bal = typeof d?.balance === 'number' ? d.balance : null;
+        this.meEscrowSol.set(bal);
+        // Pre-filled, not merely offered: "withdraw my balance" is the whole
+        // request, and a card that makes them retype the number answers less
+        // of it than the sentence did.
+        if (bal && bal > 0 && !this.getEditParam('amount')) {
+          this.setEditParam('amount', String(bal));
+        }
+      });
+  }
+
+  meBalanceNote(): string | null {
+    if (this.action?.type !== 'me_withdraw') return null;
+    this.ensureMeEscrow();
+    const bal = this.meEscrowSol();
+    return bal === null ? null : `Magic Eden balance ${bal} SOL`;
+  }
+
   meAmountLabel(): string {
     const t = this.action.type;
     if (t === 'me_withdraw') return 'Withdraw';

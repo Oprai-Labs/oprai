@@ -527,6 +527,9 @@
           <div class="pump-panel me-amount">
             <div class="pump-panel__top">
               <span class="pump-panel__label">{{ meAmountLabel() }}</span>
+              @if (meBalanceNote(); as note) {
+                <span class="pump-panel__bal">{{ note }}</span>
+              }
             </div>
             <div class="pump-panel__row">
               <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
