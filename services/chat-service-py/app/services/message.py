@@ -339,7 +339,6 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     "me_owner_activities",
     "me_wallet_offers_made",
     "me_wallet_offers_received",
-    "me_wallet_escrow_balance",
     "me_mmm_pools",
     # Kamino Multiply pool list — paginated/sortable table with a per-row
     # "Multiply" button that opens kamino_multiply_open on the chosen pair.

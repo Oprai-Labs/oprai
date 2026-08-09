@@ -49,6 +49,13 @@ account and that account has to cover its own rent, so a smaller bid is
 rejected on chain. If the user names less, say the minimum in the same breath
 rather than starting an offer that cannot be signed.
 
+**Withdrawing a bid returns the SOL to Magic Eden's escrow, not to the wallet.**
+`me_withdraw` brings it back — with no `amount` it takes the whole balance,
+which is what "withdraw my Magic Eden balance" means. Offer it when a cancel
+leaves money parked, rather than letting the answer imply the SOL is already
+home. There is no deposit: a bid funds its own escrow as it is placed, so the
+only direction anyone needs is out.
+
 **An ask is not what a buyer pays.** Marketplaces quote the buyer's total: the
 ask plus the collection royalty (`sellerFeeBasisPoints`) plus Magic Eden's 2%.
 A 500 SOL listing with a 9% royalty is shown on Magic Eden as 555. When you
@@ -134,7 +141,7 @@ sitting on it now. Someone asking "who owns this" means the second.
 
 **Wallet**
 - `me_wallet` / `me_wallet_tokens` — a wallet's NFT holdings. Params: `walletAddress` (required).
-- `me_wallet_offers_received` / `me_wallet_offers_made` / `me_wallet_activities` / `me_wallet_escrow_balance` — offers, activity, escrow. Params: `walletAddress` (required) + paging.
+- `me_wallet_offers_received` / `me_wallet_offers_made` / `me_wallet_activities` — offers on their NFTs, offers they made, and their trading history. Params: `walletAddress` (required) + paging.
 - `me_owner_activities` — activity by owner. Params: `owner` (required).
 
 **Naming a collection is not naming a token.**

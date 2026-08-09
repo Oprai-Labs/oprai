@@ -344,7 +344,7 @@ fn sol_amount_spent(action_type: &str, params: &serde_json::Value) -> Option<f64
         "me_buy" | "me_buy_now" | "me_buy_instruction" | "me_buy_now_transfer_nft"
         | "tensor_buy" => num("price"),
         "me_make_offer" => num("price"),
-        "me_deposit" | "me_mmm_sol_deposit_buy" => num("amount").or_else(|| num("paymentAmount")),
+        "me_mmm_sol_deposit_buy" => num("amount").or_else(|| num("paymentAmount")),
         _ => None,
     }
 }

@@ -378,12 +378,15 @@ pub struct MeChangePriceParams {
     pub new_price: String,
 }
 
-/// Move SOL in or out of the Magic Eden bidding escrow.
+
+/// Taking SOL back out of the Magic Eden bidding escrow.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeEscrowParams {
-    /// Amount in SOL.
-    pub amount: String,
+    /// Amount in SOL. Absent means all of it — "withdraw my Magic Eden
+    /// balance" names no number because the number is whatever is there.
+    #[serde(default)]
+    pub amount: Option<String>,
     #[serde(default)]
     pub auction_house: Option<String>,
 }
@@ -1702,59 +1705,47 @@ pub async fn build_me_change_offer_price(
     ))
 }
 
-/// Move SOL into the Magic Eden escrow that funds bids.
-pub async fn build_me_deposit(
-    http: &reqwest::Client,
-    _rpc: &SolanaRpc,
-    user_pubkey: &Pubkey,
-    params: &MeEscrowParams,
-) -> Result<BuildResponse, AppError> {
-    let amount: f64 = params
-        .amount
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?;
-    if amount <= 0.0 {
-        return Err(AppError::InvalidParams("Amount must be above zero".into()));
-    }
-    let auction_house = params
-        .auction_house
-        .clone()
-        .unwrap_or_else(|| MAGIC_EDEN_AUCTION_HOUSE.to_string());
 
-    let tx = me_instruction(
-        http,
-        "deposit",
-        &[
-            ("buyer", user_pubkey.to_string()),
-            ("auctionHouseAddress", auction_house.clone()),
-            ("amount", amount.to_string()),
-        ],
-    )
-    .await?;
 
-    Ok(me_tx_response(
-        "me_deposit",
-        format!("Deposit {amount} SOL to your Magic Eden balance"),
-        tx,
-        serde_json::json!({ "amount": amount, "auctionHouse": auction_house }),
-        vec!["This balance is what your offers are paid from".into()],
-    ))
-}
+// ──────────────────────────────────────────────────────────────────────────────
+// Query Actions (no transaction, just data)
+// ──────────────────────────────────────────────────────────────────────────────
 
+/// Get collection info action
 /// Take SOL back out of the Magic Eden escrow.
+///
+/// Cancelling a bid does not return its SOL to the wallet — it parks it here,
+/// which is the only reason this exists. Deposit does not: a bid funds its own
+/// escrow as it is placed, so the only direction a user needs is out.
 pub async fn build_me_withdraw(
     http: &reqwest::Client,
     _rpc: &SolanaRpc,
     user_pubkey: &Pubkey,
     params: &MeEscrowParams,
 ) -> Result<BuildResponse, AppError> {
-    let amount: f64 = params
-        .amount
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?;
+    let buyer = user_pubkey.to_string();
+    let parked = me_escrow_lamports(http, &buyer).await as f64 / 1e9;
+
+    // No amount means all of it. Asking someone to name a number they would
+    // have to go and look up, to empty an account they cannot see, is a
+    // question with one sensible answer.
+    let amount: f64 = match params.amount.as_deref().filter(|a| !a.trim().is_empty()) {
+        Some(raw) => raw
+            .parse()
+            .map_err(|_| AppError::InvalidParams("Enter an amount in SOL".into()))?,
+        None => parked,
+    };
     if amount <= 0.0 {
-        return Err(AppError::InvalidParams("Amount must be above zero".into()));
+        return Err(AppError::InvalidParams(
+            "There is nothing in your Magic Eden balance to withdraw".into(),
+        ));
     }
+    if amount > parked + 1e-9 {
+        return Err(AppError::InvalidParams(format!(
+            "Your Magic Eden balance is {parked} SOL, so {amount} cannot be withdrawn"
+        )));
+    }
+
     let auction_house = params
         .auction_house
         .clone()
@@ -1764,7 +1755,7 @@ pub async fn build_me_withdraw(
         http,
         "withdraw",
         &[
-            ("buyer", user_pubkey.to_string()),
+            ("buyer", buyer),
             ("auctionHouseAddress", auction_house.clone()),
             ("amount", amount.to_string()),
         ],
@@ -1775,16 +1766,11 @@ pub async fn build_me_withdraw(
         "me_withdraw",
         format!("Withdraw {amount} SOL from your Magic Eden balance"),
         tx,
-        serde_json::json!({ "amount": amount, "auctionHouse": auction_house }),
+        serde_json::json!({ "amount": amount, "balance": parked, "auctionHouse": auction_house }),
         vec!["Open offers backed by this balance may be cancelled".into()],
     ))
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Query Actions (no transaction, just data)
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// Get collection info action
 pub async fn build_me_collection_info(
     http: &reqwest::Client,
     params: &MeCollectionInfoParams,
@@ -2280,6 +2266,7 @@ fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
             "{base}/wallets/{}/escrow_balance",
             need(&p.wallet, "wallet")?
         ),
+        "me_wallet_escrow_balance" => "Magic Eden balance".into(),
         "me_wallet_offers_made" => format!(
             "{base}/wallets/{}/offers_made?limit={limit}&offset={off}",
             need(&p.wallet, "wallet")?
@@ -2333,7 +2320,6 @@ fn me_read_title(action: &str, p: &MeReadParams) -> String {
         "me_wallet" => "Wallet profile".into(),
         "me_wallet_tokens" => "Wallet NFTs".into(),
         "me_wallet_activities" | "me_owner_activities" => "Wallet activity".into(),
-        "me_wallet_escrow_balance" => "Magic Eden balance".into(),
         "me_wallet_offers_made" => "Offers you made".into(),
         "me_wallet_offers_received" => "Offers you received".into(),
         "me_mmm_pools" => "Magic Eden AMM pools".into(),

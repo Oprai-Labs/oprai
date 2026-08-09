@@ -3139,16 +3139,16 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         // parse, or is not a token at all, is named as such rather than
         // rejected as a bad parameter.
         "token_safety" | "honeypot_check" | "scam_check" | "rug_check" => Ok(()),
+        "me_withdraw" => {
+            let _p: magic_eden::MeEscrowParams = serde_json::from_value(params.clone())
+                .map_err(|e| AppError::InvalidParams(format!("Invalid withdraw params: {e}")))?;
+            Ok(())
+        }
         "me_sell_change_price" | "me_buy_change_price" => {
             let _p: magic_eden::MeChangePriceParams = serde_json::from_value(params.clone())
                 .map_err(|e| {
                     AppError::InvalidParams(format!("Invalid price-change params: {e}"))
                 })?;
-            Ok(())
-        }
-        "me_deposit" | "me_withdraw" => {
-            let _p: magic_eden::MeEscrowParams = serde_json::from_value(params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid escrow params: {e}")))?;
             Ok(())
         }
         // MMM params are validated where they are built — the price, curve
@@ -5502,13 +5502,13 @@ async fn build_action_inner(
             let p: magic_eden::MeCancelOfferParams = serde_json::from_value(params)?;
             magic_eden::build_me_cancel_offer(http, rpc, user_pubkey, &p).await
         }
+        "me_withdraw" => {
+            let p: magic_eden::MeEscrowParams = serde_json::from_value(params)?;
+            magic_eden::build_me_withdraw(http, rpc, user_pubkey, &p).await
+        }
         "me_buy_change_price" => {
             let p: magic_eden::MeChangePriceParams = serde_json::from_value(params)?;
             magic_eden::build_me_change_offer_price(http, rpc, user_pubkey, &p).await
-        }
-        "me_deposit" => {
-            let p: magic_eden::MeEscrowParams = serde_json::from_value(params)?;
-            magic_eden::build_me_deposit(http, rpc, user_pubkey, &p).await
         }
         // MMM — Magic Eden's NFT AMM. A pool quotes both sides of a
         // collection; these are its whole lifecycle.
@@ -5539,10 +5539,6 @@ async fn build_action_inner(
         "me_mmm_sol_fulfill_sell" => {
             let p: magic_eden::MeMmmFulfillSellParams = serde_json::from_value(params)?;
             magic_eden::build_me_mmm_fulfill_sell(http, user_pubkey, &p).await
-        }
-        "me_withdraw" => {
-            let p: magic_eden::MeEscrowParams = serde_json::from_value(params)?;
-            magic_eden::build_me_withdraw(http, rpc, user_pubkey, &p).await
         }
         "me_collection_info" => {
             let p: magic_eden::MeCollectionInfoParams = serde_json::from_value(params)?;

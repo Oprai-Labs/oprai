@@ -126,8 +126,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "me_sell": "Magic Eden — list an NFT for sale",
     "me_sell_now": "Magic Eden — accept the best offer (sell now)",
     "me_sell_cancel": "Magic Eden — cancel a listing",
-    "me_deposit": "Magic Eden — deposit into marketplace escrow",
-    "me_withdraw": "Magic Eden — withdraw from marketplace escrow",
     "me_collection_attributes": "Magic Eden — attribute/trait breakdown for a collection",
     "me_collection_leaderboard": "The wallets that TRADE an NFT collection most, ranked by volume — use this for 'who trades it most', 'most active wallets', 'top buyers/sellers'",
     "me_collection_activities": "Raw event feed for an NFT collection — every bid, listing and sale in time order. Not a ranking: for 'the most active wallets' use me_collection_leaderboard",

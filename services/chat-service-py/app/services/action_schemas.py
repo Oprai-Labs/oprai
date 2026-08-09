@@ -417,6 +417,7 @@ class ActionType(str, Enum):
     ME_MAKE_OFFER = "me_make_offer"
     ME_ACCEPT_OFFER = "me_accept_offer"
     ME_CANCEL_OFFER = "me_cancel_offer"
+    ME_WITHDRAW = "me_withdraw"
     # Re-pricing is one instruction on Magic Eden, not cancel-then-relist.
     # These lived in QueryType, where they validated as reads and then hit a
     # renderer that has no case for them — so asking to change a price in chat
@@ -568,7 +569,6 @@ class QueryType(str, Enum):
     ME_WALLET_ACTIVITIES = "me_wallet_activities"
     ME_WALLET_OFFERS_MADE = "me_wallet_offers_made"
     ME_WALLET_OFFERS_RECEIVED = "me_wallet_offers_received"
-    ME_WALLET_ESCROW_BALANCE = "me_wallet_escrow_balance"
     ME_COLLECTION_ACTIVITIES = "me_collection_activities"
     ME_COLLECTION_STATS = "me_collection_stats"
     ME_COLLECTIONS = "me_collections"
@@ -590,8 +590,6 @@ class QueryType(str, Enum):
     ME_SELL = "me_sell"
     ME_SELL_NOW = "me_sell_now"
     ME_SELL_CANCEL = "me_sell_cancel"
-    ME_DEPOSIT = "me_deposit"
-    ME_WITHDRAW = "me_withdraw"
     ME_COLLECTION_ATTRIBUTES = "me_collection_attributes"
     ME_OWNER_ACTIVITIES = "me_owner_activities"
     ME_WALLET_TOKENS = "me_wallet_tokens"
