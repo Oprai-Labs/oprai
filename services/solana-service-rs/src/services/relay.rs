@@ -35,7 +35,14 @@ pub mod chain_id {
     pub const ARBITRUM_NOVA: u64 = 42170;
     pub const POLYGON_ZKEVM: u64 = 1101;
     pub const SCROLL: u64 = 534352;
-    pub const SOLANA: u64 = 900;
+    /// Relay's own id for Solana, confirmed against their /chains endpoint.
+    /// It was 900 here, which is nobody's Solana — so every quote we made read
+    /// "on Unknown", and any routing decision keyed on this constant was
+    /// deciding about a chain that does not exist.
+    pub const SOLANA: u64 = 792_703_809;
+    /// The value we used to send. Kept only so a caller passing the old id
+    /// still resolves rather than falling through to Unknown.
+    pub const SOLANA_LEGACY_ID: u64 = 900;
 
     // Testnets
     pub const GOERLI: u64 = 5;
@@ -334,7 +341,7 @@ pub fn get_chain_name(chain_id: u64) -> &'static str {
         chain_id::ARBITRUM_NOVA => "Arbitrum Nova",
         chain_id::POLYGON_ZKEVM => "Polygon zkEVM",
         chain_id::SCROLL => "Scroll",
-        chain_id::SOLANA => "Solana",
+        chain_id::SOLANA | chain_id::SOLANA_LEGACY_ID => "Solana",
         // Testnets
         chain_id::GOERLI => "Goerli",
         chain_id::SEPOLIA => "Sepolia",
