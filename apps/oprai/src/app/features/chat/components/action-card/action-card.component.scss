@@ -5705,3 +5705,24 @@
   line-height: 1.45;
   color: var(--op-text-tertiary, #71717a);
 }
+
+// Offered above the address field, not instead of it: a pasted address is
+// still a valid answer, and some destinations are not wallets this browser has.
+.proto-evm-connect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+
+  &__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8125rem;
+  }
+
+  &__err {
+    font-size: 0.75rem;
+    color: var(--op-loss);
+  }
+}

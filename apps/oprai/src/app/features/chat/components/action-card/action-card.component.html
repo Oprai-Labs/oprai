@@ -3688,6 +3688,21 @@
                 }
 
                 @case ('address') {
+                  <!-- Bridging to an EVM chain needs an EVM address, and the
+                       wallet the user signed in with cannot give one. So the
+                       card asks their EVM wallet directly rather than leaving
+                       them to find and paste it. -->
+                  @if (needsEvmRecipient(field.key)) {
+                    <div class="proto-evm-connect">
+                      <button type="button" class="proto-btn-cancel proto-evm-connect__btn"
+                              [disabled]="!isEditable() || evmConnecting()"
+                              (click)="connectEvmWallet(field.key)">
+                        <lucide-icon name="wallet" [size]="13" />
+                        {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
+                      </button>
+                      @if (evmError(); as e) { <span class="proto-evm-connect__err">{{ e }}</span> }
+                    </div>
+                  }
                   <div class="proto-address-wrap">
                     <input type="text" class="proto-input proto-input--mono"
                            [placeholder]="field.placeholder ?? 'Enter address...'"
