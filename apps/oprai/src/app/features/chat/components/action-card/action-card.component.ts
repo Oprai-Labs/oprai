@@ -750,6 +750,30 @@ function applyMinAmountGuard(field: FieldDef, actionType: string): FieldDef {
  * label, suffix, ordering), we must read from the live edit-state, not the
  * frozen LLM emission. Defaults to `action.params` for the cold path.
  */
+/**
+ * The chains Relay bridges between, by name.
+ *
+ * Solana's id is 792703809 — the service had 900 hardcoded in two places and
+ * the card suggested it as a placeholder, so anyone who followed the hint was
+ * naming a chain that does not exist.
+ */
+/** Relay's id for Solana. Bridging here needs no second wallet. */
+export const RELAY_SOLANA_CHAIN_ID = 792703809;
+
+export const RELAY_CHAINS: Array<{ label: string; value: string }> = [
+  { label: 'Solana',    value: '792703809' },
+  { label: 'Ethereum',  value: '1' },
+  { label: 'Base',      value: '8453' },
+  { label: 'Arbitrum',  value: '42161' },
+  { label: 'Optimism',  value: '10' },
+  { label: 'Polygon',   value: '137' },
+  { label: 'BNB Chain', value: '56' },
+  { label: 'Avalanche', value: '43114' },
+  { label: 'Linea',     value: '59144' },
+  { label: 'Scroll',    value: '534352' },
+  { label: 'zkSync Era', value: '324' },
+];
+
 function getActionFields(
   action: ParsedAction,
   liveParams?: Record<string, string | undefined>,
@@ -1496,14 +1520,20 @@ function getActionFields(
     );
   // ── Bridge / Cross-Chain ──────────────────────────────────────────────────
   } else if (t === 'relay_bridge' || t === 'bridge' || t === 'cross_chain_swap') {
+    // Chains are chosen by name, not by number. The old form asked for a
+    // "Source Chain ID" and suggested 900 for Solana — a value Relay has never
+    // used, so following the placeholder produced a bridge from nowhere.
     fields.push(
-      { key: 'originChainId', label: 'Source Chain ID', type: 'number', placeholder: '900 (Solana)', required: true, half: true },
-      { key: 'destinationChainId', label: 'Dest Chain ID', type: 'number', placeholder: '1 (Ethereum)', required: true, half: true },
-      { key: 'originCurrency', label: 'From Token', type: 'token', required: true },
-      { key: 'destinationCurrency', label: 'To Token', type: 'token', required: true },
+      { key: 'originChainId', label: 'From chain', type: 'select', options: RELAY_CHAINS, required: true, half: true },
+      { key: 'destinationChainId', label: 'To chain', type: 'select', options: RELAY_CHAINS, required: true, half: true },
+      { key: 'originCurrency', label: 'From token', type: 'token', required: true },
+      { key: 'destinationCurrency', label: 'To token', type: 'token', required: true },
       { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', required: true },
       { key: 'slippageTolerance', label: 'Slippage', type: 'number', placeholder: '50', suffix: 'bps', half: true },
-      { key: 'recipient', label: 'Recipient (optional)', type: 'address', placeholder: 'Dest wallet...', half: true },
+      // Where it lands. On an EVM destination this is an EVM address, which
+      // the user's Solana wallet cannot supply — hence the connect button the
+      // template puts beside it.
+      { key: 'recipient', label: 'Recipient', type: 'address', placeholder: 'Destination wallet…', half: true },
     );
   } else if (t === 'squid_bridge') {
     fields.push(
@@ -2656,6 +2686,127 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const bal = this.meEscrowSol();
     if (bal === null) return null;
     return bal > 0 ? `Balance ${bal} SOL` : 'Nothing to withdraw';
+  }
+
+  /**
+   * True when this field is a bridge recipient on an EVM chain.
+   *
+   * A Solana wallet cannot produce an EVM address, so a bridge to Base or
+   * Arbitrum ends at an address the user has to go and find. Only the
+   * destination matters: bridging INTO Solana lands in the wallet already
+   * connected, and needs no second one.
+   */
+  needsEvmRecipient(key: string): boolean {
+    if (key !== 'recipient') return false;
+    if (!/relay_bridge|^bridge$|cross_chain_swap/.test(this.action?.type ?? '')) return false;
+    const dest = this.getEditParam('destinationChainId');
+    return !!dest && dest !== String(RELAY_SOLANA_CHAIN_ID);
+  }
+
+  /** True on the bridge, which gets its own panel rather than a field list. */
+  readonly isRelayBridge = computed(() =>
+    /^(relay_bridge|bridge|cross_chain_swap)$/.test(this.action?.type ?? ''));
+
+  /** What the bridge would actually deliver, refreshed as the inputs change. */
+  readonly relayQuote = signal<{
+    out: string; outSymbol: string; inSymbol: string;
+    feeUsd: string | null; seconds: number | null; impact: string | null;
+  } | null>(null);
+  readonly relayQuoting = signal(false);
+  readonly relayQuoteError = signal<string | null>(null);
+  private relayQuoteKey = '';
+  private relayQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Quote the bridge from what is on screen.
+   *
+   * A bridge card that shows only what you are sending is asking for a
+   * signature on an unknown: the fee, the time and the amount that arrives are
+   * the whole decision. Debounced, because it re-runs on every keystroke.
+   */
+  relayMaybeQuote(): void {
+    if (!this.isRelayBridge()) return;
+    const p = this.editParams();
+    const key = [p['originChainId'], p['destinationChainId'], p['originCurrency'],
+                 p['destinationCurrency'], p['amount'], p['recipient']].join('|');
+    if (key === this.relayQuoteKey) return;
+    this.relayQuoteKey = key;
+
+    const ready = p['originChainId'] && p['destinationChainId'] && p['originCurrency']
+      && p['destinationCurrency'] && Number(p['amount']) > 0;
+    if (!ready) { this.relayQuote.set(null); this.relayQuoteError.set(null); return; }
+
+    if (this.relayQuoteTimer) clearTimeout(this.relayQuoteTimer);
+    this.relayQuoteTimer = setTimeout(() => void this.relayQuoteNow(), 450);
+  }
+
+  private async relayQuoteNow(): Promise<void> {
+    const p = this.editParams();
+    this.relayQuoting.set(true);
+    this.relayQuoteError.set(null);
+    try {
+      const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+        type: 'relay_get_quote',
+        params: {
+          originChainId: p['originChainId'],
+          destinationChainId: p['destinationChainId'],
+          originCurrency: p['originCurrency'],
+          destinationCurrency: p['destinationCurrency'],
+          amount: p['amount'],
+          tradeType: 'EXACT_INPUT',
+          ...(p['recipient'] ? { recipient: p['recipient'] } : {}),
+        },
+      }));
+      const d = resp?.quote?.details ?? resp?.details ?? {};
+      const outAmt = d?.currencyOut?.amountFormatted;
+      if (!outAmt) { this.relayQuote.set(null); return; }
+      this.relayQuote.set({
+        out: String(Number(outAmt).toFixed(6)).replace(/0+$/, '').replace(/\.$/, ''),
+        outSymbol: d?.currencyOut?.currency?.symbol ?? '',
+        inSymbol: d?.currencyIn?.currency?.symbol ?? '',
+        feeUsd: resp?.preview?.estimatedFee ?? null,
+        seconds: typeof d?.timeEstimate === 'number' ? d.timeEstimate : null,
+        impact: d?.totalImpact?.percent ?? null,
+      });
+    } catch (err: unknown) {
+      // The builder's message is the useful one — it names a blocked address,
+      // an unsupported pair, an amount below the minimum.
+      const msg = (err as { error?: { error?: string } })?.error?.error;
+      this.relayQuote.set(null);
+      this.relayQuoteError.set(msg || 'No route for this pair right now.');
+    } finally {
+      this.relayQuoting.set(false);
+    }
+  }
+
+  readonly evmConnecting = signal(false);
+  readonly evmError = signal<string | null>(null);
+
+  /** Ask the browser's EVM wallet which address to send to. */
+  async connectEvmWallet(key: string): Promise<void> {
+    const ethereum = (window as unknown as { ethereum?: { request(a: { method: string }): Promise<string[]> } }).ethereum;
+    if (!ethereum) {
+      this.evmError.set('No EVM wallet found in this browser. Paste the destination address instead.');
+      return;
+    }
+    this.evmConnecting.set(true);
+    this.evmError.set(null);
+    try {
+      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+      const addr = accounts?.[0];
+      if (!addr) {
+        this.evmError.set('Your wallet returned no account.');
+        return;
+      }
+      this.setEditParam(key, addr);
+    } catch (err: unknown) {
+      const code = (err as { code?: number })?.code;
+      this.evmError.set(code === 4001
+        ? 'Connection refused in your wallet.'
+        : 'Could not reach your EVM wallet. Paste the destination address instead.');
+    } finally {
+      this.evmConnecting.set(false);
+    }
   }
 
   meAmountLabel(): string {

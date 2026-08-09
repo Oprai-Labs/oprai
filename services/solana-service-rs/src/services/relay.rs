@@ -35,7 +35,14 @@ pub mod chain_id {
     pub const ARBITRUM_NOVA: u64 = 42170;
     pub const POLYGON_ZKEVM: u64 = 1101;
     pub const SCROLL: u64 = 534352;
-    pub const SOLANA: u64 = 900;
+    /// Relay's own id for Solana, confirmed against their /chains endpoint.
+    /// It was 900 here, which is nobody's Solana — so every quote we made read
+    /// "on Unknown", and any routing decision keyed on this constant was
+    /// deciding about a chain that does not exist.
+    pub const SOLANA: u64 = 792_703_809;
+    /// The value we used to send. Kept only so a caller passing the old id
+    /// still resolves rather than falling through to Unknown.
+    pub const SOLANA_LEGACY_ID: u64 = 900;
 
     // Testnets
     pub const GOERLI: u64 = 5;
@@ -116,22 +123,27 @@ pub struct RelayQuote {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayQuoteDetails {
-    /// Currency being sent
-    pub currency_in: RelayCurrency,
-    /// Currency being received
-    pub currency_out: RelayCurrency,
-    /// Amount being sent (in wei)
-    pub amount_in: Option<String>,
-    /// Amount being received (in wei)
-    pub amount_out: Option<String>,
-    /// Exchange rate
+    /// What is being sent, and how much of it.
+    pub currency_in: RelayAmount,
+    /// What arrives, and how much of it.
+    pub currency_out: RelayAmount,
+    /// Amount being sent (in wei). Relay carries this inside `currencyIn` now;
+    /// kept for callers that still read it.
     #[serde(default)]
+    pub amount_in: Option<String>,
+    /// Amount being received (in wei).
+    #[serde(default)]
+    pub amount_out: Option<String>,
+    /// Exchange rate. A NUMBER on the wire — declaring it a string failed the
+    /// whole quote, and the failure surfaced as "error decoding response
+    /// body", which names neither the field nor the type.
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub rate: Option<String>,
     /// Price impact
     #[serde(default)]
     pub price_impact: Option<String>,
     /// Estimated time in seconds
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub estimated_time: Option<u64>,
     /// Sender address
     #[serde(default)]
@@ -139,6 +151,28 @@ pub struct RelayQuoteDetails {
     /// Recipient address
     #[serde(default)]
     pub recipient: Option<String>,
+}
+
+/// A side of the trade: the token, and how much of it.
+///
+/// Relay nests the currency inside this rather than returning a bare token —
+/// modelling `currencyIn` as the token itself is what made every quote
+/// unparseable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayAmount {
+    pub currency: RelayCurrency,
+    /// Raw amount, in the token's own units.
+    #[serde(default)]
+    pub amount: Option<String>,
+    /// The same amount, already scaled by decimals — what a card shows.
+    #[serde(default)]
+    pub amount_formatted: Option<String>,
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
+    pub amount_usd: Option<String>,
+    /// What arrives in the worst allowed case, after slippage.
+    #[serde(default)]
+    pub minimum_amount: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,13 +186,13 @@ pub struct RelayCurrency {
     #[serde(default)]
     pub symbol: Option<String>,
     /// Token decimals
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub decimals: Option<u8>,
     /// Token name
     #[serde(default)]
     pub name: Option<String>,
     /// USD price
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub price: Option<f64>,
 }
 
@@ -211,33 +245,51 @@ pub struct RelayTransaction {
     #[serde(default)]
     pub value: Option<String>,
     /// Chain ID
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub chain_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// What a bridge costs, in Relay's own breakdown.
+///
+/// Named for what the API sends. The previous model asked for `totalUsd` and
+/// `bridge`, neither of which exists — every field was silently absent, so the
+/// costs were never shown and nothing said why.
 pub struct RelayFees {
-    /// Total fee in USD
+    /// Network gas on the origin chain.
     #[serde(default)]
-    pub total_usd: Option<f64>,
-    /// Gas fee
+    pub gas: Option<RelayAmount>,
+    /// What the relayer charges in total.
     #[serde(default)]
-    pub gas: Option<RelayFeeDetail>,
-    /// Bridge fee
+    pub relayer: Option<RelayAmount>,
+    /// The relayer's own gas on the destination chain.
     #[serde(default)]
-    pub bridge: Option<RelayFeeDetail>,
+    pub relayer_gas: Option<RelayAmount>,
+    /// The relayer's service fee.
+    #[serde(default)]
+    pub relayer_service: Option<RelayAmount>,
+    /// Ours, when Relay can pay it.
+    #[serde(default)]
+    pub app: Option<RelayAmount>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RelayFeeDetail {
-    /// Fee amount
-    #[serde(default)]
-    pub amount: Option<String>,
-    /// Fee in USD
-    #[serde(default)]
-    pub amount_usd: Option<f64>,
+impl RelayFees {
+    /// Everything the bridge costs, in dollars.
+    ///
+    /// Relay itemises rather than totalling, and the relayer figure already
+    /// contains its gas and service parts — adding those again double-counts
+    /// the largest line.
+    pub fn total_usd(&self) -> Option<f64> {
+        let usd = |a: &Option<RelayAmount>| -> f64 {
+            a.as_ref()
+                .and_then(|x| x.amount_usd.as_deref())
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0)
+        };
+        let total = usd(&self.gas) + usd(&self.relayer) + usd(&self.app);
+        if total > 0.0 { Some(total) } else { None }
+    }
 }
 
 /// Preview shown to the user before signing.
@@ -289,7 +341,7 @@ pub fn get_chain_name(chain_id: u64) -> &'static str {
         chain_id::ARBITRUM_NOVA => "Arbitrum Nova",
         chain_id::POLYGON_ZKEVM => "Polygon zkEVM",
         chain_id::SCROLL => "Scroll",
-        chain_id::SOLANA => "Solana",
+        chain_id::SOLANA | chain_id::SOLANA_LEGACY_ID => "Solana",
         // Testnets
         chain_id::GOERLI => "Goerli",
         chain_id::SEPOLIA => "Sepolia",
@@ -414,11 +466,31 @@ fn is_valid_evm_address(address: &str) -> bool {
 // Relay quote
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Append OPRAI's 0.05% app fee to a Relay quote body if a fee recipient is configured.
-/// fee value 5 = 0.05% in Relay's basis-point scale (10000 = 100%).
+/// Append OPRAI's app fee to a Relay quote body if a fee recipient is
+/// configured AND Relay can pay it.
+///
+/// 20 = 0.20% on Relay's scale (10000 = 100%), the same rate every other
+/// established pair pays. It was 0.05% here for no stated reason.
+///
+/// Relay pays app fees to an EVM address and rejects anything else outright —
+/// `INVALID_APP_FEE_RECIPIENT`, on the quote, before any route is even
+/// considered. The recipient defaults to `OPRAI_FEE_WALLET`, which is a Solana
+/// address, so attaching it unconditionally did not lose us a commission: it
+/// took down every bridge quote there was. A fee we cannot collect must never
+/// cost the user the trade.
 pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>) {
-    if let Some(addr) = fee_recipient.filter(|s| !s.is_empty()) {
-        body["appFees"] = serde_json::json!([{"recipient": addr, "fee": "5"}]);
+    match fee_recipient.filter(|s| !s.is_empty()) {
+        Some(addr) if is_valid_evm_address(addr) => {
+            body["appFees"] = serde_json::json!([{"recipient": addr, "fee": "20"}]);
+        }
+        Some(addr) => {
+            tracing::warn!(
+                recipient = %addr,
+                "Relay app fee skipped: its recipient must be an EVM address. \
+                 Set RELAY_FEE_RECIPIENT to one to earn on bridges."
+            );
+        }
+        None => {}
     }
 }
 
@@ -508,12 +580,12 @@ pub async fn build_cross_chain_swap(
     // Extract details for preview
     let details = &quote.details;
     let origin_symbol = details
-        .currency_in
+        .currency_in.currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
     let dest_symbol = details
-        .currency_out
+        .currency_out.currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
@@ -522,10 +594,24 @@ pub async fn build_cross_chain_swap(
     let dest_chain_name = get_chain_name(params.destination_chain_id);
 
     // Calculate output amount
-    let out_amount = details.amount_out.clone().unwrap_or_default();
-    let out_decimals = details.currency_out.decimals.unwrap_or(18);
-    let out_amount_float =
-        out_amount.parse::<u64>().unwrap_or(0) as f64 / 10_f64.powi(out_decimals as i32);
+    // Relay carries the amount inside the currency now; `amountOut` at the top
+    // level is gone, so reading only that described every bridge as delivering
+    // zero. Parsed as f64 because an 18-decimal wei figure overflows a u64.
+    let out_amount = details
+        .currency_out
+        .amount
+        .clone()
+        .or_else(|| details.amount_out.clone())
+        .unwrap_or_default();
+    let out_decimals = details.currency_out.currency.decimals.unwrap_or(18);
+    let out_amount_float = details
+        .currency_out
+        .amount_formatted
+        .as_deref()
+        .and_then(|f| f.parse::<f64>().ok())
+        .unwrap_or_else(|| {
+            out_amount.parse::<f64>().unwrap_or(0.0) / 10_f64.powi(out_decimals as i32)
+        });
 
     // Build warnings
     let mut warnings = Vec::new();
@@ -554,7 +640,7 @@ pub async fn build_cross_chain_swap(
 
     // Fee warning
     if let Some(ref fees) = quote.fees {
-        if let Some(total) = fees.total_usd {
+        if let Some(total) = fees.total_usd() {
             if total > 10.0 {
                 warnings.push(format!("Total fees: ${:.2}", total));
             }
@@ -576,7 +662,7 @@ pub async fn build_cross_chain_swap(
         estimated_fee: quote
             .fees
             .as_ref()
-            .and_then(|f| f.total_usd)
+            .and_then(|f| f.total_usd())
             .map(|f| format!("${:.2}", f))
             .unwrap_or_else(|| "~$2-5".to_string()),
         params: params.clone(),
@@ -639,7 +725,7 @@ pub struct RelayChainCurrency {
     pub symbol: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub decimals: Option<u8>,
     #[serde(default)]
     pub address: Option<String>,
@@ -689,12 +775,12 @@ pub struct RelayChainInfo {
     pub block_production_lagging: Option<bool>,
     #[serde(default)]
     pub status_message: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub partial_disable_limit: Option<f64>,
     // Fees
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub withdrawal_fee: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub deposit_fee: Option<f64>,
     #[serde(default)]
     pub surge_enabled: Option<bool>,
@@ -714,7 +800,7 @@ pub struct RelayChainInfo {
     #[serde(default)]
     pub contracts: Option<RelayChainContracts>,
     // L2 / solver
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub base_chain_id: Option<u64>,
     #[serde(default)]
     pub solver_addresses: Vec<String>,
@@ -765,7 +851,7 @@ pub struct RelayTokenMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayTokenInfo {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub chain_id: Option<u64>,
     pub address: String,
     pub name: String,
@@ -779,9 +865,9 @@ pub struct RelayTokenInfo {
     // legacy / extra fields some responses include
     #[serde(default)]
     pub logo_uri: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub price: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub volume_24h: Option<f64>,
 }
 
@@ -934,10 +1020,19 @@ pub async fn get_relay_quote_full(
         )));
     }
 
-    response
-        .json::<RelayQuote>()
+    // Read the text and parse it here rather than through `.json()`: reqwest
+    // reports every shape mismatch as "error decoding response body", which
+    // names neither the field nor the type it wanted. serde, given the string,
+    // names both — and this response has changed shape under us twice.
+    let body = response
+        .text()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse relay quote: {}", e)))
+        .map_err(|e| AppError::RelayApiError(format!("Relay quote unreadable: {e}")))?;
+    serde_json::from_str::<RelayQuote>(&body).map_err(|e| {
+        tracing::error!(error = %e, body = %body.chars().take(600).collect::<String>(),
+                        "Relay quote did not match our model");
+        AppError::RelayApiError(format!("Failed to parse relay quote: {e}"))
+    })
 }
 
 /// Execute a Relay bridge — get quote then return steps for frontend signing.
@@ -951,22 +1046,36 @@ pub async fn relay_bridge(
 
     let details = &quote.details;
     let origin_symbol = details
-        .currency_in
+        .currency_in.currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
     let dest_symbol = details
-        .currency_out
+        .currency_out.currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
     let origin_chain_name = get_chain_name(params.origin_chain_id);
     let dest_chain_name = get_chain_name(params.destination_chain_id);
 
-    let out_amount = details.amount_out.clone().unwrap_or_default();
-    let out_decimals = details.currency_out.decimals.unwrap_or(18);
-    let out_amount_float =
-        out_amount.parse::<u64>().unwrap_or(0) as f64 / 10_f64.powi(out_decimals as i32);
+    // Relay carries the amount inside the currency now; `amountOut` at the top
+    // level is gone, so reading only that described every bridge as delivering
+    // zero. Parsed as f64 because an 18-decimal wei figure overflows a u64.
+    let out_amount = details
+        .currency_out
+        .amount
+        .clone()
+        .or_else(|| details.amount_out.clone())
+        .unwrap_or_default();
+    let out_decimals = details.currency_out.currency.decimals.unwrap_or(18);
+    let out_amount_float = details
+        .currency_out
+        .amount_formatted
+        .as_deref()
+        .and_then(|f| f.parse::<f64>().ok())
+        .unwrap_or_else(|| {
+            out_amount.parse::<f64>().unwrap_or(0.0) / 10_f64.powi(out_decimals as i32)
+        });
 
     let mut warnings = vec![format!(
         "Cross-chain bridge: {} → {}",
@@ -985,7 +1094,7 @@ pub async fn relay_bridge(
         }
     }
     if let Some(ref fees) = quote.fees {
-        if let Some(total) = fees.total_usd {
+        if let Some(total) = fees.total_usd() {
             if total > 10.0 {
                 warnings.push(format!("Total fees: ${:.2}", total));
             }
@@ -1020,7 +1129,7 @@ pub async fn relay_bridge(
         estimated_fee: quote
             .fees
             .as_ref()
-            .and_then(|f| f.total_usd)
+            .and_then(|f| f.total_usd())
             .map(|f| format!("${:.2}", f))
             .unwrap_or_else(|| "~$2-5".to_string()),
         params: swap_params,
@@ -1365,11 +1474,11 @@ pub struct RelayIntentStatus {
     #[serde(default)]
     pub tx_hashes: Vec<String>,
     /// Last updated timestamp in milliseconds
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub updated_at: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub origin_chain_id: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub destination_chain_id: Option<u64>,
 }
 
@@ -1499,7 +1608,7 @@ pub async fn execute_relay_permits(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayLiquidityItem {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub chain_id: Option<u64>,
     #[serde(default)]
     pub currency_id: Option<String>,
@@ -1507,7 +1616,7 @@ pub struct RelayLiquidityItem {
     pub symbol: Option<String>,
     #[serde(default)]
     pub address: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub decimals: Option<u8>,
     /// Solver balance in smallest unit (e.g. wei for ETH)
     #[serde(default)]
@@ -1572,7 +1681,7 @@ pub struct RelayCurrenciesQuery {
     #[serde(default)]
     pub verified: Option<bool>,
     /// Max results (default 20, max 100)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     #[serde(default)]
     pub default_list: Option<bool>,
@@ -1688,7 +1797,7 @@ pub async fn get_relay_token_price(
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayRequestsQuery {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     #[serde(default)]
     pub continuation: Option<String>,
@@ -1696,9 +1805,9 @@ pub struct RelayRequestsQuery {
     pub user: Option<String>,
     #[serde(default)]
     pub hash: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub origin_chain_id: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub destination_chain_id: Option<u64>,
     /// Filter requests on either direction for a single chain (string form of chain ID)
     #[serde(default)]
@@ -1712,13 +1821,13 @@ pub struct RelayRequestsQuery {
     /// "success" | "failure" | "refund" | "pending" | "depositing" | "waiting"
     #[serde(default)]
     pub status: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_timestamp: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end_timestamp: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub start_block: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub end_block: Option<u64>,
     #[serde(default)]
     pub referrer: Option<String>,
@@ -1967,4 +2076,22 @@ pub async fn get_swap_sources(
         .json::<RelaySwapSourcesResponse>()
         .await
         .map_err(|e| AppError::RelayApiError(format!("Failed to parse swap-sources: {}", e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Relay rejects a non-EVM app-fee recipient on the quote itself, so
+    /// attaching one does not forgo a fee — it forgoes the bridge.
+    #[test]
+    fn a_solana_fee_recipient_is_not_sent_to_relay() {
+        let mut body = serde_json::json!({});
+        append_app_fee(&mut body, Some("Gf3dtGnHRkfaPpeHc2UYfu6mHrTsbFUp4Qx3RqV526h"));
+        assert!(body.get("appFees").is_none());
+
+        let mut body = serde_json::json!({});
+        append_app_fee(&mut body, Some("0x71C7656EC7ab88b098defB751B7401B5f6d8976F"));
+        assert_eq!(body["appFees"][0]["fee"], "20");
+    }
 }

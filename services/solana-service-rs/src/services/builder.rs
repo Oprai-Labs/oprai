@@ -6242,14 +6242,38 @@ async fn build_action_inner(
                 preview: ActionPreview {
                     id: format!("relayq_{}", Uuid::new_v4()),
                     action_type: "relay_get_quote".to_string(),
-                    description: format!(
-                        "Relay quote: {} {} (chain {}) → chain {}",
-                        p.amount, p.origin_currency, p.origin_chain_id, p.destination_chain_id
-                    ),
+                    // Read the answer, not the question. This said
+                    // "50000000 1111…1111 (chain 792703809) → chain 8453",
+                    // which restates the raw request and never mentions what
+                    // arrives — the one thing a quote is for.
+                    description: {
+                        let d = &quote.details;
+
+                        // Eighteen decimals is a machine's answer. Six is the
+                        // most anyone reads off a bridge quote, and trailing
+                        // zeros carry nothing.
+                        let trim = |v: Option<String>| -> String {
+                            match v.as_deref().and_then(|x| x.parse::<f64>().ok()) {
+                                Some(n) => format!("{n:.6}").trim_end_matches('0')
+                                    .trim_end_matches('.').to_string(),
+                                None => v.unwrap_or_default(),
+                            }
+                        };
+                        let got = trim(d.currency_out.amount_formatted.clone());
+                        let sent = trim(d.currency_in.amount_formatted.clone());
+                        let sent = if sent.is_empty() { p.amount.clone() } else { sent };
+                        let from = d.currency_in.currency.symbol.clone().unwrap_or_default();
+                        let to = d.currency_out.currency.symbol.clone().unwrap_or_default();
+                        format!(
+                            "{sent} {from} on {} → {got} {to} on {}",
+                            relay::get_chain_name(p.origin_chain_id),
+                            relay::get_chain_name(p.destination_chain_id),
+                        )
+                    },
                     estimated_fee: quote
                         .fees
                         .as_ref()
-                        .and_then(|f| f.total_usd)
+                        .and_then(|f| f.total_usd())
                         .map(|f| format!("${:.2}", f))
                         .unwrap_or_else(|| "~$2-5".to_string()),
                     estimated_refund: None,

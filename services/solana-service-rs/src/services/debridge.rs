@@ -145,7 +145,7 @@ struct DlnTxData {
 /// Relay protocol uses 900 for Solana; deBridge requires 7565164.
 fn normalize_chain_id(id: u64) -> u64 {
     match id {
-        900 => chain_id::SOLANA, // Relay → deBridge Solana ID
+        900 | 792_703_809 => chain_id::SOLANA, // Relay → deBridge Solana ID
         _ => id,
     }
 }
