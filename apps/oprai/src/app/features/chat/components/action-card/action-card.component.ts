@@ -2867,8 +2867,22 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * chain the user could see. Writing the shown value fixes the gap between
    * what is displayed and what is held.
    */
+  /** Relay's mint for native SOL. Our registry's "SOL" is the wrapped one. */
+  private static readonly WRAPPED_SOL = 'So11111111111111111111111111111111111111112';
+  private static readonly NATIVE_SOL = '11111111111111111111111111111111';
+
   private relaySeedChains(): void {
     if (!this.isRelayBridge()) return;
+    // "0.01 SOL" filled the card with WSOL, because that is what SOL means
+    // everywhere else here — Jupiter swaps the wrapped mint. Relay is the one
+    // place the two are different assets, and the service quietly bridged the
+    // native one because that is what the wallet holds. The card said WSOL
+    // while the transaction said SOL; whichever is true, they must not
+    // disagree. WSOL stays in the picker for anyone who means it.
+    if (this.getEditParam('originCurrency') === ActionCardComponent.WRAPPED_SOL
+        && this.relayCanonicalChain(this.getEditParam('originChainId')) === String(RELAY_SOLANA_CHAIN_ID)) {
+      this.setEditParam('originCurrency', ActionCardComponent.NATIVE_SOL);
+    }
     const origin = this.getEditParam('originChainId');
     const dest = this.getEditParam('destinationChainId');
     const canonicalOrigin = this.relayCanonicalChain(origin);

@@ -11,7 +11,13 @@ Use `relay_bridge` when the user wants to move tokens between chains. Relay.link
 **REQUIRED parameters — always ask user if any are missing:**
 - `originChainId`: Source chain numeric ID (see chain table below)
 - `destinationChainId`: Destination chain numeric ID
-- `originCurrency`: Source token address or symbol (e.g. "SOL", "USDC", native EVM = "0x0000000000000000000000000000000000000000")
+- `originCurrency`: Source token address (native EVM = "0x0000000000000000000000000000000000000000")
+
+**Solana's chain id here is 792703809, and SOL is `11111111111111111111111111111111`.**
+Both differ from the rest of OPRAI, and both were wrong in these examples for a
+long time. 900 is not a chain Relay has; `So111…112` is WRAPPED SOL, a separate
+token that most wallets hold none of — a bridge built on it fails for someone
+holding plenty of SOL. Use the wrapped mint only when the user asks for wSOL.
 - `destinationCurrency`: Destination token address or symbol
 - `amount`: Human-readable amount as string (e.g. "1.5", "100")
 - `tradeType`: "EXACT_INPUT" (default — you specify what you send) | "EXACT_OUTPUT" (you specify what you receive)
@@ -49,10 +55,10 @@ Use `relay_bridge` when the user wants to move tokens between chains. Relay.link
 
 **Examples:**
 - "Bridge 1 SOL from Solana to Ethereum"
-  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "1", "originCurrency": "So11111111111111111111111111111111111111112", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_INPUT"})
+  → execute_action("relay_bridge", {"originChainId": "792703809", "destinationChainId": "1", "originCurrency": "11111111111111111111111111111111", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_INPUT"})
 
 - "Bridge 100 USDC from Solana to Arbitrum"
-  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "42161", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "100", "tradeType": "EXACT_INPUT"})
+  → execute_action("relay_bridge", {"originChainId": "792703809", "destinationChainId": "42161", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "100", "tradeType": "EXACT_INPUT"})
 
 - "I want to receive exactly 50 USDC on Base, paying from ETH on Ethereum"
   → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "8453", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "amount": "50", "tradeType": "EXACT_OUTPUT"})
@@ -61,13 +67,13 @@ Use `relay_bridge` when the user wants to move tokens between chains. Relay.link
   → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "8453", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.5", "tradeType": "EXACT_INPUT", "topupGas": "true"})
 
 - "Bridge 100 USDC from Solana to Arbitrum, also send me some gas on Arbitrum"
-  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "42161", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "100", "tradeType": "EXACT_INPUT", "topupGas": "true"})
+  → execute_action("relay_bridge", {"originChainId": "792703809", "destinationChainId": "42161", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "100", "tradeType": "EXACT_INPUT", "topupGas": "true"})
 
 - "Bridge 200 USDC to Optimism for my other wallet 0xABC...123, with 1% slippage"
-  → execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "10", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "amount": "200", "tradeType": "EXACT_INPUT", "recipient": "0xABC...123", "slippageTolerance": "100"})
+  → execute_action("relay_bridge", {"originChainId": "792703809", "destinationChainId": "10", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "amount": "200", "tradeType": "EXACT_INPUT", "recipient": "0xABC...123", "slippageTolerance": "100"})
 
 - "Use deposit address to bridge 1 ETH from Ethereum to Solana"
-  → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "900", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "So11111111111111111111111111111111111111112", "amount": "1", "tradeType": "EXACT_INPUT", "useDepositAddress": "true"})
+  → execute_action("relay_bridge", {"originChainId": "1", "destinationChainId": "792703809", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "11111111111111111111111111111111", "amount": "1", "tradeType": "EXACT_INPUT", "useDepositAddress": "true"})
 
 ---
 
@@ -83,10 +89,10 @@ Use when user says "how much", "what's the rate", "preview the bridge", "estimat
 
 **Examples:**
 - "What's the rate for bridging 1 SOL to ETH on Ethereum?"
-  → query_onchain("relay_get_quote", {"originChainId": "900", "destinationChainId": "1", "originCurrency": "So11111111111111111111111111111111111111112", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_INPUT"})
+  → query_onchain("relay_get_quote", {"originChainId": "792703809", "destinationChainId": "1", "originCurrency": "11111111111111111111111111111111", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "1", "tradeType": "EXACT_INPUT"})
 
 - "How much USDC will I receive on Base if I send 100 USDC from Solana?"
-  → query_onchain("relay_get_quote", {"originChainId": "900", "destinationChainId": "8453", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "amount": "100", "tradeType": "EXACT_INPUT"})
+  → query_onchain("relay_get_quote", {"originChainId": "792703809", "destinationChainId": "8453", "originCurrency": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "destinationCurrency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "amount": "100", "tradeType": "EXACT_INPUT"})
 
 - "Show me a fixed-rate quote for bridging 0.5 ETH from Ethereum to Arbitrum"
   → query_onchain("relay_get_quote", {"originChainId": "1", "destinationChainId": "42161", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.5", "tradeType": "EXACT_INPUT", "fixedRate": "true"})
@@ -199,7 +205,7 @@ Use when user asks for the price of a token on a specific chain via Relay's pric
   → query_onchain("relay_get_token_price", {"address": "0x0000000000000000000000000000000000000000", "chainId": "1"})
 
 - "How much is SOL worth according to Relay?"
-  → query_onchain("relay_get_token_price", {"address": "So11111111111111111111111111111111111111112", "chainId": "900"})
+  → query_onchain("relay_get_token_price", {"address": "So11111111111111111111111111111111111111112", "chainId": "792703809"})
 
 ---
 
@@ -272,7 +278,7 @@ For live status polling of a single known intent, prefer `relay_intent_status`.
   → query_onchain("relay_get_requests", {"id": "abc-123"})
 
 - "Show my failed Relay bridges from Solana to Ethereum"
-  → query_onchain("relay_get_requests", {"status": "failure", "originChainId": "900", "destinationChainId": "1"})
+  → query_onchain("relay_get_requests", {"status": "failure", "originChainId": "792703809", "destinationChainId": "1"})
 
 - "Find the Relay bridge with tx hash 0xabc...def"
   → query_onchain("relay_get_requests", {"hash": "0xabc...def"})
@@ -446,7 +452,7 @@ Examples:
   → execute_action("relay_deposit_address_reindex", {"chainId": "1", "depositAddress": "0xabc..."})
 
 - "Scan my Solana deposit address 3xK... for pending balances"
-  → execute_action("relay_deposit_address_reindex", {"chainId": "900", "depositAddress": "3xK..."})
+  → execute_action("relay_deposit_address_reindex", {"chainId": "792703809", "depositAddress": "3xK..."})
 
 - "Reindex deposit address 0xdef on Base and sweep to Arbitrum"
   → execute_action("relay_deposit_address_reindex", {"chainId": "8453", "depositAddress": "0xdef...", "sweep": "true", "targetChainId": "42161"})
@@ -461,7 +467,7 @@ Format: execute_action("relay_single_transaction", {requestId, chainId, tx})
 
 **REQUIRED parameters:**
 - `requestId`: The Relay request ID this transaction belongs to
-- `chainId`: Chain ID as string (e.g. "900" for Solana, "1" for Ethereum, "8453" for Base)
+- `chainId`: Chain ID as string (e.g. "792703809" for Solana, "1" for Ethereum, "8453" for Base)
 - `tx`: Transaction hash
 
 **When to use:**
@@ -478,7 +484,7 @@ Examples:
   → execute_action("relay_single_transaction", {"requestId": "req-123", "chainId": "1", "tx": "0xabc..."})
 
 - "My Solana wrap TX is 3xK..., request ID req-456, please notify Relay"
-  → execute_action("relay_single_transaction", {"requestId": "req-456", "chainId": "900", "tx": "3xK..."})
+  → execute_action("relay_single_transaction", {"requestId": "req-456", "chainId": "792703809", "tx": "3xK..."})
 
 ---
 
@@ -489,7 +495,7 @@ Use when the user has just submitted a deposit transaction and wants Relay to de
 Format: execute_action("relay_index_transaction", {chainId, txHash, [requestId]})
 
 **REQUIRED parameters:**
-- `chainId`: Chain ID as string where the TX was submitted (e.g. "900" for Solana, "1" for Ethereum, "8453" for Base)
+- `chainId`: Chain ID as string where the TX was submitted (e.g. "792703809" for Solana, "1" for Ethereum, "8453" for Base)
 - `txHash`: Transaction hash of the submitted deposit
 
 **OPTIONAL parameters:**
@@ -505,7 +511,7 @@ Examples:
   → execute_action("relay_index_transaction", {"chainId": "1", "txHash": "0x5xK...abc"})
 
 - "Tell Relay to index my Solana deposit transaction 3aB..."
-  → execute_action("relay_index_transaction", {"chainId": "900", "txHash": "3aB..."})
+  → execute_action("relay_index_transaction", {"chainId": "792703809", "txHash": "3aB..."})
 
 - "My TX is 0xdef...123 on Base, request ID is req-789, please index it"
   → execute_action("relay_index_transaction", {"chainId": "8453", "txHash": "0xdef...123", "requestId": "req-789"})
@@ -521,7 +527,7 @@ Format: execute_action("cross_chain_swap", {fromToken, toToken, amount, fromChai
 - provider: "wormhole" | "debridge" | "mayan" (do NOT use "relay" here — use relay_bridge instead)
 
 Examples:
-- "Bridge via Wormhole" → execute_action("cross_chain_swap", {"fromToken": "SOL", "toToken": "ETH", "amount": "1", "fromChain": "900", "toChain": "1", "provider": "wormhole"})
+- "Bridge via Wormhole" → execute_action("cross_chain_swap", {"fromToken": "SOL", "toToken": "ETH", "amount": "1", "fromChain": "792703809", "toChain": "1", "provider": "wormhole"})
 
 ---
 
@@ -616,7 +622,7 @@ Examples:
 9. **Squid post-hook**: Use `squid_bridge` when user mentions "postHook", "post-hook", "auto-stake after bridge", "destination call", or explicitly says "Squid" with a follow-on action. Set the `postHook` parameter.
 
 10. **Receiving [TOKEN] on a non-Solana [CHAIN] is a SINGLE relay_bridge call**: When the user asks to end up holding a token on a destination chain (paying from their Solana wallet), this is ONE `relay_bridge` action, not a multi-step route. Map: `originChainId=900`, `destinationChainId` = the named chain, `originCurrency` = the user's input token, `destinationCurrency` = the named token on the destination chain, `tradeType=EXACT_INPUT`. Worked example for "buy 0.1 ETH on Base with SOL":
-    → `execute_action("relay_bridge", {"originChainId": "900", "destinationChainId": "8453", "originCurrency": "So11111111111111111111111111111111111111112", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.1", "tradeType": "EXACT_INPUT"})`
+    → `execute_action("relay_bridge", {"originChainId": "792703809", "destinationChainId": "8453", "originCurrency": "11111111111111111111111111111111", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.1", "tradeType": "EXACT_INPUT"})`
     Do NOT propose any two-step path. Do NOT call `request_clarification` when origin chain, destination chain, both tokens, and amount are all derivable from the message.
 
 11. **NEVER tell the user "your wallet isn't on chain X"**: Relay supports cross-chain swaps initiated from a Solana wallet to any supported EVM destination. The user does NOT need to "first bridge to chain Y" before they can receive a token there. A single `relay_bridge` call handles the entire path atomically.
