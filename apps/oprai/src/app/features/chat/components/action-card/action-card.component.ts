@@ -387,9 +387,9 @@ function getActionFields(
     // Amount only. The validator is chosen in the picker below, which used to
     // sit UNDER a generic "Validator Vote Account" address row asking for the
     // same thing — so the card put the question twice and answered it once.
-    fields.push(
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '1', suffix: 'SOL', required: true, min: 1, step: '0.01', hint: 'Minimum 1 SOL' },
-    );
+    // No fields at all. The amount is a swap-style "You stake" panel below —
+    // a generic bordered form row under a swap-shaped card is what made this
+    // read as a different product from the swap it sits next to.
   } else if (t === 'native_stake_deactivate') {
     // No fields: the account is chosen from the user's own stake accounts in
     // the picker. A stake account address is derived, never chosen, and shown

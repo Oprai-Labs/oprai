@@ -4165,6 +4165,50 @@
     }
 
     <!-- ══════════════════════════════════════════════════════════
+         NATIVE STAKE — the swap card's own panel, not a form row
+         ══════════════════════════════════════════════════════════ -->
+    @if (isNativeStake()) {
+      <div class="stake-panels">
+        <div class="pump-panel">
+          <div class="pump-panel__top">
+            <span class="pump-panel__label">You stake</span>
+            @if (inputBalance() !== null) {
+              <span class="pump-panel__bal">
+                Balance: {{ inputBalance() | number:'1.0-4' }}
+                @if (isEditable()) {
+                  <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                }
+              </span>
+            }
+          </div>
+          <div class="pump-panel__row">
+            <input type="number" class="pump-panel__amount" placeholder="0"
+                   [value]="getEditParam('amount')"
+                   (input)="setEditParam('amount', $any($event.target).value)"
+                   [disabled]="!isEditable()" min="0" step="any" />
+            <div class="pump-token">
+              @let solTd = resolveTokenDisplay(SOL_MINT);
+              @if (solTd.logoURI) {
+                <img [src]="solTd.logoURI" class="pump-token__icon" alt=""
+                     (error)="$any($event.target).style.display='none'" />
+              } @else {
+                <span class="pump-token__icon pump-token__icon--ph">S</span>
+              }
+              <span class="pump-token__sym">SOL</span>
+            </div>
+          </div>
+          <!-- The cluster's floor, stated where the number is typed rather than
+               as a hint under a form field nobody reads. -->
+          @if (getEditParam('amount') && +getEditParam('amount') > 0 && +getEditParam('amount') < 1) {
+            <span class="pump-panel__usd stake-panels__warn">
+              Solana requires at least 1 SOL to open a stake account.
+            </span>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
          VALIDATOR PICKER — native_stake only
          ══════════════════════════════════════════════════════════ -->
     @if (isNativeStake() && isEditable()) {

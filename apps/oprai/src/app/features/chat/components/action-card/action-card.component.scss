@@ -6428,6 +6428,22 @@
   &--warn { color: var(--op-danger); }
 }
 
+// The stake amount, in the swap card's panel rather than a form row. Same
+// margins as the picker below it so the two read as one card.
+.stake-panels {
+  padding: 0 16px;
+  margin-bottom: 12px;
+
+  &__warn { color: var(--op-danger); }
+}
+
+// The search field belongs to the panel, not to the generic form vocabulary:
+// same 12px radius and surface as the rows it filters.
+.validator-picker__search {
+  height: 38px;
+  border-radius: 12px;
+}
+
 // ─── Validator list ─────────────────────────────────────────────────────────
 //
 // Measured off the swap card's own token picker (.tp-row), not approximated:
