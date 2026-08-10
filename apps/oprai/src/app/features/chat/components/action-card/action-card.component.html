@@ -389,7 +389,10 @@
          its own. Buying an NFT asks the user for nothing — the listing sets
          the price — so gating the body on `actionFields.length` alone left it
          rendering a header and a Confirm button over empty space. -->
-    @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel()) {
+    <!-- isRelayBridge too: the bridge has no form rows at all now, so a gate
+         counting only fields skipped the whole body — panels included — and
+         left a header above a Confirm button. -->
+    @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
