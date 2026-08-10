@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use solana_client::rpc_request::TokenAccountsFilter;
 use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
-use spl_token::instruction as spl_ix;
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -71,6 +70,54 @@ pub struct BurnBuildResult {
 // ──────────────────────────────────────────────────────────────────────────────
 // Validation
 // ──────────────────────────────────────────────────────────────────────────────
+
+
+/// Close and burn, built by hand so they work under either token program.
+///
+/// `spl_token::instruction::*` validates that the program id you pass is the
+/// legacy one and refuses anything else — "The account did not have the
+/// expected program id" — so it cannot express a Token-2022 instruction at all.
+/// The layouts are identical across the two programs; only the id differs.
+fn close_account_ix(
+    program: &Pubkey,
+    account: &Pubkey,
+    destination: &Pubkey,
+    owner: &Pubkey,
+) -> solana_sdk::instruction::Instruction {
+    use solana_sdk::instruction::{AccountMeta, Instruction};
+    Instruction {
+        program_id: *program,
+        accounts: vec![
+            AccountMeta::new(*account, false),
+            AccountMeta::new(*destination, false),
+            AccountMeta::new_readonly(*owner, true),
+        ],
+        data: vec![9], // CloseAccount
+    }
+}
+
+fn burn_checked_ix(
+    program: &Pubkey,
+    account: &Pubkey,
+    mint: &Pubkey,
+    owner: &Pubkey,
+    amount: u64,
+    decimals: u8,
+) -> solana_sdk::instruction::Instruction {
+    use solana_sdk::instruction::{AccountMeta, Instruction};
+    let mut data = vec![15u8]; // BurnChecked
+    data.extend_from_slice(&amount.to_le_bytes());
+    data.push(decimals);
+    Instruction {
+        program_id: *program,
+        accounts: vec![
+            AccountMeta::new(*account, false),
+            AccountMeta::new(*mint, false),
+            AccountMeta::new_readonly(*owner, true),
+        ],
+        data,
+    }
+}
 
 pub fn validate_burn_params(params: &BurnParams) -> Result<(), AppError> {
     if params.mint.trim().is_empty() {
@@ -182,24 +229,19 @@ pub fn build_burn_transaction(
 
     if burn_amount > 0 {
         instructions.push(
-            spl_ix::burn_checked(
+            burn_checked_ix(
                 &token_program,
                 &ata,
                 &mint_pubkey,
                 owner,
-                &[],
                 burn_amount,
                 token_decimals,
-            )
-            .map_err(|e| AppError::SolanaRpcError(e.to_string()))?,
+            ),
         );
     }
 
     if will_close {
-        instructions.push(
-            spl_ix::close_account(&token_program, &ata, owner, owner, &[])
-                .map_err(|e| AppError::SolanaRpcError(e.to_string()))?,
-        );
+        instructions.push(close_account_ix(&token_program, &ata, owner, owner));
     }
 
     // Get actual rent locked in the ATA (used for refund estimate).
@@ -439,10 +481,7 @@ pub fn build_close_accounts_transaction(
         total_rent += rent;
         closed_symbols.push(symbol);
 
-        instructions.push(
-            spl_ix::close_account(&token_program, &ata, owner, owner, &[])
-                .map_err(|e| AppError::SolanaRpcError(e.to_string()))?,
-        );
+        instructions.push(close_account_ix(&token_program, &ata, owner, owner));
     }
 
     if instructions.is_empty() {
