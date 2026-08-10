@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_request::TokenAccountsFilter;
 use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
-use spl_associated_token_account::get_associated_token_address;
+use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::instruction as spl_ix;
 use uuid::Uuid;
 
@@ -61,6 +61,11 @@ pub struct BurnPreview {
 pub struct BurnBuildResult {
     pub transaction: Transaction,
     pub preview: BurnPreview,
+    /// Every transaction in order, when the work does not fit in one.
+    ///
+    /// `transaction` stays the LAST of them, because that is the one the card
+    /// treats as the action; the earlier ones are signed first as steps.
+    pub batches: Vec<Transaction>,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -90,13 +95,10 @@ pub fn validate_close_accounts_params(params: &CloseAccountsParams) -> Result<()
             "At least one mint address is required".into(),
         ));
     }
-    if params.mints.len() > MAX_CLOSE_PER_TX {
-        return Err(AppError::InvalidParams(format!(
-            "Maximum {} accounts per transaction (got {}). Split into multiple batches.",
-            MAX_CLOSE_PER_TX,
-            params.mints.len()
-        )));
-    }
+    // No upper bound here any more. Fifteen was ours, not Solana's — the real
+    // constraint is the 1232-byte transaction, and telling a user with nineteen
+    // empty accounts to "split into multiple batches" by hand is asking them to
+    // do the arithmetic we are better placed to do. They are batched below.
     Ok(())
 }
 
@@ -121,7 +123,16 @@ pub fn build_burn_transaction(
         .parse()
         .map_err(|_| AppError::InvalidParams(format!("Invalid token mint: {}", params.mint)))?;
 
-    let ata = get_associated_token_address(owner, &mint_pubkey);
+    // Token-2022 mints live under a different program, and both the ATA
+    // derivation and the burn/close instructions have to name it. Assuming the
+    // legacy program built transactions that could not execute for any
+    // Token-2022 token — which is most of what a wallet accumulates now.
+    let token_program = rpc
+        .client()
+        .get_account(&mint_pubkey)
+        .map(|a| a.owner)
+        .unwrap_or_else(|_| spl_token::id());
+    let ata = get_associated_token_address_with_program_id(owner, &mint_pubkey, &token_program);
 
     let (token_decimals, token_symbol) = match get_token_info(&params.mint) {
         Some(info) => (info.decimals, info.symbol.to_string()),
@@ -172,7 +183,7 @@ pub fn build_burn_transaction(
     if burn_amount > 0 {
         instructions.push(
             spl_ix::burn_checked(
-                &spl_token::id(),
+                &token_program,
                 &ata,
                 &mint_pubkey,
                 owner,
@@ -186,7 +197,7 @@ pub fn build_burn_transaction(
 
     if will_close {
         instructions.push(
-            spl_ix::close_account(&spl_token::id(), &ata, owner, owner, &[])
+            spl_ix::close_account(&token_program, &ata, owner, owner, &[])
                 .map_err(|e| AppError::SolanaRpcError(e.to_string()))?,
         );
     }
@@ -202,8 +213,14 @@ pub fn build_burn_transaction(
     };
 
     let blockhash = rpc.get_latest_blockhash_with_retry()?;
-    let message = Message::new(&instructions, Some(owner));
-    let fee = rpc.client().get_fee_for_message(&message).unwrap_or(5_000);
+    // Batched, because a Solana transaction is 1232 bytes and each close costs
+    // roughly forty of them. Fifteen per transaction leaves comfortable room.
+    let chunks: Vec<Vec<solana_sdk::instruction::Instruction>> = instructions
+        .chunks(MAX_CLOSE_PER_TX)
+        .map(|c| c.to_vec())
+        .collect();
+    let message = Message::new(&chunks[0], Some(owner));
+    let fee = rpc.client().get_fee_for_message(&message).unwrap_or(5_000) * chunks.len() as u64;
 
     // Verify SOL covers the fee.
     let sol_balance = rpc.client().get_balance(owner).unwrap_or(0);
@@ -286,12 +303,20 @@ pub fn build_burn_transaction(
         requires_approval: true,
     };
 
-    let mut tx = Transaction::new_unsigned(Message::new(&instructions, Some(owner)));
-    tx.message.recent_blockhash = blockhash;
+    let batches: Vec<Transaction> = chunks
+        .iter()
+        .map(|ixs| {
+            let mut tx = Transaction::new_unsigned(Message::new(ixs, Some(owner)));
+            tx.message.recent_blockhash = blockhash;
+            tx
+        })
+        .collect();
 
     Ok(BurnBuildResult {
-        transaction: tx,
+        // The last batch is the action; the ones before it are signed as steps.
+        transaction: batches.last().cloned().unwrap(),
         preview,
+        batches,
     })
 }
 
@@ -378,7 +403,15 @@ pub fn build_close_accounts_transaction(
             Err(_) => continue,
         };
 
-        let ata = get_associated_token_address(owner, &mint_pubkey);
+        // Which token program owns this mint. Fourteen of this wallet's
+        // nineteen empty accounts are Token-2022, and every one of them was
+        // being closed with the legacy program id — a transaction that cannot
+        // succeed, built from a list that looked right.
+        let token_program = match rpc.client().get_account(&mint_pubkey) {
+            Ok(acc) => acc.owner,
+            Err(_) => continue,
+        };
+        let ata = get_associated_token_address_with_program_id(owner, &mint_pubkey, &token_program);
 
         let symbol = get_token_info(mint_str)
             .map(|i| i.symbol.to_string())
@@ -407,7 +440,7 @@ pub fn build_close_accounts_transaction(
         closed_symbols.push(symbol);
 
         instructions.push(
-            spl_ix::close_account(&spl_token::id(), &ata, owner, owner, &[])
+            spl_ix::close_account(&token_program, &ata, owner, owner, &[])
                 .map_err(|e| AppError::SolanaRpcError(e.to_string()))?,
         );
     }
@@ -421,8 +454,14 @@ pub fn build_close_accounts_transaction(
     }
 
     let blockhash = rpc.get_latest_blockhash_with_retry()?;
-    let message = Message::new(&instructions, Some(owner));
-    let fee = rpc.client().get_fee_for_message(&message).unwrap_or(5_000);
+    // Batched, because a Solana transaction is 1232 bytes and each close costs
+    // roughly forty of them. Fifteen per transaction leaves comfortable room.
+    let chunks: Vec<Vec<solana_sdk::instruction::Instruction>> = instructions
+        .chunks(MAX_CLOSE_PER_TX)
+        .map(|c| c.to_vec())
+        .collect();
+    let message = Message::new(&chunks[0], Some(owner));
+    let fee = rpc.client().get_fee_for_message(&message).unwrap_or(5_000) * chunks.len() as u64;
 
     // Verify SOL covers the fee.
     let sol_balance = rpc.client().get_balance(owner).unwrap_or(0);
@@ -485,11 +524,19 @@ pub fn build_close_accounts_transaction(
         requires_approval: true,
     };
 
-    let mut tx = Transaction::new_unsigned(Message::new(&instructions, Some(owner)));
-    tx.message.recent_blockhash = blockhash;
+    let batches: Vec<Transaction> = chunks
+        .iter()
+        .map(|ixs| {
+            let mut tx = Transaction::new_unsigned(Message::new(ixs, Some(owner)));
+            tx.message.recent_blockhash = blockhash;
+            tx
+        })
+        .collect();
 
     Ok(BurnBuildResult {
-        transaction: tx,
+        // The last batch is the action; the ones before it are signed as steps.
+        transaction: batches.last().cloned().unwrap(),
         preview,
+        batches,
     })
 }

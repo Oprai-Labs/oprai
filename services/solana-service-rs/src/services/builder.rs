@@ -6047,9 +6047,35 @@ async fn build_action_inner(
             })
             .await
             .map_err(|e| AppError::Internal(format!("Blocking error: {e}")))??;
-            let tx_bytes = bincode::serialize(&result.transaction)
-                .map_err(|e| AppError::Internal(format!("Serialization error: {e}")))?;
-            let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
+            let encode = |tx: &solana_sdk::transaction::Transaction| -> Result<String, AppError> {
+                let bytes = bincode::serialize(tx)
+                    .map_err(|e| AppError::Internal(format!("Serialization error: {e}")))?;
+                Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+            };
+            let tx_b64 = encode(&result.transaction)?;
+
+            // More than fifteen accounts does not fit one transaction, so the
+            // service splits them and the card signs them in order — rather
+            // than refusing and telling the user to "split into multiple
+            // batches" themselves.
+            let execution_steps = if result.batches.len() > 1 {
+                let txs = result
+                    .batches
+                    .iter()
+                    .enumerate()
+                    .map(|(i, tx)| {
+                        encode(tx).map(|t| {
+                            serde_json::json!({
+                                "transaction": t,
+                                "label": format!("Batch {} of {}", i + 1, result.batches.len()),
+                            })
+                        })
+                    })
+                    .collect::<Result<Vec<_>, AppError>>()?;
+                Some(serde_json::json!({ "type": "sequential", "transactions": txs }))
+            } else {
+                None
+            };
 
             Ok(BuildResponse {
                 preview: ActionPreview {
@@ -6064,7 +6090,7 @@ async fn build_action_inner(
                 },
                 transaction: Some(tx_b64),
                 additional_signers_required: 0,
-                execution_steps: None,
+                execution_steps,
                 quote: None,
                 is_cross_chain: false,
                 data: None,
