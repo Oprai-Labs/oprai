@@ -2360,6 +2360,18 @@ async def call(action_type: str, params: dict, wallet: str | None = None) -> Any
     # from a present one so a tool that wants `address` still fires when the model
     # passed `mint` — without this, token_deep_analysis silently ValueError'd and
     # the assistant fell back to a shallow readout.
+    # "self" is not an address, in any parameter. The model writes it whenever
+    # a query is about the caller — the prompt says so — and every function
+    # downstream treats it as a literal pubkey. One scan reported a wallet with
+    # nineteen closable accounts as having none because of it. Substituted here,
+    # at the single point every query passes through, rather than per tool.
+    _SELF_WORDS = {"self", "me", "my", "mine", "my wallet", "auto"}
+    if wallet:
+        params = dict(params)
+        for _wk in ("wallet", "owner", "address", "walletAddress", "user"):
+            if str(params.get(_wk, "")).strip().lower() in _SELF_WORDS:
+                params[_wk] = wallet
+
     _ids = ("address", "token_address", "mint")
     _present = next((params[k] for k in _ids if params.get(k)), None)
     if _present is not None:
