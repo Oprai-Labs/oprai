@@ -506,7 +506,38 @@ pub async fn build_sns_resolve(
     params: SnsResolveParams,
 ) -> Result<BuildResponse, AppError> {
     let domain = params.domain.trim_end_matches(".sol").to_lowercase();
-    let owner: String = resolve_domain_onchain(rpc, &domain).await?;
+    // A name that is not registered is an ANSWER, not a failure. Returned as
+    // an error it reached the caller indistinguishable from "the lookup did
+    // not happen", which is how a dead proxy came to report every domain as
+    // unregistered.
+    let owner: String = match resolve_domain_onchain(rpc, &domain).await {
+        Ok(o) => o,
+        Err(AppError::NotFound(_)) => {
+            return Ok(BuildResponse {
+                preview: ActionPreview {
+                    id: format!("sns_resolve_{}", Uuid::new_v4()),
+                    action_type: "sns_resolve".into(),
+                    description: format!("{domain}.sol is not registered"),
+                    estimated_fee: "0".into(),
+                    estimated_refund: None,
+                    params: serde_json::json!({ "domain": domain }),
+                    warnings: vec![],
+                    requires_approval: false,
+                },
+                transaction: None,
+                additional_signers_required: 0,
+                execution_steps: None,
+                quote: None,
+                is_cross_chain: false,
+                data: Some(serde_json::json!({
+                    "domain": format!("{domain}.sol"),
+                    "owner": serde_json::Value::Null,
+                    "registered": false,
+                })),
+            });
+        }
+        Err(e) => return Err(e),
+    };
     let domain_pubkey = domain_key(&domain);
 
     Ok(BuildResponse {

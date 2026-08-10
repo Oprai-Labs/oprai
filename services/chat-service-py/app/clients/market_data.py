@@ -1886,6 +1886,10 @@ async def sns_resolve(domain: str) -> dict:
         owner = (data or {}).get("owner") if isinstance(data, dict) else None
         if isinstance(owner, str) and 32 <= len(owner.strip()) <= 44:
             return {"domain": f"{d}.sol", "owner": owner.strip(), "registered": True}
+        # An explicit `registered: false` is the chain's answer, not a failure.
+        if isinstance(data, dict) and data.get("registered") is False:
+            return {"domain": f"{d}.sol", "owner": None, "registered": False,
+                    "note": "Domain not found or not registered"}
     except Exception:
         # Distinguishing "not registered" from "could not ask" matters — the
         # caller prints one of them to the user.
