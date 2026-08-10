@@ -647,6 +647,62 @@ pub async fn solana_tx_from_relay_steps(
     Some(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
+/// Turn a Relay refusal into something a person can act on.
+///
+/// Relay answers in JSON — `{"message":"…","errorCode":"AMOUNT_TOO_LOW"}` —
+/// and that JSON was being pasted straight into the card. A user asking to
+/// bridge a small amount read a brace, a quoted key and an upper-case constant
+/// to learn that the amount was too small.
+///
+/// The code is the reliable part; the prose changes. So the code decides the
+/// sentence, and an unrecognised one falls back to Relay's own message rather
+/// than to its punctuation.
+fn relay_error(context: &str, body: &str) -> AppError {
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let code = parsed
+        .as_ref()
+        .and_then(|v| v.get("errorCode"))
+        .and_then(|c| c.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let message = parsed
+        .as_ref()
+        .and_then(|v| v.get("message"))
+        .and_then(|m| m.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let plain = match code.as_str() {
+        "AMOUNT_TOO_LOW" | "SWAP_QUOTE_FAILED_AMOUNT_TOO_LOW" =>
+            "That amount is too small to bridge — the fees would cost more than it is worth. Try a larger amount.".to_string(),
+        "AMOUNT_TOO_HIGH" =>
+            "That amount is larger than this route can carry right now. Try a smaller one.".to_string(),
+        "NO_SWAP_ROUTES_FOUND" | "NO_QUOTES" | "ROUTE_NOT_FOUND" =>
+            "No route between those two tokens right now. Try a different pair of chains or tokens.".to_string(),
+        "UNSUPPORTED_CHAIN" =>
+            "One of those chains is not bridgeable here.".to_string(),
+        "UNSUPPORTED_CURRENCY" | "CURRENCY_NOT_SUPPORTED" =>
+            "One of those tokens is not bridgeable on the chain you picked.".to_string(),
+        "INSUFFICIENT_LIQUIDITY" | "SOLVER_CAPACITY_EXCEEDED" | "ERROR_RENDERING_SOLVER_CAPACITY" =>
+            "Not enough liquidity for this size right now. A smaller amount usually goes through.".to_string(),
+        "INSUFFICIENT_FUNDS" =>
+            "The wallet does not hold enough of that token for this bridge.".to_string(),
+        "INVALID_ADDRESS" =>
+            "That destination address is not valid for the chain you are bridging to.".to_string(),
+        "BLOCKED_WALLET_ADDRESS" =>
+            "Relay will not route to that address.".to_string(),
+        // Ours, not theirs. Say so rather than blaming the user's request.
+        "INVALID_APP_FEE_RECIPIENT" =>
+            "Bridging is misconfigured on our side and has been reported. Nothing was signed.".to_string(),
+        _ if !message.is_empty() => message,
+        _ => format!("{context} could not be completed right now."),
+    };
+    if !code.is_empty() {
+        tracing::warn!(code = %code, body = %body.chars().take(300).collect::<String>(), "Relay refused");
+    }
+    AppError::RelayApiError(plain)
+}
+
 /// Relay's two names for SOL, and which one this wallet can actually spend.
 ///
 /// Everywhere else in OPRAI "SOL" is the wrapped mint, because that is what
@@ -824,16 +880,16 @@ pub async fn get_cross_chain_quote(
 
     if !response.status().is_success() {
         let body = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay quote failed: {}",
-            body
-        )));
+        return Err(relay_error("Relay quote failed", &body));
     }
 
     let quote: RelayQuote = response
         .json()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse quote: {}", e)))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "Relay quote did not match our model");
+            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
+        })?;
 
     Ok(quote)
 }
@@ -967,26 +1023,32 @@ pub async fn get_supported_chains(
 
     if !response.status().is_success() {
         let body = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Failed to fetch chains: {}",
-            body
-        )));
+        return Err(relay_error("Failed to fetch chains", &body));
     }
 
     // API wraps the array in { "chains": [...] } — try both formats
     let raw: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse chains: {}", e)))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "Relay chains did not match our model");
+            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
+        })?;
 
     let chains: Vec<RelayChainInfo> = if let Some(arr) =
         raw.get("chains").and_then(|v| v.as_array())
     {
         serde_json::from_value(serde_json::Value::Array(arr.clone()))
-            .map_err(|e| AppError::RelayApiError(format!("Failed to deserialize chains: {}", e)))?
+            .map_err(|e| {
+            tracing::error!(error = %e, "Relay chains did not match our model");
+            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
+        })?
     } else {
         serde_json::from_value(raw)
-            .map_err(|e| AppError::RelayApiError(format!("Failed to deserialize chains: {}", e)))?
+            .map_err(|e| {
+            tracing::error!(error = %e, "Relay chains did not match our model");
+            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
+        })?
     };
 
     Ok(chains)
@@ -1105,16 +1167,16 @@ pub async fn get_chain_tokens(
 
     if !response.status().is_success() {
         let body = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Failed to fetch tokens: {}",
-            body
-        )));
+        return Err(relay_error("Failed to fetch tokens", &body));
     }
 
     let tokens: Vec<RelayTokenInfo> = response
         .json()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse tokens: {}", e)))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "Relay tokens did not match our model");
+            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
+        })?;
 
     Ok(tokens)
 }
@@ -1309,10 +1371,7 @@ pub async fn get_relay_quote_full(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay quote failed: {}",
-            err
-        )));
+        return Err(relay_error("Relay quote failed", &err));
     }
 
     // Read the text and parse it here rather than through `.json()`: reqwest
@@ -1322,11 +1381,11 @@ pub async fn get_relay_quote_full(
     let body = response
         .text()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Relay quote unreadable: {e}")))?;
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))?;
     serde_json::from_str::<RelayQuote>(&body).map_err(|e| {
         tracing::error!(error = %e, body = %body.chars().take(600).collect::<String>(),
                         "Relay quote did not match our model");
-        AppError::RelayApiError(format!("Failed to parse relay quote: {e}"))
+        AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
     })
 }
 
@@ -1474,16 +1533,13 @@ pub async fn index_relay_transaction(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay transactions/index failed: {}",
-            err
-        )));
+        return Err(relay_error("Relay transactions/index failed", &err));
     }
 
     response
         .json::<RelayIndexTransactionResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse index response: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ── POST /transactions/single ─────────────────────────────────────────────────
@@ -1520,16 +1576,13 @@ pub async fn single_relay_transaction(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay transactions/single failed: {}",
-            err
-        )));
+        return Err(relay_error("Relay transactions/single failed", &err));
     }
 
     response
         .json::<RelaySingleTransactionResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse single response: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ── POST /app-fees/{wallet}/claim ────────────────────────────────────────────
@@ -1568,16 +1621,13 @@ pub async fn claim_app_fees(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay app-fees/claim failed: {}",
-            err
-        )));
+        return Err(relay_error("Relay app-fees/claim failed", &err));
     }
 
     response
         .json::<RelayClaimAppFeesResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse claim response: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ── GET /app-fees/{wallet}/balances ──────────────────────────────────────────
@@ -1632,16 +1682,13 @@ pub async fn get_app_fee_balances(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay app-fees/balances failed: {}",
-            err
-        )));
+        return Err(relay_error("Relay app-fees/balances failed", &err));
     }
 
     response
         .json::<RelayAppFeeBalancesResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse app-fee balances: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ── POST /fast-fill ───────────────────────────────────────────────────────────
@@ -1678,16 +1725,15 @@ pub async fn fast_fill(
     if !response.status().is_success() {
         let status = response.status();
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay fast-fill failed ({}): {}",
-            status, err
-        )));
+        tracing::warn!(%status, body = %err.chars().take(300).collect::<String>(),
+                       "Relay fast-fill refused");
+        return Err(relay_error("The fast-fill", &err));
     }
 
     response
         .json::<RelayFastFillResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse fast-fill response: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ── POST /transactions/deposit-address/reindex ───────────────────────────────
@@ -1738,16 +1784,13 @@ pub async fn reindex_deposit_address(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay deposit-address/reindex failed: {}",
-            err
-        )));
+        return Err(relay_error("Relay deposit-address/reindex failed", &err));
     }
 
     response
         .json::<RelayDepositAddressReindexResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse reindex response: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1793,16 +1836,13 @@ pub async fn get_relay_intent_status(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay intent status failed: {}",
-            err
-        )));
+        return Err(relay_error("Relay intent status failed", &err));
     }
 
     response
         .json::<RelayIntentStatus>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse intent status: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1882,17 +1922,14 @@ pub async fn execute_relay_permits(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay execute/permits failed: {}",
-            err
-        )));
+        return Err(relay_error("Relay execute/permits failed", &err));
     }
 
     response
         .json::<RelayExecutePermitsResponse>()
         .await
         .map_err(|e| {
-            AppError::RelayApiError(format!("Failed to parse execute/permits response: {}", e))
+            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
         })
 }
 
@@ -1944,16 +1981,13 @@ pub async fn get_relay_chains_liquidity(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Failed to fetch chain liquidity: {}",
-            err
-        )));
+        return Err(relay_error("Failed to fetch chain liquidity", &err));
     }
 
     response
         .json::<RelayLiquidityResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse chain liquidity: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2038,16 +2072,13 @@ pub async fn get_relay_currencies(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Failed to fetch currencies: {}",
-            err
-        )));
+        return Err(relay_error("Failed to fetch currencies", &err));
     }
 
     response
         .json::<Vec<RelayTokenInfo>>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse currencies: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2074,16 +2105,13 @@ pub async fn get_relay_token_price(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Failed to fetch token price: {}",
-            err
-        )));
+        return Err(relay_error("Failed to fetch token price", &err));
     }
 
     response
         .json::<RelayTokenPrice>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse token price: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2229,16 +2257,13 @@ pub async fn get_relay_requests(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Failed to fetch requests: {}",
-            err
-        )));
+        return Err(relay_error("Failed to fetch requests", &err));
     }
 
     response
         .json::<RelayRequestsResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse requests: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ── POST /execute ─────────────────────────────────────────────────────────────
@@ -2328,16 +2353,15 @@ pub async fn relay_execute(
     if !response.status().is_success() {
         let status = response.status();
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay execute failed ({}): {}",
-            status, err
-        )));
+        tracing::warn!(%status, body = %err.chars().take(300).collect::<String>(),
+                       "Relay execute refused");
+        return Err(relay_error("The execute", &err));
     }
 
     response
         .json::<RelayExecuteResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse execute response: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 // ── GET /swap-sources ─────────────────────────────────────────────────────────
@@ -2362,16 +2386,13 @@ pub async fn get_swap_sources(
 
     if !response.status().is_success() {
         let err = response.text().await.unwrap_or_default();
-        return Err(AppError::RelayApiError(format!(
-            "Relay swap-sources failed: {}",
-            err
-        )));
+        return Err(relay_error("Relay swap-sources failed", &err));
     }
 
     response
         .json::<RelaySwapSourcesResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError(format!("Failed to parse swap-sources: {}", e)))
+        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
 }
 
 #[cfg(test)]
