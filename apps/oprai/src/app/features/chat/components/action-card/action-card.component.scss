@@ -5891,10 +5891,10 @@
   &__row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 7px 6px;
+    gap: 12px;
+    padding: 10px 10px;
     border: none;
-    border-radius: 8px;
+    border-radius: 12px;
     background: transparent;
     cursor: pointer;
     text-align: left;
@@ -5906,13 +5906,13 @@
     position: relative;
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: 34px;
+    height: 34px;
     flex: 0 0 auto;
     border-radius: 50%;
     overflow: hidden;
     background: var(--op-bg-surface-3);
-    font-size: 0.6875rem;
+    font-size: 0.8125rem;
     font-weight: 700;
     color: var(--op-text-secondary);
 
@@ -5923,9 +5923,9 @@
   }
 
   &__text { display: flex; flex-direction: column; min-width: 0; }
-  &__sym  { font-size: 0.8125rem; font-weight: 650; color: var(--op-text-primary); }
+  &__sym  { font-size: 0.9375rem; font-weight: 650; color: var(--op-text-primary); }
   &__name {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--op-text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6133,15 +6133,18 @@
   inset: 0;
   margin: auto;
   width: calc(100% - 32px);
-  max-width: 660px;
-  max-height: calc(100vh - 64px);
+  // Wider and taller, the size Relay gives it. This is a list people read and
+  // scroll, not a confirmation — cramping it just means more scrolling to see
+  // the same names.
+  max-width: 760px;
+  max-height: min(680px, calc(100vh - 64px));
 
   &::backdrop { background: rgba(0, 0, 0, 0.6); }
 
   &__sheet {
     display: flex;
     flex-direction: column;
-    padding: 18px;
+    padding: 22px;
     border-radius: 24px;
     background: var(--op-bg-surface-1);
     border: 1px solid var(--op-border-subtle);
@@ -6156,12 +6159,12 @@
     margin-bottom: 12px;
   }
 
-  &__title { margin: 0; font-size: 1rem; font-weight: 600; }
+  &__title { margin: 0; font-size: 1.125rem; font-weight: 600; }
 
   &__body {
     display: grid;
-    grid-template-columns: 210px minmax(0, 1fr);
-    gap: 14px;
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 16px;
     min-height: 0;
   }
 
@@ -6174,19 +6177,22 @@
     flex-direction: column;
     gap: 2px;
     overflow-y: auto;
-    max-height: 320px;
+    max-height: 460px;
+    // A scrollbar you can see is a scrollbar you know to use.
+    scrollbar-width: thin;
+    scrollbar-color: var(--op-border-strong) transparent;
   }
 
   &__chain {
     display: flex;
     align-items: center;
-    gap: 9px;
-    padding: 8px 12px;
+    gap: 11px;
+    padding: 10px 12px;
     border: none;
-    border-radius: 10px;
+    border-radius: 12px;
     background: transparent;
     color: var(--op-text-secondary);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     text-align: left;
     cursor: pointer;
 
@@ -6217,8 +6223,8 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   flex: 0 0 auto;
   border-radius: 50%;
   overflow: hidden;
