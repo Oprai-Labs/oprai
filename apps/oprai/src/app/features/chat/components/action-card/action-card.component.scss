@@ -6430,10 +6430,11 @@
 
 // ─── Validator list ─────────────────────────────────────────────────────────
 //
-// The swap card's vocabulary, not a data grid's: 16px panels, 26px round
-// logos, pill controls, identity on the left and the number on the right. The
-// table this replaced held the right information in the wrong family, directly
-// under a swap-shaped amount panel.
+// Measured off the swap card's own token picker (.tp-row), not approximated:
+// 30px round logo, 0.875rem/600 name over 0.6875rem tertiary detail, 8px
+// radius, transparent row on a white sheet with a surface-2 hover. The boxed
+// 12px cards this replaces were a different component pretending to be this
+// one.
 
 .vsorts {
   display: flex;
@@ -6444,7 +6445,11 @@
 .vlist {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--op-bg-elevated);
+  border: 1px solid var(--op-border-subtle);
 }
 
 .vrow {
@@ -6452,53 +6457,52 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 9px 12px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  background: var(--op-bg-elevated);
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.12s, background 0.12s;
+  transition: background var(--op-fast);
 
-  &:hover { border-color: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 45%, var(--op-border-subtle)); }
+  &:hover { background: var(--op-bg-surface-2); }
+  &--on { background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 10%, transparent); }
 
-  &--on {
-    border-color: var(--proto-accent, var(--op-brand));
-    background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 8%, var(--op-bg-elevated));
-  }
-
-  // Same 26px circle the swap card's token chip uses.
   &__icon {
     position: relative;
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
     border-radius: 50%;
     overflow: hidden;
-    background: var(--op-bg-surface-3);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 
     img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   }
 
-  &__letter { font-size: 0.6875rem; font-weight: 700; color: var(--op-text-secondary); }
-
-  &__text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
+  // White on the derived gradient, so a validator with no logo still has a
+  // mark of its own rather than the same grey circle as every other one.
+  &__letter {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #fff;
   }
 
-  // 0.8125rem/600 primary over 0.6875rem tertiary — the swap panel's own pair
-  // of type sizes.
+  &__text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+  }
+
   &__name {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--op-text-primary);
     white-space: nowrap;
@@ -6518,6 +6522,7 @@
   &__dot { margin: 0 4px; opacity: 0.6; }
 
   &__tag {
+    flex: 0 0 auto;
     padding: 1px 6px;
     border-radius: 999px;
     font-size: 0.625rem;
@@ -6527,28 +6532,26 @@
     color: var(--proto-accent, var(--op-brand));
   }
 
-  // The number the choice is made on, given the weight the swap card gives its
-  // receive amount.
+  // The right-hand column of .tp-row: the number, with its unit under it.
   &__apy {
+    margin-left: auto;
+    padding-left: 10px;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
     gap: 1px;
-    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   &__apy-v {
-    font-size: 0.9375rem;
-    font-weight: 700;
+    font-size: 0.875rem;
+    font-weight: 600;
     color: var(--op-gain);
-    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
   }
 
   &__apy-k {
-    font-size: 0.5625rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: 0.625rem;
     color: var(--op-text-tertiary);
   }
 }

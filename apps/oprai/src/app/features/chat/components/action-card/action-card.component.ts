@@ -1636,6 +1636,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return this.sortedValidators().slice(start, start + per);
   });
 
+  /**
+   * A mark for a validator that has no logo.
+   *
+   * A fifth of them publish none, and a grey circle with a letter made those
+   * rows look broken next to the ones that do — the same grey, over and over,
+   * reading as a failed image rather than a deliberate absence. Derived from
+   * the vote account, so it is stable per validator and distinct between them.
+   */
+  validatorHue(voteAccount: string): number {
+    let h = 0;
+    for (let i = 0; i < voteAccount.length; i++) h = (h * 31 + voteAccount.charCodeAt(i)) % 360;
+    return h;
+  }
+
   stepValidatorPage(delta: number): void {
     const next = this.validatorPage() + delta;
     if (next < 0 || next >= this.validatorPageCount()) return;

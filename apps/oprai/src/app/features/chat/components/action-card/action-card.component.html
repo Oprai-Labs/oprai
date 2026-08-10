@@ -4240,8 +4240,9 @@
                 <button type="button" class="vrow"
                         [class.vrow--on]="getEditParam('validatorVoteAccount') === v.voteAccount"
                         (click)="selectValidator(v.voteAccount)">
-                  <span class="vrow__icon">
-                    <span class="vrow__letter">{{ (v.name || v.voteAccount).charAt(0) }}</span>
+                  <span class="vrow__icon"
+                        [style.background]="'linear-gradient(135deg, hsl(' + validatorHue(v.voteAccount) + ' 62% 58%), hsl(' + ((validatorHue(v.voteAccount) + 40) % 360) + ' 62% 46%))'">
+                    <span class="vrow__letter">{{ (v.name || v.voteAccount).charAt(0).toUpperCase() }}</span>
                     @if (v.icon) {
                       <img [src]="v.icon" [alt]="v.name || 'validator'"
                            (load)="$any($event.target).parentElement.classList.add('has-img')"
