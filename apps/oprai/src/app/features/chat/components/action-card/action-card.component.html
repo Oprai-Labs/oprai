@@ -3611,6 +3611,19 @@
                 } @else if (relayQuoteError()) {
                   <!-- Angular does not carry an `as` alias into @else if. -->
                   <div class="relay-out__err">{{ relayQuoteError() }}</div>
+                } @else if (relayDestinationIsEvm() && !relayRecipientReady()) {
+                  <!-- The wallet is the missing input, so ask for it here,
+                       where the answer is missing — not as an error after. -->
+                  <div class="relay-out__connect">
+                    <span class="relay-out__idle">{{ relayChainName(getEditParam('destinationChainId')) }} needs a wallet to land in.</span>
+                    <button type="button" class="proto-btn-confirm relay-out__connect-btn"
+                            [disabled]="!isEditable() || evmConnecting()"
+                            (click)="connectEvmWallet('recipient')">
+                      <lucide-icon name="wallet" [size]="13" />
+                      {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
+                    </button>
+                    @if (evmError(); as e) { <span class="relay-out__err">{{ e }}</span> }
+                  </div>
                 } @else {
                   <div class="relay-out__idle">Pick both chains, both tokens and an amount for a live quote.</div>
                 }

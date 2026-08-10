@@ -2738,8 +2738,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (key === this.relayQuoteKey) return;
     this.relayQuoteKey = key;
 
+    // A quote without a recipient the destination can receive on is a question
+    // we already know the answer to. Asking it anyway produced a red API error
+    // for a wallet the user simply had not connected yet — a prompt dressed as
+    // a fault. The panel asks for the wallet instead.
     const ready = p['originChainId'] && p['destinationChainId'] && p['originCurrency']
-      && p['destinationCurrency'] && Number(p['amount']) > 0;
+      && p['destinationCurrency'] && Number(p['amount']) > 0
+      && this.relayRecipientReady();
     if (!ready) { this.relayQuote.set(null); this.relayQuoteError.set(null); return; }
 
     if (this.relayQuoteTimer) clearTimeout(this.relayQuoteTimer);

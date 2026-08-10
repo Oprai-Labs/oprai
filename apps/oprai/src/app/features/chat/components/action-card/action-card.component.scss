@@ -5854,3 +5854,13 @@
     &:hover:not(:disabled) { color: var(--op-text-secondary); }
   }
 }
+
+// Asked where the answer is missing.
+.relay-out__connect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+
+  &-btn { flex: 0 0 auto; }
+}
