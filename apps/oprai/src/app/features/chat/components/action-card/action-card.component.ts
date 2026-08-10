@@ -2712,6 +2712,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** What the bridge would actually deliver, refreshed as the inputs change. */
   readonly relayQuote = signal<{
     out: string; outSymbol: string; inSymbol: string;
+    inUsd: string | null; outUsd: string | null;
     feeUsd: string | null; seconds: number | null; impact: string | null;
     // The quote already carries both tokens in full — symbol, name and logo.
     // Resolving an EVM token any other way means a second source that only
@@ -2777,8 +2778,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         name: c.name ?? '',
         logo: c.metadata?.logoURI ?? c.metadata?.logoUri ?? c.logoURI ?? null,
       } : null;
+      const usd = (v: unknown): string | null => {
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? (n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`) : null;
+      };
       this.relayQuote.set({
-        out: String(Number(outAmt).toFixed(6)).replace(/0+$/, '').replace(/\.$/, ''),
+        out: this.relayAmountText(outAmt),
+        inUsd: usd(d?.currencyIn?.amountUsd),
+        outUsd: usd(d?.currencyOut?.amountUsd),
         outSymbol: d?.currencyOut?.currency?.symbol ?? '',
         inSymbol: d?.currencyIn?.currency?.symbol ?? '',
         feeUsd: resp?.preview?.estimatedFee ?? null,
@@ -2987,6 +2994,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   relaySetSlippageAuto(auto: boolean): void {
     this.setEditParam('slippageTolerance', auto ? '' : '50');
     this.relayMaybeQuote();
+  }
+
+  /**
+   * An amount at the size it actually is.
+   *
+   * Six decimal places is fine for a stablecoin and useless for BTC: bridging
+   * 0.001 SOL into cbBTC printed "0", which reads as a broken quote rather
+   * than a small number. Significant digits keep the leading zeros and stop
+   * where the number does.
+   */
+  relayAmountText(raw: unknown): string {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n === 0) return '0';
+    if (n >= 1) return n.toFixed(4).replace(/\.?0+$/, '');
+    // toPrecision keeps four meaningful figures however small the number is;
+    // toFixed would have thrown them all away.
+    return Number(n.toPrecision(4)).toFixed(12).replace(/0+$/, '').replace(/\.$/, '');
   }
 
   /** A chain's name, for a card that should not print ids at people. */

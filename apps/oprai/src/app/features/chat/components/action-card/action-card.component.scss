@@ -6045,6 +6045,7 @@
   }
 
   &__icon {
+    position: relative;
     display: grid;
     place-items: center;
     width: 28px;
@@ -6056,9 +6057,26 @@
     font-weight: 700;
     font-size: 0.75rem;
 
-    img { width: 100%; height: 100%; object-fit: contain; }
+    img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
   }
+
+  &__icon-letter { color: var(--op-text-secondary); }
 
   &__name { flex: 1 1 auto; }
   &__go   { color: var(--op-text-tertiary); }
+}
+
+// What the figure is worth, under the figure. A bridge quoted in cbBTC is
+// eight leading zeros; the dollar line is the one both sides can be compared on.
+.relay-quote__usd {
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--op-text-secondary);
+  font-variant-numeric: tabular-nums;
 }

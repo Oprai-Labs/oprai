@@ -3562,6 +3562,9 @@
                     </span>
                   }
                 </div>
+                @if (relayQuote()?.inUsd; as usd) {
+                  <div class="relay-quote__usd">{{ usd }}</div>
+                }
               </div>
 
               <div class="relay-quote__arrow"><lucide-icon name="arrow-down" [size]="14" /></div>
@@ -3603,6 +3606,9 @@
                       <span class="relay-out__slip-k">bps</span>
                     }
                   </div>
+                  @if (q.outUsd; as usd) {
+                    <div class="relay-quote__usd">{{ usd }}</div>
+                  }
                   @if (getEditParam('recipient'); as to) {
                     <div class="relay-out__to">
                       <lucide-icon name="check" [size]="11" class="relay-out__to-ok" />
@@ -4801,10 +4807,15 @@
     <div class="wallet-dialog__list">
       @for (w of evmWallets(); track w.id) {
         <button type="button" class="wallet-dialog__row" (click)="useEvmWallet(w.id, 'recipient')">
+          <!-- The letter sits BEHIND the icon rather than in an @else: an
+               image that fails hides itself, and the @else has already been
+               skipped, so a wallet with a broken icon showed an empty square.
+               Same trap as the NFT art. -->
           <span class="wallet-dialog__icon">
+            <span class="wallet-dialog__icon-letter">{{ w.name.charAt(0) }}</span>
             @if (w.icon) {
               <img [src]="w.icon" [alt]="w.name" (error)="$any($event.target).style.display='none'" />
-            } @else { {{ w.name.charAt(0) }} }
+            }
           </span>
           <span class="wallet-dialog__name">{{ w.name }}</span>
           <lucide-icon name="chevron-right" [size]="14" class="wallet-dialog__go" />
