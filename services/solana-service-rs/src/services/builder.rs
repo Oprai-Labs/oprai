@@ -5791,7 +5791,19 @@ async fn build_action_inner(
             })
         }
         "relay_bridge" => {
-            let p: relay::RelayBridgeParams = serde_json::from_value(params)?;
+            let mut p: relay::RelayBridgeParams = serde_json::from_value(params)?;
+            // "SOL" means the wrapped mint everywhere else in OPRAI, because
+            // that is what Jupiter swaps. Relay distinguishes it from the
+            // native asset, so a bridge built on wrapped SOL failed at
+            // simulation for a wallet holding native — reported as "not enough
+            // balance" for an amount the user plainly had.
+            p.origin_currency = relay::resolve_solana_origin_currency(
+                rpc,
+                user_pubkey,
+                p.origin_chain_id,
+                &p.origin_currency,
+            )
+            .await;
             let result =
                 relay::relay_bridge(http, &user_pubkey.to_string(), &p, relay_fee_recipient)
                     .await?;
@@ -6239,7 +6251,14 @@ async fn build_action_inner(
         }
         // ── Relay.link — query actions ────────────────────────────────────────
         "relay_get_quote" => {
-            let p: relay::RelayBridgeParams = serde_json::from_value(params)?;
+            let mut p: relay::RelayBridgeParams = serde_json::from_value(params)?;
+            p.origin_currency = relay::resolve_solana_origin_currency(
+                rpc,
+                user_pubkey,
+                p.origin_chain_id,
+                &p.origin_currency,
+            )
+            .await;
             let quote = relay::get_relay_quote_full(
                 http,
                 &p,

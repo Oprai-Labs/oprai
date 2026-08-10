@@ -647,6 +647,54 @@ pub async fn solana_tx_from_relay_steps(
     Some(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
+/// Relay's two names for SOL, and which one this wallet can actually spend.
+///
+/// Everywhere else in OPRAI "SOL" is the wrapped mint, because that is what
+/// Jupiter swaps. Relay distinguishes: `So111…112` is the SPL token and
+/// `1111…1111` is the native asset. Bridging built the route around wrapped
+/// SOL, the wallet holds native, and the transaction failed at simulation with
+/// "not enough balance" — for an amount the user plainly had.
+///
+/// So the balance decides, rather than a guess in either direction: if the
+/// wrapped account cannot cover it and the native one can, the bridge is built
+/// on native. A wallet that really does hold wrapped SOL keeps using it.
+pub async fn resolve_solana_origin_currency(
+    rpc: &SolanaRpc,
+    user: &Pubkey,
+    chain_id: u64,
+    currency: &str,
+) -> String {
+    const WRAPPED_SOL: &str = "So11111111111111111111111111111111111111112";
+    const NATIVE_SOL: &str = "11111111111111111111111111111111";
+    if canonical_chain_id(chain_id) != chain_id::SOLANA || currency != WRAPPED_SOL {
+        return currency.to_string();
+    }
+
+    let owner = *user;
+    let rpc = rpc.clone();
+    let wrapped_balance = tokio::task::spawn_blocking(move || {
+        let mint: Pubkey = WRAPPED_SOL.parse().ok()?;
+        let ata = spl_associated_token_account::get_associated_token_address(&owner, &mint);
+        rpc.client()
+            .get_token_account_balance(&ata)
+            .ok()
+            .and_then(|b| b.amount.parse::<u64>().ok())
+    })
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(0);
+
+    // Any wrapped balance at all means the user deliberately holds wSOL and
+    // the route should use it; none means they meant the SOL they can see.
+    if wrapped_balance > 0 {
+        currency.to_string()
+    } else {
+        tracing::info!("bridging native SOL: this wallet holds no wrapped SOL");
+        NATIVE_SOL.to_string()
+    }
+}
+
 /// Relay's own id for a chain, given whatever id reached us.
 ///
 /// 900 was our constant for Solana for a long time, so it is in prompts, in
@@ -1185,6 +1233,7 @@ pub async fn get_relay_quote_full(
     let scaled_amount =
         to_base_units(http, params.origin_chain_id, &params.origin_currency, &params.amount)
             .await?;
+
 
     let mut body = serde_json::json!({
         "user": user_address,
