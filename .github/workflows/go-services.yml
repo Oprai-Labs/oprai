@@ -100,13 +100,18 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Docker image
+      # Not pushed. Production builds every service on the server from the
+      # rsynced source — nothing pulls ghcr.io/oprai-labs — so this step
+      # published images no deploy has ever used, and failed while doing it.
+      # Building still proves the Dockerfile works, which is the part worth
+      # keeping.
+      - name: Build Docker image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: services/${{ matrix.service }}
           file: services/${{ matrix.service }}/Dockerfile
-          push: true
+          push: false
           tags: |
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
