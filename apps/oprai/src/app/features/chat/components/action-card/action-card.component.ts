@@ -515,6 +515,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   'magic-eden': { name: 'Magic Eden', icon: 'assets/icons/protocols/magiceden.webp', accent: '#E42575', accentBg: 'rgba(228,37,117,0.12)' },
   streamflow:{ name: 'Streamflow', icon: 'assets/icons/protocols/streamflow.svg', accent: '#00D4FF', accentBg: 'rgba(0,212,255,0.12)' },
   pumpfun:   { name: 'pump.fun',   icon: 'assets/icons/protocols/pumpfun.png',    accent: '#AD6DFF', accentBg: 'rgba(173,109,255,0.12)' },
+  relay:     { name: 'Relay',      icon: 'assets/icons/protocols/relay.png',      accent: '#7C3AED', accentBg: 'rgba(124,58,237,0.12)' },
   default:   { name: 'Solana',     icon: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
@@ -523,6 +524,9 @@ function getProtocolKey(action: ParsedAction): string {
   if (p && PROTOCOL_CONFIGS[p]) return p;
   const t = action.type;
   // Jupiter surface: swaps, limit/DCA (incl. cancels), perpetuals, JLP — all Jupiter products.
+  // A bridge is Relay's, and said Solana with Solana's mark until now.
+  if (t === 'relay_bridge' || t === 'bridge' || t === 'cross_chain_swap') return 'relay';
+  if (t.startsWith('relay_')) return 'relay';
   if (t === 'swap' || t === 'limit_order' || t === 'dca') return 'jupiter';
   if (t === 'cancel_dca' || t === 'cancel_limit_order' || t === 'cancel_all_limit_orders') return 'jupiter';
   if (t === 'perp_open' || t === 'perp_close' || t === 'jlp_add' || t === 'jlp_remove') return 'jupiter';
@@ -1523,11 +1527,10 @@ function getActionFields(
     // Chains are chosen by name, not by number. The old form asked for a
     // "Source Chain ID" and suggested 900 for Solana — a value Relay has never
     // used, so following the placeholder produced a bridge from nowhere.
+    // Nothing below the panel. Chain and token are chosen on the side they
+    // belong to, in the picker, the way every bridge does it — a second copy
+    // underneath is one more place for the two to disagree.
     fields.push(
-      { key: 'originChainId', label: 'From chain', type: 'select', options: RELAY_CHAINS, required: true, half: true },
-      { key: 'destinationChainId', label: 'To chain', type: 'select', options: RELAY_CHAINS, required: true, half: true },
-      { key: 'originCurrency', label: 'From token', type: 'token', required: true },
-      { key: 'destinationCurrency', label: 'To token', type: 'token', required: true },
       // No `amount` row: the send panel above owns it, the way the swap card
       // owns its own. Two boxes for one number is two places to disagree.
       // Slippage is Auto unless someone says otherwise — Relay picks a
@@ -2907,6 +2910,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // list covers every chain it bridges, which is the one source that can
   // answer "what can I receive on Base".
 
+  @ViewChild('tokenDialog') tokenDialog?: ElementRef<HTMLDialogElement>;
+  readonly relayChainQuery = signal('');
+  /** The chain being browsed inside the picker, which is not committed until
+   *  a token on it is chosen — picking a chain and closing should change
+   *  nothing. */
+  readonly relayPickerChain = signal('');
+
+  relayFilteredChains(): Array<{ label: string; value: string }> {
+    const q = this.relayChainQuery().trim().toLowerCase();
+    return q ? RELAY_CHAINS.filter(c => c.label.toLowerCase().includes(q)) : RELAY_CHAINS;
+  }
+
+  selectRelayPickerChain(value: string): void {
+    this.relayPickerChain.set(value);
+    this.relayPickerRows.set([]);
+    void this.relaySearchTokens(this.relayPickerQuery());
+  }
+
   readonly relayPickerFor = signal<string | null>(null);
   readonly relayPickerQuery = signal('');
   readonly relayPickerRows = signal<Array<{ address: string; symbol: string; name: string; logo: string | null }>>([]);
@@ -2915,11 +2936,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   openRelayPicker(key: string): void {
     if (!this.isRelayBridge() || !this.isEditable()) return;
-    if (this.relayPickerFor() === key) { this.relayPickerFor.set(null); return; }
     this.relayPickerFor.set(key);
     this.relayPickerQuery.set('');
+    this.relayChainQuery.set('');
     this.relayPickerRows.set([]);
+    this.relayPickerChain.set(this.relayCanonicalChain(
+      this.getEditParam(key === 'originCurrency' ? 'originChainId' : 'destinationChainId'),
+    ) || String(RELAY_SOLANA_CHAIN_ID));
     void this.relaySearchTokens('');
+    queueMicrotask(() => this.tokenDialog?.nativeElement?.showModal?.());
+  }
+
+  closeRelayPicker(): void {
+    this.relayPickerFor.set(null);
+    this.tokenDialog?.nativeElement?.close?.();
   }
 
   onRelayPickerQuery(term: string): void {
@@ -2931,9 +2961,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private async relaySearchTokens(term: string): Promise<void> {
     const key = this.relayPickerFor();
     if (!key) return;
-    const chain = this.relayCanonicalChain(
-      this.getEditParam(key === 'originCurrency' ? 'originChainId' : 'destinationChainId'),
-    );
+    const chain = this.relayPickerChain();
     if (!chain) return;
     this.relayPickerLoading.set(true);
     try {
@@ -2966,15 +2994,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   chooseRelayToken(key: string, row: { address: string; symbol: string; name: string; logo: string | null }): void {
+    // The chain comes with the token: they were chosen together, and a token
+    // address only means anything on the chain it was listed for.
+    const chain = this.relayPickerChain();
+    const chainKey = key === 'originCurrency' ? 'originChainId' : 'destinationChainId';
+    if (chain && this.getEditParam(chainKey) !== chain) this.setEditParam(chainKey, chain);
     this.setEditParam(key, row.address);
-    // Seed the cache so the row renders named before any lookup or quote.
-    const chain = this.relayCanonicalChain(
-      this.getEditParam(key === 'originCurrency' ? 'originChainId' : 'destinationChainId'),
-    );
     this.relayTokenCache.update(m => new Map(m).set(`${chain}|${row.address.toLowerCase()}`, {
       symbol: row.symbol, name: row.name, logoURI: row.logo,
     }));
-    this.relayPickerFor.set(null);
+    this.closeRelayPicker();
     this.relayMaybeQuote();
   }
 

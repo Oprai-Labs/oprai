@@ -3552,15 +3552,25 @@
                          [value]="getEditParam('amount')"
                          [disabled]="!isEditable()"
                          (input)="setEditParam('amount', $any($event.target).value); relayMaybeQuote()" />
-                  @if (relayQuote()?.inToken; as t) {
-                    <span class="pump-token">
-                      @if (t.logo) {
-                        <img [src]="t.logo" class="pump-token__icon" alt=""
-                             (error)="$any($event.target).style.display='none'" />
-                      }
-                      <span class="pump-token__sym">{{ t.symbol }}</span>
-                    </span>
-                  }
+                  <button type="button" class="relay-side" [disabled]="!isEditable()"
+                          (click)="openRelayPicker('originCurrency')">
+                    @if (relayTokenDisplay('originCurrency'); as t) {
+                      <span class="relay-side__icon">
+                        <span class="relay-side__letter">{{ t.symbol.charAt(0) }}</span>
+                        @if (t.logoURI) {
+                          <img [src]="t.logoURI" [alt]="t.symbol"
+                               (error)="$any($event.target).style.display='none'" />
+                        }
+                      </span>
+                      <span class="relay-side__text">
+                        <span class="relay-side__sym">{{ t.symbol }}</span>
+                        <span class="relay-side__chain">{{ relayChainName(getEditParam('originChainId')) }}</span>
+                      </span>
+                    } @else {
+                      <span class="relay-side__text"><span class="relay-side__sym">Select token</span></span>
+                    }
+                    <lucide-icon name="chevron-right" [size]="14" class="relay-side__caret" />
+                  </button>
                 </div>
                 @if (relayQuote()?.inUsd; as usd) {
                   <div class="relay-quote__usd">{{ usd }}</div>
@@ -3578,15 +3588,25 @@
                 @if (relayQuote(); as q) {
                   <div class="relay-quote__row">
                     <span class="relay-quote__amount mono">{{ q.out }}</span>
-                    @if (q.outToken; as t) {
-                      <span class="pump-token">
-                        @if (t.logo) {
-                          <img [src]="t.logo" class="pump-token__icon" alt=""
-                               (error)="$any($event.target).style.display='none'" />
-                        }
-                        <span class="pump-token__sym">{{ t.symbol }}</span>
-                      </span>
-                    }
+                    <button type="button" class="relay-side" [disabled]="!isEditable()"
+                            (click)="openRelayPicker('destinationCurrency')">
+                      @if (relayTokenDisplay('destinationCurrency'); as t) {
+                        <span class="relay-side__icon">
+                          <span class="relay-side__letter">{{ t.symbol.charAt(0) }}</span>
+                          @if (t.logoURI) {
+                            <img [src]="t.logoURI" [alt]="t.symbol"
+                                 (error)="$any($event.target).style.display='none'" />
+                          }
+                        </span>
+                        <span class="relay-side__text">
+                          <span class="relay-side__sym">{{ t.symbol }}</span>
+                          <span class="relay-side__chain">{{ relayChainName(getEditParam('destinationChainId')) }}</span>
+                        </span>
+                      } @else {
+                        <span class="relay-side__text"><span class="relay-side__sym">Select token</span></span>
+                      }
+                      <lucide-icon name="chevron-right" [size]="14" class="relay-side__caret" />
+                    </button>
                   </div>
                   <div class="relay-out__slip">
                     <span class="relay-out__slip-k">Slippage</span>
@@ -3626,6 +3646,28 @@
                 } @else if (relayQuoteError()) {
                   <!-- Angular does not carry an `as` alias into @else if. -->
                   <div class="relay-out__err">{{ relayQuoteError() }}</div>
+                  <div class="relay-quote__row relay-quote__row--empty">
+                    <span class="relay-quote__amount mono">—</span>
+                    <button type="button" class="relay-side" [disabled]="!isEditable()"
+                            (click)="openRelayPicker('destinationCurrency')">
+                      @if (relayTokenDisplay('destinationCurrency'); as t) {
+                        <span class="relay-side__icon">
+                          <span class="relay-side__letter">{{ t.symbol.charAt(0) }}</span>
+                          @if (t.logoURI) {
+                            <img [src]="t.logoURI" [alt]="t.symbol"
+                                 (error)="$any($event.target).style.display='none'" />
+                          }
+                        </span>
+                        <span class="relay-side__text">
+                          <span class="relay-side__sym">{{ t.symbol }}</span>
+                          <span class="relay-side__chain">{{ relayChainName(getEditParam('destinationChainId')) }}</span>
+                        </span>
+                      } @else {
+                        <span class="relay-side__text"><span class="relay-side__sym">Select token</span></span>
+                      }
+                      <lucide-icon name="chevron-right" [size]="14" class="relay-side__caret" />
+                    </button>
+                  </div>
                 } @else if (relayDestinationIsEvm() && !relayRecipientReady()) {
                   <!-- The wallet is the missing input, so ask for it here,
                        where the answer is missing — not as an error after. -->
@@ -3897,36 +3939,6 @@
                       </div>
                       <lucide-icon name="chevron-down" [size]="14" class="proto-token-chip__caret" />
                     </button>
-                  }
-                  @if (isBridgeSide && relayPickerFor() === field.key) {
-                    <div class="relay-picker">
-                      <input class="proto-input relay-picker__search" type="text"
-                             placeholder="Search by name, symbol or paste an address"
-                             [value]="relayPickerQuery()"
-                             (input)="onRelayPickerQuery($any($event.target).value)" />
-                      @if (relayPickerLoading()) {
-                        <div class="relay-picker__note">Searching…</div>
-                      } @else if (!relayPickerRows().length) {
-                        <div class="relay-picker__note">Nothing on this chain by that name.</div>
-                      }
-                      <div class="relay-picker__list">
-                        @for (r of relayPickerRows(); track r.address) {
-                          <button type="button" class="relay-picker__row"
-                                  (click)="chooseRelayToken(field.key, r)">
-                            <span class="relay-picker__icon">
-                              @if (r.logo) {
-                                <img [src]="r.logo" [alt]="r.symbol"
-                                     (error)="$any($event.target).style.display='none'" />
-                              } @else { {{ r.symbol.charAt(0) }} }
-                            </span>
-                            <span class="relay-picker__text">
-                              <span class="relay-picker__sym">{{ r.symbol }}</span>
-                              <span class="relay-picker__name">{{ r.name }}</span>
-                            </span>
-                          </button>
-                        }
-                      </div>
-                    </div>
                   }
                   @if (getEditParam(field.key); as raw) {
                     <!-- A bridge's tokens come from the quote: the registry
@@ -4824,3 +4836,63 @@
     </div>
   </div>
 </dialog>
+
+<!-- Select Token: the chain and the token chosen together, because an address
+     only means a token on one chain. Committed on the token, so browsing
+     chains and closing changes nothing. -->
+<dialog #tokenDialog class="token-dialog" (close)="relayPickerFor.set(null)"
+        (click)="$event.target === tokenDialog ? closeRelayPicker() : null">
+  <div class="token-dialog__sheet">
+    <div class="token-dialog__head">
+      <h2 class="token-dialog__title">Select token</h2>
+      <button type="button" class="wallet-dialog__close" (click)="closeRelayPicker()" aria-label="Close">
+        <lucide-icon name="x" [size]="16" />
+      </button>
+    </div>
+
+    <div class="token-dialog__body">
+      <div class="token-dialog__chains">
+        <input class="proto-input token-dialog__search" type="text" placeholder="Search chains"
+               [value]="relayChainQuery()"
+               (input)="relayChainQuery.set($any($event.target).value)" />
+        <div class="token-dialog__chain-list">
+          @for (c of relayFilteredChains(); track c.value) {
+            <button type="button" class="token-dialog__chain"
+                    [class.is-on]="relayPickerChain() === c.value"
+                    (click)="selectRelayPickerChain(c.value)">{{ c.label }}</button>
+          }
+        </div>
+      </div>
+
+      <div class="token-dialog__tokens">
+        <input class="proto-input token-dialog__search" type="text"
+               placeholder="Search for a token or paste an address"
+               [value]="relayPickerQuery()"
+               (input)="onRelayPickerQuery($any($event.target).value)" />
+        @if (relayPickerLoading()) {
+          <div class="relay-picker__note">Searching…</div>
+        } @else if (!relayPickerRows().length) {
+          <div class="relay-picker__note">Nothing on {{ relayChainName(relayPickerChain()) }} by that name.</div>
+        }
+        <div class="token-dialog__token-list">
+          @for (r of relayPickerRows(); track r.address) {
+            <button type="button" class="relay-picker__row"
+                    (click)="chooseRelayToken(relayPickerFor() ?? 'originCurrency', r)">
+              <span class="relay-picker__icon">
+                <span class="relay-side__letter">{{ r.symbol.charAt(0) }}</span>
+                @if (r.logo) {
+                  <img [src]="r.logo" [alt]="r.symbol" (error)="$any($event.target).style.display='none'" />
+                }
+              </span>
+              <span class="relay-picker__text">
+                <span class="relay-picker__sym">{{ r.symbol }}</span>
+                <span class="relay-picker__name">{{ r.name }}</span>
+              </span>
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
+
