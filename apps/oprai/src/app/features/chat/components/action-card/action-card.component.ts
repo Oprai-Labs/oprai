@@ -34,6 +34,7 @@ import { AppVersionService } from '@core/services/app-version.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
 import { firstValueFrom, timeout } from 'rxjs';
 import { createSolanaConnection } from '@core/utils/solana-connection';
+import { PublicKey } from '@solana/web3.js';
 import { sanitizeErrorMessage, ACTION_MIN_AMOUNT } from '@core/utils/error-messages';
 
 const ACTION_RESULTS_KEY = 'oprai-action-results';
@@ -521,8 +522,12 @@ function getActionFields(
   // ── burn / close_accounts ────────────────────────────────────────────────
   } else if (t === 'burn') {
     fields.push(
-      { key: 'mint', label: 'Token Mint', type: 'address', placeholder: 'Mint address, "dust", or "empty_accounts"', required: true },
-      { key: 'amount', label: 'Amount', type: 'text', placeholder: 'all', hint: '"all" burns entire balance; "dust" burns all dust' },
+      // A token chip, not an address box. Burning is irreversible and the card
+      // showed the one thing that cannot be checked by eye — a base58 mint —
+      // instead of the token's name and icon. The chip is pickable, so the
+      // token can be changed without retyping a mint.
+      { key: 'mint', label: 'Token', type: 'token', required: true },
+      { key: 'amount', label: 'Amount', type: 'text', placeholder: 'all', hint: '"all" burns the entire balance' },
     );
   } else if (t === 'close_accounts') {
     // no required params — closes all empty token accounts
@@ -1630,6 +1635,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // learn the wallet could not cover the stake was to sign and find out.
     if (/^native_stake(_split)?$/.test(this.action?.type ?? '')) return this.SOL_MINT;
 
+    // Burn spends the token it names, and had no balance line at all — so the
+    // card could not say how much was about to be destroyed, only that it
+    // would be.
+    if (this.action?.type === 'burn') return (p['mint'] ?? '').trim();
+
     // Bridging out of Solana spends a Solana token like any other card, so it
     // gets the same balance line. Relay's native SOL is its own address; the
     // wallet reads it under the wrapped mint.
@@ -2336,6 +2346,77 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   needsEvmRecipient(key: string): boolean {
     return key === 'recipient' && this.isRelayBridge() && this.relayDestinationIsEvm();
+  }
+
+  // ── Transfer: who is actually receiving this ─────────────────────────────
+  //
+  // The recipient was a raw base58 box. The backend resolves `.sol` names, but
+  // only at build time — so a user typed a name and found out whether it meant
+  // anything after committing to the transaction. And nothing distinguished an
+  // address that has never been seen on chain from one that has, which is the
+  // difference between a typo and a wallet.
+
+  readonly isTransfer = computed(() => this.action?.type === 'transfer');
+
+  readonly recipientState = signal<
+    | { kind: 'idle' }
+    | { kind: 'checking' }
+    | { kind: 'domain'; owner: string }
+    | { kind: 'wallet'; funded: boolean }
+    | { kind: 'self' }
+    | { kind: 'invalid' }
+  >({ kind: 'idle' });
+
+  private recipientTimer?: ReturnType<typeof setTimeout>;
+  private recipientKey = '';
+
+  /** Debounced, because it runs on every keystroke of an address. */
+  recipientMaybeCheck(): void {
+    if (!this.isTransfer()) return;
+    const raw = this.getEditParam('to').trim();
+    if (raw === this.recipientKey) return;
+    this.recipientKey = raw;
+    if (this.recipientTimer) clearTimeout(this.recipientTimer);
+    if (!raw) { this.recipientState.set({ kind: 'idle' }); return; }
+    this.recipientTimer = setTimeout(() => void this.recipientCheckNow(raw), 400);
+  }
+
+  private async recipientCheckNow(raw: string): Promise<void> {
+    this.recipientState.set({ kind: 'checking' });
+
+    if (/\.sol$/i.test(raw)) {
+      try {
+        const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+          type: 'sns_resolve', params: { domain: raw.replace(/\.sol$/i, '') },
+        }));
+        const owner = resp?.data?.owner ?? resp?.data ?? resp?.preview?.params?.owner;
+        if (typeof owner === 'string' && owner.length >= 32) {
+          this.recipientState.set({ kind: 'domain', owner });
+          return;
+        }
+      } catch { /* fall through to "invalid" — an unregistered name is a typo */ }
+      this.recipientState.set({ kind: 'invalid' });
+      return;
+    }
+
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw)) {
+      this.recipientState.set({ kind: 'invalid' });
+      return;
+    }
+    if (raw === this.walletService.publicKey()) {
+      this.recipientState.set({ kind: 'self' });
+      return;
+    }
+
+    // Funded or not decides whether the transfer also pays account rent, which
+    // is the one cost a sender does not expect.
+    try {
+      const conn = createSolanaConnection('confirmed');
+      const info = await conn.getAccountInfo(new PublicKey(raw));
+      this.recipientState.set({ kind: 'wallet', funded: !!info && info.lamports > 0 });
+    } catch {
+      this.recipientState.set({ kind: 'wallet', funded: true });
+    }
   }
 
   /** True on the bridge, which gets its own panel rather than a field list. */

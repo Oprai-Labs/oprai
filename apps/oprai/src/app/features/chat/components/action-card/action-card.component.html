@@ -112,9 +112,17 @@
             <button class="pf-opt" [class.pf-opt--on]="editCashback()" type="button"
               (click)="isEditable() && editCashback.set(!editCashback())">
               <span class="pf-opt__icon pf-opt__icon--cash"><lucide-icon name="circle-dollar-sign" [size]="15" /></span>
+              <!-- Said "Creator rewards go to traders", which reads like a
+                   feature being added rather than a fee being given away. It
+                   is the launcher's own creator fee, permanently, and this
+                   switch is set once at launch and cannot be changed after. -->
               <span class="pf-opt__text">
-                <span class="pf-opt__title">Cash Back</span>
-                <span class="pf-opt__sub">Creator rewards go to traders</span>
+                <span class="pf-opt__title">Cash back for traders</span>
+                <span class="pf-opt__sub">
+                  {{ editCashback()
+                     ? 'Your creator fee is paid back to whoever trades the coin. You earn nothing from trading fees. Set at launch — permanent.'
+                     : 'You keep the creator fee on every trade. Turn on to pay it back to traders instead.' }}
+                </span>
               </span>
               <span class="pf-switch" [class.pf-switch--on]="editCashback()"><span class="pf-switch__knob"></span></span>
             </button>
@@ -3918,7 +3926,7 @@
                     <input type="text" class="proto-input proto-input--mono"
                            [placeholder]="field.placeholder ?? 'Enter address...'"
                            [value]="getEditParam(field.key)"
-                           (input)="setEditParam(field.key, $any($event.target).value); relayMaybeQuote()"
+                           (input)="setEditParam(field.key, $any($event.target).value); relayMaybeQuote(); recipientMaybeCheck()"
                            [disabled]="!isEditable()" />
                     @if (getEditParam(field.key).length > 8 && isEditable()) {
                       <button class="proto-copy-btn" type="button"
@@ -3928,6 +3936,48 @@
                       </button>
                     }
                   </div>
+
+                  <!-- Who that actually is. A base58 string tells the sender
+                       nothing about whether they typed it correctly, and a
+                       `.sol` name told them nothing at all until after they
+                       had signed. -->
+                  @if (isTransfer() && field.key === 'to') {
+                    @switch (recipientState().kind) {
+                      @case ('checking') {
+                        <span class="recipient-note"><span class="proto-balance-dots">···</span> Checking…</span>
+                      }
+                      @case ('domain') {
+                        <span class="recipient-note recipient-note--ok">
+                          <lucide-icon name="check" [size]="11" />
+                          Resolves to <span class="mono">{{ $any(recipientState()).owner.slice(0, 4) }}…{{ $any(recipientState()).owner.slice(-4) }}</span>
+                        </span>
+                      }
+                      @case ('wallet') {
+                        @if ($any(recipientState()).funded) {
+                          <span class="recipient-note recipient-note--ok">
+                            <lucide-icon name="check" [size]="11" /> Existing wallet
+                          </span>
+                        } @else {
+                          <span class="recipient-note recipient-note--warn">
+                            <lucide-icon name="triangle-alert" [size]="11" />
+                            This address has never been used. Check it carefully — a transfer to a mistyped address cannot be recovered. Creating it also costs about 0.00089 SOL in rent.
+                          </span>
+                        }
+                      }
+                      @case ('self') {
+                        <span class="recipient-note recipient-note--warn">
+                          <lucide-icon name="triangle-alert" [size]="11" /> That is this wallet — you would be sending to yourself.
+                        </span>
+                      }
+                      @case ('invalid') {
+                        <span class="recipient-note recipient-note--warn">
+                          <lucide-icon name="triangle-alert" [size]="11" />
+                          Not a Solana address or a registered .sol name.
+                        </span>
+                      }
+                      @default { <span></span> }
+                    }
+                  }
                 }
 
                 @case ('select') {
@@ -3963,7 +4013,12 @@
                 }
 
                 @case ('token') {
-                  @let isSwapSide = action.type === 'swap' && (field.key === 'inputMint' || field.key === 'outputMint');
+                  <!-- Transfer sends any token, so its chip opens the picker
+                       too. It was rendered disabled, which made the token the
+                       model happened to name the only one you could send. -->
+                  @let isSwapSide = (action.type === 'swap' && (field.key === 'inputMint' || field.key === 'outputMint'))
+                                    || (isTransfer() && field.key === 'token')
+                                    || (action.type === 'burn' && field.key === 'mint');
                   @let isBridgeSide = isRelayBridge() && (field.key === 'originCurrency' || field.key === 'destinationCurrency');
                   <!-- Any token on the chosen chain, not only the one the
                        model named. Changing a chain clears the token picked on
@@ -4497,6 +4552,37 @@
           <span class="proto-warn-title">Minimum amount</span>
           <span class="proto-warn-desc">
             Minimum {{ belowMinAmount() }} {{ belowMinAmount() !== null ? 'SOL' : '' }} required for this action.
+          </span>
+        </div>
+      </div>
+    }
+
+    <!-- Burning is the one action with no undo, and the card said so nowhere.
+         It showed a mint address and a Confirm button. -->
+    @if (action.type === 'burn' && status() === 'pending') {
+      <div class="proto-warn-banner proto-warn-banner--orange">
+        <lucide-icon name="alert-triangle" [size]="14" class="proto-warn-icon" />
+        <div class="proto-warn-body">
+          <span class="proto-warn-title">This cannot be undone</span>
+          <span class="proto-warn-desc">
+            Burning destroys the tokens permanently. They are removed from the
+            supply — not sent anywhere, and not recoverable by anyone.
+          </span>
+        </div>
+      </div>
+    }
+
+    <!-- close_accounts carries no parameters at all, so the card was a header
+         and a button with nothing between them saying what it would do. -->
+    @if (action.type === 'close_accounts' && status() === 'pending') {
+      <div class="proto-warn-banner">
+        <lucide-icon name="info" [size]="14" class="proto-warn-icon" />
+        <div class="proto-warn-body">
+          <span class="proto-warn-title">Reclaim rent from empty accounts</span>
+          <span class="proto-warn-desc">
+            Closes token accounts holding a zero balance and returns their rent
+            to this wallet — about 0.002 SOL per account. Accounts still holding
+            tokens are left alone.
           </span>
         </div>
       </div>

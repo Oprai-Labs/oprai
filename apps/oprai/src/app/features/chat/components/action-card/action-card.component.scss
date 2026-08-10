@@ -6380,3 +6380,20 @@
     background: var(--op-bg-surface-2);
   }
 }
+
+// The line under a recipient address that says who it is. Small, but it is the
+// only thing standing between a typo and an irrecoverable transfer.
+.recipient-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 5px;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--op-text-tertiary);
+
+  lucide-icon { flex: 0 0 auto; margin-top: 1px; }
+
+  &--ok { color: var(--op-gain); }
+  &--warn { color: var(--op-danger); }
+}
