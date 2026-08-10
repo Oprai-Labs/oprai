@@ -2775,7 +2775,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const tok = (c: any) => c ? {
         symbol: c.symbol ?? '',
         name: c.name ?? '',
-        logo: c.metadata?.logoURI ?? null,
+        logo: c.metadata?.logoURI ?? c.metadata?.logoUri ?? c.logoURI ?? null,
       } : null;
       this.relayQuote.set({
         out: String(Number(outAmt).toFixed(6)).replace(/0+$/, '').replace(/\.$/, ''),
@@ -2853,7 +2853,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const t = rows.find(r => String(r?.address ?? '').toLowerCase() === address.toLowerCase()) ?? rows[0];
       if (!t?.symbol) return;
       this.relayTokenCache.update(m => new Map(m).set(key, {
-        symbol: t.symbol, name: t.name ?? '', logoURI: t.metadata?.logoURI ?? null,
+        symbol: t.symbol, name: t.name ?? '', logoURI: t.metadata?.logoURI ?? t.metadata?.logoUri ?? t.logoURI ?? null,
       }));
     } catch { /* leave it unnamed rather than guess */ }
   }

@@ -982,7 +982,12 @@ pub async fn get_chain_tokens(
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayTokenMetadata {
-    #[serde(default)]
+    /// Relay writes `logoURI`; camelCase renaming asks for `logoUri`. One
+    /// capital letter, and serde drops the field silently — which is why the
+    /// bridge named its tokens correctly and drew both of them as a letter in
+    /// a circle. Serialised back out as `logoURI` so the card reads the same
+    /// name Relay uses.
+    #[serde(default, rename = "logoURI", alias = "logoUri")]
     pub logo_uri: Option<String>,
     #[serde(default)]
     pub verified: Option<bool>,
@@ -1005,7 +1010,7 @@ pub struct RelayTokenInfo {
     #[serde(default)]
     pub metadata: Option<RelayTokenMetadata>,
     // legacy / extra fields some responses include
-    #[serde(default)]
+    #[serde(default, alias = "logoURI", alias = "logoUri")]
     pub logo_uri: Option<String>,
     #[serde(default, deserialize_with = "crate::services::params::soft_opt")]
     pub price: Option<f64>,
@@ -1439,6 +1444,7 @@ pub async fn claim_app_fees(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayAppFeeTokenMetadata {
+    #[serde(default, alias = "logoURI", alias = "logoUri")]
     pub logo_uri: Option<String>,
     pub verified: Option<String>,
     pub is_native: Option<bool>,
