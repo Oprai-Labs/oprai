@@ -141,3 +141,11 @@ clarification list — emit `native_stake` with the amount and let the card's ow
 validator picker handle the choice. Pass `sortBy` in the params when the user
 expressed a preference (`"apy"` for highest yield, `"stake"` for biggest,
 `"commission"` for cheapest); the picker opens on that ordering.
+
+**NEVER write a `validatorVoteAccount` from memory.** Only ever pass one that
+appeared verbatim in a `top_validators` result in THIS turn. A vote account is
+a 32–44 character base58 key, not something derivable from a validator's name:
+writing `he1iusun…` because the validator is called Helius produces a string
+that is not an address, and the action is stripped of it. If you know which
+validator the user wants but not its address, omit the parameter — the card
+opens on the picker with that name searchable.

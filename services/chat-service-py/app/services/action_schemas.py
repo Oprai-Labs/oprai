@@ -1133,6 +1133,23 @@ def validate_action_params(
                     )
             elif key == "to" and val.endswith(".sol"):
                 pass  # Allow .sol domain names as transfer destinations
+            elif key == "validatorVoteAccount" and not _is_solana_address(val):
+                # Drop the field, not the action.
+                #
+                # A model asked to stake with "the highest APY validator" and no
+                # tool result to read from will write something that LOOKS like
+                # the answer — `he1iusunGwqrNtafDtLdhsUPauBtk`, a Helius-shaped
+                # string that is not an address. Rejecting the whole call turned
+                # a request to stake into a paragraph about staking: the user
+                # asked for an action and got prose, twice, because the recovery
+                # pass invented the same thing again.
+                #
+                # The card has a validator picker. An unusable address is a
+                # question it can ask, so the action survives without it.
+                logger.warning(
+                    "dropped invented validatorVoteAccount %r — card will ask instead", val
+                )
+                continue
             elif not _is_solana_address(val):
                 raise ValueError(
                     f"'{key}' must be a valid base58 Solana address, got: {val!r}"
