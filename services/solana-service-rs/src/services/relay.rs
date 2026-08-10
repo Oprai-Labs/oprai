@@ -454,25 +454,19 @@ pub fn validate_cross_chain_params(params: &CrossChainSwapParams) -> Result<(), 
     Ok(())
 }
 
+/// Whether this service knows the chain by name.
+///
+/// The list used to stop at sixteen and omit Solana — in a Solana app, which
+/// made every bridge *out of* Solana on this path answer "Unsupported origin
+/// chain: 792703809". It is now the same set `get_chain_name` can name, so a chain
+/// we can talk about is a chain we accept, and the two cannot drift apart
+/// without the mismatch being visible in one screen of code.
+///
+/// This is a sanity check, not an authority: Relay supports far more than we
+/// name, and it is the one that decides. A pair we let through and it will not
+/// route comes back as "no route", which is the honest answer.
 fn is_chain_supported(chain_id: u64) -> bool {
-    matches!(
-        chain_id,
-        chain_id::ETHEREUM
-            | chain_id::GOERLI
-            | chain_id::SEPOLIA
-            | chain_id::ARBITRUM
-            | chain_id::ARBITRUM_SEPOLIA
-            | chain_id::OPTIMISM
-            | chain_id::OPTIMISM_SEPOLIA
-            | chain_id::BASE
-            | chain_id::BASE_SEPOLIA
-            | chain_id::POLYGON
-            | chain_id::POLYGON_MUMBAI
-            | chain_id::BSC
-            | chain_id::AVALANCHE
-            | chain_id::LINEA
-            | chain_id::ZKSYNC
-    )
+    get_chain_name(chain_id) != "Unknown"
 }
 
 fn is_valid_evm_address(address: &str) -> bool {

@@ -451,20 +451,9 @@ Examples:
   -> execute_action("vote", {"protocol": "jupiter", "choice": "abstain"})
 
 #### BRIDGE — Bridge tokens to/from Solana
-Format: [ACTION:bridge] token=<token> amount=<amount> fromChain=<source_chain> toChain=<dest_chain> provider=<relay|wormhole|debridge|mayan>
-
-Parameters:
-- token: Token to bridge (SOL, USDC, etc.)
-- amount: Amount to bridge
-- fromChain: Source chain (solana, ethereum, bsc, polygon, arbitrum, optimism, base, avalanche)
-- toChain: Destination chain
-- provider: Bridge provider (relay = default, wormhole, debridge, mayan)
-
-Examples:
-- "Bridge 1 SOL from Solana to Ethereum"
-  -> execute_action("bridge", {"token": "SOL", "amount": "1", "fromChain": "solana", "toChain": "ethereum"})
-
-- "Bridge USDC from Ethereum to Solana via Wormhole"
-  -> execute_action("bridge", {"token": "USDC", "amount": "1000", "fromChain": "ethereum", "toChain": "solana", "provider": "wormhole"})
+Moving tokens between chains is `relay_bridge`, and its parameters — numeric
+chain IDs and token addresses, not chain names — are documented in the
+cross-chain section. Do not call `bridge`: it takes a different parameter shape
+that no bridge request produces, so it fails before it reaches a card.
 
 ---
