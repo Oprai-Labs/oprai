@@ -350,14 +350,30 @@ pub fn build_native_stake_withdraw(
     })?;
     let available = account.lamports;
 
-    let withdraw_lamports: u64 = if params.amount == "all" {
+    // SOL, like every other stake action — this one alone took lamports, so a
+    // user who typed the amount they could see ("0.5") had it read as half a
+    // billionth of a SOL, and `parse().unwrap()` panicked the request outright
+    // the moment the string had a decimal point in it.
+    let withdraw_lamports: u64 = if params.amount.trim() == "all" {
         available
     } else {
-        let lamps: u64 = params.amount.parse().unwrap();
+        let sol: f64 = params.amount.trim().parse().map_err(|_| {
+            AppError::InvalidParams(format!(
+                "\"{}\" is not an amount. Enter a number of SOL, or \"all\".",
+                params.amount
+            ))
+        })?;
+        if sol <= 0.0 {
+            return Err(AppError::InvalidParams(
+                "Enter an amount greater than zero, or \"all\".".into(),
+            ));
+        }
+        let lamps = (sol * LAMPORTS_PER_SOL) as u64;
         if lamps > available {
             return Err(AppError::InvalidParams(format!(
-                "Requested {} lamports but stake account only has {}",
-                lamps, available
+                "That stake account holds {:.4} SOL, which is less than the {} you asked to withdraw.",
+                available as f64 / LAMPORTS_PER_SOL,
+                sol
             )));
         }
         lamps
@@ -431,8 +447,15 @@ pub fn build_native_stake_split(
 ) -> Result<BuildResponse, AppError> {
     validate_native_split_params(params)?;
 
-    let stake_pubkey = Pubkey::from_str(&params.stake_account).unwrap();
-    let split_lamports = (params.amount.parse::<f64>().unwrap() * LAMPORTS_PER_SOL) as u64;
+    // Both of these were `unwrap()`: a mistyped account or a non-numeric
+    // amount took the whole request down with a panic instead of answering.
+    let stake_pubkey = Pubkey::from_str(&params.stake_account).map_err(|_| {
+        AppError::InvalidParams(format!("{} is not a valid account address.", params.stake_account))
+    })?;
+    let split_sol: f64 = params.amount.trim().parse().map_err(|_| {
+        AppError::InvalidParams(format!("\"{}\" is not an amount of SOL.", params.amount))
+    })?;
+    let split_lamports = (split_sol * LAMPORTS_PER_SOL) as u64;
 
     let account = rpc.client().get_account(&stake_pubkey).map_err(|_| {
         AppError::InvalidParams(format!(

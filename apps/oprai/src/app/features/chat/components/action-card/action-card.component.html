@@ -392,7 +392,13 @@
     <!-- isRelayBridge too: the bridge has no form rows at all now, so a gate
          counting only fields skipped the whole body — panels included — and
          left a header above a Confirm button. -->
-    @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()) {
+    <!-- This gate lists what may appear instead of asking whether anything
+         will, so every new panel has to remember to add itself here — the
+         stake pickers are two more that would otherwise render into a body
+         that was never opened. Worth replacing with a single `hasBody()`
+         computed the next time it catches someone. -->
+    @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
+         || isNativeStake() || isStakeAccountAction()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -4109,7 +4115,7 @@
     @if (isNativeStake() && isEditable()) {
       <div class="validator-picker">
         <div class="validator-picker__header">
-          <span class="validator-picker__title">Select validator</span>
+          <span class="validator-picker__title">Validator</span>
           <button class="validator-picker__custom-btn" type="button"
                   (click)="validatorCustom.set(!validatorCustom())">
             {{ validatorCustom() ? 'Pick from list' : 'Enter manually' }}
@@ -4117,9 +4123,8 @@
         </div>
 
         @if (validatorCustom()) {
-          <!-- Manual address input -->
           <div class="proto-field">
-            <label class="proto-field-label">Validator Vote Account <span class="proto-required">*</span></label>
+            <label class="proto-field-label">Vote account <span class="proto-required">*</span></label>
             <div class="proto-address-wrap">
               <input type="text" class="proto-input proto-input--mono"
                      placeholder="Vote account pubkey (base58)..."
@@ -4128,53 +4133,140 @@
             </div>
           </div>
         } @else {
-          <!-- Validator list -->
           @if (validatorsLoading()) {
             <div class="validator-picker__loading">
               <span class="proto-balance-dots">···</span>
-              <span>Loading top validators...</span>
+              <span>Loading validators…</span>
             </div>
           } @else if (validators().length === 0) {
             <div class="validator-picker__empty">
-              Could not load validator list.
+              Could not load the validator list.
               <button class="validator-picker__custom-btn" type="button"
                       (click)="validatorCustom.set(true)">Enter manually</button>
             </div>
           } @else {
+            <!-- Searchable, because two hundred entries scrolled past is not a
+                 choice. Matches name or vote account. -->
+            <input class="proto-input validator-picker__search" type="text"
+                   placeholder="Search by name or vote account"
+                   [value]="validatorQuery()"
+                   (input)="validatorQuery.set($any($event.target).value)" />
+
             <div class="validator-picker__list">
-              @for (v of validators(); track v.voteAccount) {
+              @for (v of filteredValidators(); track v.voteAccount) {
                 <button type="button"
                         class="validator-item"
                         [class.validator-item--selected]="getEditParam('validatorVoteAccount') === v.voteAccount"
                         (click)="selectValidator(v.voteAccount)">
-                  <div class="validator-item__addr">
-                    {{ v.voteAccount.slice(0, 8) }}…{{ v.voteAccount.slice(-4) }}
-                  </div>
-                  <div class="validator-item__stats">
-                    <span class="validator-item__apy">~{{ v.apyEstimatePct }}% APY</span>
-                    <span class="validator-item__commission">{{ v.commission }}% commission</span>
-                    <span class="validator-item__stake">{{ (v.activatedStakeSol / 1000).toFixed(0) }}K SOL stake</span>
-                  </div>
+                  <span class="validator-item__icon">
+                    <span class="relay-side__letter">{{ (v.name || v.voteAccount).charAt(0) }}</span>
+                    @if (v.icon) {
+                      <img [src]="v.icon" [alt]="v.name || 'validator'"
+                           (load)="$any($event.target).parentElement.classList.add('has-img')"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="validator-item__body">
+                    <span class="validator-item__name">
+                      {{ v.name || (v.voteAccount.slice(0, 8) + '…' + v.voteAccount.slice(-4)) }}
+                      @if (v.isJito) { <span class="validator-item__tag">Jito</span> }
+                    </span>
+                    <span class="validator-item__stats">
+                      <!-- APY only when it was measured. The old card printed a
+                           constant times the commission and called it APY. -->
+                      @if (v.apyEstimatePct) { <span class="validator-item__apy">{{ v.apyEstimatePct }}% APY</span> }
+                      <span>{{ v.commission }}% fee</span>
+                      <span>{{ (v.activatedStakeSol / 1000).toFixed(0) }}K SOL</span>
+                      @if (v.uptimePct) { <span>{{ v.uptimePct }}% uptime</span> }
+                    </span>
+                  </span>
+                  @if (getEditParam('validatorVoteAccount') === v.voteAccount) {
+                    <lucide-icon name="check" [size]="14" class="validator-item__check" />
+                  }
                 </button>
               }
+              @if (!filteredValidators().length) {
+                <div class="validator-picker__empty">No validator by that name.</div>
+              }
             </div>
-            @if (!getEditParam('validatorVoteAccount')) {
-              <p class="validator-picker__note">Select a validator (highest stake = most established)</p>
-            }
           }
         }
       </div>
     }
 
-    <!-- Protocol lockup / fee notice -->
-    @if (protocolNote) {
-      <div class="proto-note" [class.proto-note--warning]="protocolNote.type === 'warning'">
-        <lucide-icon [name]="protocolNote.type === 'warning' ? 'clock' : 'info'" [size]="13" />
-        <div class="proto-note-lines">
-          @for (line of protocolNote.lines; track line) {
-            <p>{{ line }}</p>
-          }
+    <!-- ══════════════════════════════════════════════════════════
+         STAKE ACCOUNT PICKER — deactivate / withdraw / split / merge
+         A stake account address is derived, never chosen, and shown nowhere
+         else in the app. All four of these actions used to ask for one as
+         free text.
+         ══════════════════════════════════════════════════════════ -->
+    @if (isStakeAccountAction() && isEditable()) {
+      <div class="validator-picker">
+        <div class="validator-picker__header">
+          <span class="validator-picker__title">
+            {{ isStakeMerge() ? 'Merge into' : 'Stake account' }}
+          </span>
         </div>
+
+        @if (stakeAccountsLoading()) {
+          <div class="validator-picker__loading">
+            <span class="proto-balance-dots">···</span>
+            <span>Reading your stake accounts…</span>
+          </div>
+        } @else if (!stakeAccounts().length) {
+          <div class="validator-picker__empty">This wallet has no stake accounts.</div>
+        } @else {
+          <div class="validator-picker__list">
+            @for (a of stakeAccounts(); track a.address) {
+              <button type="button" class="validator-item"
+                      [class.validator-item--selected]="getEditParam(stakeAccountField()) === a.address"
+                      (click)="selectStakeAccount(a.address, stakeAccountField())">
+                <span class="validator-item__body">
+                  <span class="validator-item__name">
+                    {{ a.solAmount.toFixed(4) }} SOL
+                    <span class="validator-item__tag">{{ a.state }}</span>
+                  </span>
+                  <span class="validator-item__stats">
+                    <span>{{ stakeAccountLabel(a) }}</span>
+                    <span class="mono">{{ a.address.slice(0, 4) }}…{{ a.address.slice(-4) }}</span>
+                  </span>
+                </span>
+                @if (getEditParam(stakeAccountField()) === a.address) {
+                  <lucide-icon name="check" [size]="14" class="validator-item__check" />
+                }
+              </button>
+            }
+          </div>
+
+          @if (isStakeMerge()) {
+            <div class="validator-picker__header validator-picker__header--second">
+              <span class="validator-picker__title">Merge from (this account closes)</span>
+            </div>
+            <div class="validator-picker__list">
+              @for (a of stakeAccounts(); track a.address) {
+                <button type="button" class="validator-item"
+                        [class.validator-item--selected]="getEditParam('sourceStakeAccount') === a.address"
+                        (click)="selectStakeAccount(a.address, 'sourceStakeAccount')">
+                  <span class="validator-item__body">
+                    <span class="validator-item__name">{{ a.solAmount.toFixed(4) }} SOL</span>
+                    <span class="validator-item__stats">
+                      <span>{{ stakeAccountLabel(a) }}</span>
+                      <span class="mono">{{ a.address.slice(0, 4) }}…{{ a.address.slice(-4) }}</span>
+                    </span>
+                  </span>
+                  @if (getEditParam('sourceStakeAccount') === a.address) {
+                    <lucide-icon name="check" [size]="14" class="validator-item__check" />
+                  }
+                </button>
+              }
+            </div>
+            @if (stakeMergeConflict()) {
+              <p class="validator-picker__note validator-picker__note--warn">
+                Pick two different accounts — an account cannot merge into itself.
+              </p>
+            }
+          }
+        }
       </div>
     }
 

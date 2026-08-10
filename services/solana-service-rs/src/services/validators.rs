@@ -1,12 +1,12 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::RpcClient;
 
 use crate::error::AppError;
 
-const BASE_APY_PCT: f64 = 7.0; // approximate Solana network staking APY
 const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
 const MAX_COMMISSION: u8 = 10; // exclude validators charging > 10%
-const TOP_N: usize = 20;
+/// Enough that searching by name is worth doing. The picker filters locally.
+const TOP_N: usize = 200;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,13 +14,113 @@ pub struct ValidatorInfo {
     pub vote_account: String,
     pub commission: u8,
     pub activated_stake_sol: f64,
-    pub apy_estimate_pct: f64,
+    /// Measured, not modelled — and absent when nobody has measured it.
+    ///
+    /// This used to be `7.0 * (1 - commission)`: a constant dressed as a yield.
+    /// Two validators with the same commission got the same number no matter
+    /// how they actually performed, and the card printed it as "~6.65% APY" as
+    /// though it had been observed. When the real figure is unavailable the
+    /// field is now empty and the card shows nothing rather than a guess.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apy_estimate_pct: Option<f64>,
     pub epoch_credits_recent: u64,
+    /// Who the validator is, when they have said. A list of base58 vote
+    /// accounts is not a choice anyone can make.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uptime_pct: Option<f64>,
+    #[serde(default)]
+    pub is_jito: bool,
 }
 
-/// Fetch top validators from the Solana RPC and return them sorted by score
-/// (stake × (1 − commission)), filtered to commission ≤ 10%.
-pub fn get_top_validators(rpc: &RpcClient) -> Result<Vec<ValidatorInfo>, AppError> {
+/// Stakewiz's public validator index. Names, logos and a real APY, none of
+/// which the Solana RPC knows: `getVoteAccounts` returns identities and stake,
+/// and nothing that tells a person who they are delegating to.
+#[derive(Debug, Deserialize)]
+struct StakewizValidator {
+    vote_identity: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    image: Option<String>,
+    #[serde(default)]
+    commission: Option<u8>,
+    #[serde(default)]
+    activated_stake: Option<f64>,
+    #[serde(default)]
+    apy_estimate: Option<f64>,
+    #[serde(default)]
+    uptime: Option<f64>,
+    #[serde(default)]
+    delinquent: Option<bool>,
+    #[serde(default)]
+    is_jito: Option<bool>,
+}
+
+/// The validators a user can sensibly delegate to.
+///
+/// Stakewiz first, because it is the only source that can name them. The RPC
+/// is the fallback and gives a usable-but-anonymous list, so a Stakewiz outage
+/// degrades the picker rather than emptying it.
+pub async fn get_top_validators(
+    rpc: &RpcClient,
+    http: &reqwest::Client,
+) -> Result<Vec<ValidatorInfo>, AppError> {
+    match from_stakewiz(http).await {
+        Ok(list) if !list.is_empty() => Ok(list),
+        Ok(_) => from_rpc(rpc),
+        Err(e) => {
+            tracing::warn!(error = %e, "Stakewiz unavailable, falling back to RPC vote accounts");
+            from_rpc(rpc)
+        }
+    }
+}
+
+async fn from_stakewiz(http: &reqwest::Client) -> Result<Vec<ValidatorInfo>, AppError> {
+    let rows: Vec<StakewizValidator> = http
+        .get("https://api.stakewiz.com/validators")
+        .timeout(std::time::Duration::from_secs(12))
+        .send()
+        .await
+        .map_err(|e| AppError::ProtocolError(format!("stakewiz: {e}")))?
+        .json()
+        .await
+        .map_err(|e| AppError::ProtocolError(format!("stakewiz decode: {e}")))?;
+
+    let mut out: Vec<ValidatorInfo> = rows
+        .into_iter()
+        // A delinquent validator is not voting, so delegating to it earns
+        // nothing. It has no place in a list offered as a choice.
+        .filter(|v| !v.delinquent.unwrap_or(false))
+        .filter(|v| v.commission.unwrap_or(100) <= MAX_COMMISSION)
+        .map(|v| ValidatorInfo {
+            vote_account: v.vote_identity,
+            commission: v.commission.unwrap_or(0),
+            activated_stake_sol: (v.activated_stake.unwrap_or(0.0) * 100.0).round() / 100.0,
+            apy_estimate_pct: v.apy_estimate.map(|a| (a * 100.0).round() / 100.0),
+            epoch_credits_recent: 0,
+            name: v.name.filter(|n| !n.trim().is_empty()),
+            icon: v.image.filter(|i| i.starts_with("http")),
+            uptime_pct: v.uptime.map(|u| (u * 100.0).round() / 100.0),
+            is_jito: v.is_jito.unwrap_or(false),
+        })
+        .collect();
+
+    // Most stake first: the same ordering the old endpoint used, and the one
+    // that puts established operators at the top of an unfiltered list.
+    out.sort_by(|a, b| {
+        b.activated_stake_sol
+            .partial_cmp(&a.activated_stake_sol)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    out.truncate(TOP_N);
+    Ok(out)
+}
+
+fn from_rpc(rpc: &RpcClient) -> Result<Vec<ValidatorInfo>, AppError> {
     let vote_accounts = rpc
         .get_vote_accounts()
         .map_err(|e| AppError::SolanaRpcError(format!("get_vote_accounts: {e}")))?;
@@ -29,23 +129,22 @@ pub fn get_top_validators(rpc: &RpcClient) -> Result<Vec<ValidatorInfo>, AppErro
         .current
         .iter()
         .filter(|v| v.commission <= MAX_COMMISSION)
-        .map(|v| {
-            let activated_stake_sol = v.activated_stake as f64 / LAMPORTS_PER_SOL;
-            let apy_estimate_pct = (1.0 - v.commission as f64 / 100.0) * BASE_APY_PCT;
-            // credits earned in the most recent completed epoch
-            let epoch_credits_recent = v
+        .map(|v| ValidatorInfo {
+            vote_account: v.vote_pubkey.clone(),
+            commission: v.commission,
+            activated_stake_sol: ((v.activated_stake as f64 / LAMPORTS_PER_SOL) * 100.0).round()
+                / 100.0,
+            // No APY here: nothing in this response measures yield.
+            apy_estimate_pct: None,
+            epoch_credits_recent: v
                 .epoch_credits
                 .last()
                 .map(|&(_, credits, prev)| credits.saturating_sub(prev))
-                .unwrap_or(0);
-
-            ValidatorInfo {
-                vote_account: v.vote_pubkey.clone(),
-                commission: v.commission,
-                activated_stake_sol: (activated_stake_sol * 100.0).round() / 100.0,
-                apy_estimate_pct: (apy_estimate_pct * 100.0).round() / 100.0,
-                epoch_credits_recent,
-            }
+                .unwrap_or(0),
+            name: None,
+            icon: None,
+            uptime_pct: None,
+            is_jito: false,
         })
         .collect();
 
