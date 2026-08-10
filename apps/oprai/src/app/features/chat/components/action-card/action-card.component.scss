@@ -4657,9 +4657,12 @@
 // hairline, with a scroll box that cut the first and last row in half — so the
 // list read as an overflow rather than as the thing being chosen.
 .validator-picker {
-  margin: 0 14px 14px;
-  padding: 12px;
-  border-radius: var(--op-radius-lg, 14px);
+  // The same panel as "You send" above it: 16px radius, 14/16 padding,
+  // surface-2. It was a 12px box on a different rhythm, which is why the two
+  // did not read as one card.
+  margin: 0 16px 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
   background: var(--op-bg-surface-2);
   border: 1px solid var(--op-border-subtle);
   display: flex;
@@ -6425,84 +6428,76 @@
   &--warn { color: var(--op-danger); }
 }
 
-// ─── Validator table ────────────────────────────────────────────────────────
+// ─── Validator list ─────────────────────────────────────────────────────────
 //
-// The same shape as the pool lists in the query card: columns that are the
-// comparison, headers that re-order it, numbered pages underneath. A stack of
-// cards could not do the first two, so "sort by APY" had nowhere to live.
-.vtable {
+// The swap card's vocabulary, not a data grid's: 16px panels, 26px round
+// logos, pill controls, identity on the left and the number on the right. The
+// table this replaced held the right information in the wrong family, directly
+// under a swap-shaped amount panel.
+
+.vsorts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vlist {
   display: flex;
   flex-direction: column;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--op-border-subtle);
+  gap: 6px;
+}
+
+.vrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid transparent;
   background: var(--op-bg-elevated);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
 
-  &__head,
-  &__row {
+  &:hover { border-color: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 45%, var(--op-border-subtle)); }
+
+  &--on {
+    border-color: var(--proto-accent, var(--op-brand));
+    background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 8%, var(--op-bg-elevated));
+  }
+
+  // Same 26px circle the swap card's token chip uses.
+  &__icon {
+    position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 62px 48px 62px 62px;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    text-align: left;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--op-bg-surface-3);
+
+    img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   }
 
-  &__head {
-    background: var(--op-bg-surface-2);
-    border-bottom: 1px solid var(--op-border-subtle);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--op-text-tertiary);
+  &__letter { font-size: 0.6875rem; font-weight: 700; color: var(--op-text-secondary); }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
   }
 
-  &__sort {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    font: inherit;
-    color: inherit;
-    text-transform: inherit;
-    letter-spacing: inherit;
-
-    &:hover { color: var(--op-text-primary); }
-  }
-
-  &__row {
-    background: none;
-    border: none;
-    border-top: 1px solid var(--op-border-subtle);
-    cursor: pointer;
-    font-size: 0.75rem;
-    color: var(--op-text-secondary);
-
-    &:first-of-type { border-top: none; }
-    &:hover { background: var(--op-hover); }
-
-    &--on {
-      background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 10%, transparent);
-      color: var(--op-text-primary);
-    }
-  }
-
+  // 0.8125rem/600 primary over 0.6875rem tertiary — the swap panel's own pair
+  // of type sizes.
   &__name {
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-width: 0;
-  }
-
-  &__name-text {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    min-width: 0;
+    gap: 6px;
     font-size: 0.8125rem;
     font-weight: 600;
     color: var(--op-text-primary);
@@ -6511,15 +6506,59 @@
     text-overflow: ellipsis;
   }
 
-  &__apy { color: var(--op-gain); font-weight: 600; }
-
-  &__pager {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding-top: 8px;
+  &__meta {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
+
+  &__dot { margin: 0 4px; opacity: 0.6; }
+
+  &__tag {
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 14%, transparent);
+    color: var(--proto-accent, var(--op-brand));
+  }
+
+  // The number the choice is made on, given the weight the swap card gives its
+  // receive amount.
+  &__apy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    flex: 0 0 auto;
+  }
+
+  &__apy-v {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--op-gain);
+    line-height: 1.1;
+  }
+
+  &__apy-k {
+    font-size: 0.5625rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--op-text-tertiary);
+  }
+}
+
+.vpager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
 
   &__range {
     font-size: 0.6875rem;
@@ -6531,17 +6570,19 @@
 }
 
 .vpage {
-  min-width: 24px;
-  height: 24px;
-  padding: 0 5px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
   display: grid;
   place-items: center;
-  border-radius: 6px;
+  border-radius: 999px;
   border: 1px solid var(--op-border-subtle);
   background: var(--op-bg-elevated);
   color: var(--op-text-secondary);
   font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
 
   &:hover:not(:disabled) { border-color: var(--proto-accent, var(--op-brand)); color: var(--op-text-primary); }
   &:disabled { opacity: 0.4; cursor: default; }
