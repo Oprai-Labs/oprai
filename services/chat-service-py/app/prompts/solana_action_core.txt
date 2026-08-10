@@ -171,20 +171,12 @@ Examples:
 - "create a meme coin, no details yet"
   -> execute_action("launch_token", {})
 
-#### CLOSE_POSITION — Close a DeFi position (lending, LP, etc.)
-Format: [ACTION:close_position] positionId=<auto|position_id> protocol=<protocol> type=<lend|lp|perp>
+#### Closing a position
+There is no generic `close_position`. Every protocol closes its own way and the
+action names say so: `kamino_position_close`, `orca_close_position`,
+`meteora_close_position`, `raydium_close_position`, `perp_close`,
+`withdraw_lend`. Pick the one for the protocol the position is on.
 
-Parameters:
-- positionId: "auto" to auto-detect position, or specific position ID
-- protocol: Protocol name (marginfi, kamino, raydium, orca)
-- type: Position type (lend = lending collateral, lp = liquidity position, perp = perpetual position)
-
-Examples:
-- "Close my marginfi lending position"
-  -> execute_action("close_position", {"positionId": "auto", "protocol": "marginfi", "type": "lend"})
-
-- "Close my Raydium LP position"
-  -> execute_action("close_position", {"positionId": "auto", "protocol": "raydium", "type": "lp"})
 
 #### NFT trading — Magic Eden & Tensor (both fully supported)
 
@@ -218,8 +210,6 @@ Examples:
 - "List my NFT 7xKX… for 5 SOL on Tensor" →
   `execute_action("tensor_list", {"mintAddress": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "price": "5"})`
 
-- "List on Magic Eden for 10 SOL"
-  -> execute_action("nft_list", {"mint": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "price": "10", "marketplace": "magic_eden"})
 
 #### BURN — Permanently burn SPL tokens
 Parameters: mint=<symbol_or_mint_address> amount=<number|all> [closeMint=<true|false>]
@@ -336,84 +326,19 @@ Examples:
 - "Claim my Kamino KMNO rewards"
   -> execute_action("claim", {"protocol": "kamino", "type": "lending_yield"})
 
-#### NFT_MINT — Mint/create an NFT collection (launch_token)
-NOTE: This action is routed to [ACTION:launch_token] internally for token launches.
-For NFT minting via Candy Machine, use pump.fun or external tools.
-Format: [ACTION:nft_mint] name=<name> symbol=<symbol> description=<description> imageUrl=<url> collection=<optional> royaltyBps=<optional>
+#### Minting an NFT collection
+Not supported. `nft_mint` has no handler — the note claiming it routes to
+`launch_token` was never true, and the two are different things anyway: one
+mints an SPL token, the other a Candy Machine collection. Say it is not
+available and point at pump.fun for a token launch.
 
-#### SET_ALERT — Set price alerts or wallet monitoring
-Format: [ACTION:set_alert] type=<price|wallet|token_launch> token=<optional_symbol> condition=<above|below|any> value=<threshold> wallet=<optional_address>
+#### Automation — alerts, schedules, copy-trading, workflows
+None of these exist yet. There is no handler for `set_alert`, `create_workflow`,
+`copy_trade` or `create_schedule`, so calling one produces an error card rather
+than a standing rule. If the user asks for a recurring buy, the closest real
+thing is a Jupiter DCA order (`dca`); for anything else, say plainly that
+scheduling and alerts are not available yet.
 
-Parameters:
-- type: Alert type (price = price threshold, wallet = wallet activity, token_launch = new token notifications)
-- token: Token symbol for price alerts
-- condition: Trigger condition (above, below, any)
-- value: Price threshold or "any" for wallet alerts
-- wallet: Optional wallet address to monitor (for wallet alerts)
-
-Examples:
-- "Alert me when SOL hits $200"
-  -> execute_action("set_alert", {"type": "price", "token": "SOL", "condition": "above", "value": "200"})
-
-- "Notify me when wallet HwM... receives tokens"
-  -> execute_action("set_alert", {"type": "wallet", "wallet": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6", "condition": "any", "value": "any"})
-
-- "Tell me about new pump.fun launches"
-  -> execute_action("set_alert", {"type": "token_launch"})
-
-#### CREATE_WORKFLOW — Create an automated trading workflow/bot
-Format: [ACTION:create_workflow] name=<name> trigger=<condition> action=<action_type> params=<key:value,key:value>
-
-Parameters:
-- name: Workflow name
-- trigger: Trigger condition (price_above:SOL:200, price_below0.00002, schedule:daily, volume_spike:JUP, new_listing:pump.fun)
-- action: Action to execute (swap, stake, transfer, pumpfun_buy)
-- params: Comma-separated action parameters
-
-Examples:
-- "When SOL hits $200, sell 5 SOL for USDC"
-  -> execute_action("create_workflow", {"name": "SOL-TP-200", "trigger": "price_above:SOL:200", "action": "swap", "params": "inputMint:SOL,outputMint:USDC,amount:5"})
-
-- "Auto-stake any SOL I receive"
-  -> execute_action("create_workflow", {"name": "Auto-Stake", "trigger": "receive:SOL", "action": "stake", "params": "amount:auto,protocol:marinade"})
-
-- "Buy every new pump.fun launch with 0.1 SOL"
-  -> execute_action("create_workflow", {"name": "Pump-Buyer", "trigger": "new_listing:pump.fun", "action": "pumpfun_buy", "params": "amount:0.1,slippageBps:1000"})
-
-#### COPY_TRADE — Copy another wallet's trades
-Format: [ACTION:copy_trade] wallet=<address> amount=<sol_per_trade> maxTrades=<optional_daily_limit> tokens=<optional_filter>
-
-Parameters:
-- wallet: Wallet address to copy
-- amount: SOL value per trade (or "auto" to match the copied wallet's size proportionally)
-- maxTrades: Maximum number of trades per day (optional, default: 5)
-- tokens: Optional comma-separated list of tokens to filter (e.g., "SOL,USDC,BONK")
-
-Examples:
-- "Copy trade from wallet HwM... with 0.1 SOL per trade"
-  -> execute_action("copy_trade", {"wallet": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6", "amount": "0.1"})
-
-- "Auto-copy all trades from this whale wallet"
-  -> execute_action("copy_trade", {"wallet": "HwM...", "amount": "auto", "maxTrades": "10"})
-
-#### CREATE_SCHEDULE — Schedule a recurring on-chain action
-Format: [ACTION:create_schedule] action=<action_type> params=<key:value> frequency=<daily|weekly|monthly> time=<utc_hour>
-
-Parameters:
-- action: Action to execute (swap, stake, transfer)
-- params: Comma-separated action parameters
-- frequency: How often (daily, weekly, monthly)
-- time: UTC hour to execute (0-23)
-
-Examples:
-- "Buy 10 USDC worth of SOL every day at 9am UTC"
-  -> execute_action("create_schedule", {"action": "swap", "params": "inputMint:USDC,outputMint:SOL,amount:10", "frequency": "daily", "time": "9"})
-
-- "Stake 1 SOL on Marinade every week"
-  -> execute_action("create_schedule", {"action": "stake", "params": "amount:1,protocol:marinade", "frequency": "weekly", "time": "0"})
-
-- "Transfer 0.1 SOL to my savings wallet monthly"
-  -> execute_action("create_schedule", {"action": "transfer", "params": "to:HwM...,amount:0.1,token:SOL", "frequency": "monthly", "time": "12"})
 
 #### VOTE — Governance voting guidance
 Parameters: protocol=<protocol> proposal=<proposal_id_or_description> choice=<yes|no|abstain>

@@ -4,15 +4,8 @@
 //! Program ID: TSWAPaqyCSx2KABk68Shruf4rp7CxcAi9S6fxqfSGQ
 //! API: https://api.tensor.so/v1 (REST) and https://api.tensor.so/graphql (GraphQL)
 
-use base64::Engine;
 use serde::{Deserialize, Serialize};
-use solana_sdk::{
-    instruction::{AccountMeta, Instruction},
-    message::Message,
-    pubkey::Pubkey,
-    system_program,
-    transaction::Transaction,
-};
+use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -312,35 +305,18 @@ pub async fn get_cancel_list_tx(
         .map_err(|e| AppError::Internal(format!("Failed to parse Tensor response: {e}")))
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Transaction Builders
-// ──────────────────────────────────────────────────────────────────────────────
-
-fn build_stub_tx(
-    user_pubkey: &Pubkey,
-    discriminator: u8,
-    extra_data: Vec<u8>,
-) -> Result<String, AppError> {
-    let program_id = Pubkey::from_str(TENSOR_PROGRAM_ID)
-        .map_err(|e| AppError::Internal(format!("Invalid program ID: {e}")))?;
-
-    let mut data = vec![discriminator];
-    data.extend_from_slice(&extra_data);
-
-    let ix = Instruction {
-        program_id,
-        accounts: vec![
-            AccountMeta::new(*user_pubkey, true),
-            AccountMeta::new_readonly(system_program::id(), false),
-        ],
-        data,
-    };
-
-    let message = Message::new(&[ix], Some(user_pubkey));
-    let tx = Transaction::new_unsigned(message);
-    let serialized =
-        bincode::serialize(&tx).map_err(|e| AppError::Internal(format!("Serialize error: {e}")))?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&serialized))
+/// Tensor could not prepare the transaction, and we do not invent one.
+///
+/// The three builders below used to fall back to a hand-rolled instruction —
+/// an invented discriminator, two accounts, no route to Tensor's program logic.
+/// It was signable and nothing else: the user paid a fee to broadcast nonsense
+/// and was told their purchase had been prepared. A marketplace that cannot
+/// answer is a reason to stop, not a reason to make something up.
+fn tensor_unavailable(what: &str, err: AppError) -> AppError {
+    tracing::warn!(error = %err, "Tensor refused to build a {what}");
+    AppError::ProtocolError(format!(
+        "Tensor could not prepare this {what} right now. Nothing was signed — try again in a moment, or use Magic Eden for the same NFT."
+    ))
 }
 
 pub async fn build_tensor_buy(
@@ -373,49 +349,9 @@ pub async fn build_tensor_buy(
         .unwrap_or_else(|| params.mint_address[..8.min(params.mint_address.len())].to_string());
 
     // Get actual transaction from Tensor API
-    let tx_response = match get_buy_tx(http, user_pubkey_str, &params.mint_address, price).await {
-        Ok(tx) => tx,
-        Err(e) => {
-            // If API fails, fall back to stub but warn user
-            tracing::warn!("Tensor API failed, using fallback: {}", e);
-            let price_lamports = (price * 1_000_000_000.0) as u64;
-            let encoded = build_stub_tx(
-                &Pubkey::from_str(user_pubkey_str)
-                    .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?,
-                IX_BUY,
-                price_lamports.to_le_bytes().to_vec(),
-            )?;
-
-            return Ok(BuildResponse {
-                preview: ActionPreview {
-                    id: Uuid::new_v4().to_string(),
-                    action_type: "tensor_buy".into(),
-                    description: format!(
-                        "Buy NFT {} (max {:.3} SOL) via Tensor",
-                        &nft_name[..8.min(nft_name.len())],
-                        price
-                    ),
-                    estimated_fee: "~0.001 SOL + NFT price".into(),
-                    estimated_refund: None,
-                    params: serde_json::json!({
-                        "mintAddress": params.mint_address,
-                        "maxPrice": params.max_price,
-                        "currentListingPrice": current_price,
-                    }),
-                    warnings: vec![
-                        "Note: Using fallback transaction - Tensor API unavailable".into()
-                    ],
-                    requires_approval: true,
-                },
-                transaction: Some(encoded),
-                additional_signers_required: 0,
-                execution_steps: None,
-                quote: None,
-                is_cross_chain: false,
-                data: None,
-            });
-        }
-    };
+    let tx_response = get_buy_tx(http, user_pubkey_str, &params.mint_address, price)
+        .await
+        .map_err(|e| tensor_unavailable("purchase", e))?;
 
     let mut warnings = vec![];
     if let Some(cp) = current_price {
@@ -482,49 +418,9 @@ pub async fn build_tensor_list(
         .unwrap_or_else(|| params.mint_address[..8.min(params.mint_address.len())].to_string());
 
     // Get actual transaction from Tensor API
-    let tx_response = match get_list_tx(http, user_pubkey_str, &params.mint_address, price).await {
-        Ok(tx) => tx,
-        Err(e) => {
-            // If API fails, fall back to stub but warn user
-            tracing::warn!("Tensor API failed for list, using fallback: {}", e);
-            let price_lamports = (price * 1_000_000_000.0) as u64;
-            let encoded = build_stub_tx(
-                &Pubkey::from_str(user_pubkey_str)
-                    .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?,
-                IX_LIST,
-                price_lamports.to_le_bytes().to_vec(),
-            )?;
-
-            return Ok(BuildResponse {
-                preview: ActionPreview {
-                    id: Uuid::new_v4().to_string(),
-                    action_type: "tensor_list".into(),
-                    description: format!(
-                        "List NFT {} for {:.3} SOL on Tensor",
-                        &nft_name[..8.min(nft_name.len())],
-                        price
-                    ),
-                    estimated_fee: "~0.001 SOL".into(),
-                    estimated_refund: None,
-                    params: serde_json::json!({
-                        "mintAddress": params.mint_address,
-                        "price": params.price,
-                        "nftName": nft_name,
-                    }),
-                    warnings: vec![
-                        "Note: Using fallback transaction - Tensor API unavailable".into()
-                    ],
-                    requires_approval: true,
-                },
-                transaction: Some(encoded),
-                additional_signers_required: 0,
-                execution_steps: None,
-                quote: None,
-                is_cross_chain: false,
-                data: None,
-            });
-        }
-    };
+    let tx_response = get_list_tx(http, user_pubkey_str, &params.mint_address, price)
+        .await
+        .map_err(|e| tensor_unavailable("listing", e))?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -571,49 +467,9 @@ pub async fn build_tensor_cancel_listing(
         .unwrap_or_else(|| params.mint_address[..8.min(params.mint_address.len())].to_string());
 
     // Get actual transaction from Tensor API
-    let tx_response = match get_cancel_list_tx(http, user_pubkey_str, &params.mint_address).await {
-        Ok(tx) => tx,
-        Err(e) => {
-            // If API fails, fall back to stub but warn user
-            tracing::warn!(
-                "Tensor API failed for cancel listing, using fallback: {}",
-                e
-            );
-            let encoded = build_stub_tx(
-                &Pubkey::from_str(user_pubkey_str)
-                    .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?,
-                IX_CANCEL_LISTING,
-                vec![],
-            )?;
-
-            return Ok(BuildResponse {
-                preview: ActionPreview {
-                    id: Uuid::new_v4().to_string(),
-                    action_type: "tensor_cancel_listing".into(),
-                    description: format!(
-                        "Cancel Tensor listing for NFT {}",
-                        &nft_name[..8.min(nft_name.len())]
-                    ),
-                    estimated_fee: "~0.001 SOL".into(),
-                    estimated_refund: None,
-                    params: serde_json::json!({
-                        "mintAddress": params.mint_address,
-                        "nftName": nft_name,
-                    }),
-                    warnings: vec![
-                        "Note: Using fallback transaction - Tensor API unavailable".into()
-                    ],
-                    requires_approval: false,
-                },
-                transaction: Some(encoded),
-                additional_signers_required: 0,
-                execution_steps: None,
-                quote: None,
-                is_cross_chain: false,
-                data: None,
-            });
-        }
-    };
+    let tx_response = get_cancel_list_tx(http, user_pubkey_str, &params.mint_address)
+        .await
+        .map_err(|e| tensor_unavailable("cancellation", e))?;
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -641,93 +497,35 @@ pub async fn build_tensor_cancel_listing(
     })
 }
 
+/// Tensor collection bids are not built here.
+///
+/// This function used to return a signable transaction without ever asking
+/// Tensor for one: a single instruction to their program carrying an invented
+/// discriminator and two accounts. It could not place a bid — it could only be
+/// signed, spend a fee and fail. An action that cannot work should say so
+/// before the wallet opens, not after.
 pub async fn build_tensor_make_offer(
     _http: &reqwest::Client,
-    user_pubkey_str: &str,
-    params: &TensorMakeOfferParams,
+    _user_pubkey_str: &str,
+    _params: &TensorMakeOfferParams,
 ) -> Result<BuildResponse, AppError> {
-    let price: f64 = params
-        .price
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid price: must be a positive number".into()))?;
-    if price <= 0.0 {
-        return Err(AppError::InvalidParams(
-            "Offer price must be positive".into(),
-        ));
-    }
-
-    let wallet = Pubkey::from_str(user_pubkey_str)
-        .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?;
-
-    let qty: u64 = params
-        .quantity
-        .as_deref()
-        .unwrap_or("1")
-        .parse()
-        .unwrap_or(1);
-    let price_lamports = (price * 1_000_000_000.0) as u64;
-    let mut data = price_lamports.to_le_bytes().to_vec();
-    data.extend_from_slice(&qty.to_le_bytes());
-    let encoded = build_stub_tx(&wallet, IX_MAKE_OFFER, data)?;
-
-    Ok(BuildResponse {
-        preview: ActionPreview {
-            id: Uuid::new_v4().to_string(),
-            action_type: "tensor_make_offer".into(),
-            description: format!(
-                "Offer {} SOL × {} for {} collection (Tensor)",
-                price, qty, params.collection_slug
-            ),
-            estimated_fee: format!("~{:.3} SOL escrow", price * qty as f64),
-            estimated_refund: None,
-            params: serde_json::json!({
-                "collectionSlug": params.collection_slug,
-                "price": params.price,
-                "quantity": qty,
-            }),
-            warnings: vec!["SOL will be escrowed until offer is accepted or cancelled".into()],
-            requires_approval: true,
-        },
-        transaction: Some(encoded),
-        additional_signers_required: 0,
-        execution_steps: None,
-        quote: None,
-        is_cross_chain: false,
-        data: None,
-    })
+    Err(AppError::ProtocolError(
+        "Collection offers on Tensor are not available here yet. Magic Eden offers work today, on the same NFTs."
+            .into(),
+    ))
 }
 
+/// The other half of the same fiction — see `build_tensor_make_offer`. There is
+/// nothing to cancel through us, because nothing was ever placed through us.
 pub async fn build_tensor_cancel_offer(
     _http: &reqwest::Client,
-    user_pubkey_str: &str,
-    params: &TensorCancelOfferParams,
+    _user_pubkey_str: &str,
+    _params: &TensorCancelOfferParams,
 ) -> Result<BuildResponse, AppError> {
-    let wallet = Pubkey::from_str(user_pubkey_str)
-        .map_err(|e| AppError::InvalidParams(format!("Invalid wallet: {e}")))?;
-
-    let encoded = build_stub_tx(&wallet, IX_CANCEL_OFFER, vec![])?;
-
-    Ok(BuildResponse {
-        preview: ActionPreview {
-            id: Uuid::new_v4().to_string(),
-            action_type: "tensor_cancel_offer".into(),
-            description: format!(
-                "Cancel Tensor offer {}",
-                &params.bid_id[..8.min(params.bid_id.len())]
-            ),
-            estimated_fee: "~0.001 SOL".into(),
-            estimated_refund: None,
-            params: serde_json::json!({ "bidId": params.bid_id }),
-            warnings: vec![],
-            requires_approval: false,
-        },
-        transaction: Some(encoded),
-        additional_signers_required: 0,
-        execution_steps: None,
-        quote: None,
-        is_cross_chain: false,
-        data: None,
-    })
+    Err(AppError::ProtocolError(
+        "Cancelling a Tensor offer is not available here yet. Offers placed on Magic Eden can be cancelled from the chat."
+            .into(),
+    ))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
