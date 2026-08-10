@@ -8,7 +8,7 @@ import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, S
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { ParsedAction, IntentParserService } from '../../services/intent-parser.service';
-import { SolanaActionService, ValidatorInfo } from '../../services/solana-action.service';
+import { SolanaActionService, ValidatorInfo, StakeAccountInfo } from '../../services/solana-action.service';
 import { ChatApiService, StoredActionResult } from '../../services/chat-api.service';
 import { UploadService } from '@core/services/upload.service';
 import { JupiterLendService, LEND_SUPPORTED_ASSETS, LendActionInfo, LendBorrowInfo } from '@core/services/market/jupiter-lend.service';
@@ -34,6 +34,7 @@ import { AppVersionService } from '@core/services/app-version.service';
 import { computeDlmmRatio, rangeFromSpread, DlmmStrategy } from '@core/services/market/dlmm-math';
 import { firstValueFrom, timeout } from 'rxjs';
 import { createSolanaConnection } from '@core/utils/solana-connection';
+import { PublicKey } from '@solana/web3.js';
 import { sanitizeErrorMessage, ACTION_MIN_AMOUNT } from '@core/utils/error-messages';
 
 const ACTION_RESULTS_KEY = 'oprai-action-results';
@@ -383,28 +384,30 @@ function getActionFields(
   } else if (t === 'stake' || t === 'unstake') {
     fields.push({ key: 'amount', label: 'Amount (SOL)', type: 'number', placeholder: '0', suffix: 'SOL', required: true });
   } else if (t === 'native_stake') {
-    // Validator picker is rendered separately via isNativeStake() + validators signal
+    // Amount only. The validator is chosen in the picker below, which used to
+    // sit UNDER a generic "Validator Vote Account" address row asking for the
+    // same thing — so the card put the question twice and answered it once.
     fields.push(
       { key: 'amount', label: 'Amount', type: 'number', placeholder: '1', suffix: 'SOL', required: true, min: 1, step: '0.01', hint: 'Minimum 1 SOL' },
-      { key: 'validatorVoteAccount', label: 'Validator Vote Account', type: 'address', placeholder: 'Validator pubkey...', required: true },
     );
   } else if (t === 'native_stake_deactivate') {
-    fields.push({ key: 'stakeAccount', label: 'Stake Account', type: 'address', placeholder: 'Stake account pubkey...', required: true, hint: 'Cooldown ~2-3 days before withdrawal' });
+    // No fields: the account is chosen from the user's own stake accounts in
+    // the picker. A stake account address is derived, never chosen, and shown
+    // nowhere else — asking someone to paste one is asking for something they
+    // do not have.
   } else if (t === 'native_stake_withdraw') {
     fields.push(
-      { key: 'stakeAccount', label: 'Stake Account', type: 'address', placeholder: 'Stake account pubkey...', required: true },
-      { key: 'amount', label: 'Amount', type: 'text', placeholder: 'all', hint: 'Lamports, or "all" to close the account' },
+      // SOL, not lamports. The backend alone among the stake actions read this
+      // as lamports, so "0.5" meant half a billionth of a SOL — and its
+      // `parse().unwrap()` panicked on the decimal point before it got there.
+      { key: 'amount', label: 'Amount', type: 'text', placeholder: 'all', hint: 'SOL, or "all" to close the account' },
     );
   } else if (t === 'native_stake_split') {
     fields.push(
-      { key: 'stakeAccount', label: 'Source Stake Account', type: 'address', placeholder: 'Stake account pubkey...', required: true },
       { key: 'amount', label: 'Amount to Split', type: 'number', placeholder: '1', suffix: 'SOL', required: true, min: 1, hint: 'Minimum 1 SOL' },
     );
   } else if (t === 'native_stake_merge') {
-    fields.push(
-      { key: 'destinationStakeAccount', label: 'Destination Account', type: 'address', placeholder: 'Destination stake account...', required: true, hint: 'Keeps the balance after merge' },
-      { key: 'sourceStakeAccount', label: 'Source Account', type: 'address', placeholder: 'Source stake account...', required: true, hint: 'Will be closed after merge' },
-    );
+    // Both accounts come from the picker: destination first, then source.
   } else if (t === 'borrow') {
     // Borrowing needs collateral — you don't spend the debt token, you post an
     // asset to back the loan. Without these fields the loan had no collateral
@@ -519,8 +522,12 @@ function getActionFields(
   // ── burn / close_accounts ────────────────────────────────────────────────
   } else if (t === 'burn') {
     fields.push(
-      { key: 'mint', label: 'Token Mint', type: 'address', placeholder: 'Mint address, "dust", or "empty_accounts"', required: true },
-      { key: 'amount', label: 'Amount', type: 'text', placeholder: 'all', hint: '"all" burns entire balance; "dust" burns all dust' },
+      // A token chip, not an address box. Burning is irreversible and the card
+      // showed the one thing that cannot be checked by eye — a base58 mint —
+      // instead of the token's name and icon. The chip is pickable, so the
+      // token can be changed without retyping a mint.
+      { key: 'mint', label: 'Token', type: 'token', required: true },
+      { key: 'amount', label: 'Amount', type: 'text', placeholder: 'all', hint: '"all" burns the entire balance' },
     );
   } else if (t === 'close_accounts') {
     // no required params — closes all empty token accounts
@@ -1535,6 +1542,71 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly validatorCustom = signal(false); // toggle custom address input
   readonly isNativeStake = computed(() => this.action?.type === 'native_stake');
 
+  /** Two hundred validators is a list; two hundred validators you can search
+   *  is a choice. Matches on name or vote account. */
+  readonly validatorQuery = signal('');
+  readonly filteredValidators = computed(() => {
+    const q = this.validatorQuery().trim().toLowerCase();
+    const all = this.validators();
+    if (!q) return all.slice(0, 60);
+    return all
+      .filter(v => (v.name ?? '').toLowerCase().includes(q) || v.voteAccount.toLowerCase().includes(q))
+      .slice(0, 60);
+  });
+
+  /** The one currently chosen, so the card can name it instead of echoing a
+   *  base58 string back at the person who just picked it from a list. */
+  readonly selectedValidator = computed(() => {
+    const v = this.getEditParam('validatorVoteAccount');
+    return v ? this.validators().find(x => x.voteAccount === v) ?? null : null;
+  });
+
+  // ── The user's own stake accounts ────────────────────────────────────────
+  //
+  // Deactivate, withdraw, split and merge all operate on an existing stake
+  // account, and all four used to ask for its address as free text.
+
+  readonly stakeAccounts = signal<StakeAccountInfo[]>([]);
+  readonly stakeAccountsLoading = signal(false);
+  readonly isStakeAccountAction = computed(() =>
+    /^native_stake_(deactivate|withdraw|split|merge)$/.test(this.action?.type ?? ''));
+  readonly isStakeMerge = computed(() => this.action?.type === 'native_stake_merge');
+
+  /** Which parameter the list writes into, and what to call it on screen. */
+  stakeAccountField(): 'stakeAccount' | 'destinationStakeAccount' {
+    return this.isStakeMerge() ? 'destinationStakeAccount' : 'stakeAccount';
+  }
+
+  async loadStakeAccounts(): Promise<void> {
+    const owner = this.walletService.publicKey();
+    if (!owner || !this.isStakeAccountAction()) return;
+    this.stakeAccountsLoading.set(true);
+    try {
+      this.stakeAccounts.set(await this.actionService.getStakeAccounts(owner));
+    } finally {
+      this.stakeAccountsLoading.set(false);
+    }
+  }
+
+  selectStakeAccount(address: string, field: string): void {
+    this.setEditParam(field, address);
+  }
+
+  /** Merging needs two different accounts, and merging one into itself is the
+   *  mistake a plain pair of text inputs invites. */
+  stakeMergeConflict(): boolean {
+    const d = this.getEditParam('destinationStakeAccount').trim();
+    const s = this.getEditParam('sourceStakeAccount').trim();
+    return !!d && d === s;
+  }
+
+  stakeAccountLabel(a: StakeAccountInfo): string {
+    const v = a.voteAccount
+      ? this.validators().find(x => x.voteAccount === a.voteAccount)?.name
+      : null;
+    return v ?? (a.voteAccount ? `${a.voteAccount.slice(0, 4)}…${a.voteAccount.slice(-4)}` : 'Not delegated');
+  }
+
   // Quick swap
   readonly showQuickSwap = signal(false);
   readonly qsStatus = signal<'idle' | 'swapping' | 'done' | 'error'>('idle');
@@ -1558,6 +1630,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly inputBalanceLoading = signal(false);
   readonly inputBalanceMint = computed(() => {
     const p = this.editParams();
+    // Staking spends SOL, so the amount row gets the same balance line and Max
+    // as every other card that spends SOL. It had neither, so the only way to
+    // learn the wallet could not cover the stake was to sign and find out.
+    if (/^native_stake(_split)?$/.test(this.action?.type ?? '')) return this.SOL_MINT;
+
+    // Burn spends the token it names, and had no balance line at all — so the
+    // card could not say how much was about to be destroyed, only that it
+    // would be.
+    if (this.action?.type === 'burn') return (p['mint'] ?? '').trim();
+
     // Bridging out of Solana spends a Solana token like any other card, so it
     // gets the same balance line. Relay's native SOL is its own address; the
     // wallet reads it under the wrapped mint.
@@ -2264,6 +2346,77 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   needsEvmRecipient(key: string): boolean {
     return key === 'recipient' && this.isRelayBridge() && this.relayDestinationIsEvm();
+  }
+
+  // ── Transfer: who is actually receiving this ─────────────────────────────
+  //
+  // The recipient was a raw base58 box. The backend resolves `.sol` names, but
+  // only at build time — so a user typed a name and found out whether it meant
+  // anything after committing to the transaction. And nothing distinguished an
+  // address that has never been seen on chain from one that has, which is the
+  // difference between a typo and a wallet.
+
+  readonly isTransfer = computed(() => this.action?.type === 'transfer');
+
+  readonly recipientState = signal<
+    | { kind: 'idle' }
+    | { kind: 'checking' }
+    | { kind: 'domain'; owner: string }
+    | { kind: 'wallet'; funded: boolean }
+    | { kind: 'self' }
+    | { kind: 'invalid' }
+  >({ kind: 'idle' });
+
+  private recipientTimer?: ReturnType<typeof setTimeout>;
+  private recipientKey = '';
+
+  /** Debounced, because it runs on every keystroke of an address. */
+  recipientMaybeCheck(): void {
+    if (!this.isTransfer()) return;
+    const raw = this.getEditParam('to').trim();
+    if (raw === this.recipientKey) return;
+    this.recipientKey = raw;
+    if (this.recipientTimer) clearTimeout(this.recipientTimer);
+    if (!raw) { this.recipientState.set({ kind: 'idle' }); return; }
+    this.recipientTimer = setTimeout(() => void this.recipientCheckNow(raw), 400);
+  }
+
+  private async recipientCheckNow(raw: string): Promise<void> {
+    this.recipientState.set({ kind: 'checking' });
+
+    if (/\.sol$/i.test(raw)) {
+      try {
+        const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+          type: 'sns_resolve', params: { domain: raw.replace(/\.sol$/i, '') },
+        }));
+        const owner = resp?.data?.owner ?? resp?.data ?? resp?.preview?.params?.owner;
+        if (typeof owner === 'string' && owner.length >= 32) {
+          this.recipientState.set({ kind: 'domain', owner });
+          return;
+        }
+      } catch { /* fall through to "invalid" — an unregistered name is a typo */ }
+      this.recipientState.set({ kind: 'invalid' });
+      return;
+    }
+
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw)) {
+      this.recipientState.set({ kind: 'invalid' });
+      return;
+    }
+    if (raw === this.walletService.publicKey()) {
+      this.recipientState.set({ kind: 'self' });
+      return;
+    }
+
+    // Funded or not decides whether the transfer also pays account rent, which
+    // is the one cost a sender does not expect.
+    try {
+      const conn = createSolanaConnection('confirmed');
+      const info = await conn.getAccountInfo(new PublicKey(raw));
+      this.recipientState.set({ kind: 'wallet', funded: !!info && info.lamports > 0 });
+    } catch {
+      this.recipientState.set({ kind: 'wallet', funded: true });
+    }
   }
 
   /** True on the bridge, which gets its own panel rather than a field list. */
@@ -6220,6 +6373,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.loadKaminoVaultWithdrawInfo();
     }
     if (this.action.type === 'native_stake') this.loadValidators();
+    // The stake-account actions need both: the accounts to choose from, and
+    // the validator list to turn each account's vote address into a name.
+    if (this.isStakeAccountAction()) {
+      void this.loadStakeAccounts();
+      this.loadValidators();
+    }
     // Eagerly resolve "all" → actual balance for pumpfun/pumpswap sells so the
     // number input shows a real value instead of appearing blank.
     if ((this.action.type === 'pumpfun_sell' || this.action.type === 'pumpswap_sell')

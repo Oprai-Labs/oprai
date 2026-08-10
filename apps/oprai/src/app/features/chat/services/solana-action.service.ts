@@ -11,15 +11,30 @@ import { PumpFunService } from '@core/services/market/pumpfun.service';
 import { JitoService } from '@core/services/market/jito.service';
 import { PriceFeedService } from '@core/services/market/price-feed.service';
 import { createSolanaConnection } from '@core/utils/solana-connection';
-import { Keypair } from '@solana/web3.js';
+import { Keypair, PublicKey } from '@solana/web3.js';
 import type { Transaction, VersionedTransaction } from '@solana/web3.js';
 
 export interface ValidatorInfo {
   voteAccount: string;
   commission: number;
   activatedStakeSol: number;
-  apyEstimatePct: number;
+  /** Absent when nobody has measured it — the card then shows no yield rather
+   *  than the constant-times-commission figure it used to print as fact. */
+  apyEstimatePct?: number;
   epochCreditsRecent: number;
+  name?: string;
+  icon?: string;
+  uptimePct?: number;
+  isJito?: boolean;
+}
+
+/** One of the user's own stake accounts, as the picker needs it. */
+export interface StakeAccountInfo {
+  address: string;
+  solAmount: number;
+  /** 'active' | 'activating' | 'deactivating' | 'inactive' */
+  state: string;
+  voteAccount: string | null;
 }
 
 export interface ActionCallbacks {
@@ -1215,6 +1230,48 @@ export class SolanaActionService {
         this.api.get<{ validators: ValidatorInfo[] }>('/validators/top').pipe(timeout(15_000))
       );
       return resp.validators ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * The stake accounts this wallet can actually act on.
+   *
+   * Every stake action except the first one — deactivate, withdraw, split,
+   * merge — asked the user to paste a stake account address. Nobody knows
+   * their stake account addresses; they are derived, never chosen, and never
+   * shown anywhere else. Read straight from chain by withdraw authority, which
+   * is what the program checks when the transaction lands.
+   */
+  async getStakeAccounts(owner: string): Promise<StakeAccountInfo[]> {
+    try {
+      const conn = createSolanaConnection('confirmed');
+      const accounts = await conn.getParsedProgramAccounts(
+        new PublicKey('Stake11111111111111111111111111111111111111'),
+        {
+          filters: [
+            { dataSize: 200 },
+            // Withdraw authority lives at offset 44 of a stake account.
+            { memcmp: { offset: 44, bytes: owner } },
+          ],
+        },
+      );
+      const rows: StakeAccountInfo[] = [];
+      for (const a of accounts) {
+        const info = (a.account.data as any)?.parsed?.info;
+        const delegation = info?.stake?.delegation;
+        rows.push({
+          address: a.pubkey.toBase58(),
+          solAmount: (a.account.lamports ?? 0) / 1e9,
+          state: (a.account.data as any)?.parsed?.type === 'delegated'
+            ? (delegation?.deactivationEpoch && delegation.deactivationEpoch !== '18446744073709551615'
+                ? 'deactivating' : 'active')
+            : 'inactive',
+          voteAccount: delegation?.voter ?? null,
+        });
+      }
+      return rows.sort((a, b) => b.solAmount - a.solAmount);
     } catch {
       return [];
     }

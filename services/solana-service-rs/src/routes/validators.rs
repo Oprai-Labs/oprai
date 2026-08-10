@@ -6,23 +6,25 @@ use crate::services::validators;
 
 /// GET /validators/top
 ///
-/// Returns the top 20 Solana validators sorted by effective stake
-/// (activatedStakeSol × (1 − commission/100)), filtered to commission ≤ 10%.
-/// Designed for the action-card validator picker — the call is blocking so it
-/// runs inside web::block to avoid starving the async runtime.
+/// Validators a user can choose between, named where they can be named:
+/// Stakewiz for identity + measured APY, the Solana RPC as an anonymous
+/// fallback. Sorted by stake, commission ≤ 10%, delinquents excluded.
 #[get("/top")]
 pub async fn get_top_validators(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    // The RPC call inside the fallback is blocking, so it is fenced off in
+    // `spawn_blocking` there rather than here — this handler is otherwise a
+    // plain HTTP fetch and must not occupy a blocking thread waiting on it.
     let rpc = state.rpc.clone();
-
-    let result = web::block(move || validators::get_top_validators(rpc.client()))
-        .await
-        .map_err(|e| AppError::Internal(format!("thread pool error: {e}")))?;
-
-    let vals = result?;
+    let http = state.http.clone();
+    let vals = tokio::task::spawn_blocking(move || {
+        tokio::runtime::Handle::current()
+            .block_on(validators::get_top_validators(rpc.client(), &http))
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("thread pool error: {e}")))??;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "validators": vals,
         "count": vals.len(),
-        "note": "Sorted by effective stake. APY is an estimate based on ~7% network inflation; actual rewards vary."
     })))
 }
