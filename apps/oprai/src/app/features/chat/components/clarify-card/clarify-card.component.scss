@@ -55,15 +55,17 @@
     flex-shrink: 0;
     overflow: hidden;
 
-    // When the card is scoped to one protocol, its real logo brands the header.
+    // When the card is scoped to one protocol — or to Solana itself — its real
+    // logo brands the header, and a logo is round.
     &--protocol {
       background: var(--op-bg-surface-1);
+      border-radius: 50%;
     }
   }
   &__proto-logo {
-    width: 36px;
-    height: 36px;
-    object-fit: contain;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   // Right-hand pill, matching the query card's QUERY / action card's status.
@@ -180,21 +182,24 @@
     flex-shrink: 0;
   }
 
+  // Round, like every other logo in the app — the token chips, the validator
+  // rows, the card header. At 8px radius a square logo stayed a square and
+  // only the assets that were already round looked right.
   &__protocol-icon {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 36px;
     height: 36px;
-    border-radius: 8px;
+    border-radius: 50%;
     background: var(--op-bg-surface-1);
     flex-shrink: 0;
     overflow: hidden;
 
     img {
-      width: 26px;
-      height: 26px;
-      object-fit: contain;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
   }
 

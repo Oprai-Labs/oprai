@@ -70,7 +70,10 @@ export class ClarifyCardComponent implements OnInit {
    *  follow the user's language. */
   private readonly categoryTitles: Record<string, string> = {
     liquidity: 'Select Pool',
-    stake: 'Select Validator',
+    // Not "Select Validator": the same category covers "which protocol" and
+    // "which validator", and the fixed label put SELECT VALIDATOR above a list
+    // of protocols. The specific case is decided from the options below.
+    stake: 'Staking',
     lend: 'Select Market',
     borrow: 'Select Market',
     swap: 'Select Route',
@@ -84,7 +87,20 @@ export class ClarifyCardComponent implements OnInit {
   }
 
   title(): string {
+    // What is actually being chosen, read off the options rather than off a
+    // category the model picked. A list of `native_stake` options is a
+    // validator choice; a list of different staking actions is a protocol one.
+    const opts = this.clarify.options ?? [];
+    if (opts.length) {
+      if (opts.every(o => o.action.startsWith('native_stake'))) return 'Select Validator';
+      if (opts.every(o => this.isStakingAction(o.action))) return 'Select Protocol';
+    }
     return this.categoryTitles[this.clarify.category] ?? 'Select Option';
+  }
+
+  /** Every way of staking SOL, whichever protocol takes it. */
+  private isStakingAction(action: string): boolean {
+    return /(^|_)stake$/.test(action) || action.startsWith('native_stake');
   }
 
   /**
@@ -212,7 +228,10 @@ export class ClarifyCardComponent implements OnInit {
    *  is no protocol logo to show, because the protocol is Solana itself. */
   cardTokenIcon(): string | null {
     const opts = this.clarify.options ?? [];
-    if (!opts.length || !opts.every(o => o.action.startsWith('native_stake'))) return null;
+    // Any staking choice, not just native. Whether the SOL goes to a validator
+    // or to Marinade, the asset being staked is the same one, and it is the
+    // only mark that fits a card offering four different protocols.
+    if (!opts.length || !opts.every(o => this.isStakingAction(o.action))) return null;
     return this.resolveTokenPublic('So11111111111111111111111111111111111111112')?.logoURI ?? null;
   }
 
@@ -227,6 +246,8 @@ export class ClarifyCardComponent implements OnInit {
     const infos = opts.map(o => this.getProtocolInfo(o));
     const first = infos[0];
     if (!first) return null;
+    // A staking card is Solana's, not the first protocol's — see cardTokenIcon.
+    if (opts.every(o => this.isStakingAction(o.action))) return null;
     return infos.every(i => i?.id === first.id) ? first : null;
   }
 
