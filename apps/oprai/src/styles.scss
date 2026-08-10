@@ -49,9 +49,15 @@
   --op-info-subtle: rgba(37, 99, 235, 0.10);
 
   // ── Borders ──
-  --op-border-subtle: rgba(0, 0, 0, 0.06);
-  --op-border-default: rgba(0, 0, 0, 0.10);
-  --op-border-strong: rgba(0, 0, 0, 0.16);
+  // Slate, not black. On a white page a pure-black hairline at 6% reads as a
+  // smudge — too faint to be an edge, dark enough to look like dirt — which is
+  // why the light theme had no visible structure. Tinting toward slate and
+  // lifting the alpha a step gives a line that belongs to the page instead of
+  // sitting on top of it. The dark theme keeps white alphas: same idea, other
+  // direction.
+  --op-border-subtle: rgba(15, 23, 42, 0.09);
+  --op-border-default: rgba(15, 23, 42, 0.14);
+  --op-border-strong: rgba(15, 23, 42, 0.22);
 
   // ── Interactive ──
   --op-hover: rgba(0, 0, 0, 0.05);

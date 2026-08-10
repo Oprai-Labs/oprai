@@ -4851,6 +4851,9 @@
                [value]="relayChainQuery()"
                (input)="relayChainQuery.set($any($event.target).value)" />
         <div class="token-dialog__chain-list">
+          @if (!relayFilteredChains().length) {
+            <div class="token-dialog__empty">No chain by that name.</div>
+          }
           @for (c of relayFilteredChains(); track c.value) {
             <button type="button" class="token-dialog__chain"
                     [class.is-on]="relayPickerChain() === c.value"
@@ -4872,12 +4875,17 @@
                placeholder="Search for a token or paste an address"
                [value]="relayPickerQuery()"
                (input)="onRelayPickerQuery($any($event.target).value)" />
-        @if (relayPickerLoading()) {
-          <div class="relay-picker__note">Searching…</div>
-        } @else if (!relayPickerRows().length) {
-          <div class="relay-picker__note">Nothing on {{ relayChainName(relayPickerChain()) }} by that name.</div>
-        }
         <div class="token-dialog__token-list">
+          <!-- Inside the list, not above it: a note that sits outside the
+               scroll area leaves the area empty, and an empty area collapses,
+               so every search that found nothing shrank the whole dialog. -->
+          @if (relayPickerLoading()) {
+            <div class="token-dialog__empty">Searching…</div>
+          } @else if (!relayPickerRows().length) {
+            <div class="token-dialog__empty">
+              Nothing on {{ relayChainName(relayPickerChain()) }} by that name.
+            </div>
+          }
           @for (r of relayPickerRows(); track r.address) {
             <button type="button" class="relay-picker__row"
                     (click)="chooseRelayToken(relayPickerFor() ?? 'originCurrency', r)">
