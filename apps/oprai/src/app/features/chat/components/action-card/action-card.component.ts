@@ -5024,26 +5024,39 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isNameInvalid = computed(() => this.isLaunchAction() && this.editName().trim().length === 0);
   readonly isSymbolInvalid = computed(() => this.isLaunchAction() && this.editSymbol().trim().length === 0);
   readonly isImageInvalid = false;
-  readonly canApprove = computed(() => {
-    if (this.borrowLiquidityMode()) { const c = this.borrowCapacity(); return c !== null && !c.loading && c.maxBorrow > 0; }
-    // A bridge to an EVM chain cannot be signed without an address that chain
-    // can receive on. Blocking here beats sending a Solana address to Base and
-    // reading the marketplace's rejection back to the user.
-    if (this.isRelayBridge() && !this.relayRecipientReady()) return false;
-    // And the same on the sending side: nothing can leave an EVM chain without
-    // the wallet that signs there, which is not the one that signed in here.
-    if (this.isRelayBridge() && !this.relaySenderReady()) return false;
-    // The `required` flag on a field was only ever a red asterisk, so a
-    // transfer could be confirmed with an empty recipient and rejected by the
-    // backend. The card knows better than to offer that.
-    if (this.isTransfer()) {
-      if (!(Number(this.getEditParam('amount')) > 0)) return false;
-      if (this.recipientState().kind === 'invalid') return false;
-      if (!this.getEditParam('to').trim()) return false;
+  /**
+   * Why Confirm is disabled, in the words the button should say.
+   *
+   * This used to be a boolean, and the button carried a hardcoded "Insufficient
+   * collateral" for whatever turned it false — correct for borrow, the only
+   * gate at the time. Every gate added since inherited that label: a blocked
+   * bridge claimed insufficient collateral, and so did a transfer with no
+   * recipient. A reason travels with its cause; a boolean leaves the button
+   * guessing.
+   */
+  readonly approvalBlock = computed<string | null>(() => {
+    if (this.borrowLiquidityMode()) {
+      const c = this.borrowCapacity();
+      return c !== null && !c.loading && c.maxBorrow > 0 ? null : 'Insufficient collateral';
     }
-    if (this.isCloseAccounts() && !this.emptyAccountsLoading() && !this.emptyAccounts().length) return false;
-    return true;
+    // A bridge to an EVM chain cannot be signed without an address that chain
+    // can receive on, nor without the wallet that signs where it leaves from.
+    if (this.isRelayBridge()) {
+      if (!this.relayRecipientReady()) return 'Connect a wallet to receive';
+      if (!this.relaySenderReady()) return 'Connect the sending wallet';
+    }
+    if (this.isTransfer()) {
+      if (!(Number(this.getEditParam('amount')) > 0)) return 'Enter an amount';
+      if (!this.getEditParam('to').trim()) return 'Enter a recipient';
+      if (this.recipientState().kind === 'invalid') return 'That recipient is not valid';
+    }
+    if (this.isCloseAccounts() && !this.emptyAccountsLoading() && !this.emptyAccounts().length) {
+      return 'Nothing to close';
+    }
+    return null;
   });
+
+  readonly canApprove = computed(() => this.approvalBlock() === null);
   readonly unverifiedDestination = computed(() => this.action?.warnUnverifiedDestination ?? false);
 
   /**
@@ -6395,6 +6408,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (p[key] === undefined || p[key] === '' || p[key] === null) {
         p[key] = def;
       }
+    }
+    // A transfer's recipient under whichever name it arrived. The prompt says
+    // `to`, but a model that has just been told a name could not be resolved
+    // writes `recipient` or `destination` instead — and the card then opened
+    // with an empty box under a message that had clearly named someone.
+    if (this.action?.type === 'transfer' && !(p['to'] ?? '').trim()) {
+      const alias = ['recipient', 'destination', 'address', 'toAddress']
+        .map(k => (p[k] ?? '').trim())
+        .find(v => !!v);
+      if (alias) p['to'] = alias;
     }
     this.editParams.set({ ...p });
     // Limit order: seed the BUY-panel amount. The backend defines
