@@ -5,8 +5,15 @@ use crate::error::AppError;
 
 const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
 const MAX_COMMISSION: u8 = 10; // exclude validators charging > 10%
-/// Enough that searching by name is worth doing. The picker filters locally.
-const TOP_N: usize = 200;
+/// Effectively "all of them": about 630 validators clear the commission and
+/// delinquency filters, for a 176KB response the card loads once and then
+/// sorts and pages locally.
+///
+/// It was 200, truncated by STAKE — before the card sorted by APY. So the
+/// highest-yield validators were cut from the list for being small, and asking
+/// for the best APY returned the best APY *among the biggest*, which is a
+/// different question and a visibly different list.
+const TOP_N: usize = 1000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

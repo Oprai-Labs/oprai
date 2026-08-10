@@ -4207,52 +4207,53 @@
                    [value]="validatorQuery()"
                    (input)="setValidatorQuery($any($event.target).value)" />
 
-            <!-- The order is the user's choice. Asking for "the highest APY"
-                 used to return the list the endpoint happened to send, which
-                 was ordered by size. -->
-            <div class="validator-picker__sorts">
-              <button type="button" class="me-quick__btn"
-                      [class.me-quick__btn--active]="validatorSort() === 'apy'"
-                      (click)="setValidatorSort('apy')">Highest APY</button>
-              <button type="button" class="me-quick__btn"
-                      [class.me-quick__btn--active]="validatorSort() === 'stake'"
-                      (click)="setValidatorSort('stake')">Most staked</button>
-              <button type="button" class="me-quick__btn"
-                      [class.me-quick__btn--active]="validatorSort() === 'fee'"
-                      (click)="setValidatorSort('fee')">Lowest fee</button>
-            </div>
+            <!-- A table, the way the pool lists are: the columns are the
+                 comparison, and their headers are how you re-order it. Asking
+                 for "the highest APY" used to return whatever order the
+                 endpoint sent, with nothing on screen to change it. -->
+            <div class="vtable">
+              <div class="vtable__head">
+                <span>Validator</span>
+                <button type="button" class="vtable__sort" (click)="setValidatorSort('apy')">
+                  APY
+                  <lucide-icon [size]="10"
+                    [name]="validatorSort() === 'apy' ? (validatorSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'" />
+                </button>
+                <button type="button" class="vtable__sort" (click)="setValidatorSort('fee')">
+                  Fee
+                  <lucide-icon [size]="10"
+                    [name]="validatorSort() === 'fee' ? (validatorSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'" />
+                </button>
+                <button type="button" class="vtable__sort" (click)="setValidatorSort('stake')">
+                  Stake
+                  <lucide-icon [size]="10"
+                    [name]="validatorSort() === 'stake' ? (validatorSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'" />
+                </button>
+                <span class="text-right">Uptime</span>
+              </div>
 
-            <div class="validator-picker__list">
               @for (v of pagedValidators(); track v.voteAccount) {
-                <button type="button"
-                        class="validator-item"
-                        [class.validator-item--selected]="getEditParam('validatorVoteAccount') === v.voteAccount"
+                <button type="button" class="vtable__row"
+                        [class.vtable__row--on]="getEditParam('validatorVoteAccount') === v.voteAccount"
                         (click)="selectValidator(v.voteAccount)">
-                  <span class="validator-item__icon">
-                    <span class="relay-side__letter">{{ (v.name || v.voteAccount).charAt(0) }}</span>
-                    @if (v.icon) {
-                      <img [src]="v.icon" [alt]="v.name || 'validator'"
-                           (load)="$any($event.target).parentElement.classList.add('has-img')"
-                           (error)="$any($event.target).style.display='none'" />
-                    }
-                  </span>
-                  <span class="validator-item__body">
-                    <span class="validator-item__name">
-                      {{ v.name || (v.voteAccount.slice(0, 8) + '…' + v.voteAccount.slice(-4)) }}
+                  <span class="vtable__name">
+                    <span class="validator-item__icon">
+                      <span class="relay-side__letter">{{ (v.name || v.voteAccount).charAt(0) }}</span>
+                      @if (v.icon) {
+                        <img [src]="v.icon" [alt]="v.name || 'validator'"
+                             (load)="$any($event.target).parentElement.classList.add('has-img')"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
+                    <span class="vtable__name-text">
+                      {{ v.name || (v.voteAccount.slice(0, 6) + '…' + v.voteAccount.slice(-4)) }}
                       @if (v.isJito) { <span class="validator-item__tag">Jito</span> }
                     </span>
-                    <span class="validator-item__stats">
-                      <!-- APY only when it was measured. The old card printed a
-                           constant times the commission and called it APY. -->
-                      @if (v.apyEstimatePct) { <span class="validator-item__apy">{{ v.apyEstimatePct }}% APY</span> }
-                      <span>{{ v.commission }}% fee</span>
-                      <span>{{ (v.activatedStakeSol / 1000).toFixed(0) }}K SOL</span>
-                      @if (v.uptimePct) { <span>{{ v.uptimePct }}% uptime</span> }
-                    </span>
                   </span>
-                  @if (getEditParam('validatorVoteAccount') === v.voteAccount) {
-                    <lucide-icon name="check" [size]="14" class="validator-item__check" />
-                  }
+                  <span class="vtable__apy mono">{{ v.apyEstimatePct ? (v.apyEstimatePct + '%') : '—' }}</span>
+                  <span class="mono">{{ v.commission }}%</span>
+                  <span class="mono">{{ (v.activatedStakeSol / 1000).toFixed(0) }}K</span>
+                  <span class="mono text-right">{{ v.uptimePct ? (v.uptimePct + '%') : '—' }}</span>
                 </button>
               }
               @if (!pagedValidators().length) {
@@ -4261,21 +4262,27 @@
             </div>
 
             @if (validatorPageCount() > 1) {
-              <div class="validator-picker__pager">
-                <button type="button" class="me-quick__btn"
-                        [disabled]="validatorPage() === 0"
-                        (click)="stepValidatorPage(-1)">
-                  <lucide-icon name="chevron-left" [size]="13" />
-                </button>
-                <span class="validator-picker__page-of">
-                  {{ validatorPage() + 1 }} / {{ validatorPageCount() }}
-                  <span class="validator-picker__page-total">· {{ sortedValidators().length }} validators</span>
+              <div class="vtable__pager">
+                <span class="vtable__range">
+                  {{ validatorRange().from }}–{{ validatorRange().to }} of {{ validatorRange().total }}
                 </span>
-                <button type="button" class="me-quick__btn"
-                        [disabled]="validatorPage() >= validatorPageCount() - 1"
-                        (click)="stepValidatorPage(1)">
-                  <lucide-icon name="chevron-right" [size]="13" />
-                </button>
+                <div class="vtable__pages">
+                  <button type="button" class="vpage vpage--nav"
+                          [disabled]="validatorPage() === 0" (click)="stepValidatorPage(-1)"
+                          aria-label="Previous page">
+                    <lucide-icon name="chevron-left" [size]="13" />
+                  </button>
+                  @for (n of validatorPageNumbers(); track n) {
+                    <button type="button" class="vpage"
+                            [class.vpage--on]="n === validatorPage() + 1"
+                            (click)="goToValidatorPage(n)">{{ n }}</button>
+                  }
+                  <button type="button" class="vpage vpage--nav"
+                          [disabled]="validatorPage() >= validatorPageCount() - 1"
+                          (click)="stepValidatorPage(1)" aria-label="Next page">
+                    <lucide-icon name="chevron-right" [size]="13" />
+                  </button>
+                </div>
               </div>
             }
           }

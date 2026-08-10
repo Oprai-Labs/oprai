@@ -1558,12 +1558,47 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * between; size is a tiebreak, not a goal.
    */
   readonly validatorSort = signal<'apy' | 'stake' | 'fee'>('apy');
+  readonly validatorSortDir = signal<'asc' | 'desc'>('desc');
   readonly validatorPage = signal(0);
-  private static readonly VALIDATORS_PER_PAGE = 5;
+  private static readonly VALIDATORS_PER_PAGE = 6;
 
+  /** Clicking the column you are already sorted by reverses it, which is what
+   *  a sortable column header is expected to do. */
   setValidatorSort(by: 'apy' | 'stake' | 'fee'): void {
-    this.validatorSort.set(by);
+    if (this.validatorSort() === by) {
+      this.validatorSortDir.set(this.validatorSortDir() === 'desc' ? 'asc' : 'desc');
+    } else {
+      this.validatorSort.set(by);
+      // Best-first for a rate or a size; cheapest-first for a fee.
+      this.validatorSortDir.set(by === 'fee' ? 'asc' : 'desc');
+    }
     this.validatorPage.set(0);
+  }
+
+  /** The page numbers worth drawing: a window around the current page, with
+   *  the first and last always reachable. */
+  readonly validatorPageNumbers = computed(() => {
+    const total = this.validatorPageCount();
+    const cur = this.validatorPage() + 1;
+    const out: number[] = [];
+    const push = (n: number) => { if (n >= 1 && n <= total && !out.includes(n)) out.push(n); };
+    push(1);
+    for (let n = cur - 1; n <= cur + 1; n++) push(n);
+    push(total);
+    return out.sort((a, b) => a - b);
+  });
+
+  goToValidatorPage(n: number): void {
+    this.validatorPage.set(Math.min(Math.max(n - 1, 0), this.validatorPageCount() - 1));
+  }
+
+  /** "1–6 of 629" — the count is the point: it says the list is the whole set,
+   *  not a top-20 someone chose for you. */
+  validatorRange(): { from: number; to: number; total: number } {
+    const per = ActionCardComponent.VALIDATORS_PER_PAGE;
+    const total = this.sortedValidators().length;
+    const from = total ? this.validatorPage() * per + 1 : 0;
+    return { from, to: Math.min(from + per - 1, total), total };
   }
 
   setValidatorQuery(q: string): void {
@@ -1577,15 +1612,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const rows = this.validators().filter(v =>
       !q || (v.name ?? '').toLowerCase().includes(q) || v.voteAccount.toLowerCase().includes(q));
     const by = this.validatorSort();
+    const flip = this.validatorSortDir() === 'asc' ? -1 : 1;
     return [...rows].sort((a, b) => {
-      if (by === 'fee') return (a.commission - b.commission) || (b.activatedStakeSol - a.activatedStakeSol);
-      if (by === 'stake') return b.activatedStakeSol - a.activatedStakeSol;
+      if (by === 'fee') return flip * (b.commission - a.commission) || (b.activatedStakeSol - a.activatedStakeSol);
+      if (by === 'stake') return flip * (b.activatedStakeSol - a.activatedStakeSol);
       // Dozens share the top APY, so stake breaks the tie — at the same yield
       // the difference that matters is how established the operator is. An
       // unmeasured APY sorts last: a missing number is not a good one.
       const aa = a.apyEstimatePct ?? -1;
       const bb = b.apyEstimatePct ?? -1;
-      return (bb - aa) || (b.activatedStakeSol - a.activatedStakeSol);
+      return flip * (bb - aa) || (b.activatedStakeSol - a.activatedStakeSol);
     });
   });
 

@@ -6424,3 +6424,132 @@
   &--ok { color: var(--op-gain); }
   &--warn { color: var(--op-danger); }
 }
+
+// ─── Validator table ────────────────────────────────────────────────────────
+//
+// The same shape as the pool lists in the query card: columns that are the
+// comparison, headers that re-order it, numbered pages underneath. A stack of
+// cards could not do the first two, so "sort by APY" had nowhere to live.
+.vtable {
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-elevated);
+
+  &__head,
+  &__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 62px 48px 62px 62px;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    text-align: left;
+  }
+
+  &__head {
+    background: var(--op-bg-surface-2);
+    border-bottom: 1px solid var(--op-border-subtle);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--op-text-tertiary);
+  }
+
+  &__sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+
+    &:hover { color: var(--op-text-primary); }
+  }
+
+  &__row {
+    background: none;
+    border: none;
+    border-top: 1px solid var(--op-border-subtle);
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--op-text-secondary);
+
+    &:first-of-type { border-top: none; }
+    &:hover { background: var(--op-hover); }
+
+    &--on {
+      background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 10%, transparent);
+      color: var(--op-text-primary);
+    }
+  }
+
+  &__name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  &__name-text {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__apy { color: var(--op-gain); font-weight: 600; }
+
+  &__pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  &__range {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__pages { display: flex; gap: 4px; }
+}
+
+.vpage {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  border: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-elevated);
+  color: var(--op-text-secondary);
+  font-size: 0.6875rem;
+  cursor: pointer;
+
+  &:hover:not(:disabled) { border-color: var(--proto-accent, var(--op-brand)); color: var(--op-text-primary); }
+  &:disabled { opacity: 0.4; cursor: default; }
+
+  &--on {
+    background: var(--proto-accent, var(--op-brand));
+    border-color: transparent;
+    color: #fff;
+    font-weight: 600;
+  }
+}
