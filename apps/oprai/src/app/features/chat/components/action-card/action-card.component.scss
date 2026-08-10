@@ -6428,6 +6428,35 @@
   &--warn { color: var(--op-danger); }
 }
 
+// The recipient box inside the receive panel: same height and radius as the
+// amount it answers, rather than the generic form input's.
+.transfer-to {
+  width: 100%;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 0.8125rem;
+}
+
+// "+0.014 SOL back" — the right-hand figure of a swap panel, which is exactly
+// what closing empty accounts returns.
+.close-back {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  white-space: nowrap;
+
+  &__v {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--op-gain);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__k { font-size: 0.625rem; color: var(--op-text-tertiary); }
+}
+
 // The stake amount, in the swap card's panel rather than a form row. Same
 // margins as the picker below it so the two read as one card.
 .stake-panels {

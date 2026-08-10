@@ -406,7 +406,7 @@
          that was never opened. Worth replacing with a single `hasBody()`
          computed the next time it catches someone. -->
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
-         || isNativeStake() || isStakeAccountAction()) {
+         || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -4161,6 +4161,129 @@
         } @else {
           <div class="dca-cancel-summary dca-cancel-summary--muted">Cancels your active DCA order.</div>
         }
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
+         TRANSFER — the swap card's panels: what leaves, and where it lands
+         ══════════════════════════════════════════════════════════ -->
+    @if (isTransfer()) {
+      <div class="stake-panels">
+        <div class="pump-panel">
+          <div class="pump-panel__top">
+            <span class="pump-panel__label">You send</span>
+            @if (inputBalance() !== null) {
+              <span class="pump-panel__bal">
+                Balance: {{ inputBalance() | number:'1.0-4' }}
+                @if (isEditable()) {
+                  <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                }
+              </span>
+            }
+          </div>
+          <div class="pump-panel__row">
+            <input type="number" class="pump-panel__amount" placeholder="0"
+                   [value]="getEditParam('amount')"
+                   (input)="setEditParam('amount', $any($event.target).value)"
+                   [disabled]="!isEditable()" min="0" step="any" />
+            <!-- Clickable: a transfer can send any token, and the chip used to
+                 be inert, which made whatever the model named the only choice. -->
+            @let sendTd = resolveTokenDisplay(getEditParam('token'));
+            <button type="button" class="pump-token pump-token--select"
+                    [disabled]="!isEditable()"
+                    (click)="openTokenPicker('token', $event)">
+              @if (sendTd.logoURI) {
+                <img [src]="sendTd.logoURI" class="pump-token__icon" alt=""
+                     (error)="$any($event.target).style.display='none'" />
+              } @else {
+                <span class="pump-token__icon pump-token__icon--ph">{{ (sendTd.symbol || '?').charAt(0) }}</span>
+              }
+              <span class="pump-token__sym">{{ sendTd.symbol || 'Select' }}</span>
+              <lucide-icon name="chevron-down" [size]="13" />
+            </button>
+          </div>
+        </div>
+
+        <div class="pump-swap__arrow" aria-hidden="true">
+          <lucide-icon name="arrow-down" [size]="16" />
+        </div>
+
+        <div class="pump-panel pump-panel--recv">
+          <div class="pump-panel__top">
+            <span class="pump-panel__label">To</span>
+          </div>
+          <input type="text" class="proto-input proto-input--mono transfer-to"
+                 placeholder="Wallet address or name.sol"
+                 [value]="getEditParam('to')"
+                 (input)="setEditParam('to', $any($event.target).value); recipientMaybeCheck()"
+                 [disabled]="!isEditable()" />
+
+          <!-- Who that actually is, decided while you type rather than after
+               you sign. -->
+          @switch (recipientState().kind) {
+            @case ('checking') {
+              <span class="recipient-note"><span class="proto-balance-dots">···</span> Checking…</span>
+            }
+            @case ('domain') {
+              <span class="recipient-note recipient-note--ok">
+                <lucide-icon name="check" [size]="11" />
+                Resolves to <span class="mono">{{ $any(recipientState()).owner.slice(0, 4) }}…{{ $any(recipientState()).owner.slice(-4) }}</span>
+              </span>
+            }
+            @case ('wallet') {
+              @if ($any(recipientState()).funded) {
+                <span class="recipient-note recipient-note--ok">
+                  <lucide-icon name="check" [size]="11" /> Existing wallet
+                </span>
+              } @else {
+                <span class="recipient-note recipient-note--warn">
+                  <lucide-icon name="triangle-alert" [size]="11" />
+                  This address has never been used. Check it carefully — a transfer to a mistyped address cannot be recovered. Creating it also costs about 0.00089 SOL in rent.
+                </span>
+              }
+            }
+            @case ('self') {
+              <span class="recipient-note recipient-note--warn">
+                <lucide-icon name="triangle-alert" [size]="11" /> That is this wallet — you would be sending to yourself.
+              </span>
+            }
+            @case ('invalid') {
+              <span class="recipient-note recipient-note--warn">
+                <lucide-icon name="triangle-alert" [size]="11" />
+                Not a Solana address or a registered .sol name.
+              </span>
+            }
+            @default { <span></span> }
+          }
+        </div>
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
+         CLOSE EMPTY ACCOUNTS — the count, not the rate
+         ══════════════════════════════════════════════════════════ -->
+    @if (isCloseAccounts()) {
+      <div class="stake-panels">
+        <div class="pump-panel">
+          <div class="pump-panel__top">
+            <span class="pump-panel__label">Empty token accounts</span>
+            @if (emptyAccountsLoading()) { <span class="proto-balance-dots">···</span> }
+          </div>
+          <div class="pump-panel__row">
+            <span class="pump-panel__amount">{{ emptyAccounts().length }}</span>
+            <div class="close-back">
+              <span class="close-back__v mono">+{{ emptyAccountsRent() | number:'1.0-5' }}</span>
+              <span class="close-back__k">SOL back</span>
+            </div>
+          </div>
+          @if (!emptyAccountsLoading() && !emptyAccounts().length) {
+            <span class="pump-panel__usd">Nothing to close — every token account in this wallet holds a balance.</span>
+          } @else if (emptyAccounts().length) {
+            <span class="pump-panel__usd">
+              Each account returns its rent deposit. Accounts still holding tokens are left alone.
+            </span>
+          }
+        </div>
       </div>
     }
 

@@ -376,6 +376,12 @@ function getActionFields(
       },
     );
   } else if (t === 'transfer') {
+    // Fields are the swap card's panels below (see the TRANSFER block in the
+    // template). Left as a generic three-row form, this card looked nothing
+    // like the swap it sits beside — a thin bordered amount, a disabled token
+    // chip and an address box.
+    return [];
+  } else if (t === '__transfer_legacy__') {
     fields.push(
       { key: 'to', label: 'Recipient', type: 'address', placeholder: 'Enter wallet address...', required: true },
       { key: 'token', label: 'Token', type: 'token', required: true },
@@ -2459,6 +2465,48 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // difference between a typo and a wallet.
 
   readonly isTransfer = computed(() => this.action?.type === 'transfer');
+  readonly isCloseAccounts = computed(() => this.action?.type === 'close_accounts');
+
+  // ── What "close empty accounts" is actually about to close ───────────────
+  //
+  // The card had no parameters, so it rendered as a header above a button and
+  // said neither how many accounts nor how much SOL. "About 0.002 each" is a
+  // rate, not an answer; the wallet knows the number.
+
+  readonly emptyAccounts = signal<Array<{ mint: string; account: string }>>([]);
+  readonly emptyAccountsLoading = signal(false);
+  /** Rent-exempt minimum for an SPL token account — what each one returns. */
+  private static readonly ATA_RENT_SOL = 0.00203928;
+
+  readonly emptyAccountsRent = computed(() =>
+    this.emptyAccounts().length * ActionCardComponent.ATA_RENT_SOL);
+
+  async loadEmptyAccounts(): Promise<void> {
+    const owner = this.walletService.publicKey();
+    if (!owner || !this.isCloseAccounts()) return;
+    this.emptyAccountsLoading.set(true);
+    try {
+      const conn = createSolanaConnection('confirmed');
+      const programs = [
+        new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
+        new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'), // Token-2022
+      ];
+      const found: Array<{ mint: string; account: string }> = [];
+      for (const programId of programs) {
+        const res = await conn.getParsedTokenAccountsByOwner(new PublicKey(owner), { programId })
+          .catch(() => null);
+        for (const a of res?.value ?? []) {
+          const info = (a.account.data as any)?.parsed?.info;
+          if (Number(info?.tokenAmount?.amount ?? '1') === 0) {
+            found.push({ mint: info?.mint ?? '', account: a.pubkey.toBase58() });
+          }
+        }
+      }
+      this.emptyAccounts.set(found);
+    } finally {
+      this.emptyAccountsLoading.set(false);
+    }
+  }
 
   readonly recipientState = signal<
     | { kind: 'idle' }
@@ -4985,6 +5033,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // And the same on the sending side: nothing can leave an EVM chain without
     // the wallet that signs there, which is not the one that signed in here.
     if (this.isRelayBridge() && !this.relaySenderReady()) return false;
+    // The `required` flag on a field was only ever a red asterisk, so a
+    // transfer could be confirmed with an empty recipient and rejected by the
+    // backend. The card knows better than to offer that.
+    if (this.isTransfer()) {
+      if (!(Number(this.getEditParam('amount')) > 0)) return false;
+      if (this.recipientState().kind === 'invalid') return false;
+      if (!this.getEditParam('to').trim()) return false;
+    }
+    if (this.isCloseAccounts() && !this.emptyAccountsLoading() && !this.emptyAccounts().length) return false;
     return true;
   });
   readonly unverifiedDestination = computed(() => this.action?.warnUnverifiedDestination ?? false);
@@ -6474,6 +6531,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       }
       this.loadKaminoVaultWithdrawInfo();
     }
+    if (this.isCloseAccounts()) void this.loadEmptyAccounts();
     if (this.action.type === 'native_stake') {
       // "the highest APY one" is a sort, and the model can say so. Without
       // this the card's default is the only order the user ever gets.
