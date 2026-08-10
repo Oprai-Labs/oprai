@@ -3013,7 +3013,7 @@ async def stream_chat_response(
                     collected_text_chunks.clear()
                     collected_text_chunks.append(full_response)
                     _log.info("sns_resolution_prepend applied domains=%s", _resp_domains[:3])
-                    yield f"data: {json.dumps({'delta': '\\n\\n' + _prefix, 'replace': True})}\n\n"
+                    yield f"data: {json.dumps({'delta': '\n\n' + _prefix, 'replace': True})}\n\n"
         except Exception:
             _log.debug("sns_resolution_prepend failed", exc_info=True)
 
@@ -3055,7 +3055,7 @@ async def stream_chat_response(
                     full_response = _override
                     collected_text_chunks.clear()
                     collected_text_chunks.append(_override)
-                    yield f"data: {json.dumps({'delta': '\\n\\n' + _override, 'replace': True})}\n\n"
+                    yield f"data: {json.dumps({'delta': '\n\n' + _override, 'replace': True})}\n\n"
             except Exception:
                 _log.debug("hedge_override failed", exc_info=True)
 
@@ -3147,7 +3147,7 @@ async def stream_chat_response(
             # already seen that misleading prose. Push a clarifying delta
             # so the next streamed text replaces, not appends to it.
             if _stub_post_action:
-                yield f"data: {json.dumps({'delta': '\\n\\n'})}\n\n"
+                yield f"data: {json.dumps({'delta': '\n\n'})}\n\n"
                 full_response = ""  # treat as empty so the recovery prose stands alone
             try:
                 # When an `execute_action` was dropped specifically for

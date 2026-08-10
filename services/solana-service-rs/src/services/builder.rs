@@ -3407,12 +3407,16 @@ async fn build_action_inner(
             if p.to.to_lowercase().ends_with(".sol") {
                 let domain = p.to[..p.to.len() - 4].to_lowercase();
                 let original = p.to.clone();
-                p.to = sns::resolve_domain(http, &domain).await.map_err(|_| {
-                    AppError::InvalidParams(format!(
-                        "Could not resolve '{}' to a Solana address",
-                        original
-                    ))
+                p.to = sns::resolve_domain_onchain(rpc, &domain).await.map_err(|e| {
+                    // Keep the reason: "not registered" and "we could not ask"
+                    // are different problems, and the proxy this used to go
+                    // through reported the second as the first for weeks.
+                    match e {
+                        AppError::NotFound(msg) => AppError::InvalidParams(msg),
+                        other => other,
+                    }
                 })?;
+                let _ = &original;
             }
             let rpc = rpc.clone();
             let pubkey = *user_pubkey;
@@ -6950,7 +6954,7 @@ async fn build_action_inner(
         // ── Solana Name Service (SNS) ───────────────────────────────────────────────
         "sns_resolve" => {
             let p: sns::SnsResolveParams = serde_json::from_value(params)?;
-            sns::build_sns_resolve(http, p).await
+            sns::build_sns_resolve(rpc, p).await
         }
         "sns_reverse_lookup" => {
             let p: sns::SnsReverseParams = serde_json::from_value(params)?;

@@ -425,9 +425,76 @@ pub struct SnsP2pCancelParams {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Resolve a `.sol` domain to its owner pubkey string.
-/// `domain` should be the bare label without the `.sol` suffix.
-pub async fn resolve_domain(http: &Client, domain: &str) -> Result<String, AppError> {
-    proxy_get(http, &format!("resolve/{domain}")).await
+///
+/// Read from the chain, not from a proxy. Bonfida's worker — the single
+/// dependency every SNS read in this service went through — now answers
+/// Cloudflare error 1042 on every path, so `toly.sol` came back "not
+/// registered". A domain that has existed for years reported as unregistered
+/// is worse than an outage: it is a wrong answer delivered confidently, and
+/// the transfer card would have sent the user looking for a different address.
+///
+/// The registry is three lines of arithmetic. A domain's account is a PDA of
+/// sha256("SPL Name Service" + label) under the `.sol` root, and the owner is
+/// the second 32-byte field of its header. No third party is involved, so
+/// there is nothing left to go down.
+pub async fn resolve_domain(_http: &Client, domain: &str) -> Result<String, AppError> {
+    Err(AppError::Internal(format!(
+        "resolve_domain must be called with an RPC: {domain}"
+    )))
+}
+
+/// The SPL Name Service program, and the account of the `.sol` top-level domain.
+const NAME_PROGRAM_ID: &str = "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX";
+const SOL_TLD_AUTHORITY: &str = "58PwtjSDuFHuUkYjH9BYnnQKHfwo9reZhC2zMJv9JPkx";
+/// parent(32) + owner(32) + class(32); the owner starts right after the parent.
+const NAME_OWNER_OFFSET: usize = 32;
+
+/// The account that holds a `.sol` domain's registry entry.
+pub fn domain_account(label: &str) -> Result<Pubkey, AppError> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(format!("SPL Name Service{}", label.trim().to_lowercase()).as_bytes());
+    let hashed: [u8; 32] = hasher.finalize().into();
+
+    let program = Pubkey::from_str(NAME_PROGRAM_ID)
+        .map_err(|e| AppError::Internal(format!("name program id: {e}")))?;
+    let parent = Pubkey::from_str(SOL_TLD_AUTHORITY)
+        .map_err(|e| AppError::Internal(format!("sol tld: {e}")))?;
+
+    let (key, _) = Pubkey::find_program_address(
+        &[&hashed, &[0u8; 32], parent.as_ref()],
+        &program,
+    );
+    Ok(key)
+}
+
+/// Resolve `<label>.sol` to the wallet that owns it, straight from the chain.
+pub async fn resolve_domain_onchain(
+    rpc: &crate::solana::connection::SolanaRpc,
+    domain: &str,
+) -> Result<String, AppError> {
+    let label = domain.trim().to_lowercase();
+    let label = label.strip_suffix(".sol").unwrap_or(&label).to_string();
+    if label.is_empty() {
+        return Err(AppError::InvalidParams("No domain given.".into()));
+    }
+    let key = domain_account(&label)?;
+    let rpc = rpc.clone();
+    let account = actix_web::web::block(move || rpc.client().get_account(&key))
+        .await
+        .map_err(|e| AppError::Internal(format!("thread pool error: {e}")))?
+        .map_err(|_| {
+            AppError::NotFound(format!("{label}.sol is not registered."))
+        })?;
+
+    if account.data.len() < NAME_OWNER_OFFSET + 32 {
+        return Err(AppError::NotFound(format!(
+            "{label}.sol has no owner recorded."
+        )));
+    }
+    let owner = Pubkey::try_from(&account.data[NAME_OWNER_OFFSET..NAME_OWNER_OFFSET + 32])
+        .map_err(|e| AppError::Internal(format!("owner decode: {e}")))?;
+    Ok(owner.to_string())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -435,11 +502,11 @@ pub async fn resolve_domain(http: &Client, domain: &str) -> Result<String, AppEr
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub async fn build_sns_resolve(
-    http: &Client,
+    rpc: &crate::solana::connection::SolanaRpc,
     params: SnsResolveParams,
 ) -> Result<BuildResponse, AppError> {
     let domain = params.domain.trim_end_matches(".sol").to_lowercase();
-    let owner: String = proxy_get(http, &format!("resolve/{domain}")).await?;
+    let owner: String = resolve_domain_onchain(rpc, &domain).await?;
     let domain_pubkey = domain_key(&domain);
 
     Ok(BuildResponse {

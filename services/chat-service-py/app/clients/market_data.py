@@ -1870,33 +1870,29 @@ async def _sns_get(path: str) -> Any:
 
 
 async def sns_resolve(domain: str) -> dict:
+    """Resolve a `.sol` name to its owner, through our own Solana service.
+
+    This used to call Bonfida's public proxy, which now answers Cloudflare
+    error 1042 on every path — so `toly.sol`, registered for years, came back
+    "not registered". A confident wrong answer, not an outage: the chat told
+    the user their recipient did not exist.
+
+    The Rust service derives the registry PDA and reads the owner off the
+    chain, so there is no third party left to go down.
+    """
     d = domain.lower().removesuffix(".sol")
     try:
-        raw = await _sns_get(f"resolve/{d}")
-        # Bonfida proxy wraps the answer in `{"s":"ok","result":"<owner>"}`;
-        # older deployments returned the bare string. Handle both shapes so
-        # `owner` is always the plain base58 address (or None if the format
-        # changes upstream — caller will treat None as "not registered").
-        if isinstance(raw, dict):
-            owner = raw.get("result") or raw.get("owner") or None
-        else:
-            owner = raw if isinstance(raw, str) else None
-        # The proxy sometimes returns a 200 with a human sentinel string
-        # ("Domain not found", "not registered") in the result field instead
-        # of throwing. A real owner is a base58 Solana pubkey (32-44 chars,
-        # no spaces). Anything else is a not-registered signal — coerce to
-        # None so callers don't pass "Domain not found" as a wallet address.
-        if isinstance(owner, str):
-            owner_clean = owner.strip()
-            if (" " in owner_clean
-                    or not (32 <= len(owner_clean) <= 44)
-                    or not _BASE58_RE.fullmatch(owner_clean)):
-                owner = None
-        return {"domain": f"{d}.sol", "owner": owner, "registered": bool(owner)}
+        data = await _solana_action_data("sns_resolve", {"domain": d})
+        owner = (data or {}).get("owner") if isinstance(data, dict) else None
+        if isinstance(owner, str) and 32 <= len(owner.strip()) <= 44:
+            return {"domain": f"{d}.sol", "owner": owner.strip(), "registered": True}
     except Exception:
-        return {"domain": f"{d}.sol", "owner": None, "registered": False,
-                "note": "Domain not found or not registered"}
-
+        # Distinguishing "not registered" from "could not ask" matters — the
+        # caller prints one of them to the user.
+        return {"domain": f"{d}.sol", "owner": None, "registered": None,
+                "note": "Could not check this name right now."}
+    return {"domain": f"{d}.sol", "owner": None, "registered": False,
+            "note": "Domain not found or not registered"}
 
 async def sns_reverse_lookup(pubkey: str) -> dict:
     try:
