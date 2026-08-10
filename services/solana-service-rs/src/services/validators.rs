@@ -39,6 +39,9 @@ pub struct ValidatorInfo {
     pub icon: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime_pct: Option<f64>,
+    /// The MEV share of the APY above, when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jito_apy_pct: Option<f64>,
     #[serde(default)]
     pub is_jito: bool,
 }
@@ -61,8 +64,18 @@ struct StakewizValidator {
     commission: Option<f64>,
     #[serde(default)]
     activated_stake: Option<f64>,
+    /// Staking yield only. Lower than what validator dashboards headline,
+    /// because it excludes MEV.
     #[serde(default)]
     apy_estimate: Option<f64>,
+    /// Staking + MEV — the figure every validator list quotes as "Total APY",
+    /// and the one that made our numbers disagree with everyone else's: we
+    /// were reading `apy_estimate` (5.24%) while Helius and Stakewiz's own
+    /// site both show `total_apy` (5.47%) for the same validator.
+    #[serde(default)]
+    total_apy: Option<f64>,
+    #[serde(default)]
+    jito_apy: Option<f64>,
     #[serde(default)]
     uptime: Option<f64>,
     #[serde(default)]
@@ -125,7 +138,11 @@ async fn from_stakewiz(http: &reqwest::Client) -> Result<Vec<ValidatorInfo>, App
             commission: normalise_commission(v.commission),
             vote_account: v.vote_identity,
             activated_stake_sol: (v.activated_stake.unwrap_or(0.0) * 100.0).round() / 100.0,
-            apy_estimate_pct: v.apy_estimate.map(|a| (a * 100.0).round() / 100.0),
+            apy_estimate_pct: v
+                .total_apy
+                .or(v.apy_estimate)
+                .map(|a| (a * 100.0).round() / 100.0),
+            jito_apy_pct: v.jito_apy.filter(|j| *j > 0.0).map(|a| (a * 100.0).round() / 100.0),
             epoch_credits_recent: 0,
             name: v.name.filter(|n| !n.trim().is_empty()),
             icon: v.image.filter(|i| i.starts_with("http")),
@@ -169,6 +186,7 @@ fn from_rpc(rpc: &RpcClient) -> Result<Vec<ValidatorInfo>, AppError> {
             name: None,
             icon: None,
             uptime_pct: None,
+            jito_apy_pct: None,
             is_jito: false,
         })
         .collect();

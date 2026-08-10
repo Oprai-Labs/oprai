@@ -25,6 +25,8 @@ export interface ValidatorInfo {
   name?: string;
   icon?: string;
   uptimePct?: number;
+  /** The MEV share of `apyEstimatePct`, when there is one. */
+  jitoApyPct?: number;
   isJito?: boolean;
 }
 

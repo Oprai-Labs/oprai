@@ -1499,7 +1499,16 @@ async def top_validators(limit: int = 20, sort_by: str = "stake") -> dict:
                     "icon": v.get("image") or None,
                     "commission": commission,
                     "activatedStakeSol": round(float(v.get("activated_stake") or 0), 2),
-                    "apyEstimatePct": round(float(v["apy_estimate"]), 2) if v.get("apy_estimate") is not None else None,
+                    # `total_apy` (staking + MEV) is the figure every validator
+                    # dashboard headlines. We were reading `apy_estimate`, which
+                    # excludes MEV — 5.24% where Helius and Stakewiz both show
+                    # 5.47% for the same validator, so our list looked wrong
+                    # next to theirs.
+                    "apyEstimatePct": (
+                        round(float(v["total_apy"]), 2) if v.get("total_apy") is not None
+                        else round(float(v["apy_estimate"]), 2) if v.get("apy_estimate") is not None
+                        else None
+                    ),
                     "uptimePct": round(float(v["uptime"]), 2) if v.get("uptime") is not None else None,
                     "isJito": bool(v.get("is_jito")),
                 })

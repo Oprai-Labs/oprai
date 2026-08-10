@@ -4303,6 +4303,7 @@
                       {{ v.commission }}% fee
                       <span class="vrow__dot">·</span>{{ (v.activatedStakeSol / 1000).toFixed(0) }}K SOL
                       @if (v.uptimePct) { <span class="vrow__dot">·</span>{{ v.uptimePct }}% uptime }
+                      @if (v.jitoApyPct) { <span class="vrow__dot">·</span>incl. {{ v.jitoApyPct }}% MEV }
                     </span>
                   </span>
 
