@@ -6198,3 +6198,10 @@
 }
 
 .relay-quote__amount--idle { color: var(--op-text-tertiary); }
+
+.relay-out__slip-v {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--op-text-secondary);
+}

@@ -6295,6 +6295,14 @@ async fn build_action_inner(
         // ── Relay.link — query actions ────────────────────────────────────────
         "relay_get_quote" => {
             let mut p: relay::RelayBridgeParams = serde_json::from_value(params)?;
+            // A quote is a price, not a destination. Relay prices a route for
+            // anyone — its own site shows a rate before you connect anything —
+            // so a missing recipient stands in as the zero address here rather
+            // than refusing to answer. The BUILD path still requires a real
+            // one: pricing to nowhere is fine, sending there is not.
+            if p.recipient.as_deref().unwrap_or("").trim().is_empty() {
+                p.recipient = Some(relay::PRICING_ONLY_RECIPIENT.to_string());
+            }
             p.origin_currency = relay::resolve_solana_origin_currency(
                 rpc,
                 user_pubkey,

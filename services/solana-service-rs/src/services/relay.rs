@@ -724,6 +724,14 @@ fn relay_error(context: &str, body: &str) -> AppError {
     AppError::RelayApiError(plain)
 }
 
+/// Stands in for a destination when all we want is a price.
+///
+/// Relay quotes a route regardless of who receives it, so refusing to quote
+/// until a wallet is connected hid the rate behind a decision the rate is
+/// meant to inform. Only the quote path uses this; a bridge that would
+/// actually send funds still demands a real address.
+pub const PRICING_ONLY_RECIPIENT: &str = "0x0000000000000000000000000000000000000000";
+
 /// Relay's two names for SOL, and which one this wallet can actually spend.
 ///
 /// Everywhere else in OPRAI "SOL" is the wrapped mint, because that is what

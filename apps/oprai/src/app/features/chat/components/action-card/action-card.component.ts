@@ -2747,9 +2747,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // we already know the answer to. Asking it anyway produced a red API error
     // for a wallet the user simply had not connected yet — a prompt dressed as
     // a fault. The panel asks for the wallet instead.
+    // The recipient is no longer part of readiness: a price does not depend on
+    // who receives it, and hiding the rate until a wallet is connected asks
+    // the user to commit before they can see what they are committing to.
     const ready = p['originChainId'] && p['destinationChainId'] && p['originCurrency']
-      && p['destinationCurrency'] && Number(p['amount']) > 0
-      && this.relayRecipientReady();
+      && p['destinationCurrency'] && Number(p['amount']) > 0;
     if (!ready) { this.relayQuote.set(null); this.relayQuoteError.set(null); return; }
 
     if (this.relayQuoteTimer) clearTimeout(this.relayQuoteTimer);
@@ -3022,6 +3024,22 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   relaySetSlippageAuto(auto: boolean): void {
     this.setEditParam('slippageTolerance', auto ? '' : '50');
+    this.relayMaybeQuote();
+  }
+
+  /**
+   * Slippage as a percentage, because "50 bps" is a unit traders use and
+   * everyone else has to convert. Stored in bps, since that is what Relay
+   * takes — the conversion belongs here, not in the user's head.
+   */
+  relaySlippagePercent(): string {
+    const bps = Number(this.getEditParam('slippageTolerance'));
+    return Number.isFinite(bps) && bps > 0 ? String(Number((bps / 100).toFixed(2))) : '';
+  }
+
+  relaySetSlippagePercent(percent: string): void {
+    const n = Number(percent.replace(',', '.'));
+    this.setEditParam('slippageTolerance', Number.isFinite(n) && n > 0 ? String(Math.round(n * 100)) : '');
     this.relayMaybeQuote();
   }
 

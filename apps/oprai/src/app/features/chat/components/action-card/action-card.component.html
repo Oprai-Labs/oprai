@@ -3635,11 +3635,13 @@
                           [disabled]="!isEditable()"
                           (click)="relaySetSlippageAuto(false)">Custom</button>
                   @if (!relaySlippageAuto()) {
-                    <input class="relay-out__slip-input mono" type="text" inputmode="numeric"
-                           [value]="getEditParam('slippageTolerance')"
+                    <input class="relay-out__slip-input mono" type="text" inputmode="decimal"
+                           [value]="relaySlippagePercent()"
                            [disabled]="!isEditable()"
-                           (input)="setEditParam('slippageTolerance', $any($event.target).value); relayMaybeQuote()" />
-                    <span class="relay-out__slip-k">bps</span>
+                           (input)="relaySetSlippagePercent($any($event.target).value)" />
+                    <span class="relay-out__slip-k">%</span>
+                  } @else if (relayQuote()?.impact) {
+                    <span class="relay-out__slip-v">{{ relayQuote()?.impact }}%</span>
                   }
                 </div>
 
