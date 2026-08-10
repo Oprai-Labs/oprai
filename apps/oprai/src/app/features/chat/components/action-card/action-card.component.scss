@@ -6232,3 +6232,41 @@
 
   img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 }
+
+// A logo with transparency lets the fallback letter show through it, which is
+// how a perfectly good icon came to have a letter printed under it. The letter
+// is there for the case the image never arrives; once it has, it is not.
+.has-img {
+  .relay-side__letter,
+  .wallet-dialog__icon-letter { visibility: hidden; }
+}
+
+// Light theme: the page is #f8f9fa, the card white, the panels grey — three
+// tones within a few percent of each other, which reads as a smudge rather
+// than as structure. On white, separation comes from an edge, not from another
+// shade of grey.
+//
+// `html:not(.dark)` because the app marks dark and leaves light implicit;
+// keyed the other way this would style neither.
+html:not(.dark) {
+  .relay-quote .pump-panel {
+    background: var(--op-bg-elevated);
+    border: 1px solid var(--op-border-default);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  }
+
+  // The receive side keeps its tint, but at a strength that reads as emphasis
+  // rather than as a second colour.
+  .relay-quote .pump-panel--recv {
+    background: color-mix(in srgb, var(--op-brand) 3%, #fff);
+    border-color: color-mix(in srgb, var(--op-brand) 18%, var(--op-border-default));
+  }
+
+  .relay-side {
+    background: var(--op-bg-elevated);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  }
+
+  .token-dialog__sheet,
+  .wallet-dialog__sheet { box-shadow: 0 24px 64px -24px rgba(16, 24, 40, 0.25); }
+}

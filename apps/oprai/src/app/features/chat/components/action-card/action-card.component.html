@@ -3562,6 +3562,7 @@
                         <span class="relay-side__letter">{{ t.symbol.charAt(0) }}</span>
                         @if (t.logoURI) {
                           <img [src]="t.logoURI" [alt]="t.symbol"
+                               (load)="$any($event.target).parentElement.classList.add('has-img')"
                                (error)="$any($event.target).style.display='none'" />
                         }
                       </span>
@@ -3604,6 +3605,7 @@
                         <span class="relay-side__letter">{{ t.symbol.charAt(0) }}</span>
                         @if (t.logoURI) {
                           <img [src]="t.logoURI" [alt]="t.symbol"
+                               (load)="$any($event.target).parentElement.classList.add('has-img')"
                                (error)="$any($event.target).style.display='none'" />
                         }
                       </span>
@@ -4819,7 +4821,7 @@
           <span class="wallet-dialog__icon">
             <span class="wallet-dialog__icon-letter">{{ w.name.charAt(0) }}</span>
             @if (walletIcon(w); as src) {
-              <img [src]="src" [alt]="w.name" (error)="$any($event.target).style.display='none'" />
+              <img [src]="src" [alt]="w.name" (load)="$any($event.target).parentElement.classList.add('has-img')" (error)="$any($event.target).style.display='none'" />
             }
           </span>
           <span class="wallet-dialog__name">{{ w.name }}</span>
@@ -4856,7 +4858,7 @@
               <span class="token-dialog__chain-icon">
                 <span class="relay-side__letter">{{ c.label.charAt(0) }}</span>
                 @if (c.icon) {
-                  <img [src]="c.icon" [alt]="c.label" (error)="$any($event.target).style.display='none'" />
+                  <img [src]="c.icon" [alt]="c.label" (load)="$any($event.target).parentElement.classList.add('has-img')" (error)="$any($event.target).style.display='none'" />
                 }
               </span>
               {{ c.label }}
@@ -4882,7 +4884,7 @@
               <span class="relay-picker__icon">
                 <span class="relay-side__letter">{{ r.symbol.charAt(0) }}</span>
                 @if (r.logo) {
-                  <img [src]="r.logo" [alt]="r.symbol" (error)="$any($event.target).style.display='none'" />
+                  <img [src]="r.logo" [alt]="r.symbol" (load)="$any($event.target).parentElement.classList.add('has-img')" (error)="$any($event.target).style.display='none'" />
                 }
               </span>
               <span class="relay-picker__text">
