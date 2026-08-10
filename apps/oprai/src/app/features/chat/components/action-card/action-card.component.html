@@ -3586,94 +3586,65 @@
                 <div class="pump-panel__top">
                   <span class="pump-panel__label">You receive (estimated)</span>
                   @if (relayQuoting()) { <span class="proto-balance-dots">···</span> }
-                  @else { <span class="pump-panel__bal">{{ relayChainName(getEditParam('destinationChainId')) }}</span> }
                 </div>
-                @if (relayQuote(); as q) {
-                  <div class="relay-quote__row">
-                    <span class="relay-quote__amount mono">{{ q.out }}</span>
-                    <button type="button" class="relay-side" [disabled]="!isEditable()"
-                            (click)="openRelayPicker('destinationCurrency')">
-                      @if (relayTokenDisplay('destinationCurrency'); as t) {
-                        <span class="relay-side__icon">
-                          <span class="relay-side__letter">{{ t.symbol.charAt(0) }}</span>
-                          @if (t.logoURI) {
-                            <img [src]="t.logoURI" [alt]="t.symbol"
-                                 (error)="$any($event.target).style.display='none'" />
-                          }
-                        </span>
-                        <span class="relay-side__text">
-                          <span class="relay-side__sym">{{ t.symbol }}</span>
-                          <span class="relay-side__chain">{{ relayChainName(getEditParam('destinationChainId')) }}</span>
-                        </span>
-                      } @else {
-                        <span class="relay-side__text"><span class="relay-side__sym">Select token</span></span>
-                      }
-                      <lucide-icon name="chevron-right" [size]="14" class="relay-side__caret" />
-                    </button>
-                  </div>
-                  <div class="relay-out__slip">
-                    <span class="relay-out__slip-k">Slippage</span>
-                    <button type="button" class="me-quick__btn"
-                            [class.me-quick__btn--active]="relaySlippageAuto()"
-                            [disabled]="!isEditable()"
-                            (click)="relaySetSlippageAuto(true)">Auto</button>
-                    <button type="button" class="me-quick__btn"
-                            [class.me-quick__btn--active]="!relaySlippageAuto()"
-                            [disabled]="!isEditable()"
-                            (click)="relaySetSlippageAuto(false)">Custom</button>
-                    @if (!relaySlippageAuto()) {
-                      <input class="relay-out__slip-input mono" type="text" inputmode="numeric"
-                             [value]="getEditParam('slippageTolerance')"
-                             [disabled]="!isEditable()"
-                             (input)="setEditParam('slippageTolerance', $any($event.target).value); relayMaybeQuote()" />
-                      <span class="relay-out__slip-k">bps</span>
+
+                <!-- The amount and the token, always. The destination was only
+                     drawn once a quote existed, so a card waiting for a wallet
+                     showed no chain and no token — the two things the user had
+                     just asked for by name. -->
+                <div class="relay-quote__row">
+                  <span class="relay-quote__amount mono"
+                        [class.relay-quote__amount--idle]="!relayQuote()">
+                    {{ relayQuote()?.out ?? '—' }}
+                  </span>
+                  <button type="button" class="relay-side" [disabled]="!isEditable()"
+                          (click)="openRelayPicker('destinationCurrency')">
+                    @if (relayTokenDisplay('destinationCurrency'); as t) {
+                      <span class="relay-side__icon">
+                        <span class="relay-side__letter">{{ t.symbol.charAt(0) }}</span>
+                        @if (t.logoURI) {
+                          <img [src]="t.logoURI" [alt]="t.symbol"
+                               (error)="$any($event.target).style.display='none'" />
+                        }
+                      </span>
+                      <span class="relay-side__text">
+                        <span class="relay-side__sym">{{ t.symbol }}</span>
+                        <span class="relay-side__chain">{{ relayChainName(getEditParam('destinationChainId')) }}</span>
+                      </span>
+                    } @else {
+                      <span class="relay-side__text">
+                        <span class="relay-side__sym">Select token</span>
+                        <span class="relay-side__chain">{{ relayChainName(getEditParam('destinationChainId')) }}</span>
+                      </span>
                     }
-                  </div>
-                  @if (q.outUsd; as usd) {
-                    <div class="relay-quote__usd">{{ usd }}</div>
+                    <lucide-icon name="chevron-right" [size]="14" class="relay-side__caret" />
+                  </button>
+                </div>
+                @if (relayQuote()?.outUsd; as usd) {
+                  <div class="relay-quote__usd">{{ usd }}</div>
+                }
+
+                <div class="relay-out__slip">
+                  <span class="relay-out__slip-k">Slippage</span>
+                  <button type="button" class="me-quick__btn"
+                          [class.me-quick__btn--active]="relaySlippageAuto()"
+                          [disabled]="!isEditable()"
+                          (click)="relaySetSlippageAuto(true)">Auto</button>
+                  <button type="button" class="me-quick__btn"
+                          [class.me-quick__btn--active]="!relaySlippageAuto()"
+                          [disabled]="!isEditable()"
+                          (click)="relaySetSlippageAuto(false)">Custom</button>
+                  @if (!relaySlippageAuto()) {
+                    <input class="relay-out__slip-input mono" type="text" inputmode="numeric"
+                           [value]="getEditParam('slippageTolerance')"
+                           [disabled]="!isEditable()"
+                           (input)="setEditParam('slippageTolerance', $any($event.target).value); relayMaybeQuote()" />
+                    <span class="relay-out__slip-k">bps</span>
                   }
-                  @if (getEditParam('recipient'); as to) {
-                    <div class="relay-out__to">
-                      <lucide-icon name="check" [size]="11" class="relay-out__to-ok" />
-                      <span class="mono">{{ to.slice(0, 6) }}…{{ to.slice(-4) }}</span>
-                      <button type="button" class="proto-evm-connect__link"
-                              [disabled]="!isEditable()"
-                              (click)="disconnectEvmWallet()">Disconnect</button>
-                    </div>
-                  }
-                  <div class="relay-out__meta">
-                    @if (q.feeUsd) { <span>Fee {{ q.feeUsd }}</span> }
-                    @if (q.seconds !== null) { <span>·</span><span>~{{ q.seconds }}s</span> }
-                    @if (q.impact) { <span>·</span><span>Impact {{ q.impact }}%</span> }
-                  </div>
-                } @else if (relayQuoteError()) {
-                  <!-- Angular does not carry an `as` alias into @else if. -->
-                  <div class="relay-out__err">{{ relayQuoteError() }}</div>
-                  <div class="relay-quote__row relay-quote__row--empty">
-                    <span class="relay-quote__amount mono">—</span>
-                    <button type="button" class="relay-side" [disabled]="!isEditable()"
-                            (click)="openRelayPicker('destinationCurrency')">
-                      @if (relayTokenDisplay('destinationCurrency'); as t) {
-                        <span class="relay-side__icon">
-                          <span class="relay-side__letter">{{ t.symbol.charAt(0) }}</span>
-                          @if (t.logoURI) {
-                            <img [src]="t.logoURI" [alt]="t.symbol"
-                                 (error)="$any($event.target).style.display='none'" />
-                          }
-                        </span>
-                        <span class="relay-side__text">
-                          <span class="relay-side__sym">{{ t.symbol }}</span>
-                          <span class="relay-side__chain">{{ relayChainName(getEditParam('destinationChainId')) }}</span>
-                        </span>
-                      } @else {
-                        <span class="relay-side__text"><span class="relay-side__sym">Select token</span></span>
-                      }
-                      <lucide-icon name="chevron-right" [size]="14" class="relay-side__caret" />
-                    </button>
-                  </div>
-                } @else if (relayDestinationIsEvm() && !relayRecipientReady()) {
-                  <!-- The wallet is the missing input, so ask for it here,
-                       where the answer is missing — not as an error after. -->
+                </div>
+
+                <!-- Where it lands: connected and named, or asked for. -->
+                @if (relayDestinationIsEvm() && !relayRecipientReady()) {
                   <div class="relay-out__connect">
                     <span class="relay-out__idle">{{ relayChainName(getEditParam('destinationChainId')) }} needs a wallet to land in.</span>
                     <button type="button" class="proto-btn-confirm relay-out__connect-btn"
@@ -3684,8 +3655,25 @@
                     </button>
                     @if (evmError(); as e) { <span class="relay-out__err">{{ e }}</span> }
                   </div>
-                } @else {
-                  <div class="relay-out__idle">Pick both chains, both tokens and an amount for a live quote.</div>
+                } @else if (getEditParam('recipient')) {
+                  <!-- No `as` alias: Angular allows it only on the primary @if. -->
+                  <div class="relay-out__to">
+                    <lucide-icon name="check" [size]="11" class="relay-out__to-ok" />
+                    <span class="mono">{{ getEditParam('recipient').slice(0, 6) }}…{{ getEditParam('recipient').slice(-4) }}</span>
+                    <button type="button" class="proto-evm-connect__link"
+                            [disabled]="!isEditable()"
+                            (click)="disconnectEvmWallet()">Disconnect</button>
+                  </div>
+                }
+
+                @if (relayQuote(); as q) {
+                  <div class="relay-out__meta">
+                    @if (q.feeUsd) { <span>Fee {{ q.feeUsd }}</span> }
+                    @if (q.seconds !== null) { <span>·</span><span>~{{ q.seconds }}s</span> }
+                    @if (q.impact) { <span>·</span><span>Impact {{ q.impact }}%</span> }
+                  </div>
+                } @else if (relayQuoteError()) {
+                  <div class="relay-out__err">{{ relayQuoteError() }}</div>
                 }
               </div>
             </div>
