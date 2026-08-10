@@ -6161,14 +6161,19 @@
 
   &__title { margin: 0; font-size: 1.125rem; font-weight: 600; }
 
+  // Fixed, not fitted. The size of this window is not information — it was
+  // just tracking how many rows happened to match, so typing a letter made the
+  // whole dialog jump and shrink under the cursor. It is the same box whether
+  // it is showing four hundred tokens or none.
   &__body {
     display: grid;
     grid-template-columns: 240px minmax(0, 1fr);
     gap: 16px;
     min-height: 0;
+    height: min(460px, calc(100vh - 210px));
   }
 
-  &__search { width: 100%; margin-bottom: 8px; }
+  &__search { width: 100%; margin-bottom: 8px; flex: 0 0 auto; }
 
   &__chains, &__tokens { display: flex; flex-direction: column; min-height: 0; }
 
@@ -6177,10 +6182,24 @@
     flex-direction: column;
     gap: 2px;
     overflow-y: auto;
-    max-height: 460px;
+    flex: 1 1 auto;
+    min-height: 0;
     // A scrollbar you can see is a scrollbar you know to use.
     scrollbar-width: thin;
     scrollbar-color: var(--op-border-strong) transparent;
+  }
+
+  // Centred in the space the list keeps, rather than a line of text pushing
+  // off the top edge of an otherwise blank panel.
+  &__empty {
+    flex: 1 1 auto;
+    display: grid;
+    place-items: center;
+    padding: 24px 16px;
+    text-align: center;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--op-text-tertiary);
   }
 
   &__chain {
@@ -6205,8 +6224,11 @@
   }
 
   @media (max-width: 560px) {
-    &__body { grid-template-columns: 1fr; }
-    &__chain-list { max-height: 120px; }
+    &__body {
+      grid-template-columns: 1fr;
+      grid-template-rows: 168px minmax(0, 1fr);
+      height: min(520px, calc(100vh - 180px));
+    }
   }
 }
 
@@ -6269,4 +6291,13 @@ html:not(.dark) {
 
   .token-dialog__sheet,
   .wallet-dialog__sheet { box-shadow: 0 24px 64px -24px rgba(16, 24, 40, 0.25); }
+
+  // Two lists side by side on one white sheet need something to say where one
+  // ends. A framed column does it without adding a second background colour.
+  .token-dialog__chains {
+    padding: 10px;
+    border-radius: 16px;
+    border: 1px solid var(--op-border-subtle);
+    background: var(--op-bg-surface-2);
+  }
 }
