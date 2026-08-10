@@ -135,3 +135,9 @@ from its rows:
 - `icon` — pass the row's `icon` straight through, so the option shows the
   validator's own logo.
 - `action` — `native_stake`, with `params: { amount, validatorVoteAccount }`.
+
+If the user asks to stake natively WITHOUT naming a validator, do not invent a
+clarification list — emit `native_stake` with the amount and let the card's own
+validator picker handle the choice. Pass `sortBy` in the params when the user
+expressed a preference (`"apy"` for highest yield, `"stake"` for biggest,
+`"commission"` for cheapest); the picker opens on that ordering.

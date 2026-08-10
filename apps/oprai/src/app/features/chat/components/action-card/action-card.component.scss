@@ -4653,9 +4653,15 @@
 
 // ── Validator picker (native_stake) ─────────────────────────────────────────
 
+// A panel, like the swap card's. It was a bare region divided off by a
+// hairline, with a scroll box that cut the first and last row in half — so the
+// list read as an overflow rather than as the thing being chosen.
 .validator-picker {
-  padding: 14px 16px;
-  border-top: 1px solid var(--op-border-subtle);
+  margin: 0 14px 14px;
+  padding: 12px;
+  border-radius: var(--op-radius-lg, 14px);
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -4694,14 +4700,34 @@
     padding: 8px 0;
   }
 
+  // Paged, not scrolled: five whole rows, and a control that says which five.
   &__list {
     display: flex;
     flex-direction: column;
     gap: 5px;
-    max-height: 220px;
-    overflow-y: auto;
-    padding-right: 2px;
   }
+
+  &__sorts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  &__pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 2px;
+  }
+
+  &__page-of {
+    font-size: 0.6875rem;
+    color: var(--op-text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__page-total { color: var(--op-text-tertiary); }
 
   &__note {
     font-size: 0.6875rem;
@@ -4721,7 +4747,8 @@
   align-items: center;
   gap: 10px;
   padding: 9px 12px;
-  background: var(--op-bg-surface-2);
+  // Inside a panel now, so the row lifts off it rather than matching it.
+  background: var(--op-bg-elevated);
   border: 1.5px solid transparent;
   border-radius: 8px;
   cursor: pointer;

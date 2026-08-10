@@ -387,6 +387,9 @@ export class IntentParserService {
           .map((o: any) => ({
             label: o.label ?? '',
             sublabel: o.sublabel,
+            // Dropped here, the icon never reached the card no matter how many
+            // layers upstream carried it.
+            icon: typeof o.icon === 'string' ? o.icon : undefined,
             action: (o.action as string).toLowerCase(),
             params: this.normalizeToStringRecord(o.params ?? {}),
           }));

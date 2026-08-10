@@ -1289,6 +1289,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
           options: c.options.map(o => ({
             label: o.label,
             sublabel: o.sublabel,
+            icon: o.icon,
             action: o.action,
             params: o.params,
           })),
@@ -1475,7 +1476,8 @@ export class ChatShellComponent implements OnInit, OnDestroy {
             clarifyMap.set(msg.id, structuredClarifications.map(c => ({
               category: c.category, question: c.question,
               options: c.options.map(o => ({
-                label: o.label, sublabel: o.sublabel, action: o.action, params: o.params,
+                label: o.label, sublabel: o.sublabel, icon: o.icon,
+                action: o.action, params: o.params,
               })),
               raw: '',
             })));

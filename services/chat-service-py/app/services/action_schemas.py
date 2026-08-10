@@ -1240,6 +1240,10 @@ class ClarifyOption(BaseModel):
     sublabel: str | None = None
     action: str
     params: dict[str, Any]
+    # Declared here or pydantic drops it, and the tool schema would be
+    # advertising a field that never survives validation — the card would go on
+    # guessing the logo from the action name.
+    icon: str | None = None
 
     @field_validator("action")
     @classmethod
@@ -1276,6 +1280,7 @@ class ValidatedClarify(BaseModel):
                 {
                     "label": o.label,
                     **({"sublabel": o.sublabel} if o.sublabel else {}),
+                    **({"icon": o.icon} if o.icon else {}),
                     "action": o.action,
                     "params": o.params,
                 }
@@ -1704,6 +1709,7 @@ def _validate_request_clarification(args: dict) -> ValidatedClarify | None:
                 sublabel=opt.get("sublabel") or None,
                 action=action_type.value,
                 params=str_params,
+                icon=(str(opt["icon"]) if opt.get("icon") else None),
             ))
         return ValidatedClarify(
             category=str(args.get("category", "")),

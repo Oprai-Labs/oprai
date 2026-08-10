@@ -1545,14 +1545,66 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Two hundred validators is a list; two hundred validators you can search
    *  is a choice. Matches on name or vote account. */
   readonly validatorQuery = signal('');
-  readonly filteredValidators = computed(() => {
+
+  /**
+   * How the list is ordered, and it is the user's choice.
+   *
+   * The endpoint returns them by stake, so asking for "the highest APY" got a
+   * list headed by the biggest validator — the request was simply not
+   * represented anywhere in the card. Sorting locally because all two hundred
+   * are already here: re-ordering them is instant and needs no round trip.
+   *
+   * APY is the default. It is what someone opening a staking card is choosing
+   * between; size is a tiebreak, not a goal.
+   */
+  readonly validatorSort = signal<'apy' | 'stake' | 'fee'>('apy');
+  readonly validatorPage = signal(0);
+  private static readonly VALIDATORS_PER_PAGE = 5;
+
+  setValidatorSort(by: 'apy' | 'stake' | 'fee'): void {
+    this.validatorSort.set(by);
+    this.validatorPage.set(0);
+  }
+
+  setValidatorQuery(q: string): void {
+    this.validatorQuery.set(q);
+    this.validatorPage.set(0);
+  }
+
+  /** Search + sort, before paging. */
+  readonly sortedValidators = computed(() => {
     const q = this.validatorQuery().trim().toLowerCase();
-    const all = this.validators();
-    if (!q) return all.slice(0, 60);
-    return all
-      .filter(v => (v.name ?? '').toLowerCase().includes(q) || v.voteAccount.toLowerCase().includes(q))
-      .slice(0, 60);
+    const rows = this.validators().filter(v =>
+      !q || (v.name ?? '').toLowerCase().includes(q) || v.voteAccount.toLowerCase().includes(q));
+    const by = this.validatorSort();
+    return [...rows].sort((a, b) => {
+      if (by === 'fee') return (a.commission - b.commission) || (b.activatedStakeSol - a.activatedStakeSol);
+      if (by === 'stake') return b.activatedStakeSol - a.activatedStakeSol;
+      // Dozens share the top APY, so stake breaks the tie — at the same yield
+      // the difference that matters is how established the operator is. An
+      // unmeasured APY sorts last: a missing number is not a good one.
+      const aa = a.apyEstimatePct ?? -1;
+      const bb = b.apyEstimatePct ?? -1;
+      return (bb - aa) || (b.activatedStakeSol - a.activatedStakeSol);
+    });
   });
+
+  readonly validatorPageCount = computed(() =>
+    Math.max(1, Math.ceil(this.sortedValidators().length / ActionCardComponent.VALIDATORS_PER_PAGE)));
+
+  /** One page. A clipped scroll box cut rows in half at both ends; a page
+   *  shows five whole ones and says which five they are. */
+  readonly pagedValidators = computed(() => {
+    const per = ActionCardComponent.VALIDATORS_PER_PAGE;
+    const start = Math.min(this.validatorPage(), this.validatorPageCount() - 1) * per;
+    return this.sortedValidators().slice(start, start + per);
+  });
+
+  stepValidatorPage(delta: number): void {
+    const next = this.validatorPage() + delta;
+    if (next < 0 || next >= this.validatorPageCount()) return;
+    this.validatorPage.set(next);
+  }
 
   /** The one currently chosen, so the card can name it instead of echoing a
    *  base58 string back at the person who just picked it from a list. */
@@ -6372,7 +6424,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       }
       this.loadKaminoVaultWithdrawInfo();
     }
-    if (this.action.type === 'native_stake') this.loadValidators();
+    if (this.action.type === 'native_stake') {
+      // "the highest APY one" is a sort, and the model can say so. Without
+      // this the card's default is the only order the user ever gets.
+      const asked = (this.action.params?.['sortBy'] ?? '').toString().toLowerCase();
+      if (asked === 'apy' || asked === 'stake' || asked === 'fee') this.validatorSort.set(asked);
+      else if (asked === 'commission') this.validatorSort.set('fee');
+      this.loadValidators();
+    }
     // The stake-account actions need both: the accounts to choose from, and
     // the validator list to turn each account's vote address into a name.
     if (this.isStakeAccountAction()) {

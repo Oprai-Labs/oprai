@@ -4205,10 +4205,25 @@
             <input class="proto-input validator-picker__search" type="text"
                    placeholder="Search by name or vote account"
                    [value]="validatorQuery()"
-                   (input)="validatorQuery.set($any($event.target).value)" />
+                   (input)="setValidatorQuery($any($event.target).value)" />
+
+            <!-- The order is the user's choice. Asking for "the highest APY"
+                 used to return the list the endpoint happened to send, which
+                 was ordered by size. -->
+            <div class="validator-picker__sorts">
+              <button type="button" class="me-quick__btn"
+                      [class.me-quick__btn--active]="validatorSort() === 'apy'"
+                      (click)="setValidatorSort('apy')">Highest APY</button>
+              <button type="button" class="me-quick__btn"
+                      [class.me-quick__btn--active]="validatorSort() === 'stake'"
+                      (click)="setValidatorSort('stake')">Most staked</button>
+              <button type="button" class="me-quick__btn"
+                      [class.me-quick__btn--active]="validatorSort() === 'fee'"
+                      (click)="setValidatorSort('fee')">Lowest fee</button>
+            </div>
 
             <div class="validator-picker__list">
-              @for (v of filteredValidators(); track v.voteAccount) {
+              @for (v of pagedValidators(); track v.voteAccount) {
                 <button type="button"
                         class="validator-item"
                         [class.validator-item--selected]="getEditParam('validatorVoteAccount') === v.voteAccount"
@@ -4240,10 +4255,29 @@
                   }
                 </button>
               }
-              @if (!filteredValidators().length) {
+              @if (!pagedValidators().length) {
                 <div class="validator-picker__empty">No validator by that name.</div>
               }
             </div>
+
+            @if (validatorPageCount() > 1) {
+              <div class="validator-picker__pager">
+                <button type="button" class="me-quick__btn"
+                        [disabled]="validatorPage() === 0"
+                        (click)="stepValidatorPage(-1)">
+                  <lucide-icon name="chevron-left" [size]="13" />
+                </button>
+                <span class="validator-picker__page-of">
+                  {{ validatorPage() + 1 }} / {{ validatorPageCount() }}
+                  <span class="validator-picker__page-total">· {{ sortedValidators().length }} validators</span>
+                </span>
+                <button type="button" class="me-quick__btn"
+                        [disabled]="validatorPage() >= validatorPageCount() - 1"
+                        (click)="stepValidatorPage(1)">
+                  <lucide-icon name="chevron-right" [size]="13" />
+                </button>
+              </div>
+            }
           }
         }
       </div>

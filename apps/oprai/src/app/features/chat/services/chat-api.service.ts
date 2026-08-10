@@ -46,6 +46,10 @@ export interface StructuredQuery {
 export interface StructuredClarifyOption {
   label: string;
   sublabel?: string;
+  /** The option's own logo, when the thing being chosen has one — a validator,
+   *  say. Five types on the way from the tool to the card carry this; dropping
+   *  it in any one of them puts the fallback glyph back on screen. */
+  icon?: string;
   action: string;
   params: Record<string, string>;
 }
