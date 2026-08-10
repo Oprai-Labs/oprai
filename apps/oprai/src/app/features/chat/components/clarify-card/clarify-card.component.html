@@ -8,12 +8,17 @@
       <div class="clarify-card__icon clarify-card__icon--protocol">
         <img class="clarify-card__proto-logo" [src]="proto.icon" [alt]="proto.name" />
       </div>
+    } @else if (cardTokenIcon()) {
+      <!-- No `as` alias: Angular binds it only on the primary @if. -->
+      <div class="clarify-card__icon clarify-card__icon--protocol">
+        <img class="clarify-card__proto-logo" [src]="cardTokenIcon()!" alt="Solana" />
+      </div>
     } @else {
       <div class="clarify-card__icon">
         <lucide-angular [name]="icon()" [size]="16" />
       </div>
     }
-    <span class="clarify-card__title">{{ cardProtocol()?.name ?? title() }}</span>
+    <span class="clarify-card__title">{{ cardProtocol()?.name ?? (cardTokenIcon() ? 'Native Staking' : title()) }}</span>
     <span class="clarify-card__badge">CHOOSE</span>
   </div>
 
@@ -37,7 +42,14 @@
              an @else if — so precompute the branch values with @let. -->
         @let fullPair = optionFullPair(option);
         @let singleTok = mode === 'token' ? optionSingleToken(option) : null;
-        @if (fullPair) {
+        <!-- The option's own logo wins: a validator carries one, and nothing
+             else in this chain can find it. -->
+        @if (option.icon) {
+          <div class="clarify-option__token-icon">
+            <img [src]="option.icon" [alt]="option.label"
+                 (error)="$any($event.target).style.display='none'" />
+          </div>
+        } @else if (fullPair) {
           <!-- Pool/pair option (SOL/USDC): show BOTH token coins, not the
                protocol logo or just one side. -->
           <div class="clarify-option__pair">

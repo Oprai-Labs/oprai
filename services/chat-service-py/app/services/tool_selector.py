@@ -825,7 +825,16 @@ def _build_tools(action_types: list[str], query_types: list[str]) -> list[dict[s
                                     },
                                     "sublabel": {
                                         "type": "string",
-                                        "description": "Optional subtitle (e.g. '~7.8% APY (MEV)').",
+                                        "description": "Optional subtitle (e.g. '5.24% APY · 0% fee').",
+                                    },
+                                    "icon": {
+                                        "type": "string",
+                                        "description": (
+                                            "Optional logo URL for THIS option. Pass the `icon` "
+                                            "field straight through from a tool result that has "
+                                            "one — top_validators rows carry the validator's own "
+                                            "logo."
+                                        ),
                                     },
                                     "action": {
                                         "type": "string",

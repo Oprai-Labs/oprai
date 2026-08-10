@@ -110,3 +110,28 @@ request_clarification(
 ```
 
 If the user wants real APY numbers in the picker, that requires a separate `query_onchain` step BEFORE the clarification — not made-up text. Default behaviour without that fetch is the canonical payload above.
+
+---
+
+### Native staking — choosing a validator
+
+`query_onchain("top_validators", {...})` returns validators with `name`, `icon`,
+`apyEstimatePct`, `commission`, `activatedStakeSol`, `uptimePct` and `isJito`.
+
+- `sortBy` — `"apy"` for "highest APY / best return", `"stake"` (default) for
+  "biggest / most established", `"commission"` for "cheapest fee". The user's
+  wording picks the sort; do not re-rank the rows yourself.
+- `limit` — how many to return.
+
+When offering a choice of validator, call the tool FIRST and build the options
+from its rows:
+
+- `label` — the validator's `name`. Fall back to a truncated vote account only
+  when `name` is null.
+- `sublabel` — the real numbers from that row, e.g. `"5.24% APY · 0% fee · 16.0M SOL"`.
+  Omit the APY entirely when `apyEstimatePct` is null. Never write "~7.0% APY":
+  that figure came from a formula, not a measurement, and every zero-commission
+  validator got the same one.
+- `icon` — pass the row's `icon` straight through, so the option shows the
+  validator's own logo.
+- `action` — `native_stake`, with `params: { amount, validatorVoteAccount }`.

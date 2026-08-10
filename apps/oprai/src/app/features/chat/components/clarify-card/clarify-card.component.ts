@@ -104,6 +104,10 @@ export class ClarifyCardComponent implements OnInit {
    */
   getProtocolInfo(option: ClarifyOption): ProtocolInfo | undefined {
     const action = option.action;
+    // A validator is not a protocol. Matching on the action prefix put the
+    // Drift protocol's logo next to a validator that happens to be called
+    // Drift, and the Solana Foundation's next to nothing at all.
+    if (action.startsWith('native_stake')) return undefined;
     if (!action.includes('_')) return undefined;
     const prefix = action.split('_')[0];
     const id = ClarifyCardComponent.PROTOCOL_ALIASES[prefix] ?? prefix;
@@ -204,6 +208,19 @@ export class ClarifyCardComponent implements OnInit {
    * with the real protocol logo (e.g. Kamino) instead of a generic glyph.
    * Null when options span multiple protocols (then the per-row logos carry it).
    */
+  /** SOL's own mark, for a card whose options are all native staking — there
+   *  is no protocol logo to show, because the protocol is Solana itself. */
+  cardTokenIcon(): string | null {
+    const opts = this.clarify.options ?? [];
+    if (!opts.length || !opts.every(o => o.action.startsWith('native_stake'))) return null;
+    return this.resolveTokenPublic('So11111111111111111111111111111111111111112')?.logoURI ?? null;
+  }
+
+  /** The private resolver, reachable from the template-facing helpers above. */
+  private resolveTokenPublic(id: string): OptionToken | null {
+    return this.resolveToken(id);
+  }
+
   cardProtocol(): ProtocolInfo | null {
     const opts = this.clarify.options ?? [];
     if (!opts.length) return null;

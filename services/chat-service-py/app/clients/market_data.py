@@ -1459,42 +1459,90 @@ async def scan_empty_accounts(wallet: str) -> dict:
     }
 
 
-async def top_validators(limit: int = 20) -> dict:
-    """Return top Solana validators sorted by effective stake (stake × (1-commission/100)).
-    Filtered to commission ≤ 10%. Calls Solana JSON-RPC directly — no API key needed.
-    Designed for native_stake validator selection UI.
+async def top_validators(limit: int = 20, sort_by: str = "stake") -> dict:
+    """Solana validators to choose between, named and ranked.
+
+    `sort_by` is one of "stake" (default), "apy" or "commission" — "the highest
+    APY validator" is a different list from "the biggest validator", and the
+    only way to answer either was to re-sort twenty anonymous rows by hand.
+
+    Stakewiz is the source because it is the one that knows who a validator is:
+    a name, a logo, measured uptime and a real APY. The Solana RPC knows none
+    of that — `getVoteAccounts` returns identities and stake and nothing else —
+    so it is the fallback, and it reports NO apy at all rather than the
+    `7.0 * (1 - commission)` this function used to return. That number was a
+    constant dressed as a yield: every zero-commission validator in the list
+    came back as "~7.0% APY", which is why they all looked identical.
     """
-    body = {"jsonrpc": "2.0", "id": 1, "method": "getVoteAccounts", "params": [{"commitment": "confirmed"}]}
-    resp = await _post(SOLANA_RPC, body)
-    current = resp.get("result", {}).get("current", [])
+    sort_by = (sort_by or "stake").strip().lower()
+    rows: list[dict] = []
 
-    rows = []
-    for v in current:
-        commission = v.get("commission", 100)
-        if commission > _VALIDATOR_MAX_COMMISSION:
-            continue
-        stake_sol = v.get("activatedStake", 0) / 1e9
-        apy = round((1 - commission / 100) * _VALIDATOR_BASE_APY, 2)
-        epoch_credits = v.get("epochCredits", [])
-        recent_credits = 0
-        if epoch_credits:
-            _, credits, prev = epoch_credits[-1]
-            recent_credits = credits - prev
-        rows.append({
-            "voteAccount": v.get("votePubkey", ""),
-            "commission": commission,
-            "activatedStakeSol": round(stake_sol, 2),
-            "apyEstimatePct": apy,
-            "epochCreditsRecent": recent_credits,
-        })
+    try:
+        data = await _get("https://api.stakewiz.com/validators")
+        if isinstance(data, list):
+            for v in data:
+                if v.get("delinquent"):
+                    continue
+                raw_commission = v.get("commission")
+                if raw_commission is None:
+                    continue
+                # Stakewiz quotes some validators in basis points (400, 10000).
+                commission = float(raw_commission)
+                if commission > 100:
+                    commission /= 100
+                commission = round(min(max(commission, 0), 100))
+                if commission > _VALIDATOR_MAX_COMMISSION:
+                    continue
+                rows.append({
+                    "voteAccount": v.get("vote_identity", ""),
+                    "name": (v.get("name") or "").strip() or None,
+                    "icon": v.get("image") or None,
+                    "commission": commission,
+                    "activatedStakeSol": round(float(v.get("activated_stake") or 0), 2),
+                    "apyEstimatePct": round(float(v["apy_estimate"]), 2) if v.get("apy_estimate") is not None else None,
+                    "uptimePct": round(float(v["uptime"]), 2) if v.get("uptime") is not None else None,
+                    "isJito": bool(v.get("is_jito")),
+                })
+    except Exception:
+        rows = []
 
-    rows.sort(key=lambda r: r["activatedStakeSol"] * (1 - r["commission"] / 100), reverse=True)
+    if not rows:
+        body = {"jsonrpc": "2.0", "id": 1, "method": "getVoteAccounts",
+                "params": [{"commitment": "confirmed"}]}
+        resp = await _post(SOLANA_RPC, body)
+        for v in resp.get("result", {}).get("current", []):
+            commission = v.get("commission", 100)
+            if commission > _VALIDATOR_MAX_COMMISSION:
+                continue
+            rows.append({
+                "voteAccount": v.get("votePubkey", ""),
+                "name": None,
+                "icon": None,
+                "commission": commission,
+                "activatedStakeSol": round(v.get("activatedStake", 0) / 1e9, 2),
+                "apyEstimatePct": None,
+                "uptimePct": None,
+                "isJito": False,
+            })
+
+    if sort_by == "apy":
+        # Unknown APY sorts last rather than first: an absent measurement is not
+        # a good one.
+        rows.sort(key=lambda r: (r["apyEstimatePct"] is not None, r["apyEstimatePct"] or 0), reverse=True)
+    elif sort_by == "commission":
+        rows.sort(key=lambda r: (r["commission"], -r["activatedStakeSol"]))
+    else:
+        rows.sort(key=lambda r: r["activatedStakeSol"] * (1 - r["commission"] / 100), reverse=True)
+
     rows = rows[: int(limit)]
-    return {"validators": rows, "count": len(rows),
-            "note": "APY is an estimate based on ~7% network inflation; actual rewards vary."}
+    return {
+        "validators": rows,
+        "count": len(rows),
+        "sortedBy": sort_by,
+    }
 
 
-_STAKE_PROGRAM = "Stake11111111111111111111111111111111111111111"
+_STAKE_PROGRAM = "Stake11111111111111111111111111111111111111"
 _STAKE_AUTH_OFFSET = 12  # staker pubkey starts at byte 12 in serialized stake account data
 _EPOCH_MAX = "18446744073709551615"  # u64::MAX — means "not deactivating"
 
@@ -1963,7 +2011,7 @@ _DISPATCH: dict[str, tuple] = {
     "claim":                  (claim_guidance,         ["protocol"],    ["type"]),
     "vote":                   (vote_guidance,          ["protocol"],    ["proposal", "choice"]),
     # Validator discovery
-    "top_validators":         (top_validators,         [],              ["limit"]),
+    "top_validators":         (top_validators,         [],              ["limit", "sortBy", "sort_by"]),
     # Yield / APY comparison (liquid staking + lending)
     "yield":                  (_yield_comparison,      [],              ["token", "category"]),
     # Relay.link cross-chain data queries

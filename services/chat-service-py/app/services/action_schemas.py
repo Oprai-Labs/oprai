@@ -1404,7 +1404,17 @@ OPRAI_TOOLS: list[dict] = [
                                 },
                                 "sublabel": {
                                     "type": "string",
-                                    "description": "Optional subtitle (e.g. '~7.8% APY (MEV)').",
+                                    "description": "Optional subtitle (e.g. '5.24% APY · 0% fee').",
+                                },
+                                "icon": {
+                                    "type": "string",
+                                    "description": (
+                                        "Optional logo URL for THIS option. Pass the `icon` field "
+                                        "straight through from a tool result that has one — "
+                                        "top_validators rows carry the validator's own logo. "
+                                        "Without it the card guesses from the action name, which "
+                                        "gives a validator called Drift the Drift protocol's logo."
+                                    ),
                                 },
                                 "action": {
                                     "type": "string",
