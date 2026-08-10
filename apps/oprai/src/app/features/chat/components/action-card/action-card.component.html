@@ -406,7 +406,8 @@
          that was never opened. Worth replacing with a single `hasBody()`
          computed the next time it catches someone. -->
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
-         || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()) {
+         || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
+         || isBurn()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -4260,6 +4261,53 @@
     }
 
     <!-- ══════════════════════════════════════════════════════════
+         BURN — how much of what is about to stop existing
+         ══════════════════════════════════════════════════════════ -->
+    @if (isBurn()) {
+      <div class="stake-panels">
+        <div class="pump-panel">
+          <div class="pump-panel__top">
+            <span class="pump-panel__label">You burn</span>
+            @if (inputBalance() !== null) {
+              <span class="pump-panel__bal">
+                Balance: {{ inputBalance() | number:'1.0-4' }}
+                @if (isEditable()) {
+                  <button class="pump-panel__max" type="button" (click)="setBurnAll()">All</button>
+                }
+              </span>
+            }
+          </div>
+          <div class="pump-panel__row">
+            <!-- Text, not number: "all" is a valid amount here and the backend
+                 resolves it against the balance at signing. -->
+            <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                   [value]="getEditParam('amount')"
+                   (input)="setEditParam('amount', $any($event.target).value)"
+                   [disabled]="!isEditable()" />
+            @let burnTd = resolveTokenDisplay(getEditParam('mint'));
+            <button type="button" class="pump-token pump-token--select"
+                    [disabled]="!isEditable()"
+                    (click)="openTokenPicker('mint', $event)">
+              @if (burnTd.logoURI) {
+                <img [src]="burnTd.logoURI" class="pump-token__icon" alt=""
+                     (error)="$any($event.target).style.display='none'" />
+              } @else {
+                <span class="pump-token__icon pump-token__icon--ph">{{ (burnTd.symbol || '?').charAt(0) }}</span>
+              }
+              <span class="pump-token__sym">{{ burnTd.symbol || 'Select' }}</span>
+              <lucide-icon name="chevron-down" [size]="13" />
+            </button>
+          </div>
+          @if (burnAmountIsAll() && inputBalance() !== null) {
+            <span class="pump-panel__usd">
+              Everything this wallet holds: {{ inputBalance() | number:'1.0-6' }} {{ burnTd.symbol }}.
+            </span>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
          CLOSE EMPTY ACCOUNTS — the count, not the rate
          ══════════════════════════════════════════════════════════ -->
     @if (isCloseAccounts()) {
@@ -4279,8 +4327,27 @@
           @if (!emptyAccountsLoading() && !emptyAccounts().length) {
             <span class="pump-panel__usd">Nothing to close — every token account in this wallet holds a balance.</span>
           } @else if (emptyAccounts().length) {
+            <!-- Which ones. A count is a number; these are the accounts, named
+                 where they can be named, so "close 7 accounts" is something a
+                 person can actually check before signing. -->
+            <div class="close-list">
+              @for (a of emptyAccounts().slice(0, 12); track a.account) {
+                @let td = resolveTokenDisplay(a.mint);
+                <span class="close-chip">
+                  @if (td.logoURI) {
+                    <img [src]="td.logoURI" alt="" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="close-chip__letter">{{ (td.symbol || a.mint || '?').charAt(0) }}</span>
+                  }
+                  {{ td.symbol || (a.mint.slice(0, 4) + '…') }}
+                </span>
+              }
+              @if (emptyAccounts().length > 12) {
+                <span class="close-chip close-chip--more">+{{ emptyAccounts().length - 12 }} more</span>
+              }
+            </div>
             <span class="pump-panel__usd">
-              Each account returns its rent deposit. Accounts still holding tokens are left alone.
+              Each returns its rent deposit. Accounts still holding tokens are left alone.
             </span>
           }
         </div>

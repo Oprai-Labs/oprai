@@ -527,14 +527,11 @@ function getActionFields(
     );
   // ── burn / close_accounts ────────────────────────────────────────────────
   } else if (t === 'burn') {
-    fields.push(
-      // A token chip, not an address box. Burning is irreversible and the card
-      // showed the one thing that cannot be checked by eye — a base58 mint —
-      // instead of the token's name and icon. The chip is pickable, so the
-      // token can be changed without retyping a mint.
-      { key: 'mint', label: 'Token', type: 'token', required: true },
-      { key: 'amount', label: 'Amount', type: 'text', placeholder: 'all', hint: '"all" burns the entire balance' },
-    );
+    // The swap card's panel (see the BURN block in the template). A token chip
+    // and a hero amount, because the one thing a burn card must show clearly is
+    // how much of what is about to stop existing — and this was a base58 mint
+    // in an address box with a small text field beside it.
+    return [];
   } else if (t === 'close_accounts') {
     // no required params — closes all empty token accounts
   // ── Raydium ──────────────────────────────────────────────────────────────
@@ -2466,6 +2463,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   readonly isTransfer = computed(() => this.action?.type === 'transfer');
   readonly isCloseAccounts = computed(() => this.action?.type === 'close_accounts');
+  readonly isBurn = computed(() => this.action?.type === 'burn');
+
+  /** "all" is a valid burn amount; a hero number input is not the place to
+   *  discover that. Kept as text, resolved at signing like every other card. */
+  burnAmountIsAll(): boolean {
+    return /^all$/i.test(this.getEditParam('amount').trim());
+  }
+
+  setBurnAll(): void {
+    this.setEditParam('amount', 'all');
+  }
 
   // ── What "close empty accounts" is actually about to close ───────────────
   //
@@ -5052,6 +5060,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     if (this.isCloseAccounts() && !this.emptyAccountsLoading() && !this.emptyAccounts().length) {
       return 'Nothing to close';
+    }
+    if (this.isBurn()) {
+      if (!this.getEditParam('mint').trim()) return 'Pick a token to burn';
+      const amt = this.getEditParam('amount').trim();
+      if (!amt) return 'Enter an amount';
+      if (!/^all$/i.test(amt) && !(Number(amt) > 0)) return 'Enter an amount';
     }
     return null;
   });

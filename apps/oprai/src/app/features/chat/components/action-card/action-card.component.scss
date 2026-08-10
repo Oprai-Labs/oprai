@@ -6457,6 +6457,43 @@
   &__k { font-size: 0.625rem; color: var(--op-text-tertiary); }
 }
 
+// The accounts a close is about to shut, as token chips — small, but the
+// difference between "7 accounts" and seven things you can recognise.
+.close-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.close-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 3px;
+  border-radius: 999px;
+  background: var(--op-bg-elevated);
+  border: 1px solid var(--op-border-subtle);
+  font-size: 0.6875rem;
+  color: var(--op-text-secondary);
+
+  img { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; }
+
+  &__letter {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--op-bg-surface-3);
+    font-size: 0.5625rem;
+    font-weight: 700;
+    color: var(--op-text-tertiary);
+  }
+
+  &--more { padding: 3px 9px; color: var(--op-text-tertiary); }
+}
+
 // The stake amount, in the swap card's panel rather than a form row. Same
 // margins as the picker below it so the two read as one card.
 .stake-panels {
