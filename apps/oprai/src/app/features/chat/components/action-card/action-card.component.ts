@@ -2825,7 +2825,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const addr = this.getEditParam(key);
     if (!chain || !addr) return null;
     const hit = this.relayTokenCache().get(`${chain}|${addr.toLowerCase()}`);
-    if (hit === undefined) void this.relayLookupToken(chain, addr);
+    // Deferred out of the render pass. This function is called FROM the
+    // template and the lookup writes a signal the same template reads, so
+    // starting it here re-entered change detection on every pass — the tab
+    // stopped responding, which is what "the page won't load" looked like.
+    if (hit === undefined) queueMicrotask(() => void this.relayLookupToken(chain, addr));
     return hit ?? null;
   }
 
@@ -2837,7 +2841,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const key = `${chain}|${address.toLowerCase()}`;
     if (this.relayTokenCache().has(key)) return;
     // Claim the slot before awaiting, or every change-detection pass fires
-    // another request for the same token.
+    // another request for the same token. Safe now that the caller defers:
+    // this write happens after the render, not inside it.
     this.relayTokenCache.update(m => new Map(m).set(key, null));
     try {
       const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
