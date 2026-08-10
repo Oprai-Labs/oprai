@@ -3837,7 +3837,7 @@
 
                 @case ('select') {
                   <select class="proto-select"
-                          (change)="setEditParam(field.key, $any($event.target).value); relayMaybeQuote()"
+                          (change)="setEditParam(field.key, $any($event.target).value); onRelayChainChange(field.key); relayMaybeQuote()"
                           [disabled]="!isEditable()">
                     @for (opt of field.options ?? []; track opt.value) {
                       <option [value]="opt.value"
@@ -3869,6 +3869,50 @@
 
                 @case ('token') {
                   @let isSwapSide = action.type === 'swap' && (field.key === 'inputMint' || field.key === 'outputMint');
+                  @let isBridgeSide = isRelayBridge() && (field.key === 'originCurrency' || field.key === 'destinationCurrency');
+                  <!-- Any token on the chosen chain, not only the one the
+                       model named. Changing a chain clears the token picked on
+                       the old one, since an address is only a token there. -->
+                  @if (isBridgeSide && !getEditParam(field.key)) {
+                    <button type="button" class="proto-token-chip proto-token-chip--clickable"
+                            [disabled]="!isEditable()" (click)="openRelayPicker(field.key)">
+                      <div class="proto-token-chip__info">
+                        <span class="proto-token-chip__symbol">Choose a token</span>
+                        <span class="proto-token-chip__name">on {{ relayChainName(getEditParam(field.key === 'originCurrency' ? 'originChainId' : 'destinationChainId')) }}</span>
+                      </div>
+                      <lucide-icon name="chevron-down" [size]="14" class="proto-token-chip__caret" />
+                    </button>
+                  }
+                  @if (isBridgeSide && relayPickerFor() === field.key) {
+                    <div class="relay-picker">
+                      <input class="proto-input relay-picker__search" type="text"
+                             placeholder="Search by name, symbol or paste an address"
+                             [value]="relayPickerQuery()"
+                             (input)="onRelayPickerQuery($any($event.target).value)" />
+                      @if (relayPickerLoading()) {
+                        <div class="relay-picker__note">Searching…</div>
+                      } @else if (!relayPickerRows().length) {
+                        <div class="relay-picker__note">Nothing on this chain by that name.</div>
+                      }
+                      <div class="relay-picker__list">
+                        @for (r of relayPickerRows(); track r.address) {
+                          <button type="button" class="relay-picker__row"
+                                  (click)="chooseRelayToken(field.key, r)">
+                            <span class="relay-picker__icon">
+                              @if (r.logo) {
+                                <img [src]="r.logo" [alt]="r.symbol"
+                                     (error)="$any($event.target).style.display='none'" />
+                              } @else { {{ r.symbol.charAt(0) }} }
+                            </span>
+                            <span class="relay-picker__text">
+                              <span class="relay-picker__sym">{{ r.symbol }}</span>
+                              <span class="relay-picker__name">{{ r.name }}</span>
+                            </span>
+                          </button>
+                        }
+                      </div>
+                    </div>
+                  }
                   @if (getEditParam(field.key); as raw) {
                     <!-- A bridge's tokens come from the quote: the registry
                          knows Solana mints and nothing on Base or Ethereum. -->
@@ -3876,10 +3920,10 @@
                     <div class="proto-token-row" [class.proto-token-row--swap]="isSwapSide">
                       <button type="button"
                               class="proto-token-chip"
-                              [class.proto-token-chip--clickable]="isSwapSide && isEditable()"
-                              [disabled]="!(isSwapSide && isEditable())"
-                              (click)="openTokenPicker($any(field.key), $event)"
-                              [attr.aria-label]="isSwapSide ? 'Change ' + field.label + ' token' : null">
+                              [class.proto-token-chip--clickable]="(isSwapSide || isBridgeSide) && isEditable()"
+                              [disabled]="!((isSwapSide || isBridgeSide) && isEditable())"
+                              (click)="isBridgeSide ? openRelayPicker(field.key) : openTokenPicker($any(field.key), $event)"
+                              [attr.aria-label]="(isSwapSide || isBridgeSide) ? 'Change ' + field.label + ' token' : null">
                         <div class="proto-token-chip__icon-wrap">
                           <div class="proto-token-chip__letter">{{ td.symbol.charAt(0) }}</div>
                           @if (td.logoURI) {
@@ -3891,7 +3935,7 @@
                           <span class="proto-token-chip__symbol">{{ td.symbol }}</span>
                           <span class="proto-token-chip__name">{{ td.name }}</span>
                         </div>
-                        @if (isSwapSide && isEditable()) {
+                        @if ((isSwapSide || isBridgeSide) && isEditable()) {
                           <lucide-icon name="chevron-down" [size]="14" class="proto-token-chip__caret" />
                         }
                       </button>

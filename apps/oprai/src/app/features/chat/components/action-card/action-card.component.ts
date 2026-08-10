@@ -2858,6 +2858,93 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     } catch { /* leave it unnamed rather than guess */ }
   }
 
+  // ── Bridge token picker ────────────────────────────────────────────────
+  //
+  // The card could only ever show the token the model named. Someone who
+  // wanted anything else — a different stablecoin, the chain's native asset,
+  // any of the thousands Relay lists — had no way to say so. Relay's currency
+  // list covers every chain it bridges, which is the one source that can
+  // answer "what can I receive on Base".
+
+  readonly relayPickerFor = signal<string | null>(null);
+  readonly relayPickerQuery = signal('');
+  readonly relayPickerRows = signal<Array<{ address: string; symbol: string; name: string; logo: string | null }>>([]);
+  readonly relayPickerLoading = signal(false);
+  private relayPickerTimer: ReturnType<typeof setTimeout> | null = null;
+
+  openRelayPicker(key: string): void {
+    if (!this.isRelayBridge() || !this.isEditable()) return;
+    if (this.relayPickerFor() === key) { this.relayPickerFor.set(null); return; }
+    this.relayPickerFor.set(key);
+    this.relayPickerQuery.set('');
+    this.relayPickerRows.set([]);
+    void this.relaySearchTokens('');
+  }
+
+  onRelayPickerQuery(term: string): void {
+    this.relayPickerQuery.set(term);
+    if (this.relayPickerTimer) clearTimeout(this.relayPickerTimer);
+    this.relayPickerTimer = setTimeout(() => void this.relaySearchTokens(term), 250);
+  }
+
+  private async relaySearchTokens(term: string): Promise<void> {
+    const key = this.relayPickerFor();
+    if (!key) return;
+    const chain = this.relayCanonicalChain(
+      this.getEditParam(key === 'originCurrency' ? 'originChainId' : 'destinationChainId'),
+    );
+    if (!chain) return;
+    this.relayPickerLoading.set(true);
+    try {
+      const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+        type: 'relay_get_currencies',
+        params: {
+          chainIds: [Number(chain)],
+          ...(term.trim() ? { term: term.trim() } : {}),
+          // Verified only, unprompted: a bridge search that returns three
+          // tokens with the same ticker is a way to send money to the wrong
+          // one. A pasted address still reaches anything.
+          verified: true,
+          limit: 30,
+        },
+      }));
+      const rows: any[] = Array.isArray(resp?.data) ? resp.data : [];
+      this.relayPickerRows.set(rows
+        .filter(r => r?.address && r?.symbol)
+        .map(r => ({
+          address: String(r.address),
+          symbol: String(r.symbol),
+          name: String(r.name ?? ''),
+          logo: r.metadata?.logoURI ?? r.metadata?.logoUri ?? r.logoURI ?? null,
+        })));
+    } catch {
+      this.relayPickerRows.set([]);
+    } finally {
+      this.relayPickerLoading.set(false);
+    }
+  }
+
+  chooseRelayToken(key: string, row: { address: string; symbol: string; name: string; logo: string | null }): void {
+    this.setEditParam(key, row.address);
+    // Seed the cache so the row renders named before any lookup or quote.
+    const chain = this.relayCanonicalChain(
+      this.getEditParam(key === 'originCurrency' ? 'originChainId' : 'destinationChainId'),
+    );
+    this.relayTokenCache.update(m => new Map(m).set(`${chain}|${row.address.toLowerCase()}`, {
+      symbol: row.symbol, name: row.name, logoURI: row.logo,
+    }));
+    this.relayPickerFor.set(null);
+    this.relayMaybeQuote();
+  }
+
+  /** Changing a chain invalidates the token chosen on the old one. */
+  onRelayChainChange(key: string): void {
+    const tokenKey = key === 'originChainId' ? 'originCurrency' : 'destinationCurrency';
+    this.setEditParam(tokenKey, '');
+    this.relayPickerFor.set(null);
+    this.relayMaybeQuote();
+  }
+
   /** Slippage is Relay's to choose unless the user takes it. */
   relaySlippageAuto(): boolean {
     return !this.getEditParam('slippageTolerance');

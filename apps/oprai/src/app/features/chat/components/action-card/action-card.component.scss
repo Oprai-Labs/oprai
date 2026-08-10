@@ -5864,3 +5864,67 @@
 
   &-btn { flex: 0 0 auto; }
 }
+
+// Any token on the chain, searched where it is chosen.
+.relay-picker {
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-md);
+  background: var(--op-bg-surface-2);
+
+  &__search { width: 100%; margin-bottom: 8px; }
+
+  &__note {
+    padding: 6px 2px;
+    font-size: 0.75rem;
+    color: var(--op-text-tertiary);
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 6px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+
+    &:hover { background: color-mix(in srgb, var(--op-brand) 8%, transparent); }
+  }
+
+  &__icon {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--op-bg-surface-3);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    color: var(--op-text-secondary);
+
+    img { width: 100%; height: 100%; object-fit: cover; }
+  }
+
+  &__text { display: flex; flex-direction: column; min-width: 0; }
+  &__sym  { font-size: 0.8125rem; font-weight: 650; color: var(--op-text-primary); }
+  &__name {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
