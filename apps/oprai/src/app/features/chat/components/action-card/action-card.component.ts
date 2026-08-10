@@ -2533,6 +2533,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   async loadEmptyAccounts(): Promise<void> {
     const owner = this.walletService.publicKey();
     if (!owner || !this.isCloseAccounts()) return;
+    // A finished card is a receipt. Re-scanning after the close found the
+    // wallet clean and rewrote the card to "0 accounts · nothing to close" —
+    // erasing the record of the nineteen it had just closed. What happened does
+    // not change because the wallet has.
+    if (!this.isEditable()) return;
     this.emptyAccountsLoading.set(true);
     try {
       const conn = createSolanaConnection('confirmed');
@@ -6619,7 +6624,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       }
       this.loadKaminoVaultWithdrawInfo();
     }
-    if (this.isCloseAccounts()) void this.loadEmptyAccounts();
+    if (this.isCloseAccounts()) {
+      // Restore what WAS closed, so the completed card can show it without
+      // asking the chain a question whose answer has changed.
+      const done = (this.cachedResult as StoredActionResult | null)?.executedParams?.['mints'];
+      if (done) {
+        const mints = String(done).split(',').map((m: string) => m.trim()).filter(Boolean);
+        this.emptyAccounts.set(mints.map(m => ({ mint: m, account: '' })));
+        this.emptySelected.set(new Set(mints));
+      }
+      void this.loadEmptyAccounts();
+    }
     if (this.action.type === 'native_stake') {
       // "the highest APY one" is a sort, and the model can say so. Without
       // this the card's default is the only order the user ever gets.

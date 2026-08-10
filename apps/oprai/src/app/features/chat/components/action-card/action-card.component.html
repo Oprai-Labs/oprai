@@ -4314,7 +4314,9 @@
       <div class="stake-panels">
         <div class="pump-panel">
           <div class="pump-panel__top">
-            <span class="pump-panel__label">Empty token accounts</span>
+            <span class="pump-panel__label">
+              {{ isEditable() ? 'Empty token accounts' : 'Accounts closed' }}
+            </span>
             @if (emptyAccountsLoading()) { <span class="proto-balance-dots">···</span> }
           </div>
           <div class="pump-panel__row">
@@ -4325,7 +4327,24 @@
             </div>
           </div>
 
-          @if (!emptyAccountsLoading() && !emptyAccounts().length) {
+          @if (!isEditable()) {
+            <!-- Done: the list is a record, not a choice. Selection controls
+                 and the scroll box would invite editing something that has
+                 already happened. -->
+            <div class="close-list">
+              @for (a of emptyAccounts(); track a.mint) {
+                @let td = resolveTokenDisplay(a.mint);
+                <span class="close-chip">
+                  @if (td.logoURI) {
+                    <img [src]="td.logoURI" alt="" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="close-chip__letter">{{ (td.symbol || a.mint || '?').charAt(0) }}</span>
+                  }
+                  {{ td.symbol || (a.mint.slice(0, 4) + '…') }}
+                </span>
+              }
+            </div>
+          } @else if (!emptyAccountsLoading() && !emptyAccounts().length) {
             <span class="pump-panel__usd">Nothing to close — every token account in this wallet holds a balance.</span>
           } @else if (emptyAccounts().length) {
             <!-- Chosen, not just counted. Closing is per-account, so the card
