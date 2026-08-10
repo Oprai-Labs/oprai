@@ -696,7 +696,14 @@ fn relay_error(context: &str, body: &str) -> AppError {
             "No route between those two tokens right now. Try a different pair of chains or tokens.".to_string(),
         "UNSUPPORTED_CHAIN" =>
             "One of those chains is not bridgeable here.".to_string(),
-        "UNSUPPORTED_CURRENCY" | "CURRENCY_NOT_SUPPORTED" =>
+        // INVALID_*_CURRENCY is what Relay actually answers for a token it does
+        // not carry on that chain — "unsupported" is the documented name, not
+        // the one on the wire. Reading only the documented one let Relay's own
+        // "Invalid input or output currency" through to the card.
+        "UNSUPPORTED_CURRENCY"
+        | "CURRENCY_NOT_SUPPORTED"
+        | "INVALID_INPUT_CURRENCY"
+        | "INVALID_OUTPUT_CURRENCY" =>
             "One of those tokens is not bridgeable on the chain you picked.".to_string(),
         "INSUFFICIENT_LIQUIDITY" | "SOLVER_CAPACITY_EXCEEDED" | "ERROR_RENDERING_SOLVER_CAPACITY" =>
             "Not enough liquidity for this size right now. A smaller amount usually goes through.".to_string(),
