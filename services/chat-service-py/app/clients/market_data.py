@@ -1442,7 +1442,15 @@ async def scan_empty_accounts(wallet: str) -> dict:
             "method": "getTokenAccountsByOwner",
             "params": [wallet, {"programId": program_id}, {"encoding": "jsonParsed"}],
         })
-        accounts.extend(resp.get("result", {}).get("value", []))
+        # An RPC that refused the request is not a wallet with nothing in it.
+        # Reading `result` with a default of {} turned "that is not an address"
+        # into "you have no closable accounts" — the most confident possible
+        # way to be wrong.
+        if not isinstance(resp, dict) or "result" not in resp:
+            raise ValueError(
+                f"Could not read token accounts for {wallet!r}: {str(resp)[:160]}"
+            )
+        accounts.extend((resp.get("result") or {}).get("value") or [])
 
     RENT_SOL = 0.00203928  # approximate rent-exemption for a single token account
     empty = []

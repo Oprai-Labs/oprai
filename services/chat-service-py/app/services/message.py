@@ -2270,8 +2270,17 @@ async def stream_chat_response(
                     params_dict = dict(validated.params or {})
                     # Inject connected wallet for queries that scan the user's own wallet.
                     _wallet_auto_inject = {"scan_empty_accounts", "my_stake_accounts"}
-                    if validated.type.value in _wallet_auto_inject and "wallet" not in params_dict:
-                        params_dict["wallet"] = wallet
+                    # "self" is not an address. The model writes it — reasonably,
+                    # since the prompt tells it the wallet is the caller's — and
+                    # the injection only fired when the key was ABSENT, so the
+                    # scan ran against a wallet literally named "self", found
+                    # nothing, and reported a wallet with 19 closable accounts
+                    # as having none. Absent and self-referring mean the same
+                    # thing here.
+                    if validated.type.value in _wallet_auto_inject:
+                        _given = str(params_dict.get("wallet", "")).strip().lower()
+                        if _given in ("", "self", "me", "my", "mine", "my wallet", "auto"):
+                            params_dict["wallet"] = wallet
                     # Some market-data query types ALSO render as an interactive
                     # QueryCard mini-app on the frontend (paginated pool lists,
                     # etc.). For those, emit the SSE `{query}` event in addition
@@ -2563,8 +2572,12 @@ async def stream_chat_response(
                             if isinstance(_v, ValidatedQuery) and _v.type.value in market_data.MARKET_DATA_TYPES:
                                 _params = dict(_v.params or {})
                                 _wallet_auto_inject = {"scan_empty_accounts", "my_stake_accounts"}
-                                if _v.type.value in _wallet_auto_inject and "wallet" not in _params:
-                                    _params["wallet"] = wallet
+                                # See the other injection site: "self" is not an
+                                # address, and absent means the same thing.
+                                if _v.type.value in _wallet_auto_inject:
+                                    _g = str(_params.get("wallet", "")).strip().lower()
+                                    if _g in ("", "self", "me", "my", "mine", "my wallet", "auto"):
+                                        _params["wallet"] = wallet
                                 try:
                                     _raw = await market_data.call(_v.type.value, _params, wallet=wallet)
                                     market_data_results.append((_v.type.value, _params, _raw))
