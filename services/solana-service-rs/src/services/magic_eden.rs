@@ -490,10 +490,10 @@ pub struct MeWalletNFTsParams {
     /// Optional collection filter
     pub collection_symbol: Option<String>,
     /// Pagination limit
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 
@@ -506,10 +506,10 @@ pub struct MeCollectionActivityParams {
     /// Activity type filter (list, buy, offer, etc.)
     pub activity_type: Option<String>,
     /// Pagination limit
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 
@@ -520,10 +520,10 @@ pub struct MeListingsParams {
     /// Collection symbol
     pub symbol: String,
     /// Pagination limit
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 
@@ -534,10 +534,10 @@ pub struct MeOffersParams {
     /// NFT mint address
     pub mint_address: String,
     /// Pagination limit
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 
@@ -548,10 +548,10 @@ pub struct MeCollectionNFTsParams {
     /// Collection symbol
     pub symbol: String,
     /// Pagination limit
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub limit: Option<u32>,
     /// Pagination offset
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub offset: Option<u32>,
 }
 

@@ -19,7 +19,7 @@ pub struct TransferParams {
     pub to: String,
     pub amount: String,
     pub token: String,
-    #[serde(
+    #[serde(default, 
         rename = "tokenDecimals",
         deserialize_with = "crate::services::params::lenient_opt"
     )]

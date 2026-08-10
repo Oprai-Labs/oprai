@@ -2774,7 +2774,7 @@ pub struct HeliusSmartSendParams {
     /// "Min" | "Low" | "Medium" | "High" | "VeryHigh" | "UnsafeMax" (default: "Medium")
     pub priority_level: Option<String>,
     /// Override compute unit limit (default: 200_000)
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub compute_unit_limit: Option<u32>,
 }
 

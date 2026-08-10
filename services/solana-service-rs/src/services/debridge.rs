@@ -48,7 +48,7 @@ pub struct DebridgeParams {
     /// Human-readable amount (e.g. "1.5")
     pub amount: String,
     pub recipient: Option<String>,
-    #[serde(deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub slippage_bps: Option<u32>,
 }
 

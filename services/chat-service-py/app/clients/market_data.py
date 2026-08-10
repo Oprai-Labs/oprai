@@ -1273,13 +1273,23 @@ async def helius_token_supply(mint: str) -> dict:
 
 
 async def helius_wallet_tokens(wallet: str) -> list:
-    """All SPL tokens held by a wallet via Helius."""
-    result = await _post(HELIUS_RPC, {
-        "jsonrpc": "2.0", "id": 1,
-        "method": "getTokenAccountsByOwner",
-        "params": [wallet, {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}, {"encoding": "jsonParsed"}],
-    })
-    return result.get("result", {}).get("value", result)
+    """All tokens held by a wallet — under both token programs.
+
+    Same omission as the empty-account scan had: `getTokenAccountsByOwner`
+    answers for exactly the program it is asked about, so querying only the
+    legacy one hides every Token-2022 holding a wallet has.
+    """
+    out: list = []
+    for program_id in _TOKEN_PROGRAMS:
+        result = await _post(HELIUS_RPC, {
+            "jsonrpc": "2.0", "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [wallet, {"programId": program_id}, {"encoding": "jsonParsed"}],
+        })
+        value = result.get("result", {}).get("value")
+        if isinstance(value, list):
+            out.extend(value)
+    return out
 
 
 async def helius_wallet_txs(wallet: str, limit: int = 20) -> dict | list:
@@ -1409,22 +1419,30 @@ async def claim_guidance(protocol: str, type: str = "rewards") -> dict:
     return {"protocol": protocol, "type": type, "guidance": guidance}
 
 
+# The two token programs. Asking only the first one is how a wallet with 19
+# closable accounts was told it had 5: Token-2022 mints hold their accounts
+# under a different program, and `getTokenAccountsByOwner` returns exactly the
+# program you ask about.
+_TOKEN_PROGRAMS = (
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+)
+
+
 async def scan_empty_accounts(wallet: str) -> dict:
-    """Scan a wallet for zero-balance SPL token accounts.
-    Each empty account can be closed via close_accounts to recover ~0.002 SOL in rent.
-    Calls Solana RPC directly — no external API key needed.
+    """Scan a wallet for zero-balance token accounts, under BOTH token programs.
+
+    Each empty account can be closed via close_accounts to recover ~0.002 SOL
+    in rent. Calls Solana RPC directly — no external API key needed.
     """
-    body = {
-        "jsonrpc": "2.0", "id": 1,
-        "method": "getTokenAccountsByOwner",
-        "params": [
-            wallet,
-            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
-            {"encoding": "jsonParsed"},
-        ],
-    }
-    resp = await _post(SOLANA_RPC, body)
-    accounts = resp.get("result", {}).get("value", [])
+    accounts: list = []
+    for program_id in _TOKEN_PROGRAMS:
+        resp = await _post(SOLANA_RPC, {
+            "jsonrpc": "2.0", "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [wallet, {"programId": program_id}, {"encoding": "jsonParsed"}],
+        })
+        accounts.extend(resp.get("result", {}).get("value", []))
 
     RENT_SOL = 0.00203928  # approximate rent-exemption for a single token account
     empty = []
