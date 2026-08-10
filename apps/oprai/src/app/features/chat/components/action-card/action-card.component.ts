@@ -2482,6 +2482,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // rate, not an answer; the wallet knows the number.
 
   readonly emptyAccounts = signal<Array<{ mint: string; account: string }>>([]);
+  /** What the wallet still holds of each mint, elsewhere.
+   *
+   *  These accounts are empty by definition, so "balance: 0" would be noise.
+   *  What is worth saying is when the same token is still held in ANOTHER
+   *  account — then the empty one is a leftover duplicate and closing it costs
+   *  the user nothing at all. */
+  readonly heldByMint = signal<Map<string, { amount: number; symbol: string }>>(new Map());
   readonly emptyAccountsLoading = signal(false);
   /** Rent-exempt minimum for an SPL token account — what each one returns. */
   private static readonly ATA_RENT_SOL = 0.00203928;
@@ -2496,6 +2503,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   readonly emptyAccountsRent = computed(() =>
     this.emptySelected().size * ActionCardComponent.ATA_RENT_SOL);
+
+  /** How much of this token the wallet still holds in some other account. */
+  stillHeld(mint: string): number {
+    return this.heldByMint().get(mint)?.amount ?? 0;
+  }
 
   toggleEmptyAccount(mint: string): void {
     const next = new Set(this.emptySelected());
@@ -2529,16 +2541,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'), // Token-2022
       ];
       const found: Array<{ mint: string; account: string }> = [];
+      const held = new Map<string, { amount: number; symbol: string }>();
       for (const programId of programs) {
         const res = await conn.getParsedTokenAccountsByOwner(new PublicKey(owner), { programId })
           .catch(() => null);
         for (const a of res?.value ?? []) {
           const info = (a.account.data as any)?.parsed?.info;
+          const mint = info?.mint ?? '';
+          const ui = Number(info?.tokenAmount?.uiAmount ?? 0);
           if (Number(info?.tokenAmount?.amount ?? '1') === 0) {
-            found.push({ mint: info?.mint ?? '', account: a.pubkey.toBase58() });
+            found.push({ mint, account: a.pubkey.toBase58() });
+          } else if (ui > 0 && mint) {
+            const prev = held.get(mint)?.amount ?? 0;
+            held.set(mint, { amount: prev + ui, symbol: '' });
           }
         }
       }
+      this.heldByMint.set(held);
       this.emptyAccounts.set(found);
       this.emptySelected.set(new Set(found.map(a => a.mint)));
       this.syncCloseMints();

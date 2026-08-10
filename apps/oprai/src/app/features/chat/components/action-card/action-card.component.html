@@ -4363,7 +4363,13 @@
                   </span>
                   <span class="close-row__text">
                     <span class="close-row__sym">{{ td.symbol || 'Unknown token' }}</span>
-                    <span class="close-row__mint mono">{{ a.mint.slice(0, 4) }}…{{ a.mint.slice(-4) }}</span>
+                    <span class="close-row__mint mono">
+                      @if (stillHeld(a.mint); as bal) {
+                        <span class="close-row__held">You still hold {{ bal | number:'1.0-4' }}</span>
+                      } @else {
+                        {{ a.mint.slice(0, 4) }}…{{ a.mint.slice(-4) }}
+                      }
+                    </span>
                   </span>
                   <span class="close-row__rent mono">+0.00204</span>
                 </button>
@@ -4879,22 +4885,6 @@
           <span class="proto-warn-desc">
             Burning destroys the tokens permanently. They are removed from the
             supply — not sent anywhere, and not recoverable by anyone.
-          </span>
-        </div>
-      </div>
-    }
-
-    <!-- close_accounts carries no parameters at all, so the card was a header
-         and a button with nothing between them saying what it would do. -->
-    @if (action.type === 'close_accounts' && status() === 'pending') {
-      <div class="proto-warn-banner">
-        <lucide-icon name="info" [size]="14" class="proto-warn-icon" />
-        <div class="proto-warn-body">
-          <span class="proto-warn-title">Reclaim rent from empty accounts</span>
-          <span class="proto-warn-desc">
-            Closes token accounts holding a zero balance and returns their rent
-            to this wallet — about 0.002 SOL per account. Accounts still holding
-            tokens are left alone.
           </span>
         </div>
       </div>
