@@ -36,6 +36,10 @@ pub struct BurnParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloseAccountsParams {
     /// List of token mint addresses (or known symbols) whose ATAs should be closed.
+    ///
+    /// Accepts a JSON array or one comma-separated string: the model sends the
+    /// first, the action card — whose params are all strings — sends the second.
+    #[serde(deserialize_with = "crate::services::params::string_or_vec")]
     pub mints: Vec<String>,
 }
 

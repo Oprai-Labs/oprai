@@ -6457,6 +6457,112 @@
   &__k { font-size: 0.625rem; color: var(--op-text-tertiary); }
 }
 
+// The list of accounts to close: scrollable, selectable, in the token picker's
+// row vocabulary (30px logo, 0.875rem symbol, transparent row on a white
+// sheet). Six rows fit; the rest scroll, so a wallet with sixty does not push
+// Confirm off the screen.
+.close-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  &__count {
+    margin-left: auto;
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.close-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 232px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--op-bg-elevated);
+  border: 1px solid var(--op-border-subtle);
+  scrollbar-width: thin;
+  scrollbar-color: var(--op-border-strong) transparent;
+}
+
+.close-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--op-fast);
+
+  &:hover { background: var(--op-bg-surface-2); }
+  &--on { background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 8%, transparent); }
+  &:disabled { cursor: default; }
+
+  &__box {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    border-radius: 5px;
+    border: 1.5px solid var(--op-border-strong);
+    color: #fff;
+
+    &--on {
+      background: var(--proto-accent, var(--op-brand));
+      border-color: transparent;
+    }
+  }
+
+  &__icon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--op-bg-surface-3);
+
+    img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  }
+
+  &__letter { font-size: 0.6875rem; font-weight: 700; color: var(--op-text-secondary); }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+    line-height: 1.2;
+  }
+
+  &__sym {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__mint { font-size: 0.625rem; color: var(--op-text-tertiary); }
+
+  &__rent {
+    font-size: 0.6875rem;
+    color: var(--op-gain);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 // The accounts a close is about to shut, as token chips — small, but the
 // difference between "7 accounts" and seven things you can recognise.
 .close-list {

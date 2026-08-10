@@ -2486,8 +2486,37 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Rent-exempt minimum for an SPL token account — what each one returns. */
   private static readonly ATA_RENT_SOL = 0.00203928;
 
+  /** Which of them to close, by mint. Everything, until the user says otherwise
+   *  — the request that opens this card is almost always "close them all", and
+   *  a list that starts empty makes the common case the laborious one. */
+  readonly emptySelected = signal<Set<string>>(new Set());
+
+  readonly emptyAllSelected = computed(() =>
+    this.emptyAccounts().length > 0 && this.emptySelected().size === this.emptyAccounts().length);
+
   readonly emptyAccountsRent = computed(() =>
-    this.emptyAccounts().length * ActionCardComponent.ATA_RENT_SOL);
+    this.emptySelected().size * ActionCardComponent.ATA_RENT_SOL);
+
+  toggleEmptyAccount(mint: string): void {
+    const next = new Set(this.emptySelected());
+    next.has(mint) ? next.delete(mint) : next.add(mint);
+    this.emptySelected.set(next);
+    this.syncCloseMints();
+  }
+
+  toggleAllEmptyAccounts(): void {
+    this.emptySelected.set(
+      this.emptyAllSelected() ? new Set() : new Set(this.emptyAccounts().map(a => a.mint)),
+    );
+    this.syncCloseMints();
+  }
+
+  /** The selection IS the parameter. `mints` is required by the backend and the
+   *  card never sent it, so this action could not have succeeded whatever was
+   *  on screen. */
+  private syncCloseMints(): void {
+    this.setEditParam('mints', [...this.emptySelected()].join(','));
+  }
 
   async loadEmptyAccounts(): Promise<void> {
     const owner = this.walletService.publicKey();
@@ -2511,6 +2540,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         }
       }
       this.emptyAccounts.set(found);
+      this.emptySelected.set(new Set(found.map(a => a.mint)));
+      this.syncCloseMints();
     } finally {
       this.emptyAccountsLoading.set(false);
     }
@@ -5058,8 +5089,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (!this.getEditParam('to').trim()) return 'Enter a recipient';
       if (this.recipientState().kind === 'invalid') return 'That recipient is not valid';
     }
-    if (this.isCloseAccounts() && !this.emptyAccountsLoading() && !this.emptyAccounts().length) {
-      return 'Nothing to close';
+    if (this.isCloseAccounts()) {
+      if (!this.emptyAccountsLoading() && !this.emptyAccounts().length) return 'Nothing to close';
+      if (this.emptyAccounts().length && !this.emptySelected().size) return 'Pick at least one';
     }
     if (this.isBurn()) {
       if (!this.getEditParam('mint').trim()) return 'Pick a token to burn';

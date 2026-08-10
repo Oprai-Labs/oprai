@@ -4318,34 +4318,58 @@
             @if (emptyAccountsLoading()) { <span class="proto-balance-dots">···</span> }
           </div>
           <div class="pump-panel__row">
-            <span class="pump-panel__amount">{{ emptyAccounts().length }}</span>
+            <span class="pump-panel__amount">{{ emptySelected().size }}</span>
             <div class="close-back">
               <span class="close-back__v mono">+{{ emptyAccountsRent() | number:'1.0-5' }}</span>
               <span class="close-back__k">SOL back</span>
             </div>
           </div>
+
           @if (!emptyAccountsLoading() && !emptyAccounts().length) {
             <span class="pump-panel__usd">Nothing to close — every token account in this wallet holds a balance.</span>
           } @else if (emptyAccounts().length) {
-            <!-- Which ones. A count is a number; these are the accounts, named
-                 where they can be named, so "close 7 accounts" is something a
-                 person can actually check before signing. -->
-            <div class="close-list">
-              @for (a of emptyAccounts().slice(0, 12); track a.account) {
+            <!-- Chosen, not just counted. Closing is per-account, so the card
+                 should let the user keep one and drop the rest — a chip cloud
+                 could only report what was about to happen. -->
+            <div class="close-head">
+              <button type="button" class="me-quick__btn"
+                      [class.me-quick__btn--active]="emptyAllSelected()"
+                      [disabled]="!isEditable()"
+                      (click)="toggleAllEmptyAccounts()">
+                {{ emptyAllSelected() ? 'Clear all' : 'Select all' }}
+              </button>
+              <span class="close-head__count">
+                {{ emptySelected().size }} of {{ emptyAccounts().length }} selected
+              </span>
+            </div>
+
+            <div class="close-scroll">
+              @for (a of emptyAccounts(); track a.account) {
                 @let td = resolveTokenDisplay(a.mint);
-                <span class="close-chip">
-                  @if (td.logoURI) {
-                    <img [src]="td.logoURI" alt="" (error)="$any($event.target).style.display='none'" />
-                  } @else {
-                    <span class="close-chip__letter">{{ (td.symbol || a.mint || '?').charAt(0) }}</span>
-                  }
-                  {{ td.symbol || (a.mint.slice(0, 4) + '…') }}
-                </span>
-              }
-              @if (emptyAccounts().length > 12) {
-                <span class="close-chip close-chip--more">+{{ emptyAccounts().length - 12 }} more</span>
+                @let on = emptySelected().has(a.mint);
+                <button type="button" class="close-row" [class.close-row--on]="on"
+                        [disabled]="!isEditable()"
+                        (click)="toggleEmptyAccount(a.mint)">
+                  <span class="close-row__box" [class.close-row__box--on]="on">
+                    @if (on) { <lucide-icon name="check" [size]="11" /> }
+                  </span>
+                  <span class="close-row__icon">
+                    @if (td.logoURI) {
+                      <img [src]="td.logoURI" alt=""
+                           (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="close-row__letter">{{ (td.symbol || a.mint || '?').charAt(0) }}</span>
+                    }
+                  </span>
+                  <span class="close-row__text">
+                    <span class="close-row__sym">{{ td.symbol || 'Unknown token' }}</span>
+                    <span class="close-row__mint mono">{{ a.mint.slice(0, 4) }}…{{ a.mint.slice(-4) }}</span>
+                  </span>
+                  <span class="close-row__rent mono">+0.00204</span>
+                </button>
               }
             </div>
+
             <span class="pump-panel__usd">
               Each returns its rent deposit. Accounts still holding tokens are left alone.
             </span>
