@@ -5988,18 +5988,18 @@ async fn build_action_inner(
                 data: Some(serde_json::to_value(&result)?),
             })
         }
-        // ── Tensor NFT Marketplace Actions ──────────────────────────────────────────
-        "tensor_buy"
-        | "tensor_list"
-        | "tensor_cancel_listing"
-        | "tensor_make_offer"
-        | "tensor_cancel_offer"
-        | "tensor_collection_info"
-        | "tensor_nft_info"
-        | "tensor_wallet_nfts"
-        | "tensor_listings" => {
-            tensor::build_tensor_action(http, &user_pubkey.to_string(), action_type, params).await
-        }
+        // ── Tensor NFT Marketplace — switched off ───────────────────────────────
+        //
+        // Off rather than removed. The reads are fine and the module stays, but
+        // the writes went out over a marketplace whose transaction building we
+        // could not verify end to end, and one of them was quietly returning a
+        // fabricated instruction until this week. Magic Eden covers the same
+        // NFTs with flows that have been proven on chain, so there is nothing
+        // a user loses by being sent there while Tensor is re-checked.
+        t if t.starts_with("tensor_") => Err(AppError::ProtocolError(
+            "Tensor is switched off for now. Magic Eden handles the same NFTs — list, buy, offer and cancel all work there."
+                .into(),
+        )),
         // ── Burn (SPL token burn / close empty account) ───────────────────────────
         "burn" => {
             let p: burn::BurnParams = serde_json::from_value(params)?;

@@ -178,22 +178,22 @@ action names say so: `kamino_position_close`, `orca_close_position`,
 `withdraw_lend`. Pick the one for the protocol the position is on.
 
 
-#### NFT trading — Magic Eden & Tensor (both fully supported)
+#### NFT trading — Magic Eden
 
-There is NO generic `nft_buy`/`nft_list`. Emit the marketplace-specific action_type
-directly: `me_*` for Magic Eden, `tensor_*` for Tensor. If the user names a
-marketplace, use it; otherwise default to Magic Eden (`me_*`). Param keys are
-**camelCase** — the mint is `mintAddress` (NOT `mint`).
+Tensor is switched off. Do not emit any `tensor_*` action: they return an error.
+If the user asks for Tensor by name, say it is temporarily unavailable and offer
+Magic Eden, which trades the same NFTs.
+
+There is NO generic `nft_buy`/`nft_list`. Emit the Magic Eden action_type
+directly (`me_*`). Param keys are **camelCase** — the mint is `mintAddress`
+(NOT `mint`).
 
 Buy — price must match the live listing, so FIRST look it up
-(`query_onchain("me_token_listings", {tokenMint})` or `me_nft_info`/`tensor_nft_info`),
-then pass it:
-- `me_buy`     — {mintAddress, price}       (price = current listing price)
-- `tensor_buy` — {mintAddress, maxPrice}    (maxPrice = most you'll pay)
+(`query_onchain("me_token_listings", {tokenMint})` or `me_nft_info`), then pass it:
+- `me_buy` — {mintAddress, price}       (price = current listing price)
 
 List for sale:
-- `me_list`     — {mintAddress, price}
-- `tensor_list` — {mintAddress, price}
+- `me_list` — {mintAddress, price}
 
 Offers / cancels:
 - `me_make_offer` — {mintAddress, price} · `me_accept_offer` — {mintAddress, price}
@@ -202,13 +202,10 @@ Offers / cancels:
 Re-price something already standing (ONE instruction — never cancel and relist):
 - `me_sell_change_price` — {mintAddress, newPrice}  (a listing you hold)
 - `me_buy_change_price`  — {mintAddress, newPrice}  (a bid you have out)
-- `tensor_make_offer` — {collectionSlug, price} · `tensor_cancel_listing` / `tensor_cancel_offer` — {mintAddress}
 
 Examples:
 - "Buy NFT 7xKX… on Magic Eden" → look up the listing price, then
   `execute_action("me_buy", {"mintAddress": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "price": "<listing_price>"})`
-- "List my NFT 7xKX… for 5 SOL on Tensor" →
-  `execute_action("tensor_list", {"mintAddress": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "price": "5"})`
 
 
 #### BURN — Permanently burn SPL tokens

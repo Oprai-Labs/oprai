@@ -5,15 +5,15 @@
 ### Support status
 
 - **Magic Eden — FULLY SUPPORTED** (reads + trading). Read data via the `me_*` `query_onchain` tools; trade via `me_buy` / `me_list` / `me_make_offer` / `me_accept_offer` / `me_cancel_listing` / `me_cancel_offer` (all wired in the backend builder).
-- **Tensor — FULLY SUPPORTED** (reads + trading). Trade via `tensor_buy` / `tensor_list` / `tensor_make_offer` / `tensor_cancel_listing` / `tensor_cancel_offer`; reads via `tensor_collection_info` / `tensor_nft_info` / `tensor_listings` / `tensor_wallet_nfts`.
+- **Tensor — SWITCHED OFF.** Every `tensor_*` action returns an error. If asked for Tensor, say it is temporarily unavailable and use Magic Eden instead — the same NFTs trade there.
 
-Do NOT tell users NFT marketplaces are unavailable — both are live. There is NO generic `nft_buy`/`nft_list`; always emit the marketplace-specific `me_*` or `tensor_*` action.
+Magic Eden is live — do not tell users NFT trading is unavailable. There is NO generic `nft_buy`/`nft_list`; always emit the `me_*` action.
 
 ---
 
 ### NFT trading actions
 
-Full parameter reference is in the **core action prompt** (`me_buy`/`tensor_buy`, `me_list`/`tensor_list`, offers & cancels). Key points:
+Full parameter reference is in the **core action prompt** (`me_buy`, `me_list`, offers & cancels). Key points:
 - Param keys are camelCase; the mint is `mintAddress` (NOT `mint`).
 **Don't ask which one when there is only one.**
 
@@ -69,7 +69,7 @@ user asks what they hold or what is listed, call the tool again in THAT turn.
 An earlier turn's result is a record of a moment that has passed; answering
 from it tells the user their listing failed when it is live on the marketplace.
 
-- To BUY you must pass the live listing price — first look it up (`query_onchain("me_token_listings", {"tokenMint": "…"})` or `me_nft_info`/`tensor_nft_info`), then `me_buy {mintAddress, price}` / `tensor_buy {mintAddress, maxPrice}`.
+- To BUY you must pass the live listing price — first look it up (`query_onchain("me_token_listings", {"tokenMint": "…"})` or `me_nft_info`), then `me_buy {mintAddress, price}`.
 - If the user doesn't name a marketplace, default to Magic Eden.
 
 Example:
