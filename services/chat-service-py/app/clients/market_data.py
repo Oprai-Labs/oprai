@@ -1527,8 +1527,18 @@ async def top_validators(limit: int = 20, sort_by: str = "stake") -> dict:
 
     if sort_by == "apy":
         # Unknown APY sorts last rather than first: an absent measurement is not
-        # a good one.
-        rows.sort(key=lambda r: (r["apyEstimatePct"] is not None, r["apyEstimatePct"] or 0), reverse=True)
+        # a good one. Stake breaks the ties, and the ties are the whole story
+        # here — the top APY is shared by dozens of validators, so ordering on
+        # APY alone surfaced 150k-SOL unknowns above Helius at the identical
+        # rate. Same yield, so the tiebreak should be the one that differs.
+        rows.sort(
+            key=lambda r: (
+                r["apyEstimatePct"] is not None,
+                r["apyEstimatePct"] or 0,
+                r["activatedStakeSol"],
+            ),
+            reverse=True,
+        )
     elif sort_by == "commission":
         rows.sort(key=lambda r: (r["commission"], -r["activatedStakeSol"]))
     else:
