@@ -825,6 +825,78 @@ export class SolanaActionService {
    * Confirmation is not a detail of one action type, so it lives in one place
    * and every path routes through it.
    */
+  /**
+   * Follow a bridge to the chain it is going to.
+   *
+   * A bridge has two halves and the origin transaction is only the first. It
+   * can land perfectly and the funds still never arrive — the solver fails, the
+   * route is refunded, the destination fill reverts — so treating the deposit
+   * as the outcome reports success for a bridge that did not happen. Relay
+   * tracks the whole intent; this asks it until it has an answer.
+   *
+   * Silence is not failure. If it never resolves, the card stays submitted with
+   * its explorer link rather than being told either result, which is the same
+   * rule the Solana watcher follows when the chain has no answer.
+   */
+  private async watchRelayIntent(
+    requestId: string,
+    callbacks: ActionCallbacks,
+    originTx: string,
+  ): Promise<void> {
+    const deadline = Date.now() + 10 * 60_000;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 4_000));
+      let status: { status?: string; details?: string } | null = null;
+      try {
+        status = await firstValueFrom(
+          this.api.get<any>('/actions/relay/intent-status', { requestId }),
+        );
+      } catch {
+        continue; // A failed poll says nothing about the bridge.
+      }
+      switch ((status?.status ?? '').toLowerCase()) {
+        case 'success':
+          callbacks.onConfirm?.(originTx);
+          return;
+        case 'refunded':
+          callbacks.onFail?.(
+            'The bridge could not be completed, so the funds were returned on the chain they left from.',
+            originTx,
+          );
+          return;
+        case 'failure':
+          callbacks.onFail?.(
+            'The bridge did not complete. The funds are either back on the origin chain or recoverable through Relay — nothing further was signed.',
+            originTx,
+          );
+          return;
+        default:
+          break; // waiting, depositing, pending, submitted, delayed
+      }
+    }
+    console.warn('[relay] intent unresolved after 10 minutes', requestId);
+  }
+
+  /**
+   * Make the bridge's completion mean the far side, not the near one.
+   *
+   * Wrapping rather than editing each path: the EVM origin finishes in the
+   * cross-chain branch and the Solana origin finishes through `watchSettlement`
+   * like every other action, and both used to call `onConfirm` the moment the
+   * origin transaction was accepted. One wrapper puts the same, later question
+   * in front of both.
+   */
+  private wrapRelaySettlement(callbacks: ActionCallbacks, requestId: string): ActionCallbacks {
+    let originTx = '';
+    return {
+      ...callbacks,
+      onSubmit: (sig: string) => { originTx = sig; callbacks.onSubmit?.(sig); },
+      onConfirm: (result?: string) => {
+        void this.watchRelayIntent(requestId, callbacks, originTx || result || '');
+      },
+    };
+  }
+
   private watchSettlement(
     signature: string,
     action: string,
@@ -1577,6 +1649,15 @@ export class SolanaActionService {
       throw err;
     }
 
+    // A bridge is not finished when its first transaction is. Both origins go
+    // through this from here on, so neither can report success early.
+    const relayRequestId = buildResult.isCrossChain
+      ? (buildResult.quote as any)?.requestId ?? (buildResult.quote as any)?.request_id
+      : null;
+    if (relayRequestId) {
+      callbacks = this.wrapRelaySettlement(callbacks, String(relayRequestId));
+    }
+
     // Step 3a: Cross-chain swap — sign EVM transaction via window.ethereum.
     //
     // Unless the origin is Solana. Then the deposit is a Solana transaction,
@@ -1635,6 +1716,41 @@ export class SolanaActionService {
       );
       const evmAccount = accounts?.[0];
       if (!evmAccount) throw new Error('No EVM account available');
+
+      // The quote was priced for one specific address, and the wallet that
+      // opens is whichever one holds window.ethereum with whichever account is
+      // active. Sending from a different one spends the wrong wallet's money
+      // on a route quoted for someone else.
+      const quotedSender = String(action.params['sender'] ?? '').trim();
+      if (quotedSender && quotedSender.toLowerCase() !== evmAccount.toLowerCase()) {
+        throw new Error(
+          `This bridge was priced for ${quotedSender.slice(0, 6)}…${quotedSender.slice(-4)}, but your wallet is offering ${evmAccount.slice(0, 6)}…${evmAccount.slice(-4)}. Switch accounts in the wallet, or reconnect the card to the one you want to send from.`
+        );
+      }
+
+      // And on the right chain. A wallet signs for whatever network it happens
+      // to be on without mentioning it, so an origin of BNB with the wallet
+      // left on Ethereum would broadcast an unrelated transaction there.
+      const originChain = Number(action.params['originChainId'] ?? 0);
+      if (originChain) {
+        const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+        if (onChain !== originChain) {
+          try {
+            await withTimeout(
+              ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: `0x${originChain.toString(16)}` }],
+              }),
+              60_000,
+              'network switch',
+            );
+          } catch {
+            throw new Error(
+              'Your wallet is on a different network than this bridge leaves from. Switch it and try again — nothing was signed.'
+            );
+          }
+        }
+      }
       callbacks.onSign?.();
       const evmTxHash = await withTimeout(
         ethereum.request({
@@ -1651,6 +1767,9 @@ export class SolanaActionService {
         'transaction sign'
       );
       callbacks.onSubmit?.(evmTxHash as string);
+      // Wrapped for a relay bridge, so this hands off to the intent watch
+      // rather than declaring the bridge done. A hash is a receipt for the
+      // deposit, not for the arrival.
       callbacks.onConfirm?.();
       return evmTxHash as string;
     }

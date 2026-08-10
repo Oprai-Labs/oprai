@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../../environments/environment';
+import { sanitizeErrorMessage } from '@core/utils/error-messages';
 
 /**
  * Magic Eden reads, through our backend.
@@ -145,8 +146,10 @@ export class MagicEdenService {
       return (resp?.data ?? null) as T | null;
     } catch (err) {
       const msg = (err as { error?: { error?: string } })?.error?.error;
-      // Strip the classifier the API prefixes onto every error.
-      this._lastError.set(msg ? msg.replace(/^(Not found|Invalid parameters):\s*/i, '') : null);
+      // The same cleanup every other surface uses. This used to strip two
+      // hardcoded prefixes by hand, which covered the two that had been seen
+      // and nothing else.
+      this._lastError.set(msg ? sanitizeErrorMessage(msg, type) : null);
       console.error(`Magic Eden ${type} failed:`, err);
       return null;
     }

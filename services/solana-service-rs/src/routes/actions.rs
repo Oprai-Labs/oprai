@@ -1078,7 +1078,11 @@ pub async fn post_advanced_simulate(
 
 /// Poll the execution status of a Relay cross-chain intent.
 /// Frontend uses this to show real-time progress: waiting → depositing → pending → success/failure.
+/// `requestId`, the way a browser writes it. Without the rename this route
+/// answered "missing field `request_id`" to every caller — including the only
+/// caller there is.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IntentStatusQuery {
     pub request_id: String,
 }
