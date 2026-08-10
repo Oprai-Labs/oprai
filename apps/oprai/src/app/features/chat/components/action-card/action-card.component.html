@@ -3777,16 +3777,36 @@
                        them to find and paste it. -->
                   @if (needsEvmRecipient(field.key)) {
                     <div class="proto-evm-connect">
-                      <button type="button" class="proto-btn-cancel proto-evm-connect__btn"
-                              [disabled]="!isEditable() || evmConnecting()"
-                              (click)="connectEvmWallet(field.key)">
-                        <lucide-icon name="wallet" [size]="13" />
-                        {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
-                      </button>
+                      @if (relayRecipientReady()) {
+                        <span class="proto-evm-connect__ok">
+                          <lucide-icon name="check" [size]="12" />
+                          {{ getEditParam('recipient').slice(0, 6) }}…{{ getEditParam('recipient').slice(-4) }}
+                        </span>
+                        <button type="button" class="proto-evm-connect__link"
+                                [disabled]="!isEditable()"
+                                (click)="setEditParam('recipient', ''); relayPasteRecipient.set(false)">Change</button>
+                      } @else {
+                        <button type="button" class="proto-btn-confirm proto-evm-connect__btn"
+                                [disabled]="!isEditable() || evmConnecting()"
+                                (click)="connectEvmWallet(field.key)">
+                          <lucide-icon name="wallet" [size]="13" />
+                          {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
+                        </button>
+                        <button type="button" class="proto-evm-connect__link"
+                                [disabled]="!isEditable()"
+                                (click)="relayPasteRecipient.set(!relayPasteRecipient())">
+                          {{ relayPasteRecipient() ? 'Use a wallet' : 'Paste an address' }}
+                        </button>
+                      }
                       @if (evmError(); as e) { <span class="proto-evm-connect__err">{{ e }}</span> }
                     </div>
                   }
-                  <div class="proto-address-wrap">
+                  <!-- Pasting stays possible — an exchange deposit address is
+                       not a wallet this browser can connect to — but it is the
+                       second option, because a mistyped address on a bridge is
+                       money that lands nowhere. -->
+                  <div class="proto-address-wrap"
+                       [hidden]="needsEvmRecipient(field.key) && !relayPasteRecipient() && !relayRecipientReady()">
                     <input type="text" class="proto-input proto-input--mono"
                            [placeholder]="field.placeholder ?? 'Enter address...'"
                            [value]="getEditParam(field.key)"

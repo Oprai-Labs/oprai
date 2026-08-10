@@ -512,6 +512,49 @@ pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>)
 ///
 /// The decimals come from Relay's own currency list for that chain, because
 /// guessing them is a factor-of-a-thousand error on the first stablecoin.
+/// Whether a chain expects EVM addresses.
+///
+/// Relay's Solana id is the only non-EVM chain we bridge to, so the test is
+/// simple — but the consequence is not: an address is only valid on one side
+/// of that line, and sending the wrong kind is how a bridge quote dies with
+/// "Invalid address … for chain 8453".
+fn chain_is_evm(chain_id: u64) -> bool {
+    canonical_chain_id(chain_id) != chain_id::SOLANA
+}
+
+/// The address a bridge should land on, or a refusal that says what is needed.
+///
+/// This used to fall back to the signer whenever no recipient was named, which
+/// is right within one VM and wrong across two: the signer here is a Solana
+/// wallet, and Relay rejected it for every EVM destination. Naming the problem
+/// beats sending an address that cannot receive.
+fn resolve_bridge_recipient<'a>(
+    recipient: Option<&'a str>,
+    destination_chain_id: u64,
+    user_address: &'a str,
+) -> Result<&'a str, AppError> {
+    let named = recipient.map(str::trim).filter(|r| !r.is_empty());
+    let dest_is_evm = chain_is_evm(destination_chain_id);
+    match named {
+        Some(r) if is_valid_evm_address(r) == dest_is_evm => Ok(r),
+        Some(_) if dest_is_evm => Err(AppError::InvalidParams(
+            "That recipient is not an EVM address, and this bridge lands on an EVM chain. \
+             Connect an EVM wallet or paste an address starting 0x."
+                .into(),
+        )),
+        Some(_) => Err(AppError::InvalidParams(
+            "That recipient is not a Solana address, and this bridge lands on Solana.".into(),
+        )),
+        None if dest_is_evm => Err(AppError::InvalidParams(
+            "This bridge lands on an EVM chain, so it needs an EVM address to land on. \
+             Connect an EVM wallet."
+                .into(),
+        )),
+        // Bridging home: the connected wallet is the destination.
+        None => Ok(user_address),
+    }
+}
+
 /// Relay's own id for a chain, given whatever id reached us.
 ///
 /// 900 was our constant for Solana for a long time, so it is in prompts, in
@@ -613,7 +656,11 @@ pub async fn get_cross_chain_quote(
         &params.amount,
     )
     .await?;
-    let recipient = params.recipient.as_deref().unwrap_or(user_address);
+    let recipient = resolve_bridge_recipient(
+        params.recipient.as_deref(),
+        params.destination_chain_id,
+        user_address,
+    )?;
 
     let mut quote_body = serde_json::json!({
         "user": user_address,
@@ -1052,9 +1099,11 @@ pub async fn get_relay_quote_full(
         "tradeType": params.trade_type,
     });
 
-    if let Some(ref v) = params.recipient {
-        body["recipient"] = serde_json::json!(v);
-    }
+    body["recipient"] = serde_json::json!(resolve_bridge_recipient(
+        params.recipient.as_deref(),
+        params.destination_chain_id,
+        user_address,
+    )?);
     if let Some(ref v) = params.refund_to {
         body["refundTo"] = serde_json::json!(v);
     }

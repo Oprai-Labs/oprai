@@ -5831,3 +5831,26 @@
     &:focus { outline: none; border-color: var(--op-brand); }
   }
 }
+
+.proto-evm-connect {
+  &__ok {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8125rem;
+    font-family: var(--op-font-mono, monospace);
+    color: var(--op-gain);
+  }
+
+  &__link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.75rem;
+    color: var(--op-text-tertiary);
+    text-decoration: underline;
+    cursor: pointer;
+
+    &:hover:not(:disabled) { color: var(--op-text-secondary); }
+  }
+}

@@ -2701,10 +2701,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * connected, and needs no second one.
    */
   needsEvmRecipient(key: string): boolean {
-    if (key !== 'recipient') return false;
-    if (!/relay_bridge|^bridge$|cross_chain_swap/.test(this.action?.type ?? '')) return false;
-    const dest = this.getEditParam('destinationChainId');
-    return !!dest && dest !== String(RELAY_SOLANA_CHAIN_ID);
+    return key === 'recipient' && this.isRelayBridge() && this.relayDestinationIsEvm();
   }
 
   /** True on the bridge, which gets its own panel rather than a field list. */
@@ -2757,8 +2754,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
         type: 'relay_get_quote',
         params: {
-          originChainId: p['originChainId'],
-          destinationChainId: p['destinationChainId'],
+          originChainId: this.relayCanonicalChain(p['originChainId'] ?? ''),
+          destinationChainId: this.relayCanonicalChain(p['destinationChainId'] ?? ''),
           originCurrency: p['originCurrency'],
           destinationCurrency: p['destinationCurrency'],
           amount: p['amount'],
@@ -2826,8 +2823,30 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   /** A chain's name, for a card that should not print ids at people. */
   relayChainName(id: string): string {
-    return RELAY_CHAINS.find(c => c.value === id)?.label ?? (id ? `Chain ${id}` : '');
+    return RELAY_CHAINS.find(c => c.value === this.relayCanonicalChain(id))?.label
+      ?? (id ? `Chain ${id}` : '');
   }
+
+  /** 900 was our own id for Solana, and the model still writes it. */
+  relayCanonicalChain(id: string): string {
+    return id === '900' ? String(RELAY_SOLANA_CHAIN_ID) : id;
+  }
+
+  /** True when the bridge lands somewhere a Solana wallet cannot receive. */
+  relayDestinationIsEvm(): boolean {
+    const dest = this.relayCanonicalChain(this.getEditParam('destinationChainId'));
+    return !!dest && dest !== String(RELAY_SOLANA_CHAIN_ID);
+  }
+
+  /** True once a recipient the destination can actually accept is set. */
+  relayRecipientReady(): boolean {
+    const r = this.getEditParam('recipient').trim();
+    if (!this.relayDestinationIsEvm()) return true;
+    return /^0x[0-9a-fA-F]{40}$/.test(r);
+  }
+
+  /** Paste is available, but not the first thing offered. */
+  readonly relayPasteRecipient = signal(false);
 
   readonly evmConnecting = signal(false);
   readonly evmError = signal<string | null>(null);
@@ -4571,6 +4590,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isImageInvalid = false;
   readonly canApprove = computed(() => {
     if (this.borrowLiquidityMode()) { const c = this.borrowCapacity(); return c !== null && !c.loading && c.maxBorrow > 0; }
+    // A bridge to an EVM chain cannot be signed without an address that chain
+    // can receive on. Blocking here beats sending a Solana address to Base and
+    // reading the marketplace's rejection back to the user.
+    if (this.isRelayBridge() && !this.relayRecipientReady()) return false;
     return true;
   });
   readonly unverifiedDestination = computed(() => this.action?.warnUnverifiedDestination ?? false);
