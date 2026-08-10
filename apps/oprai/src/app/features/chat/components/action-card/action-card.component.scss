@@ -5972,6 +5972,12 @@
   color: inherit;
   max-width: 420px;
   width: calc(100% - 32px);
+  // A dialog centres itself with `margin: auto` — which the app's reset zeroes
+  // along with everything else, so it opened pinned to the top-left corner.
+  // Stated explicitly rather than inherited from a default we overwrite.
+  inset: 0;
+  margin: auto;
+  max-height: calc(100vh - 64px);
 
   &::backdrop { background: rgba(0, 0, 0, 0.6); }
 
