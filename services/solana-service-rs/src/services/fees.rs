@@ -286,7 +286,9 @@ mod tests {
         // Selling it for USDC pays us in USDC.
         assert_eq!(swap_fee_mints(meme, USDC_MINT, false), vec![USDC_MINT]);
         // Memecoin to memecoin pays us nothing — dust is not revenue.
-        assert!(swap_fee_mints(meme, "AnotherMintxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", false).is_empty());
+        assert!(
+            swap_fee_mints(meme, "AnotherMintxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", false).is_empty()
+        );
         // Both sides payable: every option is offered, best first, so a
         // missing account on the favourite does not cost the fee.
         assert_eq!(

@@ -185,11 +185,20 @@ pub struct StakerRewardsParams {
     pub stake_authority: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validator_vote_account: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub epoch: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub page: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub limit: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<String>,
@@ -221,11 +230,20 @@ pub struct StakerRewardsResponse {
 pub struct ValidatorRewardsParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vote_account: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub epoch: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub page: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub limit: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<String>,
@@ -334,11 +352,20 @@ pub struct StewardEventsParams {
     pub event_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vote_account: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub epoch: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub limit: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub skip: Option<u64>,
 }
 

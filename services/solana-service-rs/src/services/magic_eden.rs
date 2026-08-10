@@ -11,9 +11,6 @@ use crate::solana::connection::SolanaRpc;
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 
-
-
-
 /// Magic Eden API v2 base URL
 pub const MAGIC_EDEN_API: &str = "https://api-mainnet.magiceden.dev/v2";
 
@@ -46,10 +43,7 @@ fn me_api_key() -> Option<&'static str> {
 }
 
 /// GET a Magic Eden endpoint, sending the key when we have one.
-pub async fn me_get_json(
-    http: &reqwest::Client,
-    url: &str,
-) -> Result<serde_json::Value, AppError> {
+pub async fn me_get_json(http: &reqwest::Client, url: &str) -> Result<serde_json::Value, AppError> {
     // Magic Eden throttles and occasionally 5xxs, and both clear on their own.
     // Without a retry those land as a card that says "This NFT" over a "media
     // not available" square for a piece with perfectly good art — the failure
@@ -119,7 +113,9 @@ fn me_api_error(status: reqwest::StatusCode, body: &str) -> AppError {
         return AppError::NotFound("Magic Eden has no record of that item".into());
     }
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        return AppError::ProtocolError("Magic Eden is rate-limiting us — try again shortly".into());
+        return AppError::ProtocolError(
+            "Magic Eden is rate-limiting us — try again shortly".into(),
+        );
     }
     if detail.contains("auction house") {
         return AppError::InvalidParams(
@@ -165,7 +161,12 @@ pub async fn me_instruction(
     let url = format!("{MAGIC_EDEN_API}/instructions/{endpoint}");
     let mut req = http.get(&url).bearer_auth(me_api_key().unwrap());
     let filtered: Vec<&(&str, String)> = query.iter().filter(|(_, v)| !v.is_empty()).collect();
-    req = req.query(&filtered.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>());
+    req = req.query(
+        &filtered
+            .iter()
+            .map(|(k, v)| (*k, v.as_str()))
+            .collect::<Vec<_>>(),
+    );
 
     let resp = req
         .send()
@@ -181,15 +182,18 @@ pub async fn me_instruction(
 
     let buffer_bytes = |v: Option<&serde_json::Value>| -> Option<Vec<u8>> {
         let arr = v?.get("data")?.as_array()?;
-        Some(arr.iter().filter_map(|b| b.as_u64()).map(|b| b as u8).collect())
+        Some(
+            arr.iter()
+                .filter_map(|b| b.as_u64())
+                .map(|b| b as u8)
+                .collect(),
+        )
     };
     let bytes = buffer_bytes(json.get("txSigned"))
         .or_else(|| buffer_bytes(json.pointer("/v0/txSigned")))
         .or_else(|| buffer_bytes(json.pointer("/v0/tx")))
         .or_else(|| buffer_bytes(json.get("tx")))
-        .ok_or_else(|| {
-            AppError::ProtocolError("Magic Eden did not return a transaction".into())
-        })?;
+        .ok_or_else(|| AppError::ProtocolError("Magic Eden did not return a transaction".into()))?;
 
     Ok(MeTx {
         tx_b64: base64::engine::general_purpose::STANDARD.encode(&bytes),
@@ -377,7 +381,6 @@ pub struct MeChangePriceParams {
     #[serde(alias = "price")]
     pub new_price: String,
 }
-
 
 /// Taking SOL back out of the Magic Eden bidding escrow.
 #[derive(Debug, Clone, Deserialize)]
@@ -1022,7 +1025,10 @@ pub async fn get_nft_listings(
     mint_address: &str,
 ) -> Result<Vec<MeListing>, AppError> {
     let resp = http
-        .get(format!("{}/tokens/{}/listings", MAGIC_EDEN_API, mint_address))
+        .get(format!(
+            "{}/tokens/{}/listings",
+            MAGIC_EDEN_API, mint_address
+        ))
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("Failed to fetch NFT listings: {e}")))?;
@@ -1154,10 +1160,21 @@ async fn resolve_token_account(http: &reqwest::Client, owner: &Pubkey, mint: &st
 
 /// Name and image for a mint, for the card's header. Best-effort: a preview
 /// missing its picture is better than a failed action.
-async fn nft_display(http: &reqwest::Client, mint: &str) -> (String, Option<String>, Option<String>) {
+async fn nft_display(
+    http: &reqwest::Client,
+    mint: &str,
+) -> (String, Option<String>, Option<String>) {
     match get_nft_info(http, mint).await {
         Ok(n) => (n.name.clone(), n.image.clone(), n.collection_name.clone()),
-        Err(_) => (format!("{}…{}", &mint[..4.min(mint.len())], &mint[mint.len().saturating_sub(4)..]), None, None),
+        Err(_) => (
+            format!(
+                "{}…{}",
+                &mint[..4.min(mint.len())],
+                &mint[mint.len().saturating_sub(4)..]
+            ),
+            None,
+            None,
+        ),
     }
 }
 
@@ -1690,7 +1707,10 @@ pub async fn build_me_change_offer_price(
     let (name, image, collection) = nft_display(http, &params.mint_address).await;
     Ok(me_tx_response(
         "me_buy_change_price",
-        format!("Change your offer on {name} from {} to {new_price} SOL", offer.price),
+        format!(
+            "Change your offer on {name} from {} to {new_price} SOL",
+            offer.price
+        ),
         tx,
         serde_json::json!({
             "mintAddress": params.mint_address,
@@ -1704,8 +1724,6 @@ pub async fn build_me_change_offer_price(
         vec![],
     ))
 }
-
-
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Query Actions (no transaction, just data)
@@ -2216,7 +2234,10 @@ fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
             format!("{base}/collections?offset={}&limit={l}", (off / l) * l)
         }
         "me_collection_stats" => {
-            format!("{base}/collections/{}/stats", &collection_symbol(need(&p.symbol, "collection")?))
+            format!(
+                "{base}/collections/{}/stats",
+                &collection_symbol(need(&p.symbol, "collection")?)
+            )
         }
         "me_collection_attributes" => format!(
             "{base}/collections/{}/attributes",
@@ -2280,9 +2301,9 @@ fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
         // will not enumerate every pool on the marketplace. Pass the symbol
         // through, and let the card say so when there isn't one.
         "me_mmm_pools" => match p.symbol.as_deref().filter(|x| !x.is_empty()) {
-            Some(sym) => format!(
-                "{base}/mmm/pools?collectionSymbol={sym}&limit={limit}&offset={off}"
-            ),
+            Some(sym) => {
+                format!("{base}/mmm/pools?collectionSymbol={sym}&limit={limit}&offset={off}")
+            }
             None => {
                 return Err(AppError::InvalidParams(
                     "Name a collection to see its pools".into(),
@@ -2337,10 +2358,7 @@ fn me_read_title(action: &str, p: &MeReadParams) -> String {
 ///
 /// Two hops from a listing we can already fetch: mint → its collection →
 /// that collection's metadata. Cached, because it does not change.
-async fn me_collection_identity(
-    http: &reqwest::Client,
-    symbol: &str,
-) -> Option<serde_json::Value> {
+async fn me_collection_identity(http: &reqwest::Client, symbol: &str) -> Option<serde_json::Value> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant};
@@ -2357,7 +2375,9 @@ async fn me_collection_identity(
         }
     }
 
-    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let key = std::env::var("HELIUS_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())?;
     let rpc = format!("https://mainnet.helius-rpc.com/?api-key={key}");
     let get_asset = |id: String| {
         let rpc = rpc.clone();
@@ -2431,10 +2451,7 @@ async fn me_collection_detail(
 ) -> Result<serde_json::Value, AppError> {
     let info_url = format!("{MAGIC_EDEN_API}/collections/{symbol}");
     let stats_url = format!("{MAGIC_EDEN_API}/collections/{symbol}/stats");
-    let (info, stats) = futures::join!(
-        me_get_json(http, &info_url),
-        me_get_json(http, &stats_url)
-    );
+    let (info, stats) = futures::join!(me_get_json(http, &info_url), me_get_json(http, &stats_url));
     // `/collections/{symbol}` answers 429 for every collection we ask about,
     // on every attempt, with 90 seconds of silence in between — while its own
     // sibling paths return 200. It is not a limit we are tripping; that route
@@ -2506,7 +2523,9 @@ async fn me_uri_template(http: &reqwest::Client, symbol: &str) -> Option<MeUriTe
         }
     }
 
-    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let key = std::env::var("HELIUS_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())?;
     let listings = me_get_json(
         http,
         &format!("{MAGIC_EDEN_API}/collections/{symbol}/listings?limit=1"),
@@ -2559,8 +2578,8 @@ async fn me_uri_template(http: &reqwest::Client, symbol: &str) -> Option<MeUriTe
         if let Ok(uri_num) = digits.parse::<i64>() {
             // Guard against matching a digit buried in a hash: the run has to
             // be bounded by a separator or the end of the string.
-            let before_ok = start == 0
-                || matches!(uri.as_bytes()[start - 1], b'/' | b'-' | b'_' | b'=');
+            let before_ok =
+                start == 0 || matches!(uri.as_bytes()[start - 1], b'/' | b'-' | b'_' | b'=');
             let after_ok = idx + 1 == uri.len()
                 || matches!(uri.as_bytes()[idx + 1], b'.' | b'/' | b'?' | b'&');
             if before_ok && after_ok && (name_num - uri_num).abs() <= 2 {
@@ -2587,15 +2606,13 @@ async fn me_uri_template(http: &reqwest::Client, symbol: &str) -> Option<MeUriTe
 
 /// Find a numbered NFT through its metadata URI. One indexed lookup, and it
 /// does not care whether the piece is for sale.
-async fn me_find_by_uri(
-    http: &reqwest::Client,
-    symbol: &str,
-    number: i64,
-) -> Option<String> {
+async fn me_find_by_uri(http: &reqwest::Client, symbol: &str, number: i64) -> Option<String> {
     let t = me_uri_template(http, symbol).await?;
     let pattern = t.pattern.as_ref()?;
     let uri = pattern.replacen("{}", &(number - t.offset).to_string(), 1);
-    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let key = std::env::var("HELIUS_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())?;
 
     let resp: serde_json::Value = http
         .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
@@ -2748,7 +2765,10 @@ async fn me_trait_stats(
         Ok(d) => d,
         Err(_) => return serde_json::json!({}),
     };
-    let available = match data.pointer("/results/availableAttributes").and_then(|v| v.as_array()) {
+    let available = match data
+        .pointer("/results/availableAttributes")
+        .and_then(|v| v.as_array())
+    {
         Some(a) => a,
         None => return serde_json::json!({}),
     };
@@ -2771,7 +2791,10 @@ fn normalize_trait_stats(
     // one value of each type, so the largest per-type total is the supply.
     let mut totals: HashMap<String, u64> = HashMap::new();
     for row in available {
-        if let Some(t) = row.pointer("/attribute/trait_type").and_then(|v| v.as_str()) {
+        if let Some(t) = row
+            .pointer("/attribute/trait_type")
+            .and_then(|v| v.as_str())
+        {
             *totals.entry(t.to_string()).or_default() +=
                 row.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
         }
@@ -2780,7 +2803,10 @@ fn normalize_trait_stats(
 
     let mut out = serde_json::Map::new();
     for row in available {
-        let t = match row.pointer("/attribute/trait_type").and_then(|v| v.as_str()) {
+        let t = match row
+            .pointer("/attribute/trait_type")
+            .and_then(|v| v.as_str())
+        {
             Some(t) => t.to_string(),
             None => continue,
         };
@@ -2813,8 +2839,14 @@ fn normalize_trait_stats(
 
 /// One Helius DAS call. Returns `result`, or None on any failure — every
 /// caller here treats missing chain data as "not shown", never as a zero.
-async fn das(http: &reqwest::Client, method: &str, params: serde_json::Value) -> Option<serde_json::Value> {
-    let key = std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty())?;
+async fn das(
+    http: &reqwest::Client,
+    method: &str,
+    params: serde_json::Value,
+) -> Option<serde_json::Value> {
+    let key = std::env::var("HELIUS_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())?;
     let resp: serde_json::Value = http
         .post(format!("https://mainnet.helius-rpc.com/?api-key={key}"))
         .json(&serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }))
@@ -2885,12 +2917,19 @@ async fn program_owned_accounts(
         serde_json::json!([addresses, { "encoding": "base64" }]),
     )
     .await;
-    let values = match result.as_ref().and_then(|r| r.get("value")).and_then(|v| v.as_array()) {
+    let values = match result
+        .as_ref()
+        .and_then(|r| r.get("value"))
+        .and_then(|v| v.as_array())
+    {
         Some(v) => v,
         None => return out,
     };
     for (addr, account) in addresses.iter().zip(values) {
-        let owner = account.get("owner").and_then(|o| o.as_str()).unwrap_or(&system);
+        let owner = account
+            .get("owner")
+            .and_then(|o| o.as_str())
+            .unwrap_or(&system);
         if owner != system {
             out.insert(addr.clone());
         }
@@ -2915,10 +2954,7 @@ const ME_STATS_API: &str = "https://stats-mainnet.magiceden.io/collection_stats"
 /// `tokenCount` matters beyond its own row: it is the supply for ANY
 /// collection, where the chain only reports one for MPL Core. Every share and
 /// percentage on the card is built on it.
-async fn me_collection_overview(
-    http: &reqwest::Client,
-    symbol: &str,
-) -> Option<serde_json::Value> {
+async fn me_collection_overview(http: &reqwest::Client, symbol: &str) -> Option<serde_json::Value> {
     let url = format!("{ME_STATS_API}/stats?collectionId={symbol}&window=1d");
     let d = me_get_json(http, &url).await.ok()?;
     if d.get("collectionSymbol").is_none() {
@@ -2936,8 +2972,10 @@ async fn me_collection_overview(
     };
     let sol = |k: &str| -> Option<f64> { d.get(k).and_then(|v| v.as_f64()).map(|l| l / 1e9) };
     let count = |k: &str| -> Option<u64> {
-        d.get(k)
-            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        d.get(k).and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
     };
 
     let supply = count("tokenCount");
@@ -3100,9 +3138,11 @@ pub async fn me_collection_holders(
     // failed outright on DeGods, which reported "not found on chain" for a
     // collection of ten thousand.
     let overview = me_collection_overview(http, symbol).await;
-    let group = overview
-        .as_ref()
-        .and_then(|o| o.get("contract").and_then(|c| c.as_str()).map(str::to_string));
+    let group = overview.as_ref().and_then(|o| {
+        o.get("contract")
+            .and_then(|c| c.as_str())
+            .map(str::to_string)
+    });
     let group = match group {
         Some(g) => g,
         None => me_collection_group(http, symbol).await.ok_or_else(|| {
@@ -3138,9 +3178,16 @@ pub async fn me_collection_holders(
     let mut scanned = 0u64;
     let mut complete = false;
     for result in pages {
-        let items = match result.as_ref().and_then(|r| r.get("items")).and_then(|i| i.as_array()) {
+        let items = match result
+            .as_ref()
+            .and_then(|r| r.get("items"))
+            .and_then(|i| i.as_array())
+        {
             Some(i) if !i.is_empty() => i.clone(),
-            _ => { complete = true; continue; }
+            _ => {
+                complete = true;
+                continue;
+            }
         };
         let got = items.len() as u64;
         for item in &items {
@@ -3204,7 +3251,9 @@ pub async fn me_collection_holders(
     let unique = ranked.len() as u64;
     let held: u64 = ranked.iter().map(|(_, n)| *n).sum();
     let share = |n: usize| -> f64 {
-        if held == 0 { return 0.0; }
+        if held == 0 {
+            return 0.0;
+        }
         ranked.iter().take(n).map(|(_, c)| *c).sum::<u64>() as f64 / held as f64
     };
     let singles = ranked.iter().filter(|(_, n)| *n == 1).count() as u64;
@@ -3368,7 +3417,10 @@ pub async fn me_collection_sales_history(
 /// and whether it is frozen. Best-effort — a card without them is still a
 /// card.
 async fn me_asset_facts(http: &reqwest::Client, mint: &str) -> serde_json::Value {
-    let key = match std::env::var("HELIUS_API_KEY").ok().filter(|k| !k.is_empty()) {
+    let key = match std::env::var("HELIUS_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
+    {
         Some(k) => k,
         None => return serde_json::json!({}),
     };
@@ -3435,10 +3487,7 @@ async fn me_asset_facts(http: &reqwest::Client, mint: &str) -> serde_json::Value
 /// Offers and activity are best-effort: an NFT nobody has bid on is a normal
 /// NFT, and it should not fail to render because one of its lists is empty
 /// or its endpoint is having a bad minute.
-async fn me_nft_detail(
-    http: &reqwest::Client,
-    mint: &str,
-) -> Result<serde_json::Value, AppError> {
+async fn me_nft_detail(http: &reqwest::Client, mint: &str) -> Result<serde_json::Value, AppError> {
     let token_url = format!("{MAGIC_EDEN_API}/tokens/{mint}");
     let offers_url = format!("{MAGIC_EDEN_API}/tokens/{mint}/offers_received?limit=20");
     let acts_url = format!("{MAGIC_EDEN_API}/tokens/{mint}/activities?limit=20");
@@ -3520,7 +3569,11 @@ pub async fn resolve_me_action_mint(
             serde_json::Value::Number(n) => n.to_string(),
             _ => return None,
         };
-        if s.is_empty() { None } else { Some(s) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     };
     let obj = match params.as_object() {
         Some(o) => o,
@@ -3655,11 +3708,7 @@ async fn enrich_offers_with_nft(
 
 /// The read envelope, which is the same for every read: no transaction, no
 /// approval, just the data and a title.
-fn me_read_response(
-    action: &str,
-    params: &MeReadParams,
-    data: serde_json::Value,
-) -> BuildResponse {
+fn me_read_response(action: &str, params: &MeReadParams, data: serde_json::Value) -> BuildResponse {
     BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -4233,10 +4282,16 @@ mod symbol_tests {
     fn a_name_becomes_a_symbol() {
         assert_eq!(collection_symbol("Trenchors"), "trenchors");
         assert_eq!(collection_symbol("Mad Lads"), "mad_lads");
-        assert_eq!(collection_symbol("  Solana Monkey Business "), "solana_monkey_business");
+        assert_eq!(
+            collection_symbol("  Solana Monkey Business "),
+            "solana_monkey_business"
+        );
         assert_eq!(collection_symbol("DeGods #1"), "degods_1");
         // Already a symbol — untouched, so a slug pasted from a URL survives.
-        assert_eq!(collection_symbol("solana_monkey_business"), "solana_monkey_business");
+        assert_eq!(
+            collection_symbol("solana_monkey_business"),
+            "solana_monkey_business"
+        );
     }
 
     #[test]
@@ -4246,6 +4301,9 @@ mod symbol_tests {
             vec!["mad_lads".to_string(), "madlads".to_string()],
         );
         // One word has only one spelling; no wasted second request.
-        assert_eq!(collection_symbol_candidates("Trenchors"), vec!["trenchors".to_string()]);
+        assert_eq!(
+            collection_symbol_candidates("Trenchors"),
+            vec!["trenchors".to_string()]
+        );
     }
 }

@@ -410,7 +410,6 @@ async fn get_swap_quote_with_fee(
     Ok(quote)
 }
 
-
 // ──────────────────────────────────────────────────────────────────────────────
 // OPRAI commission
 // ──────────────────────────────────────────────────────────────────────────────
@@ -499,7 +498,8 @@ fn sol_input_fee_split(params: &SwapParams, taking_sol_fee: bool) -> Option<(Swa
     }
     // ExactOut fixes the amount RECEIVED, so there is no input figure to take
     // the fee out of without changing what the user gets.
-    if matches!(params.swap_mode.as_deref(), Some(m) if m.eq_ignore_ascii_case("exactout") || m.eq_ignore_ascii_case("out")) {
+    if matches!(params.swap_mode.as_deref(), Some(m) if m.eq_ignore_ascii_case("exactout") || m.eq_ignore_ascii_case("out"))
+    {
         return None;
     }
     let output = resolve_token_address(&params.output_mint);
@@ -536,7 +536,8 @@ pub async fn build_swap_transaction(
     // Which route the fee takes has to be settled BEFORE quoting: the SOL
     // route changes the amount we quote for.
     let swap_mode = params.swap_mode.as_deref().unwrap_or("ExactIn");
-    let exact_out = swap_mode.eq_ignore_ascii_case("exactout") || swap_mode.eq_ignore_ascii_case("out");
+    let exact_out =
+        swap_mode.eq_ignore_ascii_case("exactout") || swap_mode.eq_ignore_ascii_case("out");
     let mode = if exact_out { "ExactOut" } else { "ExactIn" };
     // Only name a fee account when there is a fee to put in it. Jupiter
     // rejects the whole build otherwise — "platformFee must be greater than 0
@@ -557,10 +558,11 @@ pub async fn build_swap_transaction(
     // difference someone only discovers by reading their own transaction. So
     // the trade is quoted for the amount minus the fee, and the two together
     // add up to what was asked for.
-    let (params_for_quote, prepaid_sol_fee) = match sol_input_fee_split(params, fee_target.is_none()) {
-        Some((net_params, fee)) => (net_params, Some(fee)),
-        None => (params.clone(), None),
-    };
+    let (params_for_quote, prepaid_sol_fee) =
+        match sol_input_fee_split(params, fee_target.is_none()) {
+            Some((net_params, fee)) => (net_params, Some(fee)),
+            None => (params.clone(), None),
+        };
     let params = &params_for_quote;
     let quote = get_swap_quote(http, jupiter_api_key, params).await?;
 
@@ -581,7 +583,6 @@ pub async fn build_swap_transaction(
         JUPITER_PUB_SWAP
     };
 
-
     let post_swap = |quote: &SwapQuote, fee: Option<String>| {
         let mut body = serde_json::json!({
             "quoteResponse": quote,
@@ -600,7 +601,8 @@ pub async fn build_swap_transaction(
         req.send()
     };
 
-    let swap_response = post_swap(&quote, fee_target.as_ref().map(|(_, acct)| acct.clone())).await?;
+    let swap_response =
+        post_swap(&quote, fee_target.as_ref().map(|(_, acct)| acct.clone())).await?;
 
     if !swap_response.status().is_success() {
         let status = swap_response.status();

@@ -1134,9 +1134,8 @@ const PUMPFUN_CREATOR_FEE_BPS: u64 = 30;
 fn read_pumpfun_global_blocking(rpc: &SolanaRpc) -> (Pubkey, u64) {
     const FEE_RECIPIENT_OFFSET: usize = 41;
     const FEE_BPS_OFFSET: usize = 105;
-    let fallback = || {
-        Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback fee_recipient")
-    };
+    let fallback =
+        || Pubkey::from_str(PUMP_FUN_FEE_RECIPIENT_FALLBACK).expect("valid fallback fee_recipient");
     match rpc.client().get_account(&find_global_pda()) {
         Ok(account) => {
             let d = &account.data;
@@ -1264,9 +1263,10 @@ async fn ensure_jupiter_sol_fee_account(
         *v
     } else {
         let rpc2 = rpc.clone();
-        let missing = tokio::task::spawn_blocking(move || rpc2.client().get_account(&account).is_err())
-            .await
-            .unwrap_or(false);
+        let missing =
+            tokio::task::spawn_blocking(move || rpc2.client().get_account(&account).is_err())
+                .await
+                .unwrap_or(false);
         if missing {
             tracing::info!(%account, "opening the wSOL fee account alongside this trade");
         }
@@ -1278,9 +1278,10 @@ async fn ensure_jupiter_sol_fee_account(
 
     let rpc3 = rpc.clone();
     let owner = *payer;
-    let balance = tokio::task::spawn_blocking(move || rpc3.client().get_balance(&owner).unwrap_or(0))
-        .await
-        .unwrap_or(0);
+    let balance =
+        tokio::task::spawn_blocking(move || rpc3.client().get_balance(&owner).unwrap_or(0))
+            .await
+            .unwrap_or(0);
     if balance.saturating_sub(spending_lamports) < REQUIRED_HEADROOM {
         tracing::debug!(
             balance,
@@ -1910,7 +1911,8 @@ fn parse_buy_amounts_with_fee(
         // SOL, which breaks the promise the card makes and trips the
         // frontend's spend guard. Taking it from inside keeps the total the
         // user agreed to exactly what they see.
-        let sol_lamports = requested.saturating_sub(crate::services::fees::pumpfun_fee_lamports(requested));
+        let sol_lamports =
+            requested.saturating_sub(crate::services::fees::pumpfun_fee_lamports(requested));
         // Use real pool reserves (k-invariant): tokens_out = v_tok * sol_in / (v_sol + sol_in)
         let tokens = if v_sol > 0 && v_tok > 0 {
             ((v_tok as u128 * sol_lamports as u128) / (v_sol as u128 + sol_lamports as u128)) as u64
@@ -3870,7 +3872,11 @@ mod tests {
     #[test]
     fn the_memo_costs_what_we_think_it_does() {
         let payer = Pubkey::new_unique();
-        let base = vec![system_instruction::transfer(&payer, &Pubkey::new_unique(), 1)];
+        let base = vec![system_instruction::transfer(
+            &payer,
+            &Pubkey::new_unique(),
+            1,
+        )];
         let size_of = |ixs: &[Instruction]| {
             bincode::serialize(&Transaction::new_unsigned(Message::new(ixs, Some(&payer))))
                 .expect("serialises")

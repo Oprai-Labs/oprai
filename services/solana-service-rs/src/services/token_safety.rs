@@ -163,7 +163,11 @@ pub async fn inspect_mint(rpc: &SolanaRpc, mint: &str) -> Result<TokenSafety, Ap
                         let bps = u16::from_le_bytes([data[bp_at], data[bp_at + 1]]);
                         if bps > 0 {
                             findings.push(Finding {
-                                severity: if bps >= 1000 { Severity::Block } else { Severity::Warn },
+                                severity: if bps >= 1000 {
+                                    Severity::Block
+                                } else {
+                                    Severity::Warn
+                                },
                                 title: format!("{}% tax on every transfer", bps as f64 / 100.0),
                                 detail: format!(
                                     "This token charges {}% each time it moves, including when \
@@ -239,10 +243,18 @@ pub async fn enrich(http: &reqwest::Client, safety: &mut TokenSafety) {
 
     let shield = async {
         let url = format!("https://lite-api.jup.ag/ultra/v1/shield?mints={mint}");
-        http.get(&url).send().await.ok()?.json::<serde_json::Value>().await.ok()
+        http.get(&url)
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()
     };
     let birdeye = async {
-        let key = std::env::var("BIRDEYE_API_KEY").ok().filter(|k| !k.is_empty())?;
+        let key = std::env::var("BIRDEYE_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty())?;
         let url = format!("https://public-api.birdeye.so/defi/token_security?address={mint}");
         http.get(&url)
             .header("X-API-KEY", key)
@@ -257,7 +269,10 @@ pub async fn enrich(http: &reqwest::Client, safety: &mut TokenSafety) {
     let (shield, birdeye) = futures::join!(shield, birdeye);
 
     if let Some(v) = shield {
-        if let Some(list) = v.pointer(&format!("/warnings/{mint}")).and_then(|w| w.as_array()) {
+        if let Some(list) = v
+            .pointer(&format!("/warnings/{mint}"))
+            .and_then(|w| w.as_array())
+        {
             let types: Vec<&str> = list
                 .iter()
                 .filter_map(|w| w.get("type").and_then(|t| t.as_str()))
@@ -336,12 +351,14 @@ pub async fn enrich(http: &reqwest::Client, safety: &mut TokenSafety) {
                 safety.findings.push(Finding {
                     severity: Severity::Warn,
                     title: format!("Creator holds {}%", (creator * 100.0).round()),
-                    detail: "The person who made this token still owns a large share of it."
-                        .into(),
+                    detail: "The person who made this token still owns a large share of it.".into(),
                 });
             }
         }
-        if d.and_then(|x| x.get("mutableMetadata")).and_then(|x| x.as_bool()) == Some(true) {
+        if d.and_then(|x| x.get("mutableMetadata"))
+            .and_then(|x| x.as_bool())
+            == Some(true)
+        {
             safety.findings.push(Finding {
                 severity: Severity::Note,
                 title: "Name and image can be changed".into(),

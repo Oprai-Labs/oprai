@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::services::swap::MAX_SLIPPAGE_BPS;
 use crate::solana::connection::SolanaRpc;
 use solana_sdk::pubkey::Pubkey;
-use crate::services::swap::MAX_SLIPPAGE_BPS;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Relay API constants
@@ -88,7 +88,10 @@ pub struct CrossChainSwapParams {
     #[serde(default)]
     pub referrer: Option<String>,
     /// Slippage tolerance in basis points (default: 50 = 0.5%)
-    #[serde(default = "default_slippage_bps", deserialize_with = "crate::services::params::lenient")]
+    #[serde(
+        default = "default_slippage_bps",
+        deserialize_with = "crate::services::params::lenient"
+    )]
     pub slippage_bps: u32,
     /// Bridge provider: "relay", "wormhole", "debridge", "mayan"
     /// Currently only relay is fully supported; others are placeholders for future implementation
@@ -146,7 +149,11 @@ pub struct RelayQuoteDetails {
     pub price_impact: Option<String>,
     /// Estimated time in seconds. Relay calls it `timeEstimate`; asking for
     /// `estimatedTime` meant the card never had one to show.
-    #[serde(default, alias = "timeEstimate", deserialize_with = "crate::services::params::soft_opt")]
+    #[serde(
+        default,
+        alias = "timeEstimate",
+        deserialize_with = "crate::services::params::soft_opt"
+    )]
     pub estimated_time: Option<u64>,
     /// Price impact, as Relay reports it.
     #[serde(default)]
@@ -305,7 +312,11 @@ impl RelayFees {
                 .unwrap_or(0.0)
         };
         let total = usd(&self.gas) + usd(&self.relayer) + usd(&self.app);
-        if total > 0.0 { Some(total) } else { None }
+        if total > 0.0 {
+            Some(total)
+        } else {
+            None
+        }
     }
 }
 
@@ -600,7 +611,10 @@ pub async fn solana_tx_from_relay_steps(
             .filter_map(|k| {
                 let pubkey: Pubkey = k.get("pubkey")?.as_str()?.parse().ok()?;
                 let signer = k.get("isSigner").and_then(|v| v.as_bool()).unwrap_or(false);
-                let writable = k.get("isWritable").and_then(|v| v.as_bool()).unwrap_or(false);
+                let writable = k
+                    .get("isWritable")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 Some(if writable {
                     AccountMeta::new(pubkey, signer)
                 } else {
@@ -611,7 +625,11 @@ pub async fn solana_tx_from_relay_steps(
         // Relay writes instruction data as hex; anything else is a shape we do
         // not know, and guessing at transaction bytes is not a thing to do.
         let bytes = hex::decode(ix.get("data")?.as_str()?).ok()?;
-        instructions.push(Instruction { program_id, accounts, data: bytes });
+        instructions.push(Instruction {
+            program_id,
+            accounts,
+            data: bytes,
+        });
     }
     if instructions.is_empty() {
         return None;
@@ -619,7 +637,10 @@ pub async fn solana_tx_from_relay_steps(
 
     // The route's lookup tables, or the message cannot resolve its accounts.
     let mut tables = Vec::new();
-    if let Some(addrs) = data.get("addressLookupTableAddresses").and_then(|a| a.as_array()) {
+    if let Some(addrs) = data
+        .get("addressLookupTableAddresses")
+        .and_then(|a| a.as_array())
+    {
         for a in addrs {
             let key: Pubkey = match a.as_str().and_then(|s| s.parse().ok()) {
                 Some(k) => k,
@@ -757,7 +778,11 @@ pub async fn resolve_solana_origin_currency(
 /// chat history and in every card built before it was corrected. Rejecting
 /// those is punishing the user for our own old value.
 pub fn canonical_chain_id(id: u64) -> u64 {
-    if id == chain_id::SOLANA_LEGACY_ID { chain_id::SOLANA } else { id }
+    if id == chain_id::SOLANA_LEGACY_ID {
+        chain_id::SOLANA
+    } else {
+        id
+    }
 }
 
 async fn to_base_units(
@@ -778,11 +803,13 @@ async fn to_base_units(
     let normalised = amount.replace(',', ".");
 
     let chain_id = canonical_chain_id(chain_id);
-    let decimals = relay_token_decimals(http, chain_id, currency).await.ok_or_else(|| {
-        AppError::InvalidParams(format!(
+    let decimals = relay_token_decimals(http, chain_id, currency)
+        .await
+        .ok_or_else(|| {
+            AppError::InvalidParams(format!(
             "Relay does not list {currency} on chain {chain_id}, so its amount cannot be scaled"
         ))
-    })?;
+        })?;
 
     // Scaled as text, not through f64: 0.1 is not representable in binary
     // floating point, and this figure is money.
@@ -798,16 +825,16 @@ async fn to_base_units(
     let padded = format!("{frac:0<width$}", width = decimals as usize);
     let joined = format!("{}{}", whole.trim_start_matches('0'), padded);
     let trimmed = joined.trim_start_matches('0');
-    Ok(if trimmed.is_empty() { "0".to_string() } else { trimmed.to_string() })
+    Ok(if trimmed.is_empty() {
+        "0".to_string()
+    } else {
+        trimmed.to_string()
+    })
 }
 
 /// How many decimals Relay says this token has. Cached: a chain's list does
 /// not change between two quotes.
-async fn relay_token_decimals(
-    http: &reqwest::Client,
-    chain_id: u64,
-    currency: &str,
-) -> Option<u8> {
+async fn relay_token_decimals(http: &reqwest::Client, chain_id: u64, currency: &str) -> Option<u8> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<HashMap<(u64, String), u8>>> = OnceLock::new();
@@ -883,13 +910,12 @@ pub async fn get_cross_chain_quote(
         return Err(relay_error("Relay quote failed", &body));
     }
 
-    let quote: RelayQuote = response
-        .json()
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Relay quote did not match our model");
-            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
-        })?;
+    let quote: RelayQuote = response.json().await.map_err(|e| {
+        tracing::error!(error = %e, "Relay quote did not match our model");
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })?;
 
     Ok(quote)
 }
@@ -913,12 +939,14 @@ pub async fn build_cross_chain_swap(
     // Extract details for preview
     let details = &quote.details;
     let origin_symbol = details
-        .currency_in.currency
+        .currency_in
+        .currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
     let dest_symbol = details
-        .currency_out.currency
+        .currency_out
+        .currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
@@ -1027,29 +1055,29 @@ pub async fn get_supported_chains(
     }
 
     // API wraps the array in { "chains": [...] } — try both formats
-    let raw: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Relay chains did not match our model");
-            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
-        })?;
+    let raw: serde_json::Value = response.json().await.map_err(|e| {
+        tracing::error!(error = %e, "Relay chains did not match our model");
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })?;
 
-    let chains: Vec<RelayChainInfo> = if let Some(arr) =
-        raw.get("chains").and_then(|v| v.as_array())
-    {
-        serde_json::from_value(serde_json::Value::Array(arr.clone()))
-            .map_err(|e| {
-            tracing::error!(error = %e, "Relay chains did not match our model");
-            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
-        })?
-    } else {
-        serde_json::from_value(raw)
-            .map_err(|e| {
-            tracing::error!(error = %e, "Relay chains did not match our model");
-            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
-        })?
-    };
+    let chains: Vec<RelayChainInfo> =
+        if let Some(arr) = raw.get("chains").and_then(|v| v.as_array()) {
+            serde_json::from_value(serde_json::Value::Array(arr.clone())).map_err(|e| {
+                tracing::error!(error = %e, "Relay chains did not match our model");
+                AppError::RelayApiError(
+                    "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+                )
+            })?
+        } else {
+            serde_json::from_value(raw).map_err(|e| {
+                tracing::error!(error = %e, "Relay chains did not match our model");
+                AppError::RelayApiError(
+                    "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+                )
+            })?
+        };
 
     Ok(chains)
 }
@@ -1170,13 +1198,12 @@ pub async fn get_chain_tokens(
         return Err(relay_error("Failed to fetch tokens", &body));
     }
 
-    let tokens: Vec<RelayTokenInfo> = response
-        .json()
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Relay tokens did not match our model");
-            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
-        })?;
+    let tokens: Vec<RelayTokenInfo> = response.json().await.map_err(|e| {
+        tracing::error!(error = %e, "Relay tokens did not match our model");
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })?;
 
     Ok(tokens)
 }
@@ -1292,10 +1319,13 @@ pub async fn get_relay_quote_full(
     fee_recipient: Option<&str>,
 ) -> Result<RelayQuote, AppError> {
     // Relay takes base units and rejects anything with a decimal point.
-    let scaled_amount =
-        to_base_units(http, params.origin_chain_id, &params.origin_currency, &params.amount)
-            .await?;
-
+    let scaled_amount = to_base_units(
+        http,
+        params.origin_chain_id,
+        &params.origin_currency,
+        &params.amount,
+    )
+    .await?;
 
     let mut body = serde_json::json!({
         "user": user_address,
@@ -1378,14 +1408,17 @@ pub async fn get_relay_quote_full(
     // reports every shape mismatch as "error decoding response body", which
     // names neither the field nor the type it wanted. serde, given the string,
     // names both — and this response has changed shape under us twice.
-    let body = response
-        .text()
-        .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))?;
+    let body = response.text().await.map_err(|e| {
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })?;
     serde_json::from_str::<RelayQuote>(&body).map_err(|e| {
         tracing::error!(error = %e, body = %body.chars().take(600).collect::<String>(),
                         "Relay quote did not match our model");
-        AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
     })
 }
 
@@ -1400,12 +1433,14 @@ pub async fn relay_bridge(
 
     let details = &quote.details;
     let origin_symbol = details
-        .currency_in.currency
+        .currency_in
+        .currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
     let dest_symbol = details
-        .currency_out.currency
+        .currency_out
+        .currency
         .symbol
         .clone()
         .unwrap_or_else(|| "TOKEN".to_string());
@@ -1539,7 +1574,11 @@ pub async fn index_relay_transaction(
     response
         .json::<RelayIndexTransactionResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+        .map_err(|e| {
+            AppError::RelayApiError(
+                "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+            )
+        })
 }
 
 // ── POST /transactions/single ─────────────────────────────────────────────────
@@ -1582,7 +1621,11 @@ pub async fn single_relay_transaction(
     response
         .json::<RelaySingleTransactionResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+        .map_err(|e| {
+            AppError::RelayApiError(
+                "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+            )
+        })
 }
 
 // ── POST /app-fees/{wallet}/claim ────────────────────────────────────────────
@@ -1627,7 +1670,11 @@ pub async fn claim_app_fees(
     response
         .json::<RelayClaimAppFeesResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+        .map_err(|e| {
+            AppError::RelayApiError(
+                "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+            )
+        })
 }
 
 // ── GET /app-fees/{wallet}/balances ──────────────────────────────────────────
@@ -1688,7 +1735,11 @@ pub async fn get_app_fee_balances(
     response
         .json::<RelayAppFeeBalancesResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+        .map_err(|e| {
+            AppError::RelayApiError(
+                "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+            )
+        })
 }
 
 // ── POST /fast-fill ───────────────────────────────────────────────────────────
@@ -1730,10 +1781,11 @@ pub async fn fast_fill(
         return Err(relay_error("The fast-fill", &err));
     }
 
-    response
-        .json::<RelayFastFillResponse>()
-        .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+    response.json::<RelayFastFillResponse>().await.map_err(|e| {
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })
 }
 
 // ── POST /transactions/deposit-address/reindex ───────────────────────────────
@@ -1790,7 +1842,11 @@ pub async fn reindex_deposit_address(
     response
         .json::<RelayDepositAddressReindexResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+        .map_err(|e| {
+            AppError::RelayApiError(
+                "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+            )
+        })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1839,10 +1895,11 @@ pub async fn get_relay_intent_status(
         return Err(relay_error("Relay intent status failed", &err));
     }
 
-    response
-        .json::<RelayIntentStatus>()
-        .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+    response.json::<RelayIntentStatus>().await.map_err(|e| {
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1929,7 +1986,9 @@ pub async fn execute_relay_permits(
         .json::<RelayExecutePermitsResponse>()
         .await
         .map_err(|e| {
-            AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into())
+            AppError::RelayApiError(
+                "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+            )
         })
 }
 
@@ -1987,7 +2046,11 @@ pub async fn get_relay_chains_liquidity(
     response
         .json::<RelayLiquidityResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+        .map_err(|e| {
+            AppError::RelayApiError(
+                "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+            )
+        })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2075,10 +2138,11 @@ pub async fn get_relay_currencies(
         return Err(relay_error("Failed to fetch currencies", &err));
     }
 
-    response
-        .json::<Vec<RelayTokenInfo>>()
-        .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+    response.json::<Vec<RelayTokenInfo>>().await.map_err(|e| {
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2108,10 +2172,11 @@ pub async fn get_relay_token_price(
         return Err(relay_error("Failed to fetch token price", &err));
     }
 
-    response
-        .json::<RelayTokenPrice>()
-        .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+    response.json::<RelayTokenPrice>().await.map_err(|e| {
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2260,10 +2325,11 @@ pub async fn get_relay_requests(
         return Err(relay_error("Failed to fetch requests", &err));
     }
 
-    response
-        .json::<RelayRequestsResponse>()
-        .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+    response.json::<RelayRequestsResponse>().await.map_err(|e| {
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })
 }
 
 // ── POST /execute ─────────────────────────────────────────────────────────────
@@ -2358,10 +2424,11 @@ pub async fn relay_execute(
         return Err(relay_error("The execute", &err));
     }
 
-    response
-        .json::<RelayExecuteResponse>()
-        .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+    response.json::<RelayExecuteResponse>().await.map_err(|e| {
+        AppError::RelayApiError(
+            "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+        )
+    })
 }
 
 // ── GET /swap-sources ─────────────────────────────────────────────────────────
@@ -2392,7 +2459,11 @@ pub async fn get_swap_sources(
     response
         .json::<RelaySwapSourcesResponse>()
         .await
-        .map_err(|e| AppError::RelayApiError("Relay is answering in a shape we do not recognise. Nothing was signed.".into()))
+        .map_err(|e| {
+            AppError::RelayApiError(
+                "Relay is answering in a shape we do not recognise. Nothing was signed.".into(),
+            )
+        })
 }
 
 #[cfg(test)]
@@ -2409,7 +2480,11 @@ mod tests {
             let padded = format!("{f:0<width$}", width = decimals);
             let joined = format!("{}{}", w.trim_start_matches('0'), padded);
             let t = joined.trim_start_matches('0');
-            if t.is_empty() { "0".into() } else { t.to_string() }
+            if t.is_empty() {
+                "0".into()
+            } else {
+                t.to_string()
+            }
         };
         assert_eq!(scale("0.01", 9), "10000000");
         assert_eq!(scale("1", 9), "1000000000");
@@ -2423,11 +2498,17 @@ mod tests {
     #[test]
     fn a_solana_fee_recipient_is_not_sent_to_relay() {
         let mut body = serde_json::json!({});
-        append_app_fee(&mut body, Some("Gf3dtGnHRkfaPpeHc2UYfu6mHrTsbFUp4Qx3RqV526h"));
+        append_app_fee(
+            &mut body,
+            Some("Gf3dtGnHRkfaPpeHc2UYfu6mHrTsbFUp4Qx3RqV526h"),
+        );
         assert!(body.get("appFees").is_none());
 
         let mut body = serde_json::json!({});
-        append_app_fee(&mut body, Some("0x71C7656EC7ab88b098defB751B7401B5f6d8976F"));
+        append_app_fee(
+            &mut body,
+            Some("0x71C7656EC7ab88b098defB751B7401B5f6d8976F"),
+        );
         assert_eq!(body["appFees"][0]["fee"], "20");
     }
 }

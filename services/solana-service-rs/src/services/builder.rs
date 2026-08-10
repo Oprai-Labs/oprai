@@ -7,8 +7,7 @@ use crate::error::AppError;
 use crate::services::{
     burn, dca, debridge, helius, jito, jupiter_lend, jupiter_perp, jupiter_query, jupsol, kamino,
     limit_order, magic_eden, marginfi, marinade, meteora, native_stake, orca, protocol_reads,
-    pumpfun, raydium, relay, sns, solend, squid, streamflow, swap, tensor, token_safety,
-    transfer,
+    pumpfun, raydium, relay, sns, solend, squid, streamflow, swap, tensor, token_safety, transfer,
 };
 use crate::solana::connection::SolanaRpc;
 
@@ -3153,12 +3152,37 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         }
         // MMM params are validated where they are built — the price, curve
         // and pool checks live next to the endpoint that rejects them.
-        "me_mmm_create_pool" | "me_mmm_update_pool" | "me_mmm_sol_close_pool"
-        | "me_mmm_sol_deposit_buy" | "me_mmm_sol_withdraw_buy"
-        | "me_mmm_sol_fulfill_buy" | "me_mmm_sol_fulfill_sell" => Ok(()),
+        "me_mmm_create_pool"
+        | "me_mmm_update_pool"
+        | "me_mmm_sol_close_pool"
+        | "me_mmm_sol_deposit_buy"
+        | "me_mmm_sol_withdraw_buy"
+        | "me_mmm_sol_fulfill_buy"
+        | "me_mmm_sol_fulfill_sell" => Ok(()),
         // Reads validate themselves: `me_read_url` is where a missing symbol,
         // mint or wallet is reported, and it names which one is missing.
-        "me_collections" | "me_collection_stats" | "me_collection_attributes" | "me_collection_leaderboard" | "me_collection_holder_stats" | "me_collection_sales_history" | "me_trending_collections" | "me_collection_listings" | "me_collection_activities" | "me_collections_batch_listings" | "me_token" | "me_token_activities" | "me_token_listings" | "me_token_offers_received" | "me_wallet" | "me_wallet_tokens" | "me_wallet_activities" | "me_owner_activities" | "me_wallet_escrow_balance" | "me_wallet_offers_made" | "me_wallet_offers_received" | "me_mmm_pools" => {
+        "me_collections"
+        | "me_collection_stats"
+        | "me_collection_attributes"
+        | "me_collection_leaderboard"
+        | "me_collection_holder_stats"
+        | "me_collection_sales_history"
+        | "me_trending_collections"
+        | "me_collection_listings"
+        | "me_collection_activities"
+        | "me_collections_batch_listings"
+        | "me_token"
+        | "me_token_activities"
+        | "me_token_listings"
+        | "me_token_offers_received"
+        | "me_wallet"
+        | "me_wallet_tokens"
+        | "me_wallet_activities"
+        | "me_owner_activities"
+        | "me_wallet_escrow_balance"
+        | "me_wallet_offers_made"
+        | "me_wallet_offers_received"
+        | "me_mmm_pools" => {
             let _p: magic_eden::MeReadParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid Magic Eden query: {e}")))?;
             Ok(())
@@ -3352,9 +3376,7 @@ pub async fn build_action(
         params,
     )
     .await?;
-    built.transaction = built
-        .transaction
-        ;
+    built.transaction = built.transaction;
     if let Some(tx) = built.transaction.take() {
         built.transaction = Some(crate::services::memo::attach(&tx).await);
     }
@@ -5571,7 +5593,28 @@ async fn build_action_inner(
         // Every remaining Magic Eden read, through one table. See
         // `me_read_url` — the paths there were checked against the live API,
         // and the three that 404 are deliberately not among them.
-        "me_collections" | "me_collection_stats" | "me_collection_attributes" | "me_collection_leaderboard" | "me_collection_holder_stats" | "me_collection_sales_history" | "me_trending_collections" | "me_collection_listings" | "me_collection_activities" | "me_collections_batch_listings" | "me_token" | "me_token_activities" | "me_token_listings" | "me_token_offers_received" | "me_wallet" | "me_wallet_tokens" | "me_wallet_activities" | "me_owner_activities" | "me_wallet_escrow_balance" | "me_wallet_offers_made" | "me_wallet_offers_received" | "me_mmm_pools" => {
+        "me_collections"
+        | "me_collection_stats"
+        | "me_collection_attributes"
+        | "me_collection_leaderboard"
+        | "me_collection_holder_stats"
+        | "me_collection_sales_history"
+        | "me_trending_collections"
+        | "me_collection_listings"
+        | "me_collection_activities"
+        | "me_collections_batch_listings"
+        | "me_token"
+        | "me_token_activities"
+        | "me_token_listings"
+        | "me_token_offers_received"
+        | "me_wallet"
+        | "me_wallet_tokens"
+        | "me_wallet_activities"
+        | "me_owner_activities"
+        | "me_wallet_escrow_balance"
+        | "me_wallet_offers_made"
+        | "me_wallet_offers_received"
+        | "me_mmm_pools" => {
             let p: magic_eden::MeReadParams = serde_json::from_value(params)?;
             magic_eden::build_me_read(http, action_type, &p).await
         }
@@ -6282,14 +6325,20 @@ async fn build_action_inner(
                         // zeros carry nothing.
                         let trim = |v: Option<String>| -> String {
                             match v.as_deref().and_then(|x| x.parse::<f64>().ok()) {
-                                Some(n) => format!("{n:.6}").trim_end_matches('0')
-                                    .trim_end_matches('.').to_string(),
+                                Some(n) => format!("{n:.6}")
+                                    .trim_end_matches('0')
+                                    .trim_end_matches('.')
+                                    .to_string(),
                                 None => v.unwrap_or_default(),
                             }
                         };
                         let got = trim(d.currency_out.amount_formatted.clone());
                         let sent = trim(d.currency_in.amount_formatted.clone());
-                        let sent = if sent.is_empty() { p.amount.clone() } else { sent };
+                        let sent = if sent.is_empty() {
+                            p.amount.clone()
+                        } else {
+                            sent
+                        };
                         let from = d.currency_in.currency.symbol.clone().unwrap_or_default();
                         let to = d.currency_out.currency.symbol.clone().unwrap_or_default();
                         format!(

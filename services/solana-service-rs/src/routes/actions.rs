@@ -334,14 +334,21 @@ fn sol_amount_spent(action_type: &str, params: &serde_json::Value) -> Option<f64
     let num = |k: &str| {
         params
             .get(k)
-            .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_f64().map(|f| f.to_string())))
+            .and_then(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| v.as_f64().map(|f| f.to_string()))
+            })
             .and_then(|s| s.parse::<f64>().ok())
             .filter(|n| *n > 0.0)
     };
     match action_type {
         // Buying an NFT, bidding on one, funding the account bids are paid
         // from: all denominated in SOL and all able to empty a wallet.
-        "me_buy" | "me_buy_now" | "me_buy_instruction" | "me_buy_now_transfer_nft"
+        "me_buy"
+        | "me_buy_now"
+        | "me_buy_instruction"
+        | "me_buy_now_transfer_nft"
         | "tensor_buy" => num("price"),
         "me_make_offer" => num("price"),
         "me_mmm_sol_deposit_buy" => num("amount").or_else(|| num("paymentAmount")),

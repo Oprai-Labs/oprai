@@ -159,7 +159,9 @@ fn try_attach_transfer(
     to: &Pubkey,
     lamports: u64,
 ) -> Option<String> {
-    let bytes = base64::engine::general_purpose::STANDARD.decode(tx_base64).ok()?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(tx_base64)
+        .ok()?;
     let mut tx: VersionedTransaction = bincode::deserialize(&bytes).ok()?;
     if tx.signatures.iter().any(|s| *s != Signature::default()) {
         return None;
@@ -245,7 +247,10 @@ fn try_attach_transfer(
     }
     let out = bincode::serialize(&tx).ok()?;
     if out.len() > MAX_TX_BYTES {
-        tracing::warn!(bytes = out.len(), "no room for the fee transfer — trade goes uncharged");
+        tracing::warn!(
+            bytes = out.len(),
+            "no room for the fee transfer — trade goes uncharged"
+        );
         return None;
     }
     Some(base64::engine::general_purpose::STANDARD.encode(&out))
@@ -316,7 +321,9 @@ async fn try_attach(tx_base64: &str) -> Option<String> {
     // honest move is no memo on this route rather than a broken swap.
     if let VersionedMessage::V0(m) = &tx.message {
         if lookup_index_of(&memo, m).await.is_some() {
-            tracing::debug!("memo program lives in a lookup table here — leaving the transaction unstamped");
+            tracing::debug!(
+                "memo program lives in a lookup table here — leaving the transaction unstamped"
+            );
             return None;
         }
     }
@@ -382,7 +389,10 @@ async fn try_attach(tx_base64: &str) -> Option<String> {
 
     let out = bincode::serialize(&tx).ok()?;
     if out.len() > MAX_TX_BYTES {
-        tracing::debug!(bytes = out.len(), "no room for the OPRAI memo — leaving it off");
+        tracing::debug!(
+            bytes = out.len(),
+            "no room for the OPRAI memo — leaving it off"
+        );
         return None;
     }
     Some(base64::engine::general_purpose::STANDARD.encode(&out))
@@ -465,15 +475,22 @@ mod tests {
         base64::engine::general_purpose::STANDARD.encode(bincode::serialize(tx).unwrap())
     }
     fn decode(b64: &str) -> VersionedTransaction {
-        bincode::deserialize(&base64::engine::general_purpose::STANDARD.decode(b64).unwrap())
-            .unwrap()
+        bincode::deserialize(
+            &base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .unwrap(),
+        )
+        .unwrap()
     }
 
     #[tokio::test]
     async fn legacy_transaction_gains_the_memo() {
         let payer = Pubkey::new_unique();
         let to = Pubkey::new_unique();
-        let msg = Message::new(&[system_instruction::transfer(&payer, &to, 5)], Some(&payer));
+        let msg = Message::new(
+            &[system_instruction::transfer(&payer, &to, 5)],
+            Some(&payer),
+        );
         let tx: VersionedTransaction = Transaction::new_unsigned(msg).into();
         let before = tx.message.instructions().len();
 
@@ -534,8 +551,16 @@ mod tests {
 
         let original = &m.instructions[0];
         assert_eq!(resolve(original.program_id_index as usize), program);
-        let touched: Vec<Pubkey> = original.accounts.iter().map(|a| resolve(*a as usize)).collect();
-        assert_eq!(touched, vec![in_table[1], in_table[3]], "table accounts shifted");
+        let touched: Vec<Pubkey> = original
+            .accounts
+            .iter()
+            .map(|a| resolve(*a as usize))
+            .collect();
+        assert_eq!(
+            touched,
+            vec![in_table[1], in_table[3]],
+            "table accounts shifted"
+        );
 
         let memo_ix = m.instructions.last().unwrap();
         assert_eq!(resolve(memo_ix.program_id_index as usize), memo_program());
@@ -556,7 +581,10 @@ mod tests {
         let payer = Keypair::new();
         let fee_wallet = Pubkey::new_unique();
         let in_table: Vec<Pubkey> = (0..4).map(|_| Pubkey::new_unique()).collect();
-        let lut = AddressLookupTableAccount { key: Pubkey::new_unique(), addresses: in_table.clone() };
+        let lut = AddressLookupTableAccount {
+            key: Pubkey::new_unique(),
+            addresses: in_table.clone(),
+        };
         let program = Pubkey::new_unique();
         let ix = Instruction::new_with_bytes(
             program,
@@ -573,38 +601,66 @@ mod tests {
             message: VersionedMessage::V0(msg),
         };
 
-        let out = decode(&attach_sol_transfer(&encode(&tx), &payer.pubkey(), &fee_wallet, 12_345));
-        let VersionedMessage::V0(m) = &out.message else { panic!("still v0") };
+        let out = decode(&attach_sol_transfer(
+            &encode(&tx),
+            &payer.pubkey(),
+            &fee_wallet,
+            12_345,
+        ));
+        let VersionedMessage::V0(m) = &out.message else {
+            panic!("still v0")
+        };
 
         let lookups = &m.address_table_lookups[0];
         let resolve = |i: usize| -> Pubkey {
             let statics = m.account_keys.len();
-            if i < statics { return m.account_keys[i]; }
+            if i < statics {
+                return m.account_keys[i];
+            }
             let w = lookups.writable_indexes.len();
-            if i - statics < w { in_table[lookups.writable_indexes[i - statics] as usize] }
-            else { in_table[lookups.readonly_indexes[i - statics - w] as usize] }
+            if i - statics < w {
+                in_table[lookups.writable_indexes[i - statics] as usize]
+            } else {
+                in_table[lookups.readonly_indexes[i - statics - w] as usize]
+            }
         };
 
         // The swap instruction is untouched in meaning.
         let swap = &m.instructions[0];
         assert_eq!(resolve(swap.program_id_index as usize), program);
         assert_eq!(
-            swap.accounts.iter().map(|a| resolve(*a as usize)).collect::<Vec<_>>(),
+            swap.accounts
+                .iter()
+                .map(|a| resolve(*a as usize))
+                .collect::<Vec<_>>(),
             vec![in_table[0], in_table[2]],
             "the swap's accounts were renumbered",
         );
 
         // And the transfer says what it should.
         let transfer = m.instructions.last().unwrap();
-        assert_eq!(resolve(transfer.program_id_index as usize), solana_sdk::system_program::id());
+        assert_eq!(
+            resolve(transfer.program_id_index as usize),
+            solana_sdk::system_program::id()
+        );
         assert_eq!(resolve(transfer.accounts[0] as usize), payer.pubkey());
         assert_eq!(resolve(transfer.accounts[1] as usize), fee_wallet);
-        assert_eq!(u64::from_le_bytes(transfer.data[4..12].try_into().unwrap()), 12_345);
+        assert_eq!(
+            u64::from_le_bytes(transfer.data[4..12].try_into().unwrap()),
+            12_345
+        );
 
         // The recipient must be writable, or the transfer fails on chain.
-        let fee_idx = m.account_keys.iter().position(|k| *k == fee_wallet).expect("present");
+        let fee_idx = m
+            .account_keys
+            .iter()
+            .position(|k| *k == fee_wallet)
+            .expect("present");
         let writable_end = m.account_keys.len() - m.header.num_readonly_unsigned_accounts as usize;
-        assert!(fee_idx < writable_end, "fee wallet landed in the read-only region");
+        assert!(
+            fee_idx < writable_end,
+            "fee wallet landed in the read-only region"
+        );
     }
 
     #[tokio::test]
@@ -613,7 +669,11 @@ mod tests {
         // silently invalidate their signature.
         let payer = Keypair::new();
         let msg = Message::new(
-            &[system_instruction::transfer(&payer.pubkey(), &Pubkey::new_unique(), 5)],
+            &[system_instruction::transfer(
+                &payer.pubkey(),
+                &Pubkey::new_unique(),
+                5,
+            )],
             Some(&payer.pubkey()),
         );
         let tx: VersionedTransaction = Transaction::new(&[&payer], msg, Hash::default()).into();

@@ -29,7 +29,8 @@ where
     <T as FromStr>::Err: Display,
 {
     let v = serde_json::Value::deserialize(d)?;
-    from_json(&v).ok_or_else(|| D::Error::custom(format!("cannot read {v} as a value")))?
+    from_json(&v)
+        .ok_or_else(|| D::Error::custom(format!("cannot read {v} as a value")))?
         .parse::<T>()
         .map_err(D::Error::custom)
 }
@@ -70,7 +71,9 @@ where
     <T as FromStr>::Err: Display,
 {
     let v = Option::<serde_json::Value>::deserialize(d)?;
-    Ok(v.as_ref().and_then(from_json).and_then(|s| s.parse::<T>().ok()))
+    Ok(v.as_ref()
+        .and_then(from_json)
+        .and_then(|s| s.parse::<T>().ok()))
 }
 
 /// The text of a scalar, whatever shape it arrived in.

@@ -24,7 +24,11 @@ pub struct BurnParams {
     /// Amount to burn, or "all" to burn entire balance and close the account.
     pub amount: String,
     /// Close the ATA after burning to reclaim ~0.002 SOL rent.
-    #[serde(rename = "closeMint", default, deserialize_with = "crate::services::params::lenient")]
+    #[serde(
+        rename = "closeMint",
+        default,
+        deserialize_with = "crate::services::params::lenient"
+    )]
     pub close_mint: bool,
 }
 

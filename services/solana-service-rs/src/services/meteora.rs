@@ -1141,11 +1141,7 @@ fn build_wsol_unwrap_ixs(user: &Pubkey, mint_x: &Pubkey, mint_y: &Pubkey) -> Vec
 /// inside the wallet — surfacing as an opaque internal error rather than
 /// anything about size. Emitting no-ops is also just wrong: the preview says
 /// the transaction does something it does not.
-async fn ata_ixs_for_missing(
-    rpc: &AsyncRpc,
-    user: &Pubkey,
-    mints: &[Pubkey],
-) -> Vec<Instruction> {
+async fn ata_ixs_for_missing(rpc: &AsyncRpc, user: &Pubkey, mints: &[Pubkey]) -> Vec<Instruction> {
     let mut ixs = Vec::new();
     for mint in mints {
         let ata = get_associated_token_address(user, mint);
@@ -1536,7 +1532,12 @@ async fn fetch_pos(
         bins_with_liquidity: entry
             .get("binsWithLiquidity")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|v| v.as_i64()).map(|v| v as i32).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_i64())
+                    .map(|v| v as i32)
+                    .collect()
+            })
             .unwrap_or_default(),
         has_fees: ["unclaimedFeeX", "unclaimedFeeY"]
             .iter()
@@ -1782,7 +1783,14 @@ pub async fn build_meteora_open_position(
     // NOT fail on-chain: the program happily creates a dead position holding
     // one token at a price that will never trade, which is how a deposit once
     // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
-    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, true, None)?;
+    reject_range_far_from_pool(
+        lower_bin_id,
+        upper_bin_id,
+        active_id,
+        lb_fields.bin_step,
+        true,
+        None,
+    )?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
@@ -1982,7 +1990,14 @@ pub async fn build_meteora_add_liquidity(
     // NOT fail on-chain: the program happily creates a dead position holding
     // one token at a price that will never trade, which is how a deposit once
     // landed in a 1,038,380 - 76,035,252 USDC/SOL range.
-    reject_range_far_from_pool(lower_bin_id, upper_bin_id, active_id, lb_fields.bin_step, true, None)?;
+    reject_range_far_from_pool(
+        lower_bin_id,
+        upper_bin_id,
+        active_id,
+        lb_fields.bin_step,
+        true,
+        None,
+    )?;
     let reserve_x = lb_fields.reserve_x;
     let reserve_y = lb_fields.reserve_y;
     let user_ata_x = get_associated_token_address(&user, &mint_x);
@@ -3357,7 +3372,10 @@ pub struct MeteoraDlmmGetPairsParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        alias = "page_size",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
@@ -3395,7 +3413,10 @@ pub struct MeteoraDlmmGetPoolGroupsParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        alias = "page_size",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
@@ -3422,7 +3443,10 @@ pub struct MeteoraDlmmGetPoolGroupParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        alias = "page_size",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub page_size: Option<u32>,
     #[serde(default)]
     #[serde(alias = "sort_by")]
@@ -3466,7 +3490,10 @@ pub struct MeteoraDammV2GetPoolsParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        alias = "page_size",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
@@ -3484,7 +3511,10 @@ pub struct MeteoraDammV2GetPoolGroupsParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        alias = "page_size",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
@@ -3508,7 +3538,10 @@ pub struct MeteoraDammV2GetPoolGroupParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
     #[serde(default)]
-    #[serde(alias = "page_size", deserialize_with = "crate::services::params::lenient_opt")]
+    #[serde(
+        alias = "page_size",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub query: Option<String>,
