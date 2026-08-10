@@ -230,6 +230,14 @@ pub struct RelayStep {
     /// Error if any
     #[serde(default)]
     pub error: Option<String>,
+    /// Relay's handle for the whole cross-chain intent.
+    ///
+    /// It lives on the STEP, not on the quote — the quote has no `requestId`
+    /// at all — and an undeclared field is dropped in silence, so this was
+    /// missing everywhere while looking like it simply did not exist. It is
+    /// the only way to ask whether the funds arrived.
+    #[serde(default)]
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

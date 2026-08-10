@@ -5881,9 +5881,14 @@ async fn build_action_inner(
                 // "arrived". Put it back.
                 quote: Some({
                     let mut q = result.quote.raw.clone();
-                    if let (Some(obj), Some(id)) =
-                        (q.as_object_mut(), result.quote.request_id.as_ref())
-                    {
+                    let request_id = result.quote.request_id.clone().or_else(|| {
+                        result
+                            .quote
+                            .steps
+                            .iter()
+                            .find_map(|s| s.request_id.clone())
+                    });
+                    if let (Some(obj), Some(id)) = (q.as_object_mut(), request_id) {
                         obj.insert("requestId".into(), serde_json::json!(id));
                     }
                     q
