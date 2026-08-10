@@ -9,6 +9,7 @@ import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { NativeStakeService, type StakeAccount, type Validator } from '../../services/native-stake.service';
 import { WalletService } from '@core/services/wallet.service';
+import { sanitizeErrorMessage } from '@core/utils/error-messages';
 
 type Tab = 'my-stakes' | 'new-stake';
 type Phase = 'idle' | 'loading' | 'preview' | 'signing' | 'success' | 'error';
@@ -157,7 +158,9 @@ export class NativeStakeShellComponent {
       });
       this.phase.set('preview');
     } catch (e: any) {
-      this.actionError.set(e?.error?.error ?? e?.error?.message ?? e?.message ?? 'Build failed');
+      this.actionError.set(sanitizeErrorMessage(
+        e?.error?.error ?? e?.error?.message ?? e?.message ?? '', 'stake',
+      ) || 'Couldn’t prepare this transaction. Please try again in a moment.');
       this.phase.set('idle');
     }
   }
@@ -211,7 +214,9 @@ export class NativeStakeShellComponent {
       });
       this.phase.set('preview');
     } catch (e: any) {
-      this.actionError.set(e?.error?.error ?? e?.error?.message ?? e?.message ?? 'Build failed');
+      this.actionError.set(sanitizeErrorMessage(
+        e?.error?.error ?? e?.error?.message ?? e?.message ?? '', 'stake',
+      ) || 'Couldn’t prepare this transaction. Please try again in a moment.');
       this.phase.set('idle');
     }
   }

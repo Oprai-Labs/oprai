@@ -5873,7 +5873,21 @@ async fn build_action_inner(
                 .await,
                 additional_signers_required: 0,
                 execution_steps: Some(serde_json::to_value(&result.quote.steps)?),
-                quote: Some(result.quote.raw),
+                // `raw` is everything Relay sent that we did NOT model, so the
+                // requestId — which we do model — was missing from it. That is
+                // the only handle the browser has to follow a bridge to the
+                // far chain: without it the card can see its deposit land and
+                // nothing after, which is where "signed" got mistaken for
+                // "arrived". Put it back.
+                quote: Some({
+                    let mut q = result.quote.raw.clone();
+                    if let (Some(obj), Some(id)) =
+                        (q.as_object_mut(), result.quote.request_id.as_ref())
+                    {
+                        obj.insert("requestId".into(), serde_json::json!(id));
+                    }
+                    q
+                }),
                 is_cross_chain: true,
                 data: None,
             })

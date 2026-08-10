@@ -2,6 +2,7 @@ import { Component, inject, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LiquidStakeService, type LstHolding, type LstProtocol } from '../../services/liquid-stake.service';
 import { WalletService } from '@core/services/wallet.service';
+import { sanitizeErrorMessage } from '@core/utils/error-messages';
 
 type Tab = 'holdings' | 'stake' | 'unstake';
 type Phase = 'idle' | 'loading' | 'preview' | 'signing' | 'success' | 'error';
@@ -149,7 +150,9 @@ export class LiquidStakeShellComponent {
       }
       this.setPendingTx(result);
     } catch (e: any) {
-      this.actionError.set(e?.error?.error ?? e?.error?.message ?? e?.message ?? 'Build failed');
+      this.actionError.set(sanitizeErrorMessage(
+        e?.error?.error ?? e?.error?.message ?? e?.message ?? '', 'stake',
+      ) || 'Couldn’t prepare this transaction. Please try again in a moment.');
       this.phase.set('idle');
     }
   }
@@ -174,7 +177,9 @@ export class LiquidStakeShellComponent {
       }
       this.setPendingTx(result);
     } catch (e: any) {
-      this.actionError.set(e?.error?.error ?? e?.error?.message ?? e?.message ?? 'Build failed');
+      this.actionError.set(sanitizeErrorMessage(
+        e?.error?.error ?? e?.error?.message ?? e?.message ?? '', 'stake',
+      ) || 'Couldn’t prepare this transaction. Please try again in a moment.');
       this.phase.set('idle');
     }
   }
