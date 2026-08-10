@@ -5962,3 +5962,97 @@
     &:hover { border-color: var(--op-brand); }
   }
 }
+
+// The wallet sheet. Built like the risk dialog: 28px corners, one quiet
+// surface, rows you can hit without aiming.
+.wallet-dialog {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  max-width: 420px;
+  width: calc(100% - 32px);
+
+  &::backdrop { background: rgba(0, 0, 0, 0.6); }
+
+  &__sheet {
+    padding: 22px;
+    border-radius: 28px;
+    background: var(--op-bg-surface-1);
+    border: 1px solid var(--op-border-subtle);
+    box-shadow: 0 24px 64px -20px rgba(0, 0, 0, 0.7);
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+  }
+
+  &__close {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--op-text-tertiary);
+    cursor: pointer;
+    &:hover { background: var(--op-bg-surface-3); color: var(--op-text-primary); }
+  }
+
+  &__lede {
+    margin: 6px 0 14px;
+    font-size: 0.8125rem;
+    color: var(--op-text-secondary);
+  }
+
+  &__list { display: flex; flex-direction: column; gap: 6px; }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 14px;
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-primary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color var(--op-fast), background var(--op-fast);
+
+    &:hover {
+      border-color: var(--op-brand);
+      background: color-mix(in srgb, var(--op-brand) 8%, var(--op-bg-surface-2));
+    }
+  }
+
+  &__icon {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--op-bg-surface-3);
+    font-weight: 700;
+    font-size: 0.75rem;
+
+    img { width: 100%; height: 100%; object-fit: contain; }
+  }
+
+  &__name { flex: 1 1 auto; }
+  &__go   { color: var(--op-text-tertiary); }
+}

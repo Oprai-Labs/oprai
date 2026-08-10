@@ -3625,26 +3625,12 @@
                        where the answer is missing — not as an error after. -->
                   <div class="relay-out__connect">
                     <span class="relay-out__idle">{{ relayChainName(getEditParam('destinationChainId')) }} needs a wallet to land in.</span>
-                    @if (evmPicking()) {
-                      <!-- Named, because several wallets claim the same hook
-                           and the one that wins is not the one you meant. -->
-                      <div class="relay-wallets">
-                        @for (w of evmWallets(); track w.id) {
-                          <button type="button" class="relay-wallets__row"
-                                  (click)="useEvmWallet(w.id, 'recipient')">
-                            @if (w.icon) { <img [src]="w.icon" [alt]="w.name" /> }
-                            <span>{{ w.name }}</span>
-                          </button>
-                        }
-                      </div>
-                    } @else {
-                      <button type="button" class="proto-btn-confirm relay-out__connect-btn"
-                              [disabled]="!isEditable() || evmConnecting()"
-                              (click)="connectEvmWallet('recipient')">
-                        <lucide-icon name="wallet" [size]="13" />
-                        {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
-                      </button>
-                    }
+                    <button type="button" class="proto-btn-confirm relay-out__connect-btn"
+                            [disabled]="!isEditable() || evmConnecting()"
+                            (click)="connectEvmWallet('recipient')">
+                      <lucide-icon name="wallet" [size]="13" />
+                      {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
+                    </button>
                     @if (evmError(); as e) { <span class="relay-out__err">{{ e }}</span> }
                   </div>
                 } @else {
@@ -4796,3 +4782,34 @@
     </div>
   </div>
 }
+
+<!-- Choosing a wallet is a decision, so it gets a sheet of its own — the way
+     every other app in this space asks. A <dialog> renders in the browser's
+     top layer, which no transformed ancestor can clip. -->
+<dialog #evmDialog class="wallet-dialog" (close)="evmPicking.set(false)"
+        (click)="$event.target === evmDialog ? closeEvmDialog() : null">
+  <div class="wallet-dialog__sheet">
+    <div class="wallet-dialog__head">
+      <h2 class="wallet-dialog__title">Connect a wallet</h2>
+      <button type="button" class="wallet-dialog__close" (click)="closeEvmDialog()" aria-label="Close">
+        <lucide-icon name="x" [size]="16" />
+      </button>
+    </div>
+    <p class="wallet-dialog__lede">
+      Where the bridge lands on {{ relayChainName(getEditParam('destinationChainId')) }}.
+    </p>
+    <div class="wallet-dialog__list">
+      @for (w of evmWallets(); track w.id) {
+        <button type="button" class="wallet-dialog__row" (click)="useEvmWallet(w.id, 'recipient')">
+          <span class="wallet-dialog__icon">
+            @if (w.icon) {
+              <img [src]="w.icon" [alt]="w.name" (error)="$any($event.target).style.display='none'" />
+            } @else { {{ w.name.charAt(0) }} }
+          </span>
+          <span class="wallet-dialog__name">{{ w.name }}</span>
+          <lucide-icon name="chevron-right" [size]="14" class="wallet-dialog__go" />
+        </button>
+      }
+    </div>
+  </div>
+</dialog>

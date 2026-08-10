@@ -3030,45 +3030,78 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * connected Rabby to someone reaching for MetaMask. EIP-6963 exists for
    * exactly this: wallets announce themselves and the page chooses.
    */
-  private discoverEvmWallets(): void {
-    const found = new Map<string, { name: string; icon: string | null }>();
-    const onAnnounce = (e: Event) => {
+  private evmAnnounceHandler?: (e: Event) => void;
+
+  /**
+   * Listen for wallet announcements for as long as the card lives.
+   *
+   * Wallets answer `eip6963:requestProvider` whenever they get round to it —
+   * some in the same tick, some later. Asking and unsubscribing in one breath
+   * caught whoever was fastest, so the list filled in visibly after it was
+   * already on screen. Subscribing on init means the answer is ready before
+   * anyone clicks.
+   */
+  private startEvmDiscovery(): void {
+    if (this.evmAnnounceHandler) return;
+    this.evmAnnounceHandler = (e: Event) => {
       const d = (e as CustomEvent).detail as { info?: { uuid: string; name: string; icon: string }; provider?: any };
       if (!d?.info?.uuid || !d.provider) return;
-      found.set(d.info.uuid, { name: d.info.name, icon: d.info.icon ?? null });
+      if (this.evmProviders.has(d.info.uuid)) return;
       this.evmProviders.set(d.info.uuid, d.provider);
+      this.evmWallets.update(list => [...list, {
+        id: d.info!.uuid, name: d.info!.name, icon: d.info!.icon ?? null,
+      }]);
     };
-    window.addEventListener('eip6963:announceProvider', onAnnounce);
+    window.addEventListener('eip6963:announceProvider', this.evmAnnounceHandler);
     window.dispatchEvent(new Event('eip6963:requestProvider'));
-    window.removeEventListener('eip6963:announceProvider', onAnnounce);
 
-    // Older wallets announce nothing and only set window.ethereum. Offering
-    // that as an unnamed choice beats offering nothing.
-    const legacy = (window as any).ethereum;
-    if (!found.size && legacy) {
-      this.evmProviders.set('legacy', legacy);
-      found.set('legacy', { name: legacy.isMetaMask ? 'MetaMask' : 'Browser wallet', icon: null });
-    }
-    this.evmWallets.set([...found].map(([id, w]) => ({ id, name: w.name, icon: w.icon })));
+    // Older wallets announce nothing and only set window.ethereum. Offered
+    // once nobody has announced, since the announcing ones are the same object.
+    setTimeout(() => {
+      const legacy = (window as any).ethereum;
+      if (!this.evmWallets().length && legacy) {
+        this.evmProviders.set('legacy', legacy);
+        this.evmWallets.set([{ id: 'legacy', name: legacy.isMetaMask ? 'MetaMask' : 'Browser wallet', icon: null }]);
+      }
+    }, 300);
   }
+
+  private stopEvmDiscovery(): void {
+    if (!this.evmAnnounceHandler) return;
+    window.removeEventListener('eip6963:announceProvider', this.evmAnnounceHandler);
+    this.evmAnnounceHandler = undefined;
+  }
+
+  @ViewChild('evmDialog') evmDialog?: ElementRef<HTMLDialogElement>;
+  private evmDialogFor = 'recipient';
 
   /** Offer the choice; connect straight away when there is only one. */
   connectEvmWallet(key: string): void {
     this.evmError.set(null);
-    this.discoverEvmWallets();
+    this.startEvmDiscovery();
     const wallets = this.evmWallets();
     if (!wallets.length) {
       this.evmError.set('No EVM wallet found in this browser. Paste the destination address instead.');
       return;
     }
     if (wallets.length === 1) { void this.useEvmWallet(wallets[0].id, key); return; }
+    this.evmDialogFor = key;
     this.evmPicking.set(true);
+    // showModal, not a positioned div: a dialog renders in the browser's top
+    // layer, which no transformed ancestor can clip — the trap that put the
+    // token picker behind the chat once already.
+    queueMicrotask(() => this.evmDialog?.nativeElement?.showModal?.());
+  }
+
+  closeEvmDialog(): void {
+    this.evmPicking.set(false);
+    this.evmDialog?.nativeElement?.close?.();
   }
 
   async useEvmWallet(id: string, key: string): Promise<void> {
     const provider = this.evmProviders.get(id);
     if (!provider) return;
-    this.evmPicking.set(false);
+    this.closeEvmDialog();
     this.evmConnecting.set(true);
     this.evmError.set(null);
     try {
@@ -5003,6 +5036,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeDefaultBorrowCollateral();
     void this.ensureMeCancelTarget();
     this.relaySeedChains();
+    if (this.isRelayBridge()) this.startEvmDiscovery();
     // The card arrives with its fields already filled by the model, and the
     // quote only ran on user input — so a bridge someone never typed into sat
     // on "pick both chains" with every chain already picked.
@@ -8016,6 +8050,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   confirmPreview(): void { this.showPreview.set(false); this.approve(); }
 
   ngOnDestroy(): void {
+    this.stopEvmDiscovery();
     this.stopSubmittedTick();
     this.stopQuotePolling();
     if (this._swapEstimateTimer) clearTimeout(this._swapEstimateTimer);
