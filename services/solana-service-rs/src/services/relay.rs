@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::solana::connection::SolanaRpc;
+use solana_sdk::pubkey::Pubkey;
 use crate::services::swap::MAX_SLIPPAGE_BPS;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -209,8 +211,8 @@ pub struct RelayCurrency {
 pub struct RelayStep {
     /// Step ID
     pub id: Option<String>,
-    /// Step type (e.g., "deposit", "fill", "sign")
-    #[serde(rename = "type")]
+    /// Step type (e.g., "deposit", "fill", "sign"). Relay calls it `kind`.
+    #[serde(rename = "type", alias = "kind")]
     pub step_type: Option<String>,
     /// Items within the step
     #[serde(default)]
@@ -226,6 +228,13 @@ pub struct RelayStep {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayStepItem {
+    /// What to sign. Relay puts it under `data` — an EVM `{to, data, value}`
+    /// on one chain, a list of Solana instructions on the other. We modelled
+    /// `transaction` and `internalData`, neither of which Relay sends, so this
+    /// was empty for every bridge on every chain and the browser reported
+    /// "no transaction data returned from backend".
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
     /// Internal data for execution
     #[serde(default)]
     pub internal_data: Option<serde_json::Value>,
@@ -553,6 +562,89 @@ fn resolve_bridge_recipient<'a>(
         // Bridging home: the connected wallet is the destination.
         None => Ok(user_address),
     }
+}
+
+/// Turn a Relay deposit step into a Solana transaction the wallet can sign.
+///
+/// Relay hands EVM origins a `{to, data, value}` and Solana origins a list of
+/// instructions — a different shape for a different chain. The frontend only
+/// understood the EVM one, so bridging FROM Solana ended at "no transaction
+/// data returned from backend" for a quote that was complete.
+///
+/// Building it here rather than in the browser puts the bridge on the same
+/// path as every other Solana action: the same signing, the same submission,
+/// the same settlement watch, and the same OPRAI memo.
+pub async fn solana_tx_from_relay_steps(
+    rpc: &SolanaRpc,
+    user: &Pubkey,
+    steps: &[RelayStep],
+) -> Option<String> {
+    use base64::Engine as _;
+    use solana_sdk::instruction::{AccountMeta, Instruction};
+    use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
+    use solana_sdk::transaction::VersionedTransaction;
+
+    let data = steps
+        .iter()
+        .flat_map(|s| s.items.iter())
+        .find_map(|i| i.data.as_ref())?;
+
+    let raw = data.get("instructions")?.as_array()?;
+    let mut instructions = Vec::with_capacity(raw.len());
+    for ix in raw {
+        let program_id: Pubkey = ix.get("programId")?.as_str()?.parse().ok()?;
+        let accounts = ix
+            .get("keys")?
+            .as_array()?
+            .iter()
+            .filter_map(|k| {
+                let pubkey: Pubkey = k.get("pubkey")?.as_str()?.parse().ok()?;
+                let signer = k.get("isSigner").and_then(|v| v.as_bool()).unwrap_or(false);
+                let writable = k.get("isWritable").and_then(|v| v.as_bool()).unwrap_or(false);
+                Some(if writable {
+                    AccountMeta::new(pubkey, signer)
+                } else {
+                    AccountMeta::new_readonly(pubkey, signer)
+                })
+            })
+            .collect::<Vec<_>>();
+        // Relay writes instruction data as hex; anything else is a shape we do
+        // not know, and guessing at transaction bytes is not a thing to do.
+        let bytes = hex::decode(ix.get("data")?.as_str()?).ok()?;
+        instructions.push(Instruction { program_id, accounts, data: bytes });
+    }
+    if instructions.is_empty() {
+        return None;
+    }
+
+    // The route's lookup tables, or the message cannot resolve its accounts.
+    let mut tables = Vec::new();
+    if let Some(addrs) = data.get("addressLookupTableAddresses").and_then(|a| a.as_array()) {
+        for a in addrs {
+            let key: Pubkey = match a.as_str().and_then(|s| s.parse().ok()) {
+                Some(k) => k,
+                None => continue,
+            };
+            let addresses = crate::services::memo::lookup_table_addresses(key).await;
+            if !addresses.is_empty() {
+                tables.push(AddressLookupTableAccount { key, addresses });
+            }
+        }
+    }
+
+    let rpc = rpc.clone();
+    let blockhash = tokio::task::spawn_blocking(move || rpc.client().get_latest_blockhash().ok())
+        .await
+        .ok()
+        .flatten()?;
+
+    let message = v0::Message::try_compile(user, &instructions, &tables, blockhash).ok()?;
+    let tx = VersionedTransaction {
+        signatures: vec![Default::default(); message.header.num_required_signatures as usize],
+        message: VersionedMessage::V0(message),
+    };
+    let bytes = bincode::serialize(&tx).ok()?;
+    Some(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 /// Relay's own id for a chain, given whatever id reached us.

@@ -1577,8 +1577,13 @@ export class SolanaActionService {
       throw err;
     }
 
-    // Step 3a: Cross-chain swap — sign EVM transaction via window.ethereum
-    if (buildResult.isCrossChain || action.type === 'cross_chain_swap') {
+    // Step 3a: Cross-chain swap — sign EVM transaction via window.ethereum.
+    //
+    // Unless the origin is Solana. Then the deposit is a Solana transaction,
+    // the service has already built it, and it signs and settles like any
+    // other — falling through to the EVM branch is how a complete quote ended
+    // at "no transaction data returned from backend".
+    if ((buildResult.isCrossChain || action.type === 'cross_chain_swap') && !buildResult.transaction) {
       const provider = action.params['provider'] ?? 'relay';
       const steps = buildResult.executionSteps ?? [];
 
@@ -1587,9 +1592,13 @@ export class SolanaActionService {
       let txData: any = null;
 
       if (provider === 'relay' && steps.length > 0) {
-        // Relay uses execution steps
-        const depositStep = steps.find(s => s.type === 'deposit' || s.items?.length);
-        txData = depositStep?.items?.[0]?.transaction;
+        // Relay puts what to sign under `data`, not `transaction` — and on a
+        // Solana origin that is a list of instructions, which the service has
+        // already assembled into a transaction for us. Reaching here with one
+        // in hand means this is an EVM origin.
+        const depositStep = steps.find((s: any) => s.type === 'deposit' || s.kind === 'transaction' || s.items?.length);
+        const item = depositStep?.items?.[0] as any;
+        txData = item?.data ?? item?.transaction;
       } else if (provider === 'wormhole' || provider === 'debridge') {
         // Wormhole/Debridge: tx_data is in quote
         const quote = buildResult.quote;
@@ -1599,7 +1608,8 @@ export class SolanaActionService {
       } else {
         // Fallback to relay behavior
         const depositStep = steps.find(s => s.type === 'deposit' || s.items?.length);
-        txData = depositStep?.items?.[0]?.transaction;
+        const item = depositStep?.items?.[0] as any;
+        txData = item?.data ?? item?.transaction;
       }
 
       if (!txData?.to) {

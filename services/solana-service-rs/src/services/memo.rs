@@ -93,6 +93,10 @@ async fn lookup_index_of(wanted: &Pubkey, m: &solana_sdk::message::v0::Message) 
 /// "can call blocking only when running on the multi-threaded runtime" — which
 /// is exactly what happened, and turned every Jupiter swap into an empty
 /// response.
+pub async fn lookup_table_addresses(key: Pubkey) -> Vec<Pubkey> {
+    read_lookup_table(key).await
+}
+
 async fn read_lookup_table(key: Pubkey) -> Vec<Pubkey> {
     use std::sync::{Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<std::collections::HashMap<Pubkey, Vec<Pubkey>>>> = OnceLock::new();

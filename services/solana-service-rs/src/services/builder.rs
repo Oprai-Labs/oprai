@@ -5806,7 +5806,16 @@ async fn build_action_inner(
                     warnings: result.preview.warnings,
                     requires_approval: result.preview.requires_approval,
                 },
-                transaction: None,
+                // Bridging FROM Solana is signed on Solana: the step carries
+                // instructions, not an EVM {to, data, value}. Assembling it
+                // here puts the bridge on the same path as every other Solana
+                // action instead of asking the browser to invent one.
+                transaction: relay::solana_tx_from_relay_steps(
+                    rpc,
+                    user_pubkey,
+                    &result.quote.steps,
+                )
+                .await,
                 additional_signers_required: 0,
                 execution_steps: Some(serde_json::to_value(&result.quote.steps)?),
                 quote: Some(result.quote.raw),

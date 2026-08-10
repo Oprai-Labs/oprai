@@ -3563,6 +3563,7 @@ dependencies = [
  "diesel-async",
  "dotenvy",
  "futures",
+ "hex",
  "orca_whirlpools",
  "prometheus",
  "prost",
