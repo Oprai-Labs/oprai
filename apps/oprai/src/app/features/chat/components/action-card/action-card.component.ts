@@ -2919,9 +2919,55 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  nothing. */
   readonly relayPickerChain = signal('');
 
-  relayFilteredChains(): Array<{ label: string; value: string }> {
+  /**
+   * Every chain Relay bridges, from Relay.
+   *
+   * The hardcoded eleven were the ones I happened to know, which is not a list
+   * anyone can maintain — Relay has sixty-eight and adds more. Loaded once per
+   * card and cached for the tab, with the built-in list as the fallback so the
+   * picker is never empty.
+   */
+  static relayChainsCache: Array<{ label: string; value: string; icon: string | null }> | null = null;
+  readonly relayChains = signal<Array<{ label: string; value: string; icon: string | null }>>(
+    ActionCardComponent.relayChainsCache ?? RELAY_CHAINS.map(c => ({ ...c, icon: null })),
+  );
+
+  private async loadRelayChains(): Promise<void> {
+    if (ActionCardComponent.relayChainsCache) {
+      this.relayChains.set(ActionCardComponent.relayChainsCache);
+      return;
+    }
+    try {
+      const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+        type: 'relay_get_chains', params: {},
+      }));
+      const rows: any[] = resp?.data?.chains ?? resp?.data ?? [];
+      const chains = rows
+        .filter(c => c?.id && !c?.disabled)
+        .map(c => ({
+          label: String(c.displayName ?? c.name ?? c.id),
+          value: String(c.id),
+          icon: c.iconUrl ?? null,
+        }))
+        // Solana first — it is where every bridge from here starts — then the
+        // rest alphabetically, which is how someone looks for one.
+        .sort((a, b) => {
+          const sol = String(RELAY_SOLANA_CHAIN_ID);
+          if (a.value === sol) return -1;
+          if (b.value === sol) return 1;
+          return a.label.localeCompare(b.label);
+        });
+      if (chains.length) {
+        ActionCardComponent.relayChainsCache = chains;
+        this.relayChains.set(chains);
+      }
+    } catch { /* the built-in list stands */ }
+  }
+
+  relayFilteredChains(): Array<{ label: string; value: string; icon: string | null }> {
     const q = this.relayChainQuery().trim().toLowerCase();
-    return q ? RELAY_CHAINS.filter(c => c.label.toLowerCase().includes(q)) : RELAY_CHAINS;
+    const all = this.relayChains();
+    return q ? all.filter(c => c.label.toLowerCase().includes(q)) : all;
   }
 
   selectRelayPickerChain(value: string): void {
@@ -2946,6 +2992,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.getEditParam(key === 'originCurrency' ? 'originChainId' : 'destinationChainId'),
     ) || String(RELAY_SOLANA_CHAIN_ID));
     void this.relaySearchTokens('');
+    void this.loadRelayChains();
     queueMicrotask(() => this.tokenDialog?.nativeElement?.showModal?.());
   }
 
@@ -3062,8 +3109,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   /** A chain's name, for a card that should not print ids at people. */
   relayChainName(id: string): string {
-    return RELAY_CHAINS.find(c => c.value === this.relayCanonicalChain(id))?.label
+    const want = this.relayCanonicalChain(id);
+    return this.relayChains().find(c => c.value === want)?.label
+      ?? RELAY_CHAINS.find(c => c.value === want)?.label
       ?? (id ? `Chain ${id}` : '');
+  }
+
+  relayChainIcon(id: string): string | null {
+    const want = this.relayCanonicalChain(id);
+    return this.relayChains().find(c => c.value === want)?.icon ?? null;
   }
 
   /** 900 was our own id for Solana, and the model still writes it. */
@@ -3090,6 +3144,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly evmConnecting = signal(false);
   readonly evmError = signal<string | null>(null);
   readonly evmWallets = signal<Array<{ id: string; name: string; icon: string | null }>>([]);
+
+  /** A local mark for wallets whose announced icon does not render. Phantom
+   *  announces one that fails, and a blank square beside "Phantom" is worse
+   *  than no icon at all. */
+  private static readonly WALLET_ICONS: Record<string, string> = {
+    phantom: 'assets/icons/wallets/phantom.svg',
+  };
+
+  walletIcon(w: { name: string; icon: string | null }): string | null {
+    return ActionCardComponent.WALLET_ICONS[w.name.trim().toLowerCase()] ?? w.icon;
+  }
   readonly evmPicking = signal(false);
   private evmProviders = new Map<string, { request(a: { method: string }): Promise<string[]> }>();
 

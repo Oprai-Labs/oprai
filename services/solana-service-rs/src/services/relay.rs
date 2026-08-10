@@ -1132,6 +1132,10 @@ pub struct RelayChainInfo {
     /// VM type: "evm" | "svm" | "bvm" | "tvm" | "tonvm" | "suivm" | "hypevm" | "lvm"
     #[serde(default)]
     pub vm_type: Option<String>,
+    /// The chain's mark, which Relay hosts. Undeclared, serde dropped it, and
+    /// a chain list without icons is sixty-eight lines of text.
+    #[serde(default)]
+    pub icon_url: Option<String>,
     // RPC & Explorer
     #[serde(default)]
     pub http_rpc_url: Option<String>,

@@ -4818,8 +4818,8 @@
                Same trap as the NFT art. -->
           <span class="wallet-dialog__icon">
             <span class="wallet-dialog__icon-letter">{{ w.name.charAt(0) }}</span>
-            @if (w.icon) {
-              <img [src]="w.icon" [alt]="w.name" (error)="$any($event.target).style.display='none'" />
+            @if (walletIcon(w); as src) {
+              <img [src]="src" [alt]="w.name" (error)="$any($event.target).style.display='none'" />
             }
           </span>
           <span class="wallet-dialog__name">{{ w.name }}</span>
@@ -4852,7 +4852,15 @@
           @for (c of relayFilteredChains(); track c.value) {
             <button type="button" class="token-dialog__chain"
                     [class.is-on]="relayPickerChain() === c.value"
-                    (click)="selectRelayPickerChain(c.value)">{{ c.label }}</button>
+                    (click)="selectRelayPickerChain(c.value)">
+              <span class="token-dialog__chain-icon">
+                <span class="relay-side__letter">{{ c.label.charAt(0) }}</span>
+                @if (c.icon) {
+                  <img [src]="c.icon" [alt]="c.label" (error)="$any($event.target).style.display='none'" />
+                }
+              </span>
+              {{ c.label }}
+            </button>
           }
         </div>
       </div>
