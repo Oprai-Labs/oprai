@@ -2805,9 +2805,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     } catch (err: unknown) {
       // The builder's message is the useful one — it names a blocked address,
       // an unsupported pair, an amount below the minimum.
+      //
+      // It goes through the same sanitizer as every other error on this card.
+      // Reading it raw is how "Relay API error:" reached a user: the quote path
+      // was the one error path that skipped the cleanup every other path gets.
       const msg = (err as { error?: { error?: string } })?.error?.error;
       this.relayQuote.set(null);
-      this.relayQuoteError.set(msg || 'No route for this pair right now.');
+      this.relayQuoteError.set(
+        (msg ? sanitizeErrorMessage(msg, this.action?.type) : '') || 'No route for this pair right now.',
+      );
     } finally {
       this.relayQuoting.set(false);
     }

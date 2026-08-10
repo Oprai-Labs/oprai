@@ -33,6 +33,34 @@ pub enum AppError {
     Internal(String),
 }
 
+impl AppError {
+    /// The part of the error a user is meant to read.
+    ///
+    /// `Display` prefixes the variant name — "Relay API error: that amount is
+    /// too small to bridge". The tail is written for the user; the head is a
+    /// fact about our plumbing, and putting the two together tells someone
+    /// whose amount was too small that an API broke. It reads as our fault and
+    /// gives them nothing to act on, when the sentence right behind it told
+    /// them exactly what to do.
+    ///
+    /// So the label stays where it is useful — the log line below, where
+    /// knowing *which* upstream refused is the whole point — and never reaches
+    /// the response body.
+    pub fn user_message(&self) -> &str {
+        match self {
+            AppError::DatabaseError(m)
+            | AppError::SolanaRpcError(m)
+            | AppError::JupiterApiError(m)
+            | AppError::RelayApiError(m)
+            | AppError::InvalidParams(m)
+            | AppError::Unauthorized(m)
+            | AppError::NotFound(m)
+            | AppError::ProtocolError(m)
+            | AppError::Internal(m) => m,
+        }
+    }
+}
+
 /// JSON body returned for error responses.
 #[derive(Serialize)]
 struct ErrorResponse {
@@ -41,8 +69,9 @@ struct ErrorResponse {
 
 impl ResponseError for AppError {
     fn error_response(&self) -> HttpResponse {
+        tracing::warn!(error = %self, "request failed");
         let body = ErrorResponse {
-            error: self.to_string(),
+            error: self.user_message().to_string(),
         };
 
         match self {

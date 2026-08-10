@@ -2287,7 +2287,6 @@ fn me_read_url(action: &str, p: &MeReadParams) -> Result<String, AppError> {
             "{base}/wallets/{}/escrow_balance",
             need(&p.wallet, "wallet")?
         ),
-        "me_wallet_escrow_balance" => "Magic Eden balance".into(),
         "me_wallet_offers_made" => format!(
             "{base}/wallets/{}/offers_made?limit={limit}&offset={off}",
             need(&p.wallet, "wallet")?

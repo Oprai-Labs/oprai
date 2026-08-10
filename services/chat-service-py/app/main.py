@@ -778,6 +778,40 @@ async def get_token_endpoint(
 # Magic Eden NFT Routes
 # ---------------------------------------------------------------------------
 
+
+def magic_eden_error(e: httpx.HTTPStatusError) -> HTTPException:
+    """Turn Magic Eden's refusal into a sentence, and keep the body in the log.
+
+    Every route here used to answer with ``Magic Eden API error: <first 200
+    bytes of their response>``. That is two problems in one string: it blames
+    an API for what is usually an ordinary outcome (nothing listed, a stale
+    token), and it pastes a raw JSON body onto a card. Neither tells the user
+    anything they can do.
+
+    The status is the only part that is reliably meaningful across forty
+    endpoints, so the message is built from it. The body still exists — in the
+    log, where whoever is debugging can read all of it rather than 200 bytes.
+    """
+    status = e.response.status_code
+    logger.warning(
+        "Magic Eden refused",
+        status=status,
+        url=str(e.request.url),
+        body=e.response.text[:500],
+    )
+    if status == 404:
+        detail = "Magic Eden has no record of that — it may not be listed, or it may have just moved."
+    elif status == 429:
+        detail = "Magic Eden is limiting how fast we can ask right now. Try again in a few seconds."
+    elif status in (400, 422):
+        detail = "Magic Eden turned down those details. Check the item and the amount, then try again."
+    elif status in (401, 403):
+        detail = "Magic Eden would not allow that request."
+    else:
+        detail = "Magic Eden is not responding right now. Please try again in a moment."
+    return HTTPException(status_code=status, detail=detail)
+
+
 @app.get("/nft/magic-eden/instructions/withdraw")
 async def me_withdraw(
     buyer: str = Query(..., description="Buyer wallet address"),
@@ -792,7 +826,7 @@ async def me_withdraw(
         tx = await get_withdraw_instruction(buyer, amount, auctionHouseAddress, priorityFee)
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME withdraw failed buyer=%s amount=%s", buyer, amount, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden withdraw transaction")
@@ -812,7 +846,7 @@ async def me_deposit(
         tx = await get_deposit_instruction(buyer, amount, auctionHouseAddress, priorityFee)
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME deposit failed buyer=%s amount=%s", buyer, amount, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden deposit transaction")
@@ -839,7 +873,7 @@ async def me_sell_cancel(
         )
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME sell_cancel failed seller=%s mint=%s", seller, tokenMint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden sell-cancel transaction")
@@ -870,7 +904,7 @@ async def me_sell_now(
         )
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME sell_now failed seller=%s mint=%s", seller, tokenMint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden sell-now transaction")
@@ -898,7 +932,7 @@ async def me_sell_change_price(
         )
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME sell_change_price failed seller=%s mint=%s", seller, tokenMint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden sell-change-price transaction")
@@ -925,7 +959,7 @@ async def me_sell(
         )
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME sell failed seller=%s mint=%s", seller, tokenMint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden sell transaction")
@@ -951,7 +985,7 @@ async def me_buy_change_price(
         )
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME buy_change_price failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden change-price transaction")
@@ -976,7 +1010,7 @@ async def me_buy_cancel(
         )
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME buy_cancel failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden cancel-buy transaction")
@@ -1009,7 +1043,7 @@ async def me_buy_now(
         )
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME buy_now failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden buy-now transaction")
@@ -1045,7 +1079,7 @@ async def me_buy_now_transfer_nft(
         )
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME buy_now_transfer failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden buy-transfer transaction")
@@ -1072,7 +1106,7 @@ async def me_buy_instruction(
         )
         return {"success": True, "transaction": tx}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME buy instruction failed buyer=%s mint=%s", buyer, tokenMint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden buy transaction")
@@ -1090,7 +1124,7 @@ async def me_collection_leaderboard(
         data = await get_collection_leaderboard(symbol, limit)
         return {"success": True, **data}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME leaderboard failed symbol=%s", symbol, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden leaderboard")
@@ -1107,7 +1141,7 @@ async def me_collection_holder_stats(
         stats = await get_collection_holder_stats(symbol)
         return {"success": True, **stats}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME holder stats failed symbol=%s", symbol, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden holder stats")
@@ -1136,7 +1170,7 @@ async def me_collections_batch_listings(
         )
         return {"success": True, "symbols": symbols, "listings": listings, "count": len(listings)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME batch listings failed symbols=%s", symbols, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden batch listings")
@@ -1162,7 +1196,7 @@ async def me_collection_listings(
         )
         return {"success": True, "symbol": symbol, "listings": listings, "count": len(listings)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME collection listings failed symbol=%s", symbol, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collection listings")
@@ -1180,7 +1214,7 @@ async def me_collections(
         collections, paging = await get_collections(offset, limit)
         return {"success": True, "collections": collections, "count": len(collections), "paging": paging}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME collections list failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collections")
@@ -1197,7 +1231,7 @@ async def me_collection_attributes(
         data = await get_collection_attributes(collection_symbol)
         return {"success": True, **data}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME collection attributes failed symbol=%s", collection_symbol, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collection attributes")
@@ -1216,7 +1250,7 @@ async def me_collection_stats(
         stats = await get_collection_stats(symbol, timeWindow, listingAggMode)
         return {"success": True, "stats": stats}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME collection stats failed symbol=%s", symbol, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collection stats")
@@ -1235,7 +1269,7 @@ async def me_collection_activities(
         activities = await get_collection_activities(symbol, offset, limit)
         return {"success": True, "symbol": symbol, "activities": activities, "count": len(activities)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME collection activities failed symbol=%s", symbol, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden collection activities")
@@ -1252,7 +1286,7 @@ async def me_wallet_escrow_balance(
         data = await get_wallet_escrow_balance(wallet_address)
         return {"success": True, "walletAddress": wallet_address, **data}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME escrow balance failed wallet=%s", wallet_address, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden escrow balance")
@@ -1277,7 +1311,7 @@ async def me_wallet_offers_received(
         )
         return {"success": True, "walletAddress": wallet_address, "offers": offers, "count": len(offers)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME wallet offers_received failed wallet=%s", wallet_address, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden offers received")
@@ -1302,7 +1336,7 @@ async def me_wallet_offers_made(
         )
         return {"success": True, "walletAddress": wallet_address, "offers": offers, "count": len(offers)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME wallet offers_made failed wallet=%s", wallet_address, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden offers made")
@@ -1320,7 +1354,7 @@ async def me_owner_activities(
         activities = await get_owner_activities(owner, createdAt)
         return {"success": True, "owner": owner, "activities": activities, "count": len(activities)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME owner activities failed owner=%s", owner, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden owner activities")
@@ -1339,7 +1373,7 @@ async def me_wallet_activities(
         activities = await get_wallet_activities(wallet_address, offset, limit)
         return {"success": True, "walletAddress": wallet_address, "activities": activities, "count": len(activities)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME wallet activities failed wallet=%s", wallet_address, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden wallet activities")
@@ -1356,7 +1390,7 @@ async def me_wallet(
         profile = await get_wallet(wallet_address)
         return {"success": True, "wallet": profile}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME wallet profile failed wallet=%s", wallet_address, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden wallet profile")
@@ -1385,7 +1419,7 @@ async def me_wallet_tokens(
         )
         return {"success": True, "walletAddress": wallet_address, "tokens": tokens, "count": len(tokens)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME wallet tokens failed wallet=%s", wallet_address, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden wallet tokens")
@@ -1402,7 +1436,7 @@ async def me_token(
         token = await get_token(token_mint)
         return {"success": True, "token": token}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME token metadata failed token_mint=%s", token_mint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden token")
@@ -1420,7 +1454,7 @@ async def me_token_listings(
         listings = await get_token_listings(token_mint, listingAggMode)
         return {"success": True, "tokenMint": token_mint, "listings": listings, "count": len(listings)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME token listings failed token_mint=%s", token_mint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden listings")
@@ -1445,7 +1479,7 @@ async def me_token_offers_received(
         )
         return {"success": True, "tokenMint": token_mint, "offers": offers, "count": len(offers)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME token offers failed token_mint=%s", token_mint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden offers")
@@ -1464,7 +1498,7 @@ async def me_token_activities(
         activities = await get_token_activities(token_mint, offset, limit)
         return {"success": True, "tokenMint": token_mint, "activities": activities, "count": len(activities)}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME token activities failed token_mint=%s", token_mint, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden activities")
@@ -1491,7 +1525,7 @@ async def me_mmm_sol_fulfill_sell(
         )
         return {"success": True, "pool": pool, "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME MMM sol-fulfill-sell failed pool=%s buyer=%s", pool, buyer, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-fulfill-sell transaction")
@@ -1519,7 +1553,7 @@ async def me_mmm_sol_fulfill_buy(
         )
         return {"success": True, "pool": pool, "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME MMM sol-fulfill-buy failed pool=%s seller=%s", pool, seller, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-fulfill-buy transaction")
@@ -1537,7 +1571,7 @@ async def me_mmm_sol_close_pool(
         result = await get_mmm_sol_close_pool_instruction(pool, priority_fee)
         return {"success": True, "pool": pool, "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME MMM sol-close-pool failed pool=%s", pool, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-close-pool transaction")
@@ -1556,7 +1590,7 @@ async def me_mmm_sol_withdraw_buy(
         result = await get_mmm_sol_withdraw_buy_instruction(pool, sol_amount, priority_fee)
         return {"success": True, "pool": pool, "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME MMM sol-withdraw-buy failed pool=%s", pool, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-withdraw-buy transaction")
@@ -1575,7 +1609,7 @@ async def me_mmm_sol_deposit_buy(
         result = await get_mmm_sol_deposit_buy_instruction(pool, sol_amount, priority_fee)
         return {"success": True, "pool": pool, "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME MMM sol-deposit-buy failed pool=%s", pool, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM sol-deposit-buy transaction")
@@ -1605,7 +1639,7 @@ async def me_mmm_update_pool(
         )
         return {"success": True, "pool": pool, "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME MMM update-pool failed pool=%s", pool, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM update-pool transaction")
@@ -1639,7 +1673,7 @@ async def me_mmm_create_pool(
         )
         return {"success": True, "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME MMM create-pool failed collection=%s owner=%s", collection_symbol, owner, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden MMM create-pool transaction")
@@ -1657,7 +1691,7 @@ async def me_mmm_token_pools(
         result = await get_mmm_token_pools(mint_address, limit)
         return {"success": True, "mintAddress": mint_address, "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME MMM token pools failed mint=%s", mint_address, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden MMM token pools")
@@ -1682,7 +1716,7 @@ async def me_mmm_pools(
         result = await get_mmm_pools(collection_symbol, pools, owner, offset, limit, field, direction)
         return {"success": True, "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME MMM pools failed collection=%s owner=%s", collection_symbol, owner, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch Magic Eden MMM pools")
@@ -3916,7 +3950,7 @@ async def me_magic_ticket_burns(
         result = await get_magic_ticket_burn_instructions(wallet_address, mints)
         return {"success": True, "walletAddress": wallet_address, "mintCount": len(mints), "data": result}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Magic Eden API error: {e.response.text[:200]}")
+        raise magic_eden_error(e)
     except Exception:
         logger.error("ME magic ticket burns failed wallet=%s", wallet_address, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to build Magic Eden magic ticket burn transactions")
