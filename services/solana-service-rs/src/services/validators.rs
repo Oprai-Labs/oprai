@@ -46,8 +46,12 @@ struct StakewizValidator {
     name: Option<String>,
     #[serde(default)]
     image: Option<String>,
+    /// Percent — usually. Stakewiz reports some validators in basis points
+    /// (400, 500, 10000 all appear), and a `u8` cannot hold 400, so serde
+    /// rejected the ENTIRE array over a handful of rows and the picker fell
+    /// back to the anonymous RPC list every time. Read wide, normalise after.
     #[serde(default)]
-    commission: Option<u8>,
+    commission: Option<f64>,
     #[serde(default)]
     activated_stake: Option<f64>,
     #[serde(default)]
@@ -79,6 +83,20 @@ pub async fn get_top_validators(
     }
 }
 
+/// Percent, whichever unit it arrived in.
+///
+/// Anything above 100 cannot be a percentage, and basis points is the only
+/// other unit a commission is quoted in — 400 becomes 4%, 10000 becomes 100%
+/// and is then filtered out like any other validator taking everything.
+fn normalise_commission(raw: Option<f64>) -> u8 {
+    let pct = match raw {
+        Some(c) if c > 100.0 => c / 100.0,
+        Some(c) => c,
+        None => 100.0,
+    };
+    pct.clamp(0.0, 100.0).round() as u8
+}
+
 async fn from_stakewiz(http: &reqwest::Client) -> Result<Vec<ValidatorInfo>, AppError> {
     let rows: Vec<StakewizValidator> = http
         .get("https://api.stakewiz.com/validators")
@@ -95,10 +113,10 @@ async fn from_stakewiz(http: &reqwest::Client) -> Result<Vec<ValidatorInfo>, App
         // A delinquent validator is not voting, so delegating to it earns
         // nothing. It has no place in a list offered as a choice.
         .filter(|v| !v.delinquent.unwrap_or(false))
-        .filter(|v| v.commission.unwrap_or(100) <= MAX_COMMISSION)
+        .filter(|v| normalise_commission(v.commission) <= MAX_COMMISSION)
         .map(|v| ValidatorInfo {
+            commission: normalise_commission(v.commission),
             vote_account: v.vote_identity,
-            commission: v.commission.unwrap_or(0),
             activated_stake_sol: (v.activated_stake.unwrap_or(0.0) * 100.0).round() / 100.0,
             apy_estimate_pct: v.apy_estimate.map(|a| (a * 100.0).round() / 100.0),
             epoch_credits_recent: 0,
