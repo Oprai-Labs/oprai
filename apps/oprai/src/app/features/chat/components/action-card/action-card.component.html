@@ -3603,6 +3603,15 @@
                       <span class="relay-out__slip-k">bps</span>
                     }
                   </div>
+                  @if (getEditParam('recipient'); as to) {
+                    <div class="relay-out__to">
+                      <lucide-icon name="check" [size]="11" class="relay-out__to-ok" />
+                      <span class="mono">{{ to.slice(0, 6) }}…{{ to.slice(-4) }}</span>
+                      <button type="button" class="proto-evm-connect__link"
+                              [disabled]="!isEditable()"
+                              (click)="disconnectEvmWallet()">Disconnect</button>
+                    </div>
+                  }
                   <div class="relay-out__meta">
                     @if (q.feeUsd) { <span>Fee {{ q.feeUsd }}</span> }
                     @if (q.seconds !== null) { <span>·</span><span>~{{ q.seconds }}s</span> }
@@ -3616,12 +3625,26 @@
                        where the answer is missing — not as an error after. -->
                   <div class="relay-out__connect">
                     <span class="relay-out__idle">{{ relayChainName(getEditParam('destinationChainId')) }} needs a wallet to land in.</span>
-                    <button type="button" class="proto-btn-confirm relay-out__connect-btn"
-                            [disabled]="!isEditable() || evmConnecting()"
-                            (click)="connectEvmWallet('recipient')">
-                      <lucide-icon name="wallet" [size]="13" />
-                      {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
-                    </button>
+                    @if (evmPicking()) {
+                      <!-- Named, because several wallets claim the same hook
+                           and the one that wins is not the one you meant. -->
+                      <div class="relay-wallets">
+                        @for (w of evmWallets(); track w.id) {
+                          <button type="button" class="relay-wallets__row"
+                                  (click)="useEvmWallet(w.id, 'recipient')">
+                            @if (w.icon) { <img [src]="w.icon" [alt]="w.name" /> }
+                            <span>{{ w.name }}</span>
+                          </button>
+                        }
+                      </div>
+                    } @else {
+                      <button type="button" class="proto-btn-confirm relay-out__connect-btn"
+                              [disabled]="!isEditable() || evmConnecting()"
+                              (click)="connectEvmWallet('recipient')">
+                        <lucide-icon name="wallet" [size]="13" />
+                        {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
+                      </button>
+                    }
                     @if (evmError(); as e) { <span class="relay-out__err">{{ e }}</span> }
                   </div>
                 } @else {

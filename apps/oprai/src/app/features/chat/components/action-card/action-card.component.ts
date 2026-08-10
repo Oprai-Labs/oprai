@@ -2858,6 +2858,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     } catch { /* leave it unnamed rather than guess */ }
   }
 
+  /**
+   * Make the chain selects mean what they show.
+   *
+   * A `<select>` with no matching value renders its first option, and the
+   * template marks that option selected — so the card read "From chain:
+   * Solana" while the parameter was empty, and the quote sat waiting for a
+   * chain the user could see. Writing the shown value fixes the gap between
+   * what is displayed and what is held.
+   */
+  private relaySeedChains(): void {
+    if (!this.isRelayBridge()) return;
+    const origin = this.getEditParam('originChainId');
+    const dest = this.getEditParam('destinationChainId');
+    const canonicalOrigin = this.relayCanonicalChain(origin);
+    if (!origin) this.setEditParam('originChainId', String(RELAY_SOLANA_CHAIN_ID));
+    else if (canonicalOrigin !== origin) this.setEditParam('originChainId', canonicalOrigin);
+    const canonicalDest = this.relayCanonicalChain(dest);
+    if (dest && canonicalDest !== dest) this.setEditParam('destinationChainId', canonicalDest);
+  }
+
   // ── Bridge token picker ────────────────────────────────────────────────
   //
   // The card could only ever show the token the model named. Someone who
@@ -2984,32 +3004,81 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   readonly evmConnecting = signal(false);
   readonly evmError = signal<string | null>(null);
+  readonly evmWallets = signal<Array<{ id: string; name: string; icon: string | null }>>([]);
+  readonly evmPicking = signal(false);
+  private evmProviders = new Map<string, { request(a: { method: string }): Promise<string[]> }>();
 
-  /** Ask the browser's EVM wallet which address to send to. */
-  async connectEvmWallet(key: string): Promise<void> {
-    const ethereum = (window as unknown as { ethereum?: { request(a: { method: string }): Promise<string[]> } }).ethereum;
-    if (!ethereum) {
+  /**
+   * Every EVM wallet in this browser, not whichever one claimed
+   * `window.ethereum` first.
+   *
+   * With several installed they fight over that property, so asking it
+   * connected Rabby to someone reaching for MetaMask. EIP-6963 exists for
+   * exactly this: wallets announce themselves and the page chooses.
+   */
+  private discoverEvmWallets(): void {
+    const found = new Map<string, { name: string; icon: string | null }>();
+    const onAnnounce = (e: Event) => {
+      const d = (e as CustomEvent).detail as { info?: { uuid: string; name: string; icon: string }; provider?: any };
+      if (!d?.info?.uuid || !d.provider) return;
+      found.set(d.info.uuid, { name: d.info.name, icon: d.info.icon ?? null });
+      this.evmProviders.set(d.info.uuid, d.provider);
+    };
+    window.addEventListener('eip6963:announceProvider', onAnnounce);
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+    window.removeEventListener('eip6963:announceProvider', onAnnounce);
+
+    // Older wallets announce nothing and only set window.ethereum. Offering
+    // that as an unnamed choice beats offering nothing.
+    const legacy = (window as any).ethereum;
+    if (!found.size && legacy) {
+      this.evmProviders.set('legacy', legacy);
+      found.set('legacy', { name: legacy.isMetaMask ? 'MetaMask' : 'Browser wallet', icon: null });
+    }
+    this.evmWallets.set([...found].map(([id, w]) => ({ id, name: w.name, icon: w.icon })));
+  }
+
+  /** Offer the choice; connect straight away when there is only one. */
+  connectEvmWallet(key: string): void {
+    this.evmError.set(null);
+    this.discoverEvmWallets();
+    const wallets = this.evmWallets();
+    if (!wallets.length) {
       this.evmError.set('No EVM wallet found in this browser. Paste the destination address instead.');
       return;
     }
+    if (wallets.length === 1) { void this.useEvmWallet(wallets[0].id, key); return; }
+    this.evmPicking.set(true);
+  }
+
+  async useEvmWallet(id: string, key: string): Promise<void> {
+    const provider = this.evmProviders.get(id);
+    if (!provider) return;
+    this.evmPicking.set(false);
     this.evmConnecting.set(true);
     this.evmError.set(null);
     try {
-      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+      const accounts = await provider.request({ method: 'eth_requestAccounts' });
       const addr = accounts?.[0];
-      if (!addr) {
-        this.evmError.set('Your wallet returned no account.');
-        return;
-      }
+      if (!addr) { this.evmError.set('That wallet returned no account.'); return; }
       this.setEditParam(key, addr);
+      this.relayMaybeQuote();
     } catch (err: unknown) {
-      const code = (err as { code?: number })?.code;
-      this.evmError.set(code === 4001
+      this.evmError.set((err as { code?: number })?.code === 4001
         ? 'Connection refused in your wallet.'
-        : 'Could not reach your EVM wallet. Paste the destination address instead.');
+        : 'Could not reach that wallet. Paste the destination address instead.');
     } finally {
       this.evmConnecting.set(false);
     }
+  }
+
+  /** Forget the destination. The wallet stays connected to the browser; this
+   *  card simply stops naming it. */
+  disconnectEvmWallet(): void {
+    this.setEditParam('recipient', '');
+    this.evmPicking.set(false);
+    this.evmError.set(null);
+    this.relayQuote.set(null);
   }
 
   meAmountLabel(): string {
@@ -4919,6 +4988,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
     void this.ensureMeCancelTarget();
+    this.relaySeedChains();
     // The card arrives with its fields already filled by the model, and the
     // quote only ran on user input — so a bridge someone never typed into sat
     // on "pick both chains" with every chain already picked.

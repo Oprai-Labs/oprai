@@ -5928,3 +5928,37 @@
     white-space: nowrap;
   }
 }
+
+// Where the bridge lands, on the panel that says what arrives.
+.relay-out__to {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--op-text-secondary);
+
+  &-ok { color: var(--op-gain); }
+}
+
+.relay-wallets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  &__row {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border: 1px solid var(--op-border-subtle);
+    border-radius: 10px;
+    background: var(--op-bg-surface-2);
+    color: var(--op-text-primary);
+    font-size: 0.8125rem;
+    cursor: pointer;
+
+    img { width: 18px; height: 18px; border-radius: 4px; }
+    &:hover { border-color: var(--op-brand); }
+  }
+}
