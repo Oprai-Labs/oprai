@@ -3547,8 +3547,45 @@
               <div class="pump-panel">
                 <div class="pump-panel__top">
                   <span class="pump-panel__label">You send</span>
-                  <span class="pump-panel__bal">{{ relayChainName(getEditParam('originChainId')) }}</span>
+                  <!-- What the sending wallet holds, and a way to spend it all.
+                       Without it the amount is typed blind and the first news
+                       of a shortfall is a rejection at signing. -->
+                  @if (relayOriginBalance(); as bal) {
+                    <span class="pump-panel__bal">
+                      {{ relayAmountText(bal) }} {{ relayTokenDisplay('originCurrency')?.symbol }}
+                      <button type="button" class="proto-max-btn"
+                              [disabled]="!isEditable()" (click)="setMaxRelay()">Max</button>
+                    </span>
+                  } @else {
+                    <span class="pump-panel__bal">{{ relayChainName(getEditParam('originChainId')) }}</span>
+                  }
                 </div>
+
+                <!-- Leaving an EVM chain needs the wallet that can sign there.
+                     Without it Relay was asked to move funds from a Solana
+                     address on chain 56 and refused, which read as our bug. -->
+                @if (relayOriginIsEvm() && !relaySenderReady()) {
+                  <div class="relay-out__connect">
+                    <span class="relay-out__idle">{{ relayChainName(getEditParam('originChainId')) }} needs a wallet to send from.</span>
+                    <button type="button" class="proto-btn-confirm relay-out__connect-btn"
+                            [disabled]="!isEditable() || evmConnecting()"
+                            (click)="connectEvmWallet('sender')">
+                      <lucide-icon name="wallet" [size]="13" />
+                      {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
+                    </button>
+                  </div>
+                } @else if (relayEvmChainMismatch()) {
+                  <!-- Connected, but pointed elsewhere. Any balance it reports
+                       belongs to the wrong network, so none is shown. -->
+                  <div class="relay-out__connect">
+                    <span class="relay-out__idle">Your wallet is on another network.</span>
+                    <button type="button" class="proto-btn-confirm relay-out__connect-btn"
+                            [disabled]="!isEditable() || relayEvmSwitching()"
+                            (click)="switchEvmChain()">
+                      {{ relayEvmSwitching() ? 'Check your wallet…' : 'Switch to ' + relayChainName(getEditParam('originChainId')) }}
+                    </button>
+                  </div>
+                }
                 <div class="relay-quote__row">
                   <input class="relay-quote__input mono" type="text" inputmode="decimal"
                          placeholder="0"

@@ -764,6 +764,20 @@ function applyMinAmountGuard(field: FieldDef, actionType: string): FieldDef {
 /** Relay's id for Solana. Bridging here needs no second wallet. */
 export const RELAY_SOLANA_CHAIN_ID = 792703809;
 
+/** What we know about one bridgeable token. `decimals` is optional because the
+ *  quote names a token without scaling it; only the currency list carries it. */
+interface RelayTokenMeta {
+  symbol: string;
+  name: string;
+  logoURI: string | null;
+  decimals?: number;
+}
+
+/** The slice of EIP-1193 this card uses. */
+interface EvmProvider {
+  request(args: { method: string; params?: unknown[] }): Promise<any>;
+}
+
 export const RELAY_CHAINS: Array<{ label: string; value: string }> = [
   { label: 'Solana',    value: '792703809' },
   { label: 'Ethereum',  value: '1' },
@@ -2008,6 +2022,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly inputBalanceLoading = signal(false);
   readonly inputBalanceMint = computed(() => {
     const p = this.editParams();
+    // Bridging out of Solana spends a Solana token like any other card, so it
+    // gets the same balance line. Relay's native SOL is its own address; the
+    // wallet reads it under the wrapped mint.
+    if (this.isRelayBridge()) {
+      if (this.relayOriginIsEvm()) return '';
+      const cur = (p['originCurrency'] ?? '').trim();
+      return !cur || cur === ActionCardComponent.NATIVE_SOL ? this.SOL_MINT : cur;
+    }
     // For dual-token forms (CLMM / DLMM / DAMM open-position, add-liquidity), the
     // LLM often emits BOTH inputMint=<one side> AND tokenA/tokenB=<pair>. Picking
     // `inputMint` first then makes the primary row resolve to the same mint as
@@ -2737,9 +2759,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   relayMaybeQuote(): void {
     if (!this.isRelayBridge()) return;
+    // Keyed internally, so calling it on every edit costs nothing until the
+    // wallet, chain or token actually changes.
+    void this.loadRelayEvmBalance();
     const p = this.editParams();
     const key = [p['originChainId'], p['destinationChainId'], p['originCurrency'],
-                 p['destinationCurrency'], p['amount'], p['recipient']].join('|');
+                 p['destinationCurrency'], p['amount'], p['recipient'], p['sender']].join('|');
     if (key === this.relayQuoteKey) return;
     this.relayQuoteKey = key;
 
@@ -2773,6 +2798,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           amount: p['amount'],
           tradeType: 'EXACT_INPUT',
           ...(p['recipient'] ? { recipient: p['recipient'] } : {}),
+          ...(p['sender'] ? { sender: p['sender'] } : {}),
         },
       }));
       const d = resp?.quote?.details ?? resp?.details ?? {};
@@ -2827,12 +2853,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * truncated 0x — while the quote sitting beside it carried the symbol, the
    * name and the logo for both sides.
    */
-  relayTokenDisplay(key: string): { symbol: string; name: string; logoURI: string | null } | null {
+  relayTokenDisplay(key: string): RelayTokenMeta | null {
     if (!this.isRelayBridge()) return null;
     const q = this.relayQuote();
     const fromQuote = key === 'originCurrency' ? q?.inToken
       : key === 'destinationCurrency' ? q?.outToken : null;
-    if (fromQuote) return { symbol: fromQuote.symbol, name: fromQuote.name, logoURI: fromQuote.logo };
+    // The quote names the token but does not say how many decimals it has, so
+    // a cached entry that does is preferred for that one field — reading a
+    // balance with the wrong scale is a factor-of-a-million error, not a
+    // cosmetic one.
+    const cached = this.relayTokenCache().get(
+      `${this.relayCanonicalChain(this.getEditParam(key === 'originCurrency' ? 'originChainId' : 'destinationChainId'))}|${this.getEditParam(key).toLowerCase()}`,
+    );
+    if (fromQuote) {
+      return {
+        symbol: fromQuote.symbol, name: fromQuote.name, logoURI: fromQuote.logo,
+        decimals: cached?.decimals,
+      };
+    }
 
     // Before a quote there is no quote to read, and the destination token sat
     // as a coloured circle over a truncated 0x for the whole time the user was
@@ -2851,8 +2889,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return hit ?? null;
   }
 
-  private readonly relayTokenCache =
-    signal<Map<string, { symbol: string; name: string; logoURI: string | null } | null>>(new Map());
+  private readonly relayTokenCache = signal<Map<string, RelayTokenMeta | null>>(new Map());
 
   /** Name one token from Relay's currency list for its chain. */
   private async relayLookupToken(chain: string, address: string): Promise<void> {
@@ -2871,7 +2908,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const t = rows.find(r => String(r?.address ?? '').toLowerCase() === address.toLowerCase()) ?? rows[0];
       if (!t?.symbol) return;
       this.relayTokenCache.update(m => new Map(m).set(key, {
-        symbol: t.symbol, name: t.name ?? '', logoURI: t.metadata?.logoURI ?? t.metadata?.logoUri ?? t.logoURI ?? null,
+        symbol: t.symbol, name: t.name ?? '',
+        logoURI: t.metadata?.logoURI ?? t.metadata?.logoUri ?? t.logoURI ?? null,
+        decimals: typeof t.decimals === 'number' ? t.decimals : undefined,
       }));
     } catch { /* leave it unnamed rather than guess */ }
   }
@@ -3137,6 +3176,156 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return !!dest && dest !== String(RELAY_SOLANA_CHAIN_ID);
   }
 
+  /**
+   * True when the funds leave a chain only an EVM wallet can sign for.
+   *
+   * The mirror of `relayDestinationIsEvm`, and the reason a BNB→Sei quote came
+   * back "Invalid address GB5m…rBjt for chain 56": Relay checks the sender
+   * against the ORIGIN chain, and the only wallet this app authenticates is a
+   * Solana one.
+   */
+  relayOriginIsEvm(): boolean {
+    const origin = this.relayCanonicalChain(this.getEditParam('originChainId'));
+    return !!origin && origin !== String(RELAY_SOLANA_CHAIN_ID);
+  }
+
+  /** True once a sender the origin chain can actually spend from is set. */
+  relaySenderReady(): boolean {
+    if (!this.relayOriginIsEvm()) return true;
+    return /^0x[0-9a-fA-F]{40}$/.test(this.getEditParam('sender').trim());
+  }
+
+  // ── What the sending wallet actually holds ────────────────────────────────
+  //
+  // Without it the card asks for an amount with no idea whether the wallet can
+  // cover it, so the first news of a shortfall is a rejection at signing. The
+  // Solana side reuses the balance line every other card has; the EVM side has
+  // to be read through the connected wallet, because we hold no RPC for
+  // sixty-odd chains.
+
+  readonly relayEvmBalance = signal<number | null>(null);
+  readonly relayEvmSymbol = signal<string>('');
+  /** The wallet is connected but pointed at a different chain than the route
+   *  leaves from — so any balance it reports belongs to the wrong network. */
+  readonly relayEvmChainMismatch = signal(false);
+  readonly relayEvmSwitching = signal(false);
+  private relayEvmBalanceKey = '';
+  private evmProviderId: string | null = null;
+
+  private currentEvmProvider(): EvmProvider | null {
+    if (this.evmProviderId) return this.evmProviders.get(this.evmProviderId) ?? null;
+    // Only one wallet ever announced itself: it is the one that connected.
+    return this.evmProviders.size === 1 ? [...this.evmProviders.values()][0] : null;
+  }
+
+  /**
+   * Read the origin balance from the connected wallet.
+   *
+   * Guarded on the chain the wallet is actually on. A provider answers
+   * `eth_getBalance` for whatever network it is pointed at without saying so,
+   * so a wallet sitting on Ethereum would have reported its ETH as though it
+   * were the BNB about to be bridged — a wrong number is worse here than none,
+   * because Max would then fill in an amount that cannot be paid.
+   */
+  async loadRelayEvmBalance(): Promise<void> {
+    if (!this.isRelayBridge() || !this.relayOriginIsEvm()) {
+      this.relayEvmBalance.set(null);
+      this.relayEvmChainMismatch.set(false);
+      return;
+    }
+    const addr = this.getEditParam('sender').trim();
+    const chain = Number(this.relayCanonicalChain(this.getEditParam('originChainId')));
+    const token = this.getEditParam('originCurrency').trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(addr) || !chain || !token) return;
+
+    const key = `${addr}|${chain}|${token}`;
+    if (key === this.relayEvmBalanceKey) return;
+    this.relayEvmBalanceKey = key;
+
+    const provider = this.currentEvmProvider();
+    if (!provider) return;
+    try {
+      const onChain = Number(await provider.request({ method: 'eth_chainId' }));
+      if (onChain !== chain) {
+        this.relayEvmChainMismatch.set(true);
+        this.relayEvmBalance.set(null);
+        return;
+      }
+      this.relayEvmChainMismatch.set(false);
+
+      const meta = this.relayTokenDisplay('originCurrency');
+      const decimals = meta?.decimals ?? 18;
+      const raw = /^0x0{40}$/.test(token)
+        ? await provider.request({ method: 'eth_getBalance', params: [addr, 'latest'] })
+        // balanceOf(address) — selector plus the address in a 32-byte word.
+        : await provider.request({
+            method: 'eth_call',
+            params: [{ to: token, data: `0x70a08231${addr.slice(2).toLowerCase().padStart(64, '0')}` }, 'latest'],
+          });
+      const units = BigInt(raw || '0x0');
+      this.relayEvmBalance.set(Number(units) / 10 ** decimals);
+      this.relayEvmSymbol.set(meta?.symbol ?? '');
+    } catch {
+      // A wallet that will not answer is not an error worth a red line: the
+      // balance is a convenience, and the quote does not depend on it.
+      this.relayEvmBalance.set(null);
+    }
+  }
+
+  /** Point the wallet at the chain the route leaves from. It has to happen
+   *  before signing anyway; doing it here means the balance is true. */
+  async switchEvmChain(): Promise<void> {
+    const provider = this.currentEvmProvider();
+    const chain = Number(this.relayCanonicalChain(this.getEditParam('originChainId')));
+    if (!provider || !chain) return;
+    this.relayEvmSwitching.set(true);
+    this.evmError.set(null);
+    try {
+      await provider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${chain.toString(16)}` }],
+      });
+      this.relayEvmBalanceKey = '';
+      await this.loadRelayEvmBalance();
+    } catch (err: unknown) {
+      const code = (err as { code?: number })?.code;
+      this.evmError.set(code === 4902
+        ? `Your wallet does not have ${this.relayChainName(this.getEditParam('originChainId'))} configured. Add it in the wallet, then try again.`
+        : 'The network switch was declined in your wallet.');
+    } finally {
+      this.relayEvmSwitching.set(false);
+    }
+  }
+
+  /** Spend it all. The fee still has to come from somewhere, so a native
+   *  balance keeps a little back rather than producing an amount that is
+   *  arithmetically correct and unpayable. */
+  setMaxRelay(): void {
+    if (this.relayOriginIsEvm()) {
+      const b = this.relayEvmBalance();
+      if (b === null || b <= 0) return;
+      const native = /^0x0{40}$/.test(this.getEditParam('originCurrency').trim());
+      const usable = native ? Math.max(0, b - 0.002) : b;
+      if (usable <= 0) return;
+      this.setEditParam('amount', String(Number(usable.toPrecision(8))));
+    } else {
+      const b = this.inputBalance();
+      if (b === null || b <= 0) return;
+      const native = !this.getEditParam('originCurrency').trim()
+        || /^1{32}$/.test(this.getEditParam('originCurrency').trim())
+        || this.getEditParam('originCurrency').trim() === this.SOL_MINT;
+      const usable = native ? Math.max(0, b - 0.01) : b;
+      if (usable <= 0) return;
+      this.setEditParam('amount', String(Number(usable.toPrecision(8))));
+    }
+    this.relayMaybeQuote();
+  }
+
+  /** The balance line for whichever side of the bridge we are sending from. */
+  relayOriginBalance(): number | null {
+    return this.relayOriginIsEvm() ? this.relayEvmBalance() : this.inputBalance();
+  }
+
   /** True once a recipient the destination can actually accept is set. */
   relayRecipientReady(): boolean {
     const r = this.getEditParam('recipient').trim();
@@ -3162,7 +3351,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return ActionCardComponent.WALLET_ICONS[w.name.trim().toLowerCase()] ?? w.icon;
   }
   readonly evmPicking = signal(false);
-  private evmProviders = new Map<string, { request(a: { method: string }): Promise<string[]> }>();
+  private evmProviders = new Map<string, EvmProvider>();
 
   /**
    * Every EVM wallet in this browser, not whichever one claimed
@@ -3244,6 +3433,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const provider = this.evmProviders.get(id);
     if (!provider) return;
     this.closeEvmDialog();
+    this.evmProviderId = id;
     this.evmConnecting.set(true);
     this.evmError.set(null);
     try {
@@ -3251,6 +3441,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const addr = accounts?.[0];
       if (!addr) { this.evmError.set('That wallet returned no account.'); return; }
       this.setEditParam(key, addr);
+      // One wallet, both jobs. On an EVM→EVM route the same account sends and
+      // receives, and asking for it twice would be asking the same question
+      // twice. Only the side that is actually EVM gets filled: on BNB→Solana
+      // this account sends, and the Solana wallet already signed in receives.
+      if (key === 'sender' && this.relayDestinationIsEvm() && !this.getEditParam('recipient')) {
+        this.setEditParam('recipient', addr);
+      } else if (key === 'recipient' && this.relayOriginIsEvm() && !this.getEditParam('sender')) {
+        this.setEditParam('sender', addr);
+      }
+      if (this.isRelayBridge()) void this.loadRelayEvmBalance();
       this.relayMaybeQuote();
     } catch (err: unknown) {
       this.evmError.set((err as { code?: number })?.code === 4001
@@ -3261,13 +3461,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  /** Forget the destination. The wallet stays connected to the browser; this
-   *  card simply stops naming it. */
+  /** Forget the EVM wallet. It stays connected to the browser; this card
+   *  simply stops naming it — on both sides, since it was one account doing
+   *  both jobs and leaving half of it behind would quote against an address
+   *  the card no longer shows. */
   disconnectEvmWallet(): void {
     this.setEditParam('recipient', '');
+    this.setEditParam('sender', '');
     this.evmPicking.set(false);
     this.evmError.set(null);
     this.relayQuote.set(null);
+    this.relayEvmBalance.set(null);
+    this.relayEvmChainMismatch.set(false);
   }
 
   meAmountLabel(): string {
@@ -4986,6 +5191,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // can receive on. Blocking here beats sending a Solana address to Base and
     // reading the marketplace's rejection back to the user.
     if (this.isRelayBridge() && !this.relayRecipientReady()) return false;
+    // And the same on the sending side: nothing can leave an EVM chain without
+    // the wallet that signs there, which is not the one that signed in here.
+    if (this.isRelayBridge() && !this.relaySenderReady()) return false;
     return true;
   });
   readonly unverifiedDestination = computed(() => this.action?.warnUnverifiedDestination ?? false);

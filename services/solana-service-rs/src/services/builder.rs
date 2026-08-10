@@ -6303,6 +6303,14 @@ async fn build_action_inner(
             if p.recipient.as_deref().unwrap_or("").trim().is_empty() {
                 p.recipient = Some(relay::PRICING_ONLY_RECIPIENT.to_string());
             }
+            // Same for the sending side. Relay validates `user` against the
+            // origin chain, so an EVM-origin route priced with our Solana
+            // wallet is refused outright — and refusing to show a rate until a
+            // second wallet is connected hides the number that decides whether
+            // connecting is worth it.
+            if p.sender.as_deref().unwrap_or("").trim().is_empty() {
+                p.sender = Some(relay::PRICING_ONLY_RECIPIENT.to_string());
+            }
             p.origin_currency = relay::resolve_solana_origin_currency(
                 rpc,
                 user_pubkey,

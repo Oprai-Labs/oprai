@@ -569,6 +569,37 @@ fn resolve_bridge_recipient<'a>(
     }
 }
 
+/// The address the funds leave from, or a refusal that says what is needed.
+///
+/// The mirror of `resolve_bridge_recipient`, and it exists for the same reason
+/// on the other side of the route: Relay validates `user` against the ORIGIN
+/// chain. This service authenticates a Solana wallet, so every bridge leaving
+/// an EVM chain was quoted with a Solana sender and refused — "Invalid address
+/// GB5m…rBjt for chain 56" — even though the browser had the right wallet
+/// connected the whole time.
+fn resolve_bridge_sender<'a>(
+    sender: Option<&'a str>,
+    origin_chain_id: u64,
+    user_address: &'a str,
+) -> Result<&'a str, AppError> {
+    if !chain_is_evm(origin_chain_id) {
+        // Leaving Solana: the wallet that signed in is the one that signs.
+        return Ok(user_address);
+    }
+    match sender.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) if is_valid_evm_address(s) => Ok(s),
+        Some(_) => Err(AppError::InvalidParams(
+            "That sending address is not an EVM address, and this bridge leaves an EVM chain."
+                .into(),
+        )),
+        None => Err(AppError::InvalidParams(
+            "This bridge leaves an EVM chain, so it needs an EVM wallet to send from. \
+             Connect one above."
+                .into(),
+        )),
+    }
+}
+
 /// Turn a Relay deposit step into a Solana transaction the wallet can sign.
 ///
 /// Relay hands EVM origins a `{to, data, value}` and Solana origins a list of
@@ -1280,6 +1311,15 @@ pub struct RelayBridgeParams {
     #[serde(default = "default_trade_type")]
     pub trade_type: String,
     // Optional — addressing
+    /// Who is sending, when that is not the wallet this service authenticated.
+    ///
+    /// Relay validates `user` against the ORIGIN chain, and the authenticated
+    /// wallet is always a Solana one — so a bridge leaving BNB was quoted with
+    /// a Solana sender and came back "Invalid address GB5m…rBjt for chain 56".
+    /// The origin wallet is the browser's connected EVM account; it is the only
+    /// one that can sign there, so it has to be the one we name.
+    #[serde(default)]
+    pub sender: Option<String>,
     #[serde(default)]
     pub recipient: Option<String>,
     #[serde(default)]
@@ -1340,8 +1380,14 @@ pub async fn get_relay_quote_full(
     )
     .await?;
 
+    let sender = resolve_bridge_sender(
+        params.sender.as_deref(),
+        params.origin_chain_id,
+        user_address,
+    )?;
+
     let mut body = serde_json::json!({
-        "user": user_address,
+        "user": sender,
         "originChainId": canonical_chain_id(params.origin_chain_id),
         "destinationChainId": canonical_chain_id(params.destination_chain_id),
         "originCurrency": params.origin_currency,

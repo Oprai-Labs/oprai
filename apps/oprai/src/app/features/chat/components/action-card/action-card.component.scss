@@ -6268,9 +6268,15 @@
 // than as structure. On white, separation comes from an edge, not from another
 // shade of grey.
 //
-// `html:not(.dark)` because the app marks dark and leaves light implicit;
-// keyed the other way this would style neither.
-html:not(.dark) {
+// `:host-context`, not a bare `html:not(.dark)` — that shipped once and styled
+// nothing. Emulated encapsulation stamps its content attribute on EVERY
+// compound selector in the chain, so the rule compiled to
+// `html[_ngcontent-x]:not(.dark) …` and `<html>` never carries that attribute.
+// `:host-context` is the one form the shim rewrites into a real ancestor test.
+//
+// The condition is `not(.dark)` because the app marks dark and leaves light
+// implicit; keyed the other way this would style neither.
+:host-context(html:not(.dark)) {
   .relay-quote .pump-panel {
     background: var(--op-bg-elevated);
     border: 1px solid var(--op-border-default);
@@ -6291,6 +6297,17 @@ html:not(.dark) {
 
   .token-dialog__sheet,
   .wallet-dialog__sheet { box-shadow: 0 24px 64px -24px rgba(16, 24, 40, 0.25); }
+
+  // The header tint is a protocol's colour at 6% — mixed straight onto the
+  // page it turns chalky, and against white panels it read as a third,
+  // unrelated grey. Mixed into white instead it stays the same hue at a
+  // strength that belongs with the rest, and a hairline of the real accent
+  // under it does the separating that the flat band was trying to do with
+  // saturation.
+  .proto-header {
+    background: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 6%, #fff);
+    border-bottom-color: color-mix(in srgb, var(--proto-accent, var(--op-brand)) 22%, transparent);
+  }
 
   // Two lists side by side on one white sheet need something to say where one
   // ends. A framed column does it without adding a second background colour.
