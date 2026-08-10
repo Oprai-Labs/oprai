@@ -4388,8 +4388,14 @@
             } @else if (swapBlockedByImpact()) {
               <lucide-icon name="alert-circle" [size]="14" />
               {{ swapNoRoute() ? 'No route' : 'Price impact too high' }}
+            } @else if (isRelayBridge() && !relayRecipientReady()) {
+              <lucide-icon name="wallet" [size]="14" />
+              Connect a wallet to continue
             } @else if (!canApprove()) {
               <lucide-icon name="alert-circle" [size]="14" />
+              <!-- This branch belongs to borrow, the only other thing that
+                   gates canApprove. A blocked bridge said "Insufficient
+                   collateral", which is not a thing a bridge has. -->
               Insufficient collateral
             } @else {
               <img [src]="protocolConfig.icon" width="16" height="16"

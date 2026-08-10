@@ -1537,7 +1537,8 @@ function getActionFields(
       // Where it lands. On an EVM destination this is an EVM address, which
       // the user's Solana wallet cannot supply — hence the connect button the
       // template puts beside it.
-      { key: 'recipient', label: 'Recipient', type: 'address', placeholder: 'Destination wallet…' },
+      // No `recipient` row: the receive panel asks for the wallet, and two
+      // Connect buttons for one address is two places to disagree.
     );
   } else if (t === 'squid_bridge') {
     fields.push(
@@ -2811,9 +2812,45 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   relayTokenDisplay(key: string): { symbol: string; name: string; logoURI: string | null } | null {
     if (!this.isRelayBridge()) return null;
     const q = this.relayQuote();
-    if (!q) return null;
-    const t = key === 'originCurrency' ? q.inToken : key === 'destinationCurrency' ? q.outToken : null;
-    return t ? { symbol: t.symbol, name: t.name, logoURI: t.logo } : null;
+    const fromQuote = key === 'originCurrency' ? q?.inToken
+      : key === 'destinationCurrency' ? q?.outToken : null;
+    if (fromQuote) return { symbol: fromQuote.symbol, name: fromQuote.name, logoURI: fromQuote.logo };
+
+    // Before a quote there is no quote to read, and the destination token sat
+    // as a coloured circle over a truncated 0x for the whole time the user was
+    // deciding whether to connect a wallet. Relay's currency list names it
+    // without needing one.
+    const chainKey = key === 'originCurrency' ? 'originChainId' : 'destinationChainId';
+    const chain = this.relayCanonicalChain(this.getEditParam(chainKey));
+    const addr = this.getEditParam(key);
+    if (!chain || !addr) return null;
+    const hit = this.relayTokenCache().get(`${chain}|${addr.toLowerCase()}`);
+    if (hit === undefined) void this.relayLookupToken(chain, addr);
+    return hit ?? null;
+  }
+
+  private readonly relayTokenCache =
+    signal<Map<string, { symbol: string; name: string; logoURI: string | null } | null>>(new Map());
+
+  /** Name one token from Relay's currency list for its chain. */
+  private async relayLookupToken(chain: string, address: string): Promise<void> {
+    const key = `${chain}|${address.toLowerCase()}`;
+    if (this.relayTokenCache().has(key)) return;
+    // Claim the slot before awaiting, or every change-detection pass fires
+    // another request for the same token.
+    this.relayTokenCache.update(m => new Map(m).set(key, null));
+    try {
+      const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+        type: 'relay_get_currencies',
+        params: { chainIds: [Number(chain)], address },
+      }));
+      const rows: any[] = resp?.data ?? resp?.currencies ?? [];
+      const t = rows.find(r => String(r?.address ?? '').toLowerCase() === address.toLowerCase()) ?? rows[0];
+      if (!t?.symbol) return;
+      this.relayTokenCache.update(m => new Map(m).set(key, {
+        symbol: t.symbol, name: t.name ?? '', logoURI: t.metadata?.logoURI ?? null,
+      }));
+    } catch { /* leave it unnamed rather than guess */ }
   }
 
   /** Slippage is Relay's to choose unless the user takes it. */
