@@ -379,6 +379,26 @@ function parseBoolParam(val: unknown, defaultWhenAbsent = false): boolean {
   return defaultWhenAbsent;
 }
 
+/**
+ * First value that is actually a number, as a string.
+ *
+ * These amounts were selected with `p['amountX'] ?? p['amountA'] ?? '0'`, and
+ * `??` only steps past null and undefined. An `amountX` holding `""` or a
+ * surviving `50%` sentinel therefore OUTRANKED the real number sitting in
+ * `amountA` and went to the backend, which parses it as f64 and rejects the
+ * build — surfacing to the user as a generic "something went wrong".
+ * A value that is not a number is not an answer; fall through to one that is.
+ */
+function firstNumericParam(...vals: Array<string | undefined>): string {
+  for (const v of vals) {
+    if (v === undefined || v === null) continue;
+    const s = String(v).trim();
+    if (s === '') continue;
+    if (Number.isFinite(Number(s))) return s;
+  }
+  return '0';
+}
+
 const FRONTEND_ACTION_TYPES = [
   // Jupiter Lend SDK — Rust only returns preview, frontend builds actual TX
   'lend', 'withdraw_lend', 'borrow', 'repay',
@@ -3133,8 +3153,8 @@ export class SolanaActionService {
           // the card disables that input, so the key would otherwise vanish
           // from the JSON and the backend would reject the whole action for a
           // missing field. Zero is the answer, not absence.
-          amountX: p['amountX'] ?? p['amountA'] ?? '0',
-          amountY: p['amountY'] ?? p['amountB'] ?? '0',
+          amountX: firstNumericParam(p['amountX'], p['amountA']),
+          amountY: firstNumericParam(p['amountY'], p['amountB']),
           minBinId,
           maxBinId,
           ...(resolvedFromSpread ? {} : {
@@ -3200,8 +3220,8 @@ export class SolanaActionService {
           // the card disables that input, so the key would otherwise vanish
           // from the JSON and the backend would reject the whole action for a
           // missing field. Zero is the answer, not absence.
-          amountX: p['amountX'] ?? p['amountA'] ?? '0',
-          amountY: p['amountY'] ?? p['amountB'] ?? '0',
+          amountX: firstNumericParam(p['amountX'], p['amountA']),
+          amountY: firstNumericParam(p['amountY'], p['amountB']),
           minBinId,
           maxBinId,
           ...(resolvedFromSpread ? {} : {
@@ -3224,8 +3244,8 @@ export class SolanaActionService {
           // the card disables that input, so the key would otherwise vanish
           // from the JSON and the backend would reject the whole action for a
           // missing field. Zero is the answer, not absence.
-          amountX: p['amountX'] ?? p['amountA'] ?? '0',
-          amountY: p['amountY'] ?? p['amountB'] ?? '0',
+          amountX: firstNumericParam(p['amountX'], p['amountA']),
+          amountY: firstNumericParam(p['amountY'], p['amountB']),
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 100,
           strategy: p['strategy'],
         };
@@ -3882,8 +3902,8 @@ export class SolanaActionService {
         return {
           pool: p['pool'] ?? p['poolId'],
           // One side is enough; the other follows from the pool's ratio.
-          amountX: p['amountX'] ?? p['amountA'] ?? '0',
-          amountY: p['amountY'] ?? p['amountB'] ?? '0',
+          amountX: firstNumericParam(p['amountX'], p['amountA']),
+          amountY: firstNumericParam(p['amountY'], p['amountB']),
           ...(p['position'] ? { position: p['position'] } : {}),
           ...(p['slippageBps'] ? { slippageBps: parseInt(p['slippageBps']) } : {}),
         };
