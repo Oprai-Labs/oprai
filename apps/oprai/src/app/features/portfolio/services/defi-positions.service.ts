@@ -802,6 +802,62 @@ export class DefiPositionsService {
         });
       }
 
+      // ── Open CLMM positions ──────────────────────────────────────────
+      //
+      // The two mappers above are for FARMS and LOCKS, and both gate on fields
+      // a CLMM position does not have (`stakedAmount`, `lockNftMint`). So an
+      // open concentrated-liquidity position — the most common Raydium
+      // position there is — fell through both and the wallet looked empty.
+      // The service returns them under the same `positions` array, marked
+      // `kind: 'clmm'`.
+      const clmmRows: any[] = [
+        ...(Array.isArray(farmPayload?.positions) ? farmPayload.positions : []),
+        ...(Array.isArray(lockedPayload?.positions) ? lockedPayload.positions : []),
+      ].filter((r: any) => r?.kind === 'clmm' && !r?.empty);
+
+      // The same position can arrive from both calls — they are two views of
+      // one wallet — so key by position id.
+      const seenClmm = new Set<string>();
+      const clmmItems: PositionItem[] = [];
+      for (const r of clmmRows) {
+        const id = String(r.positionId ?? '');
+        if (!id || seenClmm.has(id)) continue;
+        seenClmm.add(id);
+        const symA = r.mintA?.symbol ?? 'A';
+        const symB = r.mintB?.symbol ?? 'B';
+        const amountA = Number(r.amountA ?? 0);
+        const amountB = Number(r.amountB ?? 0);
+        clmmItems.push({
+          label: r.pair ?? `${symA}/${symB}`,
+          tokens: [
+            { symbol: symA, amount: amountA, logoUri: this.resolveTokenLogo(symA, r.mintA?.address ?? null), mint: r.mintA?.address },
+            { symbol: symB, amount: amountB, logoUri: this.resolveTokenLogo(symB, r.mintB?.address ?? null), mint: r.mintB?.address },
+          ],
+          // This endpoint returns amounts, not USD, and there is no pricing
+          // helper on this service. Null, not zero — zero would render as a
+          // worthless position rather than an unpriced one.
+          totalUsdValue: null,
+          metadata: {
+            poolId: r.poolId ?? null,
+            positionId: id,
+            tickLower: r.tickLower ?? null,
+            tickUpper: r.tickUpper ?? null,
+          },
+          apy: null,
+          claimableUsd: null,
+        });
+      }
+      if (clmmItems.length > 0) {
+        out.push({
+          protocolId: 'raydium',
+          protocolName: 'Raydium',
+          protocolLogoUri: logo,
+          category: 'liquidity-pool',
+          positions: clmmItems,
+          totalUsdValue: 0,
+        });
+      }
+
       return out;
     } catch {
       return [];
