@@ -8,7 +8,7 @@ import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, S
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { ParsedAction, IntentParserService } from '../../services/intent-parser.service';
-import { SolanaActionService, ValidatorInfo, StakeAccountInfo } from '../../services/solana-action.service';
+import { SolanaActionService, ValidatorInfo, StakeAccountInfo, MarinadeTicket } from '../../services/solana-action.service';
 import { ChatApiService, StoredActionResult } from '../../services/chat-api.service';
 import { UploadService } from '@core/services/upload.service';
 import { JupiterLendService, LEND_SUPPORTED_ASSETS, LendActionInfo, LendBorrowInfo } from '@core/services/market/jupiter-lend.service';
@@ -839,7 +839,8 @@ function getActionFields(
       { key: 'slippageBps', label: 'Slippage', type: 'number', placeholder: '0.5', suffix: '%', half: true, min: 0, max: 100, step: '0.1', divisor: 100 },
     );
   } else if (t === 'marinade_claim_ticket') {
-    fields.push({ key: 'ticketAccount', label: 'Ticket Account', type: 'address', placeholder: 'Ticket pubkey...', required: true, hint: 'Ticket ready after ~2 epochs' });
+    // Picked from the wallet's own tickets below, not typed.
+    return [];
   // ── Streamflow ────────────────────────────────────────────────────────────
   } else if (t === 'streamflow_create') {
     fields.push(
@@ -2478,6 +2479,33 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isTransfer = computed(() => this.action?.type === 'transfer');
   readonly isCloseAccounts = computed(() => this.action?.type === 'close_accounts');
   readonly isBurn = computed(() => this.action?.type === 'burn');
+  // ── Marinade tickets ─────────────────────────────────────────────────────
+  //
+  // A delayed unstake hands back a ticket pubkey and the user never sees it
+  // again — it matures days later, in another session. Asking them to paste it
+  // is asking for something only the chain still knows.
+
+  readonly isMarinadeClaim = computed(() => this.action?.type === 'marinade_claim_ticket');
+  readonly marinadeTickets = signal<MarinadeTicket[]>([]);
+  readonly marinadeTicketsLoading = signal(false);
+
+  async loadMarinadeTickets(): Promise<void> {
+    const owner = this.walletService.publicKey();
+    if (!owner || !this.isMarinadeClaim() || !this.isEditable()) return;
+    this.marinadeTicketsLoading.set(true);
+    try {
+      const rows = await this.actionService.getMarinadeTickets(owner);
+      this.marinadeTickets.set(rows);
+      // One claimable ticket is not a choice worth making.
+      const ready = rows.filter(r => r.claimable);
+      if (ready.length === 1 && !this.getEditParam('ticketAccount')) {
+        this.setEditParam('ticketAccount', ready[0].address);
+      }
+    } finally {
+      this.marinadeTicketsLoading.set(false);
+    }
+  }
+
   /** Every liquid-staking action: one panel, six action types, one rate. */
   readonly isLstPanel = computed(() => this.lstActionConfig() !== null);
 
@@ -5140,9 +5168,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (!this.getEditParam('to').trim()) return 'Enter a recipient';
       if (this.recipientState().kind === 'invalid') return 'That recipient is not valid';
     }
+    if (this.isMarinadeClaim()) void this.loadMarinadeTickets();
     if (this.isCloseAccounts()) {
       if (!this.emptyAccountsLoading() && !this.emptyAccounts().length) return 'Nothing to close';
       if (this.emptyAccounts().length && !this.emptySelected().size) return 'Pick at least one';
+    }
+    if (this.isMarinadeClaim()) {
+      if (!this.getEditParam('ticketAccount').trim()) return 'Pick a ticket to claim';
+      const t = this.marinadeTickets().find(x => x.address === this.getEditParam('ticketAccount'));
+      if (t && !t.claimable) return `Not claimable until epoch ${t.claimableEpoch}`;
     }
     if (this.isBurn()) {
       if (!this.getEditParam('mint').trim()) return 'Pick a token to burn';

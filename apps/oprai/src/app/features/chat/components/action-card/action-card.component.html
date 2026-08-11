@@ -407,7 +407,7 @@
          computed the next time it catches someone. -->
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
-         || isBurn() || isLstPanel()) {
+         || isBurn() || isLstPanel() || isMarinadeClaim()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -4162,6 +4162,52 @@
         } @else {
           <div class="dca-cancel-summary dca-cancel-summary--muted">Cancels your active DCA order.</div>
         }
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
+         MARINADE CLAIM — the wallet's own matured tickets
+         ══════════════════════════════════════════════════════════ -->
+    @if (isMarinadeClaim()) {
+      <div class="stake-panels">
+        <div class="pump-panel">
+          <div class="pump-panel__top">
+            <span class="pump-panel__label">Delayed-unstake tickets</span>
+            @if (marinadeTicketsLoading()) { <span class="proto-balance-dots">···</span> }
+          </div>
+
+          @if (!marinadeTicketsLoading() && !marinadeTickets().length) {
+            <span class="pump-panel__usd">
+              No tickets on this wallet. A delayed unstake creates one; it becomes
+              claimable about two epochs later.
+            </span>
+          } @else {
+            <div class="vlist">
+              @for (t of marinadeTickets(); track t.address) {
+                <button type="button" class="vrow"
+                        [class.vrow--on]="getEditParam('ticketAccount') === t.address"
+                        [disabled]="!isEditable() || !t.claimable"
+                        (click)="setEditParam('ticketAccount', t.address)">
+                  <span class="vrow__text">
+                    <span class="vrow__name">{{ t.solAmount | number:'1.0-4' }} SOL</span>
+                    <span class="vrow__meta">
+                      @if (t.claimable) { Ready to claim }
+                      @else { Claimable from epoch {{ t.claimableEpoch }} }
+                      <span class="vrow__dot">·</span>
+                      <span class="mono">{{ t.address.slice(0, 4) }}…{{ t.address.slice(-4) }}</span>
+                    </span>
+                  </span>
+                  @if (t.claimable) {
+                    <span class="vrow__apy">
+                      <span class="vrow__apy-v mono">+{{ t.solAmount | number:'1.0-4' }}</span>
+                      <span class="vrow__apy-k">SOL</span>
+                    </span>
+                  }
+                </button>
+              }
+            </div>
+          }
+        </div>
       </div>
     }
 
