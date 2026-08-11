@@ -17,8 +17,6 @@
     "@marinade.finance/marinade-ts-sdk": "^5.0.18",
     "@meteora-ag/cp-amm-sdk": "^1.4.5",
     "@meteora-ag/dlmm": "^1.9.4",
-    "@mrgnlabs/marginfi-client-v2": "^6.4.1",
-    "@mrgnlabs/mrgn-common": "^2.0.7",
     "@orca-so/common-sdk": "^0.6.4",
     "@orca-so/whirlpools-sdk": "^0.20.0",
     "@raydium-io/raydium-sdk-v2": "^0.2.41-alpha",

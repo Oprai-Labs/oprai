@@ -476,7 +476,7 @@ pub struct JupPortfolioPositionsParams {
     #[serde(default)]
     pub wallet: Option<String>,
     /// Comma-separated platform IDs to filter results (optional).
-    /// E.g. "jupiter,kamino,marginfi". Omit to return all platforms.
+    /// E.g. "jupiter,kamino". Omit to return all platforms.
     #[serde(default)]
     pub platforms: Option<String>,
 }

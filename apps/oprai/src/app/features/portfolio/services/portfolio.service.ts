@@ -646,7 +646,6 @@ export class PortfolioService {
         // one retry; trimming 4s off shaves that straight off first-paint time.
         fetchOne(this.defiPositionsService.getLendingPositions(walletAddress), 9_000),
         fetchOne(this.defiPositionsService.getKaminoPositions(walletAddress)),
-        fetchOne(this.defiPositionsService.getMarginFiPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getOrcaPositions()),
         fetchOne(this.defiPositionsService.getRaydiumClmmPositions(walletAddress)),
         fetchOne(this.defiPositionsService.getMeteoraPositions(walletAddress)),

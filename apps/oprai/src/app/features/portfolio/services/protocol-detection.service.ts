@@ -40,7 +40,6 @@ const PROTOCOL_LOGOS: Record<string, string> = {
   'jupiter': 'assets/icons/protocols/jupiter.webp',
   'raydium': 'assets/icons/protocols/raydium.png',
   'kamino': 'assets/icons/protocols/kamino.webp',
-  'marginfi': 'assets/icons/protocols/marginfi.webp',
   'orca': 'assets/icons/protocols/orca.webp',
   // app.meteora.ag/favicon.ico ships an .ico that browsers crop oddly in our
   // 22px circle. Use their CDN-hosted PNG logo instead.
@@ -63,7 +62,6 @@ const KNOWN_PROGRAMS: Record<string, string> = {
   '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': 'Raydium AMM v4',
   'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc': 'Orca Whirlpool',
   'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo': 'Meteora DLMM',
-  'MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA': 'MarginFi v2',
   'KLend2g3cP87ezdnapCai5XhzGSHM4D6M5TqNmhxUt': 'Kamino Lending',
 };
 

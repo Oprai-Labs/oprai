@@ -146,9 +146,6 @@ const DATA_ONLY_ACTION_TYPES_LIST: string[] = [
   // Magic Eden data queries
   'me_collection_info', 'me_nft_info', 'me_wallet_nfts',
   'me_collection_activity', 'me_listings', 'me_offers', 'me_collection_nfts',
-  // MarginFi data queries
-  'marginfi_account_info', 'marginfi_banks', 'marginfi_bank_detail', 'marginfi_health',
-  'marginfi_points', 'marginfi_user_accounts',
   // Solend data queries
   'solend_user_info', 'solend_reserves', 'solend_market',
   // Jito — bundle submits directly to Jito API; transaction field is null from Rust
@@ -254,7 +251,7 @@ const SWAP_ACTION_TYPES = ['swap'];
 // Jito Finance API also returns versioned transactions.
 // Versioned (V0) transactions: returned by external DEX/protocol APIs via the Rust backend.
 // Legacy transactions (bincode-serialized): deserialized with Transaction.from() — NOT listed here.
-//   Legacy: marginfi, solend, marinade, bonkfun, magic_eden (all use Transaction::new_unsigned)
+//   Legacy: solend, marinade, bonkfun, magic_eden (all use Transaction::new_unsigned)
 //   Stub (JSON placeholder): meteora — listed here so when real SDK is wired they work correctly.
 const VERSIONED_TX_TYPES: string[] = [
   // Jupiter Trigger / Recurring API → versioned
@@ -1468,7 +1465,7 @@ export class SolanaActionService {
     const releasePending = () => this._pendingActions.delete(actionKey);
 
     // ── Remap generic lend/borrow/repay/withdraw_lend to protocol-specific types ──
-    // When the AI generates [ACTION:lend] protocol=marginfi, route to marginfi_deposit, etc.
+    // When the AI generates [ACTION:lend] protocol=kamino, route to kamino_deposit, etc.
     // Only protocol=jupiter (or unspecified) stays on the frontend Jupiter Lend path.
     action = this.remapLendingAction(action);
 
@@ -2323,19 +2320,15 @@ export class SolanaActionService {
     // Map: (generic action type, protocol) → backend action type
     const REMAP: Record<string, Record<string, string>> = {
       lend: {
-        marginfi: 'marginfi_deposit',
         kamino:   'kamino_deposit',
       },
       withdraw_lend: {
-        marginfi: 'marginfi_withdraw',
         kamino:   'kamino_withdraw',
       },
       borrow: {
-        marginfi: 'marginfi_borrow',
         kamino:   'kamino_borrow',
       },
       repay: {
-        marginfi: 'marginfi_repay',
         kamino:   'kamino_repay',
       },
     };
@@ -2343,10 +2336,9 @@ export class SolanaActionService {
     const remappedType = REMAP[action.type]?.[protocol];
     if (!remappedType) return action;
 
-    // Normalize params: marginfi uses `bank`, kamino uses `token`, solend uses `asset`
+    // Normalize params: kamino uses `token`, solend uses `asset`
     const token = action.params['token'] ?? action.params['asset'] ?? action.params['bank'] ?? action.params['reserve'];
     const extraParams: Record<string, string> = {};
-    if (protocol === 'marginfi' && token) extraParams['bank'] = token;
     if (protocol === 'kamino' && token) extraParams['token'] = token;
     if (protocol === 'solend' && token) extraParams['asset'] = token;
 
@@ -3351,149 +3343,6 @@ export class SolanaActionService {
       case 'marinade_claim':
         return {
           ticketAccount: p['ticketAccount'] ?? p['ticket_account'] ?? p['ticket'],
-        };
-      // ── marginfi Protocol Actions ────────────────────────────────────────────────
-      case 'marginfi_create_account':
-        return {
-          referralCode: p['referralCode'],
-        };
-      case 'marginfi_create_account_pda':
-        return {
-          ...(p['accountIndex'] !== undefined ? { accountIndex: parseInt(p['accountIndex'] as string) } : {}),
-          ...(p['thirdPartyId'] !== undefined ? { thirdPartyId: parseInt(p['thirdPartyId'] as string) } : {}),
-        };
-      case 'marginfi_deposit':
-        return {
-          bank: p['bank'] ?? p['token'],
-          amount: p['amount'],
-          account: p['account'],
-          depositUpToLimit: p['depositUpToLimit'] !== undefined ? parseBoolParam(p['depositUpToLimit']) : undefined,
-        };
-      case 'marginfi_withdraw':
-        return {
-          bank: p['bank'] ?? p['token'],
-          amount: p['amount'],
-          account: p['account'],
-          withdrawAll: p['withdrawAll'] !== undefined ? parseBoolParam(p['withdrawAll']) : undefined,
-        };
-      case 'marginfi_borrow':
-        return {
-          bank: p['bank'] ?? p['token'],
-          amount: p['amount'],
-          account: p['account'],
-        };
-      case 'marginfi_repay':
-        return {
-          bank: p['bank'] ?? p['token'],
-          amount: p['amount'],
-          account: p['account'],
-          repayAll: p['repayAll'] !== undefined ? parseBoolParam(p['repayAll']) : undefined,
-        };
-      case 'marginfi_add_collateral':
-        return {
-          bank: p['bank'] ?? p['token'],
-          amount: p['amount'],
-          account: p['account'],
-        };
-      case 'marginfi_withdraw_collateral':
-        return {
-          bank: p['bank'] ?? p['token'],
-          amount: p['amount'],
-          account: p['account'],
-        };
-      case 'marginfi_account_info':
-        return { account: p['account'], wallet: p['wallet'] };
-      case 'marginfi_banks':
-        return { limit: p['limit'] ? parseInt(p['limit']) : undefined };
-      case 'marginfi_health':
-        return { account: p['account'], wallet: p['wallet'] };
-      case 'marginfi_points':
-        return { wallet: p['wallet'] };
-      case 'marginfi_close_account':
-        return { account: p['account'] };
-      case 'marginfi_liquidate':
-        return {
-          account: p['account'],
-          liquidateeAccount: p['liquidateeAccount'] ?? p['liquidatee'],
-          assetBank: p['assetBank'],
-          liabBank: p['liabBank'],
-          assetAmount: p['assetAmount'] ?? p['amount'],
-        };
-      case 'marginfi_bank_detail':
-        return { bank: p['bank'] ?? p['token'] };
-      case 'marginfi_user_accounts':
-        return {
-          wallet: p['wallet'],
-          maxIndex: p['maxIndex'] ? parseInt(p['maxIndex']) : undefined,
-        };
-      // ── MarginFi advanced operations (arrays + integer params) ────────────────
-      case 'marginfi_flashloan_start':
-        return {
-          ...(p['account'] ? { account: p['account'] } : {}),
-          endIndex: parseInt(p['endIndex'] ?? p['end_index'] ?? '0'),
-        };
-      case 'marginfi_place_order': {
-        const banks = p['banks'];
-        return {
-          ...(p['account'] ? { account: p['account'] } : {}),
-          limit: p['limit'],
-          banks: typeof banks === 'string'
-            ? banks.split(',').map((b: string) => b.trim()).filter(Boolean)
-            : Array.isArray(banks) ? banks : [],
-          maxDebtCoverage: p['maxDebtCoverage'] ?? p['max_debt_coverage'],
-          orderSide: parseInt(p['orderSide'] ?? p['order_side'] ?? '0'),
-        };
-      }
-      case 'marginfi_set_keeper_flags': {
-        const kfBanks = p['banks'];
-        return {
-          ...(p['account'] ? { account: p['account'] } : {}),
-          ...(kfBanks !== undefined ? {
-            banks: typeof kfBanks === 'string'
-              ? kfBanks.split(',').map((b: string) => b.trim()).filter(Boolean)
-              : Array.isArray(kfBanks) ? kfBanks : [],
-          } : {}),
-        };
-      }
-      // ── MarginFi additional TX actions ───────────────────────────────────────
-      case 'marginfi_claim_emissions':
-      case 'marginfi_settle_emissions':
-      case 'marginfi_clear_emissions':
-        return {
-          bank: p['bank'] ?? p['token'],
-          ...(p['account'] ? { account: p['account'] } : {}),
-          ...(p['emissionsMint'] ? { emissionsMint: p['emissionsMint'] } : {}),
-        };
-      case 'marginfi_withdraw_emissions_permissionless':
-        return {
-          account: p['account'],
-          bank: p['bank'] ?? p['token'],
-          ...(p['emissionsMint'] ? { emissionsMint: p['emissionsMint'] } : {}),
-        };
-      case 'marginfi_update_emissions_destination':
-        return {
-          destination: p['destination'],
-          ...(p['account'] ? { account: p['account'] } : {}),
-        };
-      case 'marginfi_close_balance':
-        return {
-          bank: p['bank'] ?? p['token'],
-          ...(p['account'] ? { account: p['account'] } : {}),
-        };
-      case 'marginfi_transfer_account':
-        return {
-          sourceAccount: p['sourceAccount'] ?? p['source_account'],
-          destinationAccount: p['destinationAccount'] ?? p['destination_account'],
-        };
-      case 'marginfi_flashloan_end':
-        return {
-          ...(p['account'] ? { account: p['account'] } : {}),
-        };
-      case 'marginfi_close_order':
-        return {
-          order: p['order'],
-          feeRecipient: p['feeRecipient'] ?? p['fee_recipient'],
-          ...(p['account'] ? { account: p['account'] } : {}),
         };
       // ── Relay advanced TX actions ────────────────────────────────────────────
       case 'relay_claim_app_fees':

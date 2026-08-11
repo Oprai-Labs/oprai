@@ -424,7 +424,6 @@ class RealTimeAnalytics:
             "marinade": "low",
             "jup.sol": "low",
             "kamino": "medium",
-            "marginfi": "medium",
             "solend": "medium",
             "raydium": "medium",
             "orca": "medium",

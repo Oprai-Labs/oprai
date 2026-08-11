@@ -8,7 +8,6 @@ import { Injectable } from '@angular/core';
  *
  * Why not hit individual protocol APIs (Jito kobe, Sanctum, Marinade)?
  * One round-trip covers every LST + every lend market in our portfolio
- * surface (Jupiter Lend, Kamino, MarginFi, Save, Solend). Each pool also
  * carries the project name we use to match against our internal protocolId.
  *
  * Values are returned as percentages (5.66 not 0.0566) — matches the rest

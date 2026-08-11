@@ -9,7 +9,7 @@ Modular Structure:
     - solana_action_queries.txt   : QUERY definitions (18 query types)
     - solana_action_core.txt     : Transfer, swap, stake, burn, etc.
     - solana_action_dex.txt      : Jupiter, Raydium, Orca, Meteora
-    - solana_action_lending.txt  : Kamino, MarginFi, Solend
+    - solana_action_lending.txt  : Kamino, Jupiter Lend, Solend
     - solana_action_staking.txt  : Marinade, Jito
     - solana_action_nft.txt     : Tensor, Magic Eden, PumpFun
     - solana_action_crosschain.txt: Bridge, Wormhole, Relay

@@ -1388,10 +1388,6 @@ _CLAIM_GUIDANCE: dict[str, str] = {
         "To collect Meteora position fees, use meteora_claim_fees with your position address. "
         "For farm rewards, use meteora_claim_rewards."
     ),
-    "marginfi": (
-        "MarginFi emissions are claimed via marginfi_claim_emissions. "
-        "Points (seasonal) are tracked off-chain — check app.marginfi.com."
-    ),
 }
 
 _VOTE_PORTALS: dict[str, str] = {
@@ -1402,8 +1398,6 @@ _VOTE_PORTALS: dict[str, str] = {
     "kamino": "https://app.kamino.finance/governance",
     "kmno": "https://app.kamino.finance/governance",
     "orca": "https://governance.orca.so",
-    "marginfi": "https://app.marginfi.com/governance",
-    "mrfn": "https://app.marginfi.com/governance",
     "jito": "https://gov.jito.network",
 }
 
@@ -2246,9 +2240,6 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "kamino_yield_history",
     "kamino_airdrop_allocations", "kamino_airdrop_metrics",
     "kamino_farm_transactions",
-    # MarginFi read-only
-    "marginfi_account_info", "marginfi_bank_detail", "marginfi_banks",
-    "marginfi_health", "marginfi_points", "marginfi_user_accounts",
     # Jupiter data — most live in ActionType (action_schemas.py); only the
     # three portfolio reads (positions / staked-jup / platforms) are wired
     # through _DISPATCH so the LLM can call them directly without going

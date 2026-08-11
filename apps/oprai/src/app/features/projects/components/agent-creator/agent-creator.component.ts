@@ -1482,7 +1482,6 @@ export class AgentCreatorComponent {
   readonly availableProtocols = [
     'Jupiter', 'Orca', 'Raydium', 'Meteora',
     'Jito', 'Marinade',
-    'Kamino', 'MarginFi', 'Solend',
     'Wormhole', 'Relay',
   ];
 

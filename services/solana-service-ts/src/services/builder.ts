@@ -7,7 +7,6 @@ import { appError, BuildResponse, BuildRequest } from "../types/index";
 
 // Protocol services
 import * as jupiter from "./jupiter";
-import * as marginfi from "./marginfi";
 import * as transfer from "./transfer";
 import * as kamino from "./kamino";
 import * as kaminoFarm from "./kamino_farm";
@@ -68,46 +67,6 @@ export async function buildAction(
       return jupiter.getPrice(p(params));
     case "jup_token_search":
       return jupiter.searchTokens(p(params));
-
-    // ── MarginFi ─────────────────────────────────────────────────────────────
-    case "marginfi_create_account":
-      return marginfi.buildCreateAccount(p(params), userWallet);
-    case "marginfi_close_account":
-      return marginfi.buildCloseAccount(p(params), userWallet);
-    case "marginfi_deposit":
-      return marginfi.buildDeposit(p(params), userWallet);
-    case "marginfi_withdraw":
-      return marginfi.buildWithdraw(p(params), userWallet);
-    case "marginfi_borrow":
-      return marginfi.buildBorrow(p(params), userWallet);
-    case "marginfi_repay":
-      return marginfi.buildRepay(p(params), userWallet);
-    case "marginfi_liquidate":
-      return marginfi.buildLiquidate(p(params), userWallet);
-    case "marginfi_claim_emissions":
-      return marginfi.buildClaimEmissions(p(params), userWallet);
-    case "marginfi_loop":
-      return marginfi.buildLoop(p(params), userWallet);
-    case "marginfi_repay_with_collateral":
-      return marginfi.buildRepayWithCollateral(p(params), userWallet);
-    case "marginfi_flash_loan":
-      return marginfi.buildFlashLoan(p(params), userWallet);
-    case "marginfi_withdraw_all":
-      return marginfi.buildWithdrawAll(p(params), userWallet);
-    case "marginfi_move_position":
-      return marginfi.buildMovePosition(p(params), userWallet);
-    case "marginfi_account_info":
-      return marginfi.getAccountInfo(p(params), userWallet);
-    case "marginfi_banks":
-      return marginfi.getBanks(params, userWallet);
-    case "marginfi_user_accounts":
-      return marginfi.getUserAccounts_(params, userWallet);
-    case "marginfi_user_balances":
-      // Detailed per-bank balance view (deposit/borrow side, USD, APY).
-      // Used by the portfolio dashboard; transactions live in their own cases.
-      return marginfi.getUserBalances(params, userWallet);
-    case "marginfi_health":
-      return marginfi.getHealth(p(params), userWallet);
 
     // ── Kamino ───────────────────────────────────────────────────────────────
     case "lend":

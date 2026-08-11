@@ -13,7 +13,6 @@ pub mod jupsol;
 pub mod kamino;
 pub mod limit_order;
 pub mod magic_eden;
-pub mod marginfi;
 pub mod marinade;
 pub mod memo;
 pub mod meteora;

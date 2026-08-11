@@ -173,7 +173,7 @@ Look for:
     - `inputMint` ≠ token user said to spend / sell, OR
     - `outputMint` ≠ token user said to buy / receive, OR
     - `amount` ≠ the number the user typed (regardless of side).
-- Wrong protocol routing (user said "kamino" but action_type=marginfi_*).
+- Wrong protocol routing (user said "kamino" but action_type=jupiter_*).
 - Address-shaped fabrication (params contain a base58 mint but the user
   never mentioned that token by symbol or address; cross-reference the
   user message text).

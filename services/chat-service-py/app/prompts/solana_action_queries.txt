@@ -208,7 +208,7 @@ Format: [QUERY:lend_positions] wallet=<address|self>
 
 Use this when the user asks to SEE their Jupiter Lend positions: deposits (earn), borrows, health factor, liquidation risk, APY earned.
 
-**CRITICAL**: Use this for Jupiter Lend positions specifically. For other protocols (marginfi, kamino, solend) use [QUERY:positions] instead.
+**CRITICAL**: Use this for Jupiter Lend positions specifically. For other protocols (kamino, solend) use [QUERY:positions] instead.
 
 Examples:
 - "Show my Jupiter Lend positions" → query_onchain("lend_positions", {"wallet": "self"})

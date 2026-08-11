@@ -30,11 +30,6 @@ from app.plugins.defi_plugins import (
     MeteoraCreatePoolAction, MeteoraClaimFeesAction,
     MeteoraClaimRewardsAction, MeteoraStakeAction,
     MeteoraUnstakeAction, MeteoraHarvestAction,
-    # Marginfi
-    MarginfiPlugin, MarginfiCreateAccountAction, MarginfiDepositAction,
-    MarginfiWithdrawAction, MarginfiBorrowAction, MarginfiRepayAction,
-    MarginfiDepositCollateralAction, MarginfiWithdrawCollateralAction,
-    MarginfiCloseAccountAction,
     # Orca
     OrcaPlugin, OrcaSwapAction, OrcaLiquidityAction,
     # Kamino
@@ -264,59 +259,8 @@ class TestMeteoraPlugin:
 
 
 # ---------------------------------------------------------------------------
-# 3. Marginfi Plugin
 # ---------------------------------------------------------------------------
 
-class TestMarginfiPlugin:
-    def setup_method(self):
-        self.plugin = MarginfiPlugin()
-
-    def test_id_and_name(self):
-        assert self.plugin.id == "marginfi"
-
-    def test_action_count(self):
-        assert len(self.plugin.actions) == 8
-
-    def test_create_account_no_required(self):
-        action = MarginfiCreateAccountAction()
-        valid, _ = action.validate_params({})
-        assert valid
-
-    def test_deposit_required_params(self):
-        action = MarginfiDepositAction()
-        for param in ["account", "bank", "amount"]:
-            p = {"account": "acc", "bank": "bnk", "amount": 10.0}
-            del p[param]
-            valid, err = action.validate_params(p)
-            assert not valid
-            assert param in err
-
-    def test_deposit_alias(self):
-        action = MarginfiDepositAction()
-        assert "marginfi_lend" in action.aliases
-
-    def test_withdraw_allow_borrow_type(self):
-        action = MarginfiWithdrawAction()
-        valid, err = action.validate_params({
-            "account": "acc", "bank": "bnk", "amount": 10.0, "allowBorrow": "yes"
-        })
-        assert not valid
-        assert "boolean" in err
-
-    def test_close_account_required(self):
-        action = MarginfiCloseAccountAction()
-        valid, _ = action.validate_params({"account": "accAddr"})
-        assert valid
-        valid2, _ = action.validate_params({})
-        assert not valid2
-
-    @pytest.mark.asyncio
-    async def test_borrow_execute_type(self):
-        action = MarginfiBorrowAction()
-        with patch("app.plugins.defi_plugins._build_action", new_callable=AsyncMock) as mock_build:
-            mock_build.return_value = ok_result()
-            await action.execute({"account": "acc", "bank": "bnk", "amount": 5.0}, make_ctx())
-            mock_build.assert_called_once_with("marginfi_borrow", {"account": "acc", "bank": "bnk", "amount": 5.0})
 
 
 # ---------------------------------------------------------------------------

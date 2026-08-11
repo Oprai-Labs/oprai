@@ -166,7 +166,6 @@ def assess_position_risk(
         "jito": 3,
         "marinade": 3,
         "kamino": 4,
-        "marginfi": 5,
         "solend": 5,
         "raydium": 4,
         "orca": 4,

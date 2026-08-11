@@ -45,7 +45,6 @@ export const ACTION_MIN_AMOUNT: Record<string, { amount: number; hint: string; u
   bsol_stake:     { amount: 0.001,    hint: 'Minimum 0.001 SOL', unit: 'SOL' },
   // Native delegated stake (cluster minimum)
   native_stake:   { amount: 1,        hint: 'Minimum 1 SOL (Solana cluster rule)', unit: 'SOL' },
-  // Lending markets — Kamino / MarginFi / Solend dust thresholds
   lend:           { amount: 0.000001, hint: 'Smallest meaningful amount; markets reject true zero' },
   withdraw:       { amount: 0.000001, hint: 'Use "all" to withdraw the full balance' },
   borrow:         { amount: 0.000001, hint: 'Below dust threshold borrows revert' },

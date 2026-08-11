@@ -213,27 +213,6 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'jito_stake', 'jito_unstake', 'jito_tip', 'jito_bundle', 'jito_bundle_status',
   // Marinade
   'marinade_stake', 'marinade_unstake', 'marinade_delayed_unstake', 'marinade_claim_ticket', 'marinade_claim',
-  // marginfi v2 — Account Management
-  'marginfi_create_account', 'marginfi_create_account_pda',
-  'marginfi_close_account', 'marginfi_close_balance', 'marginfi_transfer_account',
-  // marginfi v2 — Core Lending
-  'marginfi_deposit', 'marginfi_withdraw', 'marginfi_borrow', 'marginfi_repay',
-  // marginfi v2 — Liquidation
-  'marginfi_liquidate', 'marginfi_start_liquidation', 'marginfi_end_liquidation',
-  // marginfi v2 — Flash Loans
-  'marginfi_flashloan_start', 'marginfi_flashloan_end',
-  // marginfi v2 — Borrow Orders
-  'marginfi_place_order', 'marginfi_close_order', 'marginfi_execute_order_start', 'marginfi_execute_order_end',
-  // marginfi v2 — Emissions / Rewards
-  'marginfi_claim_emissions', 'marginfi_settle_emissions', 'marginfi_withdraw_emissions_permissionless',
-  'marginfi_update_emissions_destination', 'marginfi_clear_emissions',
-  // marginfi v2 — Liquidation Setup
-  'marginfi_set_keeper_flags', 'marginfi_init_liq_record',
-  // marginfi v2 — Permissionless
-  'marginfi_accrue_interest', 'marginfi_pulse_price', 'marginfi_pulse_health',
-  // marginfi v2 — Queries
-  'marginfi_account_info', 'marginfi_banks', 'marginfi_health', 'marginfi_points',
-  'marginfi_bank_detail', 'marginfi_user_accounts',
   // Solend (data-only — transactional ops not supported)
   'solend_user_info', 'solend_reserves', 'solend_market',
   // Streamflow — token streaming / vesting (full SDK)
@@ -839,82 +818,7 @@ export class IntentParserService {
       case 'marinade_claim_ticket':
       case 'marinade_claim':
         return `Claim matured Marinade ticket → SOL`;
-      // ── MarginFi v2 Protocol Actions ─────────────────────────────────────────────
-      case 'marginfi_create_account':
-        return `Create marginfi account`;
-      case 'marginfi_create_account_pda':
-        return `Create marginfi PDA account${action.params['accountIndex'] ? ` (index ${action.params['accountIndex']})` : ''}`;
-      case 'marginfi_close_account':
-        return `Close marginfi account`;
-      case 'marginfi_close_balance':
-        return `Close ${action.params['bank'] ?? action.params['token'] ?? ''} balance slot on marginfi`;
-      case 'marginfi_transfer_account':
-        return `Transfer marginfi positions to new account`;
-      case 'marginfi_deposit':
-        return `Deposit ${action.params['amount'] ?? ''} ${action.params['bank'] ?? action.params['token'] ?? ''} to marginfi`;
-      case 'marginfi_withdraw':
-        return action.params['withdrawAll']
-          ? `Withdraw all ${action.params['bank'] ?? action.params['token'] ?? ''} from marginfi`
-          : `Withdraw ${action.params['amount'] ?? ''} ${action.params['bank'] ?? action.params['token'] ?? ''} from marginfi`;
-      case 'marginfi_borrow':
-        return `Borrow ${action.params['amount'] ?? ''} ${action.params['bank'] ?? action.params['token'] ?? ''} on marginfi`;
-      case 'marginfi_repay':
-        return action.params['repayAll']
-          ? `Repay all ${action.params['bank'] ?? action.params['token'] ?? ''} debt on marginfi`
-          : `Repay ${action.params['amount'] ?? ''} ${action.params['bank'] ?? action.params['token'] ?? ''} on marginfi`;
-      case 'marginfi_liquidate':
-        return `Liquidate marginfi account ${(action.params['liquidateeAccount'] as string)?.slice(0, 8) ?? ''}...`;
-      case 'marginfi_start_liquidation':
-        return `Start receivership for marginfi account → receiver ${(action.params['liquidationReceiver'] as string)?.slice(0, 8) ?? ''}...`;
-      case 'marginfi_end_liquidation':
-        return `End receivership for marginfi account`;
-      case 'marginfi_flashloan_start':
-        return `Start marginfi flash loan (end @ ix ${action.params['endIndex'] ?? '?'})`;
-      case 'marginfi_flashloan_end':
-        return `End marginfi flash loan`;
-      case 'marginfi_place_order':
-        return `Place marginfi borrow order (limit: ${action.params['limit'] ?? ''} bps)`;
-      case 'marginfi_close_order':
-        return `Cancel marginfi borrow order ${(action.params['order'] as string)?.slice(0, 8) ?? ''}...`;
-      case 'marginfi_execute_order_start':
-        return `Start executing marginfi order ${(action.params['order'] as string)?.slice(0, 8) ?? ''}...`;
-      case 'marginfi_execute_order_end':
-        return `Finalize marginfi order ${(action.params['order'] as string)?.slice(0, 8) ?? ''}...`;
-      case 'marginfi_claim_emissions':
-        return `Claim ${action.params['bank'] ?? action.params['token'] ?? ''} emissions on marginfi`;
-      case 'marginfi_settle_emissions':
-        return `Settle ${action.params['bank'] ?? action.params['token'] ?? ''} emissions on marginfi`;
-      case 'marginfi_withdraw_emissions_permissionless':
-        return `Permissionlessly withdraw ${action.params['bank'] ?? action.params['token'] ?? ''} emissions for ${action.params['account'] ?? ''}`;
 
-      case 'marginfi_update_emissions_destination':
-        return `Update marginfi emissions destination to ${action.params['destination'] ?? ''}`;
-      case 'marginfi_clear_emissions':
-        return `Clear stale ${action.params['bank'] ?? action.params['token'] ?? ''} emissions on marginfi`;
-      case 'marginfi_set_keeper_flags':
-        return action.params['banks']
-          ? `Set keeper-close flags for ${action.params['banks']} on marginfi`
-          : `Allow keepers to auto-close all marginfi orders`;
-      case 'marginfi_init_liq_record':
-        return `Initialize marginfi liquidation record`;
-      case 'marginfi_accrue_interest':
-        return `Accrue interest for ${action.params['bank'] ?? action.params['token'] ?? ''} bank on marginfi`;
-      case 'marginfi_pulse_price':
-        return `Refresh price oracle for ${action.params['bank'] ?? action.params['token'] ?? ''} on marginfi`;
-      case 'marginfi_pulse_health':
-        return `Refresh health state for marginfi account`;
-      case 'marginfi_account_info':
-        return `Get marginfi account info`;
-      case 'marginfi_banks':
-        return `List marginfi lending banks`;
-      case 'marginfi_health':
-        return `Get marginfi health factor`;
-      case 'marginfi_points':
-        return `Get marginfi points`;
-      case 'marginfi_bank_detail':
-        return `Get ${action.params['bank'] ?? action.params['token'] ?? ''} bank details on marginfi`;
-      case 'marginfi_user_accounts':
-        return `List marginfi accounts for wallet`;
       // ── Solend Protocol Actions (data-only) ─────────────────────────────────────
       case 'solend_user_info':
         return `Get Solend user info`;
@@ -1192,41 +1096,6 @@ export class IntentParserService {
       case 'solend_user_info': return 'user';
       case 'solend_reserves': return 'database';
       case 'solend_market': return 'bar-chart';
-      // MarginFi v2
-      case 'marginfi_create_account': return 'user-plus';
-      case 'marginfi_create_account_pda': return 'user-plus';
-      case 'marginfi_close_account': return 'user-x';
-      case 'marginfi_close_balance': return 'minus-circle';
-      case 'marginfi_transfer_account': return 'arrow-right-left';
-      case 'marginfi_deposit': return 'landmark';
-      case 'marginfi_withdraw': return 'landmark';
-      case 'marginfi_borrow': return 'coins';
-      case 'marginfi_repay': return 'coins';
-      case 'marginfi_liquidate': return 'alert-triangle';
-      case 'marginfi_start_liquidation': return 'alert-octagon';
-      case 'marginfi_end_liquidation': return 'check-circle';
-      case 'marginfi_flashloan_start': return 'zap';
-      case 'marginfi_flashloan_end': return 'zap-off';
-      case 'marginfi_place_order': return 'clipboard-list';
-      case 'marginfi_close_order': return 'x-circle';
-      case 'marginfi_execute_order_start': return 'play-circle';
-      case 'marginfi_execute_order_end': return 'stop-circle';
-      case 'marginfi_claim_emissions': return 'gift';
-      case 'marginfi_settle_emissions': return 'refresh-cw';
-      case 'marginfi_withdraw_emissions_permissionless': return 'gift';
-      case 'marginfi_update_emissions_destination': return 'send';
-      case 'marginfi_clear_emissions': return 'trash-2';
-      case 'marginfi_set_keeper_flags': return 'settings';
-      case 'marginfi_init_liq_record': return 'file-plus';
-      case 'marginfi_accrue_interest': return 'percent';
-      case 'marginfi_pulse_price': return 'refresh-cw';
-      case 'marginfi_pulse_health': return 'heart-pulse';
-      case 'marginfi_account_info': return 'user';
-      case 'marginfi_banks': return 'database';
-      case 'marginfi_health': return 'heart-pulse';
-      case 'marginfi_points': return 'star';
-      case 'marginfi_bank_detail': return 'info';
-      case 'marginfi_user_accounts': return 'users';
       // Cross-chain
       case 'cross_chain_swap': return 'cable';
       case 'squid_bridge': return 'cable';
@@ -1274,7 +1143,6 @@ export class IntentParserService {
     ['jup_',            'Jupiter'],
     ['jupiter_',        'Jupiter'],
     ['solend_',         'Solend'],
-    ['marginfi_',       'MarginFi'],
     ['jito_',           'Jito'],
     ['pumpfun_',        'pump.fun'],
     ['birdeye_',        'Birdeye'],
@@ -1652,13 +1520,6 @@ export class IntentParserService {
         if (!params['imageUrl'] && !params['metadataUri']) {
           errors.push('Either imageUrl or metadataUri is required for token launch');
         }
-        break;
-      case 'marginfi_deposit':
-      case 'marginfi_withdraw':
-      case 'marginfi_borrow':
-      case 'marginfi_repay':
-        requireParam('bank', 'bank/token'); requireParam('amount');
-        requireNumeric('amount'); requirePositive('amount');
         break;
       case 'kamino_deposit':
       case 'kamino_borrow':

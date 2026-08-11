@@ -3,18 +3,17 @@
 ## LENDING PROTOCOLS
 
 ### 16. LEND — Supply tokens to a lending protocol
-Format: [ACTION:lend] token=<symbol_or_mint> amount=<amount> protocol=<marginfi|kamino|jupiter>
+Format: [ACTION:lend] token=<symbol_or_mint> amount=<amount> protocol=<kamino|jupiter>
 
 Parameters:
 - token: Token to supply
 - amount: Amount to supply
-- protocol: Lending protocol (marginfi | kamino | jupiter)
+- protocol: Lending protocol (kamino | jupiter)
 
 **Protocol name recognition (CRITICAL — never ask if protocol is clear from user's message):**
-- "marginfi", "mfi" → protocol=marginfi
 - "kamino", "k-lend", "klend" → protocol=kamino
 - "jupiter lend", "jupiter earn", "jupiter vault", "jup lend", "jup earn", "juplend" → protocol=jupiter
-- "solend" → NOT supported for transactions. Redirect: "Solend transactions are not currently supported. Would you like to use MarginFi or Kamino instead?"
+- "solend" → NOT supported for transactions. Redirect: "Solend transactions are not currently supported. Would you like to use Jupiter Lend or Kamino instead?"
 
 **Jupiter Lend supported assets — always answer from LIVE data:**
 Jupiter Lend (Earn) supports major stablecoins and SOL (e.g. USDC, USDT, SOL,
@@ -36,15 +35,15 @@ named protocol. Do NOT use `kamino_deposit` unless the user explicitly names a
 Kamino reserve/market — plain "deposit to Jupiter Lend" is `lend` protocol=jupiter.**
 
 Examples:
-- "Lend 100 USDC on Marginfi"
-  -> execute_action("lend", {"token": "USDC", "amount": "100", "protocol": "marginfi"})
+- "Lend 100 USDC on Kamino"
+  -> execute_action("lend", {"token": "USDC", "amount": "100", "protocol": "kamino"})
 - "Deposit 100 USDC to Jupiter Lend" / "supply USDC to Jupiter Earn"
   -> execute_action("lend", {"token": "USDC", "amount": "100", "protocol": "jupiter"})
 - "Deposit 32% of my USDC to Jupiter Lend" (percentage → sentinel, do NOT query balance)
   -> execute_action("lend", {"token": "USDC", "amount": "32%", "protocol": "jupiter"})
 
 ### 17. WITHDRAW_LEND — Withdraw previously supplied tokens from a lending protocol
-Format: [ACTION:withdraw_lend] token=<symbol_or_mint> amount=<amount> protocol=<marginfi|kamino|jupiter>
+Format: [ACTION:withdraw_lend] token=<symbol_or_mint> amount=<amount> protocol=<kamino|jupiter>
 
 Parameters:
 - token: Token to withdraw
@@ -52,18 +51,18 @@ Parameters:
 - protocol: Lending protocol
 
 Examples:
-- "Withdraw 100 USDC from Marginfi"
-  -> execute_action("withdraw_lend", {"token": "USDC", "amount": "100", "protocol": "marginfi"})
+- "Withdraw 100 USDC from Kamino"
+  -> execute_action("withdraw_lend", {"token": "USDC", "amount": "100", "protocol": "kamino"})
 - "Take back my USDC from Jupiter Lend"
   -> execute_action("withdraw_lend", {"token": "USDC", "amount": "100", "protocol": "jupiter"})
 
 ### 18. BORROW — Borrow tokens from a lending protocol
-Format: [ACTION:borrow] token=<symbol_or_mint> amount=<amount> protocol=<marginfi|kamino|jupiter> collateral=<token>
+Format: [ACTION:borrow] token=<symbol_or_mint> amount=<amount> protocol=<kamino|jupiter> collateral=<token>
 
 Parameters:
 - token: Token to borrow (debt asset)
 - amount: Amount to borrow
-- protocol: Lending protocol (marginfi | kamino | jupiter)
+- protocol: Lending protocol (kamino | jupiter)
 - collateral: (Jupiter only) Collateral token to lock (e.g. SOL, JLP, jupSOL, jitoSOL). Omit for other protocols.
 
 **Jupiter Lend Borrow:**
@@ -83,20 +82,20 @@ Examples:
   -> execute_action("borrow", {"token": "USDC", "amount": "100", "protocol": "jupiter"})
 
 ### 19. REPAY — Repay borrowed tokens to a lending protocol
-Format: [ACTION:repay] token=<symbol_or_mint> amount=<amount> protocol=<marginfi|kamino|jupiter> collateral=<token>
+Format: [ACTION:repay] token=<symbol_or_mint> amount=<amount> protocol=<kamino|jupiter> collateral=<token>
 
 Parameters:
 - token: Token to repay (debt asset)
 - amount: Amount to repay
-- protocol: Lending protocol (marginfi | kamino | jupiter)
+- protocol: Lending protocol (kamino | jupiter)
 - collateral: (Jupiter only) Collateral token of the position being repaid. Omit for other protocols.
 
 Examples:
 - "Repay 500 USDC on Kamino"
   -> execute_action("repay", {"token": "USDC", "amount": "500", "protocol": "kamino"})
 
-- "Pay back my marginfi USDC loan"
-  -> execute_action("repay", {"token": "USDC", "amount": "500", "protocol": "marginfi"})
+- "Pay back my Kamino USDC loan"
+  -> execute_action("repay", {"token": "USDC", "amount": "500", "protocol": "kamino"})
 
 - "Repay my Jupiter Lend USDC borrow"
   -> execute_action("repay", {"token": "USDC", "amount": "500", "protocol": "jupiter"})
@@ -410,405 +409,13 @@ Use `execute_action("kamino_X", {params})` for all Kamino data queries below.
 
 ---
 
-### MARGINFI ACTIONS
-
-marginfi v2 is a fully over-collateralized money market on Solana. All deposits count as
-collateral automatically — there is no separate "deposit collateral" step.
-
-**Key rules:**
-- Do NOT include raw `account=` or `bank=` address params unless explicitly given by user.
-  Use `token=<symbol>` — the backend resolves the bank address and user's account automatically.
-- When a user says "deposit collateral to marginfi" treat it as `marginfi_deposit`.
-- When a user says "withdraw collateral from marginfi" treat it as `marginfi_withdraw`.
-- A user must have a marginfi account before depositing. If they don't have one yet, emit
-  `marginfi_create_account_pda` first (deterministic, no extra signer needed).
-
----
-
-#### MARGINFI_CREATE_ACCOUNT_PDA — Create deterministic marginfi account (recommended)
-Format: [ACTION:marginfi_create_account_pda]
-Optional: [ACTION:marginfi_create_account_pda] accountIndex=1 (for a second account)
-
-Note: Preferred over marginfi_create_account. Deterministic address, no extra signer needed.
-Use this when a user says "create marginfi account", "open marginfi", "start on marginfi".
-
-Examples:
-- "Create a marginfi account"
-  -> execute_action("marginfi_create_account_pda", {})
-- "Create a second marginfi account"
-  -> execute_action("marginfi_create_account_pda", {"accountIndex": "1"})
-
-#### MARGINFI_CREATE_ACCOUNT — Create non-deterministic marginfi account (legacy)
-Format: [ACTION:marginfi_create_account]
-
-Note: Requires an extra signer keypair generated client-side. Use marginfi_create_account_pda instead
-unless the user specifically requests a non-PDA account.
-
-#### MARGINFI_CLOSE_ACCOUNT — Close a marginfi account and reclaim rent
-Format: [ACTION:marginfi_close_account]
-
-Note: Account must have zero deposits and zero borrows before closing.
-
-#### MARGINFI_CLOSE_BALANCE — Close a zero-balance entry for a specific bank
-Format: [ACTION:marginfi_close_balance] token=<symbol_or_mint>
-
-Note: Use when the user has a zero-balance "slot" for a token they no longer use, and wants to
-free up space to open a different position.
-
-Examples:
-- "Close my BONK slot on marginfi"
-  -> execute_action("marginfi_close_balance", {"token": "BONK"})
-
-#### MARGINFI_TRANSFER_ACCOUNT — Move all positions to a new marginfi account
-Format: [ACTION:marginfi_transfer_account] sourceAccount=<address> destinationAccount=<address>
-
-Note: Both account addresses are required. Use when user explicitly provides them.
-
----
-
-#### MARGINFI_DEPOSIT — Deposit tokens to earn yield (all deposits are collateral)
-Format: [ACTION:marginfi_deposit] token=<symbol_or_mint> amount=<amount>
-
-Parameters:
-- token: Token symbol (SOL, USDC, USDT, mSOL, jitoSOL, BONK, etc.) or mint address
-- amount: Amount to deposit (human-readable, e.g. 1.5)
-- depositUpToLimit: (optional, true/false) Deposit up to the bank's cap
-
-Examples:
-- "Deposit 100 USDC to marginfi"
-  -> execute_action("marginfi_deposit", {"token": "USDC", "amount": "100"})
-- "Lend 5 SOL on marginfi"
-  -> execute_action("marginfi_deposit", {"token": "SOL", "amount": "5"})
-- "Add 50 USDC as collateral on marginfi"
-  -> execute_action("marginfi_deposit", {"token": "USDC", "amount": "50"})
-
-#### MARGINFI_WITHDRAW — Withdraw deposited tokens from marginfi
-Format: [ACTION:marginfi_withdraw] token=<symbol_or_mint> amount=<amount>
-
-Parameters:
-- token: Token symbol or mint address
-- amount: Amount to withdraw
-- withdrawAll: (optional, true/false) Withdraw entire balance
-
-Examples:
-- "Withdraw 100 USDC from marginfi"
-  -> execute_action("marginfi_withdraw", {"token": "USDC", "amount": "100"})
-- "Withdraw all my SOL from marginfi"
-  -> execute_action("marginfi_withdraw", {"token": "SOL", "amount": "0", "withdrawAll": "true"})
-
-#### MARGINFI_BORROW — Borrow tokens from marginfi against collateral
-Format: [ACTION:marginfi_borrow] token=<symbol_or_mint> amount=<amount>
-
-Parameters:
-- token: Token symbol or mint address to borrow
-- amount: Amount to borrow
-
-Note: User must have deposits as collateral before borrowing. Borrowing increases liquidation risk.
-
-Examples:
-- "Borrow 500 USDC on marginfi"
-  -> execute_action("marginfi_borrow", {"token": "USDC", "amount": "500"})
-- "Take a loan of 2 SOL from marginfi"
-  -> execute_action("marginfi_borrow", {"token": "SOL", "amount": "2"})
-
-#### MARGINFI_REPAY — Repay borrowed tokens to marginfi
-Format: [ACTION:marginfi_repay] token=<symbol_or_mint> amount=<amount>
-
-Parameters:
-- token: Token symbol or mint address
-- amount: Amount to repay
-- repayAll: (optional, true/false) Repay entire outstanding debt
-
-Examples:
-- "Repay 200 USDC on marginfi"
-  -> execute_action("marginfi_repay", {"token": "USDC", "amount": "200"})
-- "Pay back all my marginfi USDC debt"
-  -> execute_action("marginfi_repay", {"token": "USDC", "amount": "0", "repayAll": "true"})
-
----
-
-#### MARGINFI_LIQUIDATE — Liquidate an unhealthy marginfi account
-Format: [ACTION:marginfi_liquidate] liquidateeAccount=<address> assetBank=<symbol> liabBank=<symbol> assetAmount=<amount>
-
-Parameters:
-- liquidateeAccount: The unhealthy account address to liquidate (required)
-- assetBank: Token symbol/address of the collateral to seize (required)
-- liabBank: Token symbol/address of the debt to repay (required)
-- assetAmount: Amount of the liability to repay (required)
-
-Note: Only callable when target account's health factor < 1.0.
-
-Examples:
-- "Liquidate marginfi account Abc123 — seize SOL, repay USDC, amount 100"
-  -> execute_action("marginfi_liquidate", {"liquidateeAccount": "Abc123", "assetBank": "SOL", "liabBank": "USDC", "assetAmount": "100"})
-
-#### MARGINFI_START_LIQUIDATION — Start receivership liquidation (admin)
-Format: [ACTION:marginfi_start_liquidation] account=<address> liquidationReceiver=<wallet>
-
-Parameters:
-- account: marginfi account address to place into receivership (required)
-- liquidationReceiver: Wallet address that will receive seized collateral (required)
-
-Note: Administrative action. Requires a prior marginfi_init_liq_record call for the account.
-The liquidationReceiver is locked in at start and must sign the matching end_liquidation call.
-
-#### MARGINFI_END_LIQUIDATION — End receivership liquidation (admin)
-Format: [ACTION:marginfi_end_liquidation] account=<address>
-
-Parameters:
-- account: marginfi account address to remove from receivership (required)
-
-Note: Administrative action. Caller must be the wallet set as liquidationReceiver in start_liquidation.
-Protocol fees are sent automatically to the global fee wallet.
-
----
-
-#### MARGINFI_FLASHLOAN_START — Begin a marginfi flash loan
-Format: [ACTION:marginfi_flashloan_start] endIndex=<instruction_index>
-
-Parameters:
-- endIndex: The transaction instruction index where marginfi_flashloan_end appears (required).
-  The on-chain program reads this to verify the flash loan is properly closed in the same tx.
-- account: (optional) marginfi account address
-
-Note: Flash loan start and end instructions MUST be in the same transaction. This is an advanced
-developer feature. Inform the user that flash loans require composing multiple instructions in
-a single atomic transaction, which must be done programmatically.
-
-#### MARGINFI_FLASHLOAN_END — End a marginfi flash loan
-Format: [ACTION:marginfi_flashloan_end]
-
-Note: Must follow marginfi_flashloan_start in the same transaction. Validates full repayment.
-
----
-
-#### MARGINFI_PLACE_ORDER — Place an automated borrow order at a rate limit
-Format: [ACTION:marginfi_place_order] limit=<max_rate_bps> banks=<addr1,addr2> maxDebtCoverage=<amount> orderSide=<0_or_1>
-
-Parameters:
-- limit: Maximum interest rate in basis points (e.g. 500 = 5%)
-- banks: Comma-separated bank addresses to attempt borrowing from, in order of preference
-- maxDebtCoverage: Maximum total debt allowed after execution
-- orderSide: 0 = borrow, 1 = repay
-
-Note: Advanced feature. All four parameters are required. The ORDER PDA address and fee routing
-are derived automatically from the bank addresses.
-
-#### MARGINFI_CLOSE_ORDER — Cancel an open borrow order
-Format: [ACTION:marginfi_close_order] order=<order_pda> feeRecipient=<wallet>
-
-Parameters:
-- order: Order PDA address to cancel (required)
-- feeRecipient: Wallet that receives the rent from the closed order account (required)
-- account: (optional) marginfi account address
-
-#### MARGINFI_EXECUTE_ORDER_START — Start executing a placed borrow order (keeper only)
-Format: [ACTION:marginfi_execute_order_start] executor=<wallet> order=<order_pda>
-
-Parameters:
-- executor: Keeper/executor wallet address that is executing the order (required, must sign)
-- order: Order PDA address to execute (required)
-- account: (optional) marginfi account address
-
-Note: Called by authorized keepers/bots. Users do not call this directly.
-
-#### MARGINFI_EXECUTE_ORDER_END — Finalize execution of a borrow order (keeper only)
-Format: [ACTION:marginfi_execute_order_end] executor=<wallet> feeRecipient=<wallet> order=<order_pda>
-
-Parameters:
-- executor: Keeper wallet (must match start_execute_order, must sign) (required)
-- feeRecipient: Wallet that receives execution fees (required)
-- order: Order PDA address being finalized (required)
-- account: (optional) marginfi account address
-
-Note: Called by the same keeper that called execute_order_start in the same atomic transaction.
-
----
-
-#### MARGINFI_CLAIM_EMISSIONS — Claim accumulated token emission rewards
-Format: [ACTION:marginfi_claim_emissions] token=<symbol_or_mint>
-
-Parameters:
-- token: Bank token symbol or mint address (e.g. SOL, USDC)
-- emissionsMint: (optional) Emissions token mint address. Only needed if the bank emits a
-  DIFFERENT token than its own (e.g. USDC rewards on an SOL bank). Omit in most cases.
-
-Examples:
-- "Claim my marginfi rewards for USDC"
-  -> execute_action("marginfi_claim_emissions", {"token": "USDC"})
-- "Collect SOL emissions on marginfi"
-  -> execute_action("marginfi_claim_emissions", {"token": "SOL"})
-
-#### MARGINFI_SETTLE_EMISSIONS — Accrue pending emissions on a position (permissionless, no token transfer)
-Format: [ACTION:marginfi_settle_emissions] token=<symbol_or_mint>
-
-Parameters:
-- token: Bank token symbol or mint address
-
-Note: Permissionless. Updates the outstanding emissions counter without moving any tokens.
-Call this before claim_emissions if the position has unsettled emissions.
-
-#### MARGINFI_WITHDRAW_EMISSIONS_PERMISSIONLESS — Permissionlessly withdraw emissions for any account
-Format: [ACTION:marginfi_withdraw_emissions_permissionless] account=<marginfi_account> token=<symbol_or_mint>
-
-Parameters:
-- account: Target marginfi account address (required)
-- token: Bank token symbol or mint address (required)
-- emissionsMint: (optional) Emissions token mint if different from bank's own token
-
-Note: Anyone can call this. Emissions go to the target account's registered destination, not the caller.
-Useful for bots or keepers that auto-compound rewards for users.
-
-Example:
-- "Withdraw SOL emissions for account ABC123..."
-  -> execute_action("marginfi_withdraw_emissions_permissionless", {"account": "ABC123...", "token": "SOL"})
-
-#### MARGINFI_UPDATE_EMISSIONS_DESTINATION — Change where your emissions are sent
-Format: [ACTION:marginfi_update_emissions_destination] destination=<wallet_address>
-
-Parameters:
-- destination: New wallet address that will receive off-chain emission distributions (required)
-
-Example:
-- "Send my marginfi emissions to my cold wallet HwMv..."
-  -> execute_action("marginfi_update_emissions_destination", {"destination": "HwMv..."})
-
-#### MARGINFI_CLEAR_EMISSIONS — Clear stale emission state after bank disables rewards
-Format: [ACTION:marginfi_clear_emissions] token=<symbol_or_mint>
-
-Parameters:
-- token: Bank token symbol or mint address
-
-Note: Only call when the bank has already disabled its rewards (rate = 0). Permissionless.
-
-Example:
-- "Clear stale USDC emissions on marginfi"
-  -> execute_action("marginfi_clear_emissions", {"token": "USDC"})
-
-#### MARGINFI_SET_KEEPER_FLAGS — Authorize keepers to auto-close your orders
-Format: [ACTION:marginfi_set_keeper_flags]
-   or: [ACTION:marginfi_set_keeper_flags] banks=<addr1>,<addr2>
-
-Parameters:
-- banks: (optional) Comma-separated bank addresses or token symbols. If omitted, clears flags
-  on ALL balances, allowing keepers to close any order on the account.
-
-Examples:
-- "Allow keepers to close all my marginfi orders"
-  -> execute_action("marginfi_set_keeper_flags", {})
-- "Let keepers close my USDC order on marginfi"
-  -> execute_action("marginfi_set_keeper_flags", {"banks": "USDC"})
-
-#### MARGINFI_INIT_LIQ_RECORD — Initialize liquidation record (one-time setup before start_liquidation)
-Format: [ACTION:marginfi_init_liq_record]
-
-Note: Must be called once per account before marginfi_start_liquidation. If start_liquidation
-returns a missing account error, run this first. Fee payer covers ~0.002 SOL rent for the record.
-
----
-
-#### MARGINFI_ACCRUE_INTEREST — Permissionlessly update interest for a bank
-Format: [ACTION:marginfi_accrue_interest] token=<symbol_or_mint>
-
-Note: Anyone can call this. Updates the on-chain interest state for the bank.
-
-#### MARGINFI_PULSE_PRICE — Refresh price oracle cache for a bank
-Format: [ACTION:marginfi_pulse_price] token=<symbol_or_mint> oracle=<oracle_feed_address>
-
-Parameters:
-- token: Bank token symbol or bank address (required)
-- oracle: Oracle feed account address for this bank — Pyth or Switchboard feed address (required)
-
-Note: Permissionless. Refreshes the cached oracle price stored on the bank account.
-The oracle address is specific to each bank and must be provided (it is the Pyth/Switchboard
-feed account, NOT the bank address or mint).
-
-#### MARGINFI_PULSE_HEALTH — Refresh health state for a marginfi account
-Format: [ACTION:marginfi_pulse_health] account=<address>
-
-Note: Permissionless. Recalculates and stores the health factor on-chain.
-account is required (must be a specific marginfi account address).
-
----
-
-#### MARGINFI_ACCOUNT_INFO — Get full account info (deposits, borrows, health)
-Format: [QUERY:marginfi_account_info]
-
-Optional: [QUERY:marginfi_account_info] wallet=<address> (for another wallet)
-
-(Data query — no transaction. Defaults to connected wallet.)
-
-Examples:
-- "Show my marginfi account"
-  -> query_onchain("marginfi_account_info", {})
-- "Check marginfi account for wallet HwM..."
-  -> query_onchain("marginfi_account_info", {"wallet": "HwM..."})
-
-#### MARGINFI_BANKS — List all marginfi lending banks
-Format: [QUERY:marginfi_banks]
-
-Optional: [QUERY:marginfi_banks] limit=10 (limit number returned)
-
-(Data query — no transaction. Returns symbol, mint, token program for each bank.)
-
-Examples:
-- "What tokens can I lend on marginfi?"
-  -> query_onchain("marginfi_banks", {})
-
-#### MARGINFI_BANK_DETAIL — Get details for a specific marginfi bank
-Format: [QUERY:marginfi_bank_detail] token=<symbol_or_mint>
-
-(Data query — no transaction. Returns address, mint, symbol, decimals, token program.)
-
-Examples:
-- "Show me the USDC bank on marginfi"
-  -> query_onchain("marginfi_bank_detail", {"token": "USDC"})
-
-#### MARGINFI_HEALTH — Get health factor and risk summary
-Format: [QUERY:marginfi_health]
-
-Optional: [QUERY:marginfi_health] wallet=<address>
-
-(Data query — no transaction. Returns health factor, total collateral USD, total borrow USD,
-liquidation threshold, and whether the account is healthy.)
-
-Examples:
-- "What's my marginfi health factor?"
-  -> query_onchain("marginfi_health", {})
-- "Am I at risk of liquidation on marginfi?"
-  -> query_onchain("marginfi_health", {})
-
-#### MARGINFI_POINTS — Get marginfi points balance and rank
-Format: [QUERY:marginfi_points]
-
-Optional: [QUERY:marginfi_points] wallet=<address>
-
-(Data query — no transaction. Returns total points, rank, deposit points, borrow points.)
-
-Examples:
-- "How many marginfi points do I have?"
-  -> query_onchain("marginfi_points", {})
-
-#### MARGINFI_USER_ACCOUNTS — List all PDA marginfi accounts for a wallet
-Format: [QUERY:marginfi_user_accounts]
-
-Optional: [QUERY:marginfi_user_accounts] maxIndex=5
-
-(Data query — no transaction. Returns derived PDA addresses for account indices 0–maxIndex.)
-
-Examples:
-- "Show all my marginfi accounts"
-  -> query_onchain("marginfi_user_accounts", {})
-
----
-
 ### SOLEND
 
 **NOTE: Solend transactional operations (deposit, withdraw, borrow, repay) are NOT supported.**
 Do NOT emit action blocks for solend_deposit, solend_withdraw, solend_borrow, solend_repay, or any other Solend transactional action — they will be silently dropped.
 
 If a user asks to lend/borrow on Solend, redirect them:
-"Solend transactions are not currently supported. Would you like to use Jupiter Lend, MarginFi, or Kamino instead?"
+"Solend transactions are not currently supported. Would you like to use Jupiter Lend or Kamino instead?"
 
 Only the following Solend data queries are available:
 

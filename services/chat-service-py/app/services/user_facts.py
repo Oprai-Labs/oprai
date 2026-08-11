@@ -48,7 +48,7 @@ _ALLOWED_TYPES: frozenset[str] = frozenset({
     "default_slippage_bps",  # int
     "max_position_size_usd", # float
     "preferred_dex",         # "jupiter" | "orca" | "raydium" | "meteora"
-    "preferred_lender",      # "kamino" | "marginfi"
+    "preferred_lender",      # "kamino" | "jupiter"
     "usually_holds",         # ["SOL", "USDC", "JITOSOL"]
     "alerts_off",            # bool
     "language",              # ISO 639-1

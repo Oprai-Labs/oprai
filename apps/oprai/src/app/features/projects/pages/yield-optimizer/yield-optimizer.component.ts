@@ -148,7 +148,6 @@ export class YieldOptimizerComponent implements OnInit {
 
   protocolIcon(protocol: string): string {
     const map: Record<string, string> = {
-      kamino: 'layers', marginfi: 'landmark', solend: 'coins',
       jito: 'zap', marinade: 'droplets', jupsol: 'layers',
     };
     return map[protocol] ?? 'circle';

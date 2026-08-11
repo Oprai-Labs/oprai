@@ -348,7 +348,6 @@ def list_plugins():
     click.echo("    • raydium - Raydium AMM")
     click.echo("    • marinade - Marinade Finance")
     click.echo("    • meteora - Meteora pools")
-    click.echo("    • marginfi - Marginfi lending")
     click.echo("\n  Social:")
     click.echo("    • twitter - Twitter/X client")
     click.echo("    • discord - Discord client")
