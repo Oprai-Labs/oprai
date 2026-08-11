@@ -1207,6 +1207,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Same, for a DLMM pool the model named by address only — the ratio engine's
    *  inputs (bin step, active bin, price) have to be fetched once per card. */
   private _enrichedDlmmPool: string | null = null;
+  /** "half of my mSOL" reaches the card as the literal amount `50%`. The
+   *  fraction is lifted out of the field here and applied once the live
+   *  balance and the pool ratio are known; see `resolvePercentAmounts`. */
+  private _pendingPercent: { side: 'A' | 'B' | 'single'; fraction: number } | null = null;
+  private _percentApplied = false;
 
   @ViewChild('imageFileInput') imageFileInput!: ElementRef<HTMLInputElement>;
   @ViewChild('bannerFileInput') bannerFileInput!: ElementRef<HTMLInputElement>;
@@ -4620,6 +4625,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return { yPerX: r, xPerY: 1 / r };
   });
 
+  /**
+   * Read every input first, unconditionally. An effect only re-runs for the
+   * signals it actually touched on its last pass, so returning early before
+   * reading them would register no dependencies and the effect would never
+   * fire again — the pending fraction would sit unresolved forever.
+   */
+  private percentAmountEffect = effect(() => {
+    this.inputBalance();
+    this.secondaryBalance();
+    this.clmmRatio();
+    this.dlmmRatio();
+    this.ammRatio();
+    this.resolvePercentAmounts();
+  });
+
   private dlmmRatioEffect = effect(() => {
     // Three ratio sources: DLMM (range × strategy × active bin),
     // CLMM (Uniswap-v3 sqrt-price math), or AMM (constant-product reserves).
@@ -5369,6 +5389,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   ngOnInit(): void {
     if (this.action) this.initFromAction();
+    // Before anything reads an amount: a percentage is not one.
+    this.capturePercentAmounts();
     this.maybeLoadLstRate();
     if (this.isMeteoraDlmm()) this.seedMeteoraRange();
     this.maybeEnrichRaydiumPool();
@@ -5392,6 +5414,71 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // left the lookup permanently unfired — which is why no Magic Eden action
     // card ever showed traits.
     this.ensureMeNftDisplay();
+  }
+
+  /**
+   * "Half of my mSOL" is a share of a balance, and a share of a balance is not
+   * an amount until the balance is known. The model has no reliable figure at
+   * compose time, so it writes the share through literally and the amount
+   * field ends up reading `50%` — which is not a number, cannot be submitted,
+   * and tells the user nothing about what they are about to deposit.
+   *
+   * The fraction is lifted out of the field immediately, so nothing ever
+   * renders `50%`, and applied once the balance and the pool ratio have
+   * landed. Both are async, and on a paired deposit the second amount is not
+   * free — it follows the pool ratio — so the resolution has to be the Max
+   * computation scaled down, not each side taken independently.
+   */
+  private capturePercentAmounts(): void {
+    const p = this.editParams();
+    // `50%`, `%50`, `50 %` — a bare `50` is an amount and must not be touched.
+    const asFraction = (raw: string | undefined): number | null => {
+      if (!raw || !raw.includes('%')) return null;
+      const n = parseFloat(raw.replace(/[%\s]/g, '').replace(',', '.'));
+      return Number.isFinite(n) && n > 0 && n <= 100 ? n / 100 : null;
+    };
+    const fa = asFraction(p['amountA']);
+    const fb = asFraction(p['amountB']);
+    const fs = asFraction(p['amount']);
+    if (fa === null && fb === null && fs === null) return;
+    const cleaned = { ...p };
+    if (fa !== null) delete cleaned['amountA'];
+    if (fb !== null) delete cleaned['amountB'];
+    if (fs !== null) delete cleaned['amount'];
+    this.editParams.set(cleaned);
+    // On a paired deposit both sides carry the same share of the user's
+    // holdings; resolving from side A and letting the ratio fill B is what
+    // keeps the pair on the pool's ratio.
+    this._pendingPercent =
+      fa !== null ? { side: 'A', fraction: fa }
+      : fb !== null ? { side: 'B', fraction: fb }
+      : { side: 'single', fraction: fs! };
+  }
+
+  /** Runs on every balance/ratio settle until it can produce a real number,
+   *  then never again — a second pass would overwrite the user's own edit. */
+  private resolvePercentAmounts(): void {
+    const pending = this._pendingPercent;
+    if (!pending || this._percentApplied) return;
+    if (pending.side === 'single') {
+      const bal = this.inputBalance();
+      if (bal === null || !(bal > 0)) return;
+      this._percentApplied = true;
+      this.setMaxAmount('amount');
+      const maxed = parseFloat(this.editParams()['amount'] ?? '');
+      if (Number.isFinite(maxed) && maxed > 0) {
+        this.setEditParam('amount', formatDlmmAmount(maxed * pending.fraction));
+      }
+      return;
+    }
+    // Paired: needs the side's balance AND a ratio, or the second amount
+    // would be left for the user to work out.
+    const needB = pending.side === 'B';
+    const bal = needB ? this.secondaryBalance() : this.inputBalance();
+    if (bal === null || !(bal > 0)) return;
+    if (!this.clmmRatio() && !this.dlmmRatio() && !this.ammRatio()) return;
+    this._percentApplied = true;
+    this.setMaxClmm(pending.side, pending.fraction);
   }
 
   /** Borrow needs a collateral asset; when the user didn't name one ("borrow
@@ -7775,7 +7862,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * itself and the auto-balance effect fills the other at the pool ratio,
    * clamped so neither side exceeds its balance.
    */
-  setMaxClmm(side: 'A' | 'B' = 'A'): void {
+  /**
+   * `fraction` scales the whole computation, so "half of what I hold" is Max
+   * at 0.5 rather than a second, parallel notion of what a balance is. It
+   * scales BOTH sides, which is what keeps the result on the pool's ratio —
+   * half of a pair that fits is still a pair that fits.
+   */
+  setMaxClmm(side: 'A' | 'B' = 'A', fraction = 1): void {
     const clmm = this.clmmRatio();
     const p = this.editParams();
     const balA = this.inputBalance() ?? 0;      // token A (e.g. WSOL)
@@ -7791,8 +7884,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // (tick rounding + slippage) — "Max then Not enough balance". The headroom
     // absorbs that so Max produces a value that actually clears.
     const SAFETY = 0.99;
-    const availA = Math.max(0, balA - (isSol(symA) ? RENT_BUFFER : 0)) * SAFETY;
-    const availB = Math.max(0, balB - (isSol(symB) ? RENT_BUFFER : 0)) * SAFETY;
+    const scale = SAFETY * (fraction > 0 && fraction <= 1 ? fraction : 1);
+    const availA = Math.max(0, balA - (isSol(symA) ? RENT_BUFFER : 0)) * scale;
+    const availB = Math.max(0, balB - (isSol(symB) ? RENT_BUFFER : 0)) * scale;
 
     // Single-sided ranges (price outside the range): only one token is used,
     // regardless of which MAX was clicked.
@@ -7811,6 +7905,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!yPerX || !Number.isFinite(yPerX) || yPerX <= 0) {
       // No usable ratio yet (range not set) — max ONLY the clicked side; the
       // auto-balance effect fills the other once a range exists.
+      if (scale < SAFETY) {
+        const avail = side === 'A' ? availA : availB;
+        if (!(avail > 0)) return;
+        this.setEditParam(side === 'A' ? 'amountA' : 'amountB', formatDlmmAmount(avail));
+        this.dlmmLastEdited.set(side);
+        return;
+      }
       this.setMaxAmount(side === 'A' ? 'amountA' : 'amountB');
       return;
     }
