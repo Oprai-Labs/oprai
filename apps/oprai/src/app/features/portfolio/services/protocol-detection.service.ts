@@ -23,34 +23,40 @@ const LST_REGISTRY: LstInfo[] = [
 ];
 
 // Protocol logos resolved from public CDNs that serve CORS-friendly assets.
-// solana-labs/token-list raw GitHub URLs were deprecated in early 2026 and
-// now return 404 — prefer protocol-owned domains.
+// Local assets, not protocol-owned domains.
+//
+// The previous round of this replaced dead GitHub URLs with each protocol's
+// favicon, which is the same bet on somebody else's server: Marinade's did not
+// render and the portfolio showed a broken-image glyph beside a real position,
+// while Jito's — swapped to a bundled file — worked immediately. Every mark we
+// ship is used from the bundle; only protocols we have no asset for still
+// reach out.
 const PROTOCOL_LOGOS: Record<string, string> = {
   'solana-staking': SOL_LOGO,
-  'marinade': 'https://marinade.finance/favicon.ico',
-  'jito': 'https://storage.googleapis.com/token-metadata/JitoSOL-256.png',
-  'lido': 'https://lido.fi/favicon.ico',
+  'marinade': 'assets/icons/protocols/marinade.webp',
+  'jito': 'assets/icons/protocols/jito.webp',
+  'lido': 'assets/icons/protocols/lido.webp',
   'helius': 'https://www.helius.dev/favicon.ico',
-  'jupiter': 'https://jup.ag/favicon.ico',
+  'jupiter': 'assets/icons/protocols/jupiter.webp',
   'raydium': 'assets/icons/protocols/raydium.png',
-  'kamino': 'https://app.kamino.finance/favicon.ico',
-  'marginfi': 'https://app.marginfi.com/favicon.ico',
-  'orca': 'https://www.orca.so/favicon.ico',
+  'kamino': 'assets/icons/protocols/kamino.webp',
+  'marginfi': 'assets/icons/protocols/marginfi.webp',
+  'orca': 'assets/icons/protocols/orca.webp',
   // app.meteora.ag/favicon.ico ships an .ico that browsers crop oddly in our
   // 22px circle. Use their CDN-hosted PNG logo instead.
-  'meteora': 'https://www.meteora.ag/icons/logo.svg',
+  'meteora': 'assets/icons/protocols/meteora.webp',
   'streamflow': 'https://app.streamflow.finance/favicon.ico',
-  'pumpfun': 'https://pump.fun/_next/image?url=%2Flogo.png&w=64&q=75',
+  'pumpfun': 'assets/icons/protocols/pumpfun.webp',
   // Jupiter Portfolio API platformIds we know about — keep this lower-cased
   // because the API returns kebab/dash IDs ("jupiter-exchange"). Falls back
   // to the generic 'jupiter' logo for any unmapped ID, then to platformLogo
   // surfaced by the platforms endpoint.
-  'jupiter-exchange': 'https://jup.ag/favicon.ico',
-  'jupiter-perpetuals': 'https://jup.ag/favicon.ico',
-  'jupiter-lend': 'https://jup.ag/favicon.ico',
-  'jupiter-dca': 'https://jup.ag/favicon.ico',
-  'jupiter-limit-orders': 'https://jup.ag/favicon.ico',
-  'jupiter-governance': 'https://jup.ag/favicon.ico',
+  'jupiter-exchange': 'assets/icons/protocols/jupiter.webp',
+  'jupiter-perpetuals': 'assets/icons/protocols/jupiter.webp',
+  'jupiter-lend': 'assets/icons/protocols/jupiter.webp',
+  'jupiter-dca': 'assets/icons/protocols/jupiter.webp',
+  'jupiter-limit-orders': 'assets/icons/protocols/jupiter.webp',
+  'jupiter-governance': 'assets/icons/protocols/jupiter.webp',
 };
 
 const KNOWN_PROGRAMS: Record<string, string> = {
