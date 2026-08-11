@@ -67,12 +67,17 @@ function getMarinade(userWallet: string, referralCode?: string): Marinade {
  * Marinade action failed at the last step, after the SDK had done all the work
  * correctly. Filled here, once, for all of them.
  */
-async function serializeTx(tx: Transaction, userWallet: string): Promise<string> {
+async function prepareTx(tx: Transaction, userWallet: string): Promise<Transaction> {
   if (!tx.feePayer) tx.feePayer = new PublicKey(userWallet);
   if (!tx.recentBlockhash) {
     const connection = new Connection(config.solanaRpc, "confirmed");
     tx.recentBlockhash = (await connection.getLatestBlockhash("confirmed")).blockhash;
   }
+  return tx;
+}
+
+async function serializeTx(tx: Transaction, userWallet: string): Promise<string> {
+  await prepareTx(tx, userWallet);
   return tx.serialize({ requireAllSignatures: false }).toString("base64");
 }
 
@@ -233,6 +238,10 @@ export async function buildMarinadeDelayedUnstake(
   const { transaction, ticketAccountKeypair, associatedMSolTokenAccountAddress } =
     await marinade.orderUnstake(lamportsFromMsol(amount));
 
+  // Prepared BEFORE signing: partialSign signs the compiled message, so a
+  // transaction with no blockhash throws there — before the serializer that
+  // would have filled it in ever runs.
+  await prepareTx(transaction, userWallet);
   // The ticket account must co-sign: the SDK returns the keypair but does NOT
   // pre-sign the transaction. We partial-sign here so the frontend only needs
   // the user's wallet signature (additionalSignersRequired = 0).
