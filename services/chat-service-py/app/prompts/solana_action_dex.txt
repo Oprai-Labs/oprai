@@ -515,7 +515,10 @@ Examples:
 Format: [ACTION:meteora_open_position] pool=<pool_address> amountX=<amount> amountY=<amount> minPrice=<price> maxPrice=<price> slippageBps=<optional>
 
 Parameters:
-- pool: DLMM pool address (from [QUERY:meteora_dlmm_get_user_positions] or Meteora UI)
+- pool: DLMM pool address. For a pair the user is NOT in yet — which is every
+  open-position request — resolve it with [QUERY:meteora_dlmm_get_pairs] using
+  the pair as `query`. `meteora_dlmm_get_user_positions` lists pools the user
+  ALREADY holds, so it can never answer "open a new position on X/Y".
 - amountX: Token X amount to deposit
 - amountY: Token Y amount to deposit
 - minPrice / maxPrice: Price range bounds (tokenY per tokenX). Backend auto-converts to bin IDs.
@@ -523,6 +526,12 @@ Parameters:
 Examples:
 - "Open Meteora DLMM SOL/USDC position, range $100-$200, 1 SOL + 150 USDC"
   -> execute_action("meteora_open_position", {"pool": "<address>", "amountX": "1", "amountY": "150", "minPrice": "100", "maxPrice": "200"})
+- "Open a DLMM position with half of my mSOL and JitoSOL" (pair named, no
+  address, amounts relative to holdings) — resolve BOTH in the same turn, then
+  emit; do not report back that a lookup is needed:
+  -> query_onchain("balance", {"wallet": "self"}) for the two amounts,
+     query_onchain("meteora_dlmm_get_pairs", {"query": "mSOL-JitoSOL"}) for the pool,
+     then execute_action("meteora_open_position", {"pool": "<resolved>", "amountX": "<half>", "amountY": "<half>"})
 
 #### METEORA_CLOSE_POSITION — Close a Meteora position and withdraw all liquidity
 Format: [ACTION:meteora_close_position] position=<position_address> slippageBps=<optional>
