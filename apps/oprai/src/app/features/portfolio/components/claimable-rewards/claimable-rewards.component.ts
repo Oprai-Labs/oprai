@@ -57,17 +57,26 @@ export class ClaimableRewardsComponent {
    * pair) into a single ProtocolGroup per `protocolId`. Position rows
    * carry their original category so the expanded view can label them.
    *
-   * A protocol shows up if EITHER it has claimable rewards OR any of its
-   * positions report an APY — covers both the "passive yield" case
-   * (jitoSOL, jupSOL — APY but no manual claim) and the "earned fees"
-   * case (Meteora DLMM, Orca, Pumpfun rewards).
+   * A protocol shows up if it has claimable rewards, OR any of its positions
+   * report an APY, OR it has capital deployed. The first two cover the
+   * "passive yield" case (jitoSOL, jupSOL — APY but no manual claim) and the
+   * "earned fees" case (Meteora DLMM, Orca, Pumpfun rewards).
+   *
+   * The third is why an open Raydium CLMM position was missing from a panel
+   * that calls itself "Active positions & rewards" and headlines a DEPLOYED
+   * total: that endpoint reports amounts, not APY or fees, so the position
+   * arrives with `apy: null` and `claimableUsd: null` and the yield-only gate
+   * dropped it. It still holds real capital, so the count read "3 positions
+   * across 3 protocols" when there were four, and DEPLOYED understated by the
+   * whole position. Unknown yield is not the same as no position.
    */
   readonly groups = computed<ProtocolGroup[]>(() => {
     const map = new Map<string, ProtocolGroup>();
     for (const proto of this._positions()) {
       const hasClaimable = (proto.totalClaimableUsd ?? 0) > 0;
       const hasApy = proto.positions.some(p => p.apy != null);
-      if (!hasClaimable && !hasApy) continue;
+      const hasDeployedValue = proto.positions.some(p => (p.totalUsdValue ?? 0) > 0);
+      if (!hasClaimable && !hasApy && !hasDeployedValue) continue;
 
       let group = map.get(proto.protocolId);
       if (!group) {
