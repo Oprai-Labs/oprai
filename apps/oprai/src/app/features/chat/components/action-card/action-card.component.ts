@@ -1204,6 +1204,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Same idea for Raydium CLMM pool enrichment — fetch tokenA/B + currentPrice
    *  exactly once per card when the LLM emitted poolId without symbols. */
   private _enrichedRaydiumPool: string | null = null;
+  /** Same, for a DLMM pool the model named by address only — the ratio engine's
+   *  inputs (bin step, active bin, price) have to be fetched once per card. */
+  private _enrichedDlmmPool: string | null = null;
 
   @ViewChild('imageFileInput') imageFileInput!: ElementRef<HTMLInputElement>;
   @ViewChild('bannerFileInput') bannerFileInput!: ElementRef<HTMLInputElement>;
@@ -5370,6 +5373,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.isMeteoraDlmm()) this.seedMeteoraRange();
     this.maybeEnrichRaydiumPool();
     void this.maybeEnrichRaydiumWithdraw();
+    void this.maybeEnrichMeteoraDlmmPool();
     void this.maybeEnrichMeteoraPosition();
     void this.maybeResolveSwapCounterToken();
     this.maybeSeedOrcaRange();
@@ -5863,6 +5867,86 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (prefilledSide) this.dlmmLastEdited.set(prefilledSide);
     } catch (err) {
       console.warn('[raydium-clmm] pool enrichment failed', err);
+    }
+  }
+
+  /**
+   * A DLMM pool the model named by address only.
+   *
+   * Every number this form shows is derived from three values — bin step,
+   * active bin and current price — and the only path that ever supplied them
+   * was the pool-list card's "Use this pool" button, which embeds them from
+   * the row it already had. When the model resolves the pool itself and emits
+   * `pool=<address>`, none of the three exist: `meteoraRange()` has nothing to
+   * convert, so Min and Max Price render 0, and `seedMeteoraRange()` returns
+   * at its own guard, so nothing fills them in later either. The card is then
+   * unusable in the exact case the model was supposed to have handled for the
+   * user — an empty range cannot be submitted.
+   *
+   * One fetch of the pool supplies all three. The active bin is derived with
+   * the same formula the "Use this pool" path uses, including the raw-unit
+   * conversion — the bin ids computed here are what the deposit submits, and
+   * getting the decimal direction wrong puts the range tens of thousands of
+   * bins away from the pool.
+   */
+  private async maybeEnrichMeteoraDlmmPool(): Promise<void> {
+    const t = this.action?.type;
+    if (t !== 'meteora_open_position' && t !== 'meteora_add_liquidity' && t !== 'meteora_add_to_position') return;
+    const p = this.editParams();
+    // The "Use this pool" path already embedded the ratio inputs.
+    if (parseFloat(p['binStep'] ?? '') > 0 && parseFloat(p['currentPrice'] ?? '') > 0) return;
+    const poolId = (p['pool'] ?? p['poolId'] ?? '').trim();
+    if (!poolId) return;
+    if (this._enrichedDlmmPool === poolId) return; // tried once
+    this._enrichedDlmmPool = poolId;
+    try {
+      const resp = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', {
+          type: 'meteora_dlmm_get_pair',
+          params: { address: poolId },
+        }),
+      );
+      const pool = resp?.data ?? resp?.preview?.params?.data ?? null;
+      const binStep = Number(pool?.pool_config?.bin_step ?? 0);
+      const currentPrice = Number(pool?.current_price ?? 0);
+      if (!(binStep > 0) || !(currentPrice > 0)) return;
+      const tx = pool.token_x ?? {};
+      const ty = pool.token_y ?? {};
+      const decX = Number(tx.decimals ?? 9);
+      const decY = Number(ty.decimals ?? 9);
+      const activeBinId = Math.round(
+        Math.log(currentPrice * Math.pow(10, decY - decX)) / Math.log(1 + binStep / 10_000),
+      );
+      if (!Number.isFinite(activeBinId)) return;
+
+      const patched = { ...this.editParams() };
+      if (!patched['pool']) patched['pool'] = pool.address ?? poolId;
+      if (!patched['poolId']) patched['poolId'] = pool.address ?? poolId;
+      if (!patched['tokenA']) patched['tokenA'] = tx.address ?? '';
+      if (!patched['tokenB']) patched['tokenB'] = ty.address ?? '';
+      if (!patched['tokenXMint']) patched['tokenXMint'] = tx.address ?? '';
+      if (!patched['tokenYMint']) patched['tokenYMint'] = ty.address ?? '';
+      if (!patched['tokenASymbol']) patched['tokenASymbol'] = tx.symbol ?? 'A';
+      if (!patched['tokenBSymbol']) patched['tokenBSymbol'] = ty.symbol ?? 'B';
+      if (!patched['tokenADecimals']) patched['tokenADecimals'] = String(decX);
+      if (!patched['tokenBDecimals']) patched['tokenBDecimals'] = String(decY);
+      patched['binStep'] = String(binStep);
+      patched['currentPrice'] = String(currentPrice);
+      patched['activeBinId'] = String(activeBinId);
+      if (!patched['strategy']) patched['strategy'] = 'spot';
+      this.editParams.set(patched);
+
+      // Now that the three inputs exist, the range seeder can do its job — it
+      // bailed at its own guard when this ran in ngOnInit.
+      this.seedMeteoraRange();
+
+      // The balance loaders ran before the mints were known.
+      this.inputBalance.set(null);
+      this.secondaryBalance.set(null);
+      if (this.inputBalanceMint()) this.loadInputBalance();
+      if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
+    } catch (err) {
+      console.warn('[meteora-dlmm] pool enrichment failed', err);
     }
   }
 
