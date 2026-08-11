@@ -307,6 +307,9 @@ fn is_ts_delegated_action(action_type: &str) -> bool {
             | "marinade_add_liquidity"
             | "marinade_remove_liquidity"
             | "marinade_deposit_stake"
+            // Reads, same route: the rate + APY, and the caller's tickets.
+            | "marinade_exchange_rate"
+            | "marinade_list_tickets"
     )
 }
 
