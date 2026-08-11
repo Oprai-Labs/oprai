@@ -201,6 +201,9 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "marinade_stake":           _A({"staking", "marinade"}),
     "marinade_unstake":         _A({"staking", "marinade"}),
     "marinade_delayed_unstake": _A({"staking", "marinade"}),
+    "marinade_add_liquidity":   _A({"staking", "marinade", "liquidity"}),
+    "marinade_remove_liquidity": _A({"staking", "marinade", "liquidity"}),
+    "marinade_deposit_stake":   _A({"staking", "marinade", "native_stake"}),
     "marinade_claim_ticket":    _A({"staking", "marinade"}),
     "kamino_stake":             _A({"staking", "kamino"}),
     "kamino_unstake":           _A({"staking", "kamino"}),
@@ -444,6 +447,8 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "scan_empty_accounts":  _A({"core", "portfolio"}),
     "my_stake_accounts":    _A({"staking", "portfolio"}),
     "top_validators":       _A({"staking", "analysis"}),
+    "marinade_exchange_rate": _A({"staking", "marinade"}),
+    "marinade_list_tickets":  _A({"staking", "marinade", "portfolio"}),
     # Birdeye
     "birdeye_price":            _A({"always", "price"}),
     "birdeye_multi_price":      _A({"price", "analysis"}),

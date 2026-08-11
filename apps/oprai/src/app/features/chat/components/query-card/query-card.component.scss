@@ -3334,3 +3334,80 @@
   margin-left: 4px;
   color: var(--op-brand-accent, #06b6d4);
 }
+
+// ─── Marinade readouts ──────────────────────────────────────────────────────
+.mrn-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.mrn-stat {
+  flex: 1 1 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+
+  &__k {
+    font-size: 0.6875rem;
+    color: var(--op-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  &__v {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    font-variant-numeric: tabular-nums;
+
+    &--gain { color: var(--op-gain); }
+  }
+}
+
+.mrn-note {
+  margin: 0 14px 12px;
+  font-size: 0.6875rem;
+  color: var(--op-text-tertiary);
+  line-height: 1.5;
+}
+
+.mrn-tickets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.mrn-ticket {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+
+  &--ready { border-color: color-mix(in srgb, var(--op-gain) 40%, var(--op-border-subtle)); }
+
+  &__amt { font-size: 0.875rem; font-weight: 600; color: var(--op-text-primary); }
+  &__state { font-size: 0.75rem; color: var(--op-text-secondary); }
+  &__mono { margin-left: auto; font-size: 0.6875rem; color: var(--op-text-tertiary); }
+  &__btn { margin-left: auto; }
+}
+
+.mrn-lst {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--op-text-primary);
+
+  img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+}

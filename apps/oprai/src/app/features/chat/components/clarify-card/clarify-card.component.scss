@@ -205,6 +205,10 @@
 
   // Single token coin — shown when options differ by token, not protocol
   // (e.g. "USDC vs SOL deposit on Kamino"). Same 36px slot, round like a coin.
+  // A 30px logo centred in a 36px filled circle left a 3px white ring around
+  // every token — three of them down a list reads as a rendering fault, not a
+  // frame. The image fills the circle; the background is only there to sit
+  // behind the letter when there is no image.
   &__token-icon {
     display: flex;
     align-items: center;
@@ -217,8 +221,8 @@
     overflow: hidden;
 
     img {
-      width: 30px;
-      height: 30px;
+      width: 100%;
+      height: 100%;
       border-radius: 50%;
       object-fit: cover;
     }

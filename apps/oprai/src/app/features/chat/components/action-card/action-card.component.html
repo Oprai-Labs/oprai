@@ -407,7 +407,7 @@
          computed the next time it catches someone. -->
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
-         || isBurn()) {
+         || isBurn() || isLstPanel() || isMarinadeClaim()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -4162,6 +4162,133 @@
         } @else {
           <div class="dca-cancel-summary dca-cancel-summary--muted">Cancels your active DCA order.</div>
         }
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
+         MARINADE CLAIM — the wallet's own matured tickets
+         ══════════════════════════════════════════════════════════ -->
+    @if (isMarinadeClaim()) {
+      <div class="stake-panels">
+        <div class="pump-panel">
+          <div class="pump-panel__top">
+            <span class="pump-panel__label">Delayed-unstake tickets</span>
+            @if (marinadeTicketsLoading()) { <span class="proto-balance-dots">···</span> }
+          </div>
+
+          @if (!marinadeTicketsLoading() && !marinadeTickets().length) {
+            <span class="pump-panel__usd">
+              No tickets on this wallet. A delayed unstake creates one; it becomes
+              claimable about two epochs later.
+            </span>
+          } @else {
+            <div class="vlist">
+              @for (t of marinadeTickets(); track t.address) {
+                <button type="button" class="vrow"
+                        [class.vrow--on]="getEditParam('ticketAccount') === t.address"
+                        [disabled]="!isEditable() || !t.claimable"
+                        (click)="setEditParam('ticketAccount', t.address)">
+                  <span class="vrow__text">
+                    <span class="vrow__name">{{ t.solAmount | number:'1.0-4' }} SOL</span>
+                    <span class="vrow__meta">
+                      @if (t.claimable) { Ready to claim }
+                      @else { Claimable from epoch {{ t.claimableEpoch }} }
+                      <span class="vrow__dot">·</span>
+                      <span class="mono">{{ t.address.slice(0, 4) }}…{{ t.address.slice(-4) }}</span>
+                    </span>
+                  </span>
+                  @if (t.claimable) {
+                    <span class="vrow__apy">
+                      <span class="vrow__apy-v mono">+{{ t.solAmount | number:'1.0-4' }}</span>
+                      <span class="vrow__apy-k">SOL</span>
+                    </span>
+                  }
+                </button>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════
+         LIQUID STAKING — one panel for jito / marinade / jupSOL
+         The rate was already fetched and the conversion already computed; the
+         card just had nowhere to show them, so six of the most-used actions in
+         the app rendered as a labelled number box.
+         ══════════════════════════════════════════════════════════ -->
+    @if (isLstPanel()) {
+      @let cfg = lstActionConfig()!;
+      @let mints = lstSideMints();
+      @let payTd = resolveTokenDisplay(mints.pay);
+      @let recvTd = resolveTokenDisplay(mints.recv);
+      <div class="stake-panels">
+        <div class="pump-panel">
+          <div class="pump-panel__top">
+            <span class="pump-panel__label">{{ cfg.direction === 'stake' ? 'You stake' : 'You unstake' }}</span>
+            @if (inputBalance() !== null) {
+              <span class="pump-panel__bal">
+                Balance: {{ inputBalance() | number:'1.0-4' }}
+                @if (isEditable()) {
+                  <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">Max</button>
+                }
+              </span>
+            }
+          </div>
+          <div class="pump-panel__row">
+            <input type="number" class="pump-panel__amount" placeholder="0"
+                   [value]="getEditParam('amount')"
+                   (input)="setEditParam('amount', $any($event.target).value)"
+                   [disabled]="!isEditable()" min="0" step="any" />
+            <div class="pump-token">
+              @if (payTd.logoURI) {
+                <img [src]="payTd.logoURI" class="pump-token__icon" alt=""
+                     (error)="$any($event.target).style.display='none'" />
+              } @else {
+                <span class="pump-token__icon pump-token__icon--ph">{{ (payTd.symbol || '?').charAt(0) }}</span>
+              }
+              <span class="pump-token__sym">{{ payTd.symbol }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pump-swap__arrow" aria-hidden="true">
+          <lucide-icon name="arrow-down" [size]="16" />
+        </div>
+
+        <div class="pump-panel pump-panel--recv">
+          <div class="pump-panel__top">
+            <span class="pump-panel__label">You receive (estimated)</span>
+            @if (lstRateLoading()) { <span class="proto-balance-dots">···</span> }
+          </div>
+          <div class="pump-panel__row">
+            <span class="pump-panel__amount pump-panel__amount--out">
+              @if (lstEstimate(); as est) { ≈ {{ est.amount | number:'1.0-6' }} }
+              @else { <span class="pump-panel__ph">—</span> }
+            </span>
+            <div class="pump-token">
+              @if (recvTd.logoURI) {
+                <img [src]="recvTd.logoURI" class="pump-token__icon" alt=""
+                     (error)="$any($event.target).style.display='none'" />
+              } @else {
+                <span class="pump-token__icon pump-token__icon--ph">{{ (recvTd.symbol || '?').charAt(0) }}</span>
+              }
+              <span class="pump-token__sym">{{ recvTd.symbol }}</span>
+            </div>
+          </div>
+
+          <!-- The rate itself, and never a substitute for it: a wrong preview
+               is worse than none, so a failed fetch says so. -->
+          @if (lstExchangeRate(); as rate) {
+            <span class="pump-panel__usd">1 {{ cfg.lstSymbol }} ≈ {{ rate | number:'1.0-4' }} SOL</span>
+          } @else if (lstRateError()) {
+            <span class="pump-panel__usd stake-panels__warn">Live rate unavailable — the amount you receive is set on chain at signing.</span>
+          }
+
+          @if (action.type === 'marinade_delayed_unstake') {
+            <span class="pump-panel__usd">Claimable in about 2 epochs (4–6 days). No fee, unlike the instant unstake.</span>
+          }
+        </div>
       </div>
     }
 

@@ -30,6 +30,15 @@ export interface ValidatorInfo {
   isJito?: boolean;
 }
 
+/** A Marinade delayed-unstake ticket waiting to be claimed. */
+export interface MarinadeTicket {
+  address: string;
+  solAmount: number;
+  createdEpoch: number;
+  claimableEpoch: number;
+  claimable: boolean;
+}
+
 /** One of the user's own stake accounts, as the picker needs it. */
 export interface StakeAccountInfo {
   address: string;
@@ -1232,6 +1241,48 @@ export class SolanaActionService {
         this.api.get<{ validators: ValidatorInfo[] }>('/validators/top').pipe(timeout(15_000))
       );
       return resp.validators ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Marinade tickets this wallet is owed SOL on.
+   *
+   * `marinade_claim_ticket` asks for a ticket pubkey — an address the user
+   * never sees, handed back by a delayed unstake days earlier and gone from
+   * the chat by the time it matures. Read from chain by beneficiary, which is
+   * the field the program itself checks.
+   *
+   * TicketAccountData: discriminant(8) state(32) beneficiary(32)
+   * lamports(8) createdEpoch(8) = 88 bytes.
+   */
+  async getMarinadeTickets(owner: string): Promise<MarinadeTicket[]> {
+    try {
+      const conn = createSolanaConnection('confirmed');
+      const [accounts, epochInfo] = await Promise.all([
+        conn.getProgramAccounts(new PublicKey('MarBmsSgKXdrN1egZf5sqe1TMai9K1rChYNDJgjq7aD'), {
+          filters: [{ dataSize: 88 }, { memcmp: { offset: 40, bytes: owner } }],
+        }),
+        conn.getEpochInfo(),
+      ]);
+      return accounts
+        .map(a => {
+          const d = a.account.data;
+          const lamports = Number(d.readBigUInt64LE(72));
+          const createdEpoch = Number(d.readBigUInt64LE(80));
+          // Marinade releases the SOL once the epoch after the one it was
+          // ordered in has ended.
+          const claimableEpoch = createdEpoch + 2;
+          return {
+            address: a.pubkey.toBase58(),
+            solAmount: lamports / 1e9,
+            createdEpoch,
+            claimableEpoch,
+            claimable: epochInfo.epoch >= claimableEpoch,
+          };
+        })
+        .sort((a, b) => Number(b.claimable) - Number(a.claimable) || b.solAmount - a.solAmount);
     } catch {
       return [];
     }

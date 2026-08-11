@@ -1596,10 +1596,25 @@ pub async fn build_jito_unstake_action(
 ) -> Result<BuildResponse, AppError> {
     validate_jito_unstake_params(params)?;
 
-    let jitosol_amount: f64 = params.amount.parse().unwrap();
-    let instant = params.instant.unwrap_or(false);
+    let jitosol_amount: f64 = params.amount.parse().map_err(|_| {
+        AppError::InvalidParams(format!("\"{}\" is not an amount of jitoSOL.", params.amount))
+    })?;
 
     let exchange_rate = get_exchange_rate(http, rpc).await?;
+
+    // Which path, decided by whether the other one can physically work.
+    //
+    // WithdrawStake hands back a STAKE ACCOUNT, and Solana will not create one
+    // below the minimum delegation — 1 SOL. Splitting for less fails inside the
+    // stake program with InsufficientDelegation (0xc), which surfaced as
+    // "simulation failed, program error 12" for anyone unstaking a normal
+    // amount. Under the minimum the instant reserve withdrawal is not a
+    // preference, it is the only thing that exists.
+    let sol_out = jitosol_amount * exchange_rate;
+    let min_delegation_sol = 1.0;
+    let instant = params
+        .instant
+        .unwrap_or(sol_out < min_delegation_sol);
 
     let result = if instant {
         // ── Instant path: withdraw_sol ────────────────────────────────────────
@@ -1612,6 +1627,12 @@ pub async fn build_jito_unstake_action(
         .map_err(|e| AppError::Internal(format!("Blocking task error: {e}")))??
     } else {
         // ── Standard path: withdraw_stake with preferred validator ────────────
+        if sol_out < min_delegation_sol {
+            return Err(AppError::InvalidParams(format!(
+                "A stake-account withdrawal has to be at least 1 SOL — this one is {sol_out:.4}. \
+                 Unstake instantly instead, which pays out in SOL from the pool reserve."
+            )));
+        }
         let preferred_list = get_preferred_withdraw_validators(http, Some(1), None, false).await;
         let preferred = preferred_list
             .map_err(|e| AppError::Internal(format!("Preferred validator fetch failed: {e}")))?

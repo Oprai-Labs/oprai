@@ -44,7 +44,18 @@
         @let singleTok = mode === 'token' ? optionSingleToken(option) : null;
         <!-- The option's own logo wins: a validator carries one, and nothing
              else in this chain can find it. -->
-        @if (option.icon) {
+        <!-- A staking row is choosing a TOKEN — jitoSOL, mSOL — so it wears
+             that token's mark rather than the protocol's logo repeated down
+             the list. -->
+        @if (optionStakeToken(option.action); as stakeTok) {
+          <div class="clarify-option__token-icon">
+            @if (stakeTok.logoURI) {
+              <img [src]="stakeTok.logoURI" [alt]="stakeTok.symbol" />
+            } @else {
+              <span class="clarify-option__token-letter">{{ stakeTok.symbol.charAt(0) }}</span>
+            }
+          </div>
+        } @else if (option.icon) {
           <div class="clarify-option__token-icon">
             <img [src]="option.icon" [alt]="option.label"
                  (error)="$any($event.target).style.display='none'" />
