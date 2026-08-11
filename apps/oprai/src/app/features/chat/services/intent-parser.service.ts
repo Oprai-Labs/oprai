@@ -1341,8 +1341,14 @@ export class IntentParserService {
         return `${query.params['token'] ?? 'Token'} Price`;
       case 'portfolio':
         return 'Portfolio Overview';
-      case 'positions':
-        return query.params['protocol'] ? `${query.params['protocol']} Positions` : 'DeFi Positions';
+      case 'positions': {
+        // The protocol arrives as the user typed it ("marinade"), and the card
+        // header rendered it verbatim — "marinade Positions" next to every
+        // other title in the app that is capitalised.
+        const proto = (query.params['protocol'] ?? '').trim();
+        if (!proto) return 'DeFi Positions';
+        return `${proto.charAt(0).toUpperCase()}${proto.slice(1)} Positions`;
+      }
       case 'lend_positions':
         return 'Jupiter Lend Positions';
       case 'perp_positions':

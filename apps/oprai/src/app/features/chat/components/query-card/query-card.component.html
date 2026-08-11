@@ -2412,30 +2412,63 @@
         </div>
       }
 
-      <!-- Positions results -->
+      <!-- Positions results — one panel per position, same language as every
+           other position surface in this card (logos, pair label, category
+           badge, holding, value). It used to be a bare four-column table of
+           text, which is why it read as a different product. -->
       @if (query.type === 'positions') {
-        <div class="result-table">
-          <div class="result-table__header result-table__header--4col">
-            <span>Protocol</span>
-            <span>Type</span>
-            <span class="text-right">Value</span>
-            <span class="text-right">APY</span>
-          </div>
+        <div class="ray-pos-list">
           @for (pos of positionResults; track pos.protocol + pos.token) {
-            <div class="result-table__row result-table__row--4col">
-              <span class="token-cell">
-                <span class="token-symbol">{{ pos.protocol }}</span>
-                <span class="token-name">{{ pos.token }}</span>
-              </span>
-              <span class="type-badge">{{ pos.type }}</span>
-              <span class="text-right mono">{{ formatUsd(pos.value) }}</span>
-              <!-- An APY column that always said 0.0% was inventing the one
-                   number on the row a user would act on. -->
-              <span class="text-right change-up">{{ pos.apy !== null ? pos.apy.toFixed(1) + '%' : '—' }}</span>
+            <div class="ray-pos">
+              <div class="ray-pos__top">
+                <span class="km-icons">
+                  @for (t of (pos.tokens ?? []); track t.symbol; let i = $index) {
+                    <span class="km-icon-slot" [class.km-icon-slot--debt]="i > 0">
+                      <span class="km-icon km-icon--fallback">{{ (t.symbol || '?').charAt(0) }}</span>
+                      @if (t.logoUri) {
+                        <img class="km-icon km-icon--img" [src]="logoSrc(t.logoUri)" [alt]="t.symbol"
+                             loading="lazy" decoding="async"
+                             (error)="$any($event.target).style.display='none'" />
+                      }
+                    </span>
+                  }
+                </span>
+                <span class="ray-pos__pair">{{ pos.protocol }}</span>
+                <span class="type-badge">{{ pos.type }}</span>
+                @if (pos.protocolLogoUri) {
+                  <img class="qp-proto-mark" [src]="logoSrc(pos.protocolLogoUri)" [alt]="pos.protocol"
+                       loading="lazy" decoding="async"
+                       (error)="$any($event.target).style.display='none'" />
+                }
+              </div>
+
+              <div class="ray-pos__body">
+                <span class="ray-pos__amount-block">
+                  <span class="ray-pos__amount ray-pos__amount--pair">
+                    @for (t of (pos.tokens ?? []); track t.symbol; let first = $first) {
+                      @if (!first) { <span class="ray-pos__amount-sep">+</span> }
+                      {{ t.amount | number:'1.0-6' }} {{ t.symbol }}
+                    }
+                  </span>
+                  <span class="ray-pos__amount-label">Holding</span>
+                </span>
+                <span class="qp-value-block">
+                  <span class="qp-value">{{ formatUsd(pos.value) }}</span>
+                  <!-- An APY column that always said 0.0% was inventing the one
+                       number on the row a user would act on. Absent unless
+                       something actually measured it. -->
+                  <span class="ray-pos__amount-label">
+                    {{ pos.apy !== null ? (pos.apy.toFixed(1) + '% APR') : 'Value' }}
+                  </span>
+                </span>
+              </div>
             </div>
           }
           @if (positionResults.length === 0) {
-            <div class="balance-empty">No open DeFi positions found in this wallet.</div>
+            <div class="dlmm-empty">
+              <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
+              <div>No open DeFi positions found in this wallet.</div>
+            </div>
           }
         </div>
       }

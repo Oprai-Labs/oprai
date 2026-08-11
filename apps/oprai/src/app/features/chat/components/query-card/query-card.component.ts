@@ -51,6 +51,11 @@ interface PositionResult {
   value: number;
   /** Null when nothing measured one — which is every row here. */
   apy: number | null;
+  /** The protocol's mark and the position's tokens, so the row can be read
+   *  the way every other position row in this card is: by its logos. The
+   *  aggregate had only text, which is why it rendered as a bare table. */
+  protocolLogoUri?: string | null;
+  tokens?: Array<{ symbol: string; amount: number; logoUri?: string | null }>;
 }
 
 interface TransactionResult {
@@ -663,6 +668,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   /** Returns a protocol image path for query types tied to a specific protocol, null otherwise. */
   get protocolIcon(): string | null {
+    // The aggregate is generic, but a protocol-scoped one ("my Marinade
+    // positions") is about exactly one protocol and its header should say so.
+    // The mark comes from the rows themselves rather than a second lookup
+    // table that would drift from the portfolio's.
+    if (this.query.type === 'positions' && (this.query.params['protocol'] ?? '').trim()) {
+      return this.positionResults.find(p => p.protocolLogoUri)?.protocolLogoUri ?? null;
+    }
     switch (this.query.type) {
       case 'limit_orders':
       case 'dca':
@@ -4446,6 +4458,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
           // APY column is a claim — the one number on the row a user would act
           // on, invented.
           apy: null,
+          protocolLogoUri: p.protocolLogoUri ?? null,
+          // The holding itself. The row used to show only a USD value, so the
+          // amount — the thing the user actually holds — reached them only if
+          // the model happened to repeat it in prose.
+          tokens: pos.tokens.map(t => ({
+            symbol: t.symbol,
+            amount: t.amount,
+            logoUri: t.logoUri ?? null,
+          })),
         }))
       );
       this.loading.set(false);
