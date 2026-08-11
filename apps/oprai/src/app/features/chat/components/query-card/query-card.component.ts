@@ -49,7 +49,8 @@ interface PositionResult {
   token: string;
   amount: number;
   value: number;
-  apy: number;
+  /** Null when nothing measured one — which is every row here. */
+  apy: number | null;
 }
 
 interface TransactionResult {
@@ -4414,7 +4415,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         this.loading.set(false);
         return;
       }
-      const positions = this.portfolioService.protocolPositions();
+      // The protocol named in the question is a FILTER, not just a heading.
+      // It was only ever used for the title, so "my Jito positions" rendered
+      // every protocol's positions under a Jito header — with pump.fun rewards
+      // listed as a Jito position.
+      const want = (this.query.params['protocol'] ?? '').trim().toLowerCase();
+      const positions = this.portfolioService.protocolPositions()
+        .filter(p => !want || p.protocolName.toLowerCase().includes(want)
+          || want.includes(p.protocolName.toLowerCase()));
+
       this.positionResults = positions.flatMap(p =>
         p.positions.map(pos => ({
           protocol: p.protocolName,
@@ -4422,7 +4431,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
           token: pos.tokens.map(t => t.symbol).join('+'),
           amount: pos.tokens[0]?.amount ?? 0,
           value: pos.totalUsdValue ?? 0,
-          apy: 0,
+          // Null, not zero. Nothing here measures a yield, and "0.0%" in an
+          // APY column is a claim — the one number on the row a user would act
+          // on, invented.
+          apy: null,
         }))
       );
       this.loading.set(false);

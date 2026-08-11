@@ -2429,7 +2429,9 @@
               </span>
               <span class="type-badge">{{ pos.type }}</span>
               <span class="text-right mono">{{ formatUsd(pos.value) }}</span>
-              <span class="text-right change-up">{{ pos.apy.toFixed(1) }}%</span>
+              <!-- An APY column that always said 0.0% was inventing the one
+                   number on the row a user would act on. -->
+              <span class="text-right change-up">{{ pos.apy !== null ? pos.apy.toFixed(1) + '%' : '—' }}</span>
             </div>
           }
           @if (positionResults.length === 0) {
