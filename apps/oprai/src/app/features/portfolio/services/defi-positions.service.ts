@@ -682,11 +682,18 @@ export class DefiPositionsService {
   // ──── Raydium CLMM Positions ────
 
   /**
-   * Raydium farm-stake + locked-CLMM positions via the Rust backend.
-   * Active **unlocked** CLMM positions still aren't covered — those are
-   * NFT-based and need a Helius DAS scan + per-position PDA decode
-   * (parallel to the Orca whirlpool implementation). Until that ships,
-   * this fills in the two surfaces that do have a public owner-API.
+   * Raydium positions: open CLMM (the common case), plus farm stakes and
+   * locked CLMM for wallets that have them.
+   *
+   * Three row shapes arrive on one `positions` array and each has its own
+   * mapper below. They are told apart by `kind`, which the SDK-backed service
+   * stamps on every row it returns — never by duck-typing a field, because
+   * the mappers disagree about what the same field name means. `mintA` is a
+   * bare address string in the legacy owner-API lock shape and an object in
+   * the SDK shape; feeding one to the other's mapper threw
+   * `mintA.slice is not a function`, and the throw was swallowed by the
+   * fetcher-wide catch, so ALL Raydium positions disappeared on a wallet
+   * whose only fault was holding an ordinary open position.
    */
   async getRaydiumClmmPositions(_wallet: string): Promise<ProtocolPosition[]> {
     try {
@@ -711,25 +718,57 @@ export class DefiPositionsService {
         ),
       ]);
 
+      // The TS service answers `{ data: { positions: [...], count } }`. An
+      // earlier read took `data.params` — the ECHO of the request — so even
+      // once the request key was fixed the parse found nothing and the wallet
+      // looked empty. Positions first, then the older shapes.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rowsOf = (payload: any): any[] =>
+        Array.isArray(payload?.positions) ? payload.positions
+        : Array.isArray(payload?.params?.data) ? payload.params.data
+        : Array.isArray(payload?.data) ? payload.data
+        : (Array.isArray(payload) ? payload : []);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const farmPayload: any = farmRes.status === 'fulfilled'
+        ? ((farmRes.value as any)?.data ?? null)
+        : null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lockedPayload: any = lockedRes.status === 'fulfilled'
+        ? ((lockedRes.value as any)?.data ?? null)
+        : null;
+
+      // Rows the SDK stamped with a `kind` belong to the CLMM/LP mappers.
+      // The farm and lock mappers below read the legacy owner-API shape, so
+      // they only ever see rows that carry no `kind` at all.
+      const farms: any[] = rowsOf(farmPayload).filter((r: any) => !r?.kind);
+      const locks: any[] = rowsOf(lockedPayload).filter((r: any) => !r?.kind);
+
+      // One surprising row must not cost the whole protocol. Every mapper here
+      // reads fields off an untyped backend payload, and until now a single
+      // throw travelled all the way out to the fetcher-wide catch — which
+      // returns [], indistinguishable from a wallet that holds nothing.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mapRows = <T>(rows: any[], fn: (row: any) => T | null): T[] => {
+        const mapped: T[] = [];
+        for (const row of rows) {
+          try {
+            const item = fn(row);
+            if (item !== null) mapped.push(item);
+          } catch {
+            // Drop this row, keep the rest of the wallet visible.
+          }
+        }
+        return mapped;
+      };
+
       // Farm positions surface as ProtocolPosition under category:'lending'
       // (closest existing bucket — Raydium farm staking is "deposit token,
       // earn rewards" semantically). Each item carries pending rewards as
       // claimableUsd.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      // The TS service answers `{ data: { positions: [...], count } }`. This
-      // read `data.params` — the ECHO of the request — so even once the
-      // request key was fixed the parse found nothing and the wallet looked
-      // empty. Positions first, then the older shapes.
-      const farmPayload: any = farmRes.status === 'fulfilled'
-        ? ((farmRes.value as any)?.data ?? null)
-        : null;
-      const farms: any[] = Array.isArray(farmPayload?.positions) ? farmPayload.positions
-        : Array.isArray(farmPayload?.params?.data) ? farmPayload.params.data
-        : Array.isArray(farmPayload?.data) ? farmPayload.data
-        : (Array.isArray(farmPayload) ? farmPayload : []);
-      const farmItems: PositionItem[] = farms
+      const farmItems: PositionItem[] = mapRows(farms,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((f: any): PositionItem | null => {
+        (f: any): PositionItem | null => {
           const stakedAmount = Number(f.stakedAmount ?? f.staked ?? 0);
           if (!(stakedAmount > 0)) return null;
           const lpMint: string | undefined = f.lpMint ?? f.mint ?? undefined;
@@ -744,8 +783,7 @@ export class DefiPositionsService {
             apy,
             claimableUsd: pending > 0 ? pending : null,
           };
-        })
-        .filter((p): p is PositionItem => p !== null);
+        });
       if (farmItems.length > 0) {
         out.push({
           protocolId: 'raydium',
@@ -757,24 +795,23 @@ export class DefiPositionsService {
         });
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lockedPayload: any = lockedRes.status === 'fulfilled'
-        ? ((lockedRes.value as any)?.data ?? null)
-        : null;
-      const locks: any[] = Array.isArray(lockedPayload?.positions) ? lockedPayload.positions
-        : Array.isArray(lockedPayload?.params?.data) ? lockedPayload.params.data
-        : Array.isArray(lockedPayload?.data) ? lockedPayload.data
-        : (Array.isArray(lockedPayload) ? lockedPayload : []);
-      const lockItems: PositionItem[] = locks
+      const lockItems: PositionItem[] = mapRows(locks,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((l: any): PositionItem | null => {
+        (l: any): PositionItem | null => {
           const totalValue = this.pickNum(l.totalValueUsd, l.usdValue, l.value);
           const apy = this.pickNum(l.apr, l.apy);
           const claim = Number(l.unclaimedFeeUsd ?? l.unclaimedFee ?? 0);
-          const mintA: string | undefined = l.tokenAMint ?? l.mintA ?? undefined;
-          const mintB: string | undefined = l.tokenBMint ?? l.mintB ?? undefined;
-          const symA: string = l.tokenASymbol ?? l.symbolA ?? (mintA ? mintA.slice(0, 4) + '…' : 'A');
-          const symB: string = l.tokenBSymbol ?? l.symbolB ?? (mintB ? mintB.slice(0, 4) + '…' : 'B');
+          // A mint arrives either as a bare address or as `{ address, symbol }`
+          // depending on which backend shape answered. Normalise before use —
+          // calling a string method on the object shape is what took the whole
+          // section down.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const addrOf = (m: any): string | undefined =>
+            typeof m === 'string' ? m : (typeof m?.address === 'string' ? m.address : undefined);
+          const mintA: string | undefined = addrOf(l.tokenAMint ?? l.mintA);
+          const mintB: string | undefined = addrOf(l.tokenBMint ?? l.mintB);
+          const symA: string = l.tokenASymbol ?? l.symbolA ?? l.mintA?.symbol ?? (mintA ? mintA.slice(0, 4) + '…' : 'A');
+          const symB: string = l.tokenBSymbol ?? l.symbolB ?? l.mintB?.symbol ?? (mintB ? mintB.slice(0, 4) + '…' : 'B');
           const amountA = Number(l.amountA ?? 0);
           const amountB = Number(l.amountB ?? 0);
           if (totalValue == null && amountA === 0 && amountB === 0) return null;
@@ -789,8 +826,7 @@ export class DefiPositionsService {
             apy,
             claimableUsd: claim > 0 ? claim : null,
           };
-        })
-        .filter((p): p is PositionItem => p !== null);
+        });
       if (lockItems.length > 0) {
         out.push({
           protocolId: 'raydium',
@@ -809,44 +845,46 @@ export class DefiPositionsService {
       // open concentrated-liquidity position — the most common Raydium
       // position there is — fell through both and the wallet looked empty.
       // The service returns them under the same `positions` array, marked
-      // `kind: 'clmm'`.
-      const clmmRows: any[] = [
-        ...(Array.isArray(farmPayload?.positions) ? farmPayload.positions : []),
-        ...(Array.isArray(lockedPayload?.positions) ? lockedPayload.positions : []),
-      ].filter((r: any) => r?.kind === 'clmm' && !r?.empty);
+      // `kind: 'clmm'`. `kind: 'lp'` rows are deliberately left alone:
+      // getLpPositions already renders those from the same Raydium endpoint,
+      // and mapping them here too would show every LP position twice.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const clmmRows: any[] = [...rowsOf(farmPayload), ...rowsOf(lockedPayload)]
+        .filter((r: any) => r?.kind === 'clmm' && !r?.empty);
 
       // The same position can arrive from both calls — they are two views of
       // one wallet — so key by position id.
       const seenClmm = new Set<string>();
-      const clmmItems: PositionItem[] = [];
-      for (const r of clmmRows) {
-        const id = String(r.positionId ?? '');
-        if (!id || seenClmm.has(id)) continue;
-        seenClmm.add(id);
-        const symA = r.mintA?.symbol ?? 'A';
-        const symB = r.mintB?.symbol ?? 'B';
-        const amountA = Number(r.amountA ?? 0);
-        const amountB = Number(r.amountB ?? 0);
-        clmmItems.push({
-          label: r.pair ?? `${symA}/${symB}`,
-          tokens: [
-            { symbol: symA, amount: amountA, logoUri: this.resolveTokenLogo(symA, r.mintA?.address ?? null), mint: r.mintA?.address },
-            { symbol: symB, amount: amountB, logoUri: this.resolveTokenLogo(symB, r.mintB?.address ?? null), mint: r.mintB?.address },
-          ],
-          // This endpoint returns amounts, not USD, and there is no pricing
-          // helper on this service. Null, not zero — zero would render as a
-          // worthless position rather than an unpriced one.
-          totalUsdValue: null,
-          metadata: {
-            poolId: r.poolId ?? null,
-            positionId: id,
-            tickLower: r.tickLower ?? null,
-            tickUpper: r.tickUpper ?? null,
-          },
-          apy: null,
-          claimableUsd: null,
+      const clmmItems: PositionItem[] = mapRows(clmmRows,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (r: any): PositionItem | null => {
+          const id = String(r.positionId ?? '');
+          if (!id || seenClmm.has(id)) return null;
+          seenClmm.add(id);
+          const symA = r.mintA?.symbol ?? 'A';
+          const symB = r.mintB?.symbol ?? 'B';
+          const amountA = Number(r.amountA ?? 0);
+          const amountB = Number(r.amountB ?? 0);
+          return {
+            label: r.pair ?? `${symA}/${symB}`,
+            tokens: [
+              { symbol: symA, amount: amountA, logoUri: this.resolveTokenLogo(symA, r.mintA?.address ?? null), mint: r.mintA?.address },
+              { symbol: symB, amount: amountB, logoUri: this.resolveTokenLogo(symB, r.mintB?.address ?? null), mint: r.mintB?.address },
+            ],
+            // This endpoint returns amounts, not USD, and there is no pricing
+            // helper on this service. Null, not zero — zero would render as a
+            // worthless position rather than an unpriced one.
+            totalUsdValue: null,
+            metadata: {
+              poolId: r.poolId ?? null,
+              positionId: id,
+              tickLower: r.tickLower ?? null,
+              tickUpper: r.tickUpper ?? null,
+            },
+            apy: null,
+            claimableUsd: null,
+          };
         });
-      }
       if (clmmItems.length > 0) {
         out.push({
           protocolId: 'raydium',
