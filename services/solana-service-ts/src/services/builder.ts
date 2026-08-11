@@ -207,7 +207,10 @@ export async function buildAction(
       return marinade.buildMarinadeUnstake(p(params), userWallet);
     case "marinade_delayed_unstake":
       return marinade.buildMarinadeDelayedUnstake(p(params), userWallet);
+    // Both names reach here: the Rust service and the prompts say
+    // `marinade_claim_ticket`, the SDK wrapper is `marinade_claim`.
     case "marinade_claim":
+    case "marinade_claim_ticket":
       return marinade.buildMarinadeClaim(p(params), userWallet);
     case "marinade_deposit_stake":
       return marinade.buildMarinadeDepositStake(p(params), userWallet);

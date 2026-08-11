@@ -286,6 +286,21 @@ fn is_ts_delegated_action(action_type: &str) -> bool {
             | "meteora_dammv2_claim_fee"
             | "meteora_dammv2_close_position"
             | "meteora_dammv2_swap"
+            // Marinade — @marinade.finance/marinade-ts-sdk.
+            //
+            // The Rust implementation is a placeholder and always was: a
+            // one-byte discriminator where an Anchor program wants an eight-byte
+            // sighash, and four accounts where deposit needs eleven. Its own
+            // comment said "simplified — actual Marinade SDK would have more
+            // accounts". It quoted a real exchange rate in the preview, so the
+            // card looked correct right up to the signature, and the chain
+            // answered InstructionFallbackNotFound. The SDK build has been
+            // sitting in the TS service, unreachable, the whole time.
+            | "marinade_stake"
+            | "marinade_unstake"
+            | "marinade_delayed_unstake"
+            | "marinade_claim"
+            | "marinade_claim_ticket"
     )
 }
 
