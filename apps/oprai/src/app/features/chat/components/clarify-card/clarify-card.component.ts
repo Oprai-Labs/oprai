@@ -98,6 +98,22 @@ export class ClarifyCardComponent implements OnInit {
     return this.categoryTitles[this.clarify.category] ?? 'Select Option';
   }
 
+  /**
+   * The TOKEN an option produces, not the protocol that produces it.
+   *
+   * A row offering "0.1 SOL into jitoSOL" showed Jito's company logo three
+   * times over. What is being chosen is the liquid-staking token, and it has
+   * its own mark in the registry.
+   */
+  optionStakeToken(action: string): OptionToken | null {
+    const symbol =
+      action.startsWith('jito_') ? 'jitoSOL' :
+      action.startsWith('marinade_') ? 'mSOL' :
+      action.startsWith('jupsol_') ? 'jupSOL' :
+      action.startsWith('native_stake') ? 'SOL' : null;
+    return symbol ? this.resolveTokenPublic(symbol) : null;
+  }
+
   /** Every way of staking SOL, whichever protocol takes it. */
   private isStakingAction(action: string): boolean {
     return /(^|_)stake$/.test(action) || action.startsWith('native_stake');
@@ -123,6 +139,9 @@ export class ClarifyCardComponent implements OnInit {
     // A validator is not a protocol. Matching on the action prefix put the
     // Drift protocol's logo next to a validator that happens to be called
     // Drift, and the Solana Foundation's next to nothing at all.
+    // Native staking has no protocol — it is Solana itself. Every other
+    // staking action DOES have one, and when the whole card belongs to it the
+    // header should say so: a Jito card wears Jito's mark, not SOL's.
     if (action.startsWith('native_stake')) return undefined;
     if (!action.includes('_')) return undefined;
     const prefix = action.split('_')[0];
@@ -224,9 +243,11 @@ export class ClarifyCardComponent implements OnInit {
    * with the real protocol logo (e.g. Kamino) instead of a generic glyph.
    * Null when options span multiple protocols (then the per-row logos carry it).
    */
-  /** SOL's own mark, for a card whose options are all native staking — there
-   *  is no protocol logo to show, because the protocol is Solana itself. */
+  /** SOL's own mark — for a staking card no single protocol owns: native
+   *  staking, or a choice BETWEEN protocols. When one protocol owns every
+   *  option, its own logo is the honest header and takes precedence. */
   cardTokenIcon(): string | null {
+    if (this.cardProtocol()) return null;
     const opts = this.clarify.options ?? [];
     // Any staking choice, not just native. Whether the SOL goes to a validator
     // or to Marinade, the asset being staked is the same one, and it is the
@@ -246,8 +267,10 @@ export class ClarifyCardComponent implements OnInit {
     const infos = opts.map(o => this.getProtocolInfo(o));
     const first = infos[0];
     if (!first) return null;
-    // A staking card is Solana's, not the first protocol's — see cardTokenIcon.
-    if (opts.every(o => this.isStakingAction(o.action))) return null;
+    // One protocol across every option — including a staking card, which is
+    // Jito's or Marinade's when only that protocol is offered. Solana's own
+    // mark is for the case where they are mixed (see cardTokenIcon), not for
+    // every card that happens to be about staking.
     return infos.every(i => i?.id === first.id) ? first : null;
   }
 
