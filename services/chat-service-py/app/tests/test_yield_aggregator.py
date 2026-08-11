@@ -34,7 +34,6 @@ class TestProtocols:
         lending_protocols = {k: v for k, v in PROTOCOLS.items() if v["category"] == "lending"}
 
         assert "kamino_sol" in lending_protocols
-        assert "marginfi_sol" in lending_protocols
 
     def test_protocol_structure(self):
         """Test each protocol has required fields"""
@@ -130,30 +129,7 @@ class TestExtractApy:
 
         assert result == 6.0
 
-    def test_extract_marginfi_sol(self):
-        """Test extracting APY from MarginFi SOL"""
-        data = {
-            "banks": [
-                {"tokenSymbol": "SOL", "lendingRate": 0.05},
-                {"tokenSymbol": "USDC", "lendingRate": 0.02},
-            ]
-        }
-        result = _extract_apy("marginfi_sol", data)
 
-        # lendingRate * 100 = 5.0
-        assert result == 5.0
-
-    def test_extract_marginfi_apy(self):
-        """Test MarginFi with apy field"""
-        data = {
-            "banks": [
-                {"tokenSymbol": "SOL", "apy": 4.5},
-            ]
-        }
-        result = _extract_apy("marginfi_sol", data)
-
-        # APY is multiplied by 100 in the extractor
-        assert result == 450.0
 
     def test_extract_invalid_data(self):
         """Test extraction with invalid data types"""

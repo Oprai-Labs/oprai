@@ -92,32 +92,6 @@ class TestMeteoraOpenPosition:
         assert "amountY" in params
 
 
-class TestMarginfiActions:
-    """Test Marginfi actions"""
-
-    def test_marginfi_deposit_name(self):
-        """Test deposit action name"""
-        from app.plugins.defi_plugins import MarginfiDepositAction
-
-        action = MarginfiDepositAction()
-        assert action.name == "marginfi_deposit"
-
-    def test_marginfi_borrow_name(self):
-        """Test borrow action name"""
-        from app.plugins.defi_plugins import MarginfiBorrowAction
-
-        action = MarginfiBorrowAction()
-        assert action.name == "marginfi_borrow"
-
-    def test_marginfi_parameters(self):
-        """Test deposit parameters"""
-        from app.plugins.defi_plugins import MarginfiDepositAction
-
-        action = MarginfiDepositAction()
-        params = action.parameters
-
-        assert "amount" in params
-        assert "bank" in params
 
 
 class TestRaydiumActions:
@@ -233,26 +207,6 @@ class TestDefiActionsExecution:
             assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_marginfi_deposit_execute(self):
-        """Test executing Marginfi deposit"""
-        from app.plugins.defi_plugins import MarginfiDepositAction
-        from app.plugins.base import PluginContext
-
-        action = MarginfiDepositAction()
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"tx": "base64"}
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
-
-            result = await action.execute(
-                params={"amount": 1000, "token": "SOL"},
-                context=PluginContext(plugin_id="test")
-            )
-
-            assert result.success is True
 
 
 class TestActionAliases:

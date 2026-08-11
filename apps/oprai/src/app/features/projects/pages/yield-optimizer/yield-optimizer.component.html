@@ -70,7 +70,7 @@
               <lucide-icon name="scan-search" [size]="36" />
             </div>
             <h2 class="prescan-title">Ready to scan</h2>
-            <p class="prescan-sub">The agent will analyze your portfolio and surface the highest-yield moves available across Kamino, MarginFi, Solend, Jito, and Marinade.</p>
+            <p class="prescan-sub">The agent will analyze your portfolio and surface the highest-yield moves available across Kamino, Solend, Jito, and Marinade.</p>
 
             <!-- Config -->
             <div class="config-card">
@@ -116,7 +116,7 @@
             </div>
             <p class="scanning-text">Scanning protocols for yield opportunities...</p>
             <div class="scanning-protocols">
-              @for (p of ['Kamino', 'MarginFi', 'Solend', 'Jito', 'Marinade']; track p) {
+              @for (p of ['Kamino', 'Solend', 'Jito', 'Marinade']; track p) {
                 <span class="scanning-chip">{{ p }}</span>
               }
             </div>

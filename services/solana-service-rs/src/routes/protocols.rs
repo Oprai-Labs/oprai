@@ -150,14 +150,6 @@ static PROTOCOLS: LazyLock<Vec<ProtocolInfo>> = LazyLock::new(|| {
             ],
         },
         ProtocolInfo {
-            id: "marginfi",
-            name: "marginfi",
-            description: "Decentralized lending protocol",
-            category: "Lending",
-            website: "https://www.marginfi.com",
-            actions: &["deposit", "withdraw", "borrow", "repay"],
-        },
-        ProtocolInfo {
             id: "kamino",
             name: "Kamino Finance",
             description: "Automated liquidity strategies and lending",

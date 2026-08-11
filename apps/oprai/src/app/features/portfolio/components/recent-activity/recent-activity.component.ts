@@ -130,7 +130,6 @@ export class RecentActivityComponent {
     'marinade finance': `${RecentActivityComponent.ICON_BASE}/marinade.png`,
     'jito': `${RecentActivityComponent.ICON_BASE}/jito.png`,
     'kamino': `${RecentActivityComponent.ICON_BASE}/kamino.png`,
-    'marginfi': `${RecentActivityComponent.ICON_BASE}/marginfi.png`,
     'phantom': `${RecentActivityComponent.ICON_BASE}/phantom.png`,
     'tensor': `${RecentActivityComponent.ICON_BASE}/tensor.png`,
     'magic eden': `${RecentActivityComponent.ICON_BASE}/magiceden.png`,
@@ -154,7 +153,6 @@ export class RecentActivityComponent {
     { key: 'tensor', label: 'Tensor', aliases: ['tensor'] },
     { key: 'magic eden', label: 'Magic Eden', aliases: ['magic eden', 'magiceden'] },
     { key: 'kamino', label: 'Kamino', aliases: ['kamino'] },
-    { key: 'marginfi', label: 'MarginFi', aliases: ['marginfi', 'margin fi'] },
     { key: 'jito', label: 'Jito', aliases: ['jito'] },
     { key: 'marinade', label: 'Marinade', aliases: ['marinade'] },
     { key: 'lido', label: 'Lido', aliases: ['lido'] },
@@ -404,7 +402,6 @@ export class RecentActivityComponent {
       'marinade finance': 'Marinade',
       'jito': 'Jito',
       'kamino': 'Kamino',
-      'marginfi': 'MarginFi',
       'lido': 'Lido',
       'spl token': 'SPL Token',
       'system': 'System',
@@ -442,7 +439,6 @@ export class RecentActivityComponent {
       'marinade finance': '#2FCB6E',
       'jito': '#FF8A00',
       'kamino': '#43D4AA',
-      'marginfi': '#4F46E5',
       'lido': '#00A3FF',
       'phantom': '#AB9FF2',
       'tensor': '#00D18C',
@@ -765,7 +761,6 @@ export class RecentActivityComponent {
       { contains: ['tensor'], iconKey: 'tensor' },
       { contains: ['magic eden'], iconKey: 'magic eden' },
       { contains: ['kamino'], iconKey: 'kamino' },
-      { contains: ['marginfi'], iconKey: 'marginfi' },
     ];
 
     for (const rule of rules) {

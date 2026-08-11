@@ -187,16 +187,6 @@ export const AGENT_TOOLS: AgentTool[] = [
     requiresApproval: true,
   },
   {
-    id: 'marginfi_lend',
-    name: 'MarginFi Lending',
-    description: 'Lend/borrow on MarginFi protocol',
-    category: 'lend',
-    icon: 'trending-up',
-    protocols: ['MarginFi'],
-    riskLevel: 'low',
-    requiresApproval: true,
-  },
-  {
     id: 'solend_lend',
     name: 'Solend Lending',
     description: 'Lend/borrow on Solend protocol',
@@ -571,7 +561,7 @@ export function getDefaultAgentConfig(): AgentConfig {
       maxSlippage: 1,
       maxGasFee: 0.01,
       maxPositionSize: 10000,
-      allowedProtocols: ['Jupiter', 'Jito', 'Kamino', 'MarginFi'],
+      allowedProtocols: ['Jupiter', 'Jito', 'Kamino'],
       blockedTokens: [],
     },
     schedule: {

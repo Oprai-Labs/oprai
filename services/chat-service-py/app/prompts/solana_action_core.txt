@@ -298,7 +298,6 @@ Protocol mapping (always set both `protocol` AND `type`):
 - "kamino rewards" / "KMNO rewards" / "Claim my Kamino" → protocol=kamino, type=lending_yield
 - "orca fees" / "LP fees Orca" / "Collect my Orca" / "Collect my Orca liquidity fees" → protocol=orca, type=fees
 - "meteora fees" → protocol=meteora, type=fees
-- "marginfi rewards" → protocol=marginfi, type=lending_yield
 - Generic "my rewards" / "staking rewards" with no protocol → ask which protocol
 
 Examples:
@@ -353,7 +352,6 @@ Protocol mapping (always set `protocol` param):
 - "Marinade governance" / "mNDE vote" / "Marinade proposal" → protocol=marinade (portal: https://governance.marinade.finance)
 - "Jito governance" → protocol=jito
 - "Kamino governance" / "KMNO vote" / "Kamino proposal" → protocol=kamino (portal: https://app.kamino.finance/governance)
-- "marginfi governance" → protocol=marginfi
 - "Orca governance" → protocol=orca
 
 Examples:

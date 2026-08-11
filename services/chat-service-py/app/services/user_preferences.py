@@ -232,7 +232,7 @@ class TradingPreferences:
 
     # Preferred protocols (by category)
     preferred_dex: List[str] = field(default_factory=lambda: ["jupiter"])
-    preferred_lending: List[str] = field(default_factory=lambda: ["marginfi", "kamino"])
+    preferred_lending: List[str] = field(default_factory=lambda: ["kamino", "jupiter"])
     preferred_staking: List[str] = field(default_factory=lambda: ["jito", "marinade"])
 
     # Safety
@@ -276,7 +276,7 @@ class TradingPreferences:
             auto_rebalance=data.get("auto_rebalance", False),
             auto_compound_yield=data.get("auto_compound_yield", False),
             preferred_dex=data.get("preferred_dex", ["jupiter"]),
-            preferred_lending=data.get("preferred_lending", ["marginfi", "kamino"]),
+            preferred_lending=data.get("preferred_lending", ["kamino", "jupiter"]),
             preferred_staking=data.get("preferred_staking", ["jito", "marinade"]),
             enable_simulation=data.get("enable_simulation", True),
             check_token_security=data.get("check_token_security", True),

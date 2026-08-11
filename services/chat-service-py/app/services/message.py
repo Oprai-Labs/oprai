@@ -560,7 +560,7 @@ _TOOL_BLOB_KEYS = ('"query_type"', '"action_type"', '"query_onchain"', '"execute
 _TOOL_NAME_PREFIXES = (
     "birdeye_", "helius_", "jup_", "dex_",
     "raydium_", "orca_", "meteora_",
-    "kamino_", "marginfi_", "marinade_", "solend_", "save_",
+    "kamino_", "marinade_", "solend_", "save_",
     "jito_", "tensor_", "pumpfun_", "_me_",
     "query_onchain", "execute_action", "request_clarification",
 )
@@ -903,7 +903,6 @@ _PRICE_DATA_TYPES: frozenset[str] = frozenset({
     "jup_lend_markets",
     "jup_lend_earnings",
     "kamino_reserves",
-    "marginfi_banks",
 })
 
 # Common price-claim line shapes:
@@ -2127,7 +2126,7 @@ async def stream_chat_response(
         # Deterministic lending-protocol correction. gpt-5.4-mini intermittently
         # emits a Kamino-specific action (kamino_deposit / kamino_withdraw /
         # kamino_borrow / kamino_repay) even when the user named Jupiter or
-        # MarginFi ("deposit to Jupiter Lend") — the shared lending prompt keeps
+        # Jupiter ("deposit to Jupiter Lend") — the shared lending prompt keeps
         # Kamino's examples in view. The generic lend / withdraw_lend / borrow /
         # repay actions carry an explicit `protocol` param, so remap when the
         # user *literally* named a different lending protocol and never named
@@ -2146,8 +2145,6 @@ async def stream_chat_response(
         if "kamino" not in _named:
             if "jupiter" in _named:
                 _named_lender = "jupiter"
-            elif "marginfi" in _named:
-                _named_lender = "marginfi"
         for tc_name, tc_args in collected_tool_calls:
             # Inject chain depth into args so _validate_execute_action can enforce the cap.
             # Never reset chain_depth to 0 — prevents bypass by interspersing non-chained actions.

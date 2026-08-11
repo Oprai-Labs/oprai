@@ -5,7 +5,6 @@
  * Provides real-time yield comparisons, route planning, and one-click execution.
  *
  * Supported Protocols:
- * - Lending: Jupiter Lend, Kamino, MarginFi, Solend
  * - Staking: Jito, Marinade
  * - Liquidity: Orca, Raydium, Meteora
  * - Perpetuals: Jupiter Perp
@@ -248,10 +247,8 @@ export class DeFiStrategyOptimizerService {
         });
       }
 
-      // Solend + MarginFi yield fetches are disabled — both vendors took
       // their public REST APIs offline:
       //   - `api.solend.fi/v1/config` → 404
-      //   - `app.marginfi.com/api/v1/banks` → 404 / CORS blocked
       // The yield rows from these protocols won't appear in the optimizer
       // output until we replace these calls with on-chain reads through the
       // gateway. Caught-and-swallowed errors used to mask this as silent
@@ -292,7 +289,6 @@ export class DeFiStrategyOptimizerService {
       { protocol: 'Marinade', protocolIcon: '🌱', protocolColor: '#22C55E', tokenMint: TOKENS.mSOL, action: 'stake', token: 'SOL', apy: 6.2, apr: 6.0, tvl: 800000000, riskLevel: 'low' },
       { protocol: 'Kamino', protocolIcon: '🏛️', protocolColor: '#3B82F6', tokenMint: TOKENS.USDC, action: 'lend', token: 'USDC', apy: 5.2, apr: 5.0, tvl: 10000000, riskLevel: 'low' },
       { protocol: 'Solend', protocolIcon: '🦇', protocolColor: '#8B5CF6', tokenMint: TOKENS.USDC, action: 'lend', token: 'USDC', apy: 3.8, apr: 3.6, tvl: 15000000, riskLevel: 'low' },
-      { protocol: 'MarginFi', protocolIcon: '📊', protocolColor: '#EC4899', tokenMint: TOKENS.USDC, action: 'lend', token: 'USDC', apy: 4.1, apr: 3.9, tvl: 25000000, riskLevel: 'low' },
     ];
 
     // Merge with API yields (avoid duplicates)
@@ -635,7 +631,6 @@ export class DeFiStrategyOptimizerService {
       Jito: '#F97316',
       Marinade: '#22C55E',
       Kamino: '#3B82F6',
-      MarginFi: '#EC4899',
       Solend: '#8B5CF6',
       Orca: '#14B8A6',
       Raydium: '#8B5CF6',
@@ -649,7 +644,6 @@ export class DeFiStrategyOptimizerService {
   private getYieldTokenSymbol(protocol: string, token: string): string {
     if (protocol === 'Jupiter') return `jl${token}`;
     if (protocol === 'Kamino') return `km${token}`;
-    if (protocol === 'MarginFi') return `mfi${token}`;
     if (protocol === 'Solend') return `sl${token}`;
     return `${token} Yield`;
   }

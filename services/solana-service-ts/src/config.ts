@@ -37,10 +37,4 @@ export const config = {
   // API keys
   jupiterApiKey: optional("JUPITER_API_KEY", ""),
   heliusApiKey: optional("HELIUS_API_KEY", ""),
-
-  // MarginFi
-  marginfiGroup: optional(
-    "MARGINFI_GROUP",
-    "4qp6Fx6tnzdkKfVgYCyVvk1bhUfLR1PrWCtL6h9s6w3M"
-  ),
 };

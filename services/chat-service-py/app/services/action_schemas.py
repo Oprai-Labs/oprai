@@ -363,49 +363,6 @@ class ActionType(str, Enum):
     MARINADE_ADD_LIQUIDITY = "marinade_add_liquidity"
     MARINADE_REMOVE_LIQUIDITY = "marinade_remove_liquidity"
     MARINADE_DEPOSIT_STAKE = "marinade_deposit_stake"
-    # marginfi v2 — Account Management
-    MARGINFI_CREATE_ACCOUNT = "marginfi_create_account"
-    MARGINFI_CREATE_ACCOUNT_PDA = "marginfi_create_account_pda"
-    MARGINFI_CLOSE_ACCOUNT = "marginfi_close_account"
-    MARGINFI_CLOSE_BALANCE = "marginfi_close_balance"
-    MARGINFI_TRANSFER_ACCOUNT = "marginfi_transfer_account"
-    # marginfi v2 — Core Lending
-    MARGINFI_DEPOSIT = "marginfi_deposit"
-    MARGINFI_WITHDRAW = "marginfi_withdraw"
-    MARGINFI_BORROW = "marginfi_borrow"
-    MARGINFI_REPAY = "marginfi_repay"
-    # marginfi v2 — Liquidation
-    MARGINFI_LIQUIDATE = "marginfi_liquidate"
-    MARGINFI_START_LIQUIDATION = "marginfi_start_liquidation"
-    MARGINFI_END_LIQUIDATION = "marginfi_end_liquidation"
-    # marginfi v2 — Flash Loans
-    MARGINFI_FLASHLOAN_START = "marginfi_flashloan_start"
-    MARGINFI_FLASHLOAN_END = "marginfi_flashloan_end"
-    # marginfi v2 — Borrow Orders
-    MARGINFI_PLACE_ORDER = "marginfi_place_order"
-    MARGINFI_CLOSE_ORDER = "marginfi_close_order"
-    MARGINFI_EXECUTE_ORDER_START = "marginfi_execute_order_start"
-    MARGINFI_EXECUTE_ORDER_END = "marginfi_execute_order_end"
-    # marginfi v2 — Emissions / Rewards
-    MARGINFI_CLAIM_EMISSIONS = "marginfi_claim_emissions"
-    MARGINFI_UPDATE_EMISSIONS_DESTINATION = "marginfi_update_emissions_destination"
-    MARGINFI_SETTLE_EMISSIONS = "marginfi_settle_emissions"
-    MARGINFI_WITHDRAW_EMISSIONS_PERMISSIONLESS = "marginfi_withdraw_emissions_permissionless"
-    MARGINFI_CLEAR_EMISSIONS = "marginfi_clear_emissions"
-    # marginfi v2 — Liquidation Setup
-    MARGINFI_SET_KEEPER_FLAGS = "marginfi_set_keeper_flags"
-    MARGINFI_INIT_LIQ_RECORD = "marginfi_init_liq_record"
-    # marginfi v2 — Permissionless
-    MARGINFI_ACCRUE_INTEREST = "marginfi_accrue_interest"
-    MARGINFI_PULSE_PRICE = "marginfi_pulse_price"
-    MARGINFI_PULSE_HEALTH = "marginfi_pulse_health"
-    # marginfi v2 — Queries
-    MARGINFI_ACCOUNT_INFO = "marginfi_account_info"
-    MARGINFI_BANKS = "marginfi_banks"
-    MARGINFI_HEALTH = "marginfi_health"
-    MARGINFI_POINTS = "marginfi_points"
-    MARGINFI_BANK_DETAIL = "marginfi_bank_detail"
-    MARGINFI_USER_ACCOUNTS = "marginfi_user_accounts"
     # Solend
     SOLEND_DEPOSIT = "solend_deposit"
     SOLEND_WITHDRAW = "solend_withdraw"
@@ -762,13 +719,6 @@ class QueryType(str, Enum):
     KAMINO_AIRDROP_ALLOCATIONS = "kamino_airdrop_allocations"
     KAMINO_AIRDROP_METRICS = "kamino_airdrop_metrics"
     KAMINO_FARM_TRANSACTIONS = "kamino_farm_transactions"
-    # MarginFi ─────────────────────────────────────────────────────────────
-    MARGINFI_ACCOUNT_INFO = "marginfi_account_info"
-    MARGINFI_BANK_DETAIL = "marginfi_bank_detail"
-    MARGINFI_BANKS = "marginfi_banks"
-    MARGINFI_HEALTH = "marginfi_health"
-    MARGINFI_POINTS = "marginfi_points"
-    MARGINFI_USER_ACCOUNTS = "marginfi_user_accounts"
     # Jupiter data (currently in ActionType, exposed here as queries) ───────
     JUP_DCA_ORDERS = "jup_dca_orders"
     JUP_LIMIT_ORDERS = "jup_limit_orders"
@@ -850,8 +800,6 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "kamino_multiply_open", "kamino_multiply_add", "kamino_multiply_withdraw", "kamino_multiply_close",
     "kamino_long_open", "kamino_short_open", "kamino_position_close",
     "kamino_vault_deposit", "kamino_vault_withdraw",
-    "marginfi_deposit", "marginfi_withdraw", "marginfi_borrow", "marginfi_repay",
-    "marginfi_liquidate",
     "solend_deposit", "solend_withdraw", "solend_borrow", "solend_repay",
     "solend_add_collateral", "solend_withdraw_collateral",
     # Kamino KSwap (token swap via Kamino router)

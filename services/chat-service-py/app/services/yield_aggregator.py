@@ -64,12 +64,6 @@ PROTOCOLS: dict[str, dict] = {
         "method": "GET",
         "category": "lending",
     },
-    "marginfi_sol": {
-        "name": "MarginFi SOL Lending",
-        "url": "https://marginfi-v2-ui-data.s3.eu-central-1.amazonaws.com/lending-data.json",
-        "method": "GET",
-        "category": "lending",
-    },
 }
 
 
@@ -165,14 +159,6 @@ def _extract_apy(protocol: str, meta: dict, data: object) -> Optional[float]:
             if sol_reserve:
                 return float(sol_reserve.get("supplyApy") or sol_reserve.get("apy") or 0)
 
-        if protocol == "marginfi_sol":
-            assert isinstance(data, dict)
-            banks = data.get("banks", [])
-            sol_bank = next(
-                (b for b in banks if b.get("tokenSymbol", "").upper() == "SOL"), None
-            )
-            if sol_bank:
-                return float(sol_bank.get("lendingRate") or sol_bank.get("apy") or 0) * 100
 
     except Exception as exc:
         logger.debug("APY extraction failed for %s: %s", protocol, exc)

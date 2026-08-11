@@ -46,7 +46,7 @@ Output: a single JSON object with this exact shape (every key present):
 
 {
   "current_intent":   "<short phrase, e.g. 'add_liquidity_meteora_dlmm', 'swap_jupSOL_to_usdc', 'browse_defi_yields'>",
-  "active_protocol":  "<lowercase protocol id (jupiter, meteora, kamino, marginfi, raydium, orca, pumpfun, marinade, jito, jupsol, '') >",
+  "active_protocol":  "<lowercase protocol id (jupiter, meteora, kamino, raydium, orca, pumpfun, marinade, jito, jupsol, '') >",
   "candidate_entities": [
     {"kind": "<pool|token|wallet|validator>", "label": "<symbol or short name>",
      "address": "<mint/pool/wallet base58 if known, else ''>",

@@ -8,7 +8,7 @@ When the user asks an explanatory or conceptual question — how a protocol work
 - "What is impermanent loss?"
 - "How does Jupiter's DCA differ from a regular swap?"
 - "Explain Kamino's auto-compounding vaults"
-- "What's the difference between marginfi and Kamino?"
+- "What's the difference between Jupiter Lend and Kamino?"
 - "How does Solana's priority fee market work?"
 
 These are pure-text answers. Do NOT use `query_onchain` for them.

@@ -52,7 +52,7 @@ pub enum SimulationType {
     },
     /// Deposit to lending protocol
     LendDeposit {
-        protocol: String, // marginfi, kamino, solend
+        protocol: String, // kamino, solend
         mint: String,
         amount: u64,
     },

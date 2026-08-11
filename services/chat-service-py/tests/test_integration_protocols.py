@@ -693,95 +693,8 @@ class TestJitoIntegration:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MARGINFI
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TestMarginfiIntegration:
-    ACCOUNT = "4Nd1mBQtrMJVYVfKf2PX59E3AKuQYXxCNuAPoFnLBWaj"
-    BANK_USDC = "2s37akK2eyBbp8DZgCm7RtsaEz8eJP3Nxd4urLHQv7yB"
-
-    def test_create_account_builds(self, client):
-        payload = build_payload("marginfi_create_account", {})
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        data = assert_action_recognized(resp, "marginfi_create_account")
-        if data:
-            assert data["preview"]["type"] == "marginfi_create_account"
-
-    def test_deposit_builds(self, client):
-        payload = build_payload("marginfi_deposit", {
-            "account": self.ACCOUNT, "bank": self.BANK_USDC, "amount": "10"
-        })
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        data = assert_action_recognized(resp, "marginfi_deposit")
-        if data:
-            assert data["preview"]["type"] == "marginfi_deposit"
-
-    def test_deposit_missing_bank_rejected(self, client):
-        payload = build_payload("marginfi_deposit", {"account": self.ACCOUNT, "amount": "10"})
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_invalid_params(resp, "marginfi_deposit")
-
-    def test_deposit_missing_amount_rejected(self, client):
-        payload = build_payload("marginfi_deposit", {"account": self.ACCOUNT, "bank": self.BANK_USDC})
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_invalid_params(resp, "marginfi_deposit")
-
-    def test_deposit_zero_amount_rejected(self, client):
-        payload = build_payload("marginfi_deposit", {
-            "account": self.ACCOUNT, "bank": self.BANK_USDC, "amount": "0"
-        })
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_invalid_params(resp, "marginfi_deposit")
-
-    def test_withdraw_builds(self, client):
-        payload = build_payload("marginfi_withdraw", {
-            "account": self.ACCOUNT, "bank": self.BANK_USDC, "amount": "5"
-        })
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_action_recognized(resp, "marginfi_withdraw")
-
-    def test_withdraw_missing_account_rejected(self, client):
-        payload = build_payload("marginfi_withdraw", {"bank": self.BANK_USDC, "amount": "5"})
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_invalid_params(resp, "marginfi_withdraw")
-
-    def test_borrow_builds(self, client):
-        payload = build_payload("marginfi_borrow", {
-            "account": self.ACCOUNT, "bank": self.BANK_USDC, "amount": "5"
-        })
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_action_recognized(resp, "marginfi_borrow")
-
-    def test_repay_builds(self, client):
-        payload = build_payload("marginfi_repay", {
-            "account": self.ACCOUNT, "bank": self.BANK_USDC, "amount": "5"
-        })
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_action_recognized(resp, "marginfi_repay")
-
-    def test_deposit_collateral_builds(self, client):
-        payload = build_payload("marginfi_deposit_collateral", {
-            "account": self.ACCOUNT, "bank": self.BANK_USDC, "amount": "5"
-        })
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_action_recognized(resp, "marginfi_deposit_collateral")
-
-    def test_withdraw_collateral_builds(self, client):
-        payload = build_payload("marginfi_withdraw_collateral", {
-            "account": self.ACCOUNT, "bank": self.BANK_USDC, "amount": "5"
-        })
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_action_recognized(resp, "marginfi_withdraw_collateral")
-
-    def test_close_account_builds(self, client):
-        payload = build_payload("marginfi_close_account", {"account": self.ACCOUNT})
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_action_recognized(resp, "marginfi_close_account")
-
-    def test_close_account_missing_account_rejected(self, client):
-        payload = build_payload("marginfi_close_account", {})
-        resp = client.post("/actions/build", json=payload, headers=headers())
-        assert_invalid_params(resp, "marginfi_close_account")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1828,7 +1741,7 @@ class TestUnknownActionType:
 EXPECTED_PROTOCOLS = {
     "jupiter", "jupiter_lend", "jupiter_perp",
     "pump_fun", "raydium", "marinade", "jito",
-    "orca", "meteora", "marginfi", "kamino",
+    "orca", "meteora", "kamino",
 }
 
 

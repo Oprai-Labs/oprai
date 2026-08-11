@@ -989,7 +989,7 @@ class TestVaultGetInfo_Advanced:
         r = _chat(chat_client, f"What lending strategies does the USDC vault use? Mint: {USDC_MINT}")
         assert_triggered(r, "VAULT_GET_INFO")
         assert_no_raw_json(r)
-        assert_mentions(r, ["strategy", "strateji", "lending", "protocol", "marginfi", "solend"], min_hits=1)
+        assert_mentions(r, ["strategy", "strateji", "lending", "protocol", "solend"], min_hits=1)
 
     def test_get_info_jitoosol_vault(self, chat_client):
         r = _chat(chat_client, f"JitoSOL dynamic vault info: {JITOOSOL_MINT}")

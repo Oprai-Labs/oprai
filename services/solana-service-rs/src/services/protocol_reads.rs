@@ -5,7 +5,7 @@
 //! both services run side-by-side) and returns the SDK's response as a
 //! generic `BuildResponse`.
 //!
-//! New read-only protocols (MarginFi balances, future ones) should
+//! New read-only protocols should
 //! be added here rather than reimplementing the proxy pattern per file.
 
 use reqwest::Client;
@@ -128,18 +128,3 @@ pub async fn meteora_dlmm_position_details(
     Ok(resp.data.unwrap_or(serde_json::Value::Null))
 }
 
-/// MarginFi v2 — detailed per-bank balance breakdown (deposit/borrow side,
-/// USD value, APY). Goes beyond `marginfi_user_accounts` which only returns
-/// PDA addresses + health factor.
-pub async fn marginfi_user_balances(
-    http: &Client,
-    wallet: &str,
-) -> Result<BuildResponse, AppError> {
-    ts_proxy_read(
-        http,
-        wallet,
-        "marginfi_user_balances",
-        serde_json::json!({}),
-    )
-    .await
-}

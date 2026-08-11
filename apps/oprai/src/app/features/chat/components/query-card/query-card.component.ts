@@ -4903,7 +4903,6 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       [/sanctum|\binf\b/, 'sanctum.webp'],
       [/lido|steth/, 'lido.webp'],
       [/kamino/, 'kamino.webp'],
-      [/marginfi/, 'marginfi.webp'],
       [/solend/, 'solend.svg'],
       [/meteora/, 'meteora.webp'],
       [/raydium/, 'raydium.webp'],

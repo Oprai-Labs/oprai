@@ -8,7 +8,6 @@
  * That's correct, but useless to the user.
  *
  * This decoder maps the most common error codes from the protocols we
- * route through (Jupiter, Raydium, Orca, Meteora, Kamino, MarginFi, Pump.fun,
  * SystemProgram, TokenProgram) to a user-facing string. Unknown codes fall
  * through to a generic "transaction reverted" message that still includes
  * the original code so the user can search support docs.
@@ -62,9 +61,6 @@ const ERROR_TABLE: Record<string, DecodedError> = {
   '0x1748': { summary: 'Kamino: repay amount exceeds outstanding debt.' },
   '0x1749': { summary: 'Kamino: position is unhealthy; deposit more collateral or repay first.' },
 
-  // ── MarginFi ───────────────────────────────────────────────────────
-  '0x178c': { summary: 'MarginFi: account would become unhealthy after this action.' },
-  '0x178d': { summary: 'MarginFi: bank deposit cap reached.' },
 
   // ── Pump.fun ───────────────────────────────────────────────────────
   '0x1771_pf': { summary: 'Pump.fun bonding curve slippage hit.', hint: 'Retry with a slightly higher SOL amount or wait a moment.' },

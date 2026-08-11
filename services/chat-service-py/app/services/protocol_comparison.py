@@ -21,7 +21,6 @@ PROTOCOL_RISK_SCORES = {
     "jup.sol": 3,
     # Lending
     "kamino": 4,
-    "marginfi": 5,
     "solend": 5,
     "francium": 6,
     "apricot": 6,
@@ -42,7 +41,6 @@ PROTOCOL_CATEGORIES = {
     "marinade": "liquid_staking",
     "jup.sol": "liquid_staking",
     "kamino": "lending",
-    "marginfi": "lending",
     "solend": "lending",
     "francium": "lending",
     "apricot": "lending",

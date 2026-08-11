@@ -43,7 +43,7 @@ export const AGENTS: Agent[] = [
   {
     id: 'yield-optimizer',
     name: 'Yield Optimizer',
-    description: 'AI-powered yield analysis across Solana DeFi protocols. Scans Kamino, MarginFi, Jito, Marinade and more — surfaces the best APY moves for your portfolio.',
+    description: 'AI-powered yield analysis across Solana DeFi protocols. Scans Kamino, Jito, Marinade and more — surfaces the best APY moves for your portfolio.',
     category: 'defi',
     creator: 'OPRAI',
     rating: 4.9,
@@ -177,7 +177,7 @@ export const AGENTS: Agent[] = [
   {
     id: 'lending-optimizer',
     name: 'Lending Optimizer',
-    description: 'Find the best lending/borrowing rates across MarginFi, Kamino, and Solend. Auto-migrate for optimal yields.',
+    description: 'Find the best lending/borrowing rates across Kamino, Jupiter Lend, and Solend. Auto-migrate for optimal yields.',
     category: 'defi',
     creator: 'YieldMax',
     rating: 4.4,

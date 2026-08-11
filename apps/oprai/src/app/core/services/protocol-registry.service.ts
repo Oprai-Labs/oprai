@@ -86,18 +86,6 @@ export class ProtocolRegistryService {
       description: 'Isolated lending markets'
     },
     {
-      id: 'marginfi',
-      name: 'marginfi',
-      category: 'lend',
-      icon: 'assets/icons/protocols/marginfi.webp',
-      accent: '#0DAB76',
-      accentBg: 'rgba(13,171,118,0.08)',
-      tvl: 350000000,
-      apy: 9.2,
-      actions: ['marginfi_deposit', 'marginfi_withdraw', 'marginfi_borrow', 'marginfi_repay'],
-      description: 'Cross-margin lending'
-    },
-    {
       id: 'solend',
       name: 'Solend',
       category: 'lend',

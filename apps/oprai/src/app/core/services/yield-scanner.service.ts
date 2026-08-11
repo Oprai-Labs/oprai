@@ -64,7 +64,6 @@ export class YieldScannerService {
    *   - Kamino: every reserve across every Kamino lending market
    *   - Jito:   jitoSOL liquid stake APY (SOL → jitoSOL)
    *   - Marinade: mSOL liquid stake APY (SOL → mSOL)
-   * Anything else (MarginFi, Solend, JupSOL, …) is omitted until a live
    * APY source is wired — we never inject made-up numbers.
    */
   private async fetchAllYields(): Promise<ProtocolYield[]> {

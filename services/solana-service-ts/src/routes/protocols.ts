@@ -7,7 +7,6 @@ router.use(internalAuth);
 
 const PROTOCOLS = [
   { id: "jupiter", name: "Jupiter", category: "dex", description: "Solana DEX aggregator" },
-  { id: "marginfi", name: "MarginFi", category: "lending", description: "MarginFi v2 lending protocol" },
   { id: "kamino", name: "Kamino", category: "lending", description: "Kamino Finance lending & vaults" },
   { id: "raydium", name: "Raydium", category: "dex", description: "Raydium AMM / CLMM" },
   { id: "orca", name: "Orca", category: "dex", description: "Orca Whirlpools CLMM" },

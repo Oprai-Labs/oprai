@@ -1,7 +1,7 @@
 /**
  * PositionMonitorService
  *
- * Periodically monitors all DeFi positions (Kamino, MarginFi, Solend)
+ * Periodically monitors all DeFi positions (Kamino, Solend)
  * izler ve liquidation riskini hesaplar.
  *
  * Risk seviyeleri:
@@ -19,7 +19,6 @@
 import { Injectable, inject, OnDestroy } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { KaminoService } from './market/kamino.service';
-import { MarginfiService } from './market/marginfi.service';
 import { SolendService } from './market/solend.service';
 import { WalletService } from './wallet.service';
 import { NotificationService } from './notification.service';
@@ -36,7 +35,7 @@ export function toRiskLevel(hf: number): RiskLevel {
 
 // ── Unified Position Types ────────────────────────────────────────────────────
 
-export type ProtocolId = 'kamino' | 'marginfi' | 'solend';
+export type ProtocolId = 'kamino' | 'solend';
 
 export interface MonitoredPosition {
   /** Unique key: `${protocol}:${address}` */
@@ -84,7 +83,6 @@ const POLL_INTERVAL_MS = 60_000; // 60 saniye
 @Injectable({ providedIn: 'root' })
 export class PositionMonitorService implements OnDestroy {
   private readonly kamino = inject(KaminoService);
-  private readonly marginfi = inject(MarginfiService);
   private readonly solend = inject(SolendService);
   private readonly wallet = inject(WalletService);
   private readonly notifications = inject(NotificationService);
@@ -150,18 +148,14 @@ export class PositionMonitorService implements OnDestroy {
     try {
       // Query all protocols in parallel.
       //
-      // Marginfi + Solend are gated off until their backend reads land:
-      //   - `/api/solana/marginfi/accounts` has no handler in the Rust
-      //     solana-service, so every poll returned 404.
-      //   - SolendService hits `api.solend.fi/v1/...` directly from the
-      //     browser — Solend Labs took the public API offline; same 404.
-      // Both errors were silenced at the service layer (try/catch → []) so
-      // the monitor "worked" but the 60s poll spammed the browser console
-      // with two 404s every minute. Re-enable each line when its read path
-      // is implemented (on-chain account scan in solana-service-rs).
+      // Solend is gated off until its backend read lands: SolendService hits
+      // `api.solend.fi/v1/...` directly from the browser and Solend Labs took
+      // the public API offline, so every poll 404'd. The error was silenced at
+      // the service layer (try/catch → []) so the monitor "worked" while the
+      // 60s poll spammed the console. Re-enable when the read path is
+      // implemented (on-chain account scan in solana-service-rs).
       const [kaminoPositions] = await Promise.allSettled([
         this.fetchKamino(walletAddress),
-        // this.fetchMarginfi(walletAddress),
         // this.fetchSolend(walletAddress),
       ]);
 
@@ -222,30 +216,6 @@ export class PositionMonitorService implements OnDestroy {
       });
   }
 
-  private async fetchMarginfi(wallet: string): Promise<MonitoredPosition[]> {
-    const accounts = await this.marginfi.getAccountsByWallet(wallet);
-    return accounts
-      .filter(a => a.totalBorrowUsd > 0)
-      .map(a => {
-        const hf = a.healthFactor ?? 99;
-        return {
-          key: `marginfi:${a.address}`,
-          protocol: 'marginfi' as ProtocolId,
-          address: a.address,
-          healthFactor: hf,
-          riskLevel: toRiskLevel(hf),
-          collateralUsd: a.totalCollateralUsd,
-          debtUsd: a.totalBorrowUsd,
-          previousRiskLevel: this.previousRiskMap.get(`marginfi:${a.address}`),
-          updatedAt: Date.now(),
-          meta: {
-            deposits: a.deposits.map(d => d.symbol),
-            borrows: a.borrows.map(b => b.symbol),
-            liquidationThreshold: a.liquidationThreshold,
-          },
-        };
-      });
-  }
 
   private async fetchSolend(wallet: string): Promise<MonitoredPosition[]> {
     const obligations = await this.solend.getObligations(wallet);

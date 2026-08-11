@@ -60,7 +60,7 @@ const JLP_TYPES = new Set([
 ]);
 
 const BORROW_TYPES = new Set([
-  'borrow', 'kamino_borrow', 'marginfi_borrow',
+  'borrow', 'kamino_borrow',
 ]);
 
 const LAUNCH_TYPES = new Set([

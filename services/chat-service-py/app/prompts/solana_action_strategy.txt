@@ -34,4 +34,4 @@ If the user asks for a strategy "right now" or wants concrete numbers, fetch the
 
 #### Execution phase
 
-Once the user accepts a plan, translate each allocation into the corresponding `execute_action` call: `marinade_stake`, `jito_stake`, `marginfi_deposit`, `kamino_deposit`, `raydium_add_liquidity`, etc. One action per allocation; chain them in a single response when the plan has multiple legs.
+Once the user accepts a plan, translate each allocation into the corresponding `execute_action` call: `marinade_stake`, `jito_stake`, `kamino_deposit`, `raydium_add_liquidity`, etc. One action per allocation; chain them in a single response when the plan has multiple legs.

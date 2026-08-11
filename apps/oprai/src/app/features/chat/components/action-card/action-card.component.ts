@@ -104,7 +104,6 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   // real logo, and its own yellow rather than a borrowed cyan.
   orca:      { name: 'Orca',       icon: 'assets/icons/protocols/orca.webp',      accent: '#FFD15C', accentBg: 'rgba(255,209,92,0.12)' },
   raydium:   { name: 'Raydium',    icon: 'assets/icons/protocols/raydium.png',    accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.12)' },
-  marginfi:  { name: 'MarginFi',   icon: 'assets/icons/protocols/marginfi.svg',   accent: '#F59E0B', accentBg: 'rgba(245,158,11,0.12)' },
   meteora:   { name: 'Meteora',    icon: 'assets/icons/protocols/meteora.webp',    accent: '#10B981', accentBg: 'rgba(16,185,129,0.12)' },
   marinade:  { name: 'Marinade',   icon: 'assets/icons/protocols/marinade.webp',  accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)' },
   solend:    { name: 'Solend',     icon: 'assets/icons/protocols/solend.svg',     accent: '#3B82F6', accentBg: 'rgba(59,130,246,0.12)' },
@@ -137,7 +136,6 @@ function getProtocolKey(action: ParsedAction): string {
   if (t.includes('meteora')) return 'meteora';
   if (t.includes('kamino')) return 'kamino';
   if (t.includes('raydium')) return 'raydium';
-  if (t.includes('marginfi')) return 'marginfi';
   if (t.includes('orca')) return 'orca';
   if (t.includes('solend')) return 'solend';
   if (t.startsWith('tensor_')) return 'tensor';
@@ -189,15 +187,6 @@ function getActionLabel(action: ParsedAction): string {
     kamino_long_open: 'Open Long Position', kamino_short_open: 'Open Short Position',
     kamino_position_close: 'Close Position (Kamino)',
     kamino_claim_rewards: 'Claim Kamino Rewards',
-    // MarginFi
-    marginfi_deposit: 'Deposit to MarginFi', marginfi_withdraw: 'Withdraw from MarginFi',
-    marginfi_borrow: 'Borrow on MarginFi', marginfi_repay: 'Repay MarginFi Loan',
-    marginfi_create_account: 'Create MarginFi Account',
-    marginfi_create_account_pda: 'Create MarginFi Account (PDA)',
-    marginfi_close_account: 'Close MarginFi Account',
-    marginfi_account_info: 'MarginFi Account Info', marginfi_banks: 'MarginFi Banks',
-    marginfi_bank_detail: 'MarginFi Bank Detail', marginfi_health: 'Health Factor',
-    marginfi_points: 'MarginFi Points', marginfi_user_accounts: 'My MarginFi Accounts',
     // Magic Eden
     me_buy: 'Buy NFT (Magic Eden)', me_sell: 'Sell NFT (Magic Eden)',
     me_list: 'List NFT', me_cancel_listing: 'Cancel Listing',
@@ -971,55 +960,6 @@ function getActionFields(
       { key: 'strategy', label: 'Strategy', type: 'text', placeholder: 'strategy address', required: true },
       { key: 'shares', label: 'Shares', type: 'text', placeholder: 'all', required: true, hint: '"all" withdraws the full position' },
     );
-  // ── MarginFi ──────────────────────────────────────────────────────────────
-  } else if (t === 'marginfi_deposit') {
-    fields.push(
-      { key: 'bank', label: 'Token', type: 'token', required: true },
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', required: true },
-      { key: 'depositUpToLimit', label: 'Deposit up to limit', type: 'toggle', half: true },
-    );
-  } else if (t === 'marginfi_withdraw') {
-    fields.push(
-      { key: 'bank', label: 'Token', type: 'token', required: true },
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', required: true },
-      { key: 'withdrawAll', label: 'Withdraw all', type: 'toggle', half: true },
-    );
-  } else if (t === 'marginfi_borrow') {
-    fields.push(
-      { key: 'bank', label: 'Token', type: 'token', required: true },
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', required: true },
-    );
-  } else if (t === 'marginfi_repay') {
-    fields.push(
-      { key: 'bank', label: 'Token', type: 'token', required: true },
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', required: true },
-      { key: 'repayAll', label: 'Repay all', type: 'toggle', half: true },
-    );
-  } else if (t === 'marginfi_create_account_pda') {
-    fields.push({ key: 'accountIndex', label: 'Account Index', type: 'number', placeholder: '0', half: true, hint: '0 = first account' });
-  } else if (t === 'marginfi_create_account' || t === 'marginfi_close_account') {
-    // no user-editable fields
-  } else if (t === 'marginfi_account_info' || t === 'marginfi_health') {
-    fields.push({ key: 'wallet', label: 'Wallet (optional)', type: 'address', placeholder: 'Wallet address...' });
-  } else if (t === 'marginfi_bank_detail') {
-    fields.push({ key: 'bank', label: 'Token', type: 'token', required: true });
-  } else if (t === 'marginfi_banks') {
-    fields.push({ key: 'limit', label: 'Limit', type: 'number', placeholder: '20', half: true });
-  } else if (t === 'marginfi_points' || t === 'marginfi_user_accounts') {
-    fields.push({ key: 'wallet', label: 'Wallet (optional)', type: 'address', placeholder: 'Wallet address...' });
-  // ── Magic Eden TX ─────────────────────────────────────────────────────────
-  // ── Magic Eden ────────────────────────────────────────────────────────────
-  //
-  // These used to ask the user to type a mint address, a seller's wallet and a
-  // token ATA. Nobody has those to hand, and the backend now reads all of them
-  // off the live listing or offer — asking for them was asking the user to
-  // re-derive what we already know, and getting one wrong meant a card that
-  // failed on submit.
-  //
-  // What is left is what only the user can decide: the price, and how long the
-  // offer stands. The mint travels in the params from the row that spawned the
-  // action; when it did not (someone typed the request), it is the one field
-  // still worth showing.
   } else if (t === 'me_buy' || t === 'me_buy_now' || t === 'me_buy_instruction'
              || t === 'me_buy_now_transfer_nft') {
     // Nothing to fill in — the listing sets the price, and paying anything
@@ -4819,8 +4759,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * post collateral. Gating the CTA on it wrongly blocks the action.
    */
   private readonly NON_WALLET_SPEND_ACTIONS = new Set<string>([
-    'borrow', 'kamino_borrow', 'marginfi_borrow', 'solend_borrow',
-    'withdraw_lend', 'kamino_withdraw', 'marginfi_withdraw', 'solend_withdraw',
+    'borrow', 'kamino_borrow', 'solend_borrow',
+    'withdraw_lend', 'kamino_withdraw', 'solend_withdraw',
   ]);
 
   readonly insufficientFunds = computed(() => {
@@ -8063,7 +8003,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Filling the wallet balance here withdrew the wrong amount (e.g. 0.187 SOL
     // of loose wallet balance instead of the ~1 SOL supplied to Jupiter Lend),
     // and it clobbered the "all" sentinel before the deposit-based resolver ran.
-    const WITHDRAW_TYPES = ['withdraw_lend', 'kamino_withdraw', 'marginfi_withdraw', 'solend_withdraw'];
+    const WITHDRAW_TYPES = ['withdraw_lend', 'kamino_withdraw', 'solend_withdraw'];
     if (this.action && WITHDRAW_TYPES.includes(this.action.type)) return;
     const params = this.editParams();
     const cur = (params['amount'] ?? '').trim().toLowerCase();

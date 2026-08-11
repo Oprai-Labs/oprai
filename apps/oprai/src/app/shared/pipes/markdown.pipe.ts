@@ -39,7 +39,6 @@ const PROTOCOL_SHORTCODES: Record<string, { name: string; asset: string; compose
   orca:      { name: 'Orca',       asset: 'orca.webp',      composerId: 'orca' },
   meteora:   { name: 'Meteora',    asset: 'meteora.webp',   composerId: 'meteora' },
   kamino:    { name: 'Kamino',     asset: 'kamino.webp',    composerId: 'kamino' },
-  marginfi:  { name: 'marginfi',   asset: 'marginfi.webp',  composerId: 'marginfi' },
   solend:    { name: 'Solend',     asset: 'solend.svg',     composerId: 'solend' },
   jito:      { name: 'Jito',       asset: 'jito.webp',      composerId: 'jito' },
   marinade:  { name: 'Marinade',   asset: 'marinade.webp',  composerId: 'marinade' },
@@ -68,7 +67,6 @@ function expandProtocolShortcodes(input: string): string {
   return input.replace(PROTOCOL_SHORTCODE_RE, (_match, key: string, boldName?: string, plainName?: string) => {
     const meta = PROTOCOL_SHORTCODES[key.toLowerCase()];
     if (!meta) return _match;
-    // Prefer the LLM's spelling so we keep casing/accents (e.g. "marginfi" lowercase).
     const display = (boldName ?? plainName ?? meta.name).trim();
     // Encode the composer id BOTH in the class name (always survives sanitizer)
     // and as a data attribute (used when ALLOW_DATA_ATTR is on). Click handler

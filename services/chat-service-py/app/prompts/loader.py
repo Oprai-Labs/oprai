@@ -32,7 +32,6 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     # Lending / Borrowing
     # queries.txt is no longer named here: it loads for every protocol turn.
     "kamino":       ["solana_action_lending.txt"],
-    "marginfi":     ["solana_action_lending.txt"],
     "solend":       ["solana_action_lending.txt"],
     # NFT marketplaces — Magic Eden read + trading; Tensor trading-routing.
     # market_data.txt carries the NFT composite (deep-dive) analysis.

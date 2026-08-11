@@ -3,13 +3,11 @@ DeFi Protocol Plugins
 
 Plugins for Solana DeFi protocols:
 - Meteora (DLMM + Dynamic Pools + Farms)
-- Marginfi (lending / borrowing / leverage)
 - Orca (Whirlpools CLMM)
 - Kamino Finance
 - Jito Finance
 - Raydium
 - Marinade
-- Marginfi
 
 All action execution proxies through the gateway /actions/build endpoint.
 """
@@ -873,744 +871,88 @@ class MeteoraPlugin(BasePlugin):
         ]
 
 
-# ============================================================================
-# Marginfi Plugin — Lending / Borrowing / Leverage (Complete v2 Integration)
-# ============================================================================
-# All 28 action types wired to the Rust solana-service via /actions/build.
-#
-# Account Management (4):
-#   marginfi_create_account, marginfi_create_account_pda,
-#   marginfi_close_account,  marginfi_close_balance,
-#   marginfi_transfer_account
-#
-# Lending (4):
-#   marginfi_deposit, marginfi_withdraw, marginfi_borrow, marginfi_repay
-#
-# Liquidation (3):
-#   marginfi_liquidate, marginfi_start_liquidation, marginfi_end_liquidation
-#
-# Flash Loans (2):
-#   marginfi_flashloan_start, marginfi_flashloan_end
-#
-# Borrow Orders (4):
-#   marginfi_place_order, marginfi_close_order,
-#   marginfi_execute_order_start, marginfi_execute_order_end
-#
-# Emissions / Rewards (1):
-#   marginfi_claim_emissions
-#
-# Permissionless (3):
-#   marginfi_accrue_interest, marginfi_pulse_price, marginfi_pulse_health
-#
-# Queries (7):
-#   marginfi_account_info, marginfi_banks, marginfi_health,
-#   marginfi_points,       marginfi_bank_detail, marginfi_user_accounts
-# ============================================================================
-
-_MFI_ACCOUNT_PARAM = {
-    "type": "string",
-    "required": False,
-    "description": "marginfi account address. Auto-resolved from wallet if omitted.",
-}
-_MFI_BANK_PARAM = {
-    "type": "string",
-    "required": True,
-    "description": "Token symbol (e.g. SOL, USDC) or bank/mint address.",
-}
-_MFI_AMOUNT_PARAM: dict[str, Any] = {
-    "type": "number",
-    "required": True,
-    "description": "Human-readable amount (e.g. 1.5).",
-}
 
 
-# ── Account Management ────────────────────────────────────────────────────────
-
-class MarginfiCreateAccountAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_create_account"
-    @property
-    def description(self) -> str: return "Create a new marginfi lending account (non-PDA, requires extra signer)"
-    @property
-    def aliases(self) -> list[str]: return ["open_marginfi_account"]
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "referralCode": {
-                "type": "string",
-                "required": False,
-                "description": "Optional referral code.",
-            },
-        }
 
 
-class MarginfiCreateAccountPdaAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_create_account_pda"
-    @property
-    def description(self) -> str: return "Create a deterministic PDA marginfi account (recommended; no extra signer needed)"
-    @property
-    def aliases(self) -> list[str]: return ["open_marginfi_account_pda"]
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "accountIndex": {
-                "type": "number",
-                "required": False,
-                "description": "Account index (0-based). Defaults to 0. Increment to create a second account.",
-            },
-            "thirdPartyId": {
-                "type": "number",
-                "required": False,
-                "description": "Optional third-party identifier for referral tracking.",
-            },
-        }
 
 
-class MarginfiCloseAccountAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_close_account"
-    @property
-    def description(self) -> str: return "Close a marginfi lending account and reclaim rent (account must have zero deposits and borrows)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {"account": _MFI_ACCOUNT_PARAM}
 
 
-class MarginfiCloseBalanceAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_close_balance"
-    @property
-    def description(self) -> str: return "Close a single zero-balance lending entry for a specific bank in marginfi"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "bank":    _MFI_BANK_PARAM,
-            "account": _MFI_ACCOUNT_PARAM,
-        }
-
-
-class MarginfiTransferAccountAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_transfer_account"
-    @property
-    def description(self) -> str: return "Transfer all positions from one marginfi account to another"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "sourceAccount": {
-                "type": "string",
-                "required": True,
-                "description": "Source marginfi account address.",
-            },
-            "destinationAccount": {
-                "type": "string",
-                "required": True,
-                "description": "Destination marginfi account address.",
-            },
-        }
 
 
 # ── Lending Operations ────────────────────────────────────────────────────────
 
-class MarginfiDepositAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_deposit"
-    @property
-    def description(self) -> str: return "Deposit tokens into a marginfi bank to earn yield (all deposits are collateral in v2)"
-    @property
-    def aliases(self) -> list[str]: return ["marginfi_lend", "marginfi_deposit_collateral"]
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "bank":             _MFI_BANK_PARAM,
-            "amount":           _MFI_AMOUNT_PARAM,
-            "account":          _MFI_ACCOUNT_PARAM,
-            "depositUpToLimit": {
-                "type": "boolean",
-                "required": False,
-                "description": "If true, deposit up to the bank's deposit cap (ignores exact amount).",
-            },
-        }
 
 
-class MarginfiWithdrawAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_withdraw"
-    @property
-    def description(self) -> str: return "Withdraw deposited tokens from a marginfi bank"
-    @property
-    def aliases(self) -> list[str]: return ["marginfi_withdraw_collateral"]
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "bank":        _MFI_BANK_PARAM,
-            "amount":      _MFI_AMOUNT_PARAM,
-            "account":     _MFI_ACCOUNT_PARAM,
-            "withdrawAll": {
-                "type": "boolean",
-                "required": False,
-                "description": "If true, withdraw entire balance. Amount is ignored.",
-            },
-        }
 
 
-class MarginfiBorrowAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_borrow"
-    @property
-    def description(self) -> str: return "Borrow tokens from a marginfi bank against deposited collateral"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "bank":    _MFI_BANK_PARAM,
-            "amount":  _MFI_AMOUNT_PARAM,
-            "account": _MFI_ACCOUNT_PARAM,
-        }
 
 
-class MarginfiRepayAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_repay"
-    @property
-    def description(self) -> str: return "Repay borrowed tokens to a marginfi bank"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "bank":     _MFI_BANK_PARAM,
-            "amount":   _MFI_AMOUNT_PARAM,
-            "account":  _MFI_ACCOUNT_PARAM,
-            "repayAll": {
-                "type": "boolean",
-                "required": False,
-                "description": "If true, repay entire outstanding debt. Amount is ignored.",
-            },
-        }
 
 
 # ── Liquidation ────────────────────────────────────────────────────────────────
 
-class MarginfiLiquidateAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_liquidate"
-    @property
-    def description(self) -> str: return "Liquidate an unhealthy marginfi account: repay its debt and seize collateral at a discount"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "liquidateeAccount": {
-                "type": "string",
-                "required": True,
-                "description": "The unhealthy marginfi account address to liquidate.",
-            },
-            "assetBank": {
-                "type": "string",
-                "required": True,
-                "description": "Token symbol or bank address for the collateral to seize.",
-            },
-            "liabBank": {
-                "type": "string",
-                "required": True,
-                "description": "Token symbol or bank address for the liability to repay.",
-            },
-            "assetAmount": {
-                "type": "number",
-                "required": True,
-                "description": "Amount of the liability token to repay.",
-            },
-            "account": _MFI_ACCOUNT_PARAM,
-        }
 
 
-class MarginfiStartLiquidationAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_start_liquidation"
-    @property
-    def description(self) -> str: return "Start receivership / administrative liquidation for a marginfi account"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "account": {
-                "type": "string",
-                "required": True,
-                "description": "marginfi account address to place into receivership.",
-            },
-            "liquidationReceiver": {
-                "type": "string",
-                "required": True,
-                "description": "Wallet address that will receive seized collateral.",
-            },
-        }
 
 
-class MarginfiEndLiquidationAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_end_liquidation"
-    @property
-    def description(self) -> str: return "End receivership / administrative liquidation for a marginfi account"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "account": {
-                "type": "string",
-                "required": True,
-                "description": "marginfi account address to remove from receivership.",
-            },
-        }
 
 
 # ── Flash Loans ────────────────────────────────────────────────────────────────
 
-class MarginfiFlashloanStartAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_flashloan_start"
-    @property
-    def description(self) -> str: return "Begin a marginfi flash loan (must be paired with marginfi_flashloan_end in the same transaction)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "account": _MFI_ACCOUNT_PARAM,
-            "endIndex": {
-                "type": "number",
-                "required": True,
-                "description": "Transaction instruction index of the paired marginfi_flashloan_end instruction. The on-chain program uses this to validate the flash loan is properly closed.",
-            },
-        }
 
 
-class MarginfiFlashloanEndAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_flashloan_end"
-    @property
-    def description(self) -> str: return "End a marginfi flash loan and validate repayment (must follow marginfi_flashloan_start in the same transaction)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {"account": _MFI_ACCOUNT_PARAM}
 
 
 # ── Borrow Orders ──────────────────────────────────────────────────────────────
 
-class MarginfiPlaceOrderAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_place_order"
-    @property
-    def description(self) -> str: return "Place a borrow order on marginfi (automated borrow at a rate limit)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "limit": {
-                "type": "number",
-                "required": True,
-                "description": "Maximum interest rate (bps) to accept for the borrow.",
-            },
-            "banks": {
-                "type": "array",
-                "items": {"type": "string"},
-                "required": True,
-                "description": "List of bank addresses to attempt borrowing from (in order of preference).",
-            },
-            "maxDebtCoverage": {
-                "type": "number",
-                "required": True,
-                "description": "Maximum total debt (in token units) allowed after execution.",
-            },
-            "orderSide": {
-                "type": "number",
-                "required": True,
-                "description": "Order side: 0 = borrow, 1 = repay.",
-            },
-            "account": _MFI_ACCOUNT_PARAM,
-        }
-    async def execute(self, params: dict[str, Any], context: PluginContext) -> PluginResult:
-        # Coerce comma-separated banks string → list (LLM emits "addr1,addr2")
-        if isinstance(params.get("banks"), str):
-            params["banks"] = [b.strip() for b in params["banks"].split(",") if b.strip()]
-        return await _build_action("marginfi_place_order", params)
 
 
-class MarginfiCloseOrderAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_close_order"
-    @property
-    def description(self) -> str: return "Cancel an open marginfi borrow order"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "account": _MFI_ACCOUNT_PARAM,
-            "order": {
-                "type": "string",
-                "required": True,
-                "description": "Order PDA address to cancel.",
-            },
-            "feeRecipient": {
-                "type": "string",
-                "required": True,
-                "description": "Wallet that receives the rent from the closed order account.",
-            },
-        }
 
 
-class MarginfiExecuteOrderStartAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_execute_order_start"
-    @property
-    def description(self) -> str: return "Start execution of a placed marginfi borrow order (called by a keeper/executor bot)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "account": _MFI_ACCOUNT_PARAM,
-            "executor": {
-                "type": "string",
-                "required": True,
-                "description": "Keeper/executor wallet address that is executing the order.",
-            },
-            "order": {
-                "type": "string",
-                "required": True,
-                "description": "Order PDA address to execute.",
-            },
-        }
 
 
-class MarginfiExecuteOrderEndAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_execute_order_end"
-    @property
-    def description(self) -> str: return "End execution of a marginfi borrow order and finalize the borrow"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "account": _MFI_ACCOUNT_PARAM,
-            "executor": {
-                "type": "string",
-                "required": True,
-                "description": "Keeper/executor wallet (must match start_execute_order, must sign).",
-            },
-            "feeRecipient": {
-                "type": "string",
-                "required": True,
-                "description": "Wallet that receives execution fees.",
-            },
-            "order": {
-                "type": "string",
-                "required": True,
-                "description": "Order PDA address being executed.",
-            },
-        }
 
 
 # ── Emissions / Rewards ────────────────────────────────────────────────────────
 
-class MarginfiClaimEmissionsAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_claim_emissions"
-    @property
-    def description(self) -> str: return "Claim accumulated token emissions (yield rewards) from a marginfi lending or borrowing position"
-    @property
-    def aliases(self) -> list[str]: return ["marginfi_claim_rewards", "marginfi_settle_emissions"]
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "bank":          _MFI_BANK_PARAM,
-            "account":       _MFI_ACCOUNT_PARAM,
-            "emissionsMint": {
-                "type": "string",
-                "required": False,
-                "description": "Mint address of the emissions token. Defaults to the bank's own token mint. "
-                               "Provide explicitly if the bank emits a different token (e.g. USDC rewards on an SOL bank).",
-            },
-        }
 
 
-class MarginfiSettleEmissionsAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_settle_emissions"
-    @property
-    def description(self) -> str: return "Permissionlessly accrue/settle outstanding emissions on a marginfi position without withdrawing (step before claiming)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "bank": _MFI_BANK_PARAM,
-            "account": _MFI_ACCOUNT_PARAM,
-        }
 
 
-class MarginfiWithdrawEmissionsPermissionlessAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_withdraw_emissions_permissionless"
-    @property
-    def description(self) -> str: return "Permissionlessly withdraw emissions for any marginfi account (sent to their registered destination)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "account": {
-                "type": "string",
-                "required": True,
-                "description": "Target marginfi account address to withdraw emissions for.",
-            },
-            "bank": _MFI_BANK_PARAM,
-            "emissionsMint": {
-                "type": "string",
-                "required": False,
-                "description": "Emissions mint address. Defaults to the bank's own token.",
-            },
-        }
 
 
-class MarginfiUpdateEmissionsDestinationAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_update_emissions_destination"
-    @property
-    def description(self) -> str: return "Update the wallet address that receives off-chain emission distributions for a marginfi account"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "destination": {
-                "type": "string",
-                "required": True,
-                "description": "New destination wallet address for emissions.",
-            },
-            "account": _MFI_ACCOUNT_PARAM,
-        }
 
 
-class MarginfiClearEmissionsAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_clear_emissions"
-    @property
-    def description(self) -> str: return "Clear stale emission balances from a marginfi position after the bank has disabled its rewards (permissionless)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "bank": _MFI_BANK_PARAM,
-            "account": _MFI_ACCOUNT_PARAM,
-        }
 
 
-class MarginfiSetKeeperFlagsAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_set_keeper_flags"
-    @property
-    def description(self) -> str: return "Set keeper-close flags on a marginfi account so keepers can automatically close orders"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "banks": {
-                "type": "array",
-                "required": False,
-                "description": "Optional list of bank addresses or token symbols. If omitted, clears flags on all balances.",
-            },
-            "account": _MFI_ACCOUNT_PARAM,
-        }
-    async def execute(self, params: dict[str, Any], context: PluginContext) -> PluginResult:
-        # Coerce comma-separated banks string → list
-        if isinstance(params.get("banks"), str):
-            params["banks"] = [b.strip() for b in params["banks"].split(",") if b.strip()]
-        return await _build_action("marginfi_set_keeper_flags", params)
 
 
-class MarginfiInitLiqRecordAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_init_liq_record"
-    @property
-    def description(self) -> str: return "Initialize the liquidation record PDA for a marginfi account (one-time setup required before start_liquidation)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {"account": _MFI_ACCOUNT_PARAM}
 
 
 # ── Permissionless Actions ─────────────────────────────────────────────────────
 
-class MarginfiAccrueInterestAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_accrue_interest"
-    @property
-    def description(self) -> str: return "Permissionlessly accrue interest for a marginfi bank (anyone can call; updates on-chain state)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {"bank": _MFI_BANK_PARAM}
 
 
-class MarginfiPulsePriceAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_pulse_price"
-    @property
-    def description(self) -> str: return "Permissionlessly update the price oracle cache for a marginfi bank"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "bank": _MFI_BANK_PARAM,
-            "oracle": {
-                "type": "string",
-                "required": True,
-                "description": "Oracle feed account address for this bank (Pyth or Switchboard feed).",
-            },
-        }
 
 
-class MarginfiPulseHealthAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_pulse_health"
-    @property
-    def description(self) -> str: return "Permissionlessly refresh the health state of a marginfi account"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "account": {
-                "type": "string",
-                "required": True,
-                "description": "marginfi account address to refresh.",
-            },
-        }
 
 
 # ── Query Actions ──────────────────────────────────────────────────────────────
 
-class MarginfiAccountInfoAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_account_info"
-    @property
-    def description(self) -> str: return "Get full info for a marginfi lending account: deposits, borrows, health factor"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "wallet":  {"type": "string", "required": False, "description": "Wallet address (defaults to connected wallet)."},
-            "account": {"type": "string", "required": False, "description": "marginfi account address (alternative to wallet)."},
-        }
 
 
-class MarginfiBanksAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_banks"
-    @property
-    def description(self) -> str: return "List all available marginfi lending banks with symbol, mint, and token program info"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "limit": {
-                "type": "number",
-                "required": False,
-                "description": "Maximum number of banks to return. Returns all if omitted.",
-            },
-        }
 
 
-class MarginfiHealthAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_health"
-    @property
-    def description(self) -> str: return "Get health factor, collateral value, and borrow value for a marginfi account"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "wallet":  {"type": "string", "required": False, "description": "Wallet address (defaults to connected wallet)."},
-            "account": {"type": "string", "required": False, "description": "marginfi account address (alternative to wallet)."},
-        }
 
 
-class MarginfiPointsAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_points"
-    @property
-    def description(self) -> str: return "Get marginfi points balance, rank, and breakdown (deposit/borrow points) for a wallet"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "wallet": {
-                "type": "string",
-                "required": False,
-                "description": "Wallet address. Defaults to connected wallet.",
-            },
-        }
 
 
-class MarginfiBankDetailAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_bank_detail"
-    @property
-    def description(self) -> str: return "Get detailed info for a specific marginfi bank: address, mint, symbol, decimals, token program"
-    @property
-    def aliases(self) -> list[str]: return ["marginfi_bank_info"]
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {"bank": _MFI_BANK_PARAM}
 
 
-class MarginfiUserAccountsAction(BuildableAction):
-    @property
-    def name(self) -> str: return "marginfi_user_accounts"
-    @property
-    def description(self) -> str: return "List all possible marginfi PDA account addresses for a wallet (by scanning indices)"
-    @property
-    def parameters(self) -> dict[str, dict[str, Any]]:
-        return {
-            "wallet": {
-                "type": "string",
-                "required": False,
-                "description": "Wallet address. Defaults to connected wallet.",
-            },
-            "maxIndex": {
-                "type": "number",
-                "required": False,
-                "description": "Max account index to scan (0–9). Default: 3.",
-            },
-        }
 
 
-class MarginfiPlugin(BasePlugin):
-    @property
-    def id(self) -> str: return "marginfi"
-    @property
-    def name(self) -> str: return "marginfi"
-    @property
-    def description(self) -> str: return "marginfi v2 over-collateralized money market — lending, borrowing, liquidations, flash loans, borrow orders, emissions"
-    @property
-    def actions(self) -> list[PluginAction]:
-        return [
-            # Account management
-            MarginfiCreateAccountAction(),
-            MarginfiCreateAccountPdaAction(),
-            MarginfiCloseAccountAction(),
-            MarginfiCloseBalanceAction(),
-            MarginfiTransferAccountAction(),
-            # Core lending
-            MarginfiDepositAction(),
-            MarginfiWithdrawAction(),
-            MarginfiBorrowAction(),
-            MarginfiRepayAction(),
-            # Liquidation
-            MarginfiLiquidateAction(),
-            MarginfiStartLiquidationAction(),
-            MarginfiEndLiquidationAction(),
-            # Flash loans
-            MarginfiFlashloanStartAction(),
-            MarginfiFlashloanEndAction(),
-            # Borrow orders
-            MarginfiPlaceOrderAction(),
-            MarginfiCloseOrderAction(),
-            MarginfiExecuteOrderStartAction(),
-            MarginfiExecuteOrderEndAction(),
-            # Emissions / rewards
-            MarginfiClaimEmissionsAction(),
-            MarginfiSettleEmissionsAction(),
-            MarginfiWithdrawEmissionsPermissionlessAction(),
-            MarginfiUpdateEmissionsDestinationAction(),
-            MarginfiClearEmissionsAction(),
-            # Liquidation setup
-            MarginfiSetKeeperFlagsAction(),
-            MarginfiInitLiqRecordAction(),
-            # Permissionless
-            MarginfiAccrueInterestAction(),
-            MarginfiPulsePriceAction(),
-            MarginfiPulseHealthAction(),
-            # Queries
-            MarginfiAccountInfoAction(),
-            MarginfiBanksAction(),
-            MarginfiHealthAction(),
-            MarginfiPointsAction(),
-            MarginfiBankDetailAction(),
-            MarginfiUserAccountsAction(),
-        ]
 
 
 # ============================================================================
@@ -4922,7 +4264,7 @@ class ClaimAction(BuildableAction):
             "protocol": {
                 "type": "string",
                 "required": True,
-                "description": "Protocol name: marinade, jito, jupiter, kamino, orca, meteora, marginfi, etc.",
+                "description": "Protocol name: marinade, jito, jupiter, kamino, orca, meteora, etc.",
             },
             "type": {
                 "type": "string",
@@ -4946,7 +4288,7 @@ class VoteAction(BuildableAction):
             "protocol": {
                 "type": "string",
                 "required": True,
-                "description": "Protocol: jupiter, marinade, kamino, orca, marginfi, etc.",
+                "description": "Protocol: jupiter, marinade, kamino, orca, etc.",
             },
             "proposal": {
                 "type": "string",
@@ -5726,7 +5068,6 @@ class DebridgePlugin(BasePlugin):
 # Export all plugins
 ALL_PLUGINS = [
     MeteoraPlugin,
-    MarginfiPlugin,
     OrcaPlugin,
     KaminoPlugin,
     JitoPlugin,
@@ -5749,5 +5090,3 @@ ALL_PLUGINS = [
 ]
 
 # Backward-compatible aliases for test imports
-MarginfiDepositCollateralAction = MarginfiDepositAction
-MarginfiWithdrawCollateralAction = MarginfiWithdrawAction

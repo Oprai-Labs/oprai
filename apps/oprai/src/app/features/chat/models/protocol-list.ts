@@ -19,7 +19,6 @@ export const PROTOCOLS: Protocol[] = [
   { id: 'jito',         label: 'Jito',         category: 'staking',   logo: 'assets/protocols/jito.png',         description: 'MEV-boosted staking (jitoSOL)' },
   // Lending
   { id: 'kamino',       label: 'Kamino',       category: 'lending',   logo: 'assets/protocols/kamino.png',       description: 'Lending & borrowing' },
-  { id: 'marginfi',     label: 'MarginFi',     category: 'lending',   logo: 'assets/protocols/marginfi.png',     description: 'Margin lending protocol' },
   { id: 'solend',       label: 'Solend',       category: 'lending',   logo: 'assets/protocols/solend.png',       description: 'Algorithmic money market' },
   // NFT
   { id: 'tensor',       label: 'Tensor',       category: 'nft',       logo: 'assets/protocols/tensor.png',       description: 'NFT trading & sniping' },

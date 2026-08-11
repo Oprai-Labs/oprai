@@ -44,7 +44,7 @@ IntentClass = Literal["action", "query", "advice", "ambiguous"]
 VALID_PROTOCOLS: frozenset[str] = frozenset({
     "jupiter", "raydium", "orca", "meteora",
     "marinade", "jito", "native_stake",
-    "kamino", "marginfi", "solend",
+    "kamino", "solend",
     "tensor", "magic_eden", "pumpfun",
     "relay", "debridge", "squid",
     "streamflow",
@@ -74,7 +74,6 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "orca":      ("orca", "whirlpool"),
     "jupiter":   ("jupiter", "juplend", "jup lend", "jup earn"),
     "kamino":    ("kamino", "klend", "k-lend", "kswap"),
-    "marginfi":  ("marginfi", "mrgn", "mfi"),
     "jito":      ("jito", "jitosol"),
     "marinade":  ("marinade", "msol"),
     "pumpfun":   ("pumpfun", "pump.fun", "pumpswap", "mayhem"),
@@ -215,7 +214,6 @@ Protocols (canonical id list — use ONLY these strings, multiple allowed):
   jito         — Jito staking, jitoSOL, MEV tips, Jito bundles.
   native_stake — Generic Solana validator stake (no LST), stake account ops.
   kamino       — Kamino K-Lend, K-Vault, K-Swap, Multiply, Long/Short, kpool.
-  marginfi     — marginfi v2, mrgn, mfi.
   solend       — Solend (read-only; transactions deprecated).
   tensor       — Tensor NFT marketplace.
   magic_eden   — Magic Eden, ME, MMM pools.
