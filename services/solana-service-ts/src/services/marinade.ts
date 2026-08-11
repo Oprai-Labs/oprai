@@ -733,6 +733,8 @@ export async function buildMarinadePartialDepositStake(
       lamportsFromSol(solToKeep)
     );
 
+  // Same ordering rule as the delayed unstake: prepare, then sign.
+  await prepareTx(transaction, userWallet);
   // If the SDK creates a new residual stake account, it returns a keypair that must co-sign.
   let additionalSigners = 0;
   if (stakeAccountKeypair) {
@@ -789,6 +791,7 @@ export async function buildMarinadeDepositActivatingStake(
       lamportsFromSol(solToKeep)
     );
 
+  await prepareTx(transaction, userWallet);
   // If a new residual stake account keypair is created, pre-sign it server-side.
   if (stakeAccountKeypair) {
     transaction.partialSign(stakeAccountKeypair);
