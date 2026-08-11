@@ -552,6 +552,37 @@
   gap: 8px;
 }
 
+// Cross-protocol positions row. The protocol's own mark sits at the end of the
+// header — the token logos already lead the row, so repeating a brand at the
+// front would fight them for the same job.
+.qp-proto-mark {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+  opacity: 0.9;
+}
+
+// USD sits opposite the holding, right-aligned, so a list of positions can be
+// scanned down one column instead of read row by row.
+.qp-value-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  line-height: 1.15;
+}
+
+.qp-value {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--op-text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .ray-pos {
   display: flex;
   flex-direction: column;
