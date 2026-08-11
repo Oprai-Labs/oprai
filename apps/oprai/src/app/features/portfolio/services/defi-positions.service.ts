@@ -716,10 +716,16 @@ export class DefiPositionsService {
       // earn rewards" semantically). Each item carries pending rewards as
       // claimableUsd.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // The TS service answers `{ data: { positions: [...], count } }`. This
+      // read `data.params` — the ECHO of the request — so even once the
+      // request key was fixed the parse found nothing and the wallet looked
+      // empty. Positions first, then the older shapes.
       const farmPayload: any = farmRes.status === 'fulfilled'
-        ? (farmRes.value as any)?.data?.params
+        ? ((farmRes.value as any)?.data ?? null)
         : null;
-      const farms: any[] = Array.isArray(farmPayload?.data) ? farmPayload.data
+      const farms: any[] = Array.isArray(farmPayload?.positions) ? farmPayload.positions
+        : Array.isArray(farmPayload?.params?.data) ? farmPayload.params.data
+        : Array.isArray(farmPayload?.data) ? farmPayload.data
         : (Array.isArray(farmPayload) ? farmPayload : []);
       const farmItems: PositionItem[] = farms
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -753,9 +759,11 @@ export class DefiPositionsService {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lockedPayload: any = lockedRes.status === 'fulfilled'
-        ? (lockedRes.value as any)?.data?.params
+        ? ((lockedRes.value as any)?.data ?? null)
         : null;
-      const locks: any[] = Array.isArray(lockedPayload?.data) ? lockedPayload.data
+      const locks: any[] = Array.isArray(lockedPayload?.positions) ? lockedPayload.positions
+        : Array.isArray(lockedPayload?.params?.data) ? lockedPayload.params.data
+        : Array.isArray(lockedPayload?.data) ? lockedPayload.data
         : (Array.isArray(lockedPayload) ? lockedPayload : []);
       const lockItems: PositionItem[] = locks
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
