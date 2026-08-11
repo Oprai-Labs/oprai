@@ -15,11 +15,11 @@ interface LstInfo {
 }
 
 const LST_REGISTRY: LstInfo[] = [
-  { mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', symbol: 'mSOL', name: 'Marinade Staked SOL', protocol: 'Marinade', logoUri: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So/logo.png', defaultApy: 5.95 },
-  { mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', symbol: 'JitoSOL', name: 'Jito Staked SOL', protocol: 'Jito', logoUri: 'https://storage.googleapis.com/token-metadata/JitoSOL-256.png', defaultApy: 5.80 },
+  { mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', symbol: 'mSOL', name: 'Marinade Staked SOL', protocol: 'Marinade', logoUri: 'assets/icons/protocols/marinade.webp', defaultApy: 5.95 },
+  { mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', symbol: 'JitoSOL', name: 'Jito Staked SOL', protocol: 'Jito', logoUri: 'assets/icons/protocols/jito.webp', defaultApy: 5.80 },
   { mint: '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj', symbol: 'stSOL', name: 'Lido Staked SOL', protocol: 'Lido', logoUri: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj/logo.png', defaultApy: 5.50 },
   { mint: 'he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A', symbol: 'hSOL', name: 'Helius Staked SOL', protocol: 'Helius', logoUri: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A/logo.png', defaultApy: 6.05 },
-  { mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', symbol: 'jupSOL', name: 'Jupiter Staked SOL', protocol: 'Jupiter', logoUri: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v/logo.png', defaultApy: 6.33 },
+  { mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', symbol: 'jupSOL', name: 'Jupiter Staked SOL', protocol: 'Jupiter', logoUri: 'assets/icons/protocols/jupiter.webp', defaultApy: 6.33 },
 ];
 
 // Protocol logos resolved from public CDNs that serve CORS-friendly assets.
