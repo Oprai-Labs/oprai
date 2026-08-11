@@ -2203,6 +2203,54 @@
       }
 
       <!-- Raydium positions (self-fetched, on-chain via SDK) -->
+      <!-- ── Staking positions: native accounts AND liquid staking ───────── -->
+      @if (query.type === 'my_stake_accounts') {
+        @if (stakePositions(); as sp) {
+          @if (sp.stakeAccounts.length || sp.liquidStaking.length) {
+            @if (sp.stakeAccounts.length) {
+              <div class="mrn-stats">
+                <div class="mrn-stat">
+                  <span class="mrn-stat__k">Native stake</span>
+                  <span class="mrn-stat__v mono">{{ sp.totalStakedSol | number:'1.0-4' }} SOL</span>
+                </div>
+                <div class="mrn-stat">
+                  <span class="mrn-stat__k">Accounts</span>
+                  <span class="mrn-stat__v">{{ sp.stakeAccounts.length }}</span>
+                </div>
+              </div>
+              <div class="mrn-tickets">
+                @for (a of sp.stakeAccounts; track a.stakeAccount) {
+                  <div class="mrn-ticket">
+                    <span class="mrn-ticket__amt mono">{{ a.stakedSol | number:'1.0-4' }} SOL</span>
+                    <span class="mrn-ticket__state">{{ a.status }}</span>
+                    <span class="mrn-ticket__mono mono">{{ a.stakeAccount.slice(0, 4) }}…{{ a.stakeAccount.slice(-4) }}</span>
+                  </div>
+                }
+              </div>
+            }
+            @if (sp.liquidStaking.length) {
+              <div class="mrn-tickets">
+                @for (l of sp.liquidStaking; track l.mint) {
+                  @let lt = tokenLogo(l.mint);
+                  <div class="mrn-ticket">
+                    <span class="mrn-lst">
+                      @if (lt) { <img [src]="lt" [alt]="l.symbol" /> }
+                      {{ l.symbol }}
+                    </span>
+                    <span class="mrn-ticket__amt mono">{{ l.amount | number:'1.0-6' }}</span>
+                    <span class="mrn-ticket__mono">liquid staking</span>
+                  </div>
+                }
+              </div>
+            }
+          } @else {
+            <div class="dlmm-empty">
+              Nothing staked yet — no native stake accounts and no liquid-staking tokens in this wallet.
+            </div>
+          }
+        }
+      }
+
       <!-- ── Marinade: the rate everything else is quoted against ────────── -->
       @if (query.type === 'marinade_exchange_rate') {
         @if (marinadeRate(); as r) {

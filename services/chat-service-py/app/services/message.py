@@ -282,6 +282,9 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # matured ticket becomes actionable without pasting its address.
     "marinade_exchange_rate",
     "marinade_list_tickets",
+    # "my staking positions" — native stake accounts and liquid-staking
+    # holdings in one card, instead of a paragraph assembled from two reads.
+    "my_stake_accounts",
     "meteora_dlmm_get_pairs",
     "meteora_dammv2_get_pools",
     "meteora_dammv1_get_pools",

@@ -734,6 +734,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'kamino_multiply_markets':   void this.fetchKaminoMultiplyMarkets(); break;
       case 'marinade_exchange_rate':    void this.fetchMarinadeRate(); break;
       case 'marinade_list_tickets':     void this.fetchMarinadeTickets(); break;
+      case 'my_stake_accounts':         void this.fetchStakePositions(); break;
     }
   }
 
@@ -2826,6 +2827,35 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     address: string; solAmount: string; epochsRemaining: number; isClaimable: boolean; status: string;
   }>>([]);
   readonly marinadeFetching = signal(false);
+
+  readonly stakePositions = signal<{
+    stakeAccounts: Array<{ stakeAccount: string; stakedSol: number; status: string; voteAccount: string }>;
+    totalStakedSol: number;
+    liquidStaking: Array<{ symbol: string; mint: string; amount: number }>;
+  } | null>(null);
+
+  private async fetchStakePositions(): Promise<void> {
+    this.marinadeFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(
+        this.api.post<{ data?: any }>('/actions/build', {
+          type: 'my_stake_accounts', params: {},
+        }),
+      );
+      const d = resp?.data ?? {};
+      this.stakePositions.set({
+        stakeAccounts: d.stakeAccounts ?? [],
+        totalStakedSol: Number(d.totalStakedSol ?? 0),
+        liquidStaking: d.liquidStaking ?? [],
+      });
+    } catch {
+      this.error.set('Could not read your staking positions right now.');
+    } finally {
+      this.marinadeFetching.set(false);
+      this.loading.set(false);
+    }
+  }
 
   private async fetchMarinadeRate(): Promise<void> {
     this.marinadeFetching.set(true);

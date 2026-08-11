@@ -1588,6 +1588,14 @@ async def top_validators(limit: int = 20, sort_by: str = "stake") -> dict:
 
 
 _STAKE_PROGRAM = "Stake11111111111111111111111111111111111111"
+
+# The liquid-staking tokens a "my staking positions" answer has to include.
+_LST_MINTS = {
+    "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn": "jitoSOL",
+    "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So": "mSOL",
+    "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v": "jupSOL",
+    "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1": "bSOL",
+}
 _STAKE_AUTH_OFFSET = 12  # staker pubkey starts at byte 12 in serialized stake account data
 _EPOCH_MAX = "18446744073709551615"  # u64::MAX — means "not deactivating"
 
@@ -1642,10 +1650,34 @@ async def my_stake_accounts(wallet: str) -> dict:
         })
 
     total = sum(s["stakedSol"] for s in stakes)
+
+    # Liquid staking counts as a staking position too. Without it "my staking
+    # positions" answered only half the question, and the model filled the
+    # other half from a separate balance read and its own prose.
+    lst = []
+    for mint, symbol in _LST_MINTS.items():
+        for program_id in _TOKEN_PROGRAMS:
+            try:
+                r = await _post(SOLANA_RPC, {
+                    "jsonrpc": "2.0", "id": 1,
+                    "method": "getTokenAccountsByOwner",
+                    "params": [wallet, {"mint": mint}, {"encoding": "jsonParsed"}],
+                })
+            except Exception:
+                continue
+            for acc in (r.get("result") or {}).get("value") or []:
+                amt = acc["account"]["data"]["parsed"]["info"]["tokenAmount"]
+                ui = float(amt.get("uiAmount") or 0)
+                if ui > 0:
+                    lst.append({"symbol": symbol, "mint": mint, "amount": round(ui, 6)})
+            break  # the mint filter already scopes it; one call is enough
+
     return {
         "stakeAccounts": stakes,
         "count": len(stakes),
         "totalStakedSol": round(total, 4),
+        "liquidStaking": lst,
+        "hasAnything": bool(stakes or lst),
     }
 
 
