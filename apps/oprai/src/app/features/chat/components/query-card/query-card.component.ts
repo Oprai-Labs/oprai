@@ -3882,6 +3882,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       strategy: 'spot',
       binSpread: '15',
     };
+    // "Open a position with half of my mSOL" now answers with this listing and
+    // no action card, because which pool to enter is the user's call. The size
+    // they asked for must survive that step: without it the card opens empty
+    // and the user has to restate a number they already gave. The listing
+    // query carries the share, and the action card resolves it against the
+    // live balance at the pool's ratio.
+    const pct = (this.query?.params?.['amountPercent'] ?? '').trim();
+    if (pct) {
+      const n = parseFloat(pct.replace(/[%\s]/g, '').replace(',', '.'));
+      if (Number.isFinite(n) && n > 0 && n <= 100) params['amountA'] = `${n}%`;
+    }
     this.useAction.emit({
       type: 'meteora_add_liquidity',
       params,
