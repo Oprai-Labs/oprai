@@ -491,25 +491,38 @@ export async function getMarinadeExchangeRate(userWallet: string): Promise<Build
   const state = await marinade.getMarinadeState();
   const stateAny = state as unknown as Record<string, unknown>;
 
-  let msolPriceInSol = 1.0;
-  let solPriceInMsol = 1.0;
-  try {
-    const msolPriceBn = (stateAny.msolPrice as BN | undefined);
-    if (msolPriceBn) {
-      msolPriceInSol = msolPriceBn.toNumber() / 0x1_0000_0000;
-      solPriceInMsol = 1 / msolPriceInSol;
-    }
-  } catch { /* default 1:1 */ }
+  // The SDK exposes the price under `mSolPrice`, not `msolPrice`. Reading the
+  // wrong name found nothing and the catch-all default answered 1:1 — a rate
+  // that is wrong by forty per cent and looks entirely plausible. mSOL has not
+  // been worth one SOL since the day the pool opened.
+  let msolPriceInSol = 0;
+  const fromState = (stateAny.mSolPrice ?? stateAny.msolPrice) as number | BN | undefined;
+  if (typeof fromState === "number" && fromState > 0) {
+    msolPriceInSol = fromState;
+  } else if (fromState && typeof (fromState as BN).toNumber === "function") {
+    msolPriceInSol = (fromState as BN).toNumber() / 0x1_0000_0000;
+  }
 
-  // Enrich from Marinade stats API
+  // One call gives the APY and the price together. `/v1/apy` — what this used
+  // to ask for — has been 404 for long enough that apyPercent was always null.
+  // 30 days rather than 1: a single-day window annualises noise (11.17% today
+  // against 5.86% over the month).
   let apyPercent: number | null = null;
   try {
-    const resp = await fetch(`${MARINADE_API}/v1/apy`);
+    const resp = await fetch(`${MARINADE_API}/msol/apy/30d`);
     if (resp.ok) {
-      const j = await resp.json() as Record<string, unknown>;
-      apyPercent = j.apy as number ?? null;
+      const j = (await resp.json()) as { value?: number; end_price?: number };
+      if (typeof j.value === "number") apyPercent = j.value * 100;
+      // The same endpoint carries the price, so a state read that came back
+      // empty still produces a real number rather than a default.
+      if (!msolPriceInSol && typeof j.end_price === "number") msolPriceInSol = j.end_price;
     }
   } catch { /* best effort */ }
+
+  if (!msolPriceInSol) {
+    throw appError("Marinade's mSOL price is unavailable right now.", 503, "NO_RATE");
+  }
+  const solPriceInMsol = 1 / msolPriceInSol;
 
   return {
     preview: mkPreview("marinade_exchange_rate", "Marinade mSOL/SOL exchange rate", {}),
