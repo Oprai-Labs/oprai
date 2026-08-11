@@ -5437,13 +5437,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const n = parseFloat(raw.replace(/[%\s]/g, '').replace(',', '.'));
       return Number.isFinite(n) && n > 0 && n <= 100 ? n / 100 : null;
     };
-    const fa = asFraction(p['amountA']);
-    const fb = asFraction(p['amountB']);
+    // Both spellings of the same two sides. Meteora's action format is
+    // `amountX`/`amountY`, so a model-emitted share lands there, not on
+    // `amountA`/`amountB` — reading only the A/B pair let `50%` travel
+    // untouched all the way into the build payload, where Rust answered
+    // "amountX must be a number" and the card showed a generic failure.
+    const fa = asFraction(p['amountA']) ?? asFraction(p['amountX']);
+    const fb = asFraction(p['amountB']) ?? asFraction(p['amountY']);
     const fs = asFraction(p['amount']);
     if (fa === null && fb === null && fs === null) return;
     const cleaned = { ...p };
-    if (fa !== null) delete cleaned['amountA'];
-    if (fb !== null) delete cleaned['amountB'];
+    // Drop BOTH spellings: the submission prefers amountX over amountA, so a
+    // surviving percentage there would outrank the number resolved here.
+    if (fa !== null) { delete cleaned['amountA']; delete cleaned['amountX']; }
+    if (fb !== null) { delete cleaned['amountB']; delete cleaned['amountY']; }
     if (fs !== null) delete cleaned['amount'];
     this.editParams.set(cleaned);
     // On a paired deposit both sides carry the same share of the user's
