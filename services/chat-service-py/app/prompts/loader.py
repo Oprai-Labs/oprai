@@ -30,9 +30,10 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     "jupsol":       ["solana_action_staking.txt"],
     "native_stake": ["solana_action_staking.txt"],
     # Lending / Borrowing
-    "kamino":       ["solana_action_queries.txt", "solana_action_lending.txt"],
-    "marginfi":     ["solana_action_queries.txt", "solana_action_lending.txt"],
-    "solend":       ["solana_action_queries.txt", "solana_action_lending.txt"],
+    # queries.txt is no longer named here: it loads for every protocol turn.
+    "kamino":       ["solana_action_lending.txt"],
+    "marginfi":     ["solana_action_lending.txt"],
+    "solend":       ["solana_action_lending.txt"],
     # NFT marketplaces — Magic Eden read + trading; Tensor trading-routing.
     # market_data.txt carries the NFT composite (deep-dive) analysis.
     "tensor":       ["solana_action_nft.txt", "solana_action_market_data.txt"],
@@ -227,7 +228,17 @@ class PromptLoader:
                 files_needed.update(_FALLBACK_FILES)
         else:
             # 3. Explicit protocol list — load only those files.
-            files_needed = set(_ALWAYS_FILES)
+            #
+            # The wallet-state catalogue rides along with every named protocol.
+            # "List my Marinade positions" is answered by the cross-protocol
+            # `positions` query — Marinade has no positions query of its own —
+            # but the map gave a marinade turn only the staking fragment, so
+            # that query was not in the model's view. The only Marinade "list"
+            # it could see was pending unstake TICKETS, so it answered a
+            # question about positions with "0 tickets" for a wallet that holds
+            # mSOL. Balance, positions and transactions are askable on any
+            # protocol turn and belong to none of them.
+            files_needed = set(_ALWAYS_FILES) | {"solana_action_queries.txt"}
             for proto in protocols:
                 key = proto.lower().replace("-", "_").replace(" ", "_")
                 mapped = PROTOCOL_FILE_MAP.get(key)
