@@ -495,7 +495,9 @@ function getActionFields(
       { key: 'token', label: 'Receive Token', type: 'select', options: jlpTokens, required: true },
     );
   // ── Jupiter LST ──────────────────────────────────────────────────────────
-  } else if (t === 'jupsol_stake') {
+  } else if (t === 'jupsol_stake' || t === 'jupsol_unstake') {
+    return [];
+  } else if (t === '__jupsol_legacy__') {
     fields.push({ key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'SOL', required: true, min: 0 });
   } else if (t === 'jupsol_unstake') {
     fields.push({ key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'jupSOL', required: true, min: 0 });
@@ -813,12 +815,11 @@ function getActionFields(
       { key: 'escrow', label: 'Escrow', type: 'address', placeholder: 'Escrow account...', required: true },
     );
   // ── Jito ─────────────────────────────────────────────────────────────────
-  } else if (t === 'jito_stake') {
-    fields.push({ key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'SOL', required: true, min: 0 });
-  } else if (t === 'jito_unstake') {
-    fields.push(
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'jitoSOL', required: true, min: 0 },
-    );
+  } else if (t === 'jito_stake' || t === 'jito_unstake') {
+    // The LST panel below owns the amount and shows what comes back at the
+    // live rate — which this card already fetched and then rendered nowhere,
+    // under a plain labelled input.
+    return [];
   } else if (t === 'jito_tip') {
     fields.push({ key: 'amount', label: 'Tip Amount', type: 'number', placeholder: '0.001', suffix: 'SOL', required: true, min: 0, hint: 'Tip sent to Jito validators' });
   } else if (t === 'jito_bundle') {
@@ -827,21 +828,16 @@ function getActionFields(
       { key: 'tipAmount', label: 'Tip Amount', type: 'number', placeholder: '0.001', suffix: 'SOL', half: true, min: 0 },
     );
   // ── Marinade ──────────────────────────────────────────────────────────────
-  } else if (t === 'marinade_stake') {
-    // No slippage field: Marinade's deposit instruction is a direct mint at the
-    // pool's atomic rate (mSOL = SOL / msol_price), no swap, no AMM, nothing
-    // to slip against. Slippage only applies to instant liquid-unstake where
-    // the fee varies with reserve depth.
-    fields.push(
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'SOL', required: true, min: 0 },
-    );
+  } else if (t === 'marinade_stake' || t === 'marinade_delayed_unstake') {
+    // No slippage on either: Marinade's deposit is a direct mint at the pool's
+    // atomic rate, and the delayed unstake redeems at that same rate two
+    // epochs later. Slippage only applies to the INSTANT unstake, where the
+    // fee varies with reserve depth — that one keeps its field below the panel.
+    return [];
   } else if (t === 'marinade_unstake') {
     fields.push(
-      { key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'mSOL', required: true, min: 0 },
       { key: 'slippageBps', label: 'Slippage', type: 'number', placeholder: '0.5', suffix: '%', half: true, min: 0, max: 100, step: '0.1', divisor: 100 },
     );
-  } else if (t === 'marinade_delayed_unstake') {
-    fields.push({ key: 'amount', label: 'Amount', type: 'number', placeholder: '0', suffix: 'mSOL', required: true, min: 0, hint: '~2 epochs to claim (~4-6 days)' });
   } else if (t === 'marinade_claim_ticket') {
     fields.push({ key: 'ticketAccount', label: 'Ticket Account', type: 'address', placeholder: 'Ticket pubkey...', required: true, hint: 'Ticket ready after ~2 epochs' });
   // ── Streamflow ────────────────────────────────────────────────────────────
@@ -2200,6 +2196,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * Pool / position header for any Meteora panel: the pair, its logos and the
    * on-chain reference (pool, position or vault) the action targets.
    */
+  /**
+   * A name for the pair, from whatever is actually known.
+   *
+   * The panels used to return null when the two symbols could not be resolved,
+   * which dropped the card to the generic labelled-input form — so the SAME
+   * action rendered as a designed mini-app or as a raw form depending on
+   * whether a symbol lookup happened to land. A missing name is a missing
+   * name; it is not a reason to show a different product.
+   */
+  private pairLabel(symA: string, symB: string, ...refs: Array<string | undefined>): string {
+    if (symA && symB) return `${symA}/${symB}`;
+    if (symA || symB) return symA || symB;
+    const ref = refs.map(r => (r ?? '').trim()).find(r => !!r);
+    if (ref) return ref.length > 12 ? `${ref.slice(0, 4)}…${ref.slice(-4)}` : ref;
+    return 'Pool';
+  }
+
   readonly meteoraView = computed<{
     pair: string; symA: string; symB: string;
     logoA: string | null; logoB: string | null;
@@ -2224,8 +2237,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       : t.includes('vault') ? 'VAULT'
       : 'DLMM';
 
-    const pair = symA && symB ? `${symA}/${symB}` : (singleSym || '');
-    if (!pair && !ref) return null;
+    // No early return: see pairLabel. The panel renders with whatever is
+    // known, and the label degrades from SOL/USDC → SOL → 7xKX…AsU → "Pool".
+    const pair = symA && symB ? `${symA}/${symB}` : (singleSym || this.pairLabel(symA, symB, ref, single));
     return {
       pair, symA, symB,
       logoA: p['tokenALogo'] || (symA ? this.resolveTokenDisplay(p['tokenA'] ?? symA).logoURI ?? null : null),
@@ -2464,6 +2478,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isTransfer = computed(() => this.action?.type === 'transfer');
   readonly isCloseAccounts = computed(() => this.action?.type === 'close_accounts');
   readonly isBurn = computed(() => this.action?.type === 'burn');
+  /** Every liquid-staking action: one panel, six action types, one rate. */
+  readonly isLstPanel = computed(() => this.lstActionConfig() !== null);
+
+  /** The token going in, and the one coming back. */
+  lstSideMints(): { pay: string; recv: string } {
+    const cfg = this.lstActionConfig();
+    if (!cfg) return { pay: '', recv: '' };
+    const lst = this.tokenRegistry.getBySymbol(cfg.lstSymbol)?.address ?? '';
+    return cfg.direction === 'stake'
+      ? { pay: this.SOL_MINT, recv: lst }
+      : { pay: lst, recv: this.SOL_MINT };
+  }
 
   /** "all" is a valid burn amount; a hero number input is not the place to
    *  discover that. Kept as text, resolved at signing like every other card. */
@@ -4172,8 +4198,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const p = this.editParams();
     const symA = p['tokenASymbol'] ?? '';
     const symB = p['tokenBSymbol'] ?? '';
-    const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
-    if (!pair) return null;
+    const pair = p['pair'] || this.pairLabel(symA, symB, p['positionId'], p['poolId']);
     const pct = this.clmmDecreasePct();
     const posA = parseFloat(p['amountA'] ?? '');
     const posB = parseFloat(p['amountB'] ?? '');
@@ -4205,7 +4230,6 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const p = this.editParams();
     const symA = p['tokenASymbol'] || this.resolveTokenDisplay(p['tokenA'] ?? '').symbol || '';
     const symB = p['tokenBSymbol'] || this.resolveTokenDisplay(p['tokenB'] ?? '').symbol || '';
-    if (!symA || !symB) return null;
     // "Standard" spans two different programs (newer CPMM vs legacy AMM v4);
     // name the one the deposit actually lands in.
     const PROGRAMS: Record<string, string> = {
@@ -4385,8 +4409,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const p = this.editParams();
     const symA = p['tokenASymbol'] ?? '';
     const symB = p['tokenBSymbol'] ?? '';
-    const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
-    if (!pair) return null;
+    const pair = p['pair'] || this.pairLabel(symA, symB, p['positionId'], p['poolId']);
     const fmt = (v: string | undefined): string | null => {
       const n = parseFloat(v ?? '');
       return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 6 }) : null;
@@ -4414,8 +4437,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const p = this.editParams();
     const symA = p['tokenASymbol'] ?? '';
     const symB = p['tokenBSymbol'] ?? '';
-    const pair = p['pair'] || (symA && symB ? `${symA}/${symB}` : '');
-    if (!pair) return null;
+    const pair = p['pair'] || this.pairLabel(symA, symB, p['positionId'], p['poolId']);
     const isLp = this.action.type === 'raydium_remove_liquidity';
 
     // Prefer the real token amounts ("0.0123 SOL + 4.56 USDC"). Raw CLMM
@@ -4820,6 +4842,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       case 'jito_unstake':     return { direction: 'unstake', lstSymbol: 'jitoSOL', protocol: 'jito' };
       case 'marinade_stake':   return { direction: 'stake',   lstSymbol: 'mSOL',    protocol: 'marinade' };
       case 'marinade_unstake': return { direction: 'unstake', lstSymbol: 'mSOL',    protocol: 'marinade' };
+      // Delayed unstake returns SOL at the same pool rate, two epochs later.
+      // It was left out, so the one unstake with a WAIT attached was also the
+      // one that showed no estimate of what the wait is worth.
+      case 'marinade_delayed_unstake':
+        return { direction: 'unstake', lstSymbol: 'mSOL', protocol: 'marinade' };
       case 'jupsol_stake':     return { direction: 'stake',   lstSymbol: 'jupSOL',  protocol: 'jupsol' };
       case 'jupsol_unstake':   return { direction: 'unstake', lstSymbol: 'jupSOL',  protocol: 'jupsol' };
       default: return null;
