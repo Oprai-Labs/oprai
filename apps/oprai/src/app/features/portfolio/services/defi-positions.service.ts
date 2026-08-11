@@ -426,7 +426,7 @@ export class DefiPositionsService {
       const resp = await firstValueFrom(
         this.apiService.post<{ data?: { balances?: any[] } }>(
           '/actions/build',
-          { action_type: 'marginfi_user_balances', params: {} },
+          { type: 'marginfi_user_balances', params: {} },
         ),
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -585,7 +585,7 @@ export class DefiPositionsService {
       // bandwidth and time on the critical-path refresh.
       const res = await firstValueFrom(
         this.apiService.post<any>('/actions/build', {
-          action_type: 'orca_get_user_positions',
+          type: 'orca_get_user_positions',
           params: {},
         })
       );
@@ -699,13 +699,13 @@ export class DefiPositionsService {
       const [farmRes, lockedRes] = await Promise.allSettled([
         firstValueFrom(
           this.apiService.post<{ data?: { params?: any } }>('/actions/build', {
-            action_type: 'raydium_get_user_positions',
+            type: 'raydium_get_user_positions',
             params: {},
           }),
         ),
         firstValueFrom(
           this.apiService.post<{ data?: { params?: any } }>('/actions/build', {
-            action_type: 'raydium_get_clmm_positions',
+            type: 'raydium_get_clmm_positions',
             params: {},
           }),
         ),
@@ -972,7 +972,7 @@ export class DefiPositionsService {
       const resp = await firstValueFrom(
         this.apiService.post<{ data?: { streams?: any[] } }>(
           '/actions/build',
-          { action_type: 'streamflow_list', params: { direction: 'recipient' } },
+          { type: 'streamflow_list', params: { direction: 'recipient' } },
         ),
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
