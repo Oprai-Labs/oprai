@@ -685,6 +685,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return 'assets/icons/protocols/orca.webp';
       case 'kamino_multiply_markets':
         return 'assets/icons/protocols/kamino.svg';
+      case 'marinade_exchange_rate':
+      case 'marinade_list_tickets':
+        return 'assets/icons/protocols/marinade.webp';
       // Every Magic Eden read, by prefix — there are twenty-six of them and
       // listing each one here is how one gets forgotten and renders headerless.
       default:
@@ -729,6 +732,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'orca_get_pools':
       case 'orca_search_pools':         void this.fetchOrcaPools(); break;
       case 'kamino_multiply_markets':   void this.fetchKaminoMultiplyMarkets(); break;
+      case 'marinade_exchange_rate':    void this.fetchMarinadeRate(); break;
+      case 'marinade_list_tickets':     void this.fetchMarinadeTickets(); break;
     }
   }
 
@@ -2810,6 +2815,64 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   // ── Kamino Multiply pools ───────────────────────────────────────────────
   /** Fetch the full Multiply pool set once (client sorts/filters/paginates). */
+  // ── Marinade ──────────────────────────────────────────────────────────
+  //
+  // Two reads the chat could not previously answer without quoting a number
+  // from memory: what staking pays right now, and which of this wallet's
+  // delayed unstakes have matured.
+
+  readonly marinadeRate = signal<{ msolPriceInSol: number; solPriceInMsol: number; apyPercent: number | null } | null>(null);
+  readonly marinadeTicketRows = signal<Array<{
+    address: string; solAmount: string; epochsRemaining: number; isClaimable: boolean; status: string;
+  }>>([]);
+  readonly marinadeFetching = signal(false);
+
+  private async fetchMarinadeRate(): Promise<void> {
+    this.marinadeFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(
+        this.api.post<{ data?: any }>('/actions/build', { type: 'marinade_exchange_rate', params: {} }),
+      );
+      const d = resp?.data ?? {};
+      this.marinadeRate.set({
+        msolPriceInSol: Number(d.msolPriceInSol ?? 0),
+        solPriceInMsol: Number(d.solPriceInMsol ?? 0),
+        apyPercent: d.apyPercent === null || d.apyPercent === undefined ? null : Number(d.apyPercent),
+      });
+    } catch {
+      this.error.set('Could not read the Marinade rate right now.');
+    } finally {
+      this.marinadeFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  private async fetchMarinadeTickets(): Promise<void> {
+    this.marinadeFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(
+        this.api.post<{ data?: any }>('/actions/build', { type: 'marinade_list_tickets', params: {} }),
+      );
+      this.marinadeTicketRows.set(resp?.data?.tickets ?? []);
+    } catch {
+      this.error.set('Could not read your Marinade tickets right now.');
+    } finally {
+      this.marinadeFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  /** Claim a matured ticket: hands the action card the address, which is the
+   *  one thing the user cannot supply themselves. */
+  claimMarinadeTicket(address: string): void {
+    this.useAction.emit({
+      type: 'marinade_claim_ticket',
+      params: { ticketAccount: address },
+    } as unknown as ParsedAction);
+  }
+
   private async fetchKaminoMultiplyMarkets(): Promise<void> {
     this.kaminoMultiplyFetching.set(true);
     this.error.set(null);

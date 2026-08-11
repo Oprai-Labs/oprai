@@ -478,6 +478,8 @@ class QueryType(str, Enum):
     CLAIM = "claim"
     VOTE = "vote"
     # ── Wallet Utility Queries (no action card, result interpreted inline) ──
+    MARINADE_EXCHANGE_RATE = "marinade_exchange_rate"
+    MARINADE_LIST_TICKETS = "marinade_list_tickets"
     SCAN_EMPTY_ACCOUNTS = "scan_empty_accounts"  # finds zero-balance token accounts → user recovers rent with close_accounts
     MY_STAKE_ACCOUNTS = "my_stake_accounts"      # lists all native stake accounts for the wallet
     # ── SNS (Bonfida Name Service) — domain lookups, no action card ─────────
@@ -1486,6 +1488,8 @@ _PRIVATE_QUERY_TYPES: frozenset[str] = frozenset({
     # Wallet-specific on-chain scans — always restricted to authenticated wallet
     "scan_empty_accounts",
     "my_stake_accounts",
+    # Reads the caller's own tickets — same wallet-scoping rule.
+    "marinade_list_tickets",
 })
 
 

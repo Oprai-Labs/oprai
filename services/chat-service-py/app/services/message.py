@@ -277,6 +277,11 @@ _MAX_TOOL_CALLS_PER_RESPONSE = 5  # prevent LLM fan-out abuse (e.g. 100 swap act
 # user gets the full interactive list. Add a type here when its frontend render
 # branch (apps/oprai/.../query-card.component.ts) is implemented.
 QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
+    # Marinade: the rate + APY as a compact readout, and the wallet's own
+    # delayed-unstake tickets with a Claim on each row — the only place a
+    # matured ticket becomes actionable without pasting its address.
+    "marinade_exchange_rate",
+    "marinade_list_tickets",
     "meteora_dlmm_get_pairs",
     "meteora_dammv2_get_pools",
     "meteora_dammv1_get_pools",

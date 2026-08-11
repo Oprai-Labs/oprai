@@ -170,3 +170,9 @@ Say plainly which of the two "unstake" routes applies when the user asks: the
 instant one pays a fee that varies with pool depth; the delayed one is free and
 takes about 2 epochs. Do not guess for them — the fee and the wait are the
 whole trade-off.
+
+**Marinade reads:** `query_onchain("marinade_exchange_rate", {})` gives the
+mSOL/SOL rate and the staking APY together — use it whenever the user asks what
+staking pays or what their mSOL is worth, instead of quoting a number from
+memory. `query_onchain("marinade_list_tickets", {})` lists the caller's pending
+delayed-unstake tickets with the epoch each matures in.

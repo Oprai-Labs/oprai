@@ -447,6 +447,8 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "scan_empty_accounts":  _A({"core", "portfolio"}),
     "my_stake_accounts":    _A({"staking", "portfolio"}),
     "top_validators":       _A({"staking", "analysis"}),
+    "marinade_exchange_rate": _A({"staking", "marinade"}),
+    "marinade_list_tickets":  _A({"staking", "marinade", "portfolio"}),
     # Birdeye
     "birdeye_price":            _A({"always", "price"}),
     "birdeye_multi_price":      _A({"price", "analysis"}),

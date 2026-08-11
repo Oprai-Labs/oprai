@@ -2203,6 +2203,60 @@
       }
 
       <!-- Raydium positions (self-fetched, on-chain via SDK) -->
+      <!-- ── Marinade: the rate everything else is quoted against ────────── -->
+      @if (query.type === 'marinade_exchange_rate') {
+        @if (marinadeRate(); as r) {
+          <div class="mrn-stats">
+            <div class="mrn-stat">
+              <span class="mrn-stat__k">Staking APY</span>
+              <span class="mrn-stat__v mrn-stat__v--gain">
+                {{ r.apyPercent !== null ? (r.apyPercent | number:'1.2-2') + '%' : '—' }}
+              </span>
+            </div>
+            <div class="mrn-stat">
+              <span class="mrn-stat__k">1 mSOL</span>
+              <span class="mrn-stat__v mono">{{ r.msolPriceInSol | number:'1.0-6' }} SOL</span>
+            </div>
+            <div class="mrn-stat">
+              <span class="mrn-stat__k">1 SOL</span>
+              <span class="mrn-stat__v mono">{{ r.solPriceInMsol | number:'1.0-6' }} mSOL</span>
+            </div>
+          </div>
+          <p class="mrn-note">
+            mSOL does not pay out — it appreciates against SOL, so the rate above
+            is the reward already earned.
+          </p>
+        } @else if (!marinadeFetching()) {
+          <div class="dlmm-empty">No rate available right now.</div>
+        }
+      }
+
+      <!-- ── Marinade: this wallet's delayed-unstake tickets ─────────────── -->
+      @if (query.type === 'marinade_list_tickets') {
+        @if (marinadeTicketRows().length) {
+          <div class="mrn-tickets">
+            @for (t of marinadeTicketRows(); track t.address) {
+              <div class="mrn-ticket" [class.mrn-ticket--ready]="t.isClaimable">
+                <span class="mrn-ticket__amt mono">{{ +t.solAmount | number:'1.0-4' }} SOL</span>
+                <span class="mrn-ticket__state">
+                  {{ t.isClaimable ? 'Ready to claim' : 'Matures in ' + t.epochsRemaining + ' epoch' + (t.epochsRemaining === 1 ? '' : 's') }}
+                </span>
+                @if (t.isClaimable) {
+                  <button type="button" class="dlmm-page-btn mrn-ticket__btn"
+                          (click)="claimMarinadeTicket(t.address)">Claim</button>
+                } @else {
+                  <span class="mrn-ticket__mono mono">{{ t.address.slice(0, 4) }}…{{ t.address.slice(-4) }}</span>
+                }
+              </div>
+            }
+          </div>
+        } @else if (!marinadeFetching()) {
+          <div class="dlmm-empty">
+            No delayed-unstake tickets on this wallet.
+          </div>
+        }
+      }
+
       @if (query.type === 'raydium_get_user_positions' || query.type === 'raydium_get_clmm_positions') {
         <!-- Kind filter: a "CLMM positions" request seeds CLMM so standard LP
              holdings aren't dumped in alongside them. -->

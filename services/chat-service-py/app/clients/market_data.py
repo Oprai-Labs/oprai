@@ -1895,6 +1895,21 @@ async def _sns_get(path: str) -> Any:
     return await _get(f"{_SNS_PROXY}/{path}")
 
 
+async def marinade_exchange_rate() -> dict:
+    """mSOL ↔ SOL, and the staking APY, in one call.
+
+    Read from the Marinade state on chain plus their APY endpoint, via the TS
+    service that already holds the SDK. This is the number every staking
+    question starts with and it was unreachable from chat.
+    """
+    return await _solana_action_data("marinade_exchange_rate", {})
+
+
+async def marinade_list_tickets(wallet: str) -> dict:
+    """Delayed-unstake tickets this wallet is owed SOL on, and when each matures."""
+    return await _solana_action_data("marinade_list_tickets", {}, wallet=wallet)
+
+
 async def sns_resolve(domain: str) -> dict:
     """Resolve a `.sol` name to its owner, through our own Solana service.
 
@@ -2057,6 +2072,8 @@ _DISPATCH: dict[str, tuple] = {
     "vote":                   (vote_guidance,          ["protocol"],    ["proposal", "choice"]),
     # Validator discovery
     "top_validators":         (top_validators,         [],              ["limit", "sortBy", "sort_by"]),
+    "marinade_exchange_rate": (marinade_exchange_rate, [],              []),
+    "marinade_list_tickets":  (marinade_list_tickets,  ["wallet"],      []),
     # Yield / APY comparison (liquid staking + lending)
     "yield":                  (_yield_comparison,      [],              ["token", "category"]),
     # Relay.link cross-chain data queries
