@@ -58,7 +58,21 @@ function getMarinade(userWallet: string, referralCode?: string): Marinade {
 }
 
 /** Serialize an unsigned legacy transaction to base64 */
-function serializeTx(tx: Transaction): string {
+/**
+ * Serialize an unsigned legacy transaction for the browser to sign.
+ *
+ * The SDK hands back a Transaction with neither a fee payer nor a blockhash —
+ * it expects a wallet adapter to fill them in at send time. We have no wallet,
+ * so `serialize()` threw "Transaction recentBlockhash required" and EVERY
+ * Marinade action failed at the last step, after the SDK had done all the work
+ * correctly. Filled here, once, for all of them.
+ */
+async function serializeTx(tx: Transaction, userWallet: string): Promise<string> {
+  if (!tx.feePayer) tx.feePayer = new PublicKey(userWallet);
+  if (!tx.recentBlockhash) {
+    const connection = new Connection(config.solanaRpc, "confirmed");
+    tx.recentBlockhash = (await connection.getLatestBlockhash("confirmed")).blockhash;
+  }
   return tx.serialize({ requireAllSignatures: false }).toString("base64");
 }
 
@@ -138,7 +152,7 @@ export async function buildMarinadeStake(
       params as unknown as Record<string, unknown>,
       { warnings: params.referralCode ? [] : ["Consider setting a referral code to earn referral rewards"] }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 0,
     isCrossChain: false,
     data: { associatedMSolTokenAccountAddress: associatedMSolTokenAccountAddress.toBase58() },
@@ -194,7 +208,7 @@ export async function buildMarinadeUnstake(
       params as unknown as Record<string, unknown>,
       { warnings: ["Liquid unstaking charges a ~0.3% fee. Use delayed unstake for no-fee withdrawal (takes 3-7 days)."] }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 0,
     isCrossChain: false,
     data: { associatedMSolTokenAccountAddress: associatedMSolTokenAccountAddress.toBase58() },
@@ -239,7 +253,7 @@ export async function buildMarinadeDelayedUnstake(
         ],
       }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 0, // ticket keypair already partial-signed above
     data: {
       ticketAccount: ticketAccountKeypair.publicKey.toBase58(),
@@ -279,7 +293,7 @@ export async function buildMarinadeClaim(
       params as unknown as Record<string, unknown>,
       { warnings: ["This will fail if the delay period has not yet passed (2-3 epochs after ordering)."] }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 0,
     isCrossChain: false,
   };
@@ -326,7 +340,7 @@ export async function buildMarinadeDepositStake(
         ],
       }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 0,
     isCrossChain: false,
     data: {
@@ -368,7 +382,7 @@ export async function buildMarinadeAddLiquidity(
         ],
       }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 0,
     isCrossChain: false,
     data: { associatedLPTokenAccountAddress: associatedLPTokenAccountAddress.toBase58() },
@@ -404,7 +418,7 @@ export async function buildMarinadeRemoveLiquidity(
         warnings: ["You will receive a proportional mix of SOL and mSOL based on current pool composition."],
       }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 0,
     isCrossChain: false,
     data: {
@@ -634,7 +648,7 @@ export async function buildMarinadeOrderUnstakeWithKey(
       params as unknown as Record<string, unknown>,
       { warnings: [`Ticket account: ${params.ticketAccountPublicKey}`, "Keep this address — you will need it to claim SOL after ~5-7 days."] }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 1, // ticket keypair must co-sign
     data: { ticketAccount: params.ticketAccountPublicKey },
     isCrossChain: false,
@@ -672,7 +686,7 @@ export async function buildMarinadeDepositDeactivatingStake(
       params as unknown as Record<string, unknown>,
       { warnings: ["The stake account must be in deactivating state (cooling down from a previous epoch)."] }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 0,
     isCrossChain: false,
     data: { associatedMSolTokenAccountAddress: associatedMSolTokenAccountAddress.toBase58() },
@@ -724,7 +738,7 @@ export async function buildMarinadePartialDepositStake(
       params as unknown as Record<string, unknown>,
       { warnings: [`${params.solToKeep} SOL will remain in your stake account; the rest will become mSOL.`] }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: additionalSigners,
     isCrossChain: false,
     data: {
@@ -784,7 +798,7 @@ export async function buildMarinadeDepositActivatingStake(
         ],
       }
     ),
-    transaction: serializeTx(transaction),
+    transaction: await serializeTx(transaction, userWallet),
     additionalSignersRequired: 0, // residual stake keypair pre-signed above if needed
     isCrossChain: false,
     data: {
