@@ -357,6 +357,12 @@ class ActionType(str, Enum):
     MARINADE_UNSTAKE = "marinade_unstake"
     MARINADE_DELAYED_UNSTAKE = "marinade_delayed_unstake"
     MARINADE_CLAIM_TICKET = "marinade_claim_ticket"
+    # The mSOL/SOL liquidity pool, and converting a native stake account
+    # directly into mSOL (no deactivation wait). Both were implemented and
+    # unreachable: the model had no name for them.
+    MARINADE_ADD_LIQUIDITY = "marinade_add_liquidity"
+    MARINADE_REMOVE_LIQUIDITY = "marinade_remove_liquidity"
+    MARINADE_DEPOSIT_STAKE = "marinade_deposit_stake"
     # marginfi v2 — Account Management
     MARGINFI_CREATE_ACCOUNT = "marginfi_create_account"
     MARGINFI_CREATE_ACCOUNT_PDA = "marginfi_create_account_pda"

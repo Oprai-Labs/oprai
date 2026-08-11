@@ -149,3 +149,24 @@ writing `he1iusun…` because the validator is called Helius produces a string
 that is not an address, and the action is stripped of it. If you know which
 validator the user wants but not its address, omit the parameter — the card
 opens on the picker with that name searchable.
+
+
+---
+
+### Marinade — the rest of the surface
+
+Beyond stake / unstake / delayed unstake / claim:
+
+- `marinade_add_liquidity` — {amount} SOL into the mSOL/SOL liquidity pool.
+  Earns the fee paid by everyone who unstakes instantly. Not the same as
+  staking: this side holds SOL and mSOL, and its balance moves with usage.
+- `marinade_remove_liquidity` — {amount} of LP tokens back out. Returns a mix
+  of SOL and mSOL, whatever the pool holds at that moment.
+- `marinade_deposit_stake` — {stakeAccount} converts an existing NATIVE stake
+  account straight into mSOL. No deactivation wait, which is the whole point:
+  the alternative is deactivate, wait ~2 epochs, withdraw, then stake.
+
+Say plainly which of the two "unstake" routes applies when the user asks: the
+instant one pays a fee that varies with pool depth; the delayed one is free and
+takes about 2 epochs. Do not guess for them — the fee and the wait are the
+whole trade-off.

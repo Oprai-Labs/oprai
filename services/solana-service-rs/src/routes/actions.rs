@@ -301,6 +301,12 @@ fn is_ts_delegated_action(action_type: &str) -> bool {
             | "marinade_delayed_unstake"
             | "marinade_claim"
             | "marinade_claim_ticket"
+            // Also written, also SDK-built, and unreachable until now: the
+            // mSOL/SOL liquidity pool, and converting an existing native stake
+            // account straight into mSOL without waiting to deactivate.
+            | "marinade_add_liquidity"
+            | "marinade_remove_liquidity"
+            | "marinade_deposit_stake"
     )
 }
 
