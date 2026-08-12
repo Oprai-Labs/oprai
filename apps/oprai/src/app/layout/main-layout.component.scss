@@ -608,6 +608,9 @@ $sidebar-collapsed: 52px;
   position: fixed;
   z-index: 9999;
   width: 300px;
+  // Narrower than the menu itself (small phones, split view): shrink rather
+  // than overflow, since the page clips horizontal overflow.
+  max-width: calc(100vw - 16px);
   background: var(--op-bg-surface-1);
   border: 1px solid var(--op-border-default);
   border-radius: 16px;

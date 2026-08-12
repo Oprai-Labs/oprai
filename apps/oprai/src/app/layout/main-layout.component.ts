@@ -477,9 +477,17 @@ export class MainLayoutComponent implements OnDestroy {
     const btn = event.currentTarget as HTMLElement;
     const rect = btn.getBoundingClientRect();
     const vh = window.innerHeight;
+    // Anchoring straight to the trigger's left edge worked while the only
+    // trigger was the sidebar, which is always at x=0. The mobile tab bar puts
+    // one at the right edge of the screen, where a 300px menu would run about
+    // two thirds of the way off — and `body` hides horizontal overflow, so it
+    // would be cut off rather than scrollable. Keep it on screen.
+    const MENU_WIDTH = 300; // matches .profile-menu
+    const GUTTER = 8;
+    const maxLeft = Math.max(GUTTER, window.innerWidth - MENU_WIDTH - GUTTER);
     this.profileMenuPos = {
       bottom: vh - rect.top + 8,
-      left: rect.left,
+      left: Math.min(Math.max(GUTTER, rect.left), maxLeft),
     };
     this.walletMenuOpen.set(true);
   }

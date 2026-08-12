@@ -1023,6 +1023,39 @@ html.dark .scrollbar-thin {
   &.active {
     color: var(--op-brand);
   }
+
+  // Four items now share the bar, and a truncated address is wider than a
+  // one-word label. Let the items shrink and keep the address on one line
+  // rather than letting it wrap and shove the row taller.
+  min-width: 0;
+  padding-inline: 8px;
+
+  > span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  // Wallet is the one item that reports state rather than navigating, so it
+  // carries the brand colour once a wallet is attached.
+  &--wallet {
+    border: none;
+    background: none;
+  }
+
+  &__spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--op-border-default);
+    border-top-color: var(--op-brand);
+    border-radius: 50%;
+    animation: tab-spin 0.7s linear infinite;
+  }
+}
+
+@keyframes tab-spin {
+  to { transform: rotate(360deg); }
 }
 
 // ============================================================================
