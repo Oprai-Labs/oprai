@@ -953,6 +953,28 @@ $sidebar-collapsed: 52px;
   gap: var(--op-space-1);
 }
 
+// Opens the sidebar on phones. Desktop keeps the sidebar on screen, so the
+// button would only be a second way to do what the rail already does.
+.mobile-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--op-radius-md);
+  background: none;
+  color: var(--op-text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  &:active { background: var(--op-hover); }
+
+  @media (max-width: 768px) {
+    display: inline-flex;
+  }
+}
+
 .btn-icon {
   display: flex;
   align-items: center;

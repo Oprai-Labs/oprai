@@ -236,7 +236,19 @@
   <div class="layout-main">
     <!-- Top Bar -->
     <div class="main-top-bar">
-        <div class="top-bar-left"></div>
+        <div class="top-bar-left">
+          <!--
+            The sidebar is translated off-screen below 768px and the only
+            control that opens it, .sidebar-expand-btn, lives inside the
+            sidebar itself — so history, search and new-chat had no entry
+            point on a phone. This is that entry point, and it sits in the
+            top bar's already-empty left slot rather than floating over
+            content.
+          -->
+          <button class="mobile-menu-btn" (click)="toggleSidebar()" aria-label="Open menu">
+            <lucide-icon name="menu" [size]="20" />
+          </button>
+        </div>
         <div class="top-bar-right">
           @if (isChatRoute()) {
             @if (sessionStorage.activeSessionId()) {
@@ -1034,4 +1046,25 @@
     <lucide-icon name="settings" [size]="18" />
     <span>Settings</span>
   </button>
+  <!--
+    Wallet. Mirrors the sidebar's three states so the bar reports the same
+    truth rather than becoming a second source of it. Connected opens the
+    wallet menu, which is where Disconnect lives.
+  -->
+  @if (walletService.connected()) {
+    <button class="tab-item tab-item--wallet" (click)="toggleWalletMenu($event)">
+      <lucide-icon name="wallet" [size]="18" />
+      <span>{{ walletService.publicKey() | truncateAddress:4:4 }}</span>
+    </button>
+  } @else if (walletService.connecting() || authService.authenticating()) {
+    <button class="tab-item tab-item--wallet" (click)="cancelWalletConnect()">
+      <span class="tab-item__spinner"></span>
+      <span>Connecting</span>
+    </button>
+  } @else {
+    <button class="tab-item tab-item--wallet" (click)="openWalletModal()">
+      <lucide-icon name="wallet" [size]="18" />
+      <span>Connect</span>
+    </button>
+  }
 </nav>
