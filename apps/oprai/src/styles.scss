@@ -763,6 +763,92 @@ html.dark .scrollbar-thin {
   }
 }
 
+// ── Connect modal: detected/installable wallet rows (Jupiter-style) ─────────
+.wallet-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-text-tertiary);
+  padding: 12px 4px 6px;
+
+  &:first-child { padding-top: 4px; }
+}
+
+.wallet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wallet-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--op-radius-lg);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: background 130ms ease, border-color 130ms ease;
+  font-family: var(--op-font-sans);
+  text-align: left;
+
+  &:hover {
+    background: var(--op-brand-subtle);
+    border-color: color-mix(in srgb, var(--op-brand) 40%, transparent);
+  }
+}
+
+.wallet-row-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.wallet-row-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--op-text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-row-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--op-text-tertiary);
+  flex-shrink: 0;
+}
+
+.wallet-row-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--op-gain);
+}
+
+.wallet-row-install {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--op-brand);
+  flex-shrink: 0;
+}
+
+.wallet-row--install {
+  opacity: 0.85;
+  &:hover { opacity: 1; }
+}
+
 .wallet-group:not(:last-child) { margin-bottom: 8px; }
 
 .wallet-group-label {

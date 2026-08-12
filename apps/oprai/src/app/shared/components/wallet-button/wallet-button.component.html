@@ -56,27 +56,43 @@
 
         <!-- Wallet list -->
         <div class="wallet-modal-body">
-          <div class="wallet-grid">
-            @for (wallet of wallets; track wallet.name) {
-              <button
-                class="wallet-card"
-                [class.wallet-card--disabled]="!wallet.detected"
-                (click)="wallet.detected ? connectWallet(wallet.name) : openInstallUrl(wallet.url)"
-                [attr.title]="wallet.detected ? null : 'Install ' + wallet.name + ' to continue'"
-              >
-                <div class="wallet-card-icon-wrap">
-                  <img [src]="wallet.icon" [alt]="wallet.name" class="wallet-card-icon" width="40" height="40" />
-                  @if (wallet.detected) {
-                    <span class="wallet-card-dot"></span>
-                  }
-                </div>
-                <span class="wallet-card-name">{{ wallet.name }}</span>
-                @if (!wallet.detected) {
-                  <span class="wallet-card-install">Install</span>
-                }
-              </button>
-            }
-          </div>
+          <!-- Detected — the wallets actually installed, listed first as rows
+               so the one the user has is the obvious choice (Jupiter-style). -->
+          @if (detectedWallets.length > 0) {
+            <div class="wallet-section-label">Detected</div>
+            <div class="wallet-list">
+              @for (wallet of detectedWallets; track wallet.name) {
+                <button class="wallet-row" (click)="connectWallet(wallet.name)">
+                  <img [src]="wallet.icon" [alt]="wallet.name" class="wallet-row-icon" width="32" height="32" />
+                  <span class="wallet-row-name">{{ wallet.name }}</span>
+                  <span class="wallet-row-badge">
+                    <span class="wallet-row-dot"></span>
+                    Installed
+                  </span>
+                </button>
+              }
+            </div>
+          }
+
+          <!-- More — known wallets not installed, as install prompts. -->
+          @if (installableWallets.length > 0) {
+            <div class="wallet-section-label">
+              {{ detectedWallets.length > 0 ? 'More wallets' : 'Popular wallets' }}
+            </div>
+            <div class="wallet-list">
+              @for (wallet of installableWallets; track wallet.name) {
+                <button
+                  class="wallet-row wallet-row--install"
+                  (click)="openInstallUrl(wallet.url)"
+                  [attr.title]="'Install ' + wallet.name + ' to continue'"
+                >
+                  <img [src]="wallet.icon" [alt]="wallet.name" class="wallet-row-icon" width="32" height="32" />
+                  <span class="wallet-row-name">{{ wallet.name }}</span>
+                  <span class="wallet-row-install">Install</span>
+                </button>
+              }
+            </div>
+          }
         </div>
 
         <!-- Footer -->

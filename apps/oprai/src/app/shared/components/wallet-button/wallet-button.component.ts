@@ -37,8 +37,21 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
   @ViewChild('modalOverlay') modalOverlayRef!: ElementRef<HTMLElement>;
   private modalMovedToBody = false;
 
+  /** Snapshot taken when the modal opens (with a fresh Standard re-scan), so
+   *  the list is stable while the user reads it and reflects wallets that
+   *  finished initialising after page load. */
+  private _walletSnapshot: import('@core/services/wallet.service').WalletInfo[] = [];
+
   get wallets(): import('@core/services/wallet.service').WalletInfo[] {
-    return this.walletService.getWallets();
+    return this._walletSnapshot;
+  }
+
+  get detectedWallets(): import('@core/services/wallet.service').WalletInfo[] {
+    return this._walletSnapshot.filter((w) => w.detected);
+  }
+
+  get installableWallets(): import('@core/services/wallet.service').WalletInfo[] {
+    return this._walletSnapshot.filter((w) => !w.detected);
   }
 
   ngAfterViewChecked(): void {
@@ -54,6 +67,9 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
 
   openModal(): void {
     this.error.set(null);
+    // Re-scan the Standard registry as the modal opens so a wallet that
+    // registered late is present, and freeze the result for the modal's life.
+    this._walletSnapshot = this.walletService.getWallets(true);
     this.modalOpen.set(true);
   }
 
