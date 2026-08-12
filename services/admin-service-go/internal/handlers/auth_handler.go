@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -23,6 +22,15 @@ import (
 
 // adminCookieName is the HttpOnly session cookie for the admin panel.
 const adminCookieName = "oprai-admin-token"
+
+// decoyBcryptHash is compared against on the unknown-username login path so that
+// a login for a non-existent user costs the same bcrypt work as one for a real
+// user with a wrong password. Without it, the unknown-user path returned
+// immediately (no bcrypt) while the wrong-password path spent ~cost-12 bcrypt
+// time — a timing side channel that reveals which admin usernames exist. Cost
+// must match the real password hashes (12).
+var decoyBcryptHash, _ = bcrypt.GenerateFromPassword(
+	[]byte("constant-time-login-decoy-value"), 12)
 
 // AuthHandler handles admin authentication endpoints.
 type AuthHandler struct {
@@ -98,8 +106,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	admin, err := h.queries.GetAdminByUsername(r.Context(), req.Username)
 	if err != nil {
-		// Record failure even for unknown usernames to prevent user enumeration
-		// via timing differences.
+		// Spend the same bcrypt time as the wrong-password path below so an
+		// unknown username is indistinguishable from a known one by response
+		// latency (closes the user-enumeration timing side channel).
+		_ = bcrypt.CompareHashAndPassword(decoyBcryptHash, []byte(req.Password))
 		msg := recordFailure(ip, req.Username)
 		slog.Warn("admin login failed (unknown user)", "username", req.Username, "ip", ip)
 		go func(username, ipAddr, ua string) {
@@ -182,10 +192,27 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Logout clears the admin session cookie.
+// Logout clears the admin session cookie AND revokes the presented token, so a
+// captured copy cannot be reused before its natural expiry. Revoking for the
+// full cookie TTL from now always covers the token's remaining life.
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	if token := adminTokenFromRequest(r); token != "" {
+		middleware.RevokeAdminToken(token, time.Now().Add(time.Duration(h.cookieTTL)*time.Second))
+	}
 	h.clearAdminCookie(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// adminTokenFromRequest resolves the admin token from the Authorization bearer
+// header or the HttpOnly cookie — same precedence as the auth middleware.
+func adminTokenFromRequest(r *http.Request) string {
+	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	if cookie, err := r.Cookie(adminCookieName); err == nil {
+		return cookie.Value
+	}
+	return ""
 }
 
 // Verify checks if the admin token is still valid.
@@ -333,14 +360,12 @@ func generatePassword() (string, error) {
 	return s, nil
 }
 
-// extractIP returns the client IP, always using the raw TCP address to prevent
-// spoofing via X-Forwarded-For headers. The admin panel does not run behind a
-// reverse proxy in the typical deployment.
+// extractIP returns the real client IP via the shared proxy-aware helper. The
+// admin service sits behind Caddy (which overwrites X-Real-IP with the true
+// peer) and is not directly reachable, so the per-IP brute-force guard now
+// tracks real client IPs instead of the proxy's container address — which had
+// collapsed every caller into one bucket (a global-lockout DoS with no real
+// per-IP tracking).
 func extractIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		// r.RemoteAddr may lack a port in some test/mock scenarios.
-		return strings.TrimSpace(r.RemoteAddr)
-	}
-	return host
+	return middleware.ClientIP(r)
 }

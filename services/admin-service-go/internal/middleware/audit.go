@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -107,7 +108,7 @@ func AuditAction(queries *db.Queries, action string) func(http.HandlerFunc) http
 			// Only log on success (2xx).
 			if recorder.statusCode >= 200 && recorder.statusCode < 300 {
 				adminUsername := GetAdminUsername(r.Context())
-				ip := extractIP(r)
+				ip := ClientIP(r)
 				targetType, targetID := extractTarget(r)
 				details := extractAuditDetails(r, action)
 
@@ -132,12 +133,24 @@ func AuditAction(queries *db.Queries, action string) func(http.HandlerFunc) http
 	}
 }
 
-func extractIP(r *http.Request) string {
+// ClientIP returns the real client IP. The admin service is reachable only
+// through the Caddy reverse proxy (it is bound to 127.0.0.1, and its routes are
+// additionally VPN-restricted), and Caddy overwrites X-Real-IP / X-Forwarded-For
+// with the real TCP peer. So the proxy-set header is the true client address and
+// cannot be forged by an external caller — one can't reach the service except
+// through Caddy. Falls back to the socket address for direct/local calls.
+func ClientIP(r *http.Request) string {
+	if xrip := strings.TrimSpace(r.Header.Get("X-Real-IP")); xrip != "" {
+		return xrip
+	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.SplitN(xff, ",", 2)
 		return strings.TrimSpace(parts[0])
 	}
-	return r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
 }
 
 func extractTarget(r *http.Request) (string, string) {
