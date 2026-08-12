@@ -137,3 +137,6 @@ services/gateway-go/uploads/
 
 # Local promo/demo scripts
 demo_script.txt
+
+# Claude Code project instructions — local only, not published
+/CLAUDE.md
