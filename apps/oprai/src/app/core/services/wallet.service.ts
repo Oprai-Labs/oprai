@@ -25,6 +25,43 @@ export interface WalletInfo {
   url: string;
 }
 
+// Curated catalog of well-known Solana wallets. Two jobs: supply an install
+// link and a bundled icon for wallets the user does NOT have (a Standard-
+// registered wallet already carries its own name + icon), and fix display
+// order among the popular ones. Any Standard wallet not listed here still
+// appears — it just uses the icon the wallet itself provides and sorts after
+// the catalog. Names are matched case-insensitively against the Standard
+// wallet's own `name`.
+interface WalletCatalogEntry {
+  name: string;
+  icon: string;
+  url: string;
+}
+
+const WALLET_CATALOG: WalletCatalogEntry[] = [
+  { name: 'Phantom', icon: '/icons/wallets/phantom.svg', url: 'https://phantom.app/' },
+  { name: 'Solflare', icon: '/icons/wallets/solflare.svg', url: 'https://solflare.com/' },
+  { name: 'Backpack', icon: '/icons/wallets/backpack.svg', url: 'https://backpack.app/' },
+  { name: 'OKX Wallet', icon: '/icons/wallets/okx.png', url: 'https://www.okx.com/web3' },
+  { name: 'MetaMask', icon: '/icons/wallets/metamask.svg', url: 'https://metamask.io/' },
+  { name: 'Coinbase Wallet', icon: '/icons/wallets/coinbase.svg', url: 'https://www.coinbase.com/wallet' },
+  { name: 'Trust', icon: '/icons/wallets/trust.svg', url: 'https://trustwallet.com/' },
+  { name: 'Bitget Wallet', icon: '/icons/wallets/bitget.svg', url: 'https://web3.bitget.com/' },
+  { name: 'Coin98', icon: '/icons/wallets/coin98.svg', url: 'https://coin98.com/wallet' },
+  { name: 'Magic Eden', icon: '/icons/wallets/magic-eden.svg', url: 'https://wallet.magiceden.io/' },
+  { name: 'Ledger', icon: '/icons/wallets/ledger.svg', url: 'https://www.ledger.com/' },
+  { name: 'Frontier', icon: '/icons/wallets/frontier.svg', url: 'https://frontier.xyz/' },
+];
+
+/** Match a Standard wallet's name to a catalog entry, tolerant of suffixes
+ *  ("OKX" vs "OKX Wallet", "Coinbase" vs "Coinbase Wallet"). */
+function catalogFor(name: string): WalletCatalogEntry | undefined {
+  const n = name.toLowerCase();
+  return WALLET_CATALOG.find(
+    (c) => c.name.toLowerCase() === n || n.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(n),
+  );
+}
+
 // ──────────────────────────────────────────────────────────────
 // Wallet Standard types (MetaMask v13.5+ registers via this spec)
 // ──────────────────────────────────────────────────────────────
@@ -92,16 +129,20 @@ interface WalletStandardWallet {
 }
 
 // ──────────────────────────────────────────────────────────────
-// MetaMask Wallet Standard Adapter
+// Standard Wallet Adapter
 //
-// MetaMask Extension v13.5+ registers itself via the Wallet Standard
-// spec instead of injecting window.solana. We wrap its features into
-// our WalletAdapter interface so the rest of the app is unaware.
+// Every modern Solana wallet — Phantom, Solflare, Backpack, OKX, Glow,
+// Coinbase, Trust and more — registers itself via the Wallet Standard spec
+// (`wallet-standard:app-ready` → `register(wallet)`) rather than injecting a
+// bespoke `window.*` object. One adapter wraps any of them into our
+// WalletAdapter interface, so the rest of the app is unaware of which wallet
+// is connected. This was written for MetaMask first and generalised — the
+// signing logic never had anything MetaMask-specific in it.
 // ──────────────────────────────────────────────────────────────
-class MetaMaskStandardAdapter implements WalletAdapter {
-  readonly name = 'MetaMask';
+class StandardWalletAdapter implements WalletAdapter {
+  readonly name: string;
   readonly icon: string;
-  readonly url = 'https://metamask.io/';
+  readonly url: string;
   readonly readyState = 'installed' as const;
 
   private readonly _wallet: WalletStandardWallet;
@@ -120,14 +161,16 @@ class MetaMaskStandardAdapter implements WalletAdapter {
     return this._account !== null;
   }
 
-  constructor(wallet: WalletStandardWallet) {
+  constructor(wallet: WalletStandardWallet, url = '') {
     this._wallet = wallet;
+    this.name = wallet.name;
     this.icon = wallet.icon; // data URI from Wallet Standard
+    this.url = url;
   }
 
   async connect(opts?: { onlyIfTrusted?: boolean }): Promise<void> {
     const feature = this._wallet.features['standard:connect'];
-    if (!isConnectFeature(feature)) throw new Error('MetaMask: standard:connect not supported');
+    if (!isConnectFeature(feature)) throw new Error(`${this.name}: standard:connect not supported`);
 
     const result = await feature.connect({ silent: opts?.onlyIfTrusted ?? false });
 
@@ -135,9 +178,13 @@ class MetaMaskStandardAdapter implements WalletAdapter {
       a.chains.some((c: string) => c.startsWith('solana:'))
     );
     if (!solanaAccount) {
+      // MetaMask ships Solana behind an experimental flag; other wallets that
+      // registered a Solana chain but returned no Solana account are simply
+      // set to a non-Solana network. Point each at the right fix.
       throw new Error(
-        'No Solana account found in MetaMask. ' +
-        'Go to MetaMask → Settings → Experimental → Enable Solana accounts.'
+        this.name === 'MetaMask'
+          ? 'No Solana account found in MetaMask. Go to MetaMask → Settings → Experimental → Enable Solana accounts.'
+          : `No Solana account found in ${this.name}. Switch it to a Solana account and try again.`
       );
     }
     this._account = solanaAccount;
@@ -153,9 +200,9 @@ class MetaMaskStandardAdapter implements WalletAdapter {
   }
 
   async signMessage(message: Uint8Array): Promise<Uint8Array | { signature: Uint8Array }> {
-    if (!this._account) throw new Error('MetaMask: not connected');
+    if (!this._account) throw new Error(`${this.name}: not connected`);
     const feature = this._wallet.features['solana:signMessage'];
-    if (!isSignMessageFeature(feature)) throw new Error('MetaMask: solana:signMessage not supported');
+    if (!isSignMessageFeature(feature)) throw new Error(`${this.name}: solana:signMessage not supported`);
 
     const [result] = await feature.signMessage({ account: this._account, message });
     return result.signature;
@@ -167,9 +214,9 @@ class MetaMaskStandardAdapter implements WalletAdapter {
    * so SolanaActionService can call signedTx.serialize() normally.
    */
   async signTransaction(transaction: unknown): Promise<unknown> {
-    if (!this._account) throw new Error('MetaMask: not connected');
+    if (!this._account) throw new Error(`${this.name}: not connected`);
     const feature = this._wallet.features['solana:signTransaction'];
-    if (!isSignTransactionFeature(feature)) throw new Error('MetaMask: solana:signTransaction not supported');
+    if (!isSignTransactionFeature(feature)) throw new Error(`${this.name}: solana:signTransaction not supported`);
 
     const tx = transaction as { serialize(opts?: { requireAllSignatures?: boolean }): Uint8Array };
     const serialized = tx.serialize({ requireAllSignatures: false });
@@ -236,18 +283,20 @@ export class WalletService {
   private _adapter: WalletAdapter | null = null;
 
   /**
-   * Cached MetaMask Wallet Standard detection result.
-   * Populated on first call to detectMetaMaskStandard() — avoids dispatching
-   * the wallet-standard:app-ready event on every getWallets() / getAdapter() call.
+   * Cached Wallet Standard detection: lowercase wallet name → wallet object.
+   * Populated on first call to detectStandardWallets(). The registry can grow
+   * after page load (a wallet extension finishing its own init), so a wallet
+   * that also injects late is picked up on a later dispatch — but the common
+   * case is all wallets are present by first user interaction.
    */
-  private _metamaskStdCache: WalletStandardWallet | null | undefined = undefined;
+  private _standardCache: Map<string, WalletStandardWallet> | null = null;
 
   /**
-   * Singleton MetaMask adapter wrapper.
-   * Re-using the same instance prevents duplicate MetaMask event listeners
-   * that would accumulate if a new adapter were created on every getAdapter() call.
+   * Singleton adapters keyed by lowercase wallet name. Re-using the same
+   * instance prevents duplicate Standard event listeners that would accumulate
+   * if a new adapter were created on every getAdapter() call.
    */
-  private _metamaskAdapter: MetaMaskStandardAdapter | null = null;
+  private readonly _standardAdapters = new Map<string, StandardWalletAdapter>();
 
   /**
    * Stored event callbacks — needed to properly remove listeners via off()
@@ -276,10 +325,18 @@ export class WalletService {
     return `${key.slice(0, 4)}...${key.slice(-4)}`;
   });
 
-  /** Whitelisted wallet names that can be stored in localStorage. */
-  private static readonly KNOWN_WALLETS = ['phantom', 'solflare', 'backpack', 'metamask'] as const;
-  private static isKnownWallet(name: string): name is typeof WalletService.KNOWN_WALLETS[number] {
-    return (WalletService.KNOWN_WALLETS as readonly string[]).includes(name.toLowerCase());
+  /**
+   * A stored wallet name is only trusted for auto-reconnect if it is one we
+   * know — this bounds what a tampered localStorage value can feed into
+   * getAdapter(). The catalog is the source of truth, so adding a wallet there
+   * is all it takes; getAdapter() still validates the wallet actually exists
+   * before doing anything with it.
+   */
+  private static isKnownWallet(name: string): boolean {
+    const n = name.toLowerCase();
+    return WALLET_CATALOG.some(
+      (c) => c.name.toLowerCase() === n || n.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(n),
+    );
   }
 
   /**
@@ -321,43 +378,70 @@ export class WalletService {
   }
 
   /**
-   * Returns the 4 supported Solana wallets.
-   * MetaMask detection is via Wallet Standard (Extension v13.5+).
+   * The wallet list the connect modal renders. Detected wallets come first
+   * (Jupiter-style), each carrying its real icon; then the rest of the curated
+   * catalog as install prompts. A Standard wallet the catalog doesn't know
+   * still shows — it just sorts after the known ones.
+   *
+   * `force` re-scans the Standard registry, used when the modal opens so a
+   * wallet that finished initialising after page load is not missed.
    */
-  getWallets(): WalletInfo[] {
+  getWallets(force = false): WalletInfo[] {
+    const standard = this.detectStandardWallets(force);
+    // A few wallets still only inject the legacy `window.*` object without
+    // registering via Standard. Treat those as detected too, so nothing that
+    // actually works is shown as "Install".
     const win = window as Window & {
       phantom?: { solana?: { isPhantom?: boolean } };
       solflare?: { isSolflare?: boolean };
       backpack?: { isBackpack?: boolean };
+      okxwallet?: { solana?: unknown };
     };
-    const metamaskStd = this.detectMetaMaskStandard();
+    const legacyDetected = (name: string): boolean => {
+      switch (name.toLowerCase()) {
+        case 'phantom': return !!win?.phantom?.solana?.isPhantom;
+        case 'solflare': return !!win?.solflare?.isSolflare;
+        case 'backpack': return !!win?.backpack?.isBackpack;
+        case 'okx wallet': return !!win?.okxwallet?.solana;
+        default: return false;
+      }
+    };
 
-    return [
-      {
-        name: 'Phantom',
-        icon: '/icons/wallets/phantom.svg',
-        detected: !!win?.phantom?.solana?.isPhantom,
-        url: 'https://phantom.app/',
-      },
-      {
-        name: 'Solflare',
-        icon: '/icons/wallets/solflare.svg',
-        detected: !!win?.solflare?.isSolflare,
-        url: 'https://solflare.com/',
-      },
-      {
-        name: 'Backpack',
-        icon: '/icons/wallets/backpack.svg',
-        detected: !!win?.backpack?.isBackpack,
-        url: 'https://backpack.app/',
-      },
-      {
-        name: 'MetaMask',
-        icon: '/icons/wallets/metamask.svg',
-        detected: !!metamaskStd,
-        url: 'https://metamask.io/',
-      },
-    ];
+    const seen = new Set<string>();
+    const detected: WalletInfo[] = [];
+
+    // 1. Everything the Standard registry reports, in catalog order first.
+    for (const entry of WALLET_CATALOG) {
+      const std = [...standard.entries()].find(([n]) =>
+        n === entry.name.toLowerCase() ||
+        n.includes(entry.name.toLowerCase()) ||
+        entry.name.toLowerCase().includes(n),
+      );
+      const isDetected = !!std || legacyDetected(entry.name);
+      if (isDetected) {
+        detected.push({
+          name: std ? std[1].name : entry.name,
+          icon: std ? std[1].icon : entry.icon,
+          detected: true,
+          url: entry.url,
+        });
+        seen.add((std ? std[1].name : entry.name).toLowerCase());
+      }
+    }
+
+    // 2. Standard wallets the catalog has never heard of — brand-new or niche.
+    for (const [key, w] of standard) {
+      if (seen.has(key)) continue;
+      detected.push({ name: w.name, icon: w.icon, detected: true, url: '' });
+      seen.add(key);
+    }
+
+    // 3. The rest of the catalog as install prompts, in catalog order.
+    const installable: WalletInfo[] = WALLET_CATALOG
+      .filter((c) => !seen.has(c.name.toLowerCase()) && ![...seen].some((s) => s.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(s)))
+      .map((c) => ({ name: c.name, icon: c.icon, detected: false, url: c.url }));
+
+    return [...detected, ...installable];
   }
 
   /**
@@ -558,44 +642,63 @@ export class WalletService {
   // ── Private ──────────────────────────────────────────────────
 
   private getAdapter(walletName: string): WalletAdapter | null {
+    const key = walletName.toLowerCase();
+
+    // Prefer the Standard-registered wallet — this covers OKX, Phantom,
+    // Solflare, Backpack, MetaMask and every other modern wallet with one path.
+    const standard = this.detectStandardWallets();
+    let std = standard.get(key);
+    if (!std) {
+      // Tolerate name drift between the stored/catalog name and the wallet's
+      // own ("OKX Wallet" vs "OKX").
+      for (const [n, w] of standard) {
+        if (n.includes(key) || key.includes(n)) { std = w; break; }
+      }
+    }
+    if (std) {
+      const cacheKey = std.name.toLowerCase();
+      let adapter = this._standardAdapters.get(cacheKey);
+      if (!adapter) {
+        adapter = new StandardWalletAdapter(std, catalogFor(std.name)?.url ?? '');
+        this._standardAdapters.set(cacheKey, adapter);
+      }
+      return adapter;
+    }
+
+    // Legacy fallback: a few wallets still only inject `window.*`.
     const win = window as Window & {
       phantom?: { solana?: WalletAdapter };
       solflare?: WalletAdapter;
       backpack?: WalletAdapter;
+      okxwallet?: { solana?: WalletAdapter };
     };
-
-    switch (walletName.toLowerCase()) {
-      case 'phantom':
-        return win?.phantom?.solana ?? null;
-      case 'solflare':
-        return win?.solflare ?? null;
-      case 'backpack':
-        return win?.backpack ?? null;
-      case 'metamask': {
-        const wallet = this.detectMetaMaskStandard();
-        if (!wallet) return null;
-        this._metamaskAdapter ??= new MetaMaskStandardAdapter(wallet);
-        return this._metamaskAdapter;
-      }
-      default:
-        return null;
+    switch (key) {
+      case 'phantom': return win?.phantom?.solana ?? null;
+      case 'solflare': return win?.solflare ?? null;
+      case 'backpack': return win?.backpack ?? null;
+      case 'okx wallet':
+      case 'okx': return win?.okxwallet?.solana ?? null;
+      default: return null;
     }
   }
 
   /**
-   * Discover MetaMask's Solana provider via the Wallet Standard spec.
+   * Discover every Solana-capable wallet registered via the Wallet Standard
+   * spec. Modern wallets listen for the 'wallet-standard:app-ready' event and
+   * call register(walletObject) synchronously; we accept any that declares a
+   * `solana:` chain and can sign a transaction, which is what actually matters
+   * for this app. This is how OKX, Phantom, Solflare, Backpack, Glow, Coinbase
+   * and the rest all surface without a per-wallet branch.
    *
-   * MetaMask Extension v13.5+ registers itself by listening for the
-   * 'wallet-standard:app-ready' event and calling register(walletObject)
-   * synchronously. Result is cached — MetaMask presence doesn't change
-   * at runtime, and dispatching the event on every getWallets() is wasteful.
+   * `force` re-dispatches to pick up a wallet that registered after the first
+   * call (extensions can finish init late). Used when the user opens the
+   * connect modal, so the list is as fresh as possible at the moment of choice.
    */
-  private detectMetaMaskStandard(): WalletStandardWallet | null {
-    if (this._metamaskStdCache !== undefined) return this._metamaskStdCache;
-    if (typeof window === 'undefined') return (this._metamaskStdCache = null);
+  private detectStandardWallets(force = false): Map<string, WalletStandardWallet> {
+    if (this._standardCache && !force) return this._standardCache;
+    if (typeof window === 'undefined') return (this._standardCache = new Map());
 
-    let found: WalletStandardWallet | null = null;
-
+    const found = new Map<string, WalletStandardWallet>();
     try {
       window.dispatchEvent(
         new CustomEvent('wallet-standard:app-ready', {
@@ -605,12 +708,12 @@ export class WalletService {
           detail: {
             register: (wallet: WalletStandardWallet) => {
               if (
-                wallet.name === 'MetaMask' &&
+                wallet?.name &&
                 Array.isArray(wallet.chains) &&
                 wallet.chains.some((c) => c.startsWith('solana:')) &&
                 'solana:signTransaction' in wallet.features
               ) {
-                found = wallet;
+                found.set(wallet.name.toLowerCase(), wallet);
               }
             },
           },
@@ -620,7 +723,7 @@ export class WalletService {
       // Wallet Standard not supported in this environment
     }
 
-    return (this._metamaskStdCache = found);
+    return (this._standardCache = found);
   }
 
   /**
