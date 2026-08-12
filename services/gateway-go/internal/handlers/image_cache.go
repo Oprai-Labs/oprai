@@ -149,8 +149,11 @@ func (m *MarketProxy) warmImage(raw, key string, size int) <-chan struct{} {
 			close(ch)
 		}()
 
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.DialContext = safeDialContext() // pin the validated IP (anti DNS-rebind)
 		client := &http.Client{
-			Timeout: imageFetchTimeout,
+			Timeout:   imageFetchTimeout,
+			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 3 {
 					return http.ErrUseLastResponse
