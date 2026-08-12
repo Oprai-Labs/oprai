@@ -644,13 +644,37 @@ export class WalletService {
   private getAdapter(walletName: string): WalletAdapter | null {
     const key = walletName.toLowerCase();
 
-    // Prefer the Standard-registered wallet — this covers OKX, Phantom,
-    // Solflare, Backpack, MetaMask and every other modern wallet with one path.
+    // Native `window.*` injection is preferred for the wallets that provide it.
+    // These adapters are the ones this app shipped on and are battle-tested;
+    // their own `connect` / `signMessage` behave exactly as before. Routing
+    // them through the generic Standard adapter instead regressed sign-in — a
+    // wallet would connect but its signature never came back, so auth requested
+    // a nonce and then stalled before /auth/verify. The Standard path is the
+    // fallback, and the only path for wallets that register via Standard alone
+    // (MetaMask) or that this app has no native branch for.
+    const win = window as Window & {
+      phantom?: { solana?: WalletAdapter };
+      solflare?: WalletAdapter;
+      backpack?: WalletAdapter;
+      okxwallet?: { solana?: WalletAdapter };
+    };
+    const native: WalletAdapter | null | undefined = (() => {
+      switch (key) {
+        case 'phantom': return win?.phantom?.solana;
+        case 'solflare': return win?.solflare;
+        case 'backpack': return win?.backpack;
+        case 'okx wallet':
+        case 'okx': return win?.okxwallet?.solana;
+        default: return undefined;
+      }
+    })();
+    if (native) return native;
+
+    // Standard-registered wallet, resolved by name (tolerant of "OKX Wallet"
+    // vs "OKX" style drift). Covers MetaMask and anything with no native branch.
     const standard = this.detectStandardWallets();
     let std = standard.get(key);
     if (!std) {
-      // Tolerate name drift between the stored/catalog name and the wallet's
-      // own ("OKX Wallet" vs "OKX").
       for (const [n, w] of standard) {
         if (n.includes(key) || key.includes(n)) { std = w; break; }
       }
@@ -665,21 +689,7 @@ export class WalletService {
       return adapter;
     }
 
-    // Legacy fallback: a few wallets still only inject `window.*`.
-    const win = window as Window & {
-      phantom?: { solana?: WalletAdapter };
-      solflare?: WalletAdapter;
-      backpack?: WalletAdapter;
-      okxwallet?: { solana?: WalletAdapter };
-    };
-    switch (key) {
-      case 'phantom': return win?.phantom?.solana ?? null;
-      case 'solflare': return win?.solflare ?? null;
-      case 'backpack': return win?.backpack ?? null;
-      case 'okx wallet':
-      case 'okx': return win?.okxwallet?.solana ?? null;
-      default: return null;
-    }
+    return null;
   }
 
   /**
