@@ -153,6 +153,9 @@ services:
     environment:
       PORT: 3001
       GRPC_PORT: 50050
+      # Marks the service as production so its fail-closed guards arm: refuse to
+      # boot on a default/short JWT secret, internal key, or unreachable Redis.
+      NODE_ENV: production
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
@@ -216,6 +219,9 @@ services:
     environment:
       PORT: 3010
       GRPC_PORT: 50051
+      # Production mode: session cookie gets the Secure flag (HTTPS-only) and the
+      # service refuses to boot on a default/short JWT secret or internal key.
+      NODE_ENV: production
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
       DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
@@ -248,6 +254,10 @@ services:
     environment:
       PORT: 3050
       GRPC_PORT: 50055
+      # Production mode: admin session cookie gets the Secure flag, and the
+      # service refuses to boot on a default/short admin JWT secret or if any
+      # admin row still carries a known-weak password (e.g. admin123).
+      NODE_ENV: production
       OPRAI_ADMIN_JWT_SECRET: ${OPRAI_ADMIN_JWT_SECRET:?OPRAI_ADMIN_JWT_SECRET is required}
       ADMIN_CORS_ORIGIN: ${ADMIN_CORS_ORIGIN:-http://localhost:3200}
       DATABASE_URL: postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
