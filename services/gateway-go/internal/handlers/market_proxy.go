@@ -2043,6 +2043,90 @@ func isProviderRejection(status int) bool {
 	return false
 }
 
+// Methods that are expensive on Helius (credit-metered DAS reads, archival
+// blocks, cluster-wide scans) and that the frontend never calls — everything it
+// needs is a cheap indexed read or a tx broadcast. Exact match, lowercased, so
+// e.g. `getTokenAccounts` (Helius DAS) is blocked without touching the standard
+// `getTokenAccountsByOwner`.
+var rpcBlockedMethods = map[string]bool{
+	// Digital Asset Standard — credit-metered on Helius.
+	"getasset": true, "getassets": true, "getassetsbyowner": true,
+	"getassetsbygroup": true, "getassetsbycreator": true, "getassetsbyauthority": true,
+	"searchassets": true, "getassetproof": true, "getassetproofs": true,
+	"getsignaturesforasset": true, "getnfteditions": true, "gettokenaccounts": true,
+	// Archival block reads.
+	"getblock": true, "getblocks": true, "getblockswithlimit": true,
+	"getconfirmedblock": true, "getconfirmedblocks": true,
+	"getconfirmedblockswithlimit": true, "getconfirmedsignaturesforaddress2": true,
+	"getblockproduction": true,
+	// Cluster-wide scans.
+	"getlargestaccounts": true, "gettokenlargestaccounts": true,
+	"getvoteaccounts": true, "getclusternodes": true, "getleaderschedule": true,
+}
+
+// rpcMethodBlocked returns the offending method name if the JSON-RPC body
+// contains any call that must not be forwarded, or "" to allow. It accepts both
+// a single request object and a batch array; a batch is rejected if ANY member
+// is blocked. Malformed bodies are allowed through so the upstream returns the
+// authoritative JSON-RPC error rather than us guessing.
+func rpcMethodBlocked(body []byte) string {
+	trimmed := bytes.TrimSpace(body)
+	var reqs []map[string]json.RawMessage
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		if err := json.Unmarshal(trimmed, &reqs); err != nil {
+			return ""
+		}
+	} else {
+		var one map[string]json.RawMessage
+		if err := json.Unmarshal(trimmed, &one); err != nil {
+			return ""
+		}
+		reqs = []map[string]json.RawMessage{one}
+	}
+	for _, req := range reqs {
+		var method string
+		if raw, ok := req["method"]; ok {
+			_ = json.Unmarshal(raw, &method)
+		}
+		m := strings.ToLower(method)
+		if rpcBlockedMethods[m] {
+			return method
+		}
+		// getProgramAccounts is allowed only when narrowed by a memcmp filter —
+		// the "this program's accounts owned by X" shape the frontend uses. An
+		// unfiltered scan returns every account a program owns and is the single
+		// most expensive call this proxy could forward.
+		if m == "getprogramaccounts" && !programScanIsScoped(req["params"]) {
+			return "getProgramAccounts (unscoped)"
+		}
+	}
+	return ""
+}
+
+// programScanIsScoped reports whether a getProgramAccounts params array carries
+// a memcmp filter. params shape: [programId, { filters: [ {memcmp:...}, ... ] }].
+func programScanIsScoped(params json.RawMessage) bool {
+	if len(params) == 0 {
+		return false
+	}
+	var arr []json.RawMessage
+	if err := json.Unmarshal(params, &arr); err != nil || len(arr) < 2 {
+		return false
+	}
+	var cfg struct {
+		Filters []map[string]json.RawMessage `json:"filters"`
+	}
+	if err := json.Unmarshal(arr[1], &cfg); err != nil {
+		return false
+	}
+	for _, f := range cfg.Filters {
+		if _, ok := f["memcmp"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // rpcMethodOf pulls the JSON-RPC method name out of a request body for logging,
 // so a recurring provider rejection can be traced to the call that triggers it.
 func rpcMethodOf(body []byte) string {
@@ -2073,6 +2157,18 @@ func (m *MarketProxy) PostRpc(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB limit
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+
+	// This endpoint is unauthenticated by necessity (browser web3.js Connections
+	// can't reliably attach the auth cookie). Without a method gate, anyone can
+	// point their own app at it and spend our Helius quota — an open relay. The
+	// gate rejects the methods that are actually expensive on Helius (the DAS
+	// asset API, archival block reads) and unbounded program scans, while every
+	// standard read and the signed-transaction broadcast pass through untouched.
+	if reason := rpcMethodBlocked(body); reason != "" {
+		slog.Warn("RPC proxy: blocked method", "method", reason, "ip", r.Header.Get("X-Forwarded-For"))
+		writeError(w, http.StatusForbidden, "RPC method not permitted through this proxy")
 		return
 	}
 
