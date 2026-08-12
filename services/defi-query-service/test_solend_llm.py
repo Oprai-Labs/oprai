@@ -640,8 +640,8 @@ async def section_h_response_quality(results: list):
 
     # TC-H05: Protocol comparison quality
     results.append(await run_test(
-        "TC-H05", "Where should I deposit SOL for the best yield: Solend, Kamino, or MarginFi?",
-        {"solend_reserves", "kamino_market_reserves", "marginfi_banks"},
+        "TC-H05", "Where should I deposit SOL for the best yield: Solend, Kamino?",
+        {"solend_reserves", "kamino_market_reserves"},
         [
             lambda r, tc: check_text(r, ["sol", "apy"], tc),
             lambda r, tc: check_no_error(r, tc),
@@ -679,7 +679,7 @@ async def section_i_edge_cases(results: list):
     # TC-I03: Ambiguous query resolved correctly
     results.append(await run_test(
         "TC-I03", "What are current lending rates on Solana?",
-        {"solend_reserves", "kamino_market_reserves", "marginfi_banks"},
+        {"solend_reserves", "kamino_market_reserves"},
         [
             lambda r, tc: check_text(r, ["apy", "%"], tc),
             lambda r, tc: check_no_error(r, tc),

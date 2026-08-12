@@ -34,7 +34,6 @@ Protocol and token metadata service. Supported DeFi protocols and token informat
 | `DEFI_PROTOCOL_ORCA` | 6 | Orca DEX | Swap, Liquidity |
 | `DEFI_PROTOCOL_METEORA` | 7 | Meteora | Liquidity |
 | `DEFI_PROTOCOL_DRIFT` | 8 | Drift Protocol | Perps, Lend/Borrow |
-| `DEFI_PROTOCOL_MARGINFI` | 9 | Marginfi | Lend/Borrow |
 | `DEFI_PROTOCOL_KAMINO` | 10 | Kamino | Lend/Borrow |
 
 ---
@@ -223,12 +222,10 @@ pub const COMMON_TOKENS: &[TokenInfo] = &[
   - Cross-margin
 - **Website:** https://drift.trade
 
-### Marginfi (Lending)
 - **Action:** Lend/Borrow
 - **Features:**
   - Cross-collateral
   - Risk parameters
-- **Website:** https://marginfi.com
 
 ### Kamino (Lending)
 - **Action:** Lend/Borrow

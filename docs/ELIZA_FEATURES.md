@@ -42,7 +42,6 @@ This document summarizes all elizaOS features that have been added to OPRAI.
 - Evaluators (decision making)
 - Plugin lifecycle management
 - Dependency resolution
-- Protocol plugins: Jupiter, Orca, Kamino, Jito, Drift, Raydium, Meteora, Marinade, Marginfi
 
 ---
 

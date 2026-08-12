@@ -325,7 +325,7 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 - **Agent Builder** — Fluent API for agent creation
 - **16 Templates** — Trading, yield, security, utility agents
-- **10 DeFi Plugins** — Jupiter, Orca, Kamino, Drift, Jito, Meteora, MarginFi, Raydium, Tensor, BlazeStake
+- **10 DeFi Plugins** — Jupiter, Orca, Kamino, Drift, Jito, Meteora, Raydium, Tensor, BlazeStake
 - **Visual Builder** — ReactFlow-based drag-and-drop workflow editor
 - **Strategy Runner** — Daemon-based job scheduler with cron support
 - **Simulation Mode** — Transaction dry-run with risk assessment

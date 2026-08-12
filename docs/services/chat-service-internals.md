@@ -279,7 +279,6 @@ async def get_best_yields(token: str) -> list[dict]:
     """
     Compare yields across:
     - Kamino lending
-    - marginfi
     - Solend
     - LP pools
     """

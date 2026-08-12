@@ -164,19 +164,10 @@ class MyPlugin(PluginBase):
 
 ---
 
-### marginfi (marginfi_plugin.py)
 
 **Actions:**
 | Action | Parameters | Description |
 |--------|------------|-------------|
-| `marginfi_create_account` | - | Create marginfi account |
-| `marginfi_deposit` | mint, amount | Deposit to bank |
-| `marginfi_withdraw` | mint, amount | Withdraw from bank |
-| `marginfi_borrow` | mint, amount | Borrow from bank |
-| `marginfi_repay` | mint, amount | Repay borrowed |
-| `marginfi_deposit_collateral` | mint, amount | Deposit as collateral |
-| `marginfi_withdraw_collateral` | mint, amount | Withdraw collateral |
-| `marginfi_close_account` | - | Close account |
 
 **Providers:** `banks`, `account_info`, `health`, `points`
 
@@ -477,7 +468,7 @@ Built-in plugins available in the registry:
 | Category | Plugins |
 |----------|---------|
 | DEX | jupiter, orca, raydium, meteora |
-| Lending | kamino, marginfi, solend |
+| Lending | kamino, solend |
 | Perps | drift |
 | Staking | marinade, jito, blazestake |
 | NFT | magic_eden, tensor |

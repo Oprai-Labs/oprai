@@ -19,7 +19,7 @@ Meteora's liquidity design where liquidity is distributed across discrete price 
 A loan that is borrowed and repaid within the same transaction. If the transaction fails (e.g., repayment not included), the entire transaction reverts. Used for arbitrage, collateral swaps, and liquidations without requiring upfront capital.
 
 ## Health Factor
-A metric used by lending protocols (MarginFi, Kamino, Solend) to measure the safety of a borrowing position. Calculated as (weighted collateral value) / (borrowed value). A health factor below 1.0 triggers liquidation. Higher is safer.
+A metric used by lending protocols (Kamino, Solend) to measure the safety of a borrowing position. Calculated as (weighted collateral value) / (borrowed value). A health factor below 1.0 triggers liquidation. Higher is safer.
 
 ## Impermanent Loss (IL)
 The temporary loss in value experienced by liquidity providers compared to simply holding the tokens. Occurs when the price ratio of the deposited token pair diverges from the ratio at deposit time. Called "impermanent" because the loss is only realized upon withdrawal; if prices return to original ratio, the loss disappears.

@@ -31,7 +31,10 @@ enum DeFiProtocol {
   DEFI_PROTOCOL_ORCA        = 6;
   DEFI_PROTOCOL_METEORA     = 7;
   DEFI_PROTOCOL_DRIFT       = 8;
-  DEFI_PROTOCOL_MARGINFI    = 9;
+  // 9 was DEFI_PROTOCOL_MARGINFI — removed with the integration.
+  // Reserved, not deleted: reusing the tag would silently reinterpret
+  // any message still carrying it.
+  reserved 9;
   DEFI_PROTOCOL_KAMINO      = 10;
 }
 

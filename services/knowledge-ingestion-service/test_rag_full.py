@@ -116,7 +116,6 @@ QUERIES = [
     ("lending", "Kamino Lend'de collateral ratio nedir?"),
     ("lending", "DeFi lending'de likidasyonu tetikleyen nedir?"),
     ("lending", "Kamino Multiply nasıl çalışır?"),
-    ("lending", "MarginFi'de borrow interest nasıl belirlenir?"),
     ("lending", "Solend'de isolated pool ile main pool farkı nedir?"),
     ("lending", "Flash loan nedir ve arbitraj için nasıl kullanılır?"),
     ("lending", "Aave'de health factor nedir?"),
@@ -126,7 +125,6 @@ QUERIES = [
     ("lending", "Liquidation penalty genellikle ne kadar?"),
     ("lending", "Borrow APY ile Supply APY farkı nasıl oluşur?"),
     ("lending", "Kamino vaultları lending ile nasıl entegre?"),
-    ("lending", "MarginFi risk engine nasıl çalışır?"),
     ("lending", "DeFi lending'de oracle manipülasyon riski nedir?"),
 
     # ── Perps / Trading (12) ─────────────────────────────────────────────────

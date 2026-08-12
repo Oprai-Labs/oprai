@@ -38,8 +38,6 @@ sources:
     file: kamino_docs.yaml
     schedule_cron: "40 3 * * *"
 
-  - id: marginfi_docs
-    file: marginfi_docs.yaml
     schedule_cron: "50 3 * * *"
 
   - id: solend_docs

@@ -58,7 +58,7 @@ OPRAI, as a Solana-based DeFi AI assistant, is built on a strong foundation. The
 - API Endpoints:
   - GET `/yields?category=liquid_staking|lending`
   - GET `/yields/all`
-- Covered protocols: Jito, Marinade, Jupiter, BlazeStake, Kamino, MarginFi
+- Covered protocols: Jito, Marinade, Jupiter, BlazeStake, Kamino
 
 ### Portfolio Optimizer ✅
 - `services/chat-service-py/app/services/portfolio_optimizer.py` - Main module (200+ lines)
@@ -258,7 +258,7 @@ New Prompt Files:
 - Core: Transfer, Swap
 - Jupiter: Swap, Lend, Perp, JupSOL, Limit Orders, DCA
 - DEX: Raydium, Orca, Meteora
-- Lending: MarginFi, Kamino, Solend
+- Lending: Kamino, Solend
 - Staking: Marinade, Jito, BlazeStake
 - NFT: Tensor, Magic Eden
 - Token Launch: PumpFun, BONKFun

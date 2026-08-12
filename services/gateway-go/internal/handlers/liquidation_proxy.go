@@ -33,7 +33,7 @@ func NewLiquidationProxy() *LiquidationProxy {
 }
 
 // GetPositions handles GET /defi/liquidations.
-// Fetches health ratios from Kamino, MarginFi, and Solend for the authenticated wallet.
+// Fetches health ratios from Kamino and Solend for the authenticated wallet.
 func (p *LiquidationProxy) GetPositions(w http.ResponseWriter, r *http.Request) {
 	wallet := middleware.GetWallet(r.Context())
 	if wallet == "" {
@@ -49,7 +49,6 @@ func (p *LiquidationProxy) GetPositions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	kaminoCh := make(chan result, 1)
-	marginfiCh := make(chan result, 1)
 	solendCh := make(chan result, 1)
 
 	go func() {
@@ -57,16 +56,12 @@ func (p *LiquidationProxy) GetPositions(w http.ResponseWriter, r *http.Request) 
 		kaminoCh <- result{entries: e, err: err}
 	}()
 	go func() {
-		e, err := p.fetchMarginfi(wallet)
-		marginfiCh <- result{entries: e, err: err}
-	}()
-	go func() {
 		e, err := p.fetchSolend(wallet)
 		solendCh <- result{entries: e, err: err}
 	}()
 
 	var positions []LiquidationEntry
-	for _, ch := range []chan result{kaminoCh, marginfiCh, solendCh} {
+	for _, ch := range []chan result{kaminoCh, solendCh} {
 		res := <-ch
 		if res.err != nil {
 			slog.Warn("liquidation proxy fetch error", "error", res.err)
@@ -136,36 +131,6 @@ func extractKaminoFields(obl map[string]json.RawMessage) (health float64, market
 		market = "Kamino"
 	}
 	return
-}
-
-func (p *LiquidationProxy) fetchMarginfi(wallet string) ([]LiquidationEntry, error) {
-	url := fmt.Sprintf(
-		"https://marginfi-v2-ui-data.s3.eu-central-1.amazonaws.com/account-%s.json",
-		wallet,
-	)
-	resp, err := p.httpClient.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("marginfi fetch: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil
-	}
-
-	var data map[string]json.RawMessage
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&data); err != nil {
-		return nil, nil
-	}
-
-	var health float64
-	if raw, ok := data["healthFactor"]; ok {
-		_ = json.Unmarshal(raw, &health)
-	}
-	if health <= 0 {
-		return nil, nil
-	}
-
-	return []LiquidationEntry{{Protocol: "marginfi", Market: "MarginFi", HealthRatio: health}}, nil
 }
 
 func (p *LiquidationProxy) fetchSolend(wallet string) ([]LiquidationEntry, error) {

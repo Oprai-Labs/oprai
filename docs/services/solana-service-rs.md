@@ -84,7 +84,6 @@ services/solana-service-rs/
 │   │   ├── meteora.rs             # Meteora DLMM
 │   │   ├── drift.rs               # Drift perps
 │   │   ├── kamino.rs              # Kamino lending
-│   │   ├── marginfi.rs            # marginfi lending
 │   │   ├── blazestake.rs          # BlazeStake LST
 │   │   ├── pumpfun.rs             # Pump.fun token launch
 │   │   ├── magic_eden.rs          # Magic Eden NFT
@@ -271,7 +270,6 @@ pub enum ActionType {
 | `orca` | Orca | DEX / CLMM | swap, add_liquidity, open_position |
 | `meteora` | Meteora | DEX / DLMM | swap, add_liquidity, claim_fees |
 | `drift` | Drift Protocol | Perpetuals + DEX | perp_open, deposit, borrow, twap |
-| `marginfi` | marginfi | Lending | deposit, withdraw, borrow, repay |
 | `kamino` | Kamino Finance | Yield Optimizer | deposit, multiply_open, vault_deposit |
 
 ---

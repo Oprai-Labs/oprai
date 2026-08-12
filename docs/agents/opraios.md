@@ -110,7 +110,6 @@ opraios/
 │   ├── meteora_plugin.py          # Meteora DLMM
 │   ├── kamino_plugin.py           # Kamino lending
 │   ├── drift_plugin.py            # Drift perps
-│   ├── marginfi_plugin.py         # marginfi lending
 │   ├── jito_plugin.py             # Jito staking + bundles
 │   ├── marinade_plugin.py         # Marinade liquid staking
 │   ├── blazestake_plugin.py       # BlazeStake LST
@@ -373,7 +372,6 @@ await manager.uninstall("old_plugin", remove_files=True, backup=True)
 | `meteora` | DEX | swap, add_liquidity, claim_fees | DLMM |
 | `kamino` | Lending | deposit, borrow, multiply_open | Yield optimizer |
 | `drift` | Perps | perp_open, deposit, twap | Perpetuals DEX |
-| `marginfi` | Lending | deposit, borrow, repay | Lending protocol |
 | `jito` | Staking | stake, unstake, bundle | MEV + staking |
 | `marinade` | Staking | stake, unstake, delayed_unstake | Liquid staking |
 | `blazestake` | Staking | stake, unstake | LST protocol |
@@ -617,7 +615,7 @@ from opraios.core.visual_builder_ws import WebSocketHandler
 |----------|-------|
 | **Triggers** | On Wallet Activity, On Price Change, On Schedule, On Transaction |
 | **DEX** | Jupiter Swap, Orca Swap, Raydium Swap, Meteora Swap |
-| **Lending** | Kamino Deposit/Borrow, MarginFi Deposit, Solend Supply |
+| **Lending** | Kamino Deposit/Borrow Deposit, Solend Supply |
 | **Staking** | Marinade Stake, Jito Stake, BlazeStake Stake |
 | **Perps** | Drift Open Position, Jupiter Perp |
 | **Bridge** | LayerZero Bridge, Squid Router, Wormhole |

@@ -155,15 +155,6 @@ CASES = [
     ("KM06", "show kamino strategy pools with highest APR",
      dict(want=("kamino_strategies",), min_w=15)),
 
-    # ── ALTERNATE PHRASINGS — MarginFi ───────────────────────────────────────
-    ("MG01", "marginfi rates",
-     dict(want=("marginfi_banks",), has_n=True, min_w=15)),
-    ("MG02", "can i borrow USDC on marginfi",
-     dict(want=("marginfi_banks",), kw=("usdc",), min_w=15)),
-    ("MG03", "marginfi SOL yield",
-     dict(want=("marginfi_banks",), has_n=True)),
-    ("MG04", "best lend rate on marginfi",
-     dict(want=("marginfi_banks",), has_n=True, min_w=10)),
 
     # ── STAKING — alternate phrasings ────────────────────────────────────────
     ("STK01","what do i earn staking SOL with marinade",
@@ -174,8 +165,6 @@ CASES = [
      dict(want=("marinade_msol_apy",), has_n=True)),
     ("STK04","stake sol for passive income — options",
      dict(want=("marinade_stats","jito_stake_pool_stats","marinade_msol_apy"), min_w=30)),
-    ("STK05","blazestake bsol apy",
-     dict(want=("solend_lst_rates","kamino_staking_yields","marginfi_lst_rates"), has_n=True)),
     ("STK06","liquid staking vs regular staking on solana pros cons",
      dict(no_tool=True, min_w=40)),
 
@@ -240,24 +229,14 @@ CASES = [
      dict(want=("dex_token","dex_search","birdeye_token_overview"), kw=("wif",), min_w=10)),
 
     # ── CROSS-PROTOCOL COMPLEX SCENARIOS ─────────────────────────────────────
-    ("XP01", "I want to maximize yield on 5000 USDC. Compare lending, LP, and vaults.",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","raydium_pools","kamino_earn_vaults"), has_n=True, min_w=80)),
     ("XP02", "Should I put my SOL in jitoSOL, mSOL, or just lend on Kamino?",
      dict(want=("jito_stake_pool_stats","marinade_msol_apy","kamino_market_reserves"), has_n=True, min_w=50)),
-    ("XP03", "I'm bearish on SOL — what DeFi strategies make sense?",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks"), min_w=40)),
-    ("XP04", "best risk-adjusted yield on Solana for stablecoins",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","raydium_pools","kamino_earn_vaults"), has_n=True, min_w=50)),
     ("XP05", "what is the total SOL yield available across all protocols",
      dict(want=("solend_reserves","kamino_market_reserves","jito_stake_pool_stats","marinade_stats"), has_n=True, min_w=40)),
     ("XP06", "give me a Solana DeFi dashboard — TVL, yields, volumes across all major protocols",
      dict(want=("solend_stats","kamino_markets","raydium_info","marinade_stats"), min_w=100)),
     ("XP07", "how do Raydium and Orca compare for SOL-USDC liquidity provision",
      dict(want=("raydium_pool_by_mint","raydium_pools","orca_pools_search","orca_pools"), min_w=40)),
-    ("XP08", "which protocol has the lowest borrowing cost for SOL",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks"), has_n=True, min_w=30)),
-    ("XP09", "I want to lever long SOL — which protocol is cheapest to borrow from",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks"), has_n=True, min_w=30)),
 
     # ── WALLET — multiple wallets / adversarial ───────────────────────────────
     ("WA01", f"solend position for {WALLET2}",
@@ -348,8 +327,6 @@ CASES = [
      dict(want=("jup_prices","birdeye_price","birdeye_token_overview"), has_n=True)),
     ("TR02", "Solend'de USDC yatırırsam ne kazanırım",
      dict(want=("solend_reserves",), has_n=True, min_w=15)),
-    ("TR03", "en iyi getiri nerede",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks"), min_w=20)),
     ("TR04", "Raydium'da SOL-USDC havuzu APR",
      dict(want=("raydium_pool_by_mint","raydium_pools"), has_n=True)),
     ("TR05", "Kamino'da faiz oranları",
@@ -400,16 +377,12 @@ CASES = [
     # ── COMPLEX NARRATIVE QUERIES ─────────────────────────────────────────────
     ("NR01", "I'm new to Solana DeFi. Where should I start to earn yield safely?",
      dict(want=("solend_reserves","kamino_market_reserves","marinade_stats","jito_stake_pool_stats"), min_w=60)),
-    ("NR02", "I have a SOL heavy portfolio. How do I hedge my risk while earning yield?",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks"), min_w=50)),
     ("NR03", "Analyze BONK as an investment — price action, holders, safety, volume",
      dict(want=("jup_prices","jup_search","birdeye_token_overview","birdeye_token_security"), kw=("bonk",), min_w=60)),
     ("NR04", "Give me a morning briefing on Solana DeFi — protocol health, yields, market conditions",
      dict(want=("solend_stats","kamino_markets","jito_tip_floor","marinade_stats"), min_w=80)),
     ("NR05", "I deposited SOL on Solend last week. How is the protocol performing?",
      dict(want=("solend_stats","solend_reserves","solend_daily_stats"), min_w=40)),
-    ("NR06", "Which lending protocol has the best combination of yield AND safety?",
-     dict(want=("solend_reserves","solend_stats","kamino_market_reserves","marginfi_banks"), min_w=50)),
     ("NR07", "I want to farm BONK rewards — what are my options on Solana?",
      dict(want=("jup_prices","birdeye_token_overview","raydium_pool_by_mint","dex_search"), kw=("bonk",), min_w=40)),
     ("NR08", "Is now a good time to provide liquidity on Raydium?",

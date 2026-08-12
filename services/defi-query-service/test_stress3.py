@@ -89,13 +89,7 @@ CASES = [
     # ══ SIMULTANEOUS MULTI-PROTOCOL PULLS ═══════════════════════════════════
     # Pull data from 4+ protocols in a single query
 
-    ("MP01", "Pull SOL lending rates from Solend, Kamino, and MarginFi simultaneously, then rank them best to worst.",
-     dict(want_all=("solend_reserves","kamino_market_reserves","marginfi_banks"),
-          min_tools=3, has_n=True, min_w=60)),
 
-    ("MP02", "Fetch USDC supply APY from Solend, Kamino, and MarginFi at the same time and show a comparison table.",
-     dict(want_all=("solend_reserves","kamino_market_reserves","marginfi_banks"),
-          min_tools=3, has_n=True, min_w=60)),
 
     ("MP03", "Get Jito tip floor, Raydium recommended fee, and Solana epoch info all at once.",
      dict(want_all=("jito_tip_floor","raydium_auto_fee","kamino_epoch_info"),
@@ -130,9 +124,6 @@ CASES = [
 
     # ══ DEEP ANALYSIS — MODEL SYNTHESIS ═════════════════════════════════════
 
-    ("DA01", "Comprehensive Solana DeFi yield landscape analysis: lending rates (Solend/Kamino/MarginFi), LST staking (jitoSOL/mSOL), LP pools (Raydium/Orca top pools). Rank all yield sources from highest to lowest APY.",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","jito_stake_pool_stats","marinade_msol_apy","raydium_pools","orca_pools"),
-          min_tools=5, has_n=True, min_w=150)),
 
     ("DA02", "Full protocol health report for the Solana ecosystem: check Solend TVL+utilization, Kamino markets, Raydium volume, Marinade validators, Orca protocol stats. Flag any concerns.",
      dict(want=("solend_stats","kamino_markets","raydium_info","marinade_stats","orca_protocol_stats"),
@@ -166,9 +157,6 @@ CASES = [
      dict(want=("kamino_market_reserves","kamino_earn_vaults","kamino_strategies","kamino_staking_yields","kamino_leverage_stats"),
           min_tools=4, has_n=True, min_w=120)),
 
-    ("DA10", "Cross-protocol LST analysis: jitoSOL APY (Jito), mSOL APY (Marinade 7d+30d+1y), bSOL (BlazeStake via Solend), LST rates on Kamino and MarginFi. Build a comprehensive comparison table.",
-     dict(want=("jito_stake_pool_stats","marinade_msol_apy","solend_lst_rates","kamino_staking_yields","marginfi_lst_rates"),
-          min_tools=4, has_n=True, min_w=120)),
 
     # ══ LIMIT STRESS — max tool chains, large responses ══════════════════════
 
@@ -192,19 +180,10 @@ CASES = [
      dict(want=("orca_protocol_stats","orca_pools","orca_protocol_token","orca_circulating_supply"),
           min_tools=3, has_n=True, min_w=80)),
 
-    ("LS06", "Show me every lending protocol on Solana and their key metrics simultaneously: Solend, Kamino, MarginFi — TVL, top assets, APYs, utilization rates.",
-     dict(want_all=("solend_stats","kamino_markets","marginfi_banks"),
-          min_tools=3, has_n=True, min_w=150)),
 
     # ══ FINANCIAL MODELING & OPTIMIZATION ════════════════════════════════════
 
-    ("FM01", "I have $50,000 to deploy on Solana DeFi. Optimize yield: split between best stablecoin lending, LST staking, and SOL lending. Show exact APYs and recommended allocation.",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","jito_stake_pool_stats","marinade_msol_apy"),
-          min_tools=4, has_n=True, min_w=120)),
 
-    ("FM02", "Calculate: if I lend 100 SOL on the best protocol for 1 year, how much would I earn? Show me the top 3 options with projected earnings.",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks"),
-          has_n=True, min_w=80)),
 
     ("FM03", "I'm a liquidity provider. Compare: Raydium SOL-USDC CLMM pool vs Orca SOL-USDC pool — fee APR, TVL depth, IL risk, which is better?",
      dict(want=("raydium_pool_by_mint","raydium_pools","orca_pools_search","orca_pools"),
@@ -220,16 +199,10 @@ CASES = [
 
     # ══ ADVERSARIAL — confusing, contradictory, overloaded ═══════════════════
 
-    ("AV01", "Show me Solend APY, Kamino APY, MarginFi APY, Raydium pool APR, Orca pool APR, jitoSOL APY, mSOL APY, and then rank all of them and tell me the best one.",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","raydium_pools","jito_stake_pool_stats"),
-          min_tools=4, has_n=True, min_w=120)),
 
     ("AV02", "Give me live data on: SOL price, BONK price, WIF price, JUP price, ORCA price, RAY price — all at once.",
      dict(want=("jup_prices","birdeye_token_overview"), has_n=True, min_w=30)),
 
-    ("AV03", "Compare Solend AND Kamino AND MarginFi AND Raydium AND Orca AND Marinade AND Jito — summarize each protocol's TVL, key product, and top yield.",
-     dict(want=("solend_stats","kamino_markets","raydium_info","marinade_stats","orca_protocol_stats","jito_stake_pool_stats"),
-          min_tools=5, has_n=True, min_w=150)),
 
     ("AV04", "I want to borrow SOL to buy more SOL. And also stake that SOL for jitoSOL. And then lend jitoSOL. And see what the Raydium jitoSOL pool is paying. Analyze all of it.",
      dict(want=("solend_reserves","kamino_market_reserves","jito_stake_pool_stats","raydium_pool_by_mint","solend_lst_rates"),
@@ -358,25 +331,13 @@ CASES = [
 
     # ══ LONG-FORM SYNTHESIS — highest complexity ══════════════════════════════
 
-    ("LF01", "Write a complete Solana DeFi investment guide for someone with $10,000: where to stake, where to lend, where to provide liquidity. Use LIVE data from all protocols to back every recommendation.",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","jito_stake_pool_stats","marinade_msol_apy","raydium_pools"),
-          min_tools=5, has_n=True, min_w=200)),
 
-    ("LF02", "I'm moving $100k from Ethereum to Solana DeFi. Analyze all major yield opportunities: lending (Solend/Kamino/MarginFi), LST staking (jitoSOL/mSOL), LP (Raydium/Orca). Show live APYs and recommend allocation.",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","jito_stake_pool_stats","marinade_msol_apy","raydium_pools","orca_pools"),
-          min_tools=5, has_n=True, min_w=200)),
 
     ("LF03", "Give me a Solana DeFi weekly digest: best performing protocols by TVL growth, top yield opportunities right now, notable token movements, MEV landscape, any protocol risks.",
      dict(want=("solend_stats","kamino_markets","raydium_info","marinade_stats","jito_mev_rewards","jup_trending"),
           min_tools=5, min_w=200)),
 
-    ("LF04", "Build a DeFi risk scorecard for Solana: rate each major protocol (Solend, Kamino, MarginFi, Raydium, Orca, Marinade, Jito) on TVL, utilization, and health. Use live on-chain data.",
-     dict(want=("solend_stats","kamino_markets","raydium_info","marinade_stats","orca_protocol_stats","jito_stake_pool_stats"),
-          min_tools=5, has_n=True, min_w=200)),
 
-    ("LF05", "Produce a yield farming alpha report: find the highest APY opportunities across lending, LP, and staking on Solana RIGHT NOW. Pull from every relevant protocol and build a ranked list.",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","kamino_earn_vaults","raydium_pools","orca_pools","jito_stake_pool_stats","marinade_msol_apy"),
-          min_tools=6, has_n=True, min_w=200)),
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════

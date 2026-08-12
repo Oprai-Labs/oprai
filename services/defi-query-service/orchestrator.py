@@ -95,7 +95,6 @@ _BUNDLES: dict[str, set[str]] = {
     },
     "solend": {s["name"] for s in [] },   # filled below
     "kamino": {s["name"] for s in [] },
-    "marginfi": {s["name"] for s in [] },
     "marinade": {s["name"] for s in [] },
     "jito": {s["name"] for s in [] },
     "raydium": {s["name"] for s in [] },
@@ -123,7 +122,6 @@ _KEYWORD_BUNDLES: list[tuple[list[str], list[str]]] = [
     # Protocol names
     (["solend", "save finance", "slnd"],                  ["solend"]),
     (["kamino", "klend"],                                 ["kamino"]),
-    (["marginfi", "mrgn"],                                ["marginfi"]),
     (["marinade", "msol", "mnde", "vemnde"],              ["marinade"]),
     (["jito", "jitosol", "mev", "tip floor", "bundle"],   ["jito"]),
     (["raydium", "clmm", "cpmm", "launchlab"],            ["raydium"]),
@@ -180,12 +178,12 @@ def _select_tools(question: str) -> list[dict]:
 
     # Comparison → add all lending protocols
     if any(kw in q for kw in _COMPARE_KW):
-        for proto in ["solend", "kamino", "marginfi", "jito", "marinade", "raydium", "orca"]:
+        for proto in ["solend", "kamino", "jito", "marinade", "raydium", "orca"]:
             active.update(_BUNDLES.get(proto, set()))
 
     # Nothing matched → broad default
     if len(active) <= len(_ALWAYS_INCLUDE):
-        for proto in ["solend", "kamino", "marginfi", "jito", "marinade",
+        for proto in ["solend", "kamino", "jito", "marinade",
                       "raydium", "orca", "price", "trending"]:
             active.update(_BUNDLES.get(proto, set()))
 
@@ -216,7 +214,6 @@ You have live access to data from these protocols via tools:
 | Meteora    | meteora_pools                                                        |
 | Orca       | orca_pools, orca_pools_search, orca_pool_by_address, orca_locked_liquidity, orca_protocol_stats, orca_protocol_token, orca_circulating_supply, orca_total_supply, orca_tokens, orca_tokens_search, orca_token_by_mint |
 | Kamino     | kamino_strategies, kamino_lending, kamino_markets, kamino_market_reserves, kamino_oracle_prices, kamino_earn_vaults, kamino_staking_yields, kamino_staking_yields_mean, kamino_leverage_stats, kamino_user_positions, kamino_user_obligations, kamino_epoch_info |
-| MarginFi   | marginfi_banks, marginfi_staked_banks, marginfi_staked_token_metadata, marginfi_token_metadata, marginfi_lst_rates, marginfi_priority_fees, marginfi_bank_historic, marginfi_validator_info |
 | Marinade   | marinade_stats, marinade_msol_apy, marinade_validators, marinade_validator_scores, marinade_score_breakdown, marinade_validator_uptimes, marinade_validator_commissions, marinade_validator_versions, marinade_cluster_stats, marinade_epoch_rewards, marinade_staking_report, marinade_scoring_reports, marinade_commission_changes, marinade_config, marinade_native_apy, marinade_jito_commissions, marinade_msol_votes, marinade_vemnde_votes, marinade_wallet_msol_balance, marinade_wallet_vemnde_balance, marinade_wallet_native_stake |
 | Solend/Save | solend_markets, solend_reserves, solend_user_overview, solend_stats, solend_daily_fees, solend_daily_stats, solend_lst_rates, solend_prices, solend_historical_prices, solend_reserves_history, solend_reserves_config_changes, solend_circulating_supply, solend_total_supply, solend_save_metrics, solend_save_price_chart, solend_save_revenue_chart, solend_isolated_pool_stats, solend_announcements, solend_changelogs, solend_reward_stats, solend_reward_score, solend_reward_proofs, solend_additional_emissions, solend_confirmed_rewards, solend_history, solend_history_v2, solend_ctoken_history, solend_liquidation_attempts, solend_margin_trading_history, solend_snapshot, solend_transactions, solend_margin_trading_transactions, solend_transaction_notes, solend_vip_eligibility, solend_airdrops, solend_airdrops_jito, solend_obligations_filtered, solend_squeezy_obligations, solend_notifications, solend_tokens_all, solend_tokens, solend_referral_payments, solend_referral_attributed_payments, solend_referral_referrer, solend_referral_referred, solend_referral_stats, solend_points, solend_points_leaderboard, solend_points_config, solend_points_total, solend_points_adjustments |
 | Jito       | jito_tip_floor, jito_mev_rewards, jito_daily_mev, jito_stake_growth, jito_mev_commission, jito_stake_pool_stats, jito_jitosol_ratio, jito_validators, jito_preferred_validators |
@@ -313,8 +310,7 @@ You have live access to data from these protocols via tools:
    - "My Kamino Earn positions / wallet vault positions on Kamino" → kamino_user_positions(wallet=<address>)
    - "My Kamino loan / borrow position / health factor / liquidation risk" → kamino_user_obligations(wallet=<address>)
    - "Current Solana epoch / epoch info" → kamino_epoch_info
-   - **"Risk profile comparison between protocols / Solend vs Kamino risk / protocol security comparison"** → call **solend_reserves** + **kamino_market_reserves** (+ marginfi_banks if MarginFi included) — get real LTV, utilization, and borrow rates to compare risk
-   - "MarginFi assets" → marginfi_banks
+   - **"Risk profile comparison between protocols / Solend vs Kamino risk / protocol security comparison"** → call **solend_reserves** + **kamino_market_reserves** — get real LTV, utilization, and borrow rates to compare risk
    - "mSOL price in SOL / mSOL price in USD / Marinade TVL / Marinade staking overview" → marinade_stats (preferred over birdeye for mSOL — marinade_stats includes the authoritative mSOL/SOL exchange rate)
    - "mSOL APY / mSOL yield / mSOL return / mSOL stake APY" → marinade_msol_apy(period=<7d|30d|1y|2y>)
    - "Marinade validators / delegation list" → marinade_validators
@@ -747,23 +743,6 @@ Warning:
 - `marinade_scoring_reports`: Array of scoring report metadata — epoch, report_url, generated_at. These are periodic scoring snapshots. Show available reports with links.
 - `marinade_commission_changes`: Array of {vote_account, old_commission, new_commission, epoch, changed_at}. Commission increases are negative for delegators. Style commission increases (old < new) with red color (#ef4444) and "↑ increased" label; decreases (old > new) with green (#10b981) and "↓ decreased" label. Show vote_account truncated to first 8 + last 6 chars.
 - `marinade_config`: System config with delegation_strategy, scoring_parameters, program_addresses. Show program addresses as short-form (first 8 chars). Explain scoring parameters in plain English.
-
-**MarginFi responses:**
-- `marginfi_banks`: Array of {bankAddress, tokenAddress, tokenName, tokenSymbol}. Show as a table of supported assets. Use for "what tokens are on MarginFi" queries.
-- `marginfi_staked_banks`: Array of {bankAddress, validatorVoteAccount, tokenAddress, tokenName, tokenSymbol}. Show validator vote account alongside token. Use for staking/validator queries on MarginFi.
-- `marginfi_staked_token_metadata`: Array of {symbol, address, name, decimals}. Supplementary metadata for staked assets.
-- `marginfi_token_metadata`: Array of full token objects — symbol, address, decimals, name, logoURI, extensions.coingeckoId. Useful for enriching token info. Pair with other tools.
-- `marginfi_lst_rates`: Array of {symbol, mint, lst_apy}. lst_apy is a decimal (e.g. 0.062 = 6.2%). Show as % in a ranked table. Compare LSTs side by side. Highlight best yield with 💡 insight.
-- `marginfi_priority_fees`: {min: {prioritizationFee, slot}, max: {prioritizationFee, slot}}. prioritizationFee is in microlamports. Convert: fee/1e6 = lamports, fee/1e9 = SOL. Show as "X microlamports (≈ Y SOL)".
-- `marginfi_bank_historic`: Historical rate/TVL timeseries for one bank. Show as trend: was APY rising or falling? Highlight notable changes.
-- `marginfi_validator_info`: Validator details. Show commission, APY, and total stake if available.
-- Routing rules for MarginFi:
-  - "MarginFi LST APY / which LST is best on MarginFi" → marginfi_lst_rates
-  - "MarginFi supported tokens / banks / assets" → marginfi_banks
-  - "MarginFi staking validators / staked banks" → marginfi_staked_banks
-  - "Historical rate for [token] on MarginFi" → marginfi_banks first (get bankAddress), then marginfi_bank_historic
-  - "Validator info on MarginFi" → marginfi_staked_banks first (get validatorVoteAccount), then marginfi_validator_info
-  - "Compare MarginFi vs Kamino lending" → marginfi_banks + kamino_market_reserves
 
 **Solend/Save:**
 - `solend_markets`: List markets with reserve count. For each reserve show asset, supply APY, borrow APY. Explain: supply = earn yield, borrow = use as leverage. Note Solend rebranded to Save.
