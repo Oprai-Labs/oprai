@@ -50,6 +50,27 @@ def get_loader() -> CharacterLoader:
     return get_character_loader()
 
 
+def _assert_can_read(character, wallet: str) -> None:
+    """A character is readable by its owner, or by anyone if it is public.
+
+    Blocks reading ANOTHER wallet's PRIVATE character, whose ``settings`` may
+    hold secrets. Every read/duplicate handler must call this — only update and
+    delete previously checked ownership, so get/runtime/duplicate leaked private
+    characters by ID (IDOR).
+    """
+    if character.owner_wallet != wallet and not getattr(character, "is_public", False):
+        raise HTTPException(status_code=403, detail="Not authorized to access this character")
+
+
+def _assert_owner(character, wallet: str) -> None:
+    """Owner-only access — for exports (dump full secrets), runtime control, and
+    the assembled system prompt (may embed secrets). Public visibility does NOT
+    grant these.
+    """
+    if character.owner_wallet != wallet:
+        raise HTTPException(status_code=403, detail="Not authorized for this character")
+
+
 @router.get("")
 async def list_characters(
     wallet: str = Depends(require_auth),
@@ -72,6 +93,15 @@ async def list_characters(
     - **offset**: Offset for pagination
     """
     tag_list = tags.split(",") if tags else None
+
+    # Access scoping (IDOR fix): a caller may list their OWN characters (any
+    # visibility) or ANOTHER wallet's PUBLIC ones — never another wallet's
+    # private characters. An absent ownerWallet defaults to the caller, so an
+    # unfiltered list can't enumerate everyone's private characters.
+    if owner_wallet is None:
+        owner_wallet = wallet
+    elif owner_wallet != wallet:
+        is_public = True
 
     characters = loader.list_characters(
         owner_wallet=owner_wallet,
@@ -112,6 +142,7 @@ async def get_character(
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
 
+    _assert_can_read(character, wallet)
     return character.model_dump(by_alias=True)
 
 
@@ -206,6 +237,14 @@ async def duplicate_character(
     loader: CharacterLoader = Depends(get_loader),
 ) -> dict:
     """Duplicate a character"""
+    # Only the owner (or anyone, if it's public) may duplicate a character —
+    # otherwise duplicate + the ownership re-assignment below is outright theft
+    # of another user's private character and its secrets.
+    source = loader.get_character(character_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Character not found")
+    _assert_can_read(source, wallet)
+
     try:
         duplicated = loader.duplicate_character(character_id)
 
@@ -232,6 +271,10 @@ async def export_character(
 
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
+
+    # Export dumps the FULL CharacterFile including settings/secrets — owner-only,
+    # even for public characters.
+    _assert_owner(character, wallet)
 
     export_data = CharacterFile(**character.model_dump(), version="1.0.0")
 
@@ -306,6 +349,8 @@ async def get_character_runtime(
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
 
+    _assert_can_read(character, wallet)
+
     state = _get_runtime(wallet, character_id)
     runtime = CharacterWithRuntime(
         **character.model_dump(),
@@ -327,6 +372,8 @@ async def start_character(
 
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
+
+    _assert_owner(character, wallet)
 
     key = _runtime_key(wallet, character_id)
     state = _RUNTIME_STATE.get(key, {})
@@ -362,6 +409,8 @@ async def stop_character(
 
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
+
+    _assert_owner(character, wallet)
 
     key = _runtime_key(wallet, character_id)
     state = _RUNTIME_STATE.get(key, {})
@@ -406,6 +455,10 @@ async def generate_prompt(
 
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
+
+    # The assembled system prompt embeds the character's knowledge and can reveal
+    # settings/secrets — owner-only.
+    _assert_owner(character, wallet)
 
     builder = PromptBuilder(character)
 

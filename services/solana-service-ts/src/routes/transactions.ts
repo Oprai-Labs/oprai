@@ -50,7 +50,7 @@ router.post("/", requireWallet, async (req: Request, res: Response, next: NextFu
 // GET /transactions/:id
 router.get("/:id", requireWallet, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const tx = await getTransactionById(req.params.id);
+    const tx = await getTransactionById(req.params.id, req.userWallet!);
     if (!tx) throw appError("Transaction not found", 404, "NOT_FOUND");
     res.json({ transaction: tx });
   } catch (e) {
@@ -66,7 +66,7 @@ router.patch("/:id/status", requireWallet, async (req: Request, res: Response, n
     if (!validStatuses.includes(status))
       throw appError(`status must be one of: ${validStatuses.join(", ")}`);
 
-    const result = await updateTransactionStatus(req.params.id, status, txHash, actualFee, errorMessage);
+    const result = await updateTransactionStatus(req.params.id, req.userWallet!, status, txHash, actualFee, errorMessage);
     res.json(result);
   } catch (e) {
     next(e);
