@@ -6,6 +6,7 @@ import { ApiService } from './api.service';
 import { WalletService } from './wallet.service';
 import { SessionStorageService } from './session-storage.service';
 import { isTokenExpired, getWalletFromToken } from '../utils/jwt';
+import { setRpcAuthTokenProvider } from '../utils/solana-connection';
 
 export interface AuthUser {
   wallet: string;
@@ -38,6 +39,23 @@ export class AuthService {
   // Token is kept in memory only — NOT localStorage. The HttpOnly cookie set by
   // auth-service-go handles persistence and is sent automatically with every request.
   private readonly _token = signal<string | null>(null);
+
+  // Let outbound RPC requests attach this JWT as a Bearer header so the /api/rpc
+  // proxy can recognise a signed-in caller (see solana-connection.ts). Reads the
+  // signal live on each call, so it always reflects the current token — or null
+  // after logout / in cookie-only mode, where the proxy's Origin check covers us.
+  //
+  // Crucially, an EXPIRED token is returned as null, not attached: the gateway's
+  // JWTAuth rejects an expired Bearer with 401 and does NOT fall through to the
+  // cookie, so sending a stale token would break RPC for a user whose cookie is
+  // still perfectly valid. Withholding it lets the cookie/Origin path carry them.
+  private readonly _rpcTokenBinding = (() => {
+    setRpcAuthTokenProvider(() => {
+      const t = this._token();
+      return t && !isTokenExpired(t) ? t : null;
+    });
+    return true;
+  })();
   private readonly _user = signal<AuthUser | null>(null);
   private readonly _authenticating = signal(false);
 
