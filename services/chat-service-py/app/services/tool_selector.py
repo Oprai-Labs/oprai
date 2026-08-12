@@ -367,9 +367,6 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "relay_fast_fill":               _A({"bridge", "relay"}),
     "relay_execute":                 _A({"bridge", "relay"}),
     "debridge":                      _A({"bridge", "debridge"}),
-    "squid":                         _A({"bridge", "squid"}),
-    "squid_bridge":                  _A({"bridge", "squid"}),
-    "squid_status":                  _A({"bridge", "squid"}),
 
     # ── Streamflow ────────────────────────────────────────────────────────────
     "streamflow_create":          _A({"streaming", "streamflow"}),
@@ -566,7 +563,6 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     "pumpfun":     _A({"pumpfun", "token_launch"}),
     "relay":       _A({"relay"}),
     "debridge":    _A({"debridge"}),
-    "squid":       _A({"squid"}),
     "streamflow":  _A({"streamflow"}),
     "native_stake":_A({"native_stake", "staking"}),
 }

@@ -106,11 +106,16 @@ class TestExistingKeywordsStillWork:
         ("stake via mSOL", "marinade"),
         ("launch on pump.fun", "pumpfun"),
         ("MMM pool listing", "magic_eden"),
-        ("squid router bridge", "squid"),
         ("debridge swap", "debridge"),
     ])
     def test_known_keyword(self, msg, proto):
         assert proto in _augment_protocols_from_keywords(msg, ()), msg
+
+    def test_squid_is_withheld(self):
+        # Squid is integrated but its integrator ID is not issued, so every call
+        # 401s. Naming it must not route there — the keyword net, the tool list
+        # and the prompt all withhold it until the credential lands.
+        assert "squid" not in _augment_protocols_from_keywords("squid router bridge", ())
 
     def test_classifier_pick_is_preserved(self):
         # If the classifier already picked something, we never drop it.
