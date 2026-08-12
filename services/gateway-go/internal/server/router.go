@@ -78,6 +78,11 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	healthHandler := handlers.NewHealthHandler(grpcClients)
 	r.Get("/health", healthHandler.AggregatedHealth)
 
+	// Browser CSP violation reports (report-uri target). Public, unauthenticated,
+	// CSRF-exempt (see middleware/csrf.go) — the browser posts here with no
+	// credentials. Logs each violation so a report-only policy can be verified.
+	r.Post("/csp-report", handlers.CSPReport)
+
 	// First-party image proxy for token/NFT logos (twimg/IPFS/arweave hosts get
 	// blocked by browser tracker filters). Public GET, loaded via <img>, so no
 	// auth/CSRF; SSRF-guarded inside the handler.
