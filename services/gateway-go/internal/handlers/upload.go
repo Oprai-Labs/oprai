@@ -108,35 +108,18 @@ func (u *UploadHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	// ── Determine & validate content type ─────────────────────────────────────
-	contentType := header.Header.Get("Content-Type")
-	filename := strings.ToLower(header.Filename)
-	ext := ""
-	if contentType == "" {
-		switch {
-		case strings.HasSuffix(filename, ".png"):
-			contentType, ext = "image/png", ".png"
-		case strings.HasSuffix(filename, ".jpg") || strings.HasSuffix(filename, ".jpeg"):
-			contentType, ext = "image/jpeg", ".jpg"
-		case strings.HasSuffix(filename, ".gif"):
-			contentType, ext = "image/gif", ".gif"
-		case strings.HasSuffix(filename, ".webp"):
-			contentType, ext = "image/webp", ".webp"
-		case strings.HasSuffix(filename, ".mp4"):
-			contentType, ext = "video/mp4", ".mp4"
-		default:
-			writeError(w, http.StatusBadRequest, "Unsupported file type. Use .jpg, .png, .gif, .webp, or .mp4")
-			return
-		}
-	} else {
-		ext = extFromContentType(contentType, filename)
-	}
-
-	isVideo := strings.HasPrefix(contentType, "video/")
-	isImage := strings.HasPrefix(contentType, "image/")
-	if !isImage && !isVideo {
-		writeError(w, http.StatusBadRequest, "Only image or video files are allowed")
+	// Resolve to one of a small allowlist of concrete, non-scriptable media
+	// types. The stored extension is NEVER taken from the raw client filename:
+	// an image/svg+xml (or any unrecognised image/*) used to fall through to the
+	// filename's own extension, letting a caller store <random>.svg or
+	// <random>.html and have it served back inline as active content — a stored
+	// XSS on our own domain. svg is deliberately excluded; only png/jpg/gif/webp/mp4.
+	contentType, ext, ok := safeMediaType(header.Header.Get("Content-Type"), header.Filename)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Unsupported file type. Use .jpg, .png, .gif, .webp, or .mp4")
 		return
 	}
+	isVideo := contentType == "video/mp4"
 
 	maxSize := int64(maxImageSize)
 	if isVideo {
@@ -314,22 +297,41 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func extFromContentType(ct, filename string) string {
+// safeMediaType maps a declared content-type (and, only as a fallback, the
+// filename extension) to one of a small allowlist of concrete, non-scriptable
+// media types. It returns ok=false for everything else — notably
+// image/svg+xml, text/html and unknown types — so the stored file extension can
+// never be attacker-chosen and later served back as active content.
+func safeMediaType(ct, filename string) (contentType, ext string, ok bool) {
+	ct = strings.ToLower(strings.TrimSpace(ct))
+	if i := strings.IndexByte(ct, ';'); i >= 0 { // drop "; charset=…" and friends
+		ct = strings.TrimSpace(ct[:i])
+	}
+	switch ct {
+	case "image/png":
+		return "image/png", ".png", true
+	case "image/jpeg", "image/jpg":
+		return "image/jpeg", ".jpg", true
+	case "image/gif":
+		return "image/gif", ".gif", true
+	case "image/webp":
+		return "image/webp", ".webp", true
+	case "video/mp4":
+		return "video/mp4", ".mp4", true
+	}
+	// No usable content-type — consult the filename, but against the SAME allowlist.
+	filename = strings.ToLower(filename)
 	switch {
-	case strings.Contains(ct, "png"):
-		return ".png"
-	case strings.Contains(ct, "gif"):
-		return ".gif"
-	case strings.Contains(ct, "webp"):
-		return ".webp"
-	case strings.Contains(ct, "jpeg"), strings.Contains(ct, "jpg"):
-		return ".jpg"
-	case strings.Contains(ct, "mp4"):
-		return ".mp4"
+	case strings.HasSuffix(filename, ".png"):
+		return "image/png", ".png", true
+	case strings.HasSuffix(filename, ".jpg"), strings.HasSuffix(filename, ".jpeg"):
+		return "image/jpeg", ".jpg", true
+	case strings.HasSuffix(filename, ".gif"):
+		return "image/gif", ".gif", true
+	case strings.HasSuffix(filename, ".webp"):
+		return "image/webp", ".webp", true
+	case strings.HasSuffix(filename, ".mp4"):
+		return "video/mp4", ".mp4", true
 	}
-	// Fall back to filename extension
-	if i := strings.LastIndex(filename, "."); i >= 0 {
-		return filename[i:]
-	}
-	return ".bin"
+	return "", "", false
 }
