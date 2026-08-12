@@ -8,11 +8,31 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 from typing import Any, Optional
 
 from app.models.character import Character, CharacterStyle
 
 logger = logging.getLogger(__name__)
+
+_PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+
+
+def _safe_format(template: str, variables: dict) -> str:
+    """Substitute ``{name}`` placeholders from ``variables`` without ``str.format``'s
+    hazards on a user-controlled template (character ``system_prompt`` /
+    ``templates.*`` are attacker-supplied):
+
+    - unknown placeholders are left literal — no ``KeyError`` crash (a DoS on
+      prompt building),
+    - attribute/index access (``{x.__class__}``, ``{x[0]}``) is impossible because
+      the regex only matches bare identifiers, so a template can never reflect on
+      runtime objects.
+    """
+    return _PLACEHOLDER_RE.sub(
+        lambda m: str(variables[m.group(1)]) if m.group(1) in variables else m.group(0),
+        template,
+    )
 
 
 # Default prompt templates
@@ -172,7 +192,7 @@ class PromptBuilder:
             **kwargs,
         }
 
-        return template.format(**variables)
+        return _safe_format(template, variables)
 
     def build_message_handler_prompt(
         self,
@@ -210,7 +230,7 @@ class PromptBuilder:
             **kwargs,
         }
 
-        return template.format(**variables)
+        return _safe_format(template, variables)
 
     def build_twitter_post_prompt(
         self,
@@ -271,7 +291,7 @@ class PromptBuilder:
             **kwargs,
         }
 
-        return template.format(**variables)
+        return _safe_format(template, variables)
 
     def build_should_respond_prompt(
         self,
@@ -317,7 +337,7 @@ Reply with only "true" if you should respond, or "false" if you should not.
             **kwargs,
         }
 
-        return template.format(**variables)
+        return _safe_format(template, variables)
 
     def build_evaluation_prompt(
         self,
@@ -366,7 +386,7 @@ Return JSON: {{"scores": {{"criterion": score}}, "feedback": "string"}}
             **kwargs,
         }
 
-        return template.format(**variables)
+        return _safe_format(template, variables)
 
     def build_goals_prompt(self, goals: list[str], **kwargs: Any) -> str:
         """
@@ -391,7 +411,7 @@ Keep these goals in mind while responding. Work towards achieving them when appr
             **kwargs,
         }
 
-        return template.format(**variables)
+        return _safe_format(template, variables)
 
     def build_facts_prompt(self, facts: list[dict[str, Any]], **kwargs: Any) -> str:
         """
@@ -422,7 +442,7 @@ Use these facts to provide contextually relevant responses.
             **kwargs,
         }
 
-        return template.format(**variables)
+        return _safe_format(template, variables)
 
     def get_message_examples_for_context(self, count: int = 3) -> list[dict[str, Any]]:
         """

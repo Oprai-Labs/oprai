@@ -179,7 +179,13 @@ pub fn build_native_stake(
         .get_minimum_balance_for_rent_exemption(STAKE_ACCOUNT_SPACE)
         .map_err(|e| AppError::Internal(format!("Rent query failed: {e}")))?;
 
-    let total_lamports = stake_lamports + rent;
+    // checked_add: a huge `amount` saturates `stake_lamports` to u64::MAX on the
+    // `as u64` cast, and an unchecked `+ rent` would then wrap in a release build
+    // (no overflow checks) to a tiny total that passes the balance check below
+    // with a wrong value. Fail closed with a clean error instead.
+    let total_lamports = stake_lamports
+        .checked_add(rent)
+        .ok_or_else(|| AppError::InvalidParams("Stake amount is too large".to_string()))?;
 
     // New ephemeral stake account keypair — backend partially signs it
     let stake_kp = Keypair::new();
@@ -216,10 +222,13 @@ pub fn build_native_stake(
 
     // SOL balance check: stake + rent + actual tx fee
     let sol_balance = rpc.client().get_balance(user_pubkey).unwrap_or(0);
-    if total_lamports + fee > sol_balance {
+    let needed = total_lamports
+        .checked_add(fee)
+        .ok_or_else(|| AppError::InvalidParams("Stake amount is too large".to_string()))?;
+    if needed > sol_balance {
         return Err(AppError::InvalidParams(format!(
             "Insufficient SOL. Need {:.6} SOL (stake + rent + fee), have {:.6} SOL",
-            (total_lamports + fee) as f64 / LAMPORTS_PER_SOL,
+            needed as f64 / LAMPORTS_PER_SOL,
             sol_balance as f64 / LAMPORTS_PER_SOL,
         )));
     }
