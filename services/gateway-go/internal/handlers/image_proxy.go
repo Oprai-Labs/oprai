@@ -21,9 +21,12 @@ type ImageProxy struct {
 
 // NewImageProxy builds an ImageProxy with a bounded HTTP client.
 func NewImageProxy() *ImageProxy {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = safeDialContext() // pin the validated IP (anti DNS-rebind)
 	return &ImageProxy{
 		client: &http.Client{
-			Timeout: 8 * time.Second,
+			Timeout:   8 * time.Second,
+			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 5 {
 					return http.ErrUseLastResponse
