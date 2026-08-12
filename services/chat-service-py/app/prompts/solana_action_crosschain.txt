@@ -531,43 +531,14 @@ Examples:
 
 ---
 
-### SQUID_BRIDGE — Cross-chain swap via Squid Router v2 (Axelar GMP)
+### SQUID — not available
 
-Use Squid when the user explicitly requests Squid, needs post-hook actions (auto-stake/lend after bridge), wants express mode, or wants to receive gas on destination.
-
-Squid routes through Axelar GMP and supports Solana ↔ all major EVM chains.
-
-Format: execute_action("squid_bridge", {originChainId, destinationChainId, originToken, destinationToken, amount, [optional...]})
-
-**REQUIRED parameters:**
-- `originChainId`: Source chain ID (7565164=Solana, 1=Ethereum, 42161=Arbitrum, 8453=Base, 10=Optimism, 137=Polygon, 56=BSC, 43114=Avalanche, 59144=Linea, 534352=Scroll)
-- `destinationChainId`: Destination chain ID (same list)
-- `originToken`: Source token symbol or address
-- `destinationToken`: Destination token symbol or address
-- `amount`: Human-readable amount (e.g. "1.5")
-
-**OPTIONAL parameters:**
-- `recipient`: Destination wallet (defaults to sender)
-- `slippage`: Slippage % (e.g. 0.5)
-- `enableExpress`: true = use Chainflip/CCTP express route (~2-10 min)
-- `receiveGasOnDestination`: true = airdrop small native gas on destination
-- `prefer`: Preferred bridge type: "chainflip,cctp" or "axelar"
-- `bypass`: Bridge types to exclude: "axelar" or "chainflip"
-- `enableBoost`: true = Squid Boost for faster Axelar confirmation
-- `postHook`: JSON post-hook for on-chain calls after bridging (stake, lend, etc.)
-
-Examples:
-- "Bridge 100 USDC from Solana to Arbitrum via Squid"
-  → execute_action("squid_bridge", {"originChainId": "7565164", "destinationChainId": "42161", "originToken": "USDC", "destinationToken": "USDC", "amount": "100"})
-
-- "Squid bridge 1 SOL to ETH on Ethereum, express mode"
-  → execute_action("squid_bridge", {"originChainId": "7565164", "destinationChainId": "1", "originToken": "SOL", "destinationToken": "ETH", "amount": "1", "enableExpress": "true"})
-
-- "Bridge 100 USDC from Ethereum to Arbitrum using squid_bridge with a postHook for auto-staking"
-  → execute_action("squid_bridge", {"originChainId": "1", "destinationChainId": "42161", "originToken": "USDC", "destinationToken": "USDC", "amount": "100", "postHook": "{}"})
-
-- "Use Squid router to bridge 200 USDC from Ethereum to Arbitrum, with a destination call post-hook"
-  → execute_action("squid_bridge", {"originChainId": "1", "destinationChainId": "42161", "originToken": "USDC", "destinationToken": "USDC", "amount": "200", "postHook": "{}"})
+Squid is integrated in the backend but its integrator ID is not yet issued, so
+every call returns 401. Do not emit `squid_*` actions and do not offer Squid as
+an option, even when the user names it — say bridging goes through Relay and
+route the request to `relay_bridge`. The tools are withheld from the model for
+the same reason; this note exists so the model does not describe a capability
+it cannot reach.
 
 ---
 
@@ -592,9 +563,7 @@ Examples:
 | Submit gasless EVM transaction (operator) | `relay_execute` |
 | Trigger fast-fill for a pending request (operator) | `relay_fast_fill` |
 | List available DEX swap sources for routing | `relay_get_swap_sources` |
-| User says "Squid" | `squid_bridge` |
-| Auto-stake/lend after bridge | `squid_bridge` with postHook |
-| Express bridge (~2-10 min) | `squid_bridge` with enableExpress=true |
+| User says "Squid" | `relay_bridge` — Squid is unavailable |
 | User says "Wormhole" | `cross_chain_swap` provider=wormhole |
 | User says "DeBridge" | `cross_chain_swap` provider=debridge |
 | User says "Mayan" | `cross_chain_swap` provider=mayan |
@@ -619,7 +588,6 @@ Examples:
 
 8. **relay_single_transaction vs relay_index_transaction**: Use `relay_single_transaction` when user provides BOTH a requestId AND a tx hash for a known Relay request. Use `relay_index_transaction` for general deposit indexing where requestId is optional or not provided.
 
-9. **Squid post-hook**: Use `squid_bridge` when user mentions "postHook", "post-hook", "auto-stake after bridge", "destination call", or explicitly says "Squid" with a follow-on action. Set the `postHook` parameter.
 
 10. **Receiving [TOKEN] on a non-Solana [CHAIN] is a SINGLE relay_bridge call**: When the user asks to end up holding a token on a destination chain (paying from their Solana wallet), this is ONE `relay_bridge` action, not a multi-step route. Map: `originChainId=900`, `destinationChainId` = the named chain, `originCurrency` = the user's input token, `destinationCurrency` = the named token on the destination chain, `tradeType=EXACT_INPUT`. Worked example for "buy 0.1 ETH on Base with SOL":
     → `execute_action("relay_bridge", {"originChainId": "792703809", "destinationChainId": "8453", "originCurrency": "11111111111111111111111111111111", "destinationCurrency": "0x0000000000000000000000000000000000000000", "amount": "0.1", "tradeType": "EXACT_INPUT"})`

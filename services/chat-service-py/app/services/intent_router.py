@@ -46,7 +46,7 @@ VALID_PROTOCOLS: frozenset[str] = frozenset({
     "marinade", "jito", "native_stake",
     "kamino", "solend",
     "tensor", "magic_eden", "pumpfun",
-    "relay", "debridge", "squid",
+    "relay", "debridge",
     "streamflow",
 })
 
@@ -84,7 +84,6 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     # semantically by the classifier (see the cross-chain rule in the prompt).
     "relay":     ("relay.link", "relay bridge", "wormhole", "mayan"),
     "debridge":  ("debridge",),
-    "squid":     ("squid router", "squidrouter"),
 }
 
 
@@ -220,7 +219,6 @@ Protocols (canonical id list — use ONLY these strings, multiple allowed):
   pumpfun      — pump.fun token launches, PumpSwap, mayhem.
   relay        — Relay.link cross-chain bridge.
   debridge     — deBridge cross-chain.
-  squid        — Squid Router cross-chain (postHook destination calls).
   streamflow   — Streamflow token streaming / vesting.
 
 Detection rules:
@@ -234,7 +232,7 @@ Detection rules:
   Nova) OR a bridge/cross-chain verb in any language ("bridge",
   "cross-chain", "köprüle", "köprü", "puente") implies cross-chain →
   emit "relay" in protocols. Relay.link is the default cross-chain
-  provider; only emit "squid" or "debridge" when the user names them
+  provider; only emit "debridge" when the user names it
   explicitly. Wormhole and Mayan have no canonical id — when the user
   names them, still emit "relay" so the cross-chain prompt section loads
   (they route through `cross_chain_swap` inside that section).

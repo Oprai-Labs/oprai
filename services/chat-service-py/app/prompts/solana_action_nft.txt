@@ -105,7 +105,7 @@ of a collection the user names (`me_collection_stats`), its sales over time
   Params: `symbol` (required), `days` (1–90, default 30).
 
 A collection's holders are an NFT question, not a token one. "Mad Lads holder
-dağılımı", "who owns DeGods", "holder distribution of <collection>" are
+breakdown", "who owns DeGods", "holder distribution of <collection>" are
 `me_collection_holder_stats` with a `symbol`. `birdeye_holder_distribution` is
 for fungible tokens and takes a mint — pointed at a collection name it returns
 nothing, which is how a question about Mad Lads got answered with "no data".
@@ -162,7 +162,7 @@ Examples:
 - "Show listings in the SMB collection" → `query_onchain("me_collection_listings", {"symbol": "solana_monkey_business"})`
 - "What NFTs does this wallet hold? <addr>" → `query_onchain("me_wallet_tokens", {"walletAddress": "<addr>"})`
 - "Offers on this NFT <mint>" → `query_onchain("me_token_offers_received", {"tokenMint": "<mint>"})`
-- "Trenchors nft alalım" → `query_onchain("me_collection_stats", {"symbol": "Trenchors"})`, then offer its listings — never a token swap.
+- "let's buy a Trenchors nft" → `query_onchain("me_collection_stats", {"symbol": "Trenchors"})`, then offer its listings — never a token swap.
 
 ---
 
