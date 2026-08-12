@@ -3386,14 +3386,43 @@ async def stream_chat_response(
                 _pos += 1
 
         # ── 9. Fire-and-forget: store to long-term memory ────────────────
+        # The stored text is what a later turn's semantic search matches against,
+        # so it pays to keep what the user actually did, not just the bare action
+        # name. This adds the salient parameters — token, amount, protocol, pool —
+        # and the query types, all from data already in hand: no extra LLM call,
+        # no added latency. "swap" becomes "swap 1 SOL→USDC", which both reads
+        # back usefully and embeds to a far more specific point.
         if validated_actions or validated_queries:
             try:
                 from app.services.memory_client import store_memory
                 mem_type = "decision" if validated_actions else "meta"
-                memory_summary = (
-                    f"User: {user_content[:200]}\n"
-                    f"Assistant actions: {[a['type'] for a in validated_actions]}"
-                )
+
+                def _describe_action(a: dict) -> str:
+                    t = a.get("type", "action")
+                    p = a.get("params", {}) or {}
+                    bits: list[str] = []
+                    amt = p.get("amount") or p.get("amountA") or p.get("inputAmount")
+                    src = p.get("inputMint") or p.get("token") or p.get("fromToken") or p.get("tokenA")
+                    dst = p.get("outputMint") or p.get("toToken") or p.get("tokenB")
+                    if amt:
+                        bits.append(str(amt))
+                    if src and dst:
+                        bits.append(f"{src}→{dst}")
+                    elif src:
+                        bits.append(str(src))
+                    for k in ("protocol", "pool", "validator", "poolId"):
+                        if p.get(k):
+                            bits.append(f"{k}={p[k]}")
+                            break
+                    return f"{t} {' '.join(bits)}".strip()
+
+                lines = [f"User: {user_content[:200]}"]
+                if validated_actions:
+                    lines.append("Actions: " + "; ".join(_describe_action(a) for a in validated_actions))
+                if validated_queries:
+                    lines.append("Queries: " + ", ".join(q.get("type", "") for q in validated_queries))
+                memory_summary = "\n".join(lines)
+
                 await store_memory(
                     wallet=wallet,
                     memory_type=mem_type,
