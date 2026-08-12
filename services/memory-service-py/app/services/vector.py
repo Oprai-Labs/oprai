@@ -18,7 +18,6 @@ from qdrant_client.models import (
     MatchAny,
     PayloadSchemaType,
     PointStruct,
-    QuantizationConfig,
     Range,
     ScalarQuantization,
     ScalarQuantizationConfig,
@@ -75,12 +74,15 @@ class VectorService:
                 # INT8 scalar quantization: ~4× memory reduction vs float32
                 # with <1% recall loss at this dimensionality.  Keeps the
                 # raw vectors for re-scoring so accuracy stays high.
-                quantization_config=QuantizationConfig(
-                    scalar=ScalarQuantization(
-                        scalar=ScalarQuantizationConfig(
-                            type=ScalarType.INT8,
-                            always_ram=True,
-                        )
+                # `QuantizationConfig` is a Union type in qdrant-client, not a
+                # wrapper — instantiating it raises "Cannot instantiate
+                # typing.Union", which is why collection creation was failing on
+                # boot and memory silently did nothing. The concrete variant,
+                # ScalarQuantization, is passed directly.
+                quantization_config=ScalarQuantization(
+                    scalar=ScalarQuantizationConfig(
+                        type=ScalarType.INT8,
+                        always_ram=True,
                     )
                 ),
             )
