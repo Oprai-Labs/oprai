@@ -403,6 +403,28 @@ pub async fn post_build(
                 body.params[key] = serde_json::Value::String(resolved);
             }
         }
+
+        // Enforce the SAME mint-provenance gate as /quote: refuse to BUILD a swap
+        // against a token that is neither in the verified registry nor known to
+        // Jupiter — i.e. a vanity-prefix impersonator (e.g. an address grinding
+        // "J1toso1u…" to look like JitoSOL). /quote's require_known_mint rejected
+        // these, but a caller could POST straight to /build (or a prompt-injection
+        // could emit `[ACTION:swap] outputMint=<fake>`), skipping /quote and
+        // getting a signable swap into the fake token — opaque in the wallet UI.
+        // Mints are already resolved to canonical addresses above.
+        let mut checked = std::collections::HashSet::new();
+        for key in ["inputMint", "input_mint", "outputMint", "output_mint"] {
+            if let Some(mint) = body.params.get(key).and_then(|v| v.as_str()) {
+                if checked.insert(mint.to_string()) {
+                    crate::services::mint_security::require_known_mint(
+                        &state.mint_security,
+                        &state.http,
+                        mint,
+                    )
+                    .await?;
+                }
+            }
+        }
     }
 
     // Kamino farm staking (and, later, leverage) are built with the

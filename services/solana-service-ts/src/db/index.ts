@@ -101,22 +101,27 @@ export async function getTransactionsByWallet(
   );
 }
 
-export async function getTransactionById(id: string): Promise<TxRecord | null> {
+export async function getTransactionById(id: string, userWallet: string): Promise<TxRecord | null> {
+  // Scoped to the caller's wallet (IDOR fix): without the user_wallet predicate
+  // any authenticated caller could read any transaction row by its UUID.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = await query<any>(
-    `SELECT * FROM solana_schema.transactions WHERE id = $1`,
-    [id]
+    `SELECT * FROM solana_schema.transactions WHERE id = $1 AND user_wallet = $2`,
+    [id, userWallet]
   );
   return rows[0] ?? null;
 }
 
 export async function updateTransactionStatus(
   id: string,
+  userWallet: string,
   status: string,
   txHash?: string,
   actualFee?: string,
   errorMessage?: string
 ): Promise<{ id: string; status: string; updatedAt: Date }> {
+  // Scoped to the caller's wallet (IDOR fix): without the user_wallet predicate
+  // any authenticated caller could mutate any transaction's status/tx_hash by UUID.
   const rows = await query<{ id: string; status: string; updatedAt: Date }>(
     `UPDATE solana_schema.transactions
      SET status = $2,
@@ -125,9 +130,9 @@ export async function updateTransactionStatus(
          error_message = COALESCE($5, error_message),
          submitted_at = CASE WHEN $2 = 'submitted' THEN NOW() ELSE submitted_at END,
          confirmed_at = CASE WHEN $2 IN ('confirmed','completed') THEN NOW() ELSE confirmed_at END
-     WHERE id = $1
+     WHERE id = $1 AND user_wallet = $6
      RETURNING id, status, updated_at AS "updatedAt"`,
-    [id, status, txHash ?? null, actualFee ?? null, errorMessage ?? null]
+    [id, status, txHash ?? null, actualFee ?? null, errorMessage ?? null, userWallet]
   );
   if (!rows[0]) throw new Error(`Transaction ${id} not found`);
   return rows[0];
