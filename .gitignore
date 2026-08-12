@@ -140,3 +140,11 @@ demo_script.txt
 
 # Claude Code project instructions — local only, not published
 /CLAUDE.md
+
+# VPN / WireGuard client configs — SECRETS (contain private keys). NEVER commit.
+/secrets/
+**/secrets/
+*.wgconf
+*wireguard*.conf
+wg-*.conf
+*-client.conf
