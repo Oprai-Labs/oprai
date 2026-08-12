@@ -67,6 +67,14 @@ func (a *AdminAuth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Reject tokens that have been logged out (revoked) even if the JWT is
+		// still within its expiry — logout must actually kill a stolen token.
+		if IsAdminTokenRevoked(token) {
+			slog.Warn("Admin authentication rejected: token was logged out", "path", r.URL.Path)
+			writeJSONError(w, http.StatusUnauthorized, "Session has been logged out")
+			return
+		}
+
 		ctx := context.WithValue(r.Context(), AdminUsernameKey, claims.Username)
 		ctx = context.WithValue(ctx, AdminRoleKey, claims.Role)
 		next.ServeHTTP(w, r.WithContext(ctx))
