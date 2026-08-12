@@ -1,7 +1,13 @@
 .portfolio-page {
   display: flex;
   flex-direction: column;
+  // 100vh on a mobile browser is the viewport with the URL bar collapsed —
+  // taller than what is actually on screen. Combined with `overflow: hidden`
+  // that pushes the bottom of the app, including the mobile tab bar, under the
+  // browser chrome where it cannot be reached. `dvh` tracks the visible
+  // viewport as the chrome shows and hides. The vh line stays as the fallback.
   height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
   background: var(--op-bg-base);
 }

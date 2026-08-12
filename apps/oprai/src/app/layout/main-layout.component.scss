@@ -2,7 +2,13 @@
 
 .app-layout {
   display: flex;
+  // 100vh on a mobile browser is the viewport with the URL bar collapsed —
+  // taller than what is actually on screen. Combined with `overflow: hidden`
+  // that pushes the bottom of the app, including the mobile tab bar, under the
+  // browser chrome where it cannot be reached. `dvh` tracks the visible
+  // viewport as the chrome shows and hides. The vh line stays as the fallback.
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   background: var(--op-bg-base);
 }
@@ -602,6 +608,9 @@ $sidebar-collapsed: 52px;
   position: fixed;
   z-index: 9999;
   width: 300px;
+  // Narrower than the menu itself (small phones, split view): shrink rather
+  // than overflow, since the page clips horizontal overflow.
+  max-width: calc(100vw - 16px);
   background: var(--op-bg-surface-1);
   border: 1px solid var(--op-border-default);
   border-radius: 16px;
@@ -942,6 +951,28 @@ $sidebar-collapsed: 52px;
   display: flex;
   align-items: center;
   gap: var(--op-space-1);
+}
+
+// Opens the sidebar on phones. Desktop keeps the sidebar on screen, so the
+// button would only be a second way to do what the rail already does.
+.mobile-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--op-radius-md);
+  background: none;
+  color: var(--op-text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  &:active { background: var(--op-hover); }
+
+  @media (max-width: 768px) {
+    display: inline-flex;
+  }
 }
 
 .btn-icon {

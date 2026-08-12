@@ -668,3 +668,28 @@
 }
 
 .spin { animation: spin 1s linear infinite; display: flex; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Narrow viewports
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The yields table is six columns of numbers. They are all `fr`, so on a phone
+// they do not overflow — they compress, until an APY and a TVL are sharing
+// about fifty pixels each and neither can be read. `.yields-table` also carries
+// `overflow: hidden` for its rounded corners, so there is nothing to scroll.
+//
+// Give the table a floor width and let it scroll horizontally instead. The
+// corners still clip vertically; only the x axis is released.
+@media (max-width: 768px) {
+  .yields-table {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .yields-thead,
+  .yields-row {
+    min-width: 560px;
+  }
+}
