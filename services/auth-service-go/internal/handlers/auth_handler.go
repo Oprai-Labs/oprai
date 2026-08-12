@@ -284,6 +284,15 @@ func (h *AuthHandler) HandleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject a logged-out (revoked) token even though the gateway blocklist
+	// already does — defence in depth on the now-shared revocation keyspace, and
+	// correct behaviour for any future direct caller of the auth-service.
+	if jti, _, perr := h.jwtService.ParseUnvalidated(tokenStr); perr == nil &&
+		h.revocationService.IsRevoked(r.Context(), jti) {
+		writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, sessionResponse{
 		Authenticated: true,
 		Wallet:        wallet,

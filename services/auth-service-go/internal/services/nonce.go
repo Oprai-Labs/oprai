@@ -91,27 +91,19 @@ func (ns *NonceService) Consume(ctx context.Context, nonceID string) (string, er
 	if ns.redis != nil {
 		key := redisKeyPrefix + nonceID
 
-		// Use GET + DEL pipeline for atomic consume
-		pipe := ns.redis.Pipeline()
-		getCmd := pipe.Get(ctx, key)
-		pipe.Del(ctx, key)
-
-		_, err := pipe.Exec(ctx)
-		if err != nil && err != redis.Nil {
-			slog.Warn("Redis consume pipeline failed, falling back to in-memory store",
-				"nonce_id", nonceID,
-				"error", err,
-			)
-			return ns.fallbackConsume(nonceID), nil
-		}
-
-		nonce, err := getCmd.Result()
+		// GETDEL is a single atomic command (Redis 6.2+): it returns the nonce
+		// AND deletes it in one step, so two concurrent /auth/verify calls can
+		// never both read the same nonce before it is removed. A pipelined
+		// GET+DEL does NOT guarantee that — a pipeline is not a transaction — so
+		// one captured (wallet, signature, nonceId) could be replayed into two
+		// sessions within the TTL window.
+		nonce, err := ns.redis.GetDel(ctx, key).Result()
 		if err == redis.Nil {
-			// Not in Redis, try fallback
+			// Not in Redis, try the in-memory fallback store.
 			return ns.fallbackConsume(nonceID), nil
 		}
 		if err != nil {
-			slog.Warn("Redis GET failed during nonce consume",
+			slog.Warn("Redis GETDEL failed during nonce consume",
 				"nonce_id", nonceID,
 				"error", err,
 			)

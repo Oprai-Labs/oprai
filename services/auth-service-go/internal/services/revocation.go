@@ -9,7 +9,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const revocationKeyPrefix = "oprai:revoked_jti:"
+// Shared with the gateway's JWT blocklist (gateway-go token_blocklist.go uses
+// the same prefix + the same Set(key,"1",ttl) / Exists semantics). Unifying the
+// keyspace means a logout recorded by either service is honoured by both, and
+// the auth-service's own IsRevoked check (HandleSession) sees gateway-recorded
+// revocations too. Previously this was "oprai:revoked_jti:", a keyspace nobody
+// else read — so the auth-service's revocation was effectively dead.
+const revocationKeyPrefix = "oprai:auth:revoked:"
 
 // RevocationService stores revoked JWT IDs so that logged-out tokens are
 // rejected on subsequent requests. Redis is the primary store with an
