@@ -25,7 +25,7 @@ permissions:
   packages: write
 
 env:
-  GO_VERSION: "1.22"
+  GO_VERSION: "1.25"
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/oprai-labs/oprai
 
@@ -78,6 +78,22 @@ jobs:
       - name: Go build
         working-directory: services/${{ matrix.service }}
         run: go build -o bin/${{ matrix.service }} ./cmd/...
+
+      # Catch known-vulnerable dependencies before they ship. Scoped to ./cmd/...
+      # to match the build step above: `./...` fails to load because the
+      # generated proto stubs declare an import path (github.com/oprai/oprai/
+      # proto/gen/go/*) that no go.mod provides — a known structural debt. From
+      # the cmd entrypoint govulncheck does a real reachability analysis and
+      # reports only the vulnerabilities the service actually calls, not
+      # everything linked in. Advisory for now (continue-on-error): a
+      # newly-published stdlib CVE shouldn't block an unrelated PR, but it stays
+      # visible in the run. Flip to blocking once the team wants a hard gate.
+      - name: Vulnerability scan (govulncheck)
+        working-directory: services/${{ matrix.service }}
+        continue-on-error: true
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./cmd/...
 
       - name: Upload coverage
         if: always()
