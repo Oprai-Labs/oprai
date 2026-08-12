@@ -3442,3 +3442,71 @@
 
   img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Narrow viewports: wide tables scroll instead of being clipped
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `body` carries `overflow-x: hidden`, so a table wider than the viewport is
+// not scrolled to — it is silently cut off. The columns past the edge become
+// unreachable and nothing on screen says they exist, which is worse than a
+// scrollbar: the user reads a truncated row as the whole row.
+//
+// Every variant below carries fixed pixel columns that cannot fit a phone
+// (measured against a 390px viewport minus page and card padding). They keep
+// their natural width and scroll inside the card, the same pattern the
+// portfolio's activity table already uses.
+//
+// `min-width` only forces a scrollbar when the container is genuinely
+// narrower, so a generous breakpoint costs nothing on a tablet — the rule is
+// inert until the table actually does not fit.
+@media (max-width: 768px) {
+  .result-table,
+  .km-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    // Don't hand the page a horizontal scroll when the table reaches its end.
+    overscroll-behavior-x: contain;
+  }
+
+  // Rows bleed 8px into the card padding so the hover highlight reads as one
+  // unit. Inside a scroll container that puts the first 8px to the left of the
+  // scroll origin, where it can never be reached.
+  .result-table__header,
+  .result-table__row {
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+
+  // Header and row share one selector block per variant upstream, so a single
+  // min-width keeps the two aligned as they scroll together.
+  .result-table__header--6col,
+  .result-table__row--6col { min-width: 380px; }
+
+  .result-table__header--7col,
+  .result-table__row--7col { min-width: 440px; }
+
+  .result-table__header--orca,
+  .result-table__row--orca { min-width: 460px; }
+
+  .result-table__header--me-act,
+  .result-table__row--me-act { min-width: 360px; }
+
+  .result-table__header--me-offer,
+  .result-table__row--me-offer { min-width: 375px; }
+
+  .result-table__header--me-pool,
+  .result-table__row--me-pool { min-width: 485px; }
+
+  .result-table__header--me-bid,
+  .result-table__row--me-bid { min-width: 410px; }
+
+  .result-table__header--me-trend,
+  .result-table__row--me-trend { min-width: 525px; }
+
+  // Kamino-family tables. The min-width sits on the shared row class rather
+  // than per row type, so a table mixing row shapes still scrolls as one grid
+  // with its columns lined up.
+  .km-table .km-row { min-width: 430px; }
+  .km-table--ray .km-row { min-width: 590px; }
+}
