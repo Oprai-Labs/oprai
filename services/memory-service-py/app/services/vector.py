@@ -168,6 +168,17 @@ class VectorService:
         list[dict]
             Each dict has ``id``, ``score``, and ``payload`` keys.
         """
+        # Memory is strictly per-user. A search with no user_id scope would match
+        # every user's vectors and hand one user another's memories, so refuse it
+        # — fail closed, never open. The HTTP endpoint always passes the
+        # authenticated wallet; this guards the case where a caller (a future
+        # path, or the gRPC servicer, which forwards a caller-supplied filter)
+        # omits it. Without this, _build_filter returns None on an empty or
+        # user_id-less filter and Qdrant searches the whole collection.
+        if not filters or not filters.get("user_id"):
+            logger.warning("Memory search refused: no user_id scope in filter")
+            return []
+
         qdrant_filter = self._build_filter(filters)
 
         try:
