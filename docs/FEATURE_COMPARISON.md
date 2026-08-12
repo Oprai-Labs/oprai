@@ -54,7 +54,6 @@
 | Raydium | AMM, liquidity |
 | Meteora | Dynamic liquidity |
 | Marinade | Liquid staking |
-| Marginfi | Lending protocol |
 | Pumpfun/Bonkfun | Token launches |
 | Production-Ready | PostgreSQL, Redis, Qdrant |
 | Polyglot | Go, Rust, Python, TypeScript |

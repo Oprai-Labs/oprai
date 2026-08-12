@@ -191,23 +191,14 @@ async def main():
               want=["kamino_staking_yields"], keywords=["sol"], min_w=15)
     await asyncio.sleep(DELAY)
 
-    # ── 4. MARGINFI ───────────────────────────────────────────────────────
-    print(f"\n{B}{BOLD}━━━ 4. MarginFi ━━━{E}")
 
-    await run("MFI-01", "MarginFi'da SOL ve USDC APY'si nedir?",
-              want=["marginfi_banks"], keywords=["sol","usdc"], min_w=20)
     await asyncio.sleep(DELAY)
 
-    await run("MFI-02", "MarginFi LST oranları",
-              want=["marginfi_lst_rates","marginfi_staked_banks"], min_w=15)
     await asyncio.sleep(DELAY)
 
     # ── 5. KARŞILAŞTIRMAli ANALİZ ────────────────────────────────────────
     print(f"\n{B}{BOLD}━━━ 5. Karşılaştırmalı Analiz ━━━{E}")
 
-    await run("CMP-01", "USDC için en yüksek lending APY: Solend, Kamino, MarginFi karşılaştır",
-              want=["solend_reserves","kamino_market_reserves","marginfi_banks"],
-              keywords=["usdc","apy"], min_w=50)
     await asyncio.sleep(DELAY)
 
     await run("CMP-02", "SOL staking için en iyi seçenek: Marinade, Jito, BlazeStake?",
@@ -353,10 +344,6 @@ async def main():
               want=["solend_reserves","solend_reward_stats"], min_w=40)
     await asyncio.sleep(DELAY)
 
-    await run("TUR-02", "Şu an Solana'da en yüksek getiri nerede?",
-              want=["solend_reserves","kamino_market_reserves","marginfi_banks",
-                    "kamino_strategies","kamino_staking_yields","kamino_earn_vaults",
-                    "solend_lst_rates","marginfi_lst_rates","jito_stake_pool_stats"], min_w=40)
     await asyncio.sleep(DELAY)
 
     await run("TUR-03", "BONK almalı mıyım? Fiyat, güvenlik ve hacim analizi",
@@ -377,10 +364,6 @@ async def main():
               keywords=["tvl","apy"], min_w=80)
     await asyncio.sleep(DELAY)
 
-    await run("ANA-02",
-              "Solana DeFi lending ekosistemi genel bakış: Solend, Kamino, MarginFi karşılaştırması",
-              want=["solend_reserves","kamino_market_reserves","marginfi_banks"],
-              min_w=80)
     await asyncio.sleep(DELAY)
 
     await run("ANA-03",

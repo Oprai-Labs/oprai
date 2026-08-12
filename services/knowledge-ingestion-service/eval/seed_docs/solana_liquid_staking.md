@@ -54,7 +54,7 @@ Solana staking APY consists of:
 ## DeFi Integration
 
 LSTs can be used as:
-- Collateral in lending protocols (Kamino, MarginFi, Solend)
+- Collateral in lending protocols (Kamino, Solend)
 - Liquidity in DEX pools (Orca, Meteora) — earning swap fees on top of staking yield
 - Basis for leveraged staking (Kamino Multiply) — recursively borrow and stake
 

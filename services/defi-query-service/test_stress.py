@@ -218,15 +218,6 @@ CASES = [
     ("K12",  "Show Kamino oracle prices for SOL and USDC",
      dict(want=("kamino_oracle_prices",), has_num=True)),
 
-    # ── MARGINFI ─────────────────────────────────────────────────────────────
-    ("MF01", "What assets are available on MarginFi?",
-     dict(want=("marginfi_banks",), min_w=20)),
-    ("MF02", "Show MarginFi SOL supply and borrow rates",
-     dict(want=("marginfi_banks",), keywords=("sol",), has_num=True)),
-    ("MF03", "What is the USDC APY on MarginFi?",
-     dict(want=("marginfi_banks",), keywords=("usdc",), has_num=True)),
-    ("MF04", "Show MarginFi LST rates — jitoSOL, mSOL",
-     dict(want=("marginfi_lst_rates","marginfi_banks"), has_num=True)),
 
     # ── MARINADE ─────────────────────────────────────────────────────────────
     ("MA01", "What is the Marinade mSOL APY over the last 30 days?",
@@ -377,14 +368,8 @@ CASES = [
      dict(want=("birdeye_holder_profile","birdeye_holder_distribution","helius_token_holders"), min_w=10)),
 
     # ── MULTI-PROTOCOL COMPARISONS ───────────────────────────────────────────
-    ("C01",  "Compare SOL lending rates across Solend, Kamino, and MarginFi",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks"), keywords=("sol","apy"), has_num=True, min_w=60)),
-    ("C02",  "Best USDC yield across all Solana lending protocols",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks"), keywords=("usdc",), has_num=True, min_w=40)),
     ("C03",  "Risk profile differences between Solend and Kamino",
      dict(want=("solend_reserves","kamino_market_reserves"), min_w=60)),
-    ("C04",  "Where can I get the best yield on Solana right now?",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","kamino_earn_vaults","kamino_staking_yields"), min_w=40)),
     ("C05",  "Compare jitoSOL APY on Solend vs Kamino vs Marinade",
      dict(want=("solend_lst_rates","kamino_staking_yields","marinade_msol_apy","jito_stake_pool_stats"), has_num=True, min_w=40)),
     ("C06",  "Which DEX has the best SOL-USDC liquidity — Raydium or Orca?",
@@ -457,8 +442,6 @@ CASES = [
      dict(want=("jup_quote","raydium_swap_quote"), min_w=10)),
 
     # ── SCENARIO: complex multi-step queries ─────────────────────────────────
-    ("SC01", "I want to deposit 1000 USDC somewhere for maximum yield. Compare Solend, Kamino, MarginFi. Which one gives the best APY?",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks"), keywords=("usdc","apy"), has_num=True, min_w=80)),
     ("SC02", "Analyze the Solana DeFi ecosystem: top protocols by TVL, best yields, current market conditions",
      dict(want=("solend_stats","kamino_markets","raydium_info","marinade_stats"), min_w=100)),
     ("SC03", f"Give me a complete DeFi report for wallet {WALLET}: positions, PnL, net worth, risks",
@@ -471,8 +454,6 @@ CASES = [
      dict(want=("solend_daily_stats","solend_daily_fees","solend_liquidation_attempts"), min_w=30)),
     ("SC07", "Compare BONK and WIF — which is more liquid, which has better fundamentals?",
      dict(want=("jup_prices","birdeye_token_overview","jup_search"), min_w=50)),
-    ("SC08", "Show me all the ways to earn yield on USDC on Solana",
-     dict(want=("solend_reserves","kamino_market_reserves","marginfi_banks","raydium_pools"), keywords=("usdc",), has_num=True, min_w=60)),
 
     # ── PUMPFUN / NEW TOKENS ─────────────────────────────────────────────────
     ("PF01", "Show me the newest pump.fun token launches",

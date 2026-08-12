@@ -90,7 +90,7 @@ Admin Panel (Angular :3000) → Bearer JWT → admin-service (Go :3050/50055) �
 | OpraiOS | `opraios/` | Python | Pydantic, OpenAI, solana-py | standalone |
 
 ### Additional Services (newer, not yet in the table above)
-- **`services/solana-service-ts/`** — TypeScript rewrite of the Rust solana-service using official protocol SDKs (Jupiter, Kamino, Drift, Marinade, Meteora, MarginFi). Runs alongside the Rust service: `make dev-solana-ts` (PORT 3030) or via Procfile as `solana-ts` (PORT 3031). The two are interchangeable backends for the same `/actions/*` surface — the Rust service is still the documented default; the TS one is the migration target.
+- **`services/solana-service-ts/`** — TypeScript rewrite of the Rust solana-service using official protocol SDKs (Jupiter, Kamino, Drift, Marinade, Meteora). Runs alongside the Rust service: `make dev-solana-ts` (PORT 3030) or via Procfile as `solana-ts` (PORT 3031). The two are interchangeable backends for the same `/actions/*` surface — the Rust service is still the documented default; the TS one is the migration target.
 - **`services/knowledge-ingestion-service/`** (Python, FastAPI, :3070) — admin REST API + scheduler (APScheduler) that crawls/chunks docs into the knowledge base. Sources configured via `source_configs/*.yaml` or at runtime. Has its own venv + Alembic migrations; created by `make build-python`, run in Procfile as `knowledge`.
 - **`services/defi-query-service/`** (Python, FastAPI + CLI, :3150 — see memory) — standalone LLM orchestrator: `POST /query {question, jwt_token?} → {html, plain, tools_called}`. Wraps the gateway's DeFi GET endpoints as tools. Runnable as a CLI: `python3 main.py "What's the Jito tip floor?"`.
 

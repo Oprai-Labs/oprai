@@ -152,14 +152,8 @@ async def main():
     # ────────────────────────────────────────────────────────────────────────
     print(f"\n{B}{BOLD}━━━ 3: Karşılaştırmalı Analiz ━━━{E}")
 
-    await run("C01", "SOL yatırmak için en iyi yer neresi: Solend, Kamino, MarginFi?",
-              want_tools=["solend_reserves", "kamino_market_reserves", "marginfi_banks"],
-              want_words=["sol", "apy"], min_words=60)
     await asyncio.sleep(DELAY)
 
-    await run("C02", "USDC için en yüksek supply APY hangi protokolde?",
-              want_tools=["solend_reserves", "kamino_market_reserves", "marginfi_banks"],
-              want_words=["usdc", "apy"], min_words=40)
     await asyncio.sleep(DELAY)
 
     await run("C03", "Solend ve Kamino'nun risk profilleri nasıl?",

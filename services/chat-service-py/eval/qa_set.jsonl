@@ -42,12 +42,10 @@
 {"id":"unstake-jitosol","message":"unstake 0.1 jitoSOL","intent":"action","must_have_action":"jito_unstake","must_contain_params":["amount"]}
 
 {"id":"lend-kamino","message":"lend 10 USDC to kamino","intent":"action","must_have_action":"kamino_deposit","must_contain_params":["amount","token"]}
-{"id":"lend-marginfi","message":"lend 50 USDT to marginfi","intent":"action","must_have_action":"marginfi_deposit","must_contain_params":["amount","token"]}
 {"id":"deposit-kamino","message":"deposit 20 USDC to kamino","intent":"action","must_have_action":"kamino_deposit","must_contain_params":["amount","token"]}
 {"id":"deposit-solend","message":"deposit 100 USDC into solend","intent":"action","must_have_action":"solend_deposit","must_contain_params":["amount","token"]}
 
 {"id":"borrow-kamino","message":"borrow 5 USDC from kamino","intent":"action","must_have_action":"kamino_borrow","must_contain_params":["amount","token"]}
-{"id":"borrow-marginfi","message":"borrow 20 USDT from marginfi","intent":"action","must_have_action":"marginfi_borrow","must_contain_params":["amount","token"]}
 
 {"id":"balance-sol","message":"how much SOL do i have","intent":"query","must_contain":["SOL"],"must_not_contain":["cannot access"]}
 {"id":"balance-usdc","message":"how much USDC do i have","intent":"query","must_contain":["USDC"],"must_not_contain":["cannot access"]}

@@ -451,7 +451,6 @@ export class IntentParserService {
 - Core: `transfer`, `swap`, `stake`, `unstake`, `burn`, `claim`, `vote`, `launch_token`, `cross_chain_swap`, `bridge`
 - Jupiter: `limit_order`, `dca`, `lend`, `borrow`, `perp_open`, `jlp_add`
 - DEX: `raydium_swap`, `orca_swap`, `meteora_swap`
-- Lending: `kamino_deposit`, `marginfi_borrow`, `solend_deposit`
 - NFT: `nft_buy`, `nft_list`, `me_buy`, `tensor_buy`
 - Staking: `marinade_stake`, `jito_stake`
 - Automation: `set_alert`, `copy_trade`, `create_schedule`, `rebalance_portfolio`

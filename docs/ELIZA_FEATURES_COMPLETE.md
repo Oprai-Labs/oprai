@@ -178,7 +178,6 @@ QDRANT_URL=http://localhost:6333
 ## 🎯 OPRAI Advantages over elizaOS
 
 1. **Solana-Native**: Deep integration with Solana ecosystem
-2. **DeFi Protocols**: 12+ protocol integrations (Jupiter, Orca, Kamino, Jito, Drift, Raydium, Meteora, Marinade, Marginfi, Bonkfun, Pumpfun)
 3. **Production-Ready**: Built for scale with PostgreSQL, Redis, Qdrant
 4. **Polyglot Architecture**: Go, Rust, Python, TypeScript
 5. **gRPC Communication**: High-performance inter-service communication

@@ -218,11 +218,6 @@ SOURCES: list[Source] = [
             "https://docs.kamino.finance/kamino-lend/risks",
         ]}),
 
-    Source("marginfi_docs", "protocols", "sitemap",
-        "https://marginfi.gitbook.io/marginfi", "marginfi", "protocol_documentation", "proprietary-fair-use",
-        max_pages=100, crawl_delay=1.5, tags=["marginfi","lending","defi"],
-        extra={"sitemap_url": "https://marginfi.gitbook.io/marginfi/sitemap.xml"}),
-
     # Solend rebranded to Save Finance in 2023
     Source("solend_docs", "protocols", "sitemap",
         "https://docs.save.finance", "solend", "protocol_documentation", "proprietary-fair-use",
@@ -1874,12 +1869,12 @@ SOURCES: list[Source] = [
               "sol","lst","yield","solana","funding-rate-arbitrage"]),
 
     # Lulo — yield aggregator on Solana, auto-routing stablecoin deposits to best APY
-    # across Kamino/Drift/MarginFi/Solend, loss coverage protection, single-click
+    # across Kamino/Drift/Solend, loss coverage protection, single-click
     Source("lulo_docs", "protocols", "direct_urls",
         "https://lulo.fi", "lulo", "protocol_documentation", "proprietary-fair-use",
         max_pages=15, crawl_delay=1.0,
         tags=["lulo","yield-aggregator","stablecoin","auto-routing","kamino","drift",
-              "marginfi","loss-coverage","solana","single-click-yield"],
+              "loss-coverage","solana","single-click-yield"],
         extra={"urls": [
             "https://lulo.fi/docs",
             "https://lulo.fi/docs/overview",

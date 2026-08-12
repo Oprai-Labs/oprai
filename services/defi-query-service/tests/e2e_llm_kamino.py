@@ -530,13 +530,12 @@ ALL_CASES: list[TestCase] = [
         description="JitoSOL tam strateji analizi",
     ),
     TestCase(
-        id="edge_03_kamino_vs_marginfi",
         tool="kamino_market_reserves",
-        query="USDC lend etmek için Kamino mı yoksa MarginFi mi daha iyi getiri veriyor?",
-        expected_tools=["kamino_market_reserves", "marginfi_banks"],
-        check_html=["kamino", "marginfi", "usdc"],
+        query="USDC lend etmek için Kamino mı yoksa Jupiter Lend mi daha iyi getiri veriyor?",
+        expected_tools=["kamino_market_reserves"],
+        check_html=["kamino", "jupiter", "usdc"],
         check_fields=["supplyApy"],
-        description="Kamino vs MarginFi lending karşılaştırması",
+        description="Kamino vs Jupiter Lend lending karşılaştırması",
     ),
     TestCase(
         id="edge_04_leverage_risk_full",

@@ -9,7 +9,6 @@ Sources:
   Kamino          api.kamino.finance
   Marinade        api.marinade.finance
   Solend          api.solend.fi
-  MarginFi        storage.googleapis.com/mrgn-public  (GCS public cache)
   Helius          mainnet.helius-rpc.com  (RPC — needs API key)
   Birdeye         public-api.birdeye.so  (needs BIRDEYE_API_KEY)
   Jito            via OPRAI gateway  (already working)
@@ -712,46 +711,21 @@ async def kamino_epoch_info() -> dict:
     return data
 
 
-# ─── MarginFi ─────────────────────────────────────────────────────────────────
-
-async def marginfi_banks() -> list:
-    """MarginFi bank registry — bank address, token address, symbol, for all supported assets."""
-    return await _get("https://storage.googleapis.com/mrgn-public/mrgn-bank-metadata-cache.json")
 
 
-async def marginfi_staked_banks() -> list:
-    """MarginFi staked bank registry — bankAddress, validatorVoteAccount, tokenAddress, tokenName, tokenSymbol for all staked assets."""
-    return await _get("https://storage.googleapis.com/mrgn-public/mrgn-staked-bank-metadata-cache.json")
 
 
-async def marginfi_staked_token_metadata() -> list:
-    """MarginFi staked token metadata — symbol, address, name, decimals for all staked assets."""
-    return await _get("https://storage.googleapis.com/mrgn-public/mrgn-staked-token-metadata-cache.json")
 
 
-async def marginfi_token_metadata() -> list:
-    """MarginFi full token metadata — symbol, address, decimals, name, logoURI, extensions (coingeckoId, socials)."""
-    return await _get("https://storage.googleapis.com/mrgn-public/mrgn-token-metadata-cache.json")
 
 
-async def marginfi_lst_rates() -> list:
-    """MarginFi LST APY rates — symbol, mint, lst_apy for all supported liquid staking tokens."""
-    return await _get("https://app.marginfi.com/api/banks/lst-rates")
 
 
-async def marginfi_priority_fees() -> dict:
-    """Current MarginFi network priority fees — min and max prioritizationFee with slot."""
-    return await _get("https://app.marginfi.com/api/priorityFees")
 
 
-async def marginfi_bank_historic(bank_address: str) -> dict:
-    """Historical APY/TVL data for a specific MarginFi bank. bank_address is the bank pubkey from marginfi_banks."""
-    return await _get("https://app.marginfi.com/api/banks/historic", params={"bankAddress": bank_address})
 
 
-async def marginfi_validator_info(validator: str) -> dict:
-    """Validator info for a specific validator in MarginFi staking. validator is the vote account pubkey."""
-    return await _get("https://app.marginfi.com/api/validator-info", params={"validator": validator})
+
 
 
 # ─── Marinade ─────────────────────────────────────────────────────────────────
@@ -4417,91 +4391,6 @@ TOOL_SCHEMAS = [
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
-    # ── MarginFi ─────────────────────────────────────────────────────────────
-    {
-        "name": "marginfi_banks",
-        "description": (
-            "MarginFi bank registry — all supported assets with bank address and token symbol. "
-            "Use for: 'MarginFi banks', 'what tokens can I borrow on MarginFi', 'MarginFi supported assets'."
-        ),
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "marginfi_staked_banks",
-        "description": (
-            "MarginFi staked bank registry — all staked asset banks with bankAddress, validatorVoteAccount, tokenAddress, tokenName, tokenSymbol. "
-            "Use for: 'MarginFi staked banks', 'MarginFi validators', 'which validators are on MarginFi', 'MarginFi staking banks'."
-        ),
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "marginfi_staked_token_metadata",
-        "description": (
-            "MarginFi staked token metadata — symbol, address, name, decimals for all staked assets. "
-            "Use for: 'MarginFi staked tokens', 'staked asset list on MarginFi', 'MarginFi LST token details'."
-        ),
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "marginfi_token_metadata",
-        "description": (
-            "MarginFi full token metadata — symbol, address, decimals, name, logoURI, coingeckoId, social links for all supported tokens. "
-            "Use for: 'MarginFi token list', 'MarginFi supported tokens with details', 'coingecko id for MarginFi token'."
-        ),
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "marginfi_lst_rates",
-        "description": (
-            "MarginFi LST staking APY rates — symbol, mint address, lst_apy for all liquid staking tokens. "
-            "Use for: 'MarginFi LST APY', 'liquid staking rates on MarginFi', 'which LST has the best yield on MarginFi', 'dSOL/bSOL/mSOL APY MarginFi'."
-        ),
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "marginfi_priority_fees",
-        "description": (
-            "Current MarginFi network priority fees — min and max prioritizationFee (in microlamports) with slot number. "
-            "Use for: 'MarginFi priority fees', 'recommended fee for MarginFi transaction', 'current network fees MarginFi'."
-        ),
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "marginfi_bank_historic",
-        "description": (
-            "Historical APY and TVL data for a specific MarginFi bank over time. "
-            "Use for: 'MarginFi USDC historical APY', 'bank rate history', 'how has SOL lending rate changed on MarginFi'. "
-            "Requires the bank pubkey from marginfi_banks."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "bank_address": {
-                    "type": "string",
-                    "description": "Bank public key (from marginfi_banks bankAddress field)",
-                },
-            },
-            "required": ["bank_address"],
-        },
-    },
-    {
-        "name": "marginfi_validator_info",
-        "description": (
-            "Validator details for a specific validator in MarginFi staking — vote account, commission, APY, stake. "
-            "Use for: 'validator info on MarginFi', 'MarginFi validator details', 'validator APY MarginFi'. "
-            "Requires the validator vote account pubkey (available from marginfi_staked_banks)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "validator": {
-                    "type": "string",
-                    "description": "Validator vote account public key",
-                },
-            },
-            "required": ["validator"],
-        },
-    },
     # ── Marinade ─────────────────────────────────────────────────────────────
     {
         "name": "marinade_stats",
@@ -7860,23 +7749,6 @@ async def _dispatch_inner(tool_name: str, tool_input: dict, jwt_token: str) -> A
                 return await kamino_user_obligations(**tool_input)
             case "kamino_epoch_info":
                 return await kamino_epoch_info()
-            # MarginFi
-            case "marginfi_banks":
-                return await marginfi_banks()
-            case "marginfi_staked_banks":
-                return await marginfi_staked_banks()
-            case "marginfi_staked_token_metadata":
-                return await marginfi_staked_token_metadata()
-            case "marginfi_token_metadata":
-                return await marginfi_token_metadata()
-            case "marginfi_lst_rates":
-                return await marginfi_lst_rates()
-            case "marginfi_priority_fees":
-                return await marginfi_priority_fees()
-            case "marginfi_bank_historic":
-                return await marginfi_bank_historic(**tool_input)
-            case "marginfi_validator_info":
-                return await marginfi_validator_info(**tool_input)
             # Marinade
             case "marinade_stats":
                 return await marinade_stats()

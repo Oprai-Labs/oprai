@@ -8,7 +8,7 @@ This document is the canonical reference for the formulas the OPRAI assistant mu
 - **Collateral value (C)**: USD value of the asset deposited as collateral. Tracks the price of the collateral asset.
 - **Debt (D)**: USD value of the borrowed asset. If borrowing a stablecoin (USDC/USDT), D is constant. If borrowing a non-stable asset (e.g. SOL), D moves with that asset's price.
 - **Current LTV**: `D / C` at the current price.
-- **Liquidation LTV (Lₗᵢ𝑞)**: protocol-set threshold. When current LTV reaches this, the position is eligible for liquidation. Typical Solana lending values: Kamino 80–87%, MarginFi 80–85%, Solend 75–85%, depending on asset.
+- **Liquidation LTV (Lₗᵢ𝑞)**: protocol-set threshold. When current LTV reaches this, the position is eligible for liquidation. Typical Solana lending values: Kamino 80–87%, Solend 75–85%, depending on asset.
 
 ### Liquidation price formula (stable debt)
 
@@ -123,7 +123,6 @@ HF = (collateral_value × LTV_liq) / debt
 - HF = 1 → liquidation threshold reached
 - HF < 1 → eligible for liquidation
 
-### Kamino / Drift / MarginFi style (inverse)
 Some protocols expose `health = 1 − (LTV_current / LTV_liq)` so that 1.0 means freshly opened with zero debt and 0.0 means liquidation imminent.
 
 Always check which convention the protocol uses before quoting a number to the user. Kamino UI shows "health: 0.27" meaning 27% buffer remaining (so 73% of the way to liquidation), NOT Aave's HF=0.27 (which would mean already insolvent).
