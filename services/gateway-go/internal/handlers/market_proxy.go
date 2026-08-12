@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/oprai/oprai/services/gateway-go/internal/middleware"
 )
 
 // solanaAddrRe matches valid Solana base-58 encoded public keys / mint addresses.
@@ -86,26 +87,78 @@ func (c *memCache) cleanup(ctx context.Context) {
 
 // MarketProxy handles proxied market data requests to external APIs.
 type MarketProxy struct {
-	birdeyeAPIKey string
-	jupiterAPIKey string
-	heliusAPIKey  string
-	cache         *memCache
-	client        *http.Client
+	birdeyeAPIKey  string
+	jupiterAPIKey  string
+	heliusAPIKey   string
+	allowedOrigins []string
+	cache          *memCache
+	client         *http.Client
 }
 
 // NewMarketProxy creates a new MarketProxy with the given API keys.
 // ctx is the application root context; the cache cleanup goroutine stops when
 // ctx is cancelled.
-func NewMarketProxy(ctx context.Context, birdeyeAPIKey, jupiterAPIKey, heliusAPIKey string) *MarketProxy {
+func NewMarketProxy(ctx context.Context, birdeyeAPIKey, jupiterAPIKey, heliusAPIKey, allowedOrigins string) *MarketProxy {
 	return &MarketProxy{
-		birdeyeAPIKey: birdeyeAPIKey,
-		jupiterAPIKey: jupiterAPIKey,
-		heliusAPIKey:  heliusAPIKey,
-		cache:         newMemCache(ctx),
+		birdeyeAPIKey:  birdeyeAPIKey,
+		jupiterAPIKey:  jupiterAPIKey,
+		heliusAPIKey:   heliusAPIKey,
+		allowedOrigins: splitCSVOrigins(allowedOrigins),
+		cache:          newMemCache(ctx),
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 		},
 	}
+}
+
+// splitCSVOrigins parses the comma-separated CORS origin config into a trimmed,
+// lowercased list for matching. Empty entries are dropped.
+func splitCSVOrigins(csv string) []string {
+	var out []string
+	for _, p := range strings.Split(csv, ",") {
+		if s := strings.ToLower(strings.TrimSpace(strings.TrimRight(p, "/"))); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// rpcRequestIsFirstParty reports whether an RPC request came from our own app.
+// A signed-in caller carries a Bearer JWT (validated by JWTAuth upstream, so a
+// wallet is in context) and is trusted outright. An anonymous caller — the
+// public-read path, before sign-in — must instead carry an Origin or Referer
+// that matches our site. A browser sets those itself and a page cannot forge
+// another origin's value, so this is what stops another site's frontend, or a
+// plain script with no Origin, from farming the proxy. A determined server-side
+// caller can still spoof the Origin header; closing that last gap needs the
+// Bearer token on every RPC call, which is the frontend half of this fix.
+func (m *MarketProxy) rpcRequestIsFirstParty(r *http.Request) bool {
+	if middleware.GetWallet(r.Context()) != "" {
+		return true // authenticated caller
+	}
+	if origin := strings.ToLower(strings.TrimRight(r.Header.Get("Origin"), "/")); origin != "" {
+		return originInList(origin, m.allowedOrigins)
+	}
+	if referer := r.Header.Get("Referer"); referer != "" {
+		ref := strings.ToLower(referer)
+		for _, a := range m.allowedOrigins {
+			if strings.HasPrefix(ref, a+"/") || ref == a {
+				return true
+			}
+		}
+		return false
+	}
+	// No auth, no Origin, no Referer — a bare script. Refuse.
+	return false
+}
+
+func originInList(origin string, allowed []string) bool {
+	for _, a := range allowed {
+		if origin == a {
+			return true
+		}
+	}
+	return false
 }
 
 // jupiterHost picks the right Jupiter base host for the keyed-vs-public split:
@@ -2160,12 +2213,21 @@ func (m *MarketProxy) PostRpc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// This endpoint is unauthenticated by necessity (browser web3.js Connections
-	// can't reliably attach the auth cookie). Without a method gate, anyone can
-	// point their own app at it and spend our Helius quota — an open relay. The
-	// gate rejects the methods that are actually expensive on Helius (the DAS
-	// asset API, archival block reads) and unbounded program scans, while every
-	// standard read and the signed-transaction broadcast pass through untouched.
+	// First-party gate. This endpoint is unauthenticated by necessity (browser
+	// web3.js Connections can't reliably attach the auth cookie), which made it
+	// an open relay: anyone could point their own app at it and spend our Helius
+	// quota. Require the caller to be either signed in (Bearer JWT) or coming
+	// from our own site (Origin/Referer) — a bare cross-site script has neither.
+	if !m.rpcRequestIsFirstParty(r) {
+		slog.Warn("RPC proxy: rejected non-first-party request", "ip", r.Header.Get("X-Forwarded-For"), "origin", r.Header.Get("Origin"))
+		writeError(w, http.StatusForbidden, "RPC proxy is not open to third parties")
+		return
+	}
+
+	// Method gate: even a first-party call is held to the cheap, indexed reads
+	// and the tx broadcast the frontend actually uses. Rejects the methods that
+	// are expensive on Helius (DAS asset API, archival blocks) and unbounded
+	// program scans — a second line behind the first-party check.
 	if reason := rpcMethodBlocked(body); reason != "" {
 		slog.Warn("RPC proxy: blocked method", "method", reason, "ip", r.Header.Get("X-Forwarded-For"))
 		writeError(w, http.StatusForbidden, "RPC method not permitted through this proxy")
