@@ -25,6 +25,15 @@ func CSRFProtection(allowedOrigins string) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Browser CSP violation reports are POSTed with no X-Requested-With
+			// and no credentials. They are not CSRF-attackable (the handler only
+			// appends to a log) and the browser cannot be made to send the custom
+			// header, so this path is exempt from the CSRF checks.
+			if r.URL.Path == "/csp-report" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			if r.Header.Get("X-Requested-With") != "XMLHttpRequest" {
 				csrf403(w, "missing X-Requested-With header")
 				return
