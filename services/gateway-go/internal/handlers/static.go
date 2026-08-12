@@ -41,6 +41,13 @@ func (s *StaticHandler) ServeFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	// Defence in depth against stored-content XSS. The upload handler already
+	// refuses scriptable types, but should anything scriptable (svg/html) ever
+	// reach this directory, nosniff blocks MIME confusion and the sandbox CSP
+	// makes a direct top-level navigation inert — while <img>/<video> embedding,
+	// which never executes svg script, keeps working.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox; frame-ancestors 'none'")
 	http.ServeFile(w, r, absRequested)
 }
 
@@ -69,5 +76,9 @@ func (s *StaticHandler) ServeMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	// Metadata is server-generated JSON, but keep the same hardening so a served
+	// file can never be sniffed into active content.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox; frame-ancestors 'none'")
 	http.ServeFile(w, r, absPath)
 }
