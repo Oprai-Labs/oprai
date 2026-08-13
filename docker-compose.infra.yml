@@ -14,7 +14,7 @@ services:
       POSTGRES_PASSWORD: ${DB_SUPERPASS:?DB_SUPERPASS is required — run cp .env.example .env and configure}
       POSTGRES_DB: ${DB_SUPERDB:-oprai}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -31,8 +31,8 @@ services:
       QDRANT__SERVICE__GRPC_PORT: 6334
       QDRANT__STORAGE__HARD_LIMIT: 10737418240
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant-storage:/qdrant/storage
 
@@ -41,7 +41,7 @@ services:
     container_name: oprai-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:

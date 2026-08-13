@@ -41,7 +41,7 @@ services:
       POSTGRES_DB: ${DB_SUPERDB:-oprai}
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -73,7 +73,7 @@ services:
       LOG_CONNECTIONS: "0"
       LOG_DISCONNECTIONS: "0"
     ports:
-      - "6432:5432"
+      - "127.0.0.1:6432:5432"
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,8 +92,8 @@ services:
       QDRANT__SERVICE__GRPC_PORT: 6334
       QDRANT__STORAGE__HARD_LIMIT: 10737418240
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant-storage:/qdrant/storage
     healthcheck:
@@ -124,7 +124,7 @@ services:
       --tcp-backlog 511
       --timeout 0
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -143,7 +143,7 @@ services:
     container_name: oprai-gateway-go
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     environment:
       PORT: 3001
       GRPC_PORT: 50050
@@ -200,8 +200,8 @@ services:
     container_name: oprai-admin-service-go
     restart: unless-stopped
     ports:
-      - "3050:3050"
-      - "50055:50055"
+      - "127.0.0.1:3050:3050"
+      - "127.0.0.1:50055:50055"
     environment:
       PORT: 3050
       GRPC_PORT: 50055
@@ -265,7 +265,7 @@ services:
     container_name: oprai-knowledge-ingestion
     restart: unless-stopped
     ports:
-      - "3070:3070"
+      - "127.0.0.1:3070:3070"
     environment:
       PORT: 3070
       DATABASE_URL: postgresql+asyncpg://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@pgbouncer:5432/${DB_SUPERDB:-oprai}
