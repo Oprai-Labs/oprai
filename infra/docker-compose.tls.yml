@@ -20,6 +20,8 @@ services:
   marketing:
     image: nginx:alpine
     container_name: oprai-marketing
+    mem_limit: 256m
+    pids_limit: 512
     restart: unless-stopped
     expose:
       - "80"
@@ -36,6 +38,8 @@ services:
   caddy:
     image: caddy:2-alpine
     container_name: oprai-caddy
+    mem_limit: 512m
+    pids_limit: 512
     restart: unless-stopped
     ports:
       - "80:80"
