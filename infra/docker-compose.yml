@@ -9,6 +9,8 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: oprai-postgres
+    mem_limit: 8g
+    pids_limit: 512
     restart: unless-stopped
     command: >
       postgres
@@ -50,6 +52,8 @@ services:
     # tag is published upstream. Last verified pull: 2025-12-20.
     image: edoburu/pgbouncer:latest
     container_name: oprai-pgbouncer
+    mem_limit: 256m
+    pids_limit: 512
     restart: unless-stopped
     environment:
       DATABASE_URL: "postgresql://${DB_SUPERUSER:-postgres}:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}"
@@ -78,6 +82,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: oprai-redis
+    mem_limit: 1g
+    pids_limit: 512
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"
@@ -92,6 +98,8 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.13.2
     container_name: oprai-qdrant
+    mem_limit: 4g
+    pids_limit: 512
     restart: unless-stopped
     environment:
       QDRANT__SERVICE__GRPC_PORT: 6334
@@ -111,6 +119,8 @@ services:
   prometheus:
     image: prom/prometheus:v3.0.0
     container_name: oprai-prometheus
+    mem_limit: 2g
+    pids_limit: 512
     restart: unless-stopped
     ports:
       - "127.0.0.1:9090:9090"
@@ -125,6 +135,8 @@ services:
   grafana:
     image: grafana/grafana:10.4.0
     container_name: oprai-grafana
+    mem_limit: 1g
+    pids_limit: 512
     restart: unless-stopped
     ports:
       - "127.0.0.1:3333:3000"
@@ -147,6 +159,8 @@ services:
       context: ../services/gateway-go
       dockerfile: Dockerfile
     container_name: oprai-gateway-go
+    mem_limit: 512m
+    pids_limit: 512
     restart: unless-stopped
     ports:
       - "127.0.0.1:3001:3001"
@@ -212,6 +226,8 @@ services:
       context: ../services/auth-service-go
       dockerfile: Dockerfile
     container_name: oprai-auth-service-go
+    mem_limit: 512m
+    pids_limit: 512
     restart: unless-stopped
     expose:
       - "3010"
@@ -246,6 +262,8 @@ services:
       context: ../services/admin-service-go
       dockerfile: Dockerfile
     container_name: oprai-admin-service-go
+    mem_limit: 512m
+    pids_limit: 512
     restart: unless-stopped
     ports:
       - "127.0.0.1:3050:3050"
@@ -278,6 +296,8 @@ services:
       context: ../services/chat-service-py
       dockerfile: Dockerfile
     container_name: oprai-chat-service-py
+    mem_limit: 1500m
+    pids_limit: 512
     restart: unless-stopped
     expose:
       - "3020"
@@ -333,6 +353,8 @@ services:
       context: ../services/memory-service-py
       dockerfile: Dockerfile
     container_name: oprai-memory-service-py
+    mem_limit: 1500m
+    pids_limit: 512
     restart: unless-stopped
     expose:
       - "3040"
@@ -368,6 +390,8 @@ services:
       context: ..
       dockerfile: services/solana-service-rs/Dockerfile
     container_name: oprai-solana-service-rs
+    mem_limit: 512m
+    pids_limit: 512
     restart: unless-stopped
     expose:
       - "3030"
@@ -423,6 +447,8 @@ services:
       context: ..
       dockerfile: services/solana-service-ts/Dockerfile
     container_name: oprai-solana-service-ts
+    mem_limit: 1g
+    pids_limit: 512
     restart: unless-stopped
     expose:
       - "3031"
@@ -452,6 +478,8 @@ services:
       context: ../apps/oprai
       dockerfile: Dockerfile
     container_name: oprai-frontend
+    mem_limit: 256m
+    pids_limit: 512
     restart: unless-stopped
     expose:
       - "80"
