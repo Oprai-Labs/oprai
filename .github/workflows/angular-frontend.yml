@@ -45,6 +45,14 @@ jobs:
         working-directory: apps/oprai
         run: npm ci --no-audit --no-fund
 
+      # Catch known-vulnerable npm dependencies. Advisory (continue-on-error):
+      # a new advisory shouldn't block an unrelated PR, but it stays visible.
+      # --omit=dev focuses on what actually ships to the browser.
+      - name: Vulnerability scan (npm audit)
+        working-directory: apps/oprai
+        continue-on-error: true
+        run: npm audit --omit=dev
+
       - name: Build production
         working-directory: apps/oprai
         run: npm run build:prod

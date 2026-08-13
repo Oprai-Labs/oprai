@@ -78,6 +78,16 @@ jobs:
         working-directory: services/solana-service-rs
         run: cargo test --all-features --verbose
 
+      # Catch known-vulnerable crates (RustSec advisory DB). Advisory
+      # (continue-on-error): a new advisory shouldn't block an unrelated PR, but
+      # it stays visible in the run.
+      - name: Vulnerability scan (cargo-audit)
+        working-directory: services/solana-service-rs
+        continue-on-error: true
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
       - name: Build release
         working-directory: services/solana-service-rs
         run: cargo build --release
