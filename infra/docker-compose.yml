@@ -50,7 +50,10 @@ services:
   pgbouncer:
     # NOTE: edoburu/pgbouncer publishes only :latest tag; pin once a versioned
     # tag is published upstream. Last verified pull: 2025-12-20.
-    image: edoburu/pgbouncer:latest
+    # Pinned to the exact running image (was :latest — a floating tag that could
+    # silently pull a changed/compromised image into this DB-adjacent component
+    # on any rebuild). Digest is authoritative; the version tag is for humans.
+    image: edoburu/pgbouncer:1.25.1@sha256:85d1e38593617af1b5f7f285e97d407e56c29939683cc7cfe4c8f6dc19f1268b
     container_name: oprai-pgbouncer
     mem_limit: 256m
     pids_limit: 512
