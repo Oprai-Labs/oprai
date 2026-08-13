@@ -84,6 +84,15 @@ jobs:
           pip install pytest pytest-cov pytest-asyncio || true
           pytest -v --cov=. --cov-report=xml:coverage.xml || echo "No tests found"
 
+      # Catch known-vulnerable Python dependencies. Advisory (continue-on-error):
+      # a newly-published advisory shouldn't block an unrelated PR, but it stays
+      # visible in the run. The service's own package isn't on PyPI and is skipped.
+      - name: Vulnerability scan (pip-audit)
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
