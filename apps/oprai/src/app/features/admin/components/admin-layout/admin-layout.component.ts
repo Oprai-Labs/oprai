@@ -30,6 +30,10 @@ import { ThemeToggleComponent } from '@shared/components/theme-toggle/theme-togg
             <lucide-icon name="activity" [size]="18" />
             Transactions
           </a>
+          <a routerLink="/admin/issues" class="nav-item" [class.active]="activePage === 'issues'">
+            <lucide-icon name="flag" [size]="18" />
+            Issue Reports
+          </a>
           <a routerLink="/admin/audit-logs" class="nav-item" [class.active]="activePage === 'audit-logs'">
             <lucide-icon name="file-text" [size]="18" />
             Audit Logs

@@ -655,10 +655,14 @@
       <lucide-icon class="profile-menu-chevron" name="chevron-right" [size]="14" />
       <!-- Submenu (appears on hover) -->
       <div class="profile-submenu">
-        <a class="profile-submenu-item" href="https://github.com/anthropics/claude-code/issues" target="_blank" rel="noopener">
+        <!-- Used to link to github.com/anthropics/claude-code/issues — an
+             unrelated project — so every report a user filed went somewhere
+             OPRAI would never read. Now a real form that lands in the admin
+             queue. -->
+        <button class="profile-submenu-item" (click)="navigateFromMenu('/report-issue')">
           <lucide-icon name="flag" [size]="16" />
           <span>Report Issue</span>
-        </a>
+        </button>
         <!-- FAQ and Community are deliberately parked, not removed: the entries
              stay so the menu's shape is final, but there is nothing behind them
              yet. `disabled` (not just a class) is what actually makes them

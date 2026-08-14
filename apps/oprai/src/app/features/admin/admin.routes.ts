@@ -50,6 +50,14 @@ export const ADMIN_ROUTES: Routes = [
       ),
   },
   {
+    path: 'issues',
+    canActivate: [adminGuard],
+    loadComponent: () =>
+      import('./pages/issues/issues.component').then(
+        (m) => m.IssuesComponent
+      ),
+  },
+  {
     path: 'audit-logs',
     canActivate: [adminGuard],
     loadComponent: () =>

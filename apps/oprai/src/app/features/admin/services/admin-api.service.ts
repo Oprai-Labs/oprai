@@ -55,6 +55,21 @@ export interface AdminSession {
   updatedAt: string;
 }
 
+/** A user-submitted report from Help → Report Issue. */
+export interface AdminIssueReport {
+  id: string;
+  wallet: string;
+  category: string;
+  subject: string;
+  description: string;
+  /** Route, user agent, viewport — captured by the client at submit time. */
+  context: Record<string, string> | null;
+  status: 'open' | 'in_progress' | 'resolved' | 'dismissed';
+  admin_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AuditLog {
   id: string;
   adminUsername: string;
@@ -247,6 +262,38 @@ export class AdminApiService {
   getSessionMessages(sessionId: string): Observable<{ data: unknown[] }> {
     return this.http.get<{ data: unknown[] }>(
       `${this.baseUrl}/admin/sessions/${sessionId}/messages`
+    );
+  }
+
+  /**
+   * User issue reports (Help → Report Issue). Open ones come back first —
+   * the queue's job is "what still needs an answer".
+   */
+  getIssueReports(params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    category?: string;
+    search?: string;
+  }): Observable<PaginatedResponse<AdminIssueReport>> {
+    const queryParams: Record<string, string> = {};
+    if (params.page) queryParams['page'] = params.page.toString();
+    if (params.limit) queryParams['limit'] = params.limit.toString();
+    if (params.status) queryParams['status'] = params.status;
+    if (params.category) queryParams['category'] = params.category;
+    if (params.search) queryParams['search'] = params.search;
+
+    return this.http.get<PaginatedResponse<AdminIssueReport>>(
+      `${this.baseUrl}/admin/issues`,
+      { params: queryParams }
+    );
+  }
+
+  /** Set a report's status and optionally leave a note the user will see. */
+  updateIssueReport(id: string, status: string, note?: string): Observable<{ ok: boolean }> {
+    return this.http.patch<{ ok: boolean }>(
+      `${this.baseUrl}/admin/issues/${id}`,
+      { status, note: note ?? '' }
     );
   }
 

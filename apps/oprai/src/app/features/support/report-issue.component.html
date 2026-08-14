@@ -1,0 +1,91 @@
+<div class="report-page">
+  <header class="report-head">
+    <h1 class="report-title">Report an issue</h1>
+    <p class="report-sub">
+      Tell us what went wrong or what's missing. Reports go straight to the OPRAI
+      team along with the page you were on — you can follow their status below.
+    </p>
+  </header>
+
+  @if (submitted()) {
+    <div class="report-done">
+      <lucide-icon name="check" [size]="26" />
+      <p class="report-done__title">Thanks — we've got it</p>
+      <p>Your report is in the queue. You'll see its status update in the list below.</p>
+      <button class="report-submit" (click)="writeAnother()">Report something else</button>
+    </div>
+  } @else {
+    <form class="report-form" (ngSubmit)="submit()">
+      <fieldset class="report-field">
+        <legend class="report-label">What kind of issue is it?</legend>
+        <div class="report-cats">
+          @for (cat of categories; track cat.id) {
+            <button type="button" class="report-cat"
+                    [class.is-active]="category() === cat.id"
+                    (click)="category.set(cat.id)">
+              <span class="report-cat__label">{{ cat.label }}</span>
+              <span class="report-cat__hint">{{ cat.hint }}</span>
+            </button>
+          }
+        </div>
+      </fieldset>
+
+      <label class="report-field">
+        <span class="report-label">Subject <span class="report-optional">(optional)</span></span>
+        <input class="report-input" type="text" name="subject" [(ngModel)]="subject"
+               maxlength="160" placeholder="Short summary" />
+      </label>
+
+      <label class="report-field">
+        <span class="report-label">What happened?</span>
+        <textarea class="report-textarea" name="description" [(ngModel)]="description"
+                  maxlength="4000" rows="7"
+                  placeholder="What you did, what you expected, and what happened instead. Transaction signatures and token addresses help a lot."></textarea>
+        <span class="report-counter">{{ description.length }} / 4000</span>
+      </label>
+
+      <div class="report-actions">
+        <button type="submit" class="report-submit" [disabled]="!canSubmit()">
+          {{ submitting() ? 'Sending…' : 'Send report' }}
+        </button>
+        @if (description.trim().length > 0 && description.trim().length < 10) {
+          <span class="report-hint">A little more detail, please.</span>
+        }
+      </div>
+
+      @if (error()) {
+        <p class="report-error">{{ error() }}</p>
+      }
+    </form>
+  }
+
+  <section class="report-history">
+    <h2 class="report-history__title">Your reports</h2>
+    @if (reportsLoading()) {
+      <p class="report-history__empty">Loading…</p>
+    } @else if (reports().length === 0) {
+      <p class="report-history__empty">You haven't sent any reports yet.</p>
+    } @else {
+      <ul class="report-list">
+        @for (r of reports(); track r.id) {
+          <li class="report-row">
+            <div class="report-row__head">
+              <span class="report-status" [class]="'report-status--' + r.status">
+                {{ statusLabel(r.status) }}
+              </span>
+              <span class="report-row__cat">{{ categoryLabel(r.category) }}</span>
+              <span class="report-row__date">{{ r.createdAt | date:'MMM d, y' }}</span>
+            </div>
+            <p class="report-row__subject">{{ r.subject }}</p>
+            <p class="report-row__body">{{ r.description }}</p>
+            @if (r.adminNote) {
+              <p class="report-row__note">
+                <strong>OPRAI:</strong> {{ r.adminNote }}
+              </p>
+            }
+          </li>
+        }
+      </ul>
+    }
+  </section>
+</div>

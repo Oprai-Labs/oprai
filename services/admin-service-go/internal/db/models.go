@@ -310,3 +310,11 @@ type DailyStats struct {
 	FailedTx          int
 	TotalFeesLamport  int64
 }
+
+// IssueReportListParams holds query parameters for listing user issue reports.
+type IssueReportListParams struct {
+	PaginationParams
+	Status   string
+	Category string
+	Search   string
+}

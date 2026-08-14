@@ -143,7 +143,7 @@ GRANT USAGE ON SCHEMA public TO auth_app, chat_app, solana_app, memory_app, admi
 -- ── 4) Cross-schema grants (least privilege) ──────────────────────────────────
 -- solana_app: NONE. Verified the Rust solana-service never reads another schema.
 --
--- admin_app: the admin panel reads across services and performs two narrow
+-- admin_app: the admin panel reads across services and performs three narrow
 -- column-scoped writes. Read-only everywhere else; owner of admin_schema (above).
 GRANT USAGE ON SCHEMA auth_schema, chat_schema, solana_schema, memory_schema TO admin_app;
 GRANT SELECT ON ALL TABLES IN SCHEMA auth_schema   TO admin_app;
@@ -155,6 +155,11 @@ GRANT UPDATE (status, status_reason, status_changed_at, status_changed_by, role,
     ON auth_schema.users TO admin_app;
 GRANT UPDATE (is_deleted, deleted_at, updated_at)
     ON chat_schema.chat_sessions TO admin_app;
+-- Issue reports: the user files them (chat_app writes the row), an admin
+-- triages them. Column-scoped like the two above — admin can move a report
+-- through its states and answer it, and cannot touch what the user wrote.
+GRANT UPDATE (status, admin_note, updated_at)
+    ON chat_schema.issue_reports TO admin_app;
 
 -- Future tables the owner roles create in later migrations must stay readable to
 -- admin (default privileges are recorded per granting-role + schema).
