@@ -1,0 +1,28 @@
+# Accepted RUSTSEC advisories for solana-service-rs — reviewed 2026-08-14.
+#
+# Every entry below is a TRANSITIVE dependency pinned by solana-sdk / solana-client
+# (bumping it needs a major, risky Solana SDK upgrade) AND is not reachable in this
+# service's deployment. Rationale is per-line. The independently-fixable advisories
+# were already patched in Cargo.lock (rustls-webpki 0.103.13, postgres-protocol
+# 0.6.12, tokio-postgres 0.7.18, quinn-proto 0.11.15, crossbeam-epoch 0.9.20).
+[advisories]
+ignore = [
+  # No server-side signing — this service holds NO private keys and never signs.
+  # Signing-oracle / secret-scalar side-channels are therefore unreachable.
+  "RUSTSEC-2022-0093",  # ed25519-dalek 1.x double-pubkey signing oracle (solana-sdk pinned)
+  "RUSTSEC-2024-0344",  # curve25519-dalek 3.x Scalar::sub timing variance (solana-sdk pinned)
+
+  # Diesel: we never invoke COPY FROM/TO, and use Postgres (not SQLite).
+  "RUSTSEC-2026-0136",  # diesel COPY FROM/TO command injection (code path unused)
+  "RUSTSEC-2026-0137",  # diesel SqliteAggregate unaligned access (SQLite backend unused)
+
+  # We EXPOSE Prometheus metrics; we never PARSE untrusted protobuf or rkyv input.
+  "RUSTSEC-2024-0437",  # protobuf 2.x uncontrolled recursion (via prometheus, expose-only)
+  "RUSTSEC-2026-0235",  # rkyv 0.7 archive OOB read (no untrusted-archive deserialization)
+
+  # rustls-webpki 0.101.7 comes only via solana-rpc-client's old reqwest 0.11 stack.
+  # Outbound TLS targets known hosts (Helius/Jupiter); the modern stack is 0.103.13.
+  "RUSTSEC-2026-0098",  # webpki 0.101 name-constraint URI accepted (solana reqwest stack)
+  "RUSTSEC-2026-0099",  # webpki 0.101 name-constraint wildcard accepted (solana reqwest stack)
+  "RUSTSEC-2026-0104",  # webpki 0.101 CRL-parse reachable panic (solana reqwest stack)
+]
