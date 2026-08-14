@@ -2,7 +2,7 @@
 
 <img src="packages/media/oprai_banner.svg" alt="OPRAI" width="820">
 
-### Talk to Solana.
+### Talk to your wallet.
 
 OPRAI turns plain language into on-chain actions — swap, stake, lend, bridge,
 launch a token — and hands each one to your wallet to sign.
@@ -18,13 +18,19 @@ launch a token — and hands each one to your wallet to sign.
 Ask for something, and OPRAI works out which protocol answers it, builds the
 transaction, and shows you exactly what you are about to sign.
 
-- **Trading** — Jupiter routing, limit orders, DCA, perps
-- **Yield and lending** — Kamino, Marinade, Jito, Solend, Meteora, Raydium, Orca
-- **Bridging** — Relay, deBridge, Squid
-- **Tokens** — launch on pump.fun, burn, transfer, stream with Streamflow
-- **NFTs** — Magic Eden and Tensor listings, offers, collection stats
-- **Reading the chain** — portfolio, positions, holder distribution, smart-money
-  flow, and other questions that come back as cards rather than paragraphs
+- **Trading** — routing, limit orders, DCA, perps
+- **Yield and lending** — liquid staking, lending markets, LP positions
+- **Cross-chain** — move value between Solana, Ethereum, Base, Arbitrum,
+  Optimism, Polygon, BNB Chain and a dozen more
+- **Tokens** — launch, burn, transfer, stream
+- **NFTs** — listings, offers, collection and wallet analytics
+- **Reading the chain** — portfolio, positions, holder distribution,
+  smart-money flow, and other questions that come back as cards rather than
+  paragraphs
+
+Solana is where it runs deepest today — Jupiter, Kamino, Marinade, Jito,
+Meteora, Raydium, Orca, Solend, pump.fun, Magic Eden, Tensor, Streamflow — and
+bridging through Relay, deBridge and Squid reaches the rest.
 
 Your keys never leave your wallet. Every transaction is built server-side,
 signed client-side, and you see the full breakdown before approving.
@@ -64,7 +70,7 @@ the caller's identity, and fans out over gRPC.
 ```
 Angular  ──►  Gateway ──┬──►  Auth      wallet sign-in, sessions
                         ├──►  Chat      the model, tools, streaming
-                        ├──►  Solana    quotes and transaction building
+                        ├──►  Chain     quotes, transaction building, bridging
                         └──►  Memory    what it remembers about you
 
                     Postgres · Redis · Qdrant
@@ -88,7 +94,7 @@ services/
   gateway-go        the front door: auth, rate limits, circuit breaking
   auth-service-go   wallet sign-in, sessions, users
   chat-service-py   the model, tool routing, streaming
-  solana-service-rs transaction building for every protocol
+  solana-service-rs transaction building and bridging, every protocol
   memory-service-py long-term memory over Qdrant
   admin-service-go  operations panel backend
 apps/oprai/         the whole frontend — chat, portfolio, admin
