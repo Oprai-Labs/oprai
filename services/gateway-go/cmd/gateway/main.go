@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,6 +18,16 @@ import (
 	"github.com/oprai/oprai/services/gateway-go/internal/proxy"
 	"github.com/oprai/oprai/services/gateway-go/internal/server"
 )
+
+// redactRedisURL replaces the password in a Redis URL with "xxxxx" so it is safe
+// to log. The URL carries a credential (redis://:password@host); logging it raw
+// would leak the Redis password into stdout/Loki.
+func redactRedisURL(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Redacted()
+	}
+	return "redis://<unparseable>"
+}
 
 func main() {
 	// Load .env from repo root (best-effort, not fatal if missing)
@@ -91,16 +102,16 @@ func main() {
 			pingCancel()
 			if isProd {
 				slog.Error("Redis unreachable, refusing to start in production",
-					"redis_url", cfg.RedisURL, "error", pingErr)
+					"redis_url", redactRedisURL(cfg.RedisURL), "error", pingErr)
 				os.Exit(1)
 			}
 			slog.Warn("Redis unreachable — JWT blocklist will be in-memory only",
-				"redis_url", cfg.RedisURL, "error", pingErr)
+				"redis_url", redactRedisURL(cfg.RedisURL), "error", pingErr)
 			_ = client.Close()
 		} else {
 			pingCancel()
 			rdb = client
-			slog.Info("Redis connected for JWT blocklist", "redis_url", cfg.RedisURL)
+			slog.Info("Redis connected for JWT blocklist", "redis_url", redactRedisURL(cfg.RedisURL))
 			defer func() { _ = client.Close() }()
 		}
 	}
