@@ -755,6 +755,33 @@ $sidebar-collapsed: 52px;
   &:hover {
     background: var(--op-hover);
   }
+
+  &--disabled,
+  &:disabled {
+    color: var(--op-text-tertiary);
+    cursor: default;
+
+    // The hover highlight is a promise that a click does something. Withdraw
+    // it, or a parked row reads as broken rather than as not-yet-built.
+    &:hover { background: none; }
+
+    lucide-icon { opacity: 0.6; }
+  }
+}
+
+// Marks a menu row that exists but has nothing behind it yet. Deliberately
+// quiet — it explains the disabled state, it is not a call to action.
+.menu-soon-badge {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: var(--op-radius-full);
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.4;
 }
 
 .sidebar-user-avatar {
@@ -1045,57 +1072,14 @@ $sidebar-collapsed: 52px;
       &:hover { background: var(--op-loss-subtle); }
     }
 
-    &--has-submenu {
-      position: relative;
+    // Parked row: kept in the menu, but nothing behind it yet.
+    &--disabled {
+      color: var(--op-text-tertiary);
+      cursor: default;
+      &:hover { background: none; }
+      lucide-icon { opacity: 0.6; }
     }
 
-    &--has-submenu:hover .dropdown-submenu {
-      display: block;
-    }
-  }
-
-  .dropdown-submenu {
-    display: none;
-    position: absolute;
-    right: calc(100% + 4px);
-    top: -4px;
-    min-width: 180px;
-    background: var(--op-bg-surface-1);
-    border: 1px solid var(--op-border-default);
-    border-radius: var(--op-radius-md);
-    padding: 4px;
-    box-shadow: var(--op-shadow-lg);
-    z-index: 1001;
-    animation: dropdownIn 150ms ease;
-  }
-
-  .dropdown-submenu-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 8px 12px;
-    border-radius: var(--op-radius-sm);
-    background: none;
-    color: var(--op-text-primary);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background var(--op-fast);
-    text-align: left;
-
-    &:hover { background: var(--op-hover); }
-  }
-}
-
-.dropdown-item-chevron {
-  margin-left: auto;
-  color: var(--op-text-tertiary);
-
-  &--left {
-    margin-left: 0;
-    margin-right: 0;
-    order: -1;
   }
 }
 

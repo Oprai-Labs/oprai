@@ -264,25 +264,17 @@
                       <lucide-icon [name]="isPinned(sessionStorage.activeSessionId()!) ? 'pin-off' : 'pin'" [size]="14" />
                       {{ isPinned(sessionStorage.activeSessionId()!) ? 'Unpin' : 'Pin' }}
                     </button>
-                    <div class="dropdown-item dropdown-item--has-submenu">
+                    <!-- Projects don't exist yet — `moveToProject` was a
+                         console.log and "New project" did nothing, so the
+                         submenu offered a folder that could never hold the
+                         chat. Parked as a disabled row (kept, not removed) so
+                         the menu keeps its final shape; the submenu is gone
+                         with it, since a hover that opens onto dead buttons is
+                         worse than no hover at all. -->
+                    <div class="dropdown-item dropdown-item--disabled" aria-disabled="true" title="Coming soon">
                       <lucide-icon name="folder-open" [size]="14" />
                       <span>Move to Project</span>
-                      <lucide-icon name="chevron-right" [size]="12" class="dropdown-item-chevron" />
-                      <div class="dropdown-submenu">
-                        <button class="dropdown-submenu-item" (click)="newProject(); $event.stopPropagation()">
-                          <lucide-icon name="folder-plus" [size]="14" />
-                          <span>New project</span>
-                        </button>
-                        @if (projects().length > 0) {
-                          <div class="submenu-divider"></div>
-                          @for (project of projects(); track project.id) {
-                            <button class="dropdown-submenu-item" (click)="moveToProject(project.id); $event.stopPropagation()">
-                              <lucide-icon name="folder" [size]="14" />
-                              <span>{{ project.name }}</span>
-                            </button>
-                          }
-                        }
-                      </div>
+                      <span class="menu-soon-badge">Soon</span>
                     </div>
                     <div class="chat-menu-divider"></div>
                     <button class="dropdown-item dropdown-item--danger" (click)="deleteActiveChat()">
@@ -598,14 +590,22 @@
           <lucide-icon name="flag" [size]="16" />
           <span>Report Issue</span>
         </a>
-        <button class="profile-submenu-item" (click)="navigateFromMenu('/settings')">
+        <!-- FAQ and Community are deliberately parked, not removed: the entries
+             stay so the menu's shape is final, but there is nothing behind them
+             yet. `disabled` (not just a class) is what actually makes them
+             unreachable by click, Enter and Tab alike. -->
+        <button class="profile-submenu-item profile-submenu-item--disabled" disabled
+                aria-disabled="true" title="Coming soon">
           <lucide-icon name="message-circle-question" [size]="16" />
           <span>FAQ</span>
+          <span class="menu-soon-badge">Soon</span>
         </button>
-        <a class="profile-submenu-item" href="https://x.com/opaborai" target="_blank" rel="noopener">
+        <button class="profile-submenu-item profile-submenu-item--disabled" disabled
+                aria-disabled="true" title="Coming soon">
           <lucide-icon name="users" [size]="16" />
           <span>Community</span>
-        </a>
+          <span class="menu-soon-badge">Soon</span>
+        </button>
         <button class="profile-submenu-item" (click)="navigateFromMenu('/settings')">
           <lucide-icon name="share-2" [size]="16" />
           <span>Shared Links</span>

@@ -89,21 +89,9 @@ export class MainLayoutComponent implements OnDestroy {
   // before @if removes the overlay from the DOM.
   readonly skeletonVisible = signal(true);
 
-  // Chat menu project submenu
-  readonly chatMenuProjectOpen = signal(false);
-
   // Share button copied state
   readonly shareCopied = signal(false);
   private shareCopyTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Projects (empty until project service is implemented)
-  readonly projects = signal<{ id: string; name: string; count: number }[]>([]);
-  readonly projectsDropdownOpen = signal(false);
-
-  toggleProjectsDropdown(event: MouseEvent): void {
-    event.stopPropagation();
-    this.projectsDropdownOpen.update(v => !v);
-  }
 
   // Visible sessions (exclude incognito)
   readonly visibleSessions = computed(() =>
@@ -542,27 +530,7 @@ export class MainLayoutComponent implements OnDestroy {
 
   toggleChatMenu(event: MouseEvent): void {
     event.stopPropagation();
-    this.chatMenuProjectOpen.set(false);
     this.chatMenuOpen.update(v => !v);
-  }
-
-  toggleChatMenuProject(event: MouseEvent): void {
-    event.stopPropagation();
-    this.chatMenuProjectOpen.update(v => !v);
-  }
-
-  moveToProject(projectId: string): void {
-    const sessionId = this.sessionStorage.activeSessionId();
-    if (!sessionId) return;
-    // TODO: Call API to move session to project
-    console.log('Move session', sessionId, 'to project', projectId);
-    this.chatMenuOpen.set(false);
-    this.chatMenuProjectOpen.set(false);
-  }
-
-  newProject(): void {
-    // TODO: Implement project creation
-    this.chatMenuOpen.set(false);
   }
 
   shareChat(): void {
