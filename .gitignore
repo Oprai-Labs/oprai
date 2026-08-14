@@ -148,3 +148,6 @@ demo_script.txt
 *wireguard*.conf
 wg-*.conf
 *-client.conf
+SECRETS.local.md
+*.secrets.md
+CREDENTIALS.local.*
