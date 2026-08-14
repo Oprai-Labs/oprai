@@ -195,6 +195,18 @@ func (p *ChatProxy) GetPublicShare(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// CreateIssueReport proxies POST /chat/issues — Help → Report Issue.
+func (p *ChatProxy) CreateIssueReport(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/issues"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// ListOwnIssueReports proxies GET /chat/issues/mine
+func (p *ChatProxy) ListOwnIssueReports(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/issues/mine"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // PostMessageFeedback proxies POST /chat/messages/{msgId}/feedback to the
 // chat-service. Body: {"rating": -1|1, "note"?: string}.
 func (p *ChatProxy) PostMessageFeedback(w http.ResponseWriter, r *http.Request) {

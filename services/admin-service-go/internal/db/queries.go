@@ -1510,3 +1510,91 @@ func (q *Queries) UpsertDailyStats(ctx context.Context, s DailyStats) error {
 	}
 	return nil
 }
+
+// GetIssueReports returns a paginated list of user-submitted issue reports.
+//
+// Default ordering puts open reports first and newest first within each
+// state, because the queue's job is "what still needs an answer" — a
+// straight created_at DESC buries an unanswered week-old report under
+// today's resolved ones.
+func (q *Queries) GetIssueReports(ctx context.Context, params IssueReportListParams) (*PaginatedResult, error) {
+	offset := (params.Page - 1) * params.Limit
+
+	var conditions []string
+	var args []interface{}
+	argIdx := 1
+
+	if params.Status != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
+		args = append(args, params.Status)
+		argIdx++
+	}
+	if params.Category != "" {
+		conditions = append(conditions, fmt.Sprintf("category = $%d", argIdx))
+		args = append(args, params.Category)
+		argIdx++
+	}
+	if params.Search != "" {
+		conditions = append(conditions, fmt.Sprintf(
+			"(wallet ILIKE $%d OR subject ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx, argIdx))
+		args = append(args, "%"+params.Search+"%")
+		argIdx++
+	}
+
+	where := ""
+	if len(conditions) > 0 {
+		where = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	total, err := q.queryCount(ctx,
+		fmt.Sprintf(`SELECT COUNT(*) FROM chat_schema.issue_reports %s`, where), args...)
+	if err != nil {
+		return nil, err
+	}
+
+	dataArgs := append(args, params.Limit, offset)
+	rows, err := q.pool.Query(ctx,
+		fmt.Sprintf(`SELECT id, wallet, category, subject, description, context,
+		 status, admin_note, created_at, updated_at
+		 FROM chat_schema.issue_reports
+		 %s
+		 ORDER BY (status = 'open') DESC, created_at DESC
+		 LIMIT $%d OFFSET $%d`, where, argIdx, argIdx+1),
+		dataArgs...)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := rowsToMaps(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PaginatedResult{
+		Data:       data,
+		Total:      total,
+		Page:       params.Page,
+		Limit:      params.Limit,
+		TotalPages: int(math.Ceil(float64(total) / float64(params.Limit))),
+	}, nil
+}
+
+// UpdateIssueReport sets a report's status and/or admin note.
+//
+// The status values are constrained by a CHECK on the table; this rejects
+// anything else up front so a typo comes back as a 400 rather than a 500
+// from Postgres.
+func (q *Queries) UpdateIssueReport(ctx context.Context, id, status, note string) error {
+	switch status {
+	case "open", "in_progress", "resolved", "dismissed":
+	default:
+		return fmt.Errorf("invalid status %q", status)
+	}
+	_, err := q.pool.Exec(ctx,
+		`UPDATE chat_schema.issue_reports
+		    SET status = $2,
+		        admin_note = COALESCE(NULLIF($3, ''), admin_note),
+		        updated_at = NOW()
+		  WHERE id = $1`, id, status, note)
+	return err
+}

@@ -45,6 +45,7 @@ from app.middleware.auth import require_auth, require_internal
 from app.services import session as session_svc
 from app.services import message as message_svc
 from app.services import share as share_svc
+from app.services import issue_report as issue_svc
 from app.services.llm import LLMService
 from app.services.summary import build_llm_context, maybe_create_summary
 from app.services.title_generator import generate_title
@@ -2284,6 +2285,70 @@ async def get_public_share(
     if shared is None:
         raise HTTPException(status_code=404, detail="Shared chat not found")
     return shared
+
+
+# ---------------------------------------------------------------------------
+# Issue Reports — Help → Report Issue
+# ---------------------------------------------------------------------------
+
+class IssueReportRequest(BaseModel):
+    """Body for POST /issues."""
+
+    category: str
+    subject: str
+    description: str
+    # Route, app build, user agent — captured by the client so a report can be
+    # acted on without a follow-up round trip asking "where were you?".
+    context: dict | None = None
+
+
+@app.post("/issues")
+async def create_issue_report(
+    body: IssueReportRequest,
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+):
+    """File a report against OPRAI. Wallet-scoped, throttled per wallet."""
+    description = (body.description or "").strip()
+    if len(description) < 10:
+        # The one field the report is worthless without. Rejected here as well
+        # as in the form, because the form is not the only way to reach this.
+        raise HTTPException(status_code=400, detail="Please describe the issue in a little more detail.")
+
+    recent = await issue_svc.count_recent(db, wallet)
+    if recent >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="You've sent several reports just now — please wait a few minutes before sending another.",
+        )
+
+    report = await issue_svc.create_report(
+        db,
+        wallet=wallet,
+        category=body.category,
+        subject=body.subject,
+        description=description,
+        context=body.context,
+    )
+    _audit(db, AuditEvent(
+        event_type=AuditEventType.ACTION_EXECUTED,
+        severity=AuditEventSeverity.INFO,
+        entity_type=AuditEntityType.SESSION,
+        entity_id=report["id"],
+        wallet_address=wallet,
+        session_id=None,
+        event_data={"action": "issue_reported", "category": report["category"]},
+    ))
+    return {"report": report}
+
+
+@app.get("/issues/mine")
+async def list_own_issue_reports(
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+):
+    """What this wallet has reported, and where each one stands."""
+    return {"reports": await issue_svc.list_own_reports(db, wallet)}
 
 
 # ---------------------------------------------------------------------------

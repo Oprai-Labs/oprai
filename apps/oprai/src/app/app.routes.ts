@@ -27,6 +27,14 @@ export const routes: Routes = [
       // Token Manager removed — legacy /burn URLs redirect home.
       { path: 'burn', redirectTo: '', pathMatch: 'prefix' },
       { path: 'stake', redirectTo: '', pathMatch: 'prefix' },
+      // Help → Report Issue. Guarded because a report is attributed to the
+      // wallet that filed it, and the page lists that wallet's own reports.
+      {
+        path: 'report-issue',
+        canActivate: [authGuard],
+        loadComponent: () =>
+          import('./features/support/report-issue.component').then((m) => m.ReportIssueComponent),
+      },
       // Manage published links. Guarded: it lists what THIS wallet shared.
       {
         path: 'shared-links',

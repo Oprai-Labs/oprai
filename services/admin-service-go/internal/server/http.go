@@ -55,6 +55,7 @@ func NewHTTPServer(cfg *config.Config, queries *db.Queries) http.Handler {
 	sessionHandler := handlers.NewSessionHandler(queries)
 	ipLogHandler := handlers.NewIPLogHandler(queries)
 	auditHandler := handlers.NewAuditHandler(queries)
+	issueHandler := handlers.NewIssueHandler(queries)
 	exportHandler := handlers.NewExportHandler(queries)
 	analyticsHandler := handlers.NewAnalyticsHandler(queries)
 	adminSessionHandler := handlers.NewAdminSessionHandler(queries)
@@ -130,6 +131,15 @@ func NewHTTPServer(cfg *config.Config, queries *db.Queries) http.Handler {
 			r.Get("/suspicious", ipLogHandler.ListSuspiciousIPs)
 			r.Get("/by-ip/{ip}", ipLogHandler.GetByIP)
 			r.Post("/refresh", middleware.AuditAction(queries, "ip_summary.refresh")(ipLogHandler.RefreshIPSummary))
+		})
+
+		// User issue reports (Help → Report Issue). Reading is open to any
+		// authenticated admin; changing a report's state is an action, so it
+		// goes through RequireAdmin + the audit trail like the other
+		// mutations here.
+		r.Route("/admin/issues", func(r chi.Router) {
+			r.Get("/", issueHandler.ListIssueReports)
+			r.With(middleware.RequireAdmin).Patch("/{id}", middleware.AuditAction(queries, "issue.update")(issueHandler.UpdateIssueReport))
 		})
 
 		// Audit logs

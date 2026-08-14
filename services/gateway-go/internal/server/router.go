@@ -162,6 +162,12 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		// attached, so nothing here can be carried into the authed API.
 		r.With(defaultTimeout).Get("/shared/{token}", chatProxy.GetPublicShare)
 
+		// Help → Report Issue. Wallet-gated: a report is attributed to the
+		// wallet that filed it, and the chat-service throttles per wallet —
+		// neither works if anyone can post here anonymously.
+		r.With(defaultTimeout, middleware.RequireWallet).Post("/issues", chatProxy.CreateIssueReport)
+		r.With(defaultTimeout, middleware.RequireWallet).Get("/issues/mine", chatProxy.ListOwnIssueReports)
+
 		// Per-message thumbs feedback. The chat-service exposes this at
 		// the top level (no session_id needed) — it derives the session
 		// from message ownership and the wallet from auth.

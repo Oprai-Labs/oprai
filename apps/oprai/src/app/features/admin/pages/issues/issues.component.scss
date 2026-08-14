@@ -1,0 +1,109 @@
+// Admin pages use the panel's own token set (--bg-primary, --text-primary …),
+// not the app's --op-* variables. Keep to it here or this page drifts from
+// every other admin screen.
+
+.issue-status {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.05));
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+
+  &--open        { color: #2f6fed; }
+  &--in_progress { color: #d18f2b; }
+  &--resolved    { color: #1e9e6a; }
+  &--dismissed   { color: var(--text-secondary, #888); }
+}
+
+.issue-subject {
+  display: inline-block;
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.issue-body {
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.issue-context {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.03));
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+  }
+
+  dl { margin: 0; }
+
+  &__row {
+    display: flex;
+    gap: 10px;
+    padding: 3px 0;
+    font-size: 12px;
+
+    dt {
+      flex-shrink: 0;
+      min-width: 90px;
+      color: var(--text-secondary);
+    }
+
+    dd {
+      margin: 0;
+      color: var(--text-primary);
+      overflow-wrap: anywhere;
+    }
+  }
+}
+
+.issue-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+
+  label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  textarea {
+    width: 100%;
+    resize: vertical;
+    font-family: inherit;
+    line-height: 1.55;
+  }
+}
+
+.issue-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+
+  // The report's current state is a fact, not a button — marking it stops an
+  // admin from "setting" a status it already has and wondering why nothing
+  // changed.
+  .is-current {
+    border-color: currentColor;
+    font-weight: 700;
+  }
+}
