@@ -32,6 +32,48 @@
   flex-shrink: 0;
 }
 
+// ──── Read-only variant (sidebar search preview) ────
+// Same markup and same prose/card rendering as the chat — only the density
+// changes, because the preview lives in a panel roughly half the width of
+// the chat column. Nothing here may alter how content is FORMATTED; the
+// whole point of reusing this component is that a stored conversation looks
+// the same wherever it is shown.
+.message-list--readonly {
+  padding: var(--op-space-3) var(--op-space-4) 0;
+
+  .messages-wrapper {
+    max-width: none;
+    gap: var(--op-space-4);
+    padding-bottom: var(--op-space-4);
+  }
+
+  .bubble--user {
+    padding: 8px 12px;
+    font-size: 13.5px;
+  }
+
+  .prose {
+    font-size: 13.5px;
+  }
+
+  // The cards are `inert` here, so their hover/active affordances would be
+  // lying about what a click does. Flatten them to a static read.
+  .inline-cards {
+    cursor: default;
+  }
+
+  // Query-card tables lay out on fixed pixel columns and only learn to scroll
+  // under a `max-width: 768px` VIEWPORT query. That query never fires for this
+  // panel — the panel is narrow while the viewport around it is wide — so the
+  // table would push the preview open instead. Establish the scroll boundary
+  // at the same element the mobile rule uses. It is inert when the table fits.
+  ::ng-deep .result-table,
+  ::ng-deep .km-table {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+}
+
 // ──── Message Row ────
 
 .message-row {

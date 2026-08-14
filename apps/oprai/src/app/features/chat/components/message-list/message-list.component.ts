@@ -14,7 +14,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ChatMessage } from '../../services/chat-api.service';
-import { IntentParserService, ParsedAction, ParsedQuery, ParsedClarify } from '../../services/intent-parser.service';
+import { IntentParserService, ParsedAction, ParsedQuery, ParsedClarify, ParsedHistory } from '../../services/intent-parser.service';
 import { PROTOCOLS } from '../../models/protocol-list';
 import { ApiService } from '@core/services/api.service';
 
@@ -48,6 +48,33 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   @Input() currentThinking: string | null = null;
 
   /**
+   * Render the conversation as a receipt: same markdown, same mini-app cards,
+   * none of the controls that would mutate it. Used by the sidebar search
+   * preview, where the surrounding shell owns no chat state — an Edit or a
+   * Confirm there would either do nothing or, worse, sign a transaction from
+   * a panel the user opened just to look. The cards themselves are marked
+   * `inert` (see the template) rather than merely hidden, so they still
+   * render exactly as in the chat but cannot be focused or clicked.
+   */
+  @Input() readOnly = false;
+
+  /**
+   * Rebuild the card maps from `messages` instead of taking them as inputs.
+   *
+   * The chat shell owns that state because it also mutates it (a clarify pick
+   * spawns an action, a cancel removes one), so it passes the maps in. A
+   * read-only surface has no such state and no reason to import the parser
+   * into whatever bundle it lives in — this layout is the eager app shell,
+   * and `IntentParserService` is a ~70 KB dependency. Keeping the derivation
+   * on this side keeps it inside the deferred chunk with the cards.
+   */
+  @Input() deriveCards = false;
+
+  private readonly derivedCards = signal<ParsedHistory>({
+    actions: new Map(), queries: new Map(), clarifications: new Map(),
+  });
+
+  /**
    * Per-message rating tracker. The user's last vote per message is held in
    * memory so the active button stays highlighted; the row is also persisted
    * on the backend so dashboards can aggregate negatives. -1 = thumbs down,
@@ -62,6 +89,7 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
    * (a single failed POST is better than a flickering button).
    */
   rateMessage(message: ChatMessage, rating: 1 | -1): void {
+    if (this.readOnly) return;
     if (!message?.id) return;
     if (message.role !== 'assistant') return;
     const current = this.feedbackRatings()[message.id];
@@ -107,6 +135,9 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
         this.savedThinkingEntry.set(null);
         this.thinkingExpanded.set(false);
       }
+    }
+    if (this.deriveCards && 'messages' in changes) {
+      this.derivedCards.set(this.intentParser.parseHistory(this.messages));
     }
     if ('messages' in changes && this.savedThinkingEntry()) {
       // Clear thinking when the user sends a new message (the last message is now from the user)
@@ -180,6 +211,7 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   readonly editDraft = signal('');
 
   startEdit(message: ChatMessage): void {
+    if (this.readOnly) return;
     if (message.role !== 'user') return;
     // A reply is still streaming — editing/resending now would race the
     // in-flight turn (two responses for one thread). The buttons are also
@@ -394,6 +426,18 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   private scrollLocked = false;
 
   ngAfterViewChecked(): void {
+    // Read-only surfaces have no composer, so none of the "keep the turn the
+    // user just sent in view" machinery applies — and the spacer it sizes
+    // would leave a screen of empty space under a short preview. Land on the
+    // end of the conversation once, then stay put.
+    if (this.readOnly) {
+      if (this.messages.length !== this.previousMessageCount) {
+        this.previousMessageCount = this.messages.length;
+        this.scrollToBottom();
+      }
+      return;
+    }
+
     // Detect new messages added
     if (this.messages.length !== this.previousMessageCount) {
       const grew = this.messages.length > this.previousMessageCount;
@@ -439,14 +483,17 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   }
 
   getActionsForMessage(messageId: string): ParsedAction[] {
+    if (this.deriveCards) return this.derivedCards().actions.get(messageId) ?? [];
     return this.messageActions.get(messageId) ?? [];
   }
 
   getQueriesForMessage(messageId: string): ParsedQuery[] {
+    if (this.deriveCards) return this.derivedCards().queries.get(messageId) ?? [];
     return this.messageQueries.get(messageId) ?? [];
   }
 
   getClarificationsForMessage(messageId: string): ParsedClarify[] {
+    if (this.deriveCards) return this.derivedCards().clarifications.get(messageId) ?? [];
     return this.messageClarifications.get(messageId) ?? [];
   }
 

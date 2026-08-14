@@ -13,6 +13,7 @@ import { WalletService } from '@core/services/wallet.service';
 import { ThemeService, ThemePreference } from '@core/services/theme.service';
 import { SessionStorageService, ChatSession, SessionGroup } from '@core/services/session-storage.service';
 import { ChatApiService, ChatMessage } from '@features/chat/services/chat-api.service';
+import { MessageListComponent } from '@features/chat/components/message-list/message-list.component';
 import { PositionMonitorService } from '@core/services/position-monitor.service';
 import { SpendingLimitService } from '@core/services/spending-limit.service';
 import { ApiService } from '@core/services/api.service';
@@ -34,6 +35,7 @@ interface SearchResult {
     CommonModule, RouterOutlet, RouterLink, RouterLinkActive, FormsModule,
     LucideAngularModule, WalletButtonComponent, TruncateAddressPipe,
     LiquidationAlertBannerComponent, RiskWarningDialogComponent,
+    MessageListComponent,
   ],
   templateUrl: './main-layout.component.html',
   styleUrl: './main-layout.component.scss',
@@ -182,6 +184,20 @@ export class MainLayoutComponent implements OnDestroy {
   readonly searchPreviewLoading = signal(false);
   readonly searchPreviewMessages = signal<ChatMessage[]>([]);
   readonly searchPreviewError = signal<string | null>(null);
+
+  /**
+   * Which of the five mutually exclusive preview bodies to render. Named here
+   * rather than as a chain of template conditions because the container needs
+   * to know too: the message list brings its own scroll container and padding,
+   * so the panel must stop supplying them when the list is what's inside.
+   */
+  readonly searchPreviewState = computed<'loading' | 'error' | 'draft' | 'empty' | 'list'>(() => {
+    if (this.searchPreviewLoading()) return 'loading';
+    if (this.searchPreviewError()) return 'error';
+    if (this.searchPreviewSession()?.id.startsWith('local:')) return 'draft';
+    if (this.searchPreviewMessages().length === 0) return 'empty';
+    return 'list';
+  });
   readonly searchEditingSessionId = signal<string | null>(null);
   readonly searchDeleteConfirmId = signal<string | null>(null);
   searchEditingTitle = '';

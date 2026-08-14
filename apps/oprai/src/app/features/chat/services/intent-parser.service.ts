@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import type { ChatMessage } from './chat-api.service';
 
 export interface ParsedAction {
   type: string;
@@ -43,6 +44,16 @@ export interface ParsedIntent {
   actions: ParsedAction[];
   queries: ParsedQuery[];
   clarifications: ParsedClarify[];
+}
+
+/**
+ * The three per-message maps `MessageListComponent` consumes, keyed by
+ * message id. Produced by {@link IntentParserService.parseHistory}.
+ */
+export interface ParsedHistory {
+  actions: Map<string, ParsedAction[]>;
+  queries: Map<string, ParsedQuery[]>;
+  clarifications: Map<string, ParsedClarify[]>;
 }
 
 /**
@@ -437,6 +448,63 @@ export class IntentParserService {
   /**
    * Check if a message contains any action blocks
    */
+  /**
+   * Rebuild the action / query / clarify cards for a loaded conversation.
+   *
+   * Structured intent from the backend's function calling (`metadata.actions`
+   * and friends) always wins; text parsing is only the fallback for messages
+   * stored before that migration. Every surface that renders a stored
+   * conversation — the chat shell and the search preview — must go through
+   * this method, or the two drift and the same history renders differently
+   * depending on where you look at it.
+   */
+  parseHistory(messages: readonly ChatMessage[] | null | undefined): ParsedHistory {
+    const actions = new Map<string, ParsedAction[]>();
+    const queries = new Map<string, ParsedQuery[]>();
+    const clarifications = new Map<string, ParsedClarify[]>();
+
+    for (const msg of messages ?? []) {
+      if (msg.role !== 'assistant') continue;
+      const meta = msg.metadata;
+
+      const structuredActions = meta?.actions;
+      const structuredQueries = meta?.queries;
+      const structuredClarifications = meta?.clarifications;
+
+      if (structuredActions?.length) {
+        actions.set(msg.id, structuredActions.map(a => ({
+          type: a.type, params: a.params, raw: '',
+          chainFromPrevious: a.chainFromPrevious ?? false,
+          warnUnverifiedDestination: a.warnUnverifiedDestination ?? false,
+        })));
+      }
+      if (structuredQueries?.length) {
+        queries.set(msg.id, structuredQueries.map(q => ({
+          type: q.type, params: q.params, raw: '',
+        })));
+      }
+      if (structuredClarifications?.length) {
+        clarifications.set(msg.id, structuredClarifications.map(c => ({
+          category: c.category, question: c.question,
+          options: c.options.map(o => ({
+            label: o.label, sublabel: o.sublabel, icon: o.icon,
+            action: o.action, params: o.params,
+          })),
+          raw: '',
+        })));
+      }
+
+      if (!structuredActions?.length && !structuredQueries?.length && !structuredClarifications?.length) {
+        const parsed = this.parseAll(msg.content);
+        if (parsed.actions.length > 0) actions.set(msg.id, parsed.actions);
+        if (parsed.queries.length > 0) queries.set(msg.id, parsed.queries);
+        if (parsed.clarifications.length > 0) clarifications.set(msg.id, parsed.clarifications);
+      }
+    }
+
+    return { actions, queries, clarifications };
+  }
+
   hasActions(content: string): boolean {
     this.ACTION_REGEX.lastIndex = 0;
     return this.ACTION_REGEX.test(content);
