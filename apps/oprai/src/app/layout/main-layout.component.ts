@@ -12,7 +12,7 @@ import { AuthService } from '@core/services/auth.service';
 import { WalletService } from '@core/services/wallet.service';
 import { ThemeService, ThemePreference } from '@core/services/theme.service';
 import { SessionStorageService, ChatSession, SessionGroup, sessionActivityAt, byActivityDesc } from '@core/services/session-storage.service';
-import { ChatApiService, ChatMessage, ChatShare } from '@features/chat/services/chat-api.service';
+import { ChatApiService, ChatMessage } from '@features/chat/services/chat-api.service';
 import { MessageListComponent } from '@features/chat/components/message-list/message-list.component';
 import { PositionMonitorService } from '@core/services/position-monitor.service';
 import { SpendingLimitService } from '@core/services/spending-limit.service';
@@ -533,106 +533,58 @@ export class MainLayoutComponent implements OnDestroy {
     this.chatMenuOpen.update(v => !v);
   }
 
-  // ── Share dialog ─────────────────────────────────────────────────────────
+  // ── Share ────────────────────────────────────────────────────────────────
   //
-  // Share used to copy `/c/<sessionId>` to the clipboard, which was not a
-  // share at all: that URL is the owner's own chat route, so everyone who
-  // received it got a 404 or their own empty chat. A real link is a server
-  // object — created, snapshotted, revocable — so this opens a dialog instead
-  // of silently writing to the clipboard.
+  // One click: publish the conversation as it stands and put the link on the
+  // clipboard. There was a dialog here explaining what a share link is; three
+  // sentences of policy in front of a button nobody reads twice. The button
+  // says Share, the result says Copied, and the link is in the clipboard —
+  // that is the whole interaction.
+  //
+  // What the dialog also carried was management. That lives on /shared-links,
+  // which lists every published link with copy and revoke — reachable and
+  // complete, instead of bolted onto the moment of sharing.
+  //
+  // Clicking Share on an already-shared chat refreshes the snapshot to the
+  // latest message and returns the SAME token, so the link someone already
+  // holds keeps working and now shows the current conversation. Pressing
+  // Share means "share what I am looking at".
 
-  readonly shareDialogOpen = signal(false);
-  readonly shareLoading = signal(false);
   readonly shareBusy = signal(false);
   readonly shareError = signal<string | null>(null);
-  readonly currentShare = signal<ChatShare | null>(null);
-
-  readonly shareUrl = computed(() => {
-    const token = this.currentShare()?.token;
-    return token ? `${window.location.origin}/share/${token}` : '';
-  });
 
   shareChat(): void {
     const sessionId = this.sessionStorage.activeSessionId();
-    if (!sessionId) return;
-    this.chatMenuOpen.set(false);
-    this.shareDialogOpen.set(true);
-    this.shareError.set(null);
-    this.currentShare.set(null);
-    this.shareLoading.set(true);
-
-    // Read the existing state rather than creating on open: opening a dialog
-    // is not consent to publish. Nothing leaves the account until the user
-    // presses the button that says so.
-    const resolved = this.sessionStorage.resolveId(sessionId);
-    this.chatApi.getShare(resolved).subscribe({
-      next: (share) => {
-        this.currentShare.set(share);
-        this.shareLoading.set(false);
-      },
-      error: () => {
-        this.shareLoading.set(false);
-        this.shareError.set('Could not load the share status for this chat.');
-      },
-    });
-  }
-
-  closeShareDialog(): void {
-    this.shareDialogOpen.set(false);
-    this.shareError.set(null);
-    this.shareCopied.set(false);
-  }
-
-  /** Publish, or move an existing link's snapshot up to the latest message. */
-  createOrRefreshShare(): void {
-    const sessionId = this.sessionStorage.activeSessionId();
     if (!sessionId || this.shareBusy()) return;
+    this.chatMenuOpen.set(false);
     this.shareBusy.set(true);
     this.shareError.set(null);
+
     const resolved = this.sessionStorage.resolveId(sessionId);
     this.chatApi.createShare(resolved).subscribe({
       next: (share) => {
-        this.currentShare.set(share);
         this.shareBusy.set(false);
-        this.copyShareUrl();
+        this.copyShareUrl(`${window.location.origin}/share/${share.token}`);
       },
       error: () => {
         this.shareBusy.set(false);
         this.shareError.set('Could not create the link. Please try again.');
+        setTimeout(() => this.shareError.set(null), 4000);
       },
     });
   }
 
-  revokeShare(): void {
-    const sessionId = this.sessionStorage.activeSessionId();
-    if (!sessionId || this.shareBusy()) return;
-    this.shareBusy.set(true);
-    this.shareError.set(null);
-    const resolved = this.sessionStorage.resolveId(sessionId);
-    this.chatApi.revokeShare(resolved).subscribe({
-      next: () => {
-        this.currentShare.set(null);
-        this.shareBusy.set(false);
-      },
-      error: () => {
-        this.shareBusy.set(false);
-        this.shareError.set('Could not revoke the link. Please try again.');
-      },
-    });
-  }
-
-  copyShareUrl(): void {
-    const url = this.shareUrl();
-    if (!url) return;
+  private copyShareUrl(url: string): void {
     navigator.clipboard.writeText(url).then(() => {
       this.shareCopied.set(true);
       if (this.shareCopyTimer) clearTimeout(this.shareCopyTimer);
       this.shareCopyTimer = setTimeout(() => this.shareCopied.set(false), 2000);
     }).catch(() => {
-      // Clipboard can be denied by permissions policy — the input below is
-      // selectable, so the link is still obtainable. Don't claim a copy that
-      // didn't happen.
-      this.shareError.set('Copy blocked by the browser — select the link and copy it manually.');
+      // Clipboard can be denied by permissions policy. The link exists either
+      // way — send the user where they can pick it up rather than claiming a
+      // copy that did not happen.
+      this.shareError.set('Copy blocked by your browser — the link is in Shared Links.');
+      setTimeout(() => this.shareError.set(null), 5000);
     });
   }
 
