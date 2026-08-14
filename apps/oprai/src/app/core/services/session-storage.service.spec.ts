@@ -3,6 +3,7 @@ import {
   SessionStorageService,
   ChatSession,
   SessionGroup,
+  sessionActivityAt,
 } from './session-storage.service';
 
 describe('SessionStorageService', () => {
@@ -170,34 +171,34 @@ describe('SessionStorageService', () => {
       expect(updated?.title).toBe('New Title');
     });
 
-    it('should update updatedAt timestamp', (done) => {
+    // These two used to assert the opposite — that renaming bumped the
+    // timestamp and floated the chat to the top. That was the bug: a chat
+    // from last month, relabelled, reported itself under "Today". Renaming
+    // changes what a conversation is called, not when it happened.
+    it('should not change the activity time', (done) => {
       const session = service.createLocalSession('Title');
-      const originalUpdatedAt = session.updatedAt;
+      const before = sessionActivityAt(session);
 
-      // Small delay to ensure different timestamp
       setTimeout(() => {
         service.updateTitle(session.id, 'New Title');
 
         const updated = service.sessions().find((s) => s.id === session.id);
-        expect(
-          new Date(updated!.updatedAt!).getTime()
-        ).toBeGreaterThan(new Date(originalUpdatedAt).getTime());
+        expect(sessionActivityAt(updated!)).toBe(before);
         done();
       }, 10);
     });
 
-    it('should re-sort sessions after update', () => {
+    it('should not re-order sessions', () => {
       const session1 = service.createLocalSession('Session 1');
       const session2 = service.createLocalSession('Session 2');
 
-      // Touch session1 first to make it newer
+      // session1 is the most recently active one.
       service.touchSession(session1.id);
 
-      // Update session2
+      // Renaming session2 must not steal the top slot from it.
       service.updateTitle(session2.id, 'Updated');
 
-      const sessions = service.sessions();
-      expect(sessions[0].id).toBe(session2.id);
+      expect(service.sessions()[0].id).toBe(session1.id);
     });
   });
 
@@ -403,6 +404,50 @@ describe('SessionStorageService', () => {
 
     it('should return empty array when no sessions', () => {
       expect(service.groupedSessions()).toEqual([]);
+    });
+
+    // The reported bug, end to end: rename a month-old chat and it appeared
+    // under "Today". Grouping followed updatedAt, which every write bumps.
+    it('should keep a renamed old session in its original group', () => {
+      const longAgo = new Date(Date.now() - 20 * 86400000).toISOString();
+      const old = createSession({
+        title: 'From weeks ago',
+        createdAt: longAgo,
+        updatedAt: longAgo,
+        lastMessageAt: longAgo,
+      });
+      service.loadSessions([old]);
+
+      const groupOf = (title: string) =>
+        service.groupedSessions()
+          .find((g: SessionGroup) => g.sessions.some((s) => s.title === title))
+          ?.label;
+
+      expect(groupOf('From weeks ago')).toBe('Last 30 days');
+
+      service.updateTitle(old.id, 'Renamed today');
+
+      expect(groupOf('Renamed today')).toBe('Last 30 days');
+    });
+
+    // A server row whose title was edited has a fresh updatedAt but an old
+    // last_message_at. The group must follow the message, not the edit.
+    it('should group on lastMessageAt, not updatedAt', () => {
+      const longAgo = new Date(Date.now() - 20 * 86400000).toISOString();
+      service.loadSessions([
+        createSession({
+          title: 'Edited server-side',
+          createdAt: longAgo,
+          updatedAt: new Date().toISOString(),
+          lastMessageAt: longAgo,
+        }),
+      ]);
+
+      const label = service.groupedSessions()
+        .find((g: SessionGroup) => g.sessions.some((s) => s.title === 'Edited server-side'))
+        ?.label;
+
+      expect(label).toBe('Last 30 days');
     });
   });
 

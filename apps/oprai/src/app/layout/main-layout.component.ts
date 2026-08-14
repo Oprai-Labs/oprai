@@ -11,7 +11,7 @@ import { TruncateAddressPipe } from '@shared/pipes/truncate-address.pipe';
 import { AuthService } from '@core/services/auth.service';
 import { WalletService } from '@core/services/wallet.service';
 import { ThemeService, ThemePreference } from '@core/services/theme.service';
-import { SessionStorageService, ChatSession, SessionGroup } from '@core/services/session-storage.service';
+import { SessionStorageService, ChatSession, SessionGroup, sessionActivityAt, byActivityDesc } from '@core/services/session-storage.service';
 import { ChatApiService, ChatMessage, ChatShare } from '@features/chat/services/chat-api.service';
 import { MessageListComponent } from '@features/chat/components/message-list/message-list.component';
 import { PositionMonitorService } from '@core/services/position-monitor.service';
@@ -129,8 +129,10 @@ export class MainLayoutComponent implements OnDestroy {
       Older: [],
     };
 
+    // Grouped by ACTIVITY, not by row-modification time: renaming a chat is
+    // not something happening in it. See sessionActivityAt.
     for (const session of unpinned) {
-      const date = new Date(session.updatedAt || session.createdAt);
+      const date = new Date(sessionActivityAt(session));
       if (date >= today) {
         groups['Today'].push(session);
       } else if (date >= yesterday) {
@@ -144,9 +146,7 @@ export class MainLayoutComponent implements OnDestroy {
       }
     }
 
-    const sortDesc = (a: ChatSession, b: ChatSession) =>
-      new Date(b.updatedAt || b.createdAt).getTime() -
-      new Date(a.updatedAt || a.createdAt).getTime();
+    const sortDesc = byActivityDesc;
 
     const result: SessionGroup[] = [];
 
@@ -339,7 +339,7 @@ export class MainLayoutComponent implements OnDestroy {
 
     for (const result of results) {
       const session = result.session;
-      const date = new Date(session.updatedAt || session.createdAt);
+      const date = new Date(sessionActivityAt(session));
       if (date >= today) {
         groups['Today'].push(session);
       } else if (date >= yesterday) {
@@ -1021,6 +1021,7 @@ export class MainLayoutComponent implements OnDestroy {
           title: s.title ?? 'Untitled',
           createdAt: s.createdAt,
           updatedAt: s.updatedAt ?? s.createdAt,
+          lastMessageAt: s.lastMessageAt ?? null,
           isLocal: false,
         }));
         this.sessionStorage.appendSessions(mapped);
@@ -1059,6 +1060,7 @@ export class MainLayoutComponent implements OnDestroy {
             pinned: s.pinned ?? false,
             createdAt: s.createdAt,
             updatedAt: s.updatedAt ?? s.createdAt,
+            lastMessageAt: s.lastMessageAt ?? null,
             isLocal: false,
           }))
         );

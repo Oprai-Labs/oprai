@@ -2115,6 +2115,9 @@ async def list_sessions(
                 "pinned": s["pinned"],
                 "createdAt": s["createdAt"],
                 "updatedAt": s["updatedAt"],
+                # The sidebar groups by activity, not by row-modification
+                # time — see services.session._serialize.
+                "lastMessageAt": s["lastMessageAt"],
             }
             for s in sessions
         ],

@@ -197,6 +197,7 @@ export class SidebarComponent implements OnInit {
             pinned: s.pinned ?? false,
             createdAt: s.createdAt,
             updatedAt: s.updatedAt ?? s.createdAt,
+            lastMessageAt: s.lastMessageAt ?? null,
             isLocal: false,
           }))
         );
