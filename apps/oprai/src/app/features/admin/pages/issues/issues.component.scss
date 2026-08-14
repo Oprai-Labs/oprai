@@ -1,35 +1,107 @@
-// Admin pages use the panel's own token set (--bg-primary, --text-primary …),
-// not the app's --op-* variables. Keep to it here or this page drifts from
-// every other admin screen.
+@use '../../styles/admin-page';
+
+// Page-specific chrome on top of the shared admin list styles.
+
+.filter-select {
+  padding: 9px 12px;
+  font-size: 0.875rem;
+  border-radius: var(--radius-lg);
+  min-width: 150px;
+}
+
+// ── Status pill ──
+// Four states, one visual language, used in the table and in the panel so a
+// report reads the same wherever it is seen.
 
 .issue-status {
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
   border-radius: 999px;
-  background: var(--bg-tertiary, rgba(0, 0, 0, 0.05));
-  font-size: 10.5px;
+  font-size: 0.6875rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   white-space: nowrap;
+  border: 1px solid transparent;
 
-  &--open        { color: #2f6fed; }
-  &--in_progress { color: #d18f2b; }
-  &--resolved    { color: #1e9e6a; }
-  &--dismissed   { color: var(--text-secondary, #888); }
+  &::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  &--open {
+    color: #2f6fed;
+    background: rgba(47, 111, 237, 0.10);
+    border-color: rgba(47, 111, 237, 0.22);
+  }
+  &--in_progress {
+    color: #C77D14;
+    background: rgba(199, 125, 20, 0.10);
+    border-color: rgba(199, 125, 20, 0.22);
+  }
+  &--resolved {
+    color: #14875A;
+    background: rgba(20, 135, 90, 0.10);
+    border-color: rgba(20, 135, 90, 0.22);
+  }
+  &--dismissed {
+    color: var(--text-tertiary);
+    background: var(--bg-secondary);
+    border-color: var(--border-primary);
+  }
+}
+
+.issue-category {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  text-transform: capitalize;
 }
 
 .issue-subject {
   display: inline-block;
-  max-width: 380px;
+  max-width: 340px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: bottom;
 }
 
+// An answered report is worth spotting in the list at a glance.
+.issue-replied {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+// ── Detail panel ──
+
+.issue-section {
+  margin-bottom: 20px;
+
+  &__label {
+    margin: 0 0 7px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+  }
+}
+
 .issue-body {
-  margin: 0 0 16px;
-  font-size: 13.5px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  font-size: 0.875rem;
   line-height: 1.6;
   color: var(--text-primary);
   white-space: pre-wrap;
@@ -37,73 +109,98 @@
 }
 
 .issue-context {
-  margin-bottom: 16px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  background: var(--bg-secondary, rgba(0, 0, 0, 0.03));
+  display: grid;
+  grid-template-columns: minmax(88px, auto) 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.8125rem;
 
-  h3 {
-    margin: 0 0 8px;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-secondary);
-  }
-
-  dl { margin: 0; }
-
-  &__row {
-    display: flex;
-    gap: 10px;
-    padding: 3px 0;
-    font-size: 12px;
-
-    dt {
-      flex-shrink: 0;
-      min-width: 90px;
-      color: var(--text-secondary);
-    }
-
-    dd {
-      margin: 0;
-      color: var(--text-primary);
-      overflow-wrap: anywhere;
-    }
+  dt { color: var(--text-tertiary); }
+  dd {
+    margin: 0;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
   }
 }
 
-.issue-reply {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 16px;
+// ── Status stepper ──
+// The four states are a sequence, so they are laid out as one. Dismissed is
+// deliberately not on the track — it is an exit, not a step.
 
-  label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-primary);
+.issue-steps {
+  display: flex;
+  gap: 6px;
+}
+
+.issue-step {
+  flex: 1;
+  padding: 9px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+
+  &:hover:not(:disabled):not(.is-current) {
+    background: var(--bg-secondary);
   }
 
+  &.is-current {
+    border-color: var(--accent-primary);
+    background: rgba(99, 102, 241, 0.08);
+    color: var(--text-primary);
+    cursor: default;
+  }
+
+  &:disabled { opacity: 0.55; cursor: default; }
+}
+
+.issue-dismiss {
+  margin-top: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-primary);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+
+  &:hover:not(:disabled) { color: var(--accent-danger); border-color: var(--accent-danger); }
+  &:disabled { opacity: 0.55; cursor: default; }
+  &.is-current { color: var(--accent-danger); border-style: solid; border-color: var(--accent-danger); }
+}
+
+// ── Reply ──
+
+.issue-reply {
   textarea {
     width: 100%;
     resize: vertical;
     font-family: inherit;
+    font-size: 0.875rem;
     line-height: 1.55;
+  }
+
+  &__hint {
+    margin: 6px 0 0;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
   }
 }
 
-.issue-actions {
+.issue-save-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
 
-  // The report's current state is a fact, not a button — marking it stops an
-  // admin from "setting" a status it already has and wondering why nothing
-  // changed.
-  .is-current {
-    border-color: currentColor;
-    font-weight: 700;
-  }
+.issue-saved {
+  font-size: 0.8125rem;
+  color: #14875A;
 }

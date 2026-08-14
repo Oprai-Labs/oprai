@@ -70,7 +70,7 @@
         @for (r of reports(); track r.id) {
           <li class="report-row">
             <div class="report-row__head">
-              <span class="report-status" [class]="'report-status--' + r.status">
+              <span class="report-status" [class]="'report-status report-status--' + r.status">
                 {{ statusLabel(r.status) }}
               </span>
               <span class="report-row__cat">{{ categoryLabel(r.category) }}</span>
@@ -78,10 +78,25 @@
             </div>
             <p class="report-row__subject">{{ r.subject }}</p>
             <p class="report-row__body">{{ r.description }}</p>
+
+            <!-- Where the report stands. A closed one shows the track greyed
+                 rather than half-lit: it stopped, it did not stall. -->
+            <ol class="report-track" [class.report-track--closed]="r.status === 'dismissed'">
+              @for (s of steps; track s.id; let i = $index) {
+                <li class="report-track__step"
+                    [class.is-done]="r.status !== 'dismissed' && i <= stepIndex(r.status)"
+                    [class.is-current]="r.status !== 'dismissed' && i === stepIndex(r.status)">
+                  <span class="report-track__dot"></span>
+                  <span class="report-track__label">{{ s.label }}</span>
+                </li>
+              }
+            </ol>
+
             @if (r.adminNote) {
-              <p class="report-row__note">
-                <strong>OPRAI:</strong> {{ r.adminNote }}
-              </p>
+              <div class="report-row__note">
+                <p class="report-row__note-from">OPRAI replied</p>
+                <p class="report-row__note-body">{{ r.adminNote }}</p>
+              </div>
             }
           </li>
         }

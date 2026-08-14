@@ -1,0 +1,228 @@
+// Shared chrome for an admin list page: header, toolbar, table, pagination,
+// side-panel modal.
+//
+// Every admin page had its own copy of these rules — component styles do not
+// leak, so a new page that used the same class names simply rendered
+// unstyled. This is that shared copy. New pages `@use` it; the existing ones
+// still carry their own duplicates and can migrate one at a time, which keeps
+// this from colliding with work in flight elsewhere in the panel.
+//
+// Admin uses its own token set (--bg-primary, --text-primary, --border-*),
+// not the app's --op-* variables. Stay on it or the page drifts.
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  height: var(--header-height);
+  border-bottom: 1px solid var(--border-secondary);
+  flex-shrink: 0;
+
+  h1 {
+    font-size: 1.125rem;
+    font-weight: 600;
+  }
+
+  .header-count {
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+  }
+}
+
+.admin-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 380px;
+
+  &--enhanced .search-input {
+    padding: 9px 14px 9px 38px;
+    font-size: 14px;
+    border-radius: var(--radius-lg);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+
+    &:focus {
+      border-color: var(--op-brand);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+  }
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.search-input { padding-left: 36px; }
+
+.table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 0.875rem;
+    border-bottom: 1px solid var(--border-secondary);
+  }
+
+  th {
+    font-weight: 600;
+    color: var(--text-tertiary);
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--bg-secondary);
+    white-space: nowrap;
+  }
+
+  td { color: var(--text-primary); }
+
+  tbody tr {
+    transition: background var(--transition-fast);
+    &:hover { background: var(--bg-secondary); }
+    &:last-child td { border-bottom: none; }
+  }
+}
+
+.mono-text,
+.wallet-text {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.wallet-text { color: var(--accent-primary); }
+
+.btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+}
+
+.empty-row {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 40px 16px;
+
+  p {
+    margin-top: 8px;
+    font-size: 0.875rem;
+  }
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.page-info {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.error-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 200px;
+  color: var(--accent-danger);
+  font-size: 0.875rem;
+}
+
+// ── Side-panel modal ──
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.modal-panel {
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-primary);
+  width: 560px;
+  max-width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-secondary);
+  flex-shrink: 0;
+
+  h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+}
+
+.modal-subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+}
+
+.btn-icon {
+  padding: 6px;
+  border-radius: var(--radius-sm);
+}
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+@media (max-width: 768px) {
+  .admin-content { padding: 16px; }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .modal-panel { width: 100vw; }
+}

@@ -120,13 +120,26 @@ export class ReportIssueComponent {
     this.error.set(null);
   }
 
+  /**
+   * The track a report walks. `dismissed` is deliberately not on it — it is an
+   * exit, not a fourth step — so a closed report shows the track greyed with a
+   * separate label rather than pretending to be mid-flight.
+   */
+  readonly steps = [
+    { id: 'open',        label: 'Submitted' },
+    { id: 'in_progress', label: 'In review' },
+    { id: 'resolved',    label: 'Resolved' },
+  ] as const;
+
   statusLabel(status: IssueReport['status']): string {
-    switch (status) {
-      case 'in_progress': return 'In progress';
-      case 'resolved':    return 'Resolved';
-      case 'dismissed':   return 'Closed';
-      default:            return 'Open';
-    }
+    if (status === 'dismissed') return 'Closed';
+    return this.steps.find((s) => s.id === status)?.label ?? 'Submitted';
+  }
+
+  /** How far along the track this report is: 0, 1 or 2. */
+  stepIndex(status: IssueReport['status']): number {
+    const i = this.steps.findIndex((s) => s.id === status);
+    return i === -1 ? 0 : i;
   }
 
   categoryLabel(id: string): string {

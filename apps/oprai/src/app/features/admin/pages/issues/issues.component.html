@@ -11,18 +11,19 @@
         <input
           type="text"
           class="input search-input"
-          placeholder="Search wallet, subject or body..."
+          placeholder="Search wallet, subject or body…"
           [(ngModel)]="searchQuery"
           (keyup.enter)="onFilter()"
         />
       </div>
-      <select class="input" [(ngModel)]="statusFilter" (change)="onFilter()" aria-label="Status">
+      <select class="input filter-select" [(ngModel)]="statusFilter" (change)="onFilter()" aria-label="Status">
         <option value="">All statuses</option>
-        @for (s of statuses; track s.id) {
+        @for (s of steps; track s.id) {
           <option [value]="s.id">{{ s.label }}</option>
         }
+        <option value="dismissed">Closed</option>
       </select>
-      <select class="input" [(ngModel)]="categoryFilter" (change)="onFilter()" aria-label="Category">
+      <select class="input filter-select" [(ngModel)]="categoryFilter" (change)="onFilter()" aria-label="Category">
         <option value="">All categories</option>
         <option value="bug">Bug</option>
         <option value="feature">Feature</option>
@@ -36,8 +37,8 @@
     </div>
 
     @if (loading()) {
-      <app-skeleton-table [rows]="10" [columnWidths]="['90px', '120px', '90px', '260px', '100px']" />
-    } @else if (error()) {
+      <app-skeleton-table [rows]="10" [columnWidths]="['110px', '130px', '90px', '280px', '90px', '70px']" />
+    } @else if (error() && !selected()) {
       <div class="error-state">
         <lucide-icon name="alert-circle" [size]="20" />
         <span>{{ error() }}</span>
@@ -61,13 +62,22 @@
               @for (report of reports(); track report.id) {
                 <tr>
                   <td>
-                    <span class="issue-status" [class]="'issue-status--' + report.status">
+                    <span class="issue-status" [class]="'issue-status issue-status--' + report.status">
                       {{ statusLabel(report.status) }}
                     </span>
                   </td>
                   <td><span class="wallet-text">{{ report.wallet | truncateAddress:6:4 }}</span></td>
-                  <td>{{ report.category }}</td>
-                  <td><span class="issue-subject">{{ report.subject }}</span></td>
+                  <td><span class="issue-category">{{ report.category }}</span></td>
+                  <td>
+                    <span class="issue-subject">{{ report.subject }}</span>
+                    @if (report.admin_note) {
+                      <br />
+                      <span class="issue-replied">
+                        <lucide-icon name="corner-down-right" [size]="11" />
+                        replied
+                      </span>
+                    }
+                  </td>
                   <td>{{ report.created_at | timeAgo }}</td>
                   <td>
                     <button class="btn-ghost btn-sm" (click)="open(report)">
@@ -115,45 +125,69 @@
               {{ report.category }} · {{ report.wallet | truncateAddress:6:4 }} · {{ report.created_at | timeAgo }}
             </p>
           </div>
-          <button class="btn-ghost btn-icon" (click)="close()">
+          <button class="btn-ghost btn-icon" (click)="close()" aria-label="Close">
             <lucide-icon name="x" [size]="16" />
           </button>
         </div>
+
         <div class="modal-body">
-          <p class="issue-body">{{ report.description }}</p>
+          <section class="issue-section">
+            <p class="issue-section__label">What they reported</p>
+            <p class="issue-body">{{ report.description }}</p>
+          </section>
 
           @if (contextEntries(report).length > 0) {
-            <div class="issue-context">
-              <h3>Context</h3>
-              <dl>
+            <section class="issue-section">
+              <p class="issue-section__label">Where they were</p>
+              <dl class="issue-context">
                 @for (entry of contextEntries(report); track entry.key) {
-                  <div class="issue-context__row">
-                    <dt>{{ entry.key }}</dt>
-                    <dd>{{ entry.value }}</dd>
-                  </div>
+                  <dt>{{ entry.key }}</dt>
+                  <dd>{{ entry.value }}</dd>
                 }
               </dl>
-            </div>
+            </section>
           }
 
-          <div class="issue-reply">
-            <!-- The note is shown to the reporter on their own page, so it is
-                 a reply, not an internal comment. Labelled as such. -->
-            <label for="issue-note">Reply to the user (they will see this)</label>
-            <textarea id="issue-note" class="input" rows="4" [(ngModel)]="noteDraft"
-                      placeholder="Optional — what you found, or what happens next."></textarea>
-          </div>
+          <section class="issue-section">
+            <p class="issue-section__label">Status</p>
+            <div class="issue-steps">
+              @for (s of steps; track s.id) {
+                <button class="issue-step"
+                        [class.is-current]="report.status === s.id"
+                        [disabled]="saving() || report.status === s.id"
+                        (click)="setStatus(s.id)">
+                  {{ s.label }}
+                </button>
+              }
+            </div>
+            <button class="issue-dismiss"
+                    [class.is-current]="report.status === 'dismissed'"
+                    [disabled]="saving() || report.status === 'dismissed'"
+                    (click)="setStatus('dismissed')">
+              Close without action
+            </button>
+          </section>
 
-          <div class="issue-actions">
-            @for (s of statuses; track s.id) {
-              <button class="btn-ghost btn-sm"
-                      [class.is-current]="report.status === s.id"
-                      [disabled]="saving()"
-                      (click)="setStatus(s.id)">
-                {{ s.label }}
+          <section class="issue-section issue-reply">
+            <p class="issue-section__label">Reply</p>
+            <textarea class="input" rows="4" [(ngModel)]="noteDraft"
+                      placeholder="What you found, or what happens next."></textarea>
+            <p class="issue-reply__hint">
+              Shown to the reporter on their own Report an issue page. Saved with
+              whichever status you pick, or on its own below.
+            </p>
+            <div class="issue-save-row">
+              <button class="btn-primary btn-sm" [disabled]="saving()" (click)="saveReply()">
+                {{ saving() ? 'Saving…' : 'Save reply' }}
               </button>
-            }
-          </div>
+              @if (savedAt()) {
+                <span class="issue-saved">Saved</span>
+              }
+              @if (error()) {
+                <span class="issue-saved" style="color: var(--accent-danger)">{{ error() }}</span>
+              }
+            </div>
+          </section>
         </div>
       </div>
     </div>

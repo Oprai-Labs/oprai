@@ -8,12 +8,21 @@ import { TimeAgoPipe } from '@shared/pipes/time-ago.pipe';
 import { AdminLayoutComponent } from '../../components/admin-layout/admin-layout.component';
 import { SkeletonTableComponent } from '@shared/components/skeletons/skeleton-table.component';
 
+/** The three states a report moves through, in order. */
+export const ISSUE_STEPS = [
+  { id: 'open',        label: 'Submitted' },
+  { id: 'in_progress', label: 'In review' },
+  { id: 'resolved',    label: 'Resolved' },
+] as const;
+
 /**
  * The queue for Help → Report Issue.
  *
- * Without this page the reports table is a write-only sink: users would file
- * reports that nobody could read, which is worse than the broken GitHub link
- * it replaced, because it looks like it works.
+ * Two things happen here and both are visible to the person who filed the
+ * report: moving it along the track, and answering it. The reply is not an
+ * internal note — it renders on the reporter's own page — so the panel says
+ * so where the box is, and saves it together with the status rather than as
+ * a separate hidden step.
  */
 @Component({
   selector: 'app-admin-issues',
@@ -33,6 +42,8 @@ import { SkeletonTableComponent } from '@shared/components/skeletons/skeleton-ta
 export class IssuesComponent implements OnInit {
   private readonly adminApi = inject(AdminApiService);
 
+  readonly steps = ISSUE_STEPS;
+
   readonly reports = signal<AdminIssueReport[]>([]);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -42,19 +53,13 @@ export class IssuesComponent implements OnInit {
 
   readonly selected = signal<AdminIssueReport | null>(null);
   readonly saving = signal(false);
+  readonly savedAt = signal<number | null>(null);
 
-  /** Draft note for the open report — the user sees it on their own page. */
+  /** Draft reply for the open report — the reporter sees this text. */
   noteDraft = '';
   statusFilter = '';
   categoryFilter = '';
   searchQuery = '';
-
-  readonly statuses = [
-    { id: 'open', label: 'Open' },
-    { id: 'in_progress', label: 'In progress' },
-    { id: 'resolved', label: 'Resolved' },
-    { id: 'dismissed', label: 'Closed' },
-  ];
 
   ngOnInit(): void {
     this.load();
@@ -97,27 +102,47 @@ export class IssuesComponent implements OnInit {
   open(report: AdminIssueReport): void {
     this.selected.set(report);
     this.noteDraft = report.admin_note ?? '';
+    this.savedAt.set(null);
+    this.error.set(null);
   }
 
   close(): void {
     this.selected.set(null);
     this.noteDraft = '';
+    this.savedAt.set(null);
   }
 
+  /** Save the reply against the report's current status, without moving it. */
+  saveReply(): void {
+    const report = this.selected();
+    if (report) this.apply(report, report.status);
+  }
+
+  /** Move the report to a state, carrying whatever reply is in the box. */
   setStatus(status: string): void {
     const report = this.selected();
-    if (!report || this.saving()) return;
+    if (report) this.apply(report, status);
+  }
+
+  private apply(report: AdminIssueReport, status: string): void {
+    if (this.saving()) return;
     this.saving.set(true);
+    this.error.set(null);
+
     this.adminApi.updateIssueReport(report.id, status, this.noteDraft.trim()).subscribe({
       next: () => {
-        // Patch the row in place instead of refetching: the list may be
+        // Patch the row in place rather than refetching: the list may be
         // filtered by status, and a refetch would make the row the admin is
-        // still looking at vanish out from under them.
-        const note = this.noteDraft.trim() || report.admin_note;
-        const updated = { ...report, status: status as AdminIssueReport['status'], admin_note: note };
+        // still reading vanish out from under them.
+        const updated: AdminIssueReport = {
+          ...report,
+          status: status as AdminIssueReport['status'],
+          admin_note: this.noteDraft.trim() || report.admin_note,
+        };
         this.reports.update((rows) => rows.map((r) => (r.id === report.id ? updated : r)));
         this.selected.set(updated);
         this.saving.set(false);
+        this.savedAt.set(Date.now());
       },
       error: () => {
         this.saving.set(false);
@@ -127,7 +152,8 @@ export class IssuesComponent implements OnInit {
   }
 
   statusLabel(status: string): string {
-    return this.statuses.find((s) => s.id === status)?.label ?? status;
+    if (status === 'dismissed') return 'Closed';
+    return this.steps.find((s) => s.id === status)?.label ?? status;
   }
 
   contextEntries(report: AdminIssueReport): { key: string; value: string }[] {

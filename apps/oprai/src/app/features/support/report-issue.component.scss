@@ -54,29 +54,38 @@
   color: var(--op-text-tertiary);
 }
 
+// Four options, so four columns — `auto-fit` left three on one row and one
+// orphaned below, which reads as a mistake rather than a layout. Collapses to
+// 2×2 and then to a single column, never to 3+1.
 .report-cats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
+
+  @media (max-width: 900px) { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 520px) { grid-template-columns: 1fr; }
 }
 
 .report-cat {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 11px 13px;
-  border: 1px solid var(--op-border-default);
+  gap: 3px;
+  padding: 12px 13px;
+  border: 1px solid var(--op-border-subtle);
   border-radius: var(--op-radius-md);
   background: var(--op-bg-surface-1);
   text-align: left;
   cursor: pointer;
-  transition: border-color var(--op-fast), background var(--op-fast);
+  transition: border-color var(--op-fast), background var(--op-fast), box-shadow var(--op-fast);
 
-  &:hover { background: var(--op-hover); }
+  // Hover is a hint; selection is a state. They looked alike enough that two
+  // cards read as chosen at once — hover no longer changes the border.
+  &:hover:not(.is-active) { background: var(--op-hover); }
 
   &.is-active {
     border-color: var(--op-brand);
-    background: var(--op-bg-surface-2);
+    background: color-mix(in srgb, var(--op-brand) 7%, transparent);
+    box-shadow: 0 0 0 1px var(--op-brand);
   }
 
   &__label {
@@ -246,14 +255,27 @@
     overflow-wrap: anywhere;
   }
 
-  // The admin's reply is the reason someone comes back to this page — it gets
-  // a rule and a tint so it never reads as more of the user's own text.
+  // The reply is the reason someone comes back to this page — it gets a rule
+  // and a tint so it never reads as more of the user's own text.
   &__note {
-    margin: 9px 0 0;
-    padding: 8px 10px;
+    margin: 11px 0 0;
+    padding: 9px 12px;
     border-left: 2px solid var(--op-brand);
     border-radius: 0 var(--op-radius-sm) var(--op-radius-sm) 0;
     background: var(--op-bg-surface-2);
+  }
+
+  &__note-from {
+    margin: 0 0 3px;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--op-brand);
+  }
+
+  &__note-body {
+    margin: 0;
     font-size: 12.5px;
     line-height: 1.55;
     color: var(--op-text-primary);
@@ -262,18 +284,110 @@
   }
 }
 
+// ──── Status track ────
+// Three steps, connected. The line between dots is what makes it read as
+// progress rather than as three unrelated labels.
+
+.report-track {
+  display: flex;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+
+  &--closed {
+    opacity: 0.5;
+
+    .report-track__dot { background: var(--op-text-tertiary); }
+  }
+
+  &__step {
+    flex: 1;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--op-text-tertiary);
+
+    // Connector, drawn behind the dots and stopping at the last step.
+    &::before {
+      content: '';
+      position: absolute;
+      top: 4px;
+      left: -50%;
+      width: 100%;
+      height: 2px;
+      background: var(--op-border-subtle);
+    }
+
+    &:first-child::before { display: none; }
+
+    &.is-done {
+      color: var(--op-text-secondary);
+
+      .report-track__dot { background: var(--op-brand); }
+      &::before { background: var(--op-brand); }
+    }
+
+    &.is-current {
+      color: var(--op-text-primary);
+      font-weight: 600;
+
+      .report-track__dot {
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--op-brand) 22%, transparent);
+      }
+    }
+  }
+
+  &__dot {
+    position: relative;
+    z-index: 1;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--op-border-default);
+  }
+
+  &__label { line-height: 1.3; text-align: center; }
+}
+
 .report-status {
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
   border-radius: var(--op-radius-full);
+  border: 1px solid transparent;
   background: var(--op-bg-surface-2);
   color: var(--op-text-secondary);
   font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 
-  &--open        { color: var(--op-brand); }
-  &--in_progress { color: var(--op-warning, #d18f2b); }
-  &--resolved    { color: var(--op-gain); }
-  &--dismissed   { color: var(--op-text-tertiary); }
+  &::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  &--open {
+    color: var(--op-brand);
+    border-color: color-mix(in srgb, var(--op-brand) 24%, transparent);
+    background: color-mix(in srgb, var(--op-brand) 9%, transparent);
+  }
+  &--in_progress {
+    color: #C77D14;
+    border-color: rgba(199, 125, 20, 0.24);
+    background: rgba(199, 125, 20, 0.09);
+  }
+  &--resolved {
+    color: var(--op-gain);
+    border-color: color-mix(in srgb, var(--op-gain) 24%, transparent);
+    background: color-mix(in srgb, var(--op-gain) 9%, transparent);
+  }
+  &--dismissed { color: var(--op-text-tertiary); }
 }
