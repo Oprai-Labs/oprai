@@ -7,7 +7,7 @@
 OPRAI turns plain language into on-chain actions — swap, stake, lend, bridge,
 launch a token — and hands each one to your wallet to sign.
 
-[**Try it**](https://app.oprai.xyz) · [Docs](docs/) · [Agent framework](opraios/) · [MIT](LICENSE)
+[**Try it**](https://app.oprai.xyz) · [MIT](LICENSE)
 
 </div>
 
@@ -84,7 +84,7 @@ token is never written to `localStorage`.
 a quote → an unsigned transaction → your wallet → the network. OPRAI never
 holds a key and never submits anything you have not signed.
 
-Full detail lives in [`docs/`](docs/) and [`CLAUDE.md`](CLAUDE.md).
+Full detail lives in [`CLAUDE.md`](CLAUDE.md).
 
 ## Repository map
 
