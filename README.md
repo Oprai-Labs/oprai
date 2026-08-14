@@ -1,385 +1,146 @@
-# OPRAI
+<div align="center">
 
-DeFi-native conversational AI assistant for Solana. Transforms natural language into on-chain actions — swaps, token launches, staking, transfers — with wallet-based authentication (SIWS).
+<img src="packages/media/oprai_banner.svg" alt="OPRAI" width="820">
 
-## Architecture
+### Talk to Solana.
 
-```
-                           ┌─────────────────────────────────────────────┐
-                           │              Gateway (Go :3001)             │
-                           │   JWT validation · Rate limiting · CORS    │
-Frontend (Angular :3000) ──┤   Circuit breaker · gRPC fan-out          │
-                           └──────┬──────┬──────┬──────┬───────────────┘
-                                  │      │      │      │
-                    ┌─────────────┘      │      │      └─────────────┐
-                    ▼                    ▼      ▼                    ▼
-             Auth Service          Chat Service  Solana Service   Memory Service
-             Go :3010/50051        Py :3020/50052  Rust :3030/50053 Py :3040/50054
-             JWT · SIWS · Redis    LLM · SSE      TX build · DeFi  Qdrant · Embeddings
-                    │                    │      │                    │
-                    └────────────────────┴──────┴────────────────────┘
-                                         │
-                              PostgreSQL :5433  ·  Redis :6379  ·  Qdrant :6333
-```
+OPRAI turns plain language into on-chain actions — swap, stake, lend, bridge,
+launch a token — and hands each one to your wallet to sign.
 
-| Service | Language | Framework | Port (HTTP/gRPC) |
-|---------|----------|-----------|------------------|
-| Gateway | Go | Chi, gobreaker | 3001 |
-| Auth | Go | Chi, pgx, golang-jwt | 3010 / 50051 |
-| Chat | Python | FastAPI, LangChain | 3020 / 50052 |
-| Solana | Rust | Actix-Web, Tonic, solana-sdk | 3030 / 50053 |
-| Memory | Python | FastAPI, qdrant-client, OpenAI | 3040 / 50054 |
-| Admin | Go | Chi, cross-schema SQL | 3050 / 50055 |
-| Frontend | TypeScript | Angular 19 | 3000 |
+[**Try it**](https://app.oprai.xyz) · [Docs](docs/) · [Agent framework](opraios/) · [MIT](LICENSE)
 
-Inter-service communication: **gRPC + Protobuf** (15 proto files under `proto/`).
-Monitoring: **Prometheus** (:9090) + **Grafana** (:3333).
+</div>
 
-## Prerequisites
+---
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Docker & Compose | latest | [docker.com](https://www.docker.com/) |
-| Go | 1.22+ | `brew install go` |
-| Rust | 1.77+ | [rustup.rs](https://rustup.rs/) |
-| Python | 3.12+ | `brew install python@3.12` |
-| Node.js | 20+ | `brew install node` |
-| pnpm | 9+ | `npm install -g pnpm` |
-| protoc | 3+ | `brew install protobuf` |
-| honcho | 2+ | `brew install honcho` |
+## What it does
 
-## Quick Start
+Ask for something, and OPRAI works out which protocol answers it, builds the
+transaction, and shows you exactly what you are about to sign.
 
-### 1. Clone and configure
+- **Trading** — Jupiter routing, limit orders, DCA, perps
+- **Yield and lending** — Kamino, Marinade, Jito, Solend, Meteora, Raydium, Orca
+- **Bridging** — Relay, deBridge, Squid
+- **Tokens** — launch on pump.fun, burn, transfer, stream with Streamflow
+- **NFTs** — Magic Eden and Tensor listings, offers, collection stats
+- **Reading the chain** — portfolio, positions, holder distribution, smart-money
+  flow, and other questions that come back as cards rather than paragraphs
+
+Your keys never leave your wallet. Every transaction is built server-side,
+signed client-side, and you see the full breakdown before approving.
+
+## Quick start
+
+**With Docker — no local toolchain needed:**
 
 ```bash
-git clone <repository-url>
-cd oprai
-cp .env.example .env
+git clone https://github.com/Oprai-Labs/oprai.git && cd oprai
+cp .env.example .env        # pre-filled; add your OPRAI_OPENAI_API_KEY
+make docker-up              # builds and starts everything
 ```
 
-Edit `.env` and set your **OpenAI API key**:
+Then open <http://localhost:3000>.
 
-```env
-OPRAI_OPENAI_API_KEY=sk-proj-your-key-here
-```
-
-### 2. Install dependencies
+**From source**, if you want hot reload and per-service logs:
 
 ```bash
-make install
-```
-
-This installs Node.js (pnpm), Go (mod download), and Angular (npm) dependencies.
-
-For Python services:
-
-```bash
-make build-python
-```
-
-For Rust (first build downloads crates — takes a few minutes):
-
-```bash
-cd services/solana-service-rs && cargo build
-```
-
-### 3. Generate gRPC stubs from Protobuf
-
-```bash
-make proto
-```
-
-### 4. Start infrastructure
-
-```bash
-make dev-infra
-```
-
-Starts PostgreSQL (:5433), Redis (:6379), and Qdrant (:6333) in Docker.
-
-### 5. Run database migrations
-
-```bash
+make install                # Node + Go deps
+make build-python           # Python venvs
+make proto                  # gRPC stubs
+make dev-infra              # Postgres, Redis, Qdrant in Docker
 make migrate
-```
-
-### 6. Start all services
-
-```bash
-make dev-all
-```
-
-This uses `honcho` to start all 7 services (3 Go + 2 Python + 1 Rust + 1 Angular) in a single terminal with color-coded logs.
-
-### 7. Verify
-
-```bash
+make dev-all                # every service, one terminal, colour-coded
 make health
 ```
 
-Open:
-- **Frontend**: http://localhost:3000
-- **Gateway health**: http://localhost:3001/health
-- **Grafana**: http://localhost:3333 (admin / admin)
+You will need Go 1.22+, Rust 1.77+, Python 3.12+, Node 20+, pnpm, `protoc` and
+`honcho`. The first Rust build pulls a lot of crates — give it five minutes.
 
-## Alternative Run Methods
+## How it works
 
-### Full Docker (zero local toolchain)
+A single gateway fronts every service. It validates the wallet session, injects
+the caller's identity, and fans out over gRPC.
+
+```
+Angular  ──►  Gateway ──┬──►  Auth      wallet sign-in, sessions
+                        ├──►  Chat      the model, tools, streaming
+                        ├──►  Solana    quotes and transaction building
+                        └──►  Memory    what it remembers about you
+
+                    Postgres · Redis · Qdrant
+```
+
+**Signing in** is a wallet signature, not a password. The server hands out a
+nonce, your wallet signs it, and the session lives in an HttpOnly cookie — the
+token is never written to `localStorage`.
+
+**Doing something on-chain** goes: your sentence → the model picks a tool →
+a quote → an unsigned transaction → your wallet → the network. OPRAI never
+holds a key and never submits anything you have not signed.
+
+Full detail lives in [`docs/`](docs/) and [`CLAUDE.md`](CLAUDE.md).
+
+## Repository map
+
+```
+proto/              gRPC contracts, by domain
+services/
+  gateway-go        the front door: auth, rate limits, circuit breaking
+  auth-service-go   wallet sign-in, sessions, users
+  chat-service-py   the model, tool routing, streaming
+  solana-service-rs transaction building for every protocol
+  memory-service-py long-term memory over Qdrant
+  admin-service-go  operations panel backend
+apps/oprai/         the whole frontend — chat, portfolio, admin
+opraios/            standalone framework for building DeFi agents
+agent-platform/     agent marketplace, its own sub-project
+infra/              compose stack, Caddy, Prometheus, Grafana
+docs/               technical documentation
+```
+
+## Commands
 
 ```bash
-cp .env.example .env
-make docker-up        # builds + starts everything with monitoring
-make docker-logs      # tail logs
-make docker-down      # stop
+make dev-all        # everything, locally
+make dev-go         # gateway + auth + admin
+make dev-python     # chat + memory
+make dev-rust       # solana-service
+make dev-angular    # frontend only
+
+make build-all      # proto + services + frontend
+make test           # all test suites
+make migrate        # database migrations
+make backup         # pg_dump into backups/
+make health         # aggregated service health
 ```
 
-### Individual services
+`make help` lists the rest.
 
-```bash
-make dev-go           # gateway + auth + admin (Go)
-make dev-rust         # solana-service (Rust)
-make dev-python       # chat + memory (Python)
-make dev-angular      # frontend (Angular)
-```
+## Configuration
 
-## Makefile Commands
+Copy `.env.example` to `.env` — it ships with working defaults and generated
+secrets. Three values you must supply yourself:
 
-```
-  proto               Generate gRPC code from proto definitions
-  build-go            Build all Go services (auth, admin, gateway)
-  build-rust          Build Rust solana-service
-  build-python        Install Python dependencies (chat, memory)
-  build-angular       Build Angular frontend
-  build-all           Build everything (proto + all services + frontend)
-  install             Install all dependencies (Node.js + Go + Rust + Python)
-  test                Run all tests
-  clean               Remove all build artifacts
+| Variable | Why |
+|---|---|
+| `OPRAI_OPENAI_API_KEY` | the model and embeddings |
+| `OPRAI_JWT_SECRET` | signs user sessions |
+| `OPRAI_INTERNAL_API_KEY` | proves the gateway is the gateway |
 
-  dev-all             Start infra + all polyglot services in one terminal
-  dev                 Alias for dev-all
-  dev-infra           Start infrastructure only (Postgres, Redis, Qdrant)
-  dev-stop            Stop infrastructure
-  dev-go              Run Go services in dev mode
-  dev-rust            Run Rust solana-service in dev mode
-  dev-python          Run Python services in dev mode
-  dev-angular         Run Angular frontend in dev mode
-
-  up                  Start full stack in Docker (root compose)
-  down                Stop all Docker containers
-  logs                Tail Docker logs
-  docker-up           Start polyglot stack with monitoring (infra/)
-  docker-down         Stop polyglot Docker stack
-  docker-logs         Tail logs from polyglot Docker stack
-
-  migrate             Run database migrations for all services
-  migrate-py          Run Python Alembic migrations (chat, memory)
-  seed-admin          Seed initial admin user (set ADMIN_INITIAL_PASSWORD)
-  backup              Create a full database backup
-  backup-list         List all available backups
-  restore             Restore database from latest backup (or BACKUP=path)
-  reset               Reset database (creates backup first, requires confirmation)
-  health              Check gateway health (aggregated)
-```
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPRAI_JWT_SECRET` | Yes | JWT signing secret |
-| `OPRAI_INTERNAL_API_KEY` | Yes | Gateway-to-service shared key |
-| `OPRAI_OPENAI_API_KEY` | Yes | OpenAI API key for LLM and embeddings |
-| `OPRAI_OPENAI_MODEL` | No | Chat model (default: `gpt-4o-mini`) |
-| `DB_SUPERUSER` | No | PostgreSQL user (default: `postgres`) |
-| `DB_SUPERPASS` | Yes | PostgreSQL password |
-| `DB_SUPERDB` | No | PostgreSQL database (default: `oprai`) |
-| `DATABASE_URL` | Auto | Composed from DB_SUPERUSER/PASS/DB |
-| `REDIS_URL` | No | Redis URL (default: `redis://localhost:6379`) |
-| `QDRANT_URL` | No | Qdrant URL (default: `http://localhost:6333`) |
-| `SOLANA_RPC` | No | Solana RPC endpoint (default: mainnet public) |
-| `SOLANA_NETWORK` | No | `mainnet-beta` or `devnet` |
-| `CORS_ORIGIN` | No | Allowed CORS origin (default: `http://localhost:3000`) |
-| `OPRAI_ADMIN_JWT_SECRET` | Yes | Admin panel JWT secret |
-| `ADMIN_CORS_ORIGIN` | No | Admin CORS origin (default: `http://localhost:3200`) |
-| `BIRDEYE_API_KEY` | No | Market data API (proxied via gateway) |
-| `JUPITER_API_KEY` | No | Jupiter API key |
-| `HELIUS_API_KEY` | No | Helius enhanced RPC |
-| `PINATA_JWT` | No | IPFS upload via Pinata |
-
-## Project Structure
-
-```
-oprai/
-├── proto/                          gRPC contract definitions (15 files)
-│   ├── common/                     Shared types, health check
-│   ├── auth/                       Auth + User RPCs
-│   ├── chat/                       Session + Message RPCs
-│   ├── solana/                     Action + Quote + Protocol RPCs
-│   ├── memory/                     Vector + Consent RPCs
-│   ├── admin/                      Admin auth + Analytics + Audit RPCs
-│   └── stream/                     Real-time streaming RPCs
-├── services/
-│   ├── gateway-go/                 Go — API gateway, circuit breaker, rate limiting
-│   ├── auth-service-go/            Go — SIWS auth, JWT, Redis nonce, user CRUD
-│   ├── chat-service-py/            Python — FastAPI, LangChain, SSE streaming
-│   ├── solana-service-rs/          Rust — TX building, Jupiter, Marinade, Jito
-│   ├── memory-service-py/          Python — Qdrant vectors, OpenAI embeddings
-│   └── admin-service-go/           Go — Admin panel backend, cross-schema SQL
-├── apps/
-│   ├── oprai/                      Angular 19 — chat + admin UI
-│   ├── admin-panel/                Admin panel (Angular)
-│   └── marketing-site/             Marketing landing page (Next.js)
-├── opraios/                        OpraiOS — AI agent framework (Python)
-│   ├── core/                       Agent builder, character system, plugins
-│   ├── plugins/                    DeFi protocol plugins (Jupiter, Orca, Kamino, etc.)
-│   ├── templates/                  16 agent templates (trading, yield, security)
-│   ├── mcp/                        Claude Code MCP integration
-│   ├── sdk/                        TypeScript SDK
-│   ├── runner/                     Strategy runner daemon + scheduler
-│   └── visual-builder-web/         Visual workflow editor (React + ReactFlow)
-├── agent-platform/                 Agent marketplace platform (Go + Angular)
-│   ├── services/                   Agent, marketplace, connector services
-│   ├── frontend/                   Angular marketplace UI
-│   ├── programs/                   Solana Anchor program (agent identity NFT)
-│   └── proto/                      Agent platform protobuf definitions
-├── packages/
-│   └── media/                      Brand and UI imagery
-├── infra/
-│   ├── docker-compose.yml          Full polyglot stack with monitoring
-│   ├── docker-compose.infra.yml    Infrastructure only (dev)
-│   ├── prometheus/                 Prometheus scrape configs
-│   └── grafana/                    Dashboards + datasource provisioning
-├── docs/                           Technical documentation
-│   ├── services/                   Per-service documentation
-│   ├── frontend/                   Frontend documentation
-│   ├── agents/                     Agent framework documentation
-│   └── proto/                      Protobuf documentation
-├── scripts/
-│   └── build-protos.sh             Proto code generation (Go/Python/Rust)
-├── .github/workflows/              CI/CD (7 workflows)
-├── Procfile.dev                    Honcho process definitions
-├── Makefile                        Developer shortcuts
-└── .env.example                    Environment config template
-```
-
-## Database
-
-Single PostgreSQL instance with per-service schema isolation:
-
-| Service | Schema | Tables |
-|---------|--------|--------|
-| Auth (Go) | `auth_schema` | `users`, `login_logs` |
-| Chat (Python) | `chat_schema` | `chat_sessions`, `chat_messages` |
-| Solana (Rust) | `solana_schema` | `transactions` |
-| Memory (Python) | `memory_schema` | `user_consents` |
-| Admin (Go) | `admin_schema` | `admin_users`, `admin_audit_log` |
-
-## Port Reference
-
-| Service | HTTP | gRPC | | Infrastructure | Port |
-|---------|------|------|-|----------------|------|
-| Frontend | 3000 | — | | PostgreSQL | 5433 |
-| Gateway | 3001 | — | | Redis | 6379 |
-| Auth | 3010 | 50051 | | Qdrant HTTP | 6333 |
-| Chat | 3020 | 50052 | | Qdrant gRPC | 6334 |
-| Solana | 3030 | 50053 | | Prometheus | 9090 |
-| Memory | 3040 | 50054 | | Grafana | 3333 |
-| Admin | 3050 | 50055 | | | |
-
-## Auth Flow
-
-```
-1. POST /auth/nonce → { nonce, nonceId }     (stored in Redis, 10-min TTL)
-2. Client signs nonce with wallet            (tweetnacl ed25519)
-3. POST /auth/verify → { token, expiresAt }  (JWT, HS256, 3-day expiry)
-4. Client stores JWT in localStorage         (key: oprai-auth-token)
-5. Every request: Authorization: Bearer <jwt>
-6. Gateway validates → injects X-User-Wallet + X-Internal-Api-Key → proxies to service
-```
-
-## Solana Action Flow
-
-```
-1. User sends natural language → chat-service → LLM with SOLANA_ACTION_PROMPT
-2. LLM returns action blocks: [ACTION:swap] {"inputMint": "SOL", "outputMint": "USDC", ...}
-3. Frontend parses action blocks (IntentParserService)
-4. Frontend calls /actions/quote → /actions/build
-5. User signs transaction with wallet
-6. Submit TX to Solana RPC
-```
-
-## OpraiOS — AI Agent Framework
-
-Python package at `opraios/` for building, training, and deploying AI agents for Solana DeFi.
-
-### Setup
-
-```bash
-cd opraios
-python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest                    # Run tests
-.venv/bin/python -m opraios.mcp.server  # Start MCP server
-```
-
-### Features
-
-- **Agent Builder** — Fluent API for agent creation
-- **16 Templates** — Trading, yield, security, utility agents
-- **10 DeFi Plugins** — Jupiter, Orca, Kamino, Drift, Jito, Meteora, Raydium, Tensor, BlazeStake
-- **Visual Builder** — ReactFlow-based drag-and-drop workflow editor
-- **Strategy Runner** — Daemon-based job scheduler with cron support
-- **Simulation Mode** — Transaction dry-run with risk assessment
-- **MCP Server** — Claude Code integration
-- **TypeScript SDK** — `@opraios/sdk` package
-- **Safety System** — Fund movement protection with wallet limits
-- **Cost Tracker** — LLM API cost monitoring
-
-See [opraios/README.md](opraios/README.md) for full documentation.
-
-## Agent Platform
-
-Separate application at `agent-platform/` for creating, deploying, and monetizing AI agents on Solana.
-
-- Agent creation with form-based builder + visual drag-drop editor
-- On-chain identity as NFTs (Anchor program)
-- Marketplace with search, ratings, reviews
-- Multi-platform connectors (Discord, Telegram, Twitter)
-- Monetization: free, pay-per-use, subscription
-
-See [agent-platform/README.md](agent-platform/README.md) for full documentation.
-
-## CI/CD
-
-7 GitHub Actions workflows with path-based triggers:
-
-| Workflow | Trigger paths | Steps |
-|----------|---------------|-------|
-| `go-services.yml` | `services/*-go/**` | vet, test, build, Docker push |
-| `python-services.yml` | `services/*-py/**` | ruff, pytest, Docker push |
-| `rust-service.yml` | `services/*-rs/**` | fmt, clippy, test, build, Docker push |
-| `angular-frontend.yml` | `apps/oprai/**` | lint, test, build, Docker push |
-| `proto-check.yml` | `proto/**` | buf lint, breaking change detection |
-| `opraios-ci.yml` | `opraios/**` | pytest, lint |
-| `opraios-publish.yml` | `opraios/**` (tags) | Build and publish package |
+Everything else — RPC endpoint, market-data keys, model choice, ports — is
+optional and documented inline in `.env.example`.
 
 ## Troubleshooting
 
-**Port conflict**: `lsof -i :PORT` to find the process, or change ports in `.env`.
-
-**Database connection**: `docker exec oprai-postgres pg_isready -U postgres`
-
-**Go build fails**: Run `go mod tidy` inside each Go service directory.
-
-**Rust first build slow**: Normal — downloading and compiling crates takes 3-5 minutes.
-
-**Python import errors**: Make sure you ran `make build-python` and `make proto`.
-
-**Proto generation fails**: Ensure `protoc` is installed: `brew install protobuf`.
-
-**Reset everything**: `make reset` (creates backup, drops all data, re-runs migrations).
-
-**Clear all Docker state**: `make docker-down && docker volume prune`
+| Symptom | Fix |
+|---|---|
+| Port already in use | `lsof -i :PORT`, or change it in `.env` |
+| Go build fails | `go mod tidy` in the service directory |
+| Python import errors | `make build-python` then `make proto` |
+| Proto generation fails | `brew install protobuf` |
+| Rust build feels stuck | it isn't — first build is 3–5 minutes |
+| Want a clean slate | `make reset` (backs up first, then asks) |
 
 ## License
 
-MIT
+[MIT](LICENSE)
