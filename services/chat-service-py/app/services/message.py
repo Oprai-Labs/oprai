@@ -3576,6 +3576,23 @@ async def stream_chat_response(
 
             if turn_total > 0:
                 await record_tokens(wallet, turn_total)
+                # Durable per-model token/cost ledger (own session, fire-and-forget).
+                try:
+                    from app.services.usage_ledger import record_llm_usage
+                    _lp = exact_usage_input if has_exact_usage else approx_input_tokens
+                    _lc = exact_usage_output if has_exact_usage else approx_output_tokens
+                    await record_llm_usage(
+                        wallet=wallet,
+                        session_id=session_id,
+                        model=getattr(llm, "_model", "unknown") or "unknown",
+                        request_kind="responder",
+                        prompt_tokens=_lp,
+                        completion_tokens=_lc,
+                        cached_tokens=0,
+                        is_estimated=not has_exact_usage,
+                    )
+                except Exception:
+                    _log.debug("llm usage ledger write failed", exc_info=True)
                 # Per-chat counter: bump total_tokens, then evaluate the
                 # per-chat cap and lock the session in-place if exceeded.
                 try:
