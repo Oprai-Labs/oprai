@@ -27,6 +27,13 @@ export const routes: Routes = [
       // Token Manager removed — legacy /burn URLs redirect home.
       { path: 'burn', redirectTo: '', pathMatch: 'prefix' },
       { path: 'stake', redirectTo: '', pathMatch: 'prefix' },
+      // Manage published links. Guarded: it lists what THIS wallet shared.
+      {
+        path: 'shared-links',
+        canActivate: [authGuard],
+        loadComponent: () =>
+          import('./features/share/shared-links.component').then((m) => m.SharedLinksComponent),
+      },
       {
         path: 'settings',
         canActivate: [authGuard],
@@ -47,6 +54,15 @@ export const routes: Routes = [
       { path: 'developer', redirectTo: '', pathMatch: 'full' },
       { path: 'ai', redirectTo: '', pathMatch: 'full' },
     ],
+  },
+  // Public shared chat. A sibling of the app shell, NOT a child: the layout
+  // above renders the owner's sidebar, history and wallet button, and none of
+  // that belongs around a conversation someone published for strangers. No
+  // guard either — being readable without a wallet is the entire feature.
+  {
+    path: 'share/:token',
+    loadComponent: () =>
+      import('./features/share/shared-chat.component').then((m) => m.SharedChatComponent),
   },
   {
     path: 'admin',

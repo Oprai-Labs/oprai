@@ -3,3 +3,4 @@
 from app.models.session import Base, ChatSession  # noqa: F401
 from app.models.message import ChatMessage  # noqa: F401
 from app.models.summary import ChatSummary  # noqa: F401
+from app.models.share import ChatSessionShare  # noqa: F401

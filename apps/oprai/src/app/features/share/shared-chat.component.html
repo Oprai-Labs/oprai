@@ -1,0 +1,51 @@
+<div class="shared-page">
+  <header class="shared-header">
+    <a class="shared-brand" routerLink="/">
+      <img class="shared-brand__mark" src="oprai_fullname_icon.svg" alt="OPRAI" height="26" />
+    </a>
+    <a class="shared-cta" routerLink="/">
+      <span>Open OPRAI</span>
+      <lucide-icon name="arrow-right" [size]="14" />
+    </a>
+  </header>
+
+  @if (loading()) {
+    <div class="shared-state">
+      <span class="shared-spinner"></span>
+      <p>Loading conversation…</p>
+    </div>
+  } @else if (notFound()) {
+    <!-- A revoked link and a token that never existed land here identically.
+         Distinguishing them would confirm to a stranger that some particular
+         token was once real. -->
+    <div class="shared-state">
+      <lucide-icon name="eye-off" [size]="32" />
+      <h1>This link isn't available</h1>
+      <p>It may have been revoked by its owner, or it never existed.</p>
+      <a class="shared-cta shared-cta--solid" routerLink="/">Go to OPRAI</a>
+    </div>
+  } @else {
+    <div class="shared-body">
+      <div class="shared-title-row">
+        <h1 class="shared-title">{{ title() }}</h1>
+        @if (sharedAtLabel()) {
+          <p class="shared-meta">Shared on {{ sharedAtLabel() }}</p>
+        }
+      </div>
+
+      <!-- readOnly: no composer, no edit/retry/feedback controls.
+           offline:  no call ever leaves this page for the authed API. -->
+      <app-message-list
+        class="shared-messages"
+        [messages]="messages()"
+        [deriveCards]="true"
+        [readOnly]="true"
+        [offline]="true" />
+
+      <footer class="shared-footer">
+        <p>This is a read-only snapshot of a conversation someone shared.</p>
+        <a class="shared-cta shared-cta--solid" routerLink="/">Start your own chat</a>
+      </footer>
+    </div>
+  }
+</div>

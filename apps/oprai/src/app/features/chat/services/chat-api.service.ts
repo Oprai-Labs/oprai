@@ -102,6 +102,19 @@ interface RawChatMessage extends Omit<ChatMessage, 'role' | 'createdAt'> {
   timestamp?: string;
 }
 
+/** A published, revocable public link to one conversation. */
+export interface ChatShare {
+  token: string;
+  sessionId: string;
+  /** Title frozen at share time — renaming the chat later must not rewrite it. */
+  title: string;
+  /** Snapshot cutoff: turns written after this are not part of the link. */
+  sharedUpTo: string;
+  viewCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ChatSessionResponse {
   id: string;
   title: string;
@@ -206,6 +219,70 @@ export class ChatApiService {
             messageCount: resp.session?.messageCount ?? 0,
             totalTokens:  resp.session?.totalTokens ?? 0,
           },
+        })),
+      );
+  }
+
+  // ── Share links ──────────────────────────────────────────────────────────
+
+  /** Current share for a session, or null when it isn't shared. */
+  getShare(sessionId: string): Observable<ChatShare | null> {
+    return this.api
+      .get<{ share: ChatShare | null }>(`/chat/sessions/${sessionId}/share`)
+      .pipe(map((r) => r.share ?? null));
+  }
+
+  /**
+   * Publish the session, or move an existing link's snapshot up to now.
+   * Returns the SAME token for an already-shared chat — the URL may already
+   * be in someone else's hands, so "update the link" must not break it.
+   */
+  createShare(sessionId: string): Observable<ChatShare> {
+    return this.api
+      .post<{ share: ChatShare }>(`/chat/sessions/${sessionId}/share`, {})
+      .pipe(map((r) => r.share));
+  }
+
+  /** Revoke the link. The token stops resolving immediately and for good. */
+  revokeShare(sessionId: string): Observable<void> {
+    return this.api
+      .delete<{ ok: boolean }>(`/chat/sessions/${sessionId}/share`)
+      .pipe(map(() => undefined));
+  }
+
+  /** Every link this wallet has published — backs the Shared Links page. */
+  listShares(): Observable<ChatShare[]> {
+    return this.api
+      .get<{ shares: ChatShare[] }>('/chat/shares')
+      .pipe(map((r) => r.shares ?? []));
+  }
+
+  /**
+   * Read a shared conversation by its token. NO wallet required — this is
+   * the path a visitor takes, and they are not signed in.
+   *
+   * The response carries no session id, so the messages get an empty one:
+   * nothing on the public page may hold an identifier that means something
+   * to the authenticated API.
+   */
+  getSharedChat(token: string): Observable<{ title: string; sharedAt: string; messages: ChatMessage[] }> {
+    return this.api
+      .get<{
+        share: { title: string; sharedAt: string };
+        messages: RawChatMessage[];
+      }>(`/chat/shared/${encodeURIComponent(token)}`)
+      .pipe(
+        map((resp) => ({
+          title: resp.share?.title ?? 'Shared chat',
+          sharedAt: resp.share?.sharedAt ?? '',
+          messages: (resp.messages ?? []).map((m): ChatMessage => ({
+            id: m.id,
+            sessionId: '',
+            role: m.speaker ?? m.role ?? 'user',
+            content: m.content,
+            createdAt: m.timestamp ?? m.createdAt ?? new Date().toISOString(),
+            metadata: m.metadata ?? undefined,
+          })),
         })),
       );
   }

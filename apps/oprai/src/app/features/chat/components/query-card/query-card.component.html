@@ -15,7 +15,16 @@
     <span class="query-badge">QUERY</span>
   </div>
 
-  @if (loading()) {
+  @if (unavailableOffline()) {
+    <!-- Shared page, and this card's result was never stored. Say so plainly:
+         the question stays visible as part of the conversation, and we do not
+         invent an answer or spin forever waiting for a fetch that will not
+         happen here. -->
+    <div class="query-offline">
+      <lucide-icon name="eye-off" [size]="15" />
+      <span>This result isn't part of the shared snapshot.</span>
+    </div>
+  } @else if (loading()) {
     <div class="query-loading">
       <span class="status-spinner"></span>
       <span>Fetching data...</span>

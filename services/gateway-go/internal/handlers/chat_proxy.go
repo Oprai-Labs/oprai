@@ -152,6 +152,49 @@ func (p *ChatProxy) PatchMessageMeta(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// GetSessionShare proxies GET /chat/sessions/{id}/share
+func (p *ChatProxy) GetSessionShare(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	r.URL.Path = "/sessions/" + id + "/share"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// CreateSessionShare proxies POST /chat/sessions/{id}/share
+func (p *ChatProxy) CreateSessionShare(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	r.URL.Path = "/sessions/" + id + "/share"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// RevokeSessionShare proxies DELETE /chat/sessions/{id}/share
+func (p *ChatProxy) RevokeSessionShare(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	r.URL.Path = "/sessions/" + id + "/share"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// ListShares proxies GET /chat/shares — the wallet's published links.
+func (p *ChatProxy) ListShares(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/shares"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// GetPublicShare proxies GET /chat/shared/{token} to the chat-service's
+// unauthenticated resolver.
+//
+// This is the one chat route that must work with NO wallet: someone opens a
+// shared link, and they are not signed in and never will be. The proxy still
+// forwards X-Internal-Api-Key (so the chat-service knows the call came from
+// the gateway), and the Director drops X-User-Wallet whenever the context has
+// no wallet — so a signed-in visitor reading someone else's link is treated
+// exactly like an anonymous one. The token in the path is the only credential
+// involved, and it grants reading and nothing else.
+func (p *ChatProxy) GetPublicShare(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	r.URL.Path = "/public/shares/" + token
+	p.proxy.ServeHTTP(w, r)
+}
+
 // PostMessageFeedback proxies POST /chat/messages/{msgId}/feedback to the
 // chat-service. Body: {"rating": -1|1, "note"?: string}.
 func (p *ChatProxy) PostMessageFeedback(w http.ResponseWriter, r *http.Request) {

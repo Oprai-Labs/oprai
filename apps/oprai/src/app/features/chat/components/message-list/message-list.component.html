@@ -179,6 +179,7 @@
                     <app-query-card
                       [class.query-card-hidden]="isQuerySuppressed(message.id, $index)"
                       [query]="query"
+                      [offline]="offline"
                       [sessionId]="message.sessionId"
                       [messageId]="message.id"
                       [snapshot]="message.metadata?.query_snapshots?.[querySnapshotKey(query)] ?? null"
@@ -205,6 +206,17 @@
                     </div>
                   }
                   @for (action of getActionsForMessage(message.id); track $index; let i = $index) {
+                    @if (offline) {
+                      <!-- A shared conversation shows WHAT was offered, never
+                           the live form. Mounting an action card here would
+                           read the visitor's balances and build a transaction
+                           against their wallet, under someone else's question. -->
+                      <div class="action-chip">
+                        <lucide-icon name="zap" [size]="14" />
+                        <span class="action-chip__label">{{ actionChipLabel(action) }}</span>
+                        <span class="action-chip__hint">Open OPRAI to run this</span>
+                      </div>
+                    } @else {
                     <app-action-card
                       [action]="action"
                       [allActions]="getActionsForMessage(message.id)"
@@ -217,6 +229,7 @@
                       (actionDismissed)="onActionDismissed(message.id, action)"
                       (executionComplete)="onBatchStepComplete(message.id, $event)">
                     </app-action-card>
+                    }
                   }
                 </div>
               }

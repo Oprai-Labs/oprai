@@ -705,6 +705,32 @@
   margin-top: var(--op-space-2);
 }
 
+// Offline stand-in for an action card on the public shared page: names what
+// was offered and points home, without pretending to be a runnable form.
+.action-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--op-border-default);
+  border-radius: var(--op-radius-md);
+  background: var(--op-bg-surface-1);
+  color: var(--op-text-secondary);
+  font-size: 13px;
+
+  &__label {
+    font-weight: 600;
+    color: var(--op-text-primary);
+  }
+
+  &__hint {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--op-text-tertiary);
+    white-space: nowrap;
+  }
+}
+
 @keyframes cards-slide-up {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }

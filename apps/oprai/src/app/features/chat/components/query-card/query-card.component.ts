@@ -336,6 +336,23 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   @Input() messageId: string | null = null;
   /** DB-persisted snapshot from a previous fetch; if present, skip re-fetching. */
   @Input() snapshot: QuerySnapshot | null = null;
+  /**
+   * Render from the stored snapshot ONLY — never call the API.
+   *
+   * Set on the public shared-chat page, where the reader has no wallet and
+   * no session: every live fetch here would either 401 or answer about the
+   * *visitor's* holdings while sitting under someone else's question. The
+   * snapshot is what was actually shown when the answer was given, which is
+   * the only honest thing a shared conversation can display.
+   */
+  @Input() offline = false;
+
+  /**
+   * Offline card with nothing stored to render. The question is still part of
+   * the conversation, so the card stays and says what it was — it does not
+   * pretend to have an answer it cannot fetch.
+   */
+  readonly unavailableOffline = signal(false);
   @Output() cancelAction = new EventEmitter<ParsedAction>();
   /**
    * Emitted when the user clicks a "use this pool / use this row" CTA on a
@@ -766,6 +783,15 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       };
       const restored = this.snapshot?.data as Record<string, unknown> | undefined;
       if (this.snapshot && !restored?.['meShape']) this.snapshot = null;
+    }
+
+    // Offline surface (public shared chat): restore what was shown and stop.
+    // Every branch below this point either fetches or reconciles against live
+    // state, and there is no wallet here to fetch or reconcile for.
+    if (this.offline) {
+      if (this.snapshot) this.restoreSnapshot(this.snapshot);
+      else this.unavailableOffline.set(true);
+      return;
     }
 
     if (this.snapshot) {

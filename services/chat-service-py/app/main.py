@@ -44,6 +44,7 @@ from app.grpc_server import start_grpc_server
 from app.middleware.auth import require_auth, require_internal
 from app.services import session as session_svc
 from app.services import message as message_svc
+from app.services import share as share_svc
 from app.services.llm import LLMService
 from app.services.summary import build_llm_context, maybe_create_summary
 from app.services.title_generator import generate_title
@@ -2186,6 +2187,103 @@ async def pin_session_route(
     if not updated:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Share Routes — publish one chat behind an opaque, revocable link
+#
+# The three owner routes below are wallet-scoped; `share_svc` returns None
+# rather than raising when the wallet does not own the session, so a caller
+# probing someone else's session id gets the same 404 as one probing an id
+# that does not exist. The public resolver lives further down, next to the
+# other unauthenticated endpoints.
+# ---------------------------------------------------------------------------
+
+@app.get("/sessions/{session_id}/share")
+async def get_session_share(
+    session_id: str,
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+):
+    """Current share for a session, or {"share": null} when not shared."""
+    return {"share": await share_svc.get_share(db, wallet, session_id)}
+
+
+@app.post("/sessions/{session_id}/share")
+async def create_session_share(
+    session_id: str,
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+):
+    """Publish the session, or move an existing link's snapshot up to now.
+
+    Idempotent by design: sharing an already-shared chat refreshes the
+    cutoff and returns the SAME token, because the URL may already be in
+    someone else's hands and "update the link" must not break it.
+    """
+    share = await share_svc.create_or_refresh(db, wallet, session_id)
+    if share is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _audit(db, AuditEvent(
+        event_type=AuditEventType.ACTION_EXECUTED,
+        severity=AuditEventSeverity.INFO,
+        entity_type=AuditEntityType.SESSION,
+        entity_id=session_id,
+        wallet_address=wallet,
+        session_id=session_id,
+        event_data={"action": "session_shared", "sharedUpTo": share["sharedUpTo"]},
+    ))
+    return {"share": share}
+
+
+@app.delete("/sessions/{session_id}/share")
+async def revoke_session_share(
+    session_id: str,
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+):
+    """Revoke the link. The token stops resolving immediately and for good."""
+    removed = await share_svc.revoke(db, wallet, session_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Share not found")
+    _audit(db, AuditEvent(
+        event_type=AuditEventType.ACTION_EXECUTED,
+        severity=AuditEventSeverity.INFO,
+        entity_type=AuditEntityType.SESSION,
+        entity_id=session_id,
+        wallet_address=wallet,
+        session_id=session_id,
+        event_data={"action": "session_share_revoked"},
+    ))
+    return {"ok": True}
+
+
+@app.get("/shares")
+async def list_session_shares(
+    wallet: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_session),
+):
+    """Every link this wallet has published — backs the Shared Links page."""
+    return {"shares": await share_svc.list_shares(db, wallet)}
+
+
+@app.get("/public/shares/{token}")
+async def get_public_share(
+    token: str,
+    _internal: None = Depends(require_internal),
+    db: AsyncSession = Depends(get_session),
+):
+    """Resolve a share token to its published conversation. No wallet needed.
+
+    `require_internal` — not `require_auth` — is the whole point: the gateway
+    still proves it is the gateway, but no user identity is demanded, so a
+    visitor with the link reads the chat without connecting a wallet. The
+    token is the only credential, and it grants reading and nothing else.
+    """
+    shared = await share_svc.resolve_public(db, token)
+    if shared is None:
+        raise HTTPException(status_code=404, detail="Shared chat not found")
+    return shared
 
 
 # ---------------------------------------------------------------------------
