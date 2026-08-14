@@ -371,7 +371,9 @@ class LLMService:
                     # log it; do NOT double-count when summing.
                     details   = getattr(usage, "output_tokens_details", None)
                     reasoning = int(getattr(details, "reasoning_tokens", 0) or 0) if details else 0
-                    yield ("usage", input_t, output_t, reasoning)
+                    idet      = getattr(usage, "input_tokens_details", None)
+                    cached    = int(getattr(idet, "cached_tokens", 0) or 0) if idet else 0
+                    yield ("usage", input_t, output_t, reasoning, cached, 0)
 
         if reasoning_started and not reasoning_done:
             yield ("text", "</think>")
@@ -636,10 +638,32 @@ class LLMService:
                             args = entry["input_json"] or "{}"
                             yield ("tool_call", entry["name"], args)
 
+            # Exact usage — Anthropic surfaces it only on the accumulated final
+            # message (input/output + prompt-cache read/creation). Capture while
+            # the stream is still open; yield after the trailing text flush so
+            # the caller can attribute exact cost instead of estimating.
+            _anthropic_usage = None
+            try:
+                _fm = await stream.get_final_message()
+                _u = getattr(_fm, "usage", None)
+                if _u is not None:
+                    _anthropic_usage = (
+                        "usage",
+                        int(getattr(_u, "input_tokens", 0) or 0),
+                        int(getattr(_u, "output_tokens", 0) or 0),
+                        0,
+                        int(getattr(_u, "cache_read_input_tokens", 0) or 0),
+                        int(getattr(_u, "cache_creation_input_tokens", 0) or 0),
+                    )
+            except Exception:
+                _anthropic_usage = None
+
         if text_buffer:
             tail, _ = _strip_tool_call_leakage(text_buffer, flush=True)
             if tail:
                 yield ("text", tail)
+        if _anthropic_usage is not None:
+            yield _anthropic_usage
 
     async def _acomplete_anthropic(
         self,

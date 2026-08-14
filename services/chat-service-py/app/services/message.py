@@ -1886,6 +1886,7 @@ async def stream_chat_response(
     exact_usage_input: int = 0
     exact_usage_output: int = 0
     exact_usage_reasoning: int = 0
+    exact_usage_cache: int = 0
     has_exact_usage: bool = False
 
     _MAX_RETRIES = 2
@@ -1943,13 +1944,16 @@ async def stream_chat_response(
                         continue
 
                     if kind == "usage":
-                        # ("usage", input_tokens, output_tokens, reasoning_tokens)
-                        # reasoning_tokens is included in output_tokens per
-                        # OpenAI's docs — sum is input + output only.
-                        _, _ui, _uo, _ur = event
-                        exact_usage_input    += int(_ui or 0)
-                        exact_usage_output   += int(_uo or 0)
-                        exact_usage_reasoning += int(_ur or 0)
+                        # ("usage", input, output, reasoning, cache_read, cache_creation)
+                        # reasoning is already inside output (don't double-count);
+                        # cache_* are the cached-input portions. Unpack defensively
+                        # so a shorter tuple from any path can't raise.
+                        exact_usage_input     += int(event[1] or 0)
+                        exact_usage_output    += int(event[2] or 0)
+                        exact_usage_reasoning += int(event[3] or 0) if len(event) > 3 else 0
+                        exact_usage_cache     += (int(event[4] or 0) if len(event) > 4 else 0) + (
+                            int(event[5] or 0) if len(event) > 5 else 0
+                        )
                         has_exact_usage = True
                         continue
 
@@ -3588,7 +3592,7 @@ async def stream_chat_response(
                         request_kind="responder",
                         prompt_tokens=_lp,
                         completion_tokens=_lc,
-                        cached_tokens=0,
+                        cached_tokens=exact_usage_cache if has_exact_usage else 0,
                         is_estimated=not has_exact_usage,
                     )
                 except Exception:
