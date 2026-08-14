@@ -332,6 +332,63 @@ async def metrics(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Product-analytics events (funnel / feature adoption / activation)
+# ---------------------------------------------------------------------------
+_EVENT_TYPES = {"app_open", "funnel", "feature_used", "error_shown", "page_view", "action"}
+
+
+class EventIn(BaseModel):
+    event_type: str = Field(..., max_length=48)
+    event_name: str = Field(..., max_length=80)
+    session_id: Optional[str] = None
+    properties: Optional[dict] = None
+
+
+@app.post("/events")
+async def ingest_event(
+    evt: EventIn,
+    x_user_wallet: str = Header(..., alias="X-User-Wallet"),
+):
+    """Record one product-analytics event (meta only — never message content/PII).
+
+    Wallet comes from the gateway-injected header, so events are always attributed
+    to the authenticated user and a client cannot spoof another wallet. Writes on
+    its own session; analytics must never surface as a user-facing error.
+    """
+    if evt.event_type not in _EVENT_TYPES:
+        raise HTTPException(status_code=422, detail="invalid event_type")
+
+    props = evt.properties if isinstance(evt.properties, dict) else {}
+    blob = json.dumps(props)
+    if len(blob) > 4000:  # cap: events are meta, not payloads
+        blob = json.dumps({"_truncated": True})
+
+    sid: Optional[str] = None
+    if evt.session_id:
+        try:
+            sid = str(uuid.UUID(str(evt.session_id)))
+        except Exception:
+            sid = None
+
+    try:
+        async with async_session_factory() as s:
+            await s.execute(
+                sa_text(
+                    """INSERT INTO analytics_schema.events
+                         (wallet, session_id, event_type, event_name, properties)
+                       VALUES (:w, :sid, :t, :n, CAST(:p AS jsonb))"""
+                ),
+                {"w": x_user_wallet, "sid": sid, "t": evt.event_type,
+                 "n": evt.event_name[:80], "p": blob},
+            )
+            await s.commit()
+    except Exception:
+        logger.debug("event ingest failed", exc_info=True)
+
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # Cache Management
 # ---------------------------------------------------------------------------
 @app.get("/cache/health")

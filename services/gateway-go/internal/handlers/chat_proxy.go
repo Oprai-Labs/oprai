@@ -251,6 +251,14 @@ func (p *ChatProxy) SendChat(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostEvents proxies POST /events (product-analytics ingest) to chat-service.
+// The Director re-injects X-User-Wallet from the validated JWT, so the event is
+// always attributed to the authenticated wallet and cannot be spoofed.
+func (p *ChatProxy) PostEvents(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/events"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // StreamChat proxies GET /chat/stream
 func (p *ChatProxy) StreamChat(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/chat/stream"
