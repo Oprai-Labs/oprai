@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,6 +20,16 @@ import (
 	"github.com/oprai/oprai/services/auth-service-go/internal/server"
 	"github.com/oprai/oprai/services/auth-service-go/internal/services"
 )
+
+// redactRedisURL replaces the password in a Redis URL with "xxxxx" so it is safe
+// to log. The URL carries a credential (redis://:password@host); logging it raw
+// would leak the Redis password into stdout/Loki.
+func redactRedisURL(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Redacted()
+	}
+	return "redis://<unparseable>"
+}
 
 func main() {
 	// Initialize structured JSON logger (matches gateway and admin services)
@@ -57,7 +68,7 @@ func main() {
 		opt, err := redis.ParseURL(cfg.RedisURL)
 		if err != nil {
 			slog.Warn("Failed to parse REDIS_URL, nonces will use in-memory fallback",
-				"redis_url", cfg.RedisURL,
+				"redis_url", redactRedisURL(cfg.RedisURL),
 				"error", err,
 			)
 		} else {
