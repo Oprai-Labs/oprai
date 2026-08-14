@@ -141,6 +141,22 @@ func (p *SolanaProxy) GetTransaction(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// CreateTransaction proxies POST /transactions — records a broadcast tx so the
+// spending counter, tx history and the economics ledger get populated. Without
+// this route the frontend's record call 405'd and nothing was ever stored.
+func (p *SolanaProxy) CreateTransaction(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/transactions"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// UpdateTransactionStatus proxies PATCH /transactions/{id}/status — drives the
+// submitted -> confirmed/failed transitions that finalize the economics ledger.
+func (p *SolanaProxy) UpdateTransactionStatus(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	r.URL.Path = "/transactions/" + id + "/status"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetBalance(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/balance"
 	p.proxy.ServeHTTP(w, r)
