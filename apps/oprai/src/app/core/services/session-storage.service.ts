@@ -5,7 +5,14 @@ export interface ChatSession {
   id: string;
   title: string;
   createdAt: string;
+  /**
+   * Row-modification time. Moves when the title changes or the chat is
+   * pinned, so it does NOT answer "how recent is this conversation" — use
+   * {@link sessionActivityAt} for that.
+   */
   updatedAt: string;
+  /** When a message last landed here. Server-maintained; absent on a draft. */
+  lastMessageAt?: string | null;
   isLocal: boolean;
   serverId?: string;
   isIncognito?: boolean;
@@ -16,6 +23,29 @@ export interface ChatSession {
 export interface SessionGroup {
   label: string;
   sessions: ChatSession[];
+}
+
+/**
+ * When this conversation was last *active*, for grouping and ordering.
+ *
+ * Renaming a chat is not activity. It used to be treated as such — the
+ * sidebar grouped on `updatedAt`, which every write bumps — so editing the
+ * title of a month-old chat filed it under "Today". The date a conversation
+ * belongs to is the date something was said in it.
+ *
+ * `updatedAt` is deliberately absent from the fallback chain: it is the field
+ * that lies. A chat with no messages yet has only ever existed since it was
+ * created, so `createdAt` is the honest answer there.
+ */
+export function sessionActivityAt(session: ChatSession): number {
+  const raw = session.lastMessageAt || session.createdAt;
+  const t = new Date(raw).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** Newest-activity-first comparator shared by every session list. */
+export function byActivityDesc(a: ChatSession, b: ChatSession): number {
+  return sessionActivityAt(b) - sessionActivityAt(a);
 }
 
 const SESSIONS_KEY_PREFIX = 'oprai-sessions';
@@ -107,7 +137,7 @@ export class SessionStorageService {
     };
 
     for (const session of unpinned) {
-      const date = new Date(session.updatedAt || session.createdAt);
+      const date = new Date(sessionActivityAt(session));
       if (date >= today) {
         groups['Today'].push(session);
       } else if (date >= yesterday) {
@@ -121,10 +151,8 @@ export class SessionStorageService {
       }
     }
 
-    // Sort each group by updatedAt descending (newest first)
-    const sortDesc = (a: ChatSession, b: ChatSession) =>
-      new Date(b.updatedAt || b.createdAt).getTime() -
-      new Date(a.updatedAt || a.createdAt).getTime();
+    // Sort each group by most recent activity (newest first)
+    const sortDesc = byActivityDesc;
 
     const result: SessionGroup[] = [];
 
@@ -215,17 +243,17 @@ export class SessionStorageService {
       s.id.startsWith('local:') && s.isLocal && !s.serverId
     );
 
-    // For server sessions, preserve local updatedAt if it's more recent.
-    // Always use server pinned state as the source of truth.
+    // Preserve a local activity time that runs ahead of the server's: a
+    // message sent moments ago is real activity the list must reflect before
+    // the next /sessions round trip lands. Server pinned state always wins.
     const mergedServerSessions = serverSessions.map(serverSession => {
       const localSession = currentMap.get(serverSession.id);
-      if (localSession) {
-        const localUpdatedAt = new Date(localSession.updatedAt || localSession.createdAt).getTime();
-        const serverUpdatedAt = new Date(serverSession.updatedAt || serverSession.createdAt).getTime();
-        // Use local updatedAt if it's more recent (user interacted with this session)
-        if (localUpdatedAt > serverUpdatedAt) {
-          return { ...serverSession, updatedAt: localSession.updatedAt };
-        }
+      if (localSession && sessionActivityAt(localSession) > sessionActivityAt(serverSession)) {
+        return {
+          ...serverSession,
+          lastMessageAt: localSession.lastMessageAt ?? serverSession.lastMessageAt,
+          updatedAt: localSession.updatedAt,
+        };
       }
       return serverSession;
     });
@@ -241,11 +269,8 @@ export class SessionStorageService {
       ...s,
       updatedAt: s.updatedAt || s.createdAt || new Date().toISOString(),
     }));
-    // Sort by updatedAt descending
-    merged.sort((a, b) =>
-      new Date(b.updatedAt || b.createdAt).getTime() -
-      new Date(a.updatedAt || a.createdAt).getTime()
-    );
+    // Sort by most recent activity
+    merged.sort(byActivityDesc);
     this._sessions.set(merged);
     this.persist();
   }
@@ -263,39 +288,34 @@ export class SessionStorageService {
   }
 
   /**
-   * Update a session's title and bump its updatedAt timestamp
+   * Rename a session, and leave it exactly where it sits in the list.
+   *
+   * This used to bump `updatedAt` and re-sort, which jumped a renamed chat to
+   * the top under "Today" — a chat from last month, relabelled, reported
+   * itself as today's conversation. Renaming changes what a conversation is
+   * called, not when it happened.
    */
   updateTitle(id: string, title: string): void {
-    this._sessions.update((sessions) => {
-      const now = this.nextTimestamp(sessions);
-      const updated = sessions.map((s) =>
-        s.id === id ? { ...s, title, updatedAt: now } : s
-      );
-      // Re-sort to put updated session at top
-      updated.sort((a, b) =>
-        new Date(b.updatedAt || b.createdAt).getTime() -
-        new Date(a.updatedAt || a.createdAt).getTime()
-      );
-      return updated;
-    });
+    this._sessions.update((sessions) =>
+      sessions.map((s) => (s.id === id ? { ...s, title } : s)),
+    );
     this.persist();
   }
 
   /**
-   * Touch a session (update its updatedAt) to move it to top of list
+   * Mark a session as active right now and move it to the top.
+   *
+   * Called when the user sends a message — which IS activity, so it sets
+   * `lastMessageAt` optimistically rather than waiting for the server trigger
+   * to be reflected on the next /sessions load.
    */
   touchSession(id: string): void {
     this._sessions.update((sessions) => {
       const now = this.nextTimestamp(sessions);
       const updated = sessions.map((s) =>
-        s.id === id ? { ...s, updatedAt: now } : s
+        s.id === id ? { ...s, lastMessageAt: now, updatedAt: now } : s
       );
-      // Re-sort to put touched session at top
-      updated.sort((a, b) =>
-        new Date(b.updatedAt || b.createdAt).getTime() -
-        new Date(a.updatedAt || a.createdAt).getTime()
-      );
-      return updated;
+      return updated.sort(byActivityDesc);
     });
     this.persist();
   }
@@ -359,8 +379,8 @@ export class SessionStorageService {
   private nextTimestamp(sessions: ChatSession[]): string {
     let next = Date.now();
     for (const s of sessions) {
-      const t = new Date(s.updatedAt || s.createdAt).getTime();
-      if (Number.isFinite(t) && t >= next) next = t + 1;
+      const t = sessionActivityAt(s);
+      if (t >= next) next = t + 1;
     }
     return new Date(next).toISOString();
   }

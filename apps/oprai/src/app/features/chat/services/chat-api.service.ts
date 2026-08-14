@@ -121,6 +121,11 @@ export interface ChatSessionResponse {
   pinned?: boolean;
   createdAt: string;
   updatedAt?: string;
+  /**
+   * When a message last landed in this chat. Distinct from `updatedAt`, which
+   * moves on any row change (rename, pin) — the sidebar groups on this.
+   */
+  lastMessageAt?: string | null;
   // Per-chat usage + lock state. Populated by /sessions/{id} and
   // /sessions list responses so the composer can render the locked
   // state across reloads.

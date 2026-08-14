@@ -17,6 +17,10 @@ def _serialize(s: ChatSession) -> dict:
         "pinned": s.pinned,
         "createdAt": s.created_at.isoformat(),
         "updatedAt": s.updated_at.isoformat(),
+        # Activity time — when a message last landed here. `updatedAt` moves
+        # on any row change (rename, pin), so it cannot answer "how recent is
+        # this conversation"; the sidebar groups on this instead.
+        "lastMessageAt": s.last_message_at.isoformat() if s.last_message_at else None,
         # Per-chat usage — surfaced so the frontend can render the locked
         # composer state and a "X / Y tokens used" badge in the sidebar.
         "messageCount": s.message_count,

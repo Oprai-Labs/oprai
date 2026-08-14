@@ -57,6 +57,16 @@ class ChatSession(Base):
     pinned_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # When this conversation last had a MESSAGE — maintained by a trigger on
+    # chat_messages insert (migration 20260420), not by the ORM.
+    #
+    # Distinct from `updated_at`, which is row-modification time and therefore
+    # moves when the title is edited or the chat is pinned. Those are not
+    # activity: renaming a chat from last month must not file it under Today.
+    # Anything answering "how recent is this conversation" reads this column.
+    last_message_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # High-level state extracted after each assistant turn. Survives block
     # summarisation and is injected as a single system message so the model
     # always knows the user's current intent + active entities even when the
