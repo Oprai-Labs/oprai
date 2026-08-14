@@ -124,6 +124,12 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 
 	// Chat proxy — HTTP reverse proxy, routes match Angular frontend URL structure
 	chatProxy := handlers.NewChatProxy(cfg.ChatServiceHTTP, cfg.InternalAPIKey)
+
+	// Product-analytics event ingest — funnel / feature / app-open events.
+	// Wallet-gated; the chat proxy Director re-injects X-User-Wallet from the
+	// validated JWT so a client can only ever log events for its own wallet.
+	r.With(defaultTimeout, middleware.RequireWallet).Post("/events", chatProxy.PostEvents)
+
 	r.Route("/chat", func(r chi.Router) {
 		r.With(defaultTimeout).Post("/", chatProxy.SendChat)
 		r.With(streamingTimeout).Get("/stream", chatProxy.StreamChat)
