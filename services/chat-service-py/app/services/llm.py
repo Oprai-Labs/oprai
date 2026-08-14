@@ -373,7 +373,10 @@ class LLMService:
                     reasoning = int(getattr(details, "reasoning_tokens", 0) or 0) if details else 0
                     idet      = getattr(usage, "input_tokens_details", None)
                     cached    = int(getattr(idet, "cached_tokens", 0) or 0) if idet else 0
-                    yield ("usage", input_t, output_t, reasoning, cached, 0)
+                    # OpenAI's input_tokens INCLUDES cached — emit the FRESH part
+                    # so prompt/cache are disjoint (Anthropic already reports them
+                    # separately, so its path needs no such adjustment).
+                    yield ("usage", max(0, input_t - cached), output_t, reasoning, cached, 0)
 
         if reasoning_started and not reasoning_done:
             yield ("text", "</think>")

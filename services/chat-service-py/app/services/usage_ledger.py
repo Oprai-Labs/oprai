@@ -61,9 +61,12 @@ async def record_llm_usage(
             cost: Optional[float]
             if row is not None:
                 in_p, out_p, cache_p = float(row[0]), float(row[1]), float(row[2])
-                billable_prompt = max(0, prompt_tokens - cached_tokens)
+                # prompt_tokens is already the FRESH (billable) input and
+                # cached_tokens the cache-read portion — the two are disjoint
+                # (normalized at the call site for both providers), so no
+                # subtraction: fresh @ input rate, cache-read @ cache rate.
                 cost = (
-                    billable_prompt * in_p
+                    prompt_tokens * in_p
                     + completion_tokens * out_p
                     + cached_tokens * cache_p
                 ) / 1_000_000.0

@@ -1948,12 +1948,13 @@ async def stream_chat_response(
                         # reasoning is already inside output (don't double-count);
                         # cache_* are the cached-input portions. Unpack defensively
                         # so a shorter tuple from any path can't raise.
-                        exact_usage_input     += int(event[1] or 0)
+                        # prompt = fresh input + cache-creation (both ~input rate);
+                        # cache = cache-READ only (cheap rate). Disjoint, so the
+                        # cost layer never double-counts or subtracts.
+                        exact_usage_input     += int(event[1] or 0) + (int(event[5] or 0) if len(event) > 5 else 0)
                         exact_usage_output    += int(event[2] or 0)
                         exact_usage_reasoning += int(event[3] or 0) if len(event) > 3 else 0
-                        exact_usage_cache     += (int(event[4] or 0) if len(event) > 4 else 0) + (
-                            int(event[5] or 0) if len(event) > 5 else 0
-                        )
+                        exact_usage_cache     += int(event[4] or 0) if len(event) > 4 else 0
                         has_exact_usage = True
                         continue
 
