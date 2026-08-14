@@ -348,7 +348,14 @@ services:
     # `python -m app.main` loads main.py as __main__, then uvicorn re-imports it
     # as app.main, double-registering Prometheus Counters. `python -m uvicorn`
     # only loads app.main once.
-    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3020"]
+    #
+    # `alembic upgrade head` is part of the command, not a nicety. The
+    # Dockerfile's CMD runs it; this override replaced that CMD wholesale and
+    # dropped it, so migrations silently stopped applying on deploy — prod ran
+    # two revisions behind for months and the third (chat_session_shares) had
+    # to be applied by hand before the feature that needed it would work.
+    # Anything that overrides this command must carry the upgrade with it.
+    command: ["sh", "-c", "alembic upgrade head && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 3020"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3020/health').read()"]
       interval: 15s
@@ -380,8 +387,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://memory_app:${MEMORY_DB_PASS:?MEMORY_DB_PASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
       QDRANT_URL: http://qdrant:6333
       OPRAI_OPENAI_API_KEY: ${OPRAI_OPENAI_API_KEY:-}
-    # See chat-service-py — same rationale.
-    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3040"]
+    # See chat-service-py — same rationale, and the same migration step. This
+    # service happened to be at head, so the dropped upgrade had not bitten
+    # yet; the next memory migration would have been the one to go missing.
+    command: ["sh", "-c", "alembic upgrade head && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 3040"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3040/health').read()"]
       interval: 15s
