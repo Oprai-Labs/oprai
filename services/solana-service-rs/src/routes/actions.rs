@@ -760,6 +760,66 @@ pub async fn create_transaction(
         }
     }
 
+    // Economics ledger (fee + volume) — pending row. The OPRAI commission is
+    // recomputed server-side from the mints, never taken from the client.
+    // Fire-and-forget: a ledger miss must not fail the transaction record.
+    {
+        let params = body
+            .parameters
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let getstr = |keys: &[&str]| -> Option<String> {
+            for k in keys {
+                if let Some(v) = params.get(k) {
+                    if let Some(s) = v.as_str() {
+                        if !s.is_empty() {
+                            return Some(s.to_string());
+                        }
+                    } else if v.is_number() {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+            None
+        };
+        let input_mint = getstr(&["inputMint", "input_mint", "fromMint"]);
+        let output_mint = getstr(&["outputMint", "output_mint", "toMint"]);
+        let input_amount = getstr(&["amount", "inputAmount", "input_amount"]);
+        let output_amount = getstr(&["outputAmount", "output_amount", "outAmount"]);
+
+        let (fee_bps, fee_mint): (i32, Option<String>) = match (&input_mint, &output_mint) {
+            (Some(i), Some(o)) => (
+                crate::services::fees::swap_fee_bps(i, o) as i32,
+                crate::services::fees::swap_fee_mints(i, o, false)
+                    .into_iter()
+                    .next()
+                    .map(|s| s.to_string()),
+            ),
+            _ => (0, None),
+        };
+        let notional_usd = body.est_usd.filter(|v| *v > 0.0);
+        let fee_usd = notional_usd.map(|n| n * (fee_bps as f64) / 10_000.0);
+        let source = Some(if notional_usd.is_some() { "est_usd" } else { "none" }.to_string());
+
+        crate::db::economics::record_pending(
+            &state.pool,
+            inserted.id,
+            inserted.user_wallet.clone(),
+            body.protocol.clone(),
+            body.action.clone(),
+            input_mint,
+            output_mint,
+            input_amount,
+            output_amount,
+            notional_usd,
+            fee_bps,
+            fee_mint,
+            fee_usd,
+            source,
+        )
+        .await;
+    }
+
     Ok(HttpResponse::Ok().json(serde_json::json!({ "transaction": inserted })))
 }
 
@@ -981,6 +1041,18 @@ pub async fn patch_transaction_status(
             evt.error_category = Some("unknown".to_string());
         }
         tx_events::log_event(&state.pool, evt).await;
+    }
+
+    // Finalize the economics ledger row (fire-and-forget): confirmed folds into
+    // the wallet + daily rollups (idempotent); failed/cancelled is kept as an
+    // attempted row for funnel/conversion.
+    match body.status.as_str() {
+        "confirmed" => {
+            crate::db::economics::finalize_confirmed(&state.pool, tx_id, body.tx_hash.clone()).await
+        }
+        "failed" => crate::db::economics::finalize_other(&state.pool, tx_id, "failed").await,
+        "cancelled" => crate::db::economics::finalize_other(&state.pool, tx_id, "cancelled").await,
+        _ => {}
     }
 
     tracing::info!(
