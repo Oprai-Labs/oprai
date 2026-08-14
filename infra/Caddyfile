@@ -57,11 +57,17 @@
     }
 
     # Admin API (Angular /admin-api/*) — admin-service bypasses gateway.
+    # Locked to loopback + WireGuard admin subnet (10.9.0.0/24); everything else = 403.
+    # 127.0.0.1 stays allowed so an SSH tunnel is always a working fallback.
     handle_path /admin-api/* {
-        reverse_proxy admin-service-go:3050 {
-            header_up X-Real-IP {http.request.remote.host}
-            header_up X-Forwarded-For {http.request.remote.host}
-            header_up X-Forwarded-Proto {http.request.scheme}
+        route {
+            @admin_blocked not remote_ip 127.0.0.1/8 ::1 10.9.0.0/24
+            respond @admin_blocked 403
+            reverse_proxy admin-service-go:3050 {
+                header_up X-Real-IP {http.request.remote.host}
+                header_up X-Forwarded-For {http.request.remote.host}
+                header_up X-Forwarded-Proto {http.request.scheme}
+            }
         }
     }
 
