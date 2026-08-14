@@ -88,12 +88,20 @@ services:
     mem_limit: 1g
     pids_limit: 512
     restart: unless-stopped
+    # Require a password. Redis is bound to loopback, but a compromised container
+    # on the docker network could otherwise read/tamper sessions, nonces and
+    # rate-limit counters unauthenticated. --requirepass keeps the compiled
+    # defaults for everything else (RDB persistence unchanged).
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"]
+    environment:
+      # Only so the healthcheck below can authenticate; not read by redis itself.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -185,7 +193,7 @@ services:
       SOLANA_SERVICE_GRPC: solana-service-rs:50053
       MEMORY_SERVICE_HTTP: http://memory-service-py:3040
       MEMORY_SERVICE_GRPC: memory-service-py:50054
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # Market-data upstream keys. Without these the gateway's MarketProxy runs
       # keyless: Helius getAsset silently falls through to the public RPC (which
       # doesn't index fresh pump.fun mints, so their names/logos never resolve),
@@ -244,7 +252,7 @@ services:
       OPRAI_JWT_SECRET: ${OPRAI_JWT_SECRET:?OPRAI_JWT_SECRET is required}
       OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
       DATABASE_URL: postgresql://auth_app:${AUTH_DB_PASS:?AUTH_DB_PASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # Trust X-Forwarded-For / X-Real-IP from caddy+gateway so per-IP rate
       # limiting tracks real client IPs, not the shared proxy container IP.
       TRUST_PROXY_HEADERS: "true"
@@ -332,7 +340,7 @@ services:
       MEMORY_SERVICE_GRPC: memory-service-py:50054
       GATEWAY_URL: http://gateway-go:3001
       QDRANT_URL: http://qdrant:6333
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379}
       SOLANA_RPC: ${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
       JUPITER_API_KEY: ${JUPITER_API_KEY:-}
       HELIUS_API_KEY: ${HELIUS_API_KEY:-}
