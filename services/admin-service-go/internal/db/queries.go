@@ -1554,7 +1554,11 @@ func (q *Queries) GetIssueReports(ctx context.Context, params IssueReportListPar
 
 	dataArgs := append(args, params.Limit, offset)
 	rows, err := q.pool.Query(ctx,
-		fmt.Sprintf(`SELECT id, wallet, category, subject, description, context,
+		// `id::text` is load-bearing: rowsToMaps passes pgx values through
+		// untouched, and pgx decodes uuid as [16]byte — which JSON-marshals
+		// as an array of numbers, not a string. The panel would then PATCH
+		// `/admin/issues/` with an empty id and get a 405.
+		fmt.Sprintf(`SELECT id::text AS id, wallet, category, subject, description, context,
 		 status, admin_note, created_at, updated_at
 		 FROM chat_schema.issue_reports
 		 %s
