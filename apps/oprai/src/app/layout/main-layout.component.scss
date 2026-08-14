@@ -1089,6 +1089,149 @@ $sidebar-collapsed: 52px;
   margin: 3px 0;
 }
 
+// ──── Share Dialog ────
+
+.share-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeIn 160ms ease;
+}
+
+.share-dialog {
+  width: 100%;
+  max-width: 520px;
+  padding: 18px;
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-lg);
+  background: var(--op-bg-surface-1);
+  box-shadow: var(--op-shadow-lg);
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--op-text-primary);
+  }
+
+  &__close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--op-radius-sm);
+    background: none;
+    color: var(--op-text-tertiary);
+    cursor: pointer;
+
+    &:hover { background: var(--op-hover); color: var(--op-text-primary); }
+  }
+
+  &__desc {
+    margin: 0 0 14px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--op-text-secondary);
+  }
+
+  &__meta {
+    margin: 8px 0 0;
+    font-size: 11.5px;
+    color: var(--op-text-tertiary);
+  }
+
+  &__state {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 12px 0;
+    font-size: 13px;
+    color: var(--op-text-secondary);
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+
+    // A lone primary action reads better trailing the copy than floating left.
+    &--single { justify-content: flex-end; }
+
+    .btn-sm {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    // The revoke button sits at the far end, away from the refresh it would
+    // otherwise be one slip from.
+    .btn-danger { margin-left: auto; }
+  }
+
+  &__error {
+    margin: 12px 0 0;
+    font-size: 12.5px;
+    color: var(--op-loss);
+  }
+}
+
+.share-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-link-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-sm);
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-primary);
+  font-size: 12.5px;
+  font-family: var(--op-font-mono, monospace);
+  text-overflow: ellipsis;
+}
+
+.share-link-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-sm);
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--op-fast), color var(--op-fast);
+
+  &:hover { background: var(--op-hover); }
+  &.is-copied { color: var(--op-gain); }
+}
+
 // ──── Share Button ────
 
 .share-btn {

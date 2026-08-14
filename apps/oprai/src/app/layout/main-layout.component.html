@@ -284,14 +284,12 @@
                   </div>
                 }
                 </div>
-              <button class="share-btn" [class.share-btn--copied]="shareCopied()" (click)="shareChat()" aria-label="Share chat">
-                @if (shareCopied()) {
-                  <lucide-icon name="check" [size]="15" />
-                  <span>Copied!</span>
-                } @else {
-                  <lucide-icon name="share-2" [size]="15" />
-                  <span>Share</span>
-                }
+              <!-- Opens the dialog. It no longer claims "Copied!" on click —
+                   there was nothing shareable to copy, and saying so anyway is
+                   how the broken link went unnoticed. -->
+              <button class="share-btn" (click)="shareChat()" aria-label="Share chat">
+                <lucide-icon name="share-2" [size]="15" />
+                <span>Share</span>
               </button>
               <button class="btn-icon" (click)="onNewChat()" aria-label="New chat">
                 <lucide-icon name="square-pen" [size]="18" />
@@ -323,6 +321,77 @@
     </div>
   </div>
 </div>
+
+<!-- Share dialog -->
+@if (shareDialogOpen()) {
+  <div class="share-overlay" (click)="closeShareDialog()">
+    <div class="share-dialog" (click)="$event.stopPropagation()">
+      <div class="share-dialog__head">
+        <h2 class="share-dialog__title">Share this chat</h2>
+        <button class="share-dialog__close" (click)="closeShareDialog()" aria-label="Close">
+          <lucide-icon name="x" [size]="18" />
+        </button>
+      </div>
+
+      @if (shareLoading()) {
+        <div class="share-dialog__state">
+          <span class="sidebar-connecting-spinner"></span>
+          <span>Checking this chat…</span>
+        </div>
+      } @else {
+        <!-- The alias lives on a PRIMARY @if — Angular rejects `as` on an
+             `@else if`, so this branch nests rather than chaining. -->
+        @if (currentShare(); as share) {
+        <p class="share-dialog__desc">
+          Anyone with this link can read the conversation — no wallet needed. They
+          can't reply, and they can't see anything you write from now on.
+        </p>
+        <div class="share-link-row">
+          <input class="share-link-input" type="text" [value]="shareUrl()" readonly
+                 (click)="$any($event.target).select()" aria-label="Share link" />
+          <button class="share-link-copy" [class.is-copied]="shareCopied()" (click)="copyShareUrl()">
+            <lucide-icon [name]="shareCopied() ? 'check' : 'copy'" [size]="14" />
+            <span>{{ shareCopied() ? 'Copied' : 'Copy' }}</span>
+          </button>
+        </div>
+        <p class="share-dialog__meta">
+          Snapshot taken {{ share.sharedUpTo | date:'MMM d, y, HH:mm' }}
+          @if (share.viewCount > 0) { · {{ share.viewCount }} view{{ share.viewCount === 1 ? '' : 's' }} }
+        </p>
+        <div class="share-dialog__actions">
+          <!-- "Update" keeps the same token on purpose: the URL may already be
+               in someone's hands, and refreshing must not silently break it. -->
+          <button class="btn-sm btn-ghost" [disabled]="shareBusy()" (click)="createOrRefreshShare()">
+            <lucide-icon name="refresh-cw" [size]="13" />
+            Update to latest
+          </button>
+          <button class="btn-sm btn-danger" [disabled]="shareBusy()" (click)="revokeShare()">
+            <lucide-icon name="trash-2" [size]="13" />
+            Revoke link
+          </button>
+        </div>
+      } @else {
+        <p class="share-dialog__desc">
+          Creating a link publishes this conversation as it stands right now.
+          Anyone holding the link can read it without connecting a wallet, and
+          nobody can find it without the link. Messages you send afterwards stay
+          private unless you update the link.
+        </p>
+        <div class="share-dialog__actions share-dialog__actions--single">
+          <button class="btn-sm btn-primary" [disabled]="shareBusy()" (click)="createOrRefreshShare()">
+            <lucide-icon name="share-2" [size]="13" />
+            {{ shareBusy() ? 'Creating…' : 'Create link' }}
+          </button>
+        </div>
+        }
+      }
+
+      @if (shareError()) {
+        <p class="share-dialog__error">{{ shareError() }}</p>
+      }
+    </div>
+  </div>
+}
 
 <!-- Risk Warning Dialog (global, rendered once) -->
 <app-risk-warning-dialog />
@@ -606,7 +675,7 @@
           <span>Community</span>
           <span class="menu-soon-badge">Soon</span>
         </button>
-        <button class="profile-submenu-item" (click)="navigateFromMenu('/settings')">
+        <button class="profile-submenu-item" (click)="navigateFromMenu('/shared-links')">
           <lucide-icon name="share-2" [size]="16" />
           <span>Shared Links</span>
         </button>

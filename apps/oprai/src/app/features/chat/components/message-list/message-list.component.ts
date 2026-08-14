@@ -13,6 +13,7 @@ import {
   computed,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { LucideAngularModule } from 'lucide-angular';
 import { ChatMessage } from '../../services/chat-api.service';
 import { IntentParserService, ParsedAction, ParsedQuery, ParsedClarify, ParsedHistory } from '../../services/intent-parser.service';
 import { PROTOCOLS } from '../../models/protocol-list';
@@ -35,7 +36,7 @@ import { MarkdownPipe } from '@shared/pipes/markdown.pipe';
 @Component({
   selector: 'app-message-list',
   standalone: true,
-  imports: [CommonModule, ActionCardComponent, QueryCardComponent, ClarifyCardComponent, MarkdownPipe],
+  imports: [CommonModule, LucideAngularModule, ActionCardComponent, QueryCardComponent, ClarifyCardComponent, MarkdownPipe],
   templateUrl: './message-list.component.html',
   styleUrl: './message-list.component.scss',
 })
@@ -69,6 +70,22 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
    * on this side keeps it inside the deferred chunk with the cards.
    */
   @Input() deriveCards = false;
+
+  /**
+   * There is no API to call from this surface.
+   *
+   * `readOnly` says the viewer cannot act on the conversation; `offline` says
+   * the page cannot reach the authenticated API at all. The public shared-chat
+   * page sets both — its reader has no wallet — while the sidebar search
+   * preview sets only `readOnly`, because there the viewer IS the owner and
+   * the cards may hydrate exactly as they do in the chat.
+   *
+   * Offline, query cards render from their stored snapshot and action cards
+   * are not instantiated at all: an action card is a live form that reads
+   * balances and builds transactions on mount, and none of that means
+   * anything for a visitor reading someone else's chat.
+   */
+  @Input() offline = false;
 
   private readonly derivedCards = signal<ParsedHistory>({
     actions: new Map(), queries: new Map(), clarifications: new Map(),
@@ -495,6 +512,15 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   getClarificationsForMessage(messageId: string): ParsedClarify[] {
     if (this.deriveCards) return this.derivedCards().clarifications.get(messageId) ?? [];
     return this.messageClarifications.get(messageId) ?? [];
+  }
+
+  /**
+   * Human label for an action rendered as an offline chip. Reuses the same
+   * labeller the live card's header uses, so a shared conversation names the
+   * action exactly as the owner saw it named.
+   */
+  actionChipLabel(action: ParsedAction): string {
+    return this.intentParser.getActionLabel(action);
   }
 
   querySnapshotKey(query: ParsedQuery): string {

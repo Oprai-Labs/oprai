@@ -1,0 +1,175 @@
+:host {
+  display: block;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.links-page {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+}
+
+.links-head {
+  margin-bottom: 20px;
+}
+
+.links-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--op-text-primary);
+}
+
+.links-sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--op-text-secondary);
+}
+
+.links-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.links-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: var(--op-radius-md);
+  background: var(--op-bg-surface-1);
+
+  &__main {
+    flex: 1;
+    min-width: 220px;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--op-text-primary);
+    overflow-wrap: anywhere;
+  }
+
+  &__meta {
+    margin: 4px 0 0;
+    font-size: 11.5px;
+    color: var(--op-text-tertiary);
+  }
+
+  // The URL is the thing the user actually came to check — shown in full,
+  // wrapped rather than truncated, so "is this the link I sent?" is answerable
+  // without opening it.
+  &__url {
+    margin: 7px 0 0;
+    font-family: var(--op-font-mono, monospace);
+    font-size: 11.5px;
+    color: var(--op-text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+}
+
+.links-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--op-border-default);
+  border-radius: var(--op-radius-sm);
+  background: var(--op-bg-surface-2);
+  color: var(--op-text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--op-fast), color var(--op-fast);
+
+  &:hover:not(:disabled) { background: var(--op-hover); }
+  &:disabled { opacity: 0.6; cursor: default; }
+  &.is-copied { color: var(--op-gain); }
+
+  &--danger {
+    color: var(--op-loss);
+    &:hover:not(:disabled) { background: var(--op-loss-subtle); }
+  }
+}
+
+.links-state {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 22px 0;
+  font-size: 13px;
+  color: var(--op-text-secondary);
+
+  &--empty {
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    padding: 48px 20px;
+    text-align: center;
+
+    lucide-icon { color: var(--op-text-tertiary); }
+    p { margin: 0; }
+  }
+}
+
+.links-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--op-text-primary);
+}
+
+.links-empty-cta {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: var(--op-radius-full);
+  background: var(--op-brand);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+
+  &:hover { filter: brightness(1.08); }
+}
+
+.links-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--op-border-default);
+  border-top-color: var(--op-brand);
+  border-radius: 50%;
+  animation: links-spin 0.7s linear infinite;
+}
+
+@keyframes links-spin {
+  to { transform: rotate(360deg); }
+}
+
+.links-error {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--op-loss);
+}

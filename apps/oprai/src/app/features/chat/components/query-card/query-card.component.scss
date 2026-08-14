@@ -95,6 +95,17 @@
   padding: 8px 0;
 }
 
+// Shared page, no stored result. Reads as an absence, not as a failure —
+// nothing went wrong, the data simply isn't part of what was published.
+.query-offline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--op-text-tertiary);
+  padding: 8px 0;
+}
+
 .query-error {
   display: flex;
   align-items: center;

@@ -1,0 +1,61 @@
+<div class="links-page">
+  <header class="links-head">
+    <h1 class="links-title">Shared links</h1>
+    <p class="links-sub">
+      Conversations you've published. Anyone holding one of these links can read
+      that chat without a wallet — revoking a link stops that immediately.
+    </p>
+  </header>
+
+  @if (loading()) {
+    <div class="links-state">
+      <span class="links-spinner"></span>
+      <span>Loading your links…</span>
+    </div>
+  } @else if (shares().length === 0) {
+    <div class="links-state links-state--empty">
+      <lucide-icon name="share-2" [size]="30" />
+      <p class="links-empty-title">You haven't shared any chats</p>
+      <p>Open a conversation and press Share to publish a read-only link.</p>
+      <a class="links-empty-cta" routerLink="/">Go to chat</a>
+    </div>
+  } @else {
+    <ul class="links-list">
+      @for (share of shares(); track share.token) {
+        <li class="links-row">
+          <div class="links-row__main">
+            <p class="links-row__title">{{ share.title }}</p>
+            <p class="links-row__meta">
+              Shared {{ share.createdAt | date:'MMM d, y' }}
+              · snapshot {{ share.sharedUpTo | date:'MMM d, HH:mm' }}
+              · {{ share.viewCount }} view{{ share.viewCount === 1 ? '' : 's' }}
+            </p>
+            <p class="links-row__url">{{ shareUrl(share) }}</p>
+          </div>
+          <div class="links-row__actions">
+            <a class="links-btn" [href]="shareUrl(share)" target="_blank" rel="noopener"
+               aria-label="Open shared chat">
+              <lucide-icon name="external-link" [size]="14" />
+              <span>Open</span>
+            </a>
+            <button class="links-btn" [class.is-copied]="copiedToken() === share.token"
+                    (click)="copy(share)">
+              <lucide-icon [name]="copiedToken() === share.token ? 'check' : 'copy'" [size]="14" />
+              <span>{{ copiedToken() === share.token ? 'Copied' : 'Copy' }}</span>
+            </button>
+            <button class="links-btn links-btn--danger"
+                    [disabled]="revoking() === share.sessionId"
+                    (click)="revoke(share)">
+              <lucide-icon name="trash-2" [size]="14" />
+              <span>{{ revoking() === share.sessionId ? 'Revoking…' : 'Revoke' }}</span>
+            </button>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+
+  @if (error()) {
+    <p class="links-error">{{ error() }}</p>
+  }
+</div>

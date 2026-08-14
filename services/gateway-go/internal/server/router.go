@@ -142,7 +142,25 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 			r.Post("/{id}/messages", chatProxy.SendMessage)
 			r.With(streamingTimeout).Get("/{id}/messages/stream", chatProxy.StreamMessages)
 			r.Patch("/{id}/messages/{msgId}/metadata", chatProxy.PatchMessageMeta)
+
+			// Share links. Owner-only — RequireWallet here rather than
+			// leaving it to the chat-service, so an anonymous caller cannot
+			// even probe whether a session id is shared.
+			r.With(middleware.RequireWallet).Get("/{id}/share", chatProxy.GetSessionShare)
+			r.With(middleware.RequireWallet).Post("/{id}/share", chatProxy.CreateSessionShare)
+			r.With(middleware.RequireWallet).Delete("/{id}/share", chatProxy.RevokeSessionShare)
 		})
+
+		// The wallet's published links — backs the Shared Links page.
+		r.With(defaultTimeout, middleware.RequireWallet).Get("/shares", chatProxy.ListShares)
+
+		// PUBLIC: resolve a share token. Deliberately NOT wallet-gated — a
+		// shared link is opened by people who are not signed in and never
+		// will be, which is the entire feature. The token is the credential.
+		// Read-only by construction: there is no public write route, and the
+		// resolver returns messages with no session id or owner wallet
+		// attached, so nothing here can be carried into the authed API.
+		r.With(defaultTimeout).Get("/shared/{token}", chatProxy.GetPublicShare)
 
 		// Per-message thumbs feedback. The chat-service exposes this at
 		// the top level (no session_id needed) — it derives the session
