@@ -1,4 +1,4 @@
-<div class="message-list scrollbar-thin" #scrollContainer (scroll)="onScroll()">
+<div class="message-list scrollbar-thin" [class.message-list--readonly]="readOnly" #scrollContainer (scroll)="onScroll()">
   <div class="messages-wrapper">
     @for (message of messages; track message.id) {
         <div
@@ -10,7 +10,7 @@
           @if (message.role === 'user') {
             <div class="user-bubble-stack"
                  [class.user-bubble-stack--editing]="editingMessageId() === message.id">
-              @if (editingMessageId() === message.id) {
+              @if (editingMessageId() === message.id && !readOnly) {
                 <!-- Inline edit mode: bubble swaps to a textarea + actions.
                      Esc cancels, Cmd/Ctrl+Enter saves; matches ChatGPT/Claude. -->
                 <div class="bubble bubble--user bubble--editing">
@@ -53,7 +53,10 @@
                 </div>
                 <!-- Hover toolbar: timestamp + retry + edit + copy.
                      Sits BELOW the bubble, right-aligned to match the bubble.
-                     Visible only on row hover so the chat reads cleanly at rest. -->
+                     Visible only on row hover so the chat reads cleanly at rest.
+                     Read-only surfaces drop it entirely — every button on it
+                     resends or rewrites the turn. -->
+                @if (!readOnly) {
                 <div class="user-toolbar">
                   <span class="user-toolbar__date">{{ formatUserBubbleDate(message.createdAt) }}</span>
                   @if (message.metadata?.edited_at) {
@@ -101,6 +104,7 @@
                     }
                   </button>
                 </div>
+                }
               }
             </div>
           } @else {
@@ -167,7 +171,7 @@
                    the QueryCard mini-app render as one visual unit. Same for
                    action and clarify cards below. -->
               @if (getQueriesForMessage(message.id).length > 0) {
-                <div class="inline-cards inline-cards--in-bubble">
+                <div class="inline-cards inline-cards--in-bubble" [attr.inert]="readOnly ? '' : null">
                   @for (query of getQueriesForMessage(message.id); track $index) {
                     <!-- An empty listing is hidden only while a SIBLING has
                          results: "no DLMM positions" next to a DAMM v2 position
@@ -187,8 +191,8 @@
               }
 
               @if (getActionsForMessage(message.id).length > 0) {
-                <div class="inline-cards inline-cards--in-bubble">
-                  @if (getActionsForMessage(message.id).length >= 2 && !isBatchRunning(message.id)) {
+                <div class="inline-cards inline-cards--in-bubble" [attr.inert]="readOnly ? '' : null">
+                  @if (!readOnly && getActionsForMessage(message.id).length >= 2 && !isBatchRunning(message.id)) {
                     <button class="run-all-btn" (click)="startBatchRun(message.id)">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                       Run All in Sequence
@@ -218,7 +222,7 @@
               }
 
               @if (getClarificationsForMessage(message.id).length > 0) {
-                <div class="inline-cards inline-cards--in-bubble">
+                <div class="inline-cards inline-cards--in-bubble" [attr.inert]="readOnly ? '' : null">
                   @for (clarify of getClarificationsForMessage(message.id); track $index; let ci = $index) {
                     <app-clarify-card
                       [clarify]="clarify"
@@ -230,7 +234,7 @@
               }
 
               <!-- Message footer: timestamp + copy button + thumbs feedback -->
-              @if (message.content && !isLastAssistantMessage(message)) {
+              @if (message.content && !isLastAssistantMessage(message) && !readOnly) {
                 <div class="msg-footer">
                   <span class="msg-timestamp">{{ formatTimestamp(message.createdAt) }}</span>
                   <button class="msg-copy-btn" (click)="copyMessage(message)" title="Copy">
@@ -258,8 +262,12 @@
                 </div>
               }
 
-              <!-- Retry / Edit buttons for error messages (ChatGPT-style recovery) -->
-              @if (message.isConversationLimit) {
+              <!-- Retry / Edit buttons for error messages (ChatGPT-style recovery).
+                   Both routes start a new turn, so neither belongs on a
+                   read-only surface. -->
+              @if (readOnly) {
+                <!-- no recovery affordances in a preview -->
+              } @else if (message.isConversationLimit) {
                 <!-- Terminal: retrying re-sends into the same full conversation
                      and fails identically. Offer the only route forward. -->
                 <div class="msg-error-actions">

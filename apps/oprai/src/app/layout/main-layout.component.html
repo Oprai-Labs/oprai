@@ -470,8 +470,9 @@
                 </button>
               </div>
 
-              <div class="search-preview-messages sidebar-scroll">
-                @if (searchPreviewLoading()) {
+              <div class="search-preview-messages sidebar-scroll"
+                   [class.search-preview-messages--list]="searchPreviewState() === 'list'">
+                @if (searchPreviewState() === 'loading') {
                   <div class="sk-preview-wrap">
                     <div class="sk-preview-msg sk-preview-msg--user">
                       <div class="sk" style="height: 9px; width: 24px; margin-bottom: 5px;"></div>
@@ -493,18 +494,46 @@
                       <div class="sk" style="height: 13px; width: 71%;"></div>
                     </div>
                   </div>
-                } @else if (searchPreviewError()) {
+                } @else if (searchPreviewState() === 'error') {
                   <div class="search-preview-empty">{{ searchPreviewError() }}</div>
-                } @else if (previewSession.id.startsWith('local:')) {
+                } @else if (searchPreviewState() === 'draft') {
                   <div class="search-preview-empty">Open this draft chat to view its messages.</div>
-                } @else if (searchPreviewMessages().length === 0) {
+                } @else if (searchPreviewState() === 'empty') {
                   <div class="search-preview-empty">No messages in this chat yet.</div>
                 } @else {
-                  @for (message of searchPreviewMessages(); track message.id) {
-                    <article class="search-preview-message" [class.search-preview-message--assistant]="message.role === 'assistant'">
-                      <p class="search-preview-role">{{ message.role === 'assistant' ? 'OPRAI' : 'You' }}</p>
-                      <p class="search-preview-content">{{ message.content }}</p>
-                    </article>
+                  <!-- Same component the chat renders with, in read-only mode:
+                       markdown prose and the query / action / clarify cards
+                       come out identical to the conversation itself, and the
+                       controls that would mutate it are gone.
+
+                       Deferred, and it must stay deferred: this layout is the
+                       eager app shell, and the message list drags the whole
+                       card surface (query-card, action-card and the protocol
+                       SDKs under them) behind it — ~1.5 MB that would
+                       otherwise load for every visitor on first paint just to
+                       serve a panel most never open. Referencing
+                       <app-message-list> anywhere outside a @defer block in
+                       THIS template silently makes it eager again and blows
+                       the 2 MB initial-bundle budget. -->
+                  @defer (on immediate) {
+                    <app-message-list
+                      [messages]="searchPreviewMessages()"
+                      [deriveCards]="true"
+                      [readOnly]="true" />
+                  } @placeholder {
+                    <div class="search-preview-deferred"></div>
+                  } @loading (minimum 120ms) {
+                    <div class="search-preview-deferred">
+                      <div class="sk-preview-wrap">
+                        <div class="sk-preview-msg sk-preview-msg--user">
+                          <div class="sk" style="height: 16px; width: 52%;"></div>
+                        </div>
+                        <div class="sk-preview-msg sk-preview-msg--assistant">
+                          <div class="sk" style="height: 13px; width: 92%; margin-bottom: 5px;"></div>
+                          <div class="sk" style="height: 13px; width: 74%;"></div>
+                        </div>
+                      </div>
+                    </div>
                   }
                 }
               </div>

@@ -1700,36 +1700,24 @@ $sidebar-collapsed: 52px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
 
-.search-preview-message {
-  max-width: 92%;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: var(--op-bg-surface-2);
-  align-self: flex-end;
-
-  &--assistant {
-    align-self: flex-start;
-    background: var(--op-hover);
+  // When the body is the real message list, that component is the scroll
+  // container and brings its own padding. Two nested scrollers here would
+  // trap the wheel in whichever one the cursor happened to be over.
+  &--list {
+    overflow: hidden;
+    padding: 0;
+    gap: 0;
   }
 }
 
-.search-preview-role {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--op-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 5px;
-}
-
-.search-preview-content {
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--op-text-primary);
-  white-space: pre-wrap;
-  word-break: break-word;
+// Stand-in while the deferred message-list chunk loads. Carries the padding
+// the --list container gives up to the message list itself, so the skeleton
+// sits where the messages will.
+.search-preview-deferred {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 18px 18px;
 }
 
 .search-preview-empty {

@@ -1448,51 +1448,12 @@ export class ChatShellComponent implements OnInit, OnDestroy {
           this.capInfo.set(null);
         }
 
-        const actionsMap = new Map<string, ParsedAction[]>();
-        const queriesMap = new Map<string, ParsedQuery[]>();
-        const clarifyMap = new Map<string, ParsedClarify[]>();
-
-        for (const msg of msgs ?? []) {
-          if (msg.role !== 'assistant') continue;
-          const meta = msg.metadata;
-
-          const structuredActions = meta?.actions;
-          const structuredQueries = meta?.queries;
-          const structuredClarifications = meta?.clarifications;
-
-          if (structuredActions?.length) {
-            actionsMap.set(msg.id, structuredActions.map(a => ({
-              type: a.type, params: a.params, raw: '',
-              chainFromPrevious: a.chainFromPrevious ?? false,
-              warnUnverifiedDestination: a.warnUnverifiedDestination ?? false,
-            })));
-          }
-          if (structuredQueries?.length) {
-            queriesMap.set(msg.id, structuredQueries.map(q => ({
-              type: q.type, params: q.params, raw: '',
-            })));
-          }
-          if (structuredClarifications?.length) {
-            clarifyMap.set(msg.id, structuredClarifications.map(c => ({
-              category: c.category, question: c.question,
-              options: c.options.map(o => ({
-                label: o.label, sublabel: o.sublabel, icon: o.icon,
-                action: o.action, params: o.params,
-              })),
-              raw: '',
-            })));
-          }
-
-          if (!structuredActions?.length && !structuredQueries?.length && !structuredClarifications?.length) {
-            const parsed = this.intentParser.parseAll(msg.content);
-            if (parsed.actions.length > 0) actionsMap.set(msg.id, parsed.actions);
-            if (parsed.queries.length > 0) queriesMap.set(msg.id, parsed.queries);
-            if (parsed.clarifications.length > 0) clarifyMap.set(msg.id, parsed.clarifications);
-          }
-        }
-        this.messageActions.set(actionsMap);
-        this.messageQueries.set(queriesMap);
-        this.messageClarifications.set(clarifyMap);
+        // Shared with the sidebar search preview so a stored conversation
+        // renders identically wherever it's shown.
+        const parsed = this.intentParser.parseHistory(msgs);
+        this.messageActions.set(parsed.actions);
+        this.messageQueries.set(parsed.queries);
+        this.messageClarifications.set(parsed.clarifications);
         // Client-generated action cards (query-card Deposit/Withdraw/Multiply,
         // clarify picks) live only in the browser — they aren't server messages,
         // so restore them from localStorage or they vanish on reload.
