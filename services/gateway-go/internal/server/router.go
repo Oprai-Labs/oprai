@@ -130,6 +130,10 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// validated JWT so a client can only ever log events for its own wallet.
 	r.With(defaultTimeout, middleware.RequireWallet).Post("/events", chatProxy.PostEvents)
 
+	// Rewards (tier / points / referral) — wallet-gated, served by chat-service.
+	r.With(defaultTimeout, middleware.RequireWallet).Get("/me/rewards", chatProxy.GetRewards)
+	r.With(defaultTimeout, middleware.RequireWallet).Post("/referral/redeem", chatProxy.RedeemReferral)
+
 	r.Route("/chat", func(r chi.Router) {
 		r.With(defaultTimeout).Post("/", chatProxy.SendChat)
 		r.With(streamingTimeout).Get("/stream", chatProxy.StreamChat)
