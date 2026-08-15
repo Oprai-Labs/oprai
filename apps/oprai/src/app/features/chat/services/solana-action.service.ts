@@ -382,6 +382,12 @@ const EPHEMERAL_SIGNER_PARAM: Record<string, string> = {
   launch_token: 'mintPubkey',
   pumpfun_launch: 'mintPubkey',
   raydium_open_position: 'positionNftMint',
+  // A new stake account signs its own creation.
+  native_stake: 'stakeAccountPubkey',
+  native_stake_split: 'newStakeAccountPubkey',
+  // Only the non-instant unstake creates an account; the instant path pays
+  // out from the reserve and the backend ignores the key it never needs.
+  unstake: 'stakeAccountPubkey',
 };
 
 // Actions handled locally by Angular services (not through the Rust backend)

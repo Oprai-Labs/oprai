@@ -6555,6 +6555,7 @@ async fn build_unstake(
                 amount: params.amount.clone(),
                 instant: params.instant_unstake,
                 slippage_bps: None,
+                stake_account_pubkey: params.stake_account_pubkey.clone(),
             };
             jito::build_jito_unstake_action(http, rpc, user_pubkey, &jito_params).await
         }
