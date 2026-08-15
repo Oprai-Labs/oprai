@@ -694,7 +694,13 @@ def _build_tools(action_types: list[str], query_types: list[str]) -> list[dict[s
                             "description": (
                                 "All action parameters extracted from the user's message. "
                                 "NEVER leave required params empty — if user gave an address, amount, "
-                                "or token, it must appear here. Use 'all' for full balance."
+                                "or token, it must appear here. Use 'all' for full balance.\n"
+                                "BUY/SWAP with a token and no explicit amount (e.g. 'usdt ile bonk "
+                                "alalim', 'buy BONK with USDT', 'swap my USDT to BONK', 'X ile Y al') "
+                                "= execute_action('swap', {inputMint:X, outputMint:Y, amount:'all'}). "
+                                "The word 'balance/bakiye' in such a request means 'use the whole "
+                                "balance as amount' — it is NOT a request to look up the balance. "
+                                "NEVER answer a buy/swap with query_onchain('balance')."
                             ),
                             "additionalProperties": {"type": "string"},
                         },
