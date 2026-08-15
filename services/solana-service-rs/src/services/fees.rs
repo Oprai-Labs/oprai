@@ -96,11 +96,28 @@ fn is_stable(mint_or_symbol: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// True when we have never heard of the token — the working definition of a
-/// memecoin, and a good one: our registry holds what is established, and a
-/// pump.fun mint from four minutes ago is by construction not in it.
-fn is_long_tail(mint: &str) -> bool {
-    get_token_info(mint.trim()).is_none()
+/// Blue-chip mints that earn the STANDARD (non-memecoin) rate. Curated on
+/// purpose: "listed in the registry" is NOT enough, because the registry also
+/// lists established memecoins like BONK. So the standard rate is an explicit
+/// allowlist (SOL, stablecoins are handled by is_stable, major LSTs, wrapped
+/// majors) and everything else — registry-listed memecoins AND fresh pump.fun
+/// mints alike — is charged the memecoin rate. Add a mint here to promote it.
+const STANDARD_MINTS: [&str; 6] = [
+    WSOL_MINT,
+    "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So", // mSOL
+    "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn", // jitoSOL
+    "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v", // jupSOL
+    "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1", // bSOL
+    "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh", // wBTC
+];
+
+/// True for blue-chip tokens (SOL, stablecoins, major LSTs, wrapped majors)
+/// that earn the standard rate. Everything else is long-tail (memecoin rate),
+/// including registry-listed memecoins — the fix for BONK being charged the
+/// standard rate just because it was in the registry.
+fn is_standard(mint: &str) -> bool {
+    let m = mint.trim();
+    is_stable(m) || STANDARD_MINTS.iter().any(|s| s.eq_ignore_ascii_case(m))
 }
 
 /// The commission on a swap, in basis points.
@@ -111,10 +128,12 @@ pub fn swap_fee_bps(input_mint: &str, output_mint: &str) -> u16 {
     if is_stable(input_mint) && is_stable(output_mint) {
         return STABLE_PAIR_BPS;
     }
-    if is_long_tail(input_mint) || is_long_tail(output_mint) {
-        return MEMECOIN_BPS;
+    // Standard rate only when BOTH sides are blue-chip; otherwise the trade
+    // touches a memecoin/long-tail token and earns the memecoin rate.
+    if is_standard(input_mint) && is_standard(output_mint) {
+        return STANDARD_BPS;
     }
-    STANDARD_BPS
+    MEMECOIN_BPS
 }
 
 /// Every mint on this pair we would accept payment in, best first.
