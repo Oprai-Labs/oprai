@@ -50,6 +50,12 @@ export const routes: Routes = [
             (m) => m.SettingsPageComponent,
           ),
       },
+      {
+        path: 'rewards',
+        canActivate: [authGuard],
+        loadComponent: () =>
+          import('./features/rewards/rewards.component').then((m) => m.RewardsComponent),
+      },
       // Backward-compat redirects
       { path: 'market', redirectTo: '', pathMatch: 'full' },
       { path: 'explore', redirectTo: '', pathMatch: 'prefix' },
