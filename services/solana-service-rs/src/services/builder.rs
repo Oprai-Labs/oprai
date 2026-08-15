@@ -3007,6 +3007,19 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         | "streamflow_get_one" => Ok(()),
         // Read-only actions proxied wholesale to the TS service. No params
         // validation here — the TS layer reads `wallet` from the auth header.
+        // `native_stake` reaches its builder at the dispatcher below, but was
+        // missing here — and `validate_action` runs first, so every attempt to
+        // stake natively to a validator came back "Unsupported action type"
+        // and the builder was unreachable. Its siblings (split, merge,
+        // withdraw, deactivate) were all listed; only the one that starts a
+        // stake was not.
+        "native_stake" => {
+            let p: native_stake::NativeStakeParams = serde_json::from_value(params.clone())
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid native_stake params: {e}"))
+                })?;
+            native_stake::validate_native_stake_params(&p)
+        }
         "native_stake_deactivate" => {
             let _p: native_stake::NativeDeactivateParams = serde_json::from_value(params.clone())
                 .map_err(|e| {
