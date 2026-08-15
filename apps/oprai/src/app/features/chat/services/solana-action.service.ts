@@ -361,6 +361,29 @@ const VERSIONED_TX_TYPES: string[] = [
 // a local pre-sign simulation of the wallet-only tx would be misleading.
 const SKIP_SIMULATION_TYPES = new Set(['launch_token', 'token_launch', 'pumpfun_launch', 'perp_open', 'perp_close']);
 
+/**
+ * Actions whose transaction needs a second signer that is not the user — a
+ * token mint, a position NFT, a stake account — mapped to the build param the
+ * backend expects its public key under.
+ *
+ * The key is generated HERE, in the browser, and its signature is added AFTER
+ * the wallet has signed. Phantom's guidance for multi-signer transactions is
+ * to sign with the wallet first and collect the rest afterwards; a transaction
+ * that reaches the wallet already carrying a stranger's signature is a shape
+ * its scanner cannot vouch for. Generating server-side and pre-signing — what
+ * every one of these used to do — makes that order impossible.
+ *
+ * A type absent from this map still works: the backend falls back to
+ * generating and pre-signing the key itself. That fallback is the old
+ * behaviour, kept only so a stale client keeps working, and every entry added
+ * here retires one more of them.
+ */
+const EPHEMERAL_SIGNER_PARAM: Record<string, string> = {
+  launch_token: 'mintPubkey',
+  pumpfun_launch: 'mintPubkey',
+  raydium_open_position: 'positionNftMint',
+};
+
 // Actions handled locally by Angular services (not through the Rust backend)
 // These build transactions on the frontend and sign+submit directly,
 // OR are purely local (config stored in localStorage, no on-chain TX).
@@ -1747,15 +1770,20 @@ export class SolanaActionService {
     // pre-existing partial signatures — avoiding the stale-blockhash
     // invalidation that caused the simulation warning.
     const isLaunchAction = action.type === 'launch_token' || action.type === 'pumpfun_launch';
-    const mintKeypair = isLaunchAction ? await this.acquireLaunchMintKeypair() : null;
+    const ephemeralParam = EPHEMERAL_SIGNER_PARAM[action.type];
+    // A launch takes its key from the vanity pool (a real `…pump` address);
+    // everything else just needs a throwaway.
+    const ephemeralSigner = ephemeralParam
+      ? (isLaunchAction ? await this.acquireLaunchMintKeypair() : Keypair.generate())
+      : null;
     // Surface the new token's mint (contract) so the card can persist it into chat
     // history — enables later "sell this / sell HOOD4" to resolve the address.
-    if (mintKeypair) callbacks.onMintGenerated?.(mintKeypair.publicKey.toBase58());
+    if (ephemeralSigner && isLaunchAction) callbacks.onMintGenerated?.(ephemeralSigner.publicKey.toBase58());
 
     const buildBody: Record<string, unknown> = {
       type: action.type,
-      params: mintKeypair
-        ? { ...this.normalizeParams(action), mintPubkey: mintKeypair.publicKey.toBase58() }
+      params: ephemeralSigner && ephemeralParam
+        ? { ...this.normalizeParams(action), [ephemeralParam]: ephemeralSigner.publicKey.toBase58() }
         : this.normalizeParams(action),
     };
     if (quoteId) {
@@ -2042,73 +2070,42 @@ export class SolanaActionService {
     // extra round trip costs more than it saves, not because it hides anything
     // from the wallet.
     let signature: string;
-    if (mintKeypair) {
-      // The mint has to sign, and how depends on the transaction version.
-      // A launch WITH a dev-buy is v0 now — create and buy ride together so
-      // nobody can snipe the gap between them — and `partialSign` does not
-      // exist there. Checking only for `partialSign` would have skipped the
-      // mint signature in silence and the chain would have rejected the
-      // launch for a signature it never got.
-      const tx = deserializedTx as {
-        partialSign?: (...signers: Keypair[]) => void;
-        sign?: (signers: Keypair[]) => void;
-        version?: unknown;
-      };
-      try {
-        if (typeof tx.partialSign === 'function') {
-          tx.partialSign(mintKeypair);
-        } else if (typeof tx.sign === 'function') {
-          tx.sign([mintKeypair]);
-        }
-      } catch {
-        /* backend signed with its own keypair — skip */
-      }
 
-      const directSig = await Promise.race([
-        this.walletService.signAndSendTransaction(deserializedTx, { skipPreflight: true }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Wallet signing timed out. Please try again.')), SIGN_TIMEOUT_MS)
-        ),
-      ]);
-
-      if (directSig) {
-        // Wallet signed + sent atomically — skip the separate sendRawTransaction step.
-        callbacks.onSubmit?.(directSig);
-        if (amountUsd > 0) this.spendingLimit.record(amountUsd);
-        // Watch it land. This used to call onConfirm right here, which reported
-        // a launch as successful the instant the wallet handed back a
-        // signature — including the launches that reverted on chain.
-        this.watchSettlement(directSig, action.type, callbacks, {
-          protocol: action.params['protocol'],
-          params: action.params as Record<string, unknown>,
-          estUsd: backendEstUsd ?? (amountUsd > 0 ? amountUsd : undefined),
-        });
-        // Legacy path. A launch with a dev-buy is one atomic transaction now,
-        // so the backend stops returning `initialBuy` and this never fires —
-        // kept only so an older card mid-flight still completes rather than
-        // losing its buy.
-        const ib = buildResult.data?.initialBuy;
-        if (ib) {
-          void this.submitLaunchInitialBuy(connection, ib, directSig, {
-            slippage: action.params?.['slippage'],
-            priorityFee: action.params?.['priorityFee'],
-          });
-        }
-        return directSig;
-      }
-      // Wallet doesn't support signAndSendTransaction — fall through to standard flow.
-    }
-
+    // The wallet signs FIRST, and any ephemeral key we generated signs after.
+    //
+    // This used to run the other way round for launches: sign with the mint,
+    // then hand a transaction that already carried a stranger's signature to
+    // `signAndSendTransaction`. Phantom's multi-signer guidance asks for the
+    // opposite order, and `signAndSendTransaction` cannot support it at all —
+    // it signs and submits in one step, leaving no window to add a second
+    // signature. So a transaction with an ephemeral signer always takes the
+    // `signTransaction` path, and we submit it ourselves.
     const signedTx = (await Promise.race([
       this.walletService.signTransaction(deserializedTx),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Wallet signing timed out. Please try again.')), SIGN_TIMEOUT_MS)
       ),
-    ])) as { serialize(): Uint8Array; partialSign?: (...signers: Keypair[]) => void };
+    ])) as {
+      serialize(): Uint8Array;
+      partialSign?: (...signers: Keypair[]) => void;
+      sign?: (signers: Keypair[]) => void;
+    };
 
-    // Fallback: add mint signature after wallet signing (for wallets without signAndSendTransaction).
-    if (mintKeypair && typeof signedTx.partialSign === 'function') {
-      try { signedTx.partialSign(mintKeypair); } catch { /* backend signed with its own keypair — skip */ }
+    // Now the ephemeral key. How it signs depends on the transaction version:
+    // a launch with a dev-buy is v0 — create and buy ride together so nobody
+    // can snipe the gap — and `partialSign` does not exist there. Checking
+    // only for `partialSign` would skip the signature in silence and the
+    // chain would reject the transaction for one it never got.
+    if (ephemeralSigner) {
+      try {
+        if (typeof signedTx.partialSign === 'function') {
+          signedTx.partialSign(ephemeralSigner);
+        } else if (typeof signedTx.sign === 'function') {
+          signedTx.sign([ephemeralSigner]);
+        }
+      } catch {
+        /* an older backend pre-signed with its own key — nothing to add */
+      }
     }
 
     // Step 4: Submit — via Jito block engine (MEV protection) or standard RPC.
@@ -2187,10 +2184,12 @@ export class SolanaActionService {
       this.spendingLimit.record(amountUsd);
     }
 
-    // Launch (fallback sign path): perform the initial dev-buy in the background
-    // after the create tx confirms. `mintKeypair` is only set for
-    // launch_token/pumpfun_launch. Not awaited — see the atomic path above.
-    if (mintKeypair) {
+    // Launch: perform the initial dev-buy in the background after the create
+    // tx confirms. Legacy — a launch with a dev-buy is one atomic transaction
+    // now, so the backend stops returning `initialBuy` and this rarely fires;
+    // kept so an older card mid-flight completes rather than losing its buy.
+    // Not awaited.
+    if (isLaunchAction) {
       const ib = buildResult.data?.initialBuy;
       if (ib) {
         void this.submitLaunchInitialBuy(connection, ib, signature, {

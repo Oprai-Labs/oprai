@@ -96,6 +96,20 @@ pub struct OpenPositionRequest {
     pub slippage_bps: u32,
     /// Mint NFT with Metaplex metadata (heavier TX). Default `false`.
     pub with_metadata: bool,
+    /// The position NFT mint, when the CLIENT generated it.
+    ///
+    /// A position is NFT-backed, so opening one mints a fresh NFT that has to
+    /// sign. Whoever holds that key signs it, and where the key lives decides
+    /// the order the transaction gets signed in:
+    ///
+    /// - `Some`: the browser holds it. We build with the user's signer slot
+    ///   AND the mint's slot both empty, the wallet signs first, and the
+    ///   browser adds the mint signature afterwards. This is the order
+    ///   Phantom documents for multi-signer transactions.
+    /// - `None`: nobody told us, so we fall back to generating the key here
+    ///   and pre-signing. Kept so a client that predates this still works —
+    ///   it is the old behaviour, not the intended one.
+    pub position_nft_mint: Option<Pubkey>,
 }
 
 /// Build a versioned transaction that opens a Raydium CLMM position.
@@ -191,9 +205,15 @@ pub async fn build_open_position(
     let amount_0_max = apply_slippage_upper(amount_0_exact, req.slippage_bps);
     let amount_1_max = apply_slippage_upper(amount_1_exact, req.slippage_bps);
 
-    // 6. Fresh keypair for the position NFT mint.
-    let position_nft_mint_kp = Keypair::new();
-    let position_nft_mint = position_nft_mint_kp.pubkey();
+    // 6. The position NFT mint. Client-supplied when the browser holds the
+    //    key (the intended path); generated here only as the legacy fallback.
+    let position_nft_mint_kp: Option<Keypair> = match req.position_nft_mint {
+        Some(_) => None,
+        None => Some(Keypair::new()),
+    };
+    let position_nft_mint = req
+        .position_nft_mint
+        .unwrap_or_else(|| position_nft_mint_kp.as_ref().expect("generated above").pubkey());
     let position_nft_account = get_associated_token_address(&req.user_pubkey, &position_nft_mint);
 
     // 7. User token ATAs for the pool's two mints.
@@ -303,10 +323,9 @@ pub async fn build_open_position(
     let msg = Message::try_compile(&req.user_pubkey, &instructions, &[], blockhash)
         .map_err(|e| AppError::ProtocolError(format!("compile msg: {e}")))?;
 
-    // Pre-sign with the position NFT mint keypair so the frontend only
-    // needs to add the user's wallet signature. The mint is a required
-    // signer (slot in `account_keys` < `header.num_required_signatures`),
-    // so we fill its signature now and leave the user's signer slot blank.
+    // The mint is a required signer (its slot in `account_keys` sits below
+    // `header.num_required_signatures`). Who fills that slot, and when,
+    // depends on where the key lives — see `position_nft_mint` on the request.
     let num_required = msg.header.num_required_signatures as usize;
     let static_keys = msg.account_keys.clone();
     let versioned_msg = VersionedMessage::V0(msg);
@@ -328,8 +347,14 @@ pub async fn build_open_position(
             mint_idx, num_required
         )));
     }
-    let sig = position_nft_mint_kp.sign_message(&tx.message.serialize());
-    tx.signatures[mint_idx] = sig;
+    // Only sign here on the legacy path. When the browser holds the key we
+    // leave BOTH signer slots empty so the wallet is the first signature on
+    // the transaction, which is what Phantom's multi-signer guidance asks for
+    // — a transaction that already carries a stranger's signature is exactly
+    // the shape its scanner cannot vouch for.
+    if let Some(kp) = position_nft_mint_kp.as_ref() {
+        tx.signatures[mint_idx] = kp.sign_message(&tx.message.serialize());
+    }
 
     let tx_bytes = bincode::serialize(&tx)
         .map_err(|e| AppError::ProtocolError(format!("serialize tx: {e}")))?;
