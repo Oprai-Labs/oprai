@@ -2030,9 +2030,17 @@ export class SolanaActionService {
     // Wallet sign with a 2-minute timeout — prevents a hung wallet dialog from
     // leaving the action permanently in "signing" state.
     const SIGN_TIMEOUT_MS = 120_000;
-    // Step 3b (launch only): for launch_token, partial-sign with the browser-generated
-    // mint keypair BEFORE handing to Phantom, then use signAndSendTransaction with
-    // skipPreflight=true so Phantom never runs its internal simulation.
+    // Step 3b (launch only): the browser-generated mint keypair signs, then the
+    // wallet sends.
+    //
+    // `skipPreflight: true` does NOT stop the wallet simulating — it is an RPC
+    // send option and has no bearing on Phantom's own scan, which runs before
+    // the signature prompt either way. A comment here used to claim otherwise,
+    // and that claim was load-bearing for nobody: it just meant we skipped the
+    // node's preflight and lost the last chance to catch a transaction that
+    // was going to revert. Kept true because a launch races snipers and the
+    // extra round trip costs more than it saves, not because it hides anything
+    // from the wallet.
     let signature: string;
     if (mintKeypair) {
       // The mint has to sign, and how depends on the transaction version.

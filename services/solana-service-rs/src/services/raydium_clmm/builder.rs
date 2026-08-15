@@ -366,27 +366,62 @@ pub async fn build_open_position(
         Ok(sim) => {
             let v = sim.value;
             let logs_joined = v.logs.as_ref().map(|l| l.join("\n")).unwrap_or_default();
-            if v.err.is_some() {
-                tracing::warn!(
-                    pool = %req.pool_id,
-                    err = ?v.err,
-                    tick_lower,
-                    tick_upper,
-                    tick_array_lower_start_index,
-                    tick_array_upper_start_index,
-                    liquidity,
-                    "raydium_open_position SIM FAILED — program log follows:\n{}",
-                    logs_joined
-                );
-            } else {
-                tracing::info!(
-                    pool = %req.pool_id,
-                    units = ?v.units_consumed,
-                    "raydium_open_position SIM OK"
-                );
+            match v.err {
+                Some(err) => {
+                    // The full program log stays here, in the server log, where
+                    // it is useful. It is not what the caller gets back.
+                    tracing::warn!(
+                        pool = %req.pool_id,
+                        err = ?err,
+                        tick_lower,
+                        tick_upper,
+                        tick_array_lower_start_index,
+                        tick_array_upper_start_index,
+                        liquidity,
+                        "raydium_open_position SIM FAILED — program log follows:\n{}",
+                        logs_joined
+                    );
+
+                    // An InstructionError is the program rejecting this exact
+                    // transaction: deterministic, and it will reject it again
+                    // when the user signs. Handing it over anyway meant asking
+                    // someone to approve a transaction we already knew would
+                    // revert — and the wallet, running the same simulation,
+                    // says so in its own words before the prompt.
+                    //
+                    // Every other variant (blockhash not found, node lagging,
+                    // an account not yet visible to this RPC) is about the
+                    // moment rather than the transaction, so those still fall
+                    // through and let the wallet decide. Failing on those
+                    // would break valid positions whenever an RPC hiccuped.
+                    //
+                    // The error debug stays out of the returned message on
+                    // purpose. `InstructionError(0, Custom(6021))` means
+                    // nothing to whoever is opening a position, and the
+                    // frontend's technical-text gate would recognise it and
+                    // replace the WHOLE sentence with a generic apology —
+                    // taking the one useful half, "try a different range",
+                    // down with it. It is in the server log above.
+                    if matches!(err, solana_sdk::transaction::TransactionError::InstructionError(_, _)) {
+                        return Err(AppError::ProtocolError(
+                            "This position can't be opened as set up — the pool rejected it. \
+                             Try a different price range or a smaller amount."
+                                .to_string(),
+                        ));
+                    }
+                }
+                None => {
+                    tracing::info!(
+                        pool = %req.pool_id,
+                        units = ?v.units_consumed,
+                        "raydium_open_position SIM OK"
+                    );
+                }
             }
         }
         Err(e) => {
+            // Could not reach the simulator at all — no verdict either way, so
+            // this is not evidence against the transaction.
             tracing::warn!(error = ?e, "raydium_open_position sim RPC error (build still returned)");
         }
     }
