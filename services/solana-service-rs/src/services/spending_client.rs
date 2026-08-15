@@ -123,6 +123,39 @@ impl SpendingClient {
             .await
             .map_err(|e| AppError::Internal(format!("spending commit decode: {e}")))
     }
+
+    /// Resolve a wallet to its real auth-service `users.id`. Done over the
+    /// internal HTTP API (not a cross-schema read) so solana-service never
+    /// touches auth_schema — the scoped-role isolation stays intact.
+    pub async fn resolve_user_id(&self, wallet: &str) -> Result<uuid::Uuid, AppError> {
+        let url = format!("{}/internal/users/by-wallet/{}", self.base_url, wallet);
+        let resp = self
+            .http
+            .get(&url)
+            .header("X-Internal-Api-Key", &self.internal_api_key)
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("user resolve transport: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(AppError::Internal(format!(
+                "user resolve returned {}",
+                resp.status()
+            )));
+        }
+        let body = resp
+            .json::<ResolveUserResponse>()
+            .await
+            .map_err(|e| AppError::Internal(format!("user resolve decode: {e}")))?;
+        uuid::Uuid::parse_str(&body.user_id)
+            .map_err(|e| AppError::Internal(format!("user resolve bad uuid: {e}")))
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ResolveUserResponse {
+    #[serde(rename = "userId")]
+    user_id: String,
 }
 
 /// Convenience: fail-closed check. Use this from action handlers — it returns
