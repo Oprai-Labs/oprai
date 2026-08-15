@@ -710,9 +710,10 @@ pub async fn create_transaction(
     body: web::Json<CreateTransactionBody>,
 ) -> Result<HttpResponse, AppError> {
     let wallet = wallet_from_req(&req)?;
-    let wallet_uuid: Uuid = wallet
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid wallet UUID".into()))?;
+    // Resolve the real users.id via auth-service (X-User-Wallet is the Solana
+    // address, not a UUID). Kept as an internal HTTP call so solana-service
+    // never reads auth_schema directly.
+    let wallet_uuid: Uuid = state.spending.resolve_user_id(&wallet).await?;
 
     let mut new_tx = NewTransaction::new(
         wallet_uuid,
@@ -946,10 +947,6 @@ pub async fn patch_transaction_status(
         .parse()
         .map_err(|_| AppError::InvalidParams("Invalid transaction ID".into()))?;
 
-    let wallet_uuid: Uuid = wallet
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid wallet UUID".into()))?;
-
     let allowed = ["submitted", "confirmed", "failed", "cancelled"];
     if !allowed.contains(&body.status.as_str()) {
         return Err(AppError::InvalidParams(format!(
@@ -967,7 +964,7 @@ pub async fn patch_transaction_status(
     // Read current status (also verifies ownership).
     let current_tx: Option<TxModel> = transactions::table
         .filter(transactions::id.eq(tx_id))
-        .filter(transactions::user_id.eq(wallet_uuid))
+        .filter(transactions::user_wallet.eq(&wallet))
         .first(&mut conn)
         .await
         .optional()

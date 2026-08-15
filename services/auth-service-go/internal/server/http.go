@@ -130,6 +130,15 @@ func NewHTTPServer(
 		r.Post("/commit", spendingHandler.HandleCommitSpending)
 	})
 
+	// Wallet -> real users.id resolution for solana-service (so it never reads
+	// auth_schema directly). Internal-only.
+	r.Route("/internal/users", func(r chi.Router) {
+		r.Use(func(next http.Handler) http.Handler {
+			return internalKeyGate(cfg.InternalAPIKey, next)
+		})
+		r.Get("/by-wallet/{wallet}", spendingHandler.HandleResolveUserID)
+	})
+
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		Handler:      r,

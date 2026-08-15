@@ -6,9 +6,34 @@ import (
 	"math"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/oprai/oprai/services/auth-service-go/internal/db"
 	"github.com/oprai/oprai/services/auth-service-go/internal/middleware"
 )
+
+// HandleResolveUserID handles GET /internal/users/by-wallet/{wallet} (internal only,
+// X-Internal-Api-Key gated). Lets solana-service map an authenticated wallet to its
+// real users.id WITHOUT reading auth_schema directly — the scoped-role isolation
+// (each service only owns its schema) stays intact.
+func (h *SpendingHandler) HandleResolveUserID(w http.ResponseWriter, r *http.Request) {
+	wallet := chi.URLParam(r, "wallet")
+	if wallet == "" {
+		writeError(w, http.StatusBadRequest, "wallet required")
+		return
+	}
+	user, err := h.queries.GetUserByWallet(r.Context(), wallet)
+	if err != nil {
+		slog.Error("resolve user id failed", "wallet", wallet, "error", err)
+		writeError(w, http.StatusInternalServerError, "lookup failed")
+		return
+	}
+	if user == nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"userId": user.ID})
+}
 
 // SpendingHandler handles spending limit endpoints for authenticated users.
 type SpendingHandler struct {
