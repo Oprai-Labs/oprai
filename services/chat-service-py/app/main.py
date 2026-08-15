@@ -389,6 +389,86 @@ async def ingest_event(
 
 
 # ---------------------------------------------------------------------------
+# Rewards: tier + points + referral (FAZ-3). Read-only aggregates from the
+# admin_schema views (which run as their owner, so no raw cross-schema access);
+# referral attribution is an explicit "redeem code" action, never a signup hook.
+# ---------------------------------------------------------------------------
+def _gen_referral_code() -> str:
+    import secrets
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no ambiguous chars
+    return "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+@app.get("/me/rewards")
+async def get_rewards(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
+    """The caller's tier, points and referral code (generated on first view)."""
+    w = x_user_wallet
+    async with async_session_factory() as s:
+        tier_row = (await s.execute(sa_text(
+            "SELECT tier, volume_usd FROM admin_schema.v_user_tier WHERE wallet=:w"), {"w": w})).first()
+        pts_row = (await s.execute(sa_text(
+            "SELECT own_points, referral_points, total_points FROM admin_schema.v_user_points WHERE wallet=:w"), {"w": w})).first()
+
+        code_row = (await s.execute(sa_text(
+            "SELECT code FROM analytics_schema.referral_codes WHERE wallet=:w"), {"w": w})).first()
+        code = code_row[0] if code_row else None
+        if code is None:
+            for _ in range(5):
+                cand = _gen_referral_code()
+                row = (await s.execute(sa_text(
+                    "INSERT INTO analytics_schema.referral_codes (wallet, code) VALUES (:w, :c) "
+                    "ON CONFLICT (wallet) DO NOTHING RETURNING code"), {"w": w, "c": cand})).first()
+                if row:
+                    code = row[0]; break
+                existing = (await s.execute(sa_text(
+                    "SELECT code FROM analytics_schema.referral_codes WHERE wallet=:w"), {"w": w})).first()
+                if existing:
+                    code = existing[0]; break
+            await s.commit()
+        ref_count = (await s.execute(sa_text(
+            "SELECT count(*) FROM analytics_schema.referrals WHERE referrer_wallet=:w"), {"w": w})).scalar() or 0
+
+    return {
+        "tier": int(tier_row[0]) if tier_row and tier_row[0] else 1,
+        "volumeUsd": float(tier_row[1]) if tier_row and tier_row[1] is not None else 0.0,
+        "points": {
+            "own": int(pts_row[0]) if pts_row else 0,
+            "referral": int(pts_row[1]) if pts_row else 0,
+            "total": int(pts_row[2]) if pts_row else 0,
+        },
+        "referralCode": code,
+        "referralCount": int(ref_count),
+    }
+
+
+class RedeemBody(BaseModel):
+    code: str
+
+
+@app.post("/referral/redeem")
+async def redeem_referral(body: RedeemBody, x_user_wallet: str = Header(..., alias="X-User-Wallet")):
+    """Link the caller to a referrer via their code. One referrer per referee; no self-referral."""
+    referee = x_user_wallet
+    code = (body.code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=422, detail="code required")
+    async with async_session_factory() as s:
+        ref = (await s.execute(sa_text(
+            "SELECT wallet FROM analytics_schema.referral_codes WHERE code=:c"), {"c": code})).first()
+        if not ref:
+            raise HTTPException(status_code=404, detail="invalid code")
+        referrer = ref[0]
+        if referrer == referee:
+            raise HTTPException(status_code=400, detail="cannot refer yourself")
+        created = (await s.execute(sa_text(
+            "INSERT INTO analytics_schema.referrals (referee_wallet, referrer_wallet, code) "
+            "VALUES (:re, :rr, :c) ON CONFLICT (referee_wallet) DO NOTHING RETURNING referee_wallet"),
+            {"re": referee, "rr": referrer, "c": code})).first() is not None
+        await s.commit()
+    return {"ok": True, "linked": created}
+
+
+# ---------------------------------------------------------------------------
 # Cache Management
 # ---------------------------------------------------------------------------
 @app.get("/cache/health")

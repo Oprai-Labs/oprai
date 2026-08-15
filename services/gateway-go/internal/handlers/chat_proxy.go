@@ -259,6 +259,18 @@ func (p *ChatProxy) PostEvents(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// GetRewards proxies GET /me/rewards (tier + points + referral code) to chat-service.
+func (p *ChatProxy) GetRewards(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/me/rewards"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// RedeemReferral proxies POST /referral/redeem to chat-service.
+func (p *ChatProxy) RedeemReferral(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/referral/redeem"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // StreamChat proxies GET /chat/stream
 func (p *ChatProxy) StreamChat(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/chat/stream"

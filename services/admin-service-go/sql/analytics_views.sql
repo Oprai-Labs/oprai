@@ -118,4 +118,41 @@ FROM recent r JOIN base b ON b.wallet = r.wallet
 WHERE r.cost_24h >= 5 * NULLIF(b.avg_daily_30d, 0) AND r.cost_24h > 0.50
 ORDER BY x_over_avg DESC;
 
+-- ── FAZ-3: tier + points (computed from volume + referrals) ──────────────
+-- Current tier per wallet = highest tier whose min_volume_usd the lifetime
+-- volume clears. Wallets with no volume aren't listed → callers default to T1.
+CREATE OR REPLACE VIEW admin_schema.v_user_tier AS
+SELECT
+    r.user_wallet AS wallet,
+    r.lifetime_notional_usd AS volume_usd,
+    (SELECT max(c.tier) FROM analytics_schema.tier_config c
+     WHERE r.lifetime_notional_usd >= c.min_volume_usd) AS tier
+FROM solana_schema.wallet_economics_rollup r;
+
+-- Points = own volume (1 pt / $1) + 30% of each referee's own points.
+CREATE OR REPLACE VIEW admin_schema.v_user_points AS
+WITH own AS (
+    SELECT user_wallet AS wallet, floor(lifetime_notional_usd)::bigint AS own_points
+    FROM solana_schema.wallet_economics_rollup
+), refpts AS (
+    SELECT rf.referrer_wallet AS wallet, floor(sum(o.own_points) * 0.30)::bigint AS referral_points
+    FROM analytics_schema.referrals rf
+    JOIN own o ON o.wallet = rf.referee_wallet
+    GROUP BY 1
+)
+SELECT
+    COALESCE(o.wallet, r.wallet)                                        AS wallet,
+    COALESCE(o.own_points, 0)                                          AS own_points,
+    COALESCE(r.referral_points, 0)                                     AS referral_points,
+    COALESCE(o.own_points, 0) + COALESCE(r.referral_points, 0)         AS total_points
+FROM own o
+FULL OUTER JOIN refpts r ON r.wallet = o.wallet;
+
 RESET ROLE;
+
+-- chat-service (chat_app) serves the user-facing rewards endpoint; let it read
+-- these two aggregate views only (they run as admin_app, so no raw cross-schema
+-- access is granted to chat_app).
+GRANT USAGE ON SCHEMA admin_schema TO chat_app;  -- reference the two views below (SELECT is per-view, so only these are readable)
+GRANT SELECT ON admin_schema.v_user_tier  TO chat_app;
+GRANT SELECT ON admin_schema.v_user_points TO chat_app;
