@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
@@ -12,68 +12,164 @@ interface Rewards {
   referralCount: number;
 }
 
-const TIER_NAMES = ['—', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Legend'];
-// Cumulative-volume thresholds mirror analytics_schema.tier_config (display only).
-const TIER_MIN = [0, 0, 1000, 10000, 50000, 250000, 1000000];
+interface TierDef {
+  n: number;
+  name: string;
+  min: number;
+  color: string;
+  cashbackPct: number;   // % of your own trading fees returned — model shown as "Soon" until fees.rs enforces it
+  referralPct: number;   // % of referees' volume you earn as points
+}
+
+// Mirrors analytics_schema.tier_config thresholds. cashback/referral columns are the
+// intended dynamic-commission model; cashback is display-only until fee enforcement lands.
+const TIERS: TierDef[] = [
+  { n: 1, name: 'Bronze',   min: 0,        color: '#cd7f32', cashbackPct: 10, referralPct: 20 },
+  { n: 2, name: 'Silver',   min: 1_000,    color: '#9aa4b2', cashbackPct: 15, referralPct: 25 },
+  { n: 3, name: 'Gold',     min: 10_000,   color: '#f59e0b', cashbackPct: 20, referralPct: 30 },
+  { n: 4, name: 'Platinum', min: 50_000,   color: '#22d3ee', cashbackPct: 25, referralPct: 35 },
+  { n: 5, name: 'Diamond',  min: 250_000,  color: '#818cf8', cashbackPct: 30, referralPct: 40 },
+  { n: 6, name: 'Legend',   min: 1_000_000, color: '#a855f7', cashbackPct: 40, referralPct: 50 },
+];
 
 @Component({
   selector: 'app-rewards',
   standalone: true,
   imports: [CommonModule, FormsModule, LucideAngularModule],
   template: `
-    <div class="rewards-page">
-      <header class="rewards-head">
+    <div class="rw">
+      <header class="rw-head">
         <h1><lucide-icon name="trophy" [size]="22" /> Rewards</h1>
-        <p>Your trading volume raises your tier and earns points. Invite friends and earn 30% of their volume as points.</p>
+        <p>Trade to climb tiers and earn points. Invite friends to earn a share of their trading volume.</p>
       </header>
 
       @if (loading()) {
-        <div class="rw-muted">Loading…</div>
+        <div class="rw-skeleton">
+          <div class="sk sk-hero"></div>
+          <div class="sk-row"><div class="sk sk-tile"></div><div class="sk sk-tile"></div><div class="sk sk-tile"></div></div>
+        </div>
       } @else if (error()) {
-        <div class="rw-error">{{ error() }} <button (click)="load()">Retry</button></div>
+        <div class="rw-error"><lucide-icon name="triangle-alert" [size]="16" /> {{ error() }} <button (click)="load()">Retry</button></div>
       } @else {
         @if (data(); as d) {
-        <div class="rw-grid">
-          <!-- Tier -->
-          <section class="rw-card rw-tier">
-            <span class="rw-card-label">Tier</span>
-            <div class="rw-tier-name">{{ tierName(d.tier) }}</div>
-            <div class="rw-tier-num">Tier {{ d.tier }}</div>
-            <div class="rw-bar"><div class="rw-bar-fill" [style.width.%]="tierProgress(d)"></div></div>
-            <div class="rw-muted rw-sm">
-              @if (d.tier < 6) { {{ nextTierGap(d) | currency:'USD':'symbol':'1.0-0' }} more → {{ tierName(d.tier + 1) }} }
-              @else { Top tier reached 🎉 }
-            </div>
-          </section>
 
-          <!-- Points -->
-          <section class="rw-card">
-            <span class="rw-card-label">Points</span>
-            <div class="rw-points-total">{{ d.points.total | number }}</div>
-            <div class="rw-points-split">
-              <span>From your volume: <b>{{ d.points.own | number }}</b></span>
-              <span>From referrals: <b>{{ d.points.referral | number }}</b></span>
+        <!-- HERO -->
+        <section class="hero">
+          <div class="hero-badge" [style.--tc]="tierColor(d.tier)">
+            <lucide-icon [name]="tierIcon(d.tier)" [size]="30" />
+          </div>
+          <div class="hero-main">
+            <div class="hero-tierline">
+              <span class="hero-tier" [style.color]="tierColor(d.tier)">{{ tierName(d.tier) }}</span>
+              <span class="hero-tiernum">Tier {{ d.tier }} of 6</span>
             </div>
-            <div class="rw-muted rw-sm">Total volume: {{ d.volumeUsd | currency:'USD':'symbol':'1.2-2' }}</div>
-          </section>
-
-          <!-- Referral -->
-          <section class="rw-card rw-referral">
-            <span class="rw-card-label">Referral</span>
-            <div class="rw-muted rw-sm">Your invite code</div>
-            <div class="rw-code" (click)="copyCode()" title="Copy">
-              <span>{{ d.referralCode || '—' }}</span>
-              <lucide-icon [name]="copied() ? 'check' : 'copy'" [size]="16" />
-            </div>
-            <div class="rw-muted rw-sm">{{ d.referralCount }} invited</div>
-
-            <div class="rw-redeem">
-              <div class="rw-muted rw-sm">Have an invite code?</div>
-              <div class="rw-redeem-row">
-                <input [(ngModel)]="code" placeholder="CODE" maxlength="8" (keyup.enter)="redeem()" />
-                <button (click)="redeem()" [disabled]="!code.trim()">Apply</button>
+            @if (d.tier < 6) {
+              <div class="hero-progress">
+                <div class="hero-bar"><div class="hero-fill" [style.width.%]="tierProgress(d)" [style.background]="tierColor(d.tier + 1)"></div></div>
+                <div class="hero-progress-labels">
+                  <span>{{ d.volumeUsd | currency:'USD':'symbol':'1.0-0' }}</span>
+                  <span class="rw-muted">{{ nextTierGap(d) | currency:'USD':'symbol':'1.0-0' }} to {{ tierName(d.tier + 1) }}</span>
+                </div>
               </div>
-              @if (redeemMsg()) { <div class="rw-redeem-msg">{{ redeemMsg() }}</div> }
+            } @else {
+              <div class="hero-max"><lucide-icon name="sparkles" [size]="14" /> Top tier reached — maximum benefits unlocked</div>
+            }
+          </div>
+        </section>
+
+        <!-- STAT TILES -->
+        <section class="tiles">
+          <div class="tile">
+            <div class="tile-ico" style="--tc:#818cf8"><lucide-icon name="star" [size]="18" /></div>
+            <div class="tile-val">{{ d.points.total | number }}</div>
+            <div class="tile-lbl">Total points</div>
+          </div>
+          <div class="tile">
+            <div class="tile-ico" style="--tc:#06b6d4"><lucide-icon name="trending-up" [size]="18" /></div>
+            <div class="tile-val">{{ d.volumeUsd | currency:'USD':'symbol':'1.2-2' }}</div>
+            <div class="tile-lbl">Trading volume</div>
+          </div>
+          <div class="tile">
+            <div class="tile-ico" style="--tc:#22c55e"><lucide-icon name="users" [size]="18" /></div>
+            <div class="tile-val">{{ d.referralCount | number }}</div>
+            <div class="tile-lbl">Friends invited</div>
+          </div>
+          <div class="tile">
+            <div class="tile-ico" style="--tc:#f59e0b"><lucide-icon name="gift" [size]="18" /></div>
+            <div class="tile-val">{{ d.points.referral | number }}</div>
+            <div class="tile-lbl">Referral points</div>
+          </div>
+        </section>
+
+        <div class="cols">
+          <!-- REFERRAL (star of the page) -->
+          <section class="card referral">
+            <div class="card-title"><lucide-icon name="user-plus" [size]="18" /> Invite friends</div>
+            <p class="card-sub">Earn <b>{{ referralPct(d.tier) }}%</b> of everything your friends trade, credited as points.</p>
+
+            <label class="fld-lbl">Your invite link</label>
+            <div class="copybox" (click)="copy(inviteLink(d), 'link')" title="Copy link">
+              <span class="copybox-txt">{{ inviteLink(d) }}</span>
+              <button class="copybox-btn"><lucide-icon [name]="copied()==='link' ? 'check' : 'copy'" [size]="16" /></button>
+            </div>
+
+            <div class="ref-row">
+              <div class="ref-code-wrap">
+                <label class="fld-lbl">Invite code</label>
+                <div class="copybox code" (click)="copy(d.referralCode || '', 'code')" title="Copy code">
+                  <span class="copybox-txt mono">{{ d.referralCode || '—' }}</span>
+                  <button class="copybox-btn"><lucide-icon [name]="copied()==='code' ? 'check' : 'copy'" [size]="16" /></button>
+                </div>
+              </div>
+              @if (canShare) {
+                <button class="share-btn" (click)="share(d)"><lucide-icon name="share-2" [size]="16" /> Share</button>
+              }
+            </div>
+
+            <div class="steps">
+              <div class="step"><span class="step-n">1</span><div><b>Share your link</b><span>Send it to friends and communities.</span></div></div>
+              <div class="step"><span class="step-n">2</span><div><b>They start trading</b><span>They join OPRAI with your code.</span></div></div>
+              <div class="step"><span class="step-n">3</span><div><b>You earn points</b><span>{{ referralPct(d.tier) }}% of their volume, forever.</span></div></div>
+            </div>
+
+            <div class="redeem">
+              <label class="fld-lbl">Have an invite code?</label>
+              <div class="redeem-row">
+                <input [(ngModel)]="code" placeholder="ENTER CODE" maxlength="8" (keyup.enter)="redeem()" />
+                <button (click)="redeem()" [disabled]="!code.trim() || redeeming()">
+                  {{ redeeming() ? 'Applying…' : 'Apply' }}
+                </button>
+              </div>
+              @if (redeemMsg()) { <div class="redeem-msg" [class.ok]="redeemOk()">{{ redeemMsg() }}</div> }
+            </div>
+          </section>
+
+          <!-- TIER LADDER -->
+          <section class="card ladder">
+            <div class="card-title"><lucide-icon name="layers" [size]="18" /> Tier benefits</div>
+            <p class="card-sub">Your all-time volume sets your tier. Higher tiers earn more.</p>
+
+            <div class="ladder-head">
+              <span>Tier</span>
+              <span class="num">Volume</span>
+              <span class="num">Referral</span>
+              <span class="num">Cashback</span>
+            </div>
+            @for (t of tiers; track t.n) {
+              <div class="ladder-row" [class.here]="d.tier === t.n">
+                <span class="lr-tier">
+                  <span class="lr-dot" [style.background]="t.color"></span>
+                  {{ t.name }}
+                  @if (d.tier === t.n) { <span class="lr-here">You</span> }
+                </span>
+                <span class="num">{{ t.min === 0 ? '$0' : (t.min | currency:'USD':'symbol':'1.0-0') }}</span>
+                <span class="num">{{ t.referralPct }}%</span>
+                <span class="num cb">{{ t.cashbackPct }}%</span>
+              </div>
+            }
+            <div class="ladder-foot">
+              <lucide-icon name="info" [size]="13" />
+              <span><b>Cashback</b> returns a share of the trading fees you pay. <span class="soon">Coming soon</span></span>
             </div>
           </section>
         </div>
@@ -83,43 +179,115 @@ const TIER_MIN = [0, 0, 1000, 10000, 50000, 250000, 1000000];
   `,
   styles: [`
     :host { display:block; }
-    .rewards-page { max-width: 920px; margin: 0 auto; padding: 24px 20px 48px; }
-    .rewards-head h1 { display:flex; align-items:center; gap:10px; font-size:1.5rem; font-weight:700; color: var(--op-text-primary); margin:0 0 6px; }
-    .rewards-head p { color: var(--op-text-secondary); margin:0 0 24px; font-size:.9rem; max-width:560px; }
-    .rw-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:16px; }
-    .rw-card { background: var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:16px; padding:20px; display:flex; flex-direction:column; gap:8px; }
-    .rw-card-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color: var(--op-text-secondary); }
-    .rw-tier { background: linear-gradient(135deg, rgba(91,95,199,.14), rgba(6,182,212,.10)); }
-    .rw-tier-name { font-size:1.7rem; font-weight:800; background:linear-gradient(90deg,#5b5fc7,#06B6D4); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
-    .rw-tier-num { color: var(--op-text-secondary); font-size:.85rem; }
-    .rw-bar { height:8px; background: rgba(255,255,255,.08); border-radius:999px; overflow:hidden; margin-top:4px; }
-    .rw-bar-fill { height:100%; background:linear-gradient(90deg,#5b5fc7,#06B6D4); border-radius:999px; transition:width .4s; }
-    .rw-points-total { font-size:2rem; font-weight:800; color: var(--op-text-primary); }
-    .rw-points-split { display:flex; flex-direction:column; gap:2px; font-size:.85rem; color: var(--op-text-secondary); }
-    .rw-points-split b { color: var(--op-text-primary); }
-    .rw-code { display:flex; align-items:center; justify-content:space-between; gap:12px; cursor:pointer; font-family:monospace; font-size:1.25rem; font-weight:700; letter-spacing:.15em; color: var(--op-text-primary); background: rgba(255,255,255,.05); border:1px dashed var(--op-brand,#5b5fc7); border-radius:10px; padding:10px 14px; }
-    .rw-redeem { margin-top:12px; border-top:1px solid var(--op-border, rgba(255,255,255,.08)); padding-top:12px; display:flex; flex-direction:column; gap:8px; }
-    .rw-redeem-row { display:flex; gap:8px; }
-    .rw-redeem-row input { flex:1; background: var(--op-bg-surface-2, rgba(255,255,255,.04)); border:1px solid var(--op-border, rgba(255,255,255,.12)); border-radius:8px; padding:8px 10px; color: var(--op-text-primary); text-transform:uppercase; font-family:monospace; letter-spacing:.1em; }
-    .rw-redeem-row button, .rw-error button { background:linear-gradient(90deg,#5b5fc7,#06B6D4); color:#fff; border:0; border-radius:8px; padding:8px 16px; font-weight:600; cursor:pointer; }
-    .rw-redeem-row button:disabled { opacity:.5; cursor:not-allowed; }
-    .rw-redeem-msg { font-size:.82rem; color: var(--op-brand,#5b5fc7); }
-    .rw-muted { color: var(--op-text-secondary); }
-    .rw-sm { font-size:.8rem; }
-    .rw-error { color:#ef4444; display:flex; gap:12px; align-items:center; }
+    .rw { max-width: 1040px; margin:0 auto; padding: 24px 20px 56px; }
+    .rw-head h1 { display:flex; align-items:center; gap:10px; font-size:1.55rem; font-weight:700; color:var(--op-text-primary); margin:0 0 6px; }
+    .rw-head p { color:var(--op-text-secondary); margin:0 0 24px; font-size:.9rem; max-width:600px; }
+    .rw-muted { color:var(--op-text-secondary); }
+
+    /* HERO */
+    .hero { display:flex; align-items:center; gap:20px; background:var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:20px; padding:22px 24px; margin-bottom:16px; position:relative; overflow:hidden; }
+    .hero::before { content:''; position:absolute; inset:0; background:radial-gradient(120% 140% at 0% 0%, rgba(91,95,199,.14), transparent 55%); pointer-events:none; }
+    .hero-badge { flex:none; width:66px; height:66px; border-radius:18px; display:grid; place-items:center; color:var(--tc); background:color-mix(in srgb, var(--tc) 16%, transparent); border:1px solid color-mix(in srgb, var(--tc) 40%, transparent); box-shadow:0 0 32px color-mix(in srgb, var(--tc) 22%, transparent); }
+    .hero-main { flex:1; min-width:0; }
+    .hero-tierline { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+    .hero-tier { font-size:1.7rem; font-weight:800; letter-spacing:-.01em; }
+    .hero-tiernum { font-size:.82rem; color:var(--op-text-secondary); }
+    .hero-progress { margin-top:12px; }
+    .hero-bar { height:9px; background:rgba(125,125,150,.16); border-radius:999px; overflow:hidden; }
+    .hero-fill { height:100%; border-radius:999px; transition:width .5s ease; }
+    .hero-progress-labels { display:flex; justify-content:space-between; margin-top:7px; font-size:.82rem; color:var(--op-text-primary); font-weight:600; }
+    .hero-progress-labels .rw-muted { font-weight:500; }
+    .hero-max { margin-top:8px; display:inline-flex; align-items:center; gap:6px; font-size:.85rem; color:#f59e0b; font-weight:600; }
+
+    /* TILES */
+    .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:16px; }
+    .tile { background:var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:16px; padding:16px; }
+    .tile-ico { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; color:var(--tc); background:color-mix(in srgb, var(--tc) 15%, transparent); margin-bottom:10px; }
+    .tile-val { font-size:1.5rem; font-weight:800; color:var(--op-text-primary); line-height:1.1; }
+    .tile-lbl { font-size:.78rem; color:var(--op-text-secondary); margin-top:2px; }
+
+    /* COLUMNS */
+    .cols { display:grid; grid-template-columns:1.1fr 1fr; gap:16px; align-items:start; }
+    @media (max-width:820px){ .cols{ grid-template-columns:1fr; } }
+    .card { background:var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:18px; padding:20px; }
+    .card-title { display:flex; align-items:center; gap:8px; font-size:1.02rem; font-weight:700; color:var(--op-text-primary); }
+    .card-sub { color:var(--op-text-secondary); font-size:.85rem; margin:6px 0 16px; }
+    .card-sub b { color:var(--op-text-primary); }
+    .fld-lbl { display:block; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:var(--op-text-secondary); margin:0 0 6px; }
+
+    /* copybox */
+    .copybox { display:flex; align-items:center; gap:10px; cursor:pointer; background:var(--op-bg-surface-2, rgba(125,125,150,.06)); border:1px solid var(--op-border, rgba(255,255,255,.1)); border-radius:10px; padding:9px 10px 9px 13px; transition:border-color .15s; }
+    .copybox:hover { border-color:var(--op-brand,#5b5fc7); }
+    .copybox-txt { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--op-text-primary); font-size:.9rem; }
+    .copybox-txt.mono { font-family:monospace; font-size:1.15rem; font-weight:700; letter-spacing:.12em; }
+    .copybox.code { border-style:dashed; border-color:var(--op-brand,#5b5fc7); }
+    .copybox-btn { flex:none; background:transparent; border:0; color:var(--op-text-secondary); cursor:pointer; display:grid; place-items:center; padding:4px; }
+    .copybox:hover .copybox-btn { color:var(--op-brand,#5b5fc7); }
+
+    .ref-row { display:flex; gap:12px; align-items:flex-end; margin-top:14px; }
+    .ref-code-wrap { flex:1; min-width:0; }
+    .share-btn { flex:none; display:inline-flex; align-items:center; gap:7px; background:linear-gradient(90deg,#5b5fc7,#06b6d4); color:#fff; border:0; border-radius:10px; padding:10px 15px; font-weight:600; font-size:.88rem; cursor:pointer; }
+
+    /* steps */
+    .steps { display:flex; flex-direction:column; gap:12px; margin:18px 0 4px; }
+    .step { display:flex; gap:11px; align-items:flex-start; }
+    .step-n { flex:none; width:24px; height:24px; border-radius:50%; display:grid; place-items:center; font-size:.78rem; font-weight:700; color:var(--op-brand,#5b5fc7); background:color-mix(in srgb, var(--op-brand, #5b5fc7) 16%, transparent); }
+    .step > div { display:flex; flex-direction:column; }
+    .step b { font-size:.88rem; color:var(--op-text-primary); }
+    .step span { font-size:.8rem; color:var(--op-text-secondary); }
+
+    /* redeem */
+    .redeem { margin-top:18px; border-top:1px solid var(--op-border, rgba(255,255,255,.08)); padding-top:16px; }
+    .redeem-row { display:flex; gap:8px; }
+    .redeem-row input { flex:1; background:var(--op-bg-surface-2, rgba(125,125,150,.06)); border:1px solid var(--op-border, rgba(255,255,255,.12)); border-radius:10px; padding:10px 12px; color:var(--op-text-primary); text-transform:uppercase; font-family:monospace; letter-spacing:.1em; font-size:.9rem; }
+    .redeem-row input:focus { outline:none; border-color:var(--op-brand,#5b5fc7); }
+    .redeem-row button, .rw-error button { background:linear-gradient(90deg,#5b5fc7,#06b6d4); color:#fff; border:0; border-radius:10px; padding:10px 18px; font-weight:600; cursor:pointer; font-size:.88rem; }
+    .redeem-row button:disabled { opacity:.5; cursor:not-allowed; }
+    .redeem-msg { font-size:.82rem; margin-top:8px; color:#ef4444; }
+    .redeem-msg.ok { color:#22c55e; }
+
+    /* ladder */
+    .ladder-head, .ladder-row { display:grid; grid-template-columns:1.4fr .9fr .8fr .8fr; align-items:center; gap:8px; }
+    .ladder-head { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--op-text-secondary); padding:0 10px 8px; }
+    .ladder-row { padding:11px 10px; border-radius:10px; font-size:.88rem; color:var(--op-text-primary); }
+    .ladder-row + .ladder-row { border-top:1px solid var(--op-border, rgba(255,255,255,.05)); }
+    .ladder-row.here { background:color-mix(in srgb, var(--op-brand,#5b5fc7) 12%, transparent); border-top-color:transparent; }
+    .num { text-align:right; font-variant-numeric:tabular-nums; }
+    .cb { color:var(--op-text-secondary); }
+    .lr-tier { display:flex; align-items:center; gap:8px; font-weight:600; }
+    .lr-dot { width:9px; height:9px; border-radius:50%; flex:none; }
+    .lr-here { font-size:.64rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--op-brand,#5b5fc7); background:color-mix(in srgb, var(--op-brand,#5b5fc7) 20%, transparent); padding:1px 6px; border-radius:6px; }
+    .ladder-foot { display:flex; align-items:flex-start; gap:7px; margin-top:14px; padding-top:12px; border-top:1px solid var(--op-border, rgba(255,255,255,.08)); font-size:.78rem; color:var(--op-text-secondary); }
+    .ladder-foot b { color:var(--op-text-primary); }
+    .soon { display:inline-block; font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#f59e0b; background:color-mix(in srgb, #f59e0b 16%, transparent); padding:1px 6px; border-radius:6px; margin-left:4px; }
+
+    /* states */
+    .rw-error { color:#ef4444; display:flex; gap:10px; align-items:center; font-size:.9rem; }
+    .rw-skeleton .sk { background:linear-gradient(90deg, rgba(125,125,150,.08), rgba(125,125,150,.16), rgba(125,125,150,.08)); background-size:200% 100%; animation:shim 1.3s infinite; border-radius:16px; }
+    .sk-hero { height:110px; margin-bottom:16px; } .sk-row { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; } .sk-tile { height:96px; }
+    @keyframes shim { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
   `],
 })
 export class RewardsComponent implements OnInit {
   private api = inject(ApiService);
 
+  tiers = TIERS;
   data = signal<Rewards | null>(null);
   loading = signal(true);
   error = signal<string | null>(null);
   redeemMsg = signal<string | null>(null);
-  copied = signal(false);
+  redeemOk = signal(false);
+  redeeming = signal(false);
+  copied = signal<'code' | 'link' | null>(null);
   code = '';
+  canShare = typeof navigator !== 'undefined' && !!(navigator as any).share;
 
   ngOnInit(): void {
+    // Pre-fill an invite code arriving via ?ref=CODE (do not auto-submit — user confirms).
+    try {
+      const ref = new URLSearchParams(window.location.search).get('ref');
+      if (ref) this.code = ref.toUpperCase().slice(0, 8);
+    } catch { /* SSR / no window */ }
     this.load();
   }
 
@@ -127,58 +295,73 @@ export class RewardsComponent implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     this.api.get<Rewards>('/me/rewards').subscribe({
-      next: (d) => {
-        this.data.set(d);
-        this.loading.set(false);
-      },
-      error: () => {
-        this.error.set('Could not load rewards.');
-        this.loading.set(false);
-      },
+      next: (d) => { this.data.set(d); this.loading.set(false); },
+      error: () => { this.error.set('Could not load rewards.'); this.loading.set(false); },
     });
   }
 
   redeem(): void {
     const c = (this.code || '').trim().toUpperCase();
-    if (!c) return;
+    if (!c || this.redeeming()) return;
+    this.redeeming.set(true);
+    this.redeemMsg.set(null);
     this.api.post<{ ok: boolean; linked: boolean }>('/referral/redeem', { code: c }).subscribe({
       next: (r) => {
-        this.redeemMsg.set(r.linked ? 'Referral linked! 🎉' : 'You already have a referrer.');
+        this.redeemOk.set(!!r.linked);
+        this.redeemMsg.set(r.linked ? 'Referral linked — welcome aboard!' : 'You already have a referrer.');
         this.code = '';
+        this.redeeming.set(false);
         this.load();
       },
       error: (e) => {
+        this.redeemOk.set(false);
         this.redeemMsg.set(
           e?.status === 404 ? 'Invalid code.'
           : e?.status === 400 ? "You can't use your own code."
           : 'Could not apply the code.',
         );
+        this.redeeming.set(false);
       },
     });
   }
 
-  copyCode(): void {
-    const c = this.data()?.referralCode;
-    if (!c) return;
-    navigator.clipboard?.writeText(c);
-    this.copied.set(true);
-    setTimeout(() => this.copied.set(false), 1500);
+  inviteLink(d: Rewards): string {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://app.oprai.xyz';
+    return d.referralCode ? `${origin}/?ref=${d.referralCode}` : origin;
   }
 
-  tierName(t: number): string {
-    return TIER_NAMES[t] ?? `Tier ${t}`;
+  copy(text: string, which: 'code' | 'link'): void {
+    if (!text) return;
+    navigator.clipboard?.writeText(text);
+    this.copied.set(which);
+    setTimeout(() => this.copied.set(null), 1500);
+  }
+
+  share(d: Rewards): void {
+    (navigator as any).share?.({
+      title: 'OPRAI',
+      text: 'Trade Solana with OPRAI, the DeFi AI assistant. Use my invite:',
+      url: this.inviteLink(d),
+    }).catch(() => {});
+  }
+
+  tierName(t: number): string { return (TIERS.find((x) => x.n === t)?.name) ?? `Tier ${t}`; }
+  tierColor(t: number): string { return (TIERS.find((x) => x.n === t)?.color) ?? '#5b5fc7'; }
+  referralPct(t: number): number { return (TIERS.find((x) => x.n === t)?.referralPct) ?? 30; }
+  tierIcon(t: number): string {
+    return t >= 6 ? 'crown' : t >= 4 ? 'gem' : t >= 2 ? 'award' : 'medal';
   }
 
   tierProgress(d: Rewards): number {
     if (d.tier >= 6) return 100;
-    const lo = TIER_MIN[d.tier];
-    const hi = TIER_MIN[d.tier + 1];
+    const lo = TIERS[d.tier - 1]?.min ?? 0;
+    const hi = TIERS[d.tier]?.min ?? lo;
     if (hi <= lo) return 100;
-    return Math.max(0, Math.min(100, ((d.volumeUsd - lo) / (hi - lo)) * 100));
+    return Math.max(2, Math.min(100, ((d.volumeUsd - lo) / (hi - lo)) * 100));
   }
 
   nextTierGap(d: Rewards): number {
     if (d.tier >= 6) return 0;
-    return Math.max(0, TIER_MIN[d.tier + 1] - d.volumeUsd);
+    return Math.max(0, (TIERS[d.tier]?.min ?? 0) - d.volumeUsd);
   }
 }
