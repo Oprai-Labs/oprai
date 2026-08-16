@@ -23,14 +23,14 @@ const TIER_MIN = [0, 0, 1000, 10000, 50000, 250000, 1000000];
   template: `
     <div class="rewards-page">
       <header class="rewards-head">
-        <h1><lucide-icon name="trophy" [size]="22" /> Ödüller</h1>
-        <p>Hacmin tier'ını yükseltir, puan kazandırır. Arkadaşlarını davet et, hacimlerinin %30'u kadar puan kazan.</p>
+        <h1><lucide-icon name="trophy" [size]="22" /> Rewards</h1>
+        <p>Your trading volume raises your tier and earns points. Invite friends and earn 30% of their volume as points.</p>
       </header>
 
       @if (loading()) {
-        <div class="rw-muted">Yükleniyor…</div>
+        <div class="rw-muted">Loading…</div>
       } @else if (error()) {
-        <div class="rw-error">{{ error() }} <button (click)="load()">Tekrar dene</button></div>
+        <div class="rw-error">{{ error() }} <button (click)="load()">Retry</button></div>
       } @else {
         @if (data(); as d) {
         <div class="rw-grid">
@@ -41,37 +41,37 @@ const TIER_MIN = [0, 0, 1000, 10000, 50000, 250000, 1000000];
             <div class="rw-tier-num">Tier {{ d.tier }}</div>
             <div class="rw-bar"><div class="rw-bar-fill" [style.width.%]="tierProgress(d)"></div></div>
             <div class="rw-muted rw-sm">
-              @if (d.tier < 6) { {{ nextTierGap(d) | currency:'USD':'symbol':'1.0-0' }} daha → {{ tierName(d.tier + 1) }} }
-              @else { En yüksek tier 🎉 }
+              @if (d.tier < 6) { {{ nextTierGap(d) | currency:'USD':'symbol':'1.0-0' }} more → {{ tierName(d.tier + 1) }} }
+              @else { Top tier reached 🎉 }
             </div>
           </section>
 
           <!-- Points -->
           <section class="rw-card">
-            <span class="rw-card-label">Puan</span>
+            <span class="rw-card-label">Points</span>
             <div class="rw-points-total">{{ d.points.total | number }}</div>
             <div class="rw-points-split">
-              <span>Kendi hacmin: <b>{{ d.points.own | number }}</b></span>
-              <span>Referans: <b>{{ d.points.referral | number }}</b></span>
+              <span>From your volume: <b>{{ d.points.own | number }}</b></span>
+              <span>From referrals: <b>{{ d.points.referral | number }}</b></span>
             </div>
-            <div class="rw-muted rw-sm">Toplam hacim: {{ d.volumeUsd | currency:'USD':'symbol':'1.2-2' }}</div>
+            <div class="rw-muted rw-sm">Total volume: {{ d.volumeUsd | currency:'USD':'symbol':'1.2-2' }}</div>
           </section>
 
           <!-- Referral -->
           <section class="rw-card rw-referral">
-            <span class="rw-card-label">Referans</span>
-            <div class="rw-muted rw-sm">Davet kodun</div>
-            <div class="rw-code" (click)="copyCode()" title="Kopyala">
+            <span class="rw-card-label">Referral</span>
+            <div class="rw-muted rw-sm">Your invite code</div>
+            <div class="rw-code" (click)="copyCode()" title="Copy">
               <span>{{ d.referralCode || '—' }}</span>
               <lucide-icon [name]="copied() ? 'check' : 'copy'" [size]="16" />
             </div>
-            <div class="rw-muted rw-sm">{{ d.referralCount }} kişi davet ettin</div>
+            <div class="rw-muted rw-sm">{{ d.referralCount }} invited</div>
 
             <div class="rw-redeem">
-              <div class="rw-muted rw-sm">Bir davet kodun mu var?</div>
+              <div class="rw-muted rw-sm">Have an invite code?</div>
               <div class="rw-redeem-row">
-                <input [(ngModel)]="code" placeholder="KOD" maxlength="8" (keyup.enter)="redeem()" />
-                <button (click)="redeem()" [disabled]="!code.trim()">Uygula</button>
+                <input [(ngModel)]="code" placeholder="CODE" maxlength="8" (keyup.enter)="redeem()" />
+                <button (click)="redeem()" [disabled]="!code.trim()">Apply</button>
               </div>
               @if (redeemMsg()) { <div class="rw-redeem-msg">{{ redeemMsg() }}</div> }
             </div>
@@ -132,7 +132,7 @@ export class RewardsComponent implements OnInit {
         this.loading.set(false);
       },
       error: () => {
-        this.error.set('Ödül bilgileri yüklenemedi.');
+        this.error.set('Could not load rewards.');
         this.loading.set(false);
       },
     });
@@ -143,15 +143,15 @@ export class RewardsComponent implements OnInit {
     if (!c) return;
     this.api.post<{ ok: boolean; linked: boolean }>('/referral/redeem', { code: c }).subscribe({
       next: (r) => {
-        this.redeemMsg.set(r.linked ? 'Referans bağlandı! 🎉' : 'Zaten bir referansın var.');
+        this.redeemMsg.set(r.linked ? 'Referral linked! 🎉' : 'You already have a referrer.');
         this.code = '';
         this.load();
       },
       error: (e) => {
         this.redeemMsg.set(
-          e?.status === 404 ? 'Geçersiz kod.'
-          : e?.status === 400 ? 'Kendi kodunu kullanamazsın.'
-          : 'Kod uygulanamadı.',
+          e?.status === 404 ? 'Invalid code.'
+          : e?.status === 400 ? "You can't use your own code."
+          : 'Could not apply the code.',
         );
       },
     });
