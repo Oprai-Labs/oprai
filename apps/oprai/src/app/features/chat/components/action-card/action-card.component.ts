@@ -6887,7 +6887,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       // editInitialBuy already holds the SOL amount (USD inputs were converted
       // to the live SOL equivalent), so drop the USD-only hint keys — the
       // backend deals purely in SOL.
-      mergedParams['initialBuyAmount'] = this.editInitialBuy();
+      // A dev buy is optional. Blank means "don't buy", so the key must not
+      // travel at all — sending `initialBuyAmount: ""` made the backend read
+      // an empty string as an amount it was owed and reject the launch.
+      // Comma decimals are normalised here so 0,5 is not a parse failure.
+      const initBuy = this.editInitialBuy().trim().replace(',', '.');
+      if (initBuy) mergedParams['initialBuyAmount'] = initBuy;
+      else delete mergedParams['initialBuyAmount'];
       delete mergedParams['initialBuyAmountUsd'];
       delete mergedParams['initial_buy_amount_usd'];
       mergedParams['twitter'] = this.editTwitter();

@@ -2030,8 +2030,24 @@ pub fn validate_launch_params(params: &LaunchTokenParams) -> Result<(), AppError
             "Token description must be 500 characters or less".into(),
         ));
     }
-    if let Some(ref buy_amount) = params.initial_buy_amount {
+    // A dev buy is optional on pump.fun, and leaving the field blank is how you
+    // decline it. The card sends the key either way, so "present" and "given a
+    // value" are not the same thing — treating an empty string as a number the
+    // user owed us invented a requirement pump.fun does not have, and rejected
+    // the ordinary launch. Everything downstream already reads an unparseable
+    // value as "no buy" (`.parse().ok().unwrap_or(0.0)`); only this check
+    // disagreed.
+    //
+    // The comma is not sloppiness either: half the people typing here write
+    // 0,5 because that is what a decimal looks like where they live.
+    let buy_amount_given = params
+        .initial_buy_amount
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(buy_amount) = buy_amount_given {
         let a: f64 = buy_amount
+            .replace(',', ".")
             .parse()
             .map_err(|_| AppError::InvalidParams("Initial buy amount must be a number".into()))?;
         if a < 0.0 {
@@ -2621,7 +2637,7 @@ pub fn build_launch_token_transaction_blocking(
     let initial_buy_sol = params
         .initial_buy_amount
         .as_ref()
-        .and_then(|s| s.parse::<f64>().ok())
+        .and_then(|s| s.trim().replace(',', ".").parse::<f64>().ok())
         .unwrap_or(0.0);
 
     let priority_fee_sol = params.priority_fee.unwrap_or(0.0005);
