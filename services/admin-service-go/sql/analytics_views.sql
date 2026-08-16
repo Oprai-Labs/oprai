@@ -130,15 +130,30 @@ SELECT
 FROM solana_schema.wallet_economics_rollup r;
 
 -- Points = own volume (1 pt / $1) + 30% of each referee's own points.
+-- Referral points scale with the REFERRER's current tier (20% Bronze -> 50% Legend),
+-- mirroring the frontend tier ladder. Percentages live here + in the Angular TIERS
+-- array; when the fee-discount work lands they move to a tier_config column (SoT).
 CREATE OR REPLACE VIEW admin_schema.v_user_points AS
 WITH own AS (
     SELECT user_wallet AS wallet, floor(lifetime_notional_usd)::bigint AS own_points
     FROM solana_schema.wallet_economics_rollup
+), referrer_tier AS (
+    SELECT r.user_wallet AS wallet,
+           (SELECT max(c.tier) FROM analytics_schema.tier_config c
+            WHERE r.lifetime_notional_usd >= c.min_volume_usd) AS tier
+    FROM solana_schema.wallet_economics_rollup r
 ), refpts AS (
-    SELECT rf.referrer_wallet AS wallet, floor(sum(o.own_points) * 0.30)::bigint AS referral_points
+    SELECT rf.referrer_wallet AS wallet,
+           floor(sum(o.own_points) *
+                 CASE COALESCE(rt.tier, 1)
+                     WHEN 1 THEN 0.20 WHEN 2 THEN 0.25 WHEN 3 THEN 0.30
+                     WHEN 4 THEN 0.35 WHEN 5 THEN 0.40 WHEN 6 THEN 0.50
+                     ELSE 0.20 END
+           )::bigint AS referral_points
     FROM analytics_schema.referrals rf
     JOIN own o ON o.wallet = rf.referee_wallet
-    GROUP BY 1
+    LEFT JOIN referrer_tier rt ON rt.wallet = rf.referrer_wallet
+    GROUP BY rf.referrer_wallet, rt.tier
 )
 SELECT
     COALESCE(o.wallet, r.wallet)                                        AS wallet,
