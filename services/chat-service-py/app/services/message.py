@@ -22,6 +22,23 @@ from app.models.session import ChatSession
 from app.services.llm import LLMService
 from app.services.summary import build_llm_context, maybe_create_summary
 
+
+# Query types that list the pools for a pair. A turn that emits one of these is
+# a turn where the user is still choosing a venue — see the "Which pool to
+# enter is the user's decision" rule in solana_action_base.txt.
+_POOL_LISTING_MARKERS = ("search_pools", "get_pools", "get_pairs")
+
+
+def _is_pool_listing_query(query_type: str) -> bool:
+    return any(marker in query_type for marker in _POOL_LISTING_MARKERS)
+
+
+# Actions that move one asset into another. These are the ones a pool-listing
+# turn must never carry: the user named a PAIR, and turning that into a trade
+# sells one side of the deposit they were setting up.
+_TRADE_ACTION_TYPES = frozenset({"swap", "trade", "buy", "sell"})
+
+
 _log = logging.getLogger(__name__)
 
 # Prometheus counter — incremented on every suspected prompt injection attempt.
@@ -2062,6 +2079,11 @@ async def stream_chat_response(
         validated_actions: list[dict] = []
         validated_queries: list[dict] = []
         validated_clarifications: list[dict] = []
+        # Set once this turn emits a pool listing. From that point the user is
+        # choosing a venue, and a trade action riding along in the same turn is
+        # the model reading a PAIR as an instruction to swap it — see the guard
+        # at each action emission below.
+        pool_listing_this_turn = False
         # `market_data_results` is initialised at function scope (before the
         # retry loop) so the pre-tool-flush balance-fabrication guard sees
         # an empty list on tool-free turns. We do NOT re-initialise here —
@@ -2150,6 +2172,21 @@ async def stream_chat_response(
         if "kamino" not in _named:
             if "jupiter" in _named:
                 _named_lender = "jupiter"
+        # Decided BEFORE the loop, not inside it. The model emits the pool
+        # listing and the stray trade in one batch, and their order in that
+        # batch is not fixed — a flag raised while walking the list would miss
+        # the trade whenever it happened to come first.
+        for _pre_name, _pre_args in collected_tool_calls:
+            if _pre_name != "query_onchain":
+                continue
+            try:
+                _pre_type = str(json.loads(_pre_args).get("query_type", "") or "")
+            except Exception:
+                continue
+            if _is_pool_listing_query(_pre_type):
+                pool_listing_this_turn = True
+                break
+
         for tc_name, tc_args in collected_tool_calls:
             # Inject chain depth into args so _validate_execute_action can enforce the cap.
             # Never reset chain_depth to 0 — prevents bypass by interspersing non-chained actions.
@@ -2211,6 +2248,21 @@ async def stream_chat_response(
                 continue
 
             if isinstance(validated, ValidatedAction):
+                # A pool listing means the user is still picking a venue. A
+                # trade riding along in that turn is the model reading a PAIR
+                # ("make it SOL/BONK") as an instruction to swap one side into
+                # the other — which sells half of what they were about to
+                # deposit, at a size they never gave. Drop it: the listing is
+                # the answer, and a card the user has to notice is wrong is
+                # worse than no card.
+                if pool_listing_this_turn and validated.type.value in _TRADE_ACTION_TYPES:
+                    _log.warning(
+                        "action_suppressed reason=trade_in_pool_listing_turn "
+                        "action_type=%s wallet=%s session=%s",
+                        validated.type.value, wallet[:16] + "…", session_id,
+                    )
+                    continue
+
                 d = validated.to_frontend_dict()
                 # Second-pass sanity check — does this action plausibly answer
                 # the user's last message? Catches semantic drift the schema
@@ -2299,6 +2351,8 @@ async def stream_chat_response(
                     if validated.type.value in QUERY_CARD_RENDER_TYPES:
                         d = validated.to_frontend_dict()
                         validated_queries.append(d)
+                        if _is_pool_listing_query(validated.type.value):
+                            pool_listing_this_turn = True
                         yield f"data: {json.dumps({'query': d})}\n\n"
                     _log.info(
                         "market_data_query query_type=%s wallet=%s session=%s",
@@ -2380,6 +2434,8 @@ async def stream_chat_response(
 
                 d = validated.to_frontend_dict()
                 validated_queries.append(d)
+                if _is_pool_listing_query(validated.type.value):
+                    pool_listing_this_turn = True
                 _log.info(
                     "llm_query_proposed query_type=%s wallet=%s session=%s",
                     validated.type.value, wallet[:16] + "…", session_id,
@@ -2913,6 +2969,19 @@ async def stream_chat_response(
                                 pass
                         _v = validate_tool_call(tc_name, tc_args, authenticated_wallet=wallet)
                         if isinstance(_v, ValidatedAction):
+                            # Same guard as the primary path, and this is the
+                            # branch that actually fired: the trade is proposed
+                            # in a SECOND model round, after the pool listing's
+                            # results are fed back. The model reads its own
+                            # listing, decides the pair is a trade, and offers
+                            # to swap one side of the deposit away.
+                            if pool_listing_this_turn and _v.type.value in _TRADE_ACTION_TYPES:
+                                _log.warning(
+                                    "action_suppressed reason=trade_in_pool_listing_turn "
+                                    "stage=market_data_followup action_type=%s wallet=%s session=%s",
+                                    _v.type.value, wallet[:16] + "…", session_id,
+                                )
+                                continue
                             _d = _v.to_frontend_dict()
                             # Second-pass semantic check — same gate as primary path.
                             # Skipped for category requests: the swap action
