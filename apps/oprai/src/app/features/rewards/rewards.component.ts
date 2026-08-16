@@ -179,7 +179,8 @@ const TIERS: TierDef[] = [
     </div>
   `,
   styles: [`
-    :host { display:block; }
+    /* .main-content is a flex column with overflow:hidden, so the page must scroll itself. */
+    :host { display:block; flex:1 1 auto; min-height:0; overflow-y:auto; }
     .rw { max-width: 1040px; margin:0 auto; padding: 24px 20px 56px; }
     .rw-head h1 { display:flex; align-items:center; gap:10px; font-size:1.55rem; font-weight:700; color:var(--op-text-primary); margin:0 0 6px; }
     .rw-head p { color:var(--op-text-secondary); margin:0 0 24px; font-size:.9rem; max-width:600px; }
