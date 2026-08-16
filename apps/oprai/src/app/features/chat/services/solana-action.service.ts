@@ -382,6 +382,10 @@ const EPHEMERAL_SIGNER_PARAM: Record<string, string> = {
   launch_token: 'mintPubkey',
   pumpfun_launch: 'mintPubkey',
   raydium_open_position: 'positionNftMint',
+  // Opening a DAMM v2 position mints its own NFT. Adding to an EXISTING
+  // position does not — the backend only reads the key on the open path, so
+  // sending it on an add is harmless and the type is one action either way.
+  meteora_dammv2_add_liquidity: 'positionNftMint',
   // A new stake account signs its own creation.
   native_stake: 'stakeAccountPubkey',
   native_stake_split: 'newStakeAccountPubkey',

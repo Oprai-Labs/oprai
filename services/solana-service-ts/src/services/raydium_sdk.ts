@@ -62,11 +62,18 @@ function preview(type: string, description: string, params: Record<string, unkno
   };
 }
 
-function resp(type: string, tx: VersionedTransaction, params: Record<string, unknown>, description: string, warnings?: string[]): BuildResponse {
+function resp(
+  type: string,
+  tx: VersionedTransaction,
+  params: Record<string, unknown>,
+  description: string,
+  warnings?: string[],
+  additionalSignersRequired = 0,
+): BuildResponse {
   return {
     preview: preview(type, description, params, warnings),
     transaction: serializeV0(tx),
-    additionalSignersRequired: 0,
+    additionalSignersRequired,
     isCrossChain: false,
   };
 }
@@ -412,6 +419,22 @@ export async function buildRaydiumOpenPositionSdk(params: any, userWallet: strin
   });
   const otherAmountMax = pickAmount(isA ? out.amountSlippageB : out.amountSlippageA);
 
+  // A CLMM position is NFT-backed, so opening one mints a fresh NFT that must
+  // sign. Left to itself the SDK generates that key here and signs with it,
+  // and what reaches the wallet is a transaction already carrying a stranger's
+  // signature with the user's own slot still empty — the shape Phantom's
+  // scanner cannot vouch for, and the reason its multi-signer guidance asks
+  // for the wallet's signature first.
+  //
+  // `getEphemeralSigners` is the SDK's own hook for exactly this: return the
+  // public key the caller already holds and the SDK uses it WITHOUT signing.
+  // The browser generated it, so the browser adds that signature after the
+  // wallet has added its own.
+  const clientNftMint: string | undefined =
+    typeof params.positionNftMint === "string" && params.positionNftMint.trim()
+      ? params.positionNftMint.trim()
+      : undefined;
+
   const { transaction } = await raydium.clmm.openPositionFromBase({
     poolInfo, poolKeys, tickLower, tickUpper,
     base: isA ? "MintA" : "MintB",
@@ -419,11 +442,20 @@ export async function buildRaydiumOpenPositionSdk(params: any, userWallet: strin
     ownerInfo: { useSOLBalance: true },
     withMetadata: "create",
     txVersion: sdk.TxVersion.V0,
+    // Absent (an older client), the SDK falls back to generating and signing
+    // the key itself — the previous behaviour, kept so a stale frontend works.
+    ...(clientNftMint
+      ? { getEphemeralSigners: async (_k: number) => [new PublicKey(clientNftMint)] }
+      : {}),
   });
   return resp(
     "raydium_open_position", transaction, params,
     `Open Raydium CLMM ${symOf(poolInfo.mintA.address)}/${symOf(poolInfo.mintB.address)} position`,
     ["Concentrated liquidity — out-of-range positions stop earning fees"],
+    // One slot is the client's NFT key, still empty and waiting for it. This
+    // reported 0 while shipping a slot the server had already filled, which is
+    // how a pre-signed transaction went unnoticed.
+    clientNftMint ? 1 : 0,
   );
  } catch (e) { mapRaydiumSdkError(e); }
 }
