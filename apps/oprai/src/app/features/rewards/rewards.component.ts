@@ -17,19 +17,20 @@ interface TierDef {
   name: string;
   min: number;
   color: string;
-  cashbackPct: number;   // % of your own trading fees returned — model shown as "Soon" until fees.rs enforces it
-  referralPct: number;   // % of referees' volume you earn as points
+  feeDiscountPct: number; // % off the trading fee at trade time — display-only until fees.rs enforces it
+  referralPct: number;    // % of referees' volume you earn as points (matches v_user_points view)
 }
 
-// Mirrors analytics_schema.tier_config thresholds. cashback/referral columns are the
-// intended dynamic-commission model; cashback is display-only until fee enforcement lands.
+// Mirrors analytics_schema.tier_config thresholds. referralPct is LIVE (v_user_points);
+// feeDiscountPct is the intended dynamic-commission model, display-only ("Coming soon")
+// until fee enforcement lands in fees.rs.
 const TIERS: TierDef[] = [
-  { n: 1, name: 'Bronze',   min: 0,        color: '#cd7f32', cashbackPct: 10, referralPct: 20 },
-  { n: 2, name: 'Silver',   min: 1_000,    color: '#9aa4b2', cashbackPct: 15, referralPct: 25 },
-  { n: 3, name: 'Gold',     min: 10_000,   color: '#f59e0b', cashbackPct: 20, referralPct: 30 },
-  { n: 4, name: 'Platinum', min: 50_000,   color: '#22d3ee', cashbackPct: 25, referralPct: 35 },
-  { n: 5, name: 'Diamond',  min: 250_000,  color: '#818cf8', cashbackPct: 30, referralPct: 40 },
-  { n: 6, name: 'Legend',   min: 1_000_000, color: '#a855f7', cashbackPct: 40, referralPct: 50 },
+  { n: 1, name: 'Bronze',   min: 0,        color: '#cd7f32', feeDiscountPct: 0,  referralPct: 20 },
+  { n: 2, name: 'Silver',   min: 1_000,    color: '#9aa4b2', feeDiscountPct: 5,  referralPct: 25 },
+  { n: 3, name: 'Gold',     min: 10_000,   color: '#f59e0b', feeDiscountPct: 10, referralPct: 30 },
+  { n: 4, name: 'Platinum', min: 50_000,   color: '#22d3ee', feeDiscountPct: 15, referralPct: 35 },
+  { n: 5, name: 'Diamond',  min: 250_000,  color: '#818cf8', feeDiscountPct: 20, referralPct: 40 },
+  { n: 6, name: 'Legend',   min: 1_000_000, color: '#a855f7', feeDiscountPct: 25, referralPct: 50 },
 ];
 
 @Component({
@@ -153,7 +154,7 @@ const TIERS: TierDef[] = [
               <span>Tier</span>
               <span class="num">Volume</span>
               <span class="num">Referral</span>
-              <span class="num">Cashback</span>
+              <span class="num">Fee off</span>
             </div>
             @for (t of tiers; track t.n) {
               <div class="ladder-row" [class.here]="d.tier === t.n">
@@ -164,12 +165,12 @@ const TIERS: TierDef[] = [
                 </span>
                 <span class="num">{{ t.min === 0 ? '$0' : (t.min | currency:'USD':'symbol':'1.0-0') }}</span>
                 <span class="num">{{ t.referralPct }}%</span>
-                <span class="num cb">{{ t.cashbackPct }}%</span>
+                <span class="num cb">{{ t.feeDiscountPct }}%</span>
               </div>
             }
             <div class="ladder-foot">
               <lucide-icon name="info" [size]="13" />
-              <span><b>Cashback</b> returns a share of the trading fees you pay. <span class="soon">Coming soon</span></span>
+              <span><b>Fee off</b> lowers the trading fee you pay as your tier rises. <span class="soon">Coming soon</span></span>
             </div>
           </section>
         </div>
