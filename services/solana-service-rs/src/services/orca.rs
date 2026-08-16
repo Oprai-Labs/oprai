@@ -1596,6 +1596,35 @@ pub async fn build_orca_remove_liquidity(
 // Build — orca_open_position (concentrated liquidity, custom price range)
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// NOTE — this is the one action still handing the wallet a pre-signed
+/// transaction, and it is deliberate.
+///
+/// Every other multi-signer action here now generates its extra key in the
+/// BROWSER and sends only the public key, so the wallet signs first and the
+/// browser adds the rest — the order Phantom's multi-signer guidance asks for.
+/// Measured, an Orca open-position goes out with 3 signature slots and 2
+/// already filled by us: the position NFT mint, and the temporary WSOL account
+/// when the input is native SOL.
+///
+/// It stays that way because neither route out is worth its price:
+///
+/// - `orca_whirlpools` has no hook for a caller-supplied mint. Its
+///   `internal_open_position` mints the keypair itself (~145 lines of quote
+///   math, PDA derivation, token-account preparation and instruction
+///   assembly). Supplying our own mint means reimplementing that against
+///   `orca_whirlpools_client` and owning it — protocol assembly we currently
+///   get maintained for free, in a path that moves money.
+/// - Returning the ephemeral secret keys to the browser would take ten lines,
+///   and is the one thing this service does not do. The keys hold nothing and
+///   are single-use, so nothing is stealable; the real cost is that a private
+///   key in a response body ends up in logs, error trackers and devtools
+///   history, and that "the server never emits a signing key" stops being an
+///   invariant you can check.
+///
+/// What this costs, concretely: a transaction warning on ONE action, from a
+/// wallet that will show it only after the domain-reputation block is lifted —
+/// and that block is not a code problem at all. Revisit if Orca ever surfaces
+/// a warning in practice, or if the crate grows the hook Raydium's already has.
 pub async fn build_orca_open_position(
     http: &reqwest::Client,
     rpc_url: &str,
