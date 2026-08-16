@@ -5115,6 +5115,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * recipient. A reason travels with its cause; a boolean leaves the button
    * guessing.
    */
+  /**
+   * What a launch is still missing, as a stable key rather than a sentence.
+   *
+   * Both the footer button's disabled state and its label read this, so they
+   * cannot disagree — which they did: the label said "Add image to launch"
+   * while the button stayed clickable, because nothing in `approvalBlock`
+   * covered a launch and the template judged it separately. Matching on the
+   * message text instead would have swapped one fragile coupling for another,
+   * and the ampersand in "name & ticker" does not survive a template literal
+   * intact.
+   */
+  readonly launchBlock = computed<'image' | 'identity' | null>(() => {
+    if (!this.isLaunchAction()) return null;
+    if (!this.effectiveImageUrl()) return 'image';
+    if (!this.editName().trim() || !this.editSymbol().trim()) return 'identity';
+    return null;
+  });
+
   readonly approvalBlock = computed<string | null>(() => {
     if (this.borrowLiquidityMode()) {
       const c = this.borrowCapacity();
@@ -5141,6 +5159,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const t = this.marinadeTickets().find(x => x.address === this.getEditParam('ticketAccount'));
       if (t && !t.claimable) return `Not claimable until epoch ${t.claimableEpoch}`;
     }
+    // A launch had no entry here at all, so the footer said one thing and the
+    // button did another: the label already read "Add image to launch", while
+    // `canApprove()` — which only this function feeds — stayed true and let the
+    // click through to a backend that rejects an imageless launch. The label
+    // now reads from this same value, so the two cannot disagree again.
+    if (this.launchBlock() === 'image') return 'Add image to launch';
+    if (this.launchBlock() === 'identity') return 'Enter name & ticker';
     if (this.isBurn()) {
       if (!this.getEditParam('mint').trim()) return 'Pick a token to burn';
       const amt = this.getEditParam('amount').trim();

@@ -279,15 +279,22 @@
     @switch (status()) {
       @case ('pending') {
         <div class="pf-footer">
+          <!-- Label and disabled state both come from approvalBlock(). They
+               used to be judged separately, which is how the button ended up
+               saying "Add image to launch" while still being clickable. -->
           <button class="pf-btn-launch" (click)="approve()" [disabled]="!canApprove()">
-            @if (!effectiveImageUrl()) {
-              <lucide-icon name="image" [size]="14" /> Add image to launch
-            } @else if (!editName().trim() || !editSymbol().trim()) {
-              <lucide-icon name="type" [size]="14" /> Enter name &amp; ticker
-            } @else {
-              <img src="assets/icons/pumpfun.png"
-                   width="15" height="15" alt="" style="border-radius:3px" />
-              Launch token
+            @switch (launchBlock()) {
+              @case ('image') {
+                <lucide-icon name="image" [size]="14" /> Add image to launch
+              }
+              @case ('identity') {
+                <lucide-icon name="type" [size]="14" /> Enter name &amp; ticker
+              }
+              @default {
+                <img src="assets/icons/pumpfun.png"
+                     width="15" height="15" alt="" style="border-radius:3px" />
+                Launch token
+              }
             }
           </button>
           <button class="pf-btn-cancel" (click)="reject()">Cancel</button>
