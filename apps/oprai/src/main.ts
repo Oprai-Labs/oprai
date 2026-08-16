@@ -42,6 +42,7 @@ import {
   Smartphone, ChevronUp, CandlestickChart, AreaChart,
   Mic, MicOff, Phone, PhoneOff, Volume2, VolumeX,
   Minimize2, Maximize2, Pin, PinOff,
+  UserPlus, Gem, Award, Medal,
 } from 'lucide-angular';
 
 import { AppComponent } from './app/app.component';
@@ -85,6 +86,7 @@ bootstrapApplication(AppComponent, {
       Smartphone, ChevronUp, CandlestickChart, AreaChart,
       Mic, MicOff, Phone, PhoneOff, Volume2, VolumeX,
       Minimize2, Maximize2, Pin, PinOff,
+      UserPlus, Gem, Award, Medal,
       Tesseract,
       Portfolio,
     })),
