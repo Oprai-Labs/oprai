@@ -725,6 +725,12 @@
 
 .pf-input {
   width: 100%;
+  // Strip the browser number-spinner arrows — they collide with the SOL/token
+  // suffix pill and look broken. This is a chat surface, not a calculator.
+  -moz-appearance: textfield;
+  appearance: textfield;
+  &::-webkit-outer-spin-button,
+  &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   padding: 8px 11px;
   border-radius: var(--op-radius-sm);
   border: 1px solid var(--op-border-subtle);
