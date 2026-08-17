@@ -105,12 +105,10 @@ pub async fn post_quote(
     )
     .await?;
 
-    // The caller's tier fee discount, from their on-chain lifetime volume. Set
-    // server-side so the quoted fee matches what the build will charge; a client
-    // cannot influence it (the field is `#[serde(skip)]`).
-    let fee_discount_pct = crate::services::fees::fee_discount_pct_for_volume(
-        crate::db::economics::wallet_volume_usd(&state.pool, &wallet).await,
-    );
+    // Tier no longer discounts the fee — the reward model is CASHBACK (user pays
+    // full commission, earns a % back by tier; see the cashback ledger). The
+    // discount plumbing stays wired at 0 (a no-op) rather than being torn out.
+    let fee_discount_pct: u16 = 0;
 
     let params = swap::SwapParams {
         // Forward the caller's venue filter so a venue-scoped preview is
@@ -481,11 +479,9 @@ pub async fn post_build(
         .parse()
         .map_err(|_| AppError::InvalidParams("Invalid wallet address".into()))?;
 
-    // Tier fee discount from the wallet's on-chain lifetime volume — applied to
-    // the swap builder so the built (charged) fee matches the quoted one.
-    let fee_discount_pct = crate::services::fees::fee_discount_pct_for_volume(
-        crate::db::economics::wallet_volume_usd(&state.pool, &wallet).await,
-    );
+    // Reward model is cashback, not a fee discount — full commission is charged
+    // and a tier % is credited to the cashback ledger afterwards. Discount = 0.
+    let fee_discount_pct: u16 = 0;
 
     let result = builder::build_action(
         &state.http,

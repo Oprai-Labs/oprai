@@ -10,6 +10,7 @@ interface Rewards {
   tier: number;
   volumeUsd: number;
   points: { own: number; referral: number; total: number };
+  cashback: { earnedUsd: number; claimedUsd: number; claimableUsd: number };
   referralCode: string | null;
   referralCount: number;
 }
@@ -19,20 +20,19 @@ interface TierDef {
   name: string;
   min: number;
   color: string;
-  feeDiscountPct: number; // % off the trading fee at trade time — display-only until fees.rs enforces it
-  referralPct: number;    // % of referees' volume you earn as points (matches v_user_points view)
+  cashbackPct: number;  // % of the commission you paid returned as cashback (fees::TIER_CASHBACK_PCT)
+  referralPct: number;  // % of referees' volume you earn as points (matches v_user_points view)
 }
 
-// Mirrors analytics_schema.tier_config thresholds. referralPct is LIVE (v_user_points);
-// feeDiscountPct is the intended dynamic-commission model, display-only ("Coming soon")
-// until fee enforcement lands in fees.rs.
+// Mirrors analytics_schema.tier_config + fees::TIER_CASHBACK_PCT. Both cashback and
+// referral are LIVE: you pay the full commission and earn a tier % of it back.
 const TIERS: TierDef[] = [
-  { n: 1, name: 'Bronze',   min: 0,        color: '#cd7f32', feeDiscountPct: 0,  referralPct: 20 },
-  { n: 2, name: 'Silver',   min: 1_000,    color: '#9aa4b2', feeDiscountPct: 5,  referralPct: 25 },
-  { n: 3, name: 'Gold',     min: 10_000,   color: '#f59e0b', feeDiscountPct: 10, referralPct: 30 },
-  { n: 4, name: 'Platinum', min: 50_000,   color: '#22d3ee', feeDiscountPct: 15, referralPct: 35 },
-  { n: 5, name: 'Diamond',  min: 250_000,  color: '#818cf8', feeDiscountPct: 20, referralPct: 40 },
-  { n: 6, name: 'Legend',   min: 1_000_000, color: '#a855f7', feeDiscountPct: 25, referralPct: 50 },
+  { n: 1, name: 'Bronze',   min: 0,        color: '#cd7f32', cashbackPct: 10, referralPct: 20 },
+  { n: 2, name: 'Silver',   min: 1_000,    color: '#9aa4b2', cashbackPct: 15, referralPct: 25 },
+  { n: 3, name: 'Gold',     min: 10_000,   color: '#f59e0b', cashbackPct: 20, referralPct: 30 },
+  { n: 4, name: 'Platinum', min: 50_000,   color: '#22d3ee', cashbackPct: 25, referralPct: 35 },
+  { n: 5, name: 'Diamond',  min: 250_000,  color: '#818cf8', cashbackPct: 30, referralPct: 40 },
+  { n: 6, name: 'Legend',   min: 1_000_000, color: '#a855f7', cashbackPct: 40, referralPct: 50 },
 ];
 
 @Component({
@@ -43,7 +43,7 @@ const TIERS: TierDef[] = [
     <div class="rw">
       <header class="rw-head">
         <h1><lucide-icon name="trophy" [size]="22" /> Rewards</h1>
-        <p>Trade to climb tiers and earn points. Invite friends to earn a share of their trading volume.</p>
+        <p>Trade to climb tiers, earn cashback on every commission, and invite friends for a share of their volume.</p>
       </header>
 
       @if (loading()) {
@@ -104,6 +104,26 @@ const TIERS: TierDef[] = [
           </div>
         </section>
 
+        <!-- CASHBACK -->
+        <section class="cashback">
+          <div class="cb-left">
+            <div class="cb-ico"><lucide-icon name="hand-coins" [size]="20" /></div>
+            <div>
+              <div class="cb-title">Cashback <span class="cb-rate">{{ cashbackPct(d.tier) }}% back</span></div>
+              <div class="cb-sub">You earn {{ cashbackPct(d.tier) }}% of every commission you pay back, credited automatically.</div>
+            </div>
+          </div>
+          <div class="cb-right">
+            <div class="cb-amounts">
+              <div class="cb-amt"><span class="cb-amt-val">{{ d.cashback.claimableUsd | currency:'USD':'symbol':'1.2-2' }}</span><span class="cb-amt-lbl">Claimable</span></div>
+              <div class="cb-amt"><span class="cb-amt-val muted">{{ d.cashback.earnedUsd | currency:'USD':'symbol':'1.2-2' }}</span><span class="cb-amt-lbl">Earned all-time</span></div>
+            </div>
+            <button class="cb-claim" disabled title="Withdrawals open soon">
+              Claim <span class="cb-soon">soon</span>
+            </button>
+          </div>
+        </section>
+
         <div class="cols">
           <!-- REFERRAL (star of the page) -->
           <section class="card referral">
@@ -156,7 +176,7 @@ const TIERS: TierDef[] = [
               <span>Tier</span>
               <span class="num">Volume</span>
               <span class="num">Referral</span>
-              <span class="num">Fee off</span>
+              <span class="num">Cashback</span>
             </div>
             <div class="ladder-rows">
               @for (t of tiers; track t.n) {
@@ -168,13 +188,13 @@ const TIERS: TierDef[] = [
                   </span>
                   <span class="num">{{ t.min === 0 ? '$0' : (t.min | currency:'USD':'symbol':'1.0-0') }}</span>
                   <span class="num">{{ t.referralPct }}%</span>
-                  <span class="num cb">{{ t.feeDiscountPct }}%</span>
+                  <span class="num cb">{{ t.cashbackPct }}%</span>
                 </div>
               }
             </div>
             <div class="ladder-foot">
               <lucide-icon name="info" [size]="13" />
-              <span><b>Fee off</b> is applied automatically to your swaps and pump.fun trades as your tier rises.</span>
+              <span><b>Cashback</b> returns a share of the commission you pay on every swap and pump.fun trade — the higher your tier, the more you get back.</span>
             </div>
           </section>
         </div>
@@ -211,6 +231,26 @@ const TIERS: TierDef[] = [
     .tile-ico { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; color:var(--tc); background:color-mix(in srgb, var(--tc) 15%, transparent); margin-bottom:10px; }
     .tile-val { font-size:1.5rem; font-weight:800; color:var(--op-text-primary); line-height:1.1; }
     .tile-lbl { font-size:.78rem; color:var(--op-text-secondary); margin-top:2px; }
+
+    /* CASHBACK */
+    .cashback { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+      background:linear-gradient(135deg, rgba(34,197,94,.12), rgba(6,182,212,.08)); border:1px solid var(--op-border, rgba(255,255,255,.08));
+      border-radius:18px; padding:18px 20px; margin-bottom:16px; }
+    .cb-left { display:flex; align-items:center; gap:14px; min-width:240px; }
+    .cb-ico { width:42px; height:42px; border-radius:12px; flex:none; display:grid; place-items:center; color:#22c55e; background:color-mix(in srgb, #22c55e 16%, transparent); }
+    .cb-title { font-size:1.02rem; font-weight:700; color:var(--op-text-primary); display:flex; align-items:center; gap:8px; }
+    .cb-rate { font-size:.72rem; font-weight:700; color:#22c55e; background:color-mix(in srgb, #22c55e 16%, transparent); padding:2px 8px; border-radius:999px; }
+    .cb-sub { font-size:.82rem; color:var(--op-text-secondary); margin-top:2px; max-width:420px; }
+    .cb-right { display:flex; align-items:center; gap:18px; }
+    .cb-amounts { display:flex; gap:20px; }
+    .cb-amt { display:flex; flex-direction:column; }
+    .cb-amt-val { font-size:1.3rem; font-weight:800; color:var(--op-text-primary); line-height:1.1; }
+    .cb-amt-val.muted { color:var(--op-text-secondary); font-weight:700; }
+    .cb-amt-lbl { font-size:.72rem; color:var(--op-text-secondary); }
+    .cb-claim { display:inline-flex; align-items:center; gap:6px; background:linear-gradient(90deg,#22c55e,#06b6d4); color:#fff; border:0; border-radius:10px; padding:10px 18px; font-weight:700; font-size:.9rem; cursor:pointer; }
+    .cb-claim:disabled { opacity:.55; cursor:not-allowed; }
+    .cb-soon { font-size:.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; background:rgba(255,255,255,.25); padding:1px 6px; border-radius:6px; }
+    @media (max-width:640px){ .cb-right { width:100%; justify-content:space-between; } }
 
     /* COLUMNS */
     .cols { display:grid; grid-template-columns:1.1fr 1fr; gap:16px; align-items:stretch; }
@@ -360,6 +400,7 @@ export class RewardsComponent implements OnInit {
   tierName(t: number): string { return (TIERS.find((x) => x.n === t)?.name) ?? `Tier ${t}`; }
   tierColor(t: number): string { return (TIERS.find((x) => x.n === t)?.color) ?? '#5b5fc7'; }
   referralPct(t: number): number { return (TIERS.find((x) => x.n === t)?.referralPct) ?? 30; }
+  cashbackPct(t: number): number { return (TIERS.find((x) => x.n === t)?.cashbackPct) ?? 10; }
 
   tierProgress(d: Rewards): number {
     if (d.tier >= 6) return 100;

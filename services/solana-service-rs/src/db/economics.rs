@@ -121,15 +121,23 @@ pub async fn finalize_confirmed(
         if let Some(notional) =
             crate::services::onchain_value::confirmed_trade_notional_usd(http, sig, &wallet).await
         {
+            // Cashback earned on this trade = tier % of the (server-computed) fee.
+            // The tier comes from the wallet's volume BEFORE this tx is rolled up,
+            // i.e. the tier it held while trading.
+            let cashback_pct = crate::services::fees::cashback_pct_for_volume(
+                wallet_volume_usd(pool, &wallet).await,
+            ) as f64;
             if let Err(e) = diesel::sql_query(
                 r#"UPDATE solana_schema.tx_economics
                    SET notional_usd = $2::numeric,
                        fee_usd = ($2::numeric * fee_bps / 10000.0),
+                       cashback_usd = ($2::numeric * fee_bps / 10000.0) * $3::numeric / 100.0,
                        usd_price_source = 'onchain'
                    WHERE transaction_id = $1::uuid"#,
             )
             .bind::<Text, _>(transaction_id.to_string())
             .bind::<Double, _>(notional)
+            .bind::<Double, _>(cashback_pct)
             .execute(&mut conn)
             .await
             {
@@ -141,13 +149,15 @@ pub async fn finalize_confirmed(
     // Wallet cumulative rollup (source of truth for tiers / points / top-wallets).
     if let Err(e) = diesel::sql_query(
         r#"INSERT INTO solana_schema.wallet_economics_rollup
-             (user_wallet, lifetime_notional_usd, lifetime_fee_usd, confirmed_tx_count,
-              first_tx_at, last_tx_at, updated_at)
-           SELECT user_wallet, COALESCE(notional_usd,0), COALESCE(fee_usd,0), 1, now(), now(), now()
+             (user_wallet, lifetime_notional_usd, lifetime_fee_usd, lifetime_cashback_usd,
+              confirmed_tx_count, first_tx_at, last_tx_at, updated_at)
+           SELECT user_wallet, COALESCE(notional_usd,0), COALESCE(fee_usd,0),
+                  COALESCE(cashback_usd,0), 1, now(), now(), now()
            FROM solana_schema.tx_economics WHERE transaction_id = $1::uuid
            ON CONFLICT (user_wallet) DO UPDATE SET
              lifetime_notional_usd = wallet_economics_rollup.lifetime_notional_usd + EXCLUDED.lifetime_notional_usd,
              lifetime_fee_usd      = wallet_economics_rollup.lifetime_fee_usd      + EXCLUDED.lifetime_fee_usd,
+             lifetime_cashback_usd = wallet_economics_rollup.lifetime_cashback_usd + EXCLUDED.lifetime_cashback_usd,
              confirmed_tx_count    = wallet_economics_rollup.confirmed_tx_count    + 1,
              last_tx_at = now(), updated_at = now()"#,
     )
