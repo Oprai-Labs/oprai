@@ -4930,7 +4930,7 @@ pub async fn build_meteora_dammv2_get_pools(
     // surfaced to the user.
     let mut qs: Vec<(&str, String)> = Vec::new();
     if let Some(n) = params.page {
-        qs.push(("page", n.to_string()));
+        qs.push(("page", n.max(1).to_string()));
     }
     if let Some(n) = params.page_size {
         qs.push(("page_size", n.min(1000).to_string()));
@@ -4951,10 +4951,7 @@ pub async fn build_meteora_dammv2_get_pools(
         .send()
         .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 GET: {e}")))?;
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 parse: {e}")))?;
+    let data = damm_v2_json(resp, "pools").await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -4975,14 +4972,141 @@ pub async fn build_meteora_dammv2_get_pools(
     })
 }
 
+/// Read a DAMM v2 data-API response, reporting what actually went wrong.
+///
+/// The API answers a 404 with a completely empty body, so calling `.json()`
+/// straight off the response fails with "error decoding response body" — which
+/// says nothing about the 404 and sent us hunting a deserialization bug that
+/// did not exist. Check the status first, and pass through the API's own
+/// `message` when it sends one.
+async fn damm_v2_json(resp: reqwest::Response, what: &str) -> Result<serde_json::Value, AppError> {
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        let detail = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| {
+                v.get("message")
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_owned())
+            })
+            .unwrap_or_else(|| body.chars().take(200).collect());
+        return Err(AppError::ProtocolError(if detail.trim().is_empty() {
+            format!("Meteora DAMM v2 {what}: HTTP {status}")
+        } else {
+            format!("Meteora DAMM v2 {what}: HTTP {status} — {detail}")
+        }));
+    }
+    resp.json()
+        .await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 {what} parse: {e}")))
+}
+
+/// `page` is 1-based here; `page=0` is rejected as a range validation error.
+fn damm_v2_page(page: Option<u32>) -> u32 {
+    page.unwrap_or(1).max(1)
+}
+
+fn damm_v2_pool_mints(pool: &serde_json::Value) -> (Option<&str>, Option<&str>) {
+    let side = |k: &str| pool.get(k).and_then(|t| t.get("address")).and_then(|a| a.as_str());
+    (side("token_x"), side("token_y"))
+}
+
+/// How many pools mention `mint` at all — used only to decide which side of a
+/// pair is the cheaper one to search by.
+async fn damm_v2_mint_pool_count(http: &reqwest::Client, mint: &str) -> u64 {
+    let resp = http
+        .get(format!("{DAMM_V2_API}/pools"))
+        .query(&[("query", mint), ("page", "1"), ("page_size", "1")])
+        .header("Accept", "application/json")
+        .send()
+        .await;
+    match resp {
+        Ok(r) if r.status().is_success() => r
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|v| v.get("total").and_then(|t| t.as_u64()))
+            .unwrap_or(u64::MAX),
+        _ => u64::MAX,
+    }
+}
+
+/// Find the DAMM v2 pools trading exactly `mint_a` against `mint_b`,
+/// deepest liquidity first.
+///
+/// There is no pair endpoint to call. `/pools/groups/{mints}` 404s with an
+/// empty body, and `token_a_mint` / `token_b_mint` are accepted but silently
+/// ignored — they return the unfiltered list, which looks like a working
+/// filter until you compare the totals. What does work is `query`, and only
+/// with a *single* mint (two mints match nothing), so we ask for one side and
+/// keep the rows whose other side matches.
+///
+/// Ranking by TVL is not cosmetic. A search for "USDC-SOL" returns 238 pools
+/// whose deepest holds $10, while the real SOL/USDC pool holds $1.2M under the
+/// opposite name ordering. Handing the user the first match would cost them
+/// most of their deposit to slippage, so we sort by TVL and never rely on the
+/// pair's name.
+async fn damm_v2_pools_for_pair(
+    http: &reqwest::Client,
+    mint_a: &str,
+    mint_b: &str,
+    want: usize,
+) -> Result<Vec<serde_json::Value>, AppError> {
+    // Search by whichever side appears in fewer pools: for a memecoin/SOL pair
+    // that turns thousands of candidate rows into a handful.
+    let (count_a, count_b) = tokio::join!(
+        damm_v2_mint_pool_count(http, mint_a),
+        damm_v2_mint_pool_count(http, mint_b)
+    );
+    let (needle, other) = if count_a <= count_b {
+        (mint_a, mint_b)
+    } else {
+        (mint_b, mint_a)
+    };
+
+    let mut found: Vec<serde_json::Value> = Vec::new();
+    for page in 1..=3u32 {
+        let resp = http
+            .get(format!("{DAMM_V2_API}/pools"))
+            .query(&[
+                ("query", needle),
+                ("page", &page.to_string()),
+                ("page_size", "100"),
+                ("sort_by", "tvl:desc"),
+            ])
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pair GET: {e}")))?;
+        let body = damm_v2_json(resp, "pair lookup").await?;
+        let rows = body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let exhausted = rows.is_empty();
+        for pool in rows {
+            let (x, y) = damm_v2_pool_mints(&pool);
+            let matches = matches!((x, y), (Some(x), Some(y))
+                if (x == needle && y == other) || (x == other && y == needle));
+            if matches {
+                found.push(pool);
+            }
+        }
+        if exhausted || found.len() >= want {
+            break;
+        }
+    }
+    Ok(found)
+}
+
 pub async fn build_meteora_dammv2_get_pool_groups(
     http: &reqwest::Client,
     params: &MeteoraDammV2GetPoolGroupsParams,
 ) -> Result<BuildResponse, AppError> {
     let mut qs: Vec<(&str, String)> = Vec::new();
-    if let Some(n) = params.page {
-        qs.push(("page", n.to_string()));
-    }
+    qs.push(("page", damm_v2_page(params.page).to_string()));
     if let Some(n) = params.page_size {
         qs.push(("page_size", n.to_string()));
     }
@@ -5001,17 +5125,17 @@ pub async fn build_meteora_dammv2_get_pool_groups(
     if let Some(ref r) = params.fee_tvl_ratio_tw {
         qs.push(("fee_tvl_ratio_tw", r.clone()));
     }
+    // There is no `/pools/groups` route: it falls through to `/pools/{address}`
+    // and is rejected as an invalid pubkey. Pools are the listing this API
+    // actually serves, so ask for those.
     let resp = http
-        .get(format!("{DAMM_V2_API}/pools/groups"))
+        .get(format!("{DAMM_V2_API}/pools"))
         .query(&qs)
         .header("Accept", "application/json")
         .send()
         .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 groups GET: {e}")))?;
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 groups parse: {e}")))?;
+    let data = damm_v2_json(resp, "groups").await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -5036,36 +5160,32 @@ pub async fn build_meteora_dammv2_get_pool_group(
     http: &reqwest::Client,
     params: &MeteoraDammV2GetPoolGroupParams,
 ) -> Result<BuildResponse, AppError> {
-    let mut qs: Vec<(&str, String)> = Vec::new();
-    if let Some(n) = params.page {
-        qs.push(("page", n.to_string()));
-    }
-    if let Some(n) = params.page_size {
-        qs.push(("page_size", n.to_string()));
-    }
-    if let Some(ref q) = params.query {
-        qs.push(("query", q.clone()));
-    }
-    if let Some(ref s) = params.sort_by {
-        qs.push(("sort_by", s.clone()));
-    }
-    if let Some(ref f) = params.filter_by {
-        qs.push(("filter_by", f.clone()));
-    }
-    let resp = http
-        .get(format!(
-            "{DAMM_V2_API}/pools/groups/{}",
+    // `lexical_order_mints` arrives as the two mints joined by a separator.
+    // Base58 contains neither '-' nor ',', so either splits cleanly.
+    let mints: Vec<&str> = params
+        .lexical_order_mints
+        .split(['-', ','])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    let [mint_a, mint_b] = mints.as_slice() else {
+        return Err(AppError::ProtocolError(format!(
+            "Meteora DAMM v2 pool group: expected two mints, got {:?}",
             params.lexical_order_mints
-        ))
-        .query(&qs)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pool group GET: {e}")))?;
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pool group parse: {e}")))?;
+        )));
+    };
+
+    let want = params.page_size.unwrap_or(20).clamp(1, 100) as usize;
+    let pools = damm_v2_pools_for_pair(http, mint_a, mint_b, want).await?;
+    let total = pools.len();
+    let data = serde_json::json!({
+        "current_page": damm_v2_page(params.page),
+        "page_size": want,
+        "pages": 1,
+        "total": total,
+        "data": pools.into_iter().take(want).collect::<Vec<_>>(),
+    });
+
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
