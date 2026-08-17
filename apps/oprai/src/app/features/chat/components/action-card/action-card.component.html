@@ -1297,15 +1297,24 @@
               <!-- Preset chips -->
               <div class="clmm-presets">
                 @for (preset of CLMM_RANGE_PRESETS; track preset.label) {
+                  <!-- A range the wallet cannot fund is still shown, with what
+                       it would cost. Hiding it would leave the user wondering
+                       where the wider ranges went, and the number is the thing
+                       that makes the choice obvious. -->
                   <button
                     type="button"
                     class="clmm-preset"
                     [class.clmm-preset--active]="clmmActiveRangePct() === preset.pct"
+                    [class.clmm-preset--unaffordable]="clmmPresetCost(preset.pct)?.affordable === false"
                     (click)="applyClmmRangePreset(preset.pct)">
                     {{ preset.label }}
                   </button>
                 }
               </div>
+
+              @if (clmmSetupCostLine(); as line) {
+                <p class="clmm-setup-cost" [class.clmm-setup-cost--warn]="!line.ok">{{ line.text }}</p>
+              }
             </div>
 
             <!-- Section: Add Deposit Amount -->
