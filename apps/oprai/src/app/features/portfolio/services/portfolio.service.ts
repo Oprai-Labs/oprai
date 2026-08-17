@@ -1511,7 +1511,7 @@ export class PortfolioService {
 
   private resolveLogoUri(mint: string | null): string | null {
     if (!mint) return null;
-    if (mint === SOL_MINT) return 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png';
+    if (mint === SOL_MINT) return '/assets/coins/sol.svg';
     const meta = this.birdeyeService.getTokenMeta(mint);
     return meta?.imageUrl ?? null;
   }

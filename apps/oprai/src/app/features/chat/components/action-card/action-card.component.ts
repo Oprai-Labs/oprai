@@ -112,7 +112,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   streamflow:{ name: 'Streamflow', icon: 'assets/icons/protocols/streamflow.svg', accent: '#00D4FF', accentBg: 'rgba(0,212,255,0.12)' },
   pumpfun:   { name: 'pump.fun',   icon: 'assets/icons/protocols/pumpfun.png',    accent: '#AD6DFF', accentBg: 'rgba(173,109,255,0.12)' },
   relay:     { name: 'Relay',      icon: 'assets/icons/protocols/relay.png',      accent: '#7C3AED', accentBg: 'rgba(124,58,237,0.12)' },
-  default:   { name: 'Solana',     icon: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
+  default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
 function getProtocolKey(action: ParsedAction): string {

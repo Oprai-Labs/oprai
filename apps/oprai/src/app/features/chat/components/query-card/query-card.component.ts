@@ -300,7 +300,7 @@ interface DlmmPositionRow {
 }
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
-const SOL_LOGO = 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png';
+const SOL_LOGO = '/assets/coins/sol.svg';
 
 // Static lookup for the most common Solana tokens (avoids async registry for display)
 const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {

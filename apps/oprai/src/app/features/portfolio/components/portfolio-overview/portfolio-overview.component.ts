@@ -174,7 +174,7 @@ export class PortfolioOverviewComponent implements OnInit {
         // harder than the previous muted #845EF7. Matches our brand
         // gradient endpoint so it ties visually into the app shell.
         color: '#7C3AED',
-        logoUri: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+        logoUri: '/assets/coins/sol.svg',
       });
     }
 
