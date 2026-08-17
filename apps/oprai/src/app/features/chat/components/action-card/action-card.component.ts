@@ -4491,6 +4491,105 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     { label: 'Full',  pct: 9900 }, // ~ ±100x, treated as "full range" preset
   ];
 
+  /**
+   * What each preset would cost to open, keyed by pct. Empty until the
+   * backend answers; a preset with no entry renders exactly as before.
+   */
+  readonly clmmRangeCosts = signal<Map<number, { setupSol: number; affordable: boolean; newTickArrays: number }>>(new Map());
+  /** True once costs are in, so the card can stop guessing about affordability. */
+  readonly clmmCostsLoaded = signal(false);
+
+  /**
+   * Ask what every preset costs, then pick one the wallet can actually fund.
+   *
+   * The default was a fixed ±20% (±1% for stable pairs), chosen with no idea
+   * what it cost. For a wallet holding 0.066 SOL that default was impossible:
+   * the range reached into a stretch of the pool no LP had used, so opening it
+   * meant creating a 10 KB tick array at 0.072 SOL. The user picked a healthy
+   * pool from a list we showed them, accepted the range we pre-selected, and
+   * got "not enough balance" pointing at a 0.0036 SOL deposit.
+   *
+   * Choosing for the user is the whole point of this product; a default they
+   * cannot afford is us making them do the work AND getting it wrong. So the
+   * widest affordable preset wins — widest because a wider range stays in
+   * range longer, and affordability is the constraint, not the goal.
+   */
+  private async loadClmmRangeCosts(poolId: string, price: number): Promise<void> {
+    if (!poolId || !(price > 0)) return;
+    const presets = this.CLMM_RANGE_PRESETS.filter(p => p.pct < 9900);
+    const ranges = presets.map(p => ({
+      minPrice: price * (1 - p.pct / 100),
+      maxPrice: price * (1 + p.pct / 100),
+    }));
+    try {
+      type RangeCost = {
+        minPrice: number; setupSol: number; affordable: boolean;
+        newTickArrays: number; known: boolean;
+      };
+      const res = await firstValueFrom(
+        this.apiService
+          .post<{ ranges: RangeCost[] }>('/actions/clmm-range-costs', { poolId, ranges })
+          .pipe(timeout(12_000)),
+      );
+      const byPct = new Map<number, { setupSol: number; affordable: boolean; newTickArrays: number }>();
+      (res?.ranges ?? []).forEach((r: RangeCost, i: number) => {
+        if (r?.known && presets[i]) {
+          byPct.set(presets[i].pct, {
+            setupSol: r.setupSol, affordable: r.affordable, newTickArrays: r.newTickArrays,
+          });
+        }
+      });
+      if (!byPct.size) return;
+      this.clmmRangeCosts.set(byPct);
+      this.clmmCostsLoaded.set(true);
+
+      // Re-pick only while the user has not touched the range themselves —
+      // overriding a range someone deliberately typed would be worse than the
+      // bad default this replaces.
+      if (this.clmmRangeTouched) return;
+      const affordable = presets.filter(p => byPct.get(p.pct)?.affordable);
+      const best = affordable.length ? affordable[affordable.length - 1] : null;
+      if (best && best.pct !== this.clmmActiveRangePct()) {
+        this.applyClmmRangePreset(best.pct, false);
+      }
+    } catch {
+      // No costs, no change: the card behaves exactly as it did before.
+    }
+  }
+
+  /** Set once the user edits the range, so we stop choosing for them. */
+  private clmmRangeTouched = false;
+
+  /**
+   * One line under the range chips, in SOL, never in protocol vocabulary.
+   *
+   * "Tick array" is not something a user should have to learn in order to add
+   * liquidity. What they need is that this range costs more to open than a
+   * narrower one, and whether they can pay it.
+   */
+  clmmSetupCostLine(): { text: string; ok: boolean } | null {
+    if (!this.clmmCostsLoaded()) return null;
+    const pct = this.clmmActiveRangePct();
+    // Null when the user typed bounds instead of picking a preset — we have no
+    // cost for a range nobody quoted, and inventing one would be worse.
+    if (pct === null || pct === undefined) return null;
+    const cost = this.clmmRangeCosts().get(pct);
+    if (!cost) return null;
+    const sol = cost.setupSol.toFixed(3);
+    if (!cost.affordable) {
+      return { ok: false, text: `This range costs ~${sol} SOL to open — more than this wallet holds. A narrower range costs less.` };
+    }
+    if (cost.newTickArrays > 0) {
+      return { ok: true, text: `Opening this range costs ~${sol} SOL in one-off rent, because nobody has used this price band yet. A narrower range costs less.` };
+    }
+    return { ok: true, text: `Opening costs ~${sol} SOL in account rent, most of it refunded when you close.` };
+  }
+
+  /** Cost line for a preset chip, or null when we have nothing to say. */
+  clmmPresetCost(pct: number): { setupSol: number; affordable: boolean; newTickArrays: number } | null {
+    return this.clmmRangeCosts().get(pct) ?? null;
+  }
+
   /** Apply a ±N% range preset around the current price. */
   /**
    * An Orca position opened from a pool row arrives with the pool's price but
@@ -4508,7 +4607,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.applyClmmRangePreset(10);
   }
 
-  applyClmmRangePreset(pct: number): void {
+  applyClmmRangePreset(pct: number, fromUser = true): void {
+    if (fromUser) this.clmmRangeTouched = true;
     const p = this.editParams();
     const cur = parseFloat(p['currentPrice'] ?? '');
     if (!(cur > 0)) return;
@@ -5911,6 +6011,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         delete patched['inputAmount'];
       }
       this.editParams.set(patched);
+
+      // The pool and its price are known here for the first time, which is the
+      // earliest moment the real cost of each range can be asked for. Not
+      // awaited: the card is usable while it lands, and if it never does the
+      // range stays whatever the heuristic above chose.
+      void this.loadClmmRangeCosts(
+        patched['poolId'] ?? '',
+        parseFloat(patched['currentPrice'] ?? ''),
+      );
       // The balance loaders fired in ngOnInit before this async enrichment
       // landed. At that point inputMint was still the literal "USDC" so
       // loadInputBalance fetched USDC's balance into the primary signal,
