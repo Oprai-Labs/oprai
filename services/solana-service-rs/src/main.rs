@@ -191,6 +191,7 @@ async fn main() -> anyhow::Result<()> {
                     .service(routes::actions::post_cashback_payout)
                     .service(routes::actions::post_perp_execute)
                     .service(routes::actions::post_vanity_mint)
+                    .service(routes::actions::post_clmm_range_costs)
                     .service(routes::actions::post_simulate)
                     .service(routes::actions::post_advanced_simulate)
                     .service(routes::actions::get_limit_orders)

@@ -394,7 +394,7 @@ fn short_addr(addr: &str) -> String {
 
 /// Round a tick DOWN to the nearest valid multiple of `tick_spacing` (for tickLower).
 /// Uses `rem_euclid` so negative ticks are handled correctly.
-fn align_tick_lower(tick: i32, spacing: i32) -> i32 {
+pub fn align_tick_lower(tick: i32, spacing: i32) -> i32 {
     if spacing <= 0 {
         return tick;
     }
@@ -402,7 +402,7 @@ fn align_tick_lower(tick: i32, spacing: i32) -> i32 {
 }
 
 /// Round a tick UP to the nearest valid multiple of `tick_spacing` (for tickUpper).
-fn align_tick_upper(tick: i32, spacing: i32) -> i32 {
+pub fn align_tick_upper(tick: i32, spacing: i32) -> i32 {
     if spacing <= 0 {
         return tick;
     }

@@ -568,6 +568,156 @@ pub async fn post_perp_execute(
 /// Returning the secret is safe: a pump.fun mint keypair is a throwaway that
 /// controls nothing after `create` (mint authority is a program PDA), and it is
 /// the same secret the client would otherwise have generated locally.
+/// What each candidate price range would actually COST to open, and whether
+/// this wallet can pay it.
+///
+/// A CLMM position is not just the deposit. Every position creates accounts
+/// that must be rent-exempt, and if the chosen range reaches into a stretch of
+/// the curve no LP has used yet, it also creates that stretch's tick arrays —
+/// 10 KB accounts at roughly 0.072 SOL EACH, an order of magnitude more than
+/// everything else combined, and the one part that is never refunded because
+/// the array outlives the position.
+///
+/// Nothing in the UI knew this. The card defaulted to ±20%, which for a wallet
+/// holding 0.066 SOL was arithmetically impossible, and the failure surfaced as
+/// "not enough balance" pointing at a deposit of 0.0036 SOL — the one number
+/// that was never the problem. The user picked a healthy pool from a list we
+/// showed them and could not have known why it failed.
+///
+/// So the cost is computed BEFORE anything is offered: the caller sends the
+/// ranges it would put on screen, and each comes back priced, so it can select
+/// a default the wallet can actually fund and say what the others would cost
+/// in SOL rather than in protocol vocabulary.
+#[post("/clmm-range-costs")]
+pub async fn post_clmm_range_costs(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    use crate::services::raydium_clmm::ix::tick_array_pda;
+    use crate::services::raydium_clmm::state::{tick_array_start_index, PoolStateView};
+    use std::str::FromStr;
+
+    let wallet = wallet_from_req(&req)?;
+    let user_pk = solana_sdk::pubkey::Pubkey::from_str(&wallet)
+        .map_err(|e| AppError::InvalidParams(format!("bad wallet: {e}")))?;
+
+    let pool_id = body
+        .get("poolId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidParams("poolId is required".into()))?;
+    let pool_pk = solana_sdk::pubkey::Pubkey::from_str(pool_id)
+        .map_err(|e| AppError::InvalidParams(format!("bad poolId: {e}")))?;
+
+    // The caller sends the ranges it is about to render, as the same
+    // minPrice/maxPrice pair it would send to /actions/build. Converting them
+    // here with the builder's own helpers is what keeps the price the user was
+    // quoted and the price the transaction uses from ever drifting apart.
+    let ranges = body
+        .get("ranges")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| AppError::InvalidParams("ranges is required".into()))?;
+
+    let rpc = &state.rpc;
+    let pool_data = {
+        let rpc_clone = rpc.clone();
+        tokio::task::spawn_blocking(move || rpc_clone.client().get_account_data(&pool_pk))
+            .await
+            .map_err(|e| AppError::Internal(format!("spawn_blocking: {e}")))?
+            .map_err(|e| AppError::ProtocolError(format!("fetch pool: {e}")))?
+    };
+    let pool = PoolStateView::parse(&pool_data)?;
+
+    // Rent asked of the chain, never hardcoded — the numbers move with the
+    // cluster's rent parameters and a stale constant here would quietly
+    // under-quote the very cost this endpoint exists to surface.
+    let (tick_array_rent, base_rent, lamports) = {
+        let rpc_clone = rpc.clone();
+        tokio::task::spawn_blocking(move || {
+            let c = rpc_clone.client();
+            let ta = c.get_minimum_balance_for_rent_exemption(10_240).unwrap_or(72_161_280);
+            // position state + NFT mint + NFT token account + metadata
+            let base = c.get_minimum_balance_for_rent_exemption(281).unwrap_or(2_616_960)
+                + c.get_minimum_balance_for_rent_exemption(82).unwrap_or(1_461_600)
+                + c.get_minimum_balance_for_rent_exemption(165).unwrap_or(2_039_280)
+                + c.get_minimum_balance_for_rent_exemption(607).unwrap_or(5_616_720);
+            let bal = c.get_balance(&user_pk).unwrap_or(0);
+            (ta, base, bal)
+        })
+        .await
+        .map_err(|e| AppError::Internal(format!("spawn_blocking: {e}")))?
+    };
+
+    let mut out = Vec::new();
+    for r in ranges {
+        let min_p = r.get("minPrice").and_then(|v| v.as_f64());
+        let max_p = r.get("maxPrice").and_then(|v| v.as_f64());
+        let (min_p, max_p) = match (min_p, max_p) {
+            (Some(a), Some(b)) if a > 0.0 && b > a => (a, b),
+            _ => continue,
+        };
+
+        let tick_lower = crate::services::raydium::align_tick_lower(
+            crate::services::raydium::price_to_tick(min_p),
+            pool.tick_spacing as i32,
+        );
+        let tick_upper = crate::services::raydium::align_tick_upper(
+            crate::services::raydium::price_to_tick(max_p),
+            pool.tick_spacing as i32,
+        );
+        let lo_start = tick_array_start_index(tick_lower, pool.tick_spacing);
+        let hi_start = tick_array_start_index(tick_upper, pool.tick_spacing);
+
+        let mut pdas = vec![tick_array_pda(&pool_pk, lo_start)];
+        if hi_start != lo_start {
+            pdas.push(tick_array_pda(&pool_pk, hi_start));
+        }
+        let missing = {
+            let rpc_clone = rpc.clone();
+            let pdas_c = pdas.clone();
+            tokio::task::spawn_blocking(move || {
+                match rpc_clone.client().get_multiple_accounts(&pdas_c) {
+                    // A missing account is one this range would have to create.
+                    Ok(accs) => accs.iter().filter(|a| a.is_none()).count(),
+                    // Unknown is not the same as missing: quoting a cost we did
+                    // not verify would be worse than quoting none.
+                    Err(_) => usize::MAX,
+                }
+            })
+            .await
+            .map_err(|e| AppError::Internal(format!("spawn_blocking: {e}")))?
+        };
+
+        if missing == usize::MAX {
+            out.push(serde_json::json!({
+                "minPrice": min_p, "maxPrice": max_p, "known": false,
+            }));
+            continue;
+        }
+
+        let extra = tick_array_rent.saturating_mul(missing as u64);
+        let total = base_rent.saturating_add(extra);
+        out.push(serde_json::json!({
+            "minPrice": min_p,
+            "maxPrice": max_p,
+            "known": true,
+            "newTickArrays": missing,
+            "setupLamports": total,
+            "setupSol": total as f64 / 1_000_000_000.0,
+            // Deliberately excludes the deposit: this is what opening COSTS
+            // before a single token goes in. The caller adds the deposit.
+            "affordable": lamports >= total,
+        }));
+    }
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "walletLamports": lamports,
+        "walletSol": lamports as f64 / 1_000_000_000.0,
+        "tickArrayRentSol": tick_array_rent as f64 / 1_000_000_000.0,
+        "ranges": out,
+    })))
+}
+
 #[post("/vanity-mint")]
 pub async fn post_vanity_mint(
     req: HttpRequest,
