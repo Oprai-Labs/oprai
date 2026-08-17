@@ -133,6 +133,10 @@ pub struct LaunchTokenParams {
     /// mint signature during its internal simulation.
     #[serde(default)]
     pub mint_pubkey: Option<String>,
+    /// Tier fee discount (percent off OPRAI's commission on the initial buy).
+    /// SERVER-SET only; see PumpFunTradeParams.fee_discount_pct.
+    #[serde(skip)]
+    pub fee_discount_pct: u16,
 }
 
 /// Parameters for a pumpfun buy or sell transaction.
@@ -147,6 +151,11 @@ pub struct PumpFunTradeParams {
     pub slippage: Option<f64>,
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub priority_fee: Option<f64>,
+    /// Tier fee discount (percent off OPRAI's commission). SERVER-SET only
+    /// (`#[serde(skip)]`), populated in the builder dispatch from the wallet's
+    /// on-chain volume; a client cannot grant itself a discount.
+    #[serde(skip)]
+    pub fee_discount_pct: u16,
 }
 
 /// Validate trade params (buy or sell) before building the transaction.
@@ -1301,9 +1310,9 @@ async fn ensure_jupiter_sol_fee_account(
 /// time that the transaction cannot fall below is the slippage-protected
 /// minimum. Charging on that is deliberately conservative — when the sale does
 /// better than its floor, the difference stays with the seller.
-fn oprai_sell_fee_ix(seller: &Pubkey, min_sol_output: u64) -> Option<Instruction> {
+fn oprai_sell_fee_ix(seller: &Pubkey, min_sol_output: u64, discount_pct: u16) -> Option<Instruction> {
     let wallet = crate::services::fees::fee_wallet()?;
-    let fee = crate::services::fees::pumpfun_fee_lamports(min_sol_output, 0);
+    let fee = crate::services::fees::pumpfun_fee_lamports(min_sol_output, discount_pct);
     if fee == 0 {
         return None;
     }
@@ -1374,9 +1383,9 @@ fn parse_requested_lamports(params: &PumpFunTradeParams) -> u64 {
 /// so this can never be skipped for a missing ATA the way the Jupiter path
 /// can. Returns `None` when no fee wallet is configured, which is the
 /// pre-commission behaviour exactly.
-fn oprai_fee_transfer_ix(payer: &Pubkey, requested_lamports: u64) -> Option<Instruction> {
+fn oprai_fee_transfer_ix(payer: &Pubkey, requested_lamports: u64, discount_pct: u16) -> Option<Instruction> {
     let wallet = crate::services::fees::fee_wallet()?;
-    let fee = crate::services::fees::pumpfun_fee_lamports(requested_lamports, 0);
+    let fee = crate::services::fees::pumpfun_fee_lamports(requested_lamports, discount_pct);
     if fee == 0 {
         return None;
     }
@@ -1911,8 +1920,9 @@ fn parse_buy_amounts_with_fee(
         // SOL, which breaks the promise the card makes and trips the
         // frontend's spend guard. Taking it from inside keeps the total the
         // user agreed to exactly what they see.
-        let sol_lamports =
-            requested.saturating_sub(crate::services::fees::pumpfun_fee_lamports(requested, 0));
+        let sol_lamports = requested.saturating_sub(
+            crate::services::fees::pumpfun_fee_lamports(requested, params.fee_discount_pct),
+        );
         // Use real pool reserves (k-invariant): tokens_out = v_tok * sol_in / (v_sol + sol_in)
         let tokens = if v_sol > 0 && v_tok > 0 {
             ((v_tok as u128 * sol_lamports as u128) / (v_sol as u128 + sol_lamports as u128)) as u64
@@ -2677,6 +2687,9 @@ pub fn build_launch_token_transaction_blocking(
             denominated_in_sol: Some(true),
             slippage: params.slippage,
             priority_fee: None,
+            // Carry the launch's tier discount into the initial-buy carve-out so
+            // it matches the discounted fee transfer below.
+            fee_discount_pct: params.fee_discount_pct,
         };
         let (fee_recipient, fee_bps) = read_pumpfun_global_blocking(rpc);
         let (token_amount, max_sol_cost) = parse_buy_amounts_with_fee(
@@ -2703,7 +2716,7 @@ pub fn build_launch_token_transaction_blocking(
         // The dev-buy pays commission like any other buy. It rides in the same
         // atomic transaction, so it cannot be separated from the launch.
         if let Some(fee_ix) =
-            oprai_fee_transfer_ix(creator_pubkey, (initial_buy_sol * 1_000_000_000.0) as u64)
+            oprai_fee_transfer_ix(creator_pubkey, (initial_buy_sol * 1_000_000_000.0) as u64, params.fee_discount_pct)
         {
             create_instructions.push(fee_ix);
         }
@@ -3311,7 +3324,7 @@ pub async fn build_pumpfun_buy(
     )?;
 
     let mut instructions = vec![cu_limit_ix, cu_price_ix, create_ata_ix, buy_ix];
-    if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params)) {
+    if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params), params.fee_discount_pct) {
         instructions.push(fee_ix);
     }
     // Opportunistically open the wSOL account Jupiter pays its platform fee
@@ -3328,7 +3341,7 @@ pub async fn build_pumpfun_buy(
     }
     let mut instructions = instructions;
     if !instructions.iter().any(is_oprai_fee_transfer) {
-        if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params)) {
+        if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params), params.fee_discount_pct) {
             instructions.push(fee_ix);
         }
     }
@@ -3437,7 +3450,7 @@ pub async fn build_pumpfun_sell(
     let instructions = vec![cu_limit_ix, cu_price_ix, sell_ix];
 
     let mut instructions = instructions;
-    if let Some(fee_ix) = oprai_sell_fee_ix(&seller, oprai_sell_basis) {
+    if let Some(fee_ix) = oprai_sell_fee_ix(&seller, oprai_sell_basis, params.fee_discount_pct) {
         instructions.push(fee_ix);
     }
     let instructions = with_oprai_memo(instructions, &seller);
@@ -3607,7 +3620,7 @@ pub async fn build_pumpswap_buy(
 
     let mut instructions = instructions;
     if !instructions.iter().any(is_oprai_fee_transfer) {
-        if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params)) {
+        if let Some(fee_ix) = oprai_fee_transfer_ix(&buyer, parse_requested_lamports(params), params.fee_discount_pct) {
             instructions.push(fee_ix);
         }
     }
@@ -3765,7 +3778,7 @@ pub async fn build_pumpswap_sell(
     ];
 
     let mut instructions = instructions;
-    if let Some(fee_ix) = oprai_sell_fee_ix(&seller, oprai_sell_basis) {
+    if let Some(fee_ix) = oprai_sell_fee_ix(&seller, oprai_sell_basis, params.fee_discount_pct) {
         instructions.push(fee_ix);
     }
     let instructions = with_oprai_memo(instructions, &seller);

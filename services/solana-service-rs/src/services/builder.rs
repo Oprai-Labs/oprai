@@ -3213,7 +3213,8 @@ async fn build_action_inner(
             })
         }
         "launch_token" | "pumpfun_launch" => {
-            let p: pumpfun::LaunchTokenParams = serde_json::from_value(params)?;
+            let mut p: pumpfun::LaunchTokenParams = serde_json::from_value(params)?;
+            p.fee_discount_pct = fee_discount_pct;
             let rpc = rpc.clone();
             let pubkey = *user_pubkey;
             let result = actix_web::web::block(move || {
@@ -3812,26 +3813,31 @@ async fn build_action_inner(
             .await
         }
         "pumpfun_buy" => {
-            let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            let mut p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            p.fee_discount_pct = fee_discount_pct;
             pumpfun::build_pumpfun_buy(http, rpc, &user_pubkey.to_string(), &p).await
         }
         // Token-launch initial dev-buy, called by the frontend once the create
         // transaction confirms. Same builder as any other bonding-curve buy —
         // it reads the curve account, which exists the moment create lands.
         "pumpfun_initial_buy" => {
-            let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            let mut p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            p.fee_discount_pct = fee_discount_pct;
             pumpfun::build_pumpfun_buy(http, rpc, &user_pubkey.to_string(), &p).await
         }
         "pumpfun_sell" => {
-            let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            let mut p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            p.fee_discount_pct = fee_discount_pct;
             pumpfun::build_pumpfun_sell(http, rpc, &user_pubkey.to_string(), &p).await
         }
         "pumpswap_buy" => {
-            let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            let mut p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            p.fee_discount_pct = fee_discount_pct;
             pumpfun::build_pumpswap_buy(http, rpc, &user_pubkey.to_string(), &p).await
         }
         "pumpswap_sell" => {
-            let p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            let mut p: pumpfun::PumpFunTradeParams = serde_json::from_value(params)?;
+            p.fee_discount_pct = fee_discount_pct;
             pumpfun::build_pumpswap_sell(http, rpc, &user_pubkey.to_string(), &p).await
         }
         "raydium_swap" => {
