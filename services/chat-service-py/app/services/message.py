@@ -38,6 +38,27 @@ def _is_pool_listing_query(query_type: str) -> bool:
 # sells one side of the deposit they were setting up.
 _TRADE_ACTION_TYPES = frozenset({"swap", "trade", "buy", "sell"})
 
+# Actions the listing exists to configure. A listing is the *choosing* step, so
+# one of these in the same turn is a pool the model picked on the user's behalf
+# and can only describe by address: symbols, decimals and reserves live in the
+# row the user never clicked, so the card renders "??/??" with no amounts.
+# Every row already carries a "Use" button that builds the same action complete.
+# Matched as substrings so this holds for protocols we add later, rather than
+# being a list that silently goes stale.
+_POOL_SCOPED_ACTION_MARKERS = (
+    "add_liquidity",
+    "remove_liquidity",
+    "open_position",
+    "deposit",
+)
+
+
+def _is_premature_in_pool_listing(action_type: str) -> bool:
+    """True when an action must wait for the user to pick a pool first."""
+    if action_type in _TRADE_ACTION_TYPES:
+        return True
+    return any(marker in action_type for marker in _POOL_SCOPED_ACTION_MARKERS)
+
 
 _log = logging.getLogger(__name__)
 
@@ -2352,9 +2373,9 @@ async def stream_chat_response(
                 # deposit, at a size they never gave. Drop it: the listing is
                 # the answer, and a card the user has to notice is wrong is
                 # worse than no card.
-                if pool_listing_this_turn and validated.type.value in _TRADE_ACTION_TYPES:
+                if pool_listing_this_turn and _is_premature_in_pool_listing(validated.type.value):
                     _log.warning(
-                        "action_suppressed reason=trade_in_pool_listing_turn "
+                        "action_suppressed reason=premature_in_pool_listing_turn "
                         "action_type=%s wallet=%s session=%s",
                         validated.type.value, wallet[:16] + "…", session_id,
                     )
@@ -3067,14 +3088,19 @@ async def stream_chat_response(
                         _v = validate_tool_call(tc_name, tc_args, authenticated_wallet=wallet)
                         if isinstance(_v, ValidatedAction):
                             # Same guard as the primary path, and this is the
-                            # branch that actually fired: the trade is proposed
+                            # branch that actually fires: the action is proposed
                             # in a SECOND model round, after the pool listing's
                             # results are fed back. The model reads its own
-                            # listing, decides the pair is a trade, and offers
-                            # to swap one side of the deposit away.
-                            if pool_listing_this_turn and _v.type.value in _TRADE_ACTION_TYPES:
+                            # listing and either decides the pair is a trade
+                            # (selling half the deposit away) or picks a pool
+                            # itself and opens a deposit card it can only fill
+                            # with an address -- the "??/??" card seen for
+                            # meteora_dammv2_add_liquidity on "sol usdc olarak
+                            # ekleyelim", sitting under a list of pools the user
+                            # had not chosen from yet.
+                            if pool_listing_this_turn and _is_premature_in_pool_listing(_v.type.value):
                                 _log.warning(
-                                    "action_suppressed reason=trade_in_pool_listing_turn "
+                                    "action_suppressed reason=premature_in_pool_listing_turn "
                                     "stage=market_data_followup action_type=%s wallet=%s session=%s",
                                     _v.type.value, wallet[:16] + "…", session_id,
                                 )
