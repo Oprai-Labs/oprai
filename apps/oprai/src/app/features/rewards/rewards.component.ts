@@ -29,11 +29,11 @@ interface TierDef {
 // referral are LIVE: you pay the full commission and earn a tier % of it back.
 const TIERS: TierDef[] = [
   { n: 1, name: 'Bronze',   min: 0,        color: '#cd7f32', cashbackPct: 10, referralPct: 20 },
-  { n: 2, name: 'Silver',   min: 1_000,    color: '#9aa4b2', cashbackPct: 15, referralPct: 25 },
-  { n: 3, name: 'Gold',     min: 10_000,   color: '#f59e0b', cashbackPct: 20, referralPct: 30 },
-  { n: 4, name: 'Platinum', min: 50_000,   color: '#22d3ee', cashbackPct: 25, referralPct: 35 },
-  { n: 5, name: 'Diamond',  min: 250_000,  color: '#818cf8', cashbackPct: 30, referralPct: 40 },
-  { n: 6, name: 'Legend',   min: 1_000_000, color: '#a855f7', cashbackPct: 40, referralPct: 50 },
+  { n: 2, name: 'Silver',   min: 1_000,    color: '#9aa4b2', cashbackPct: 15, referralPct: 24 },
+  { n: 3, name: 'Gold',     min: 10_000,   color: '#f59e0b', cashbackPct: 20, referralPct: 27 },
+  { n: 4, name: 'Platinum', min: 50_000,   color: '#22d3ee', cashbackPct: 25, referralPct: 30 },
+  { n: 5, name: 'Diamond',  min: 250_000,  color: '#818cf8', cashbackPct: 30, referralPct: 33 },
+  { n: 6, name: 'Legend',   min: 1_000_000, color: '#a855f7', cashbackPct: 40, referralPct: 35 },
 ];
 
 @Component({

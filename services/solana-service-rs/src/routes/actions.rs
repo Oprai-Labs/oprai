@@ -635,12 +635,19 @@ pub async fn post_clmm_range_costs(
         let rpc_clone = rpc.clone();
         tokio::task::spawn_blocking(move || {
             let c = rpc_clone.client();
-            let ta = c.get_minimum_balance_for_rent_exemption(10_240).unwrap_or(72_161_280);
+            let ta = c
+                .get_minimum_balance_for_rent_exemption(10_240)
+                .unwrap_or(72_161_280);
             // position state + NFT mint + NFT token account + metadata
-            let base = c.get_minimum_balance_for_rent_exemption(281).unwrap_or(2_616_960)
-                + c.get_minimum_balance_for_rent_exemption(82).unwrap_or(1_461_600)
-                + c.get_minimum_balance_for_rent_exemption(165).unwrap_or(2_039_280)
-                + c.get_minimum_balance_for_rent_exemption(607).unwrap_or(5_616_720);
+            let base = c
+                .get_minimum_balance_for_rent_exemption(281)
+                .unwrap_or(2_616_960)
+                + c.get_minimum_balance_for_rent_exemption(82)
+                    .unwrap_or(1_461_600)
+                + c.get_minimum_balance_for_rent_exemption(165)
+                    .unwrap_or(2_039_280)
+                + c.get_minimum_balance_for_rent_exemption(607)
+                    .unwrap_or(5_616_720);
             let bal = c.get_balance(&user_pk).unwrap_or(0);
             (ta, base, bal)
         })

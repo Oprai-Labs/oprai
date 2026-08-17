@@ -146,7 +146,9 @@ pub const TIER_CASHBACK_PCT: [u16; 6] = [10, 15, 20, 25, 30, 40];
 
 /// Referral cashback — percent of a REFEREE's commission the referrer earns,
 /// by the referrer's tier — for tiers 1..=6. Mirrors the frontend ladder.
-pub const TIER_REFERRAL_PCT: [u16; 6] = [20, 25, 30, 35, 40, 50];
+/// Capped at 35% (Trojan's direct-referral rate) so the combined payout
+/// (own cashback + referral) still leaves OPRAI a sector-standard margin.
+pub const TIER_REFERRAL_PCT: [u16; 6] = [20, 24, 27, 30, 33, 35];
 
 /// The tier (1..=6) for a lifetime volume.
 pub fn tier_for_volume(volume_usd: f64) -> u8 {

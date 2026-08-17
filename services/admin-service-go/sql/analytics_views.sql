@@ -186,8 +186,8 @@ WITH own AS (
     SELECT rf.referrer_wallet AS wallet,
            sum(COALESCE(re.lifetime_fee_usd, 0) *
                CASE COALESCE(rt.tier, 1)
-                   WHEN 1 THEN 0.20 WHEN 2 THEN 0.25 WHEN 3 THEN 0.30
-                   WHEN 4 THEN 0.35 WHEN 5 THEN 0.40 WHEN 6 THEN 0.50
+                   WHEN 1 THEN 0.20 WHEN 2 THEN 0.24 WHEN 3 THEN 0.27
+                   WHEN 4 THEN 0.30 WHEN 5 THEN 0.33 WHEN 6 THEN 0.35
                    ELSE 0.20 END) AS referral_cb
     FROM analytics_schema.referrals rf
     JOIN solana_schema.wallet_economics_rollup re ON re.user_wallet = rf.referee_wallet
