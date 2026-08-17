@@ -157,18 +157,20 @@ const TIERS: TierDef[] = [
               <span class="num">Referral</span>
               <span class="num">Fee off</span>
             </div>
-            @for (t of tiers; track t.n) {
-              <div class="ladder-row" [class.here]="d.tier === t.n">
-                <span class="lr-tier">
-                  <app-tier-badge [tier]="t.n" [color]="t.color" [size]="22" />
-                  {{ t.name }}
-                  @if (d.tier === t.n) { <span class="lr-here">You</span> }
-                </span>
-                <span class="num">{{ t.min === 0 ? '$0' : (t.min | currency:'USD':'symbol':'1.0-0') }}</span>
-                <span class="num">{{ t.referralPct }}%</span>
-                <span class="num cb">{{ t.feeDiscountPct }}%</span>
-              </div>
-            }
+            <div class="ladder-rows">
+              @for (t of tiers; track t.n) {
+                <div class="ladder-row" [class.here]="d.tier === t.n">
+                  <span class="lr-tier">
+                    <app-tier-badge [tier]="t.n" [color]="t.color" [size]="26" />
+                    {{ t.name }}
+                    @if (d.tier === t.n) { <span class="lr-here">You</span> }
+                  </span>
+                  <span class="num">{{ t.min === 0 ? '$0' : (t.min | currency:'USD':'symbol':'1.0-0') }}</span>
+                  <span class="num">{{ t.referralPct }}%</span>
+                  <span class="num cb">{{ t.feeDiscountPct }}%</span>
+                </div>
+              }
+            </div>
             <div class="ladder-foot">
               <lucide-icon name="info" [size]="13" />
               <span><b>Fee off</b> lowers the trading fee you pay as your tier rises. <span class="soon">Coming soon</span></span>
@@ -252,7 +254,8 @@ const TIERS: TierDef[] = [
     /* ladder */
     .ladder-head, .ladder-row { display:grid; grid-template-columns:1.4fr .9fr .8fr .8fr; align-items:center; gap:8px; }
     .ladder-head { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--op-text-secondary); padding:0 10px 8px; }
-    .ladder-row { padding:11px 10px; border-radius:10px; font-size:.88rem; color:var(--op-text-primary); }
+    .ladder-rows { flex:1; display:flex; flex-direction:column; }
+    .ladder-row { flex:1; min-height:44px; padding:6px 10px; border-radius:10px; font-size:.9rem; color:var(--op-text-primary); }
     .ladder-row + .ladder-row { border-top:1px solid var(--op-border, rgba(255,255,255,.05)); }
     .ladder-row.here { background:color-mix(in srgb, var(--op-brand,#5b5fc7) 12%, transparent); border-top-color:transparent; }
     .num { text-align:right; font-variant-numeric:tabular-nums; }
