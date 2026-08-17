@@ -174,7 +174,7 @@ const TIERS: TierDef[] = [
             </div>
             <div class="ladder-foot">
               <lucide-icon name="info" [size]="13" />
-              <span><b>Fee off</b> lowers the trading fee you pay as your tier rises. <span class="soon">Coming soon</span></span>
+              <span><b>Fee off</b> is applied automatically to your swaps and pump.fun trades as your tier rises.</span>
             </div>
           </section>
         </div>
