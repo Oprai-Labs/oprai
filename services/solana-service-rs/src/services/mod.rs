@@ -18,6 +18,7 @@ pub mod memo;
 pub mod meteora;
 pub mod mint_security;
 pub mod native_stake;
+pub mod onchain_value;
 pub mod orca;
 pub mod params;
 pub mod protocol_reads;
