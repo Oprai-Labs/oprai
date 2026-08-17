@@ -15,6 +15,7 @@ import (
 	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
 
+	adminassets "github.com/oprai/oprai/services/admin-service-go"
 	"github.com/oprai/oprai/services/admin-service-go/internal/config"
 	"github.com/oprai/oprai/services/admin-service-go/internal/db"
 	"github.com/oprai/oprai/services/admin-service-go/internal/jobs"
@@ -61,6 +62,12 @@ func main() {
 		slog.Error("Failed to create admin_schema", "error", err)
 		os.Exit(1)
 	}
+
+	// (Re)apply the FAZ-2 analytics views in the background. Idempotent
+	// (CREATE OR REPLACE), so this is safe on every boot; retried because the
+	// views read tables owned by other services that may still be migrating on
+	// a fresh stack. Never fatal — a stale view must not stop the admin API.
+	go applyAnalyticsViews(pool)
 
 	queries := db.NewQueries(pool)
 
@@ -154,6 +161,27 @@ func main() {
 //
 // Cost: 1 bcrypt comparison per (user × candidate). For the dozen-or-so admin
 // rows a healthy install carries this is negligible, even at bcrypt cost 12.
+// applyAnalyticsViews (re)creates the FAZ-2 analytics views. It retries because
+// the views read tables owned by other services (solana/chat/analytics schemas)
+// that may still be migrating on a fresh stack; on an established DB the first
+// attempt succeeds. Never fatal.
+func applyAnalyticsViews(pool *pgxpool.Pool) {
+	const attempts = 12
+	for i := 1; i <= attempts; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		_, err := pool.Exec(ctx, adminassets.AnalyticsViewsSQL)
+		cancel()
+		if err == nil {
+			slog.Info("analytics views applied")
+			return
+		}
+		slog.Warn("analytics views not applied yet (dependencies may still be migrating); will retry",
+			"attempt", i, "maxAttempts", attempts, "error", err)
+		time.Sleep(15 * time.Second)
+	}
+	slog.Error("analytics views could not be applied after retries; run sql/analytics_views.sql manually")
+}
+
 func assertNoDefaultAdminPassword(ctx context.Context, pool *pgxpool.Pool) error {
 	candidates := []string{
 		"admin123",

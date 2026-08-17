@@ -6,12 +6,14 @@
 -- tables); analytics_schema is granted below. Views never touch the capture
 -- path — pure reads. Idempotent (CREATE OR REPLACE), safe to re-apply.
 
--- admin_app is the analytics reader; let it read the events schema too.
-GRANT USAGE ON SCHEMA analytics_schema TO admin_app;
-GRANT SELECT ON ALL TABLES IN SCHEMA analytics_schema TO admin_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA analytics_schema GRANT SELECT ON TABLES TO admin_app;
+-- NOTE: admin_app's USAGE/SELECT on analytics_schema is granted by the chat
+-- migration 20260817_grant_analytics_to_admin (chat_app owns analytics_schema,
+-- so only it or a superuser can grant). This file is applied AS admin_app at
+-- admin-service boot, which cannot grant on a schema it does not own — hence the
+-- split. It must run after that migration.
 
 -- Create the views AS admin_app so it owns them and can CREATE OR REPLACE later.
+-- (No-op when admin-service already connects as admin_app.)
 SET ROLE admin_app;
 
 -- ── #5 Engagement ────────────────────────────────────────────────────────
