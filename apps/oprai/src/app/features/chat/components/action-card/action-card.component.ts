@@ -4514,8 +4514,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * widest affordable preset wins — widest because a wider range stays in
    * range longer, and affordability is the constraint, not the goal.
    */
+  private _rangeCostsForPool: string | null = null;
+
   private async loadClmmRangeCosts(poolId: string, price: number): Promise<void> {
     if (!poolId || !(price > 0)) return;
+    if (this._rangeCostsForPool === poolId) return;
+    this._rangeCostsForPool = poolId;
     const presets = this.CLMM_RANGE_PRESETS.filter(p => p.pct < 9900);
     const ranges = presets.map(p => ({
       minPrice: price * (1 - p.pct / 100),
@@ -5941,7 +5945,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // here left `amountRatio`/`currentPrice` unset — so the ratio engine was
     // dead and Max on one side filled the full balance while the other stayed 0.
     const _ep = this.editParams();
-    if (_ep['tokenASymbol'] && _ep['tokenBSymbol'] && (_ep['currentPrice'] || _ep['amountRatio'])) return;
+    if (_ep['tokenASymbol'] && _ep['tokenBSymbol'] && (_ep['currentPrice'] || _ep['amountRatio'])) {
+      // Everything this function would fetch is already here — which is the
+      // normal case, because the Deposit button on a pool row carries the
+      // symbols and the price. The range costs still have to be asked for, and
+      // putting that call only after the enrichment below meant it never ran
+      // for the one flow anybody uses.
+      void this.loadClmmRangeCosts(poolId, parseFloat(_ep['currentPrice'] ?? ''));
+      return;
+    }
     if (this._enrichedRaydiumPool === poolId) return; // tried once
     this._enrichedRaydiumPool = poolId;
     try {
