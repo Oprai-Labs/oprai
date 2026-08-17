@@ -718,6 +718,18 @@ pub struct CreateTransactionBody {
     pub est_usd: Option<f64>,
 }
 
+/// A sensible protocol tag when the client didn't send one, so revenue analytics
+/// (`v_revenue_by_protocol`) don't collapse everything into "unknown". Swaps are
+/// routed and fee'd through Jupiter regardless of the underlying DEX, so that is
+/// the protocol that earned the commission. Everything else the client already
+/// tags explicitly; return None and let it stay untagged rather than guess.
+fn default_protocol_for_action(action: &str) -> Option<String> {
+    match action.trim().to_ascii_lowercase().as_str() {
+        "swap" | "buy" | "sell" => Some("jupiter".to_string()),
+        _ => None,
+    }
+}
+
 #[post("")]
 pub async fn create_transaction(
     req: HttpRequest,
@@ -725,6 +737,12 @@ pub async fn create_transaction(
     body: web::Json<CreateTransactionBody>,
 ) -> Result<HttpResponse, AppError> {
     let wallet = wallet_from_req(&req)?;
+    // Protocol tag, defaulted for swaps so revenue analytics can attribute them.
+    let resolved_protocol = body
+        .protocol
+        .clone()
+        .filter(|p| !p.trim().is_empty())
+        .or_else(|| default_protocol_for_action(&body.action));
     // Resolve the real users.id via auth-service (X-User-Wallet is the Solana
     // address, not a UUID). Kept as an internal HTTP call so solana-service
     // never reads auth_schema directly.
@@ -737,7 +755,7 @@ pub async fn create_transaction(
         body.parameters.clone().unwrap_or(serde_json::json!({})),
     );
     new_tx.tx_hash = body.tx_hash.clone();
-    new_tx.protocol = body.protocol.clone();
+    new_tx.protocol = resolved_protocol.clone();
     new_tx.chain = body.chain.clone().unwrap_or_else(|| "solana".to_string());
     new_tx.chat_session_id = body.chat_session_id.as_ref().and_then(|s| s.parse().ok());
     new_tx.chat_message_id = body.chat_message_id.as_ref().and_then(|s| s.parse().ok());
@@ -823,7 +841,7 @@ pub async fn create_transaction(
             &state.pool,
             inserted.id,
             inserted.user_wallet.clone(),
-            body.protocol.clone(),
+            resolved_protocol.clone(),
             body.action.clone(),
             input_mint,
             output_mint,
