@@ -429,6 +429,9 @@ services:
       # Where OPRAI's cut of a trade is sent. Empty = no fee is taken on any
       # path, which is exactly how the service behaved before commissions.
       OPRAI_FEE_WALLET: ${OPRAI_FEE_WALLET:-}
+      # Hot wallet that pays cashback claims (SOL). Keep it funded with only a
+      # small float; the fee wallet stays cold. Value lives in infra/.env only.
+      OPRAI_CASHBACK_TREASURY_SECRET: ${OPRAI_CASHBACK_TREASURY_SECRET:-}
       SOLANA_NETWORK: ${SOLANA_NETWORK:-mainnet-beta}
       JUPITER_API_KEY: ${JUPITER_API_KEY:-}
       HELIUS_API_KEY: ${HELIUS_API_KEY:-}
