@@ -22,12 +22,12 @@ interface HeaderMetric {
   iconUrl?: string;
 }
 
-const SOL_LOGO_URI =
-  'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png';
-const BTC_LOGO_URI =
-  'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/svg/color/btc.svg';
-const ETH_LOGO_URI =
-  'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/svg/color/eth.svg';
+// Self-hosted so the benchmark icons never depend on a third-party CDN — the old
+// raw.githubusercontent.com URLs 429'd (rate limit) / timed out and showed broken
+// placeholders. Served from /assets, covered by the CSP's 'self'.
+const SOL_LOGO_URI = 'assets/coins/sol.svg';
+const BTC_LOGO_URI = 'assets/coins/btc.svg';
+const ETH_LOGO_URI = 'assets/coins/eth.svg';
 
 @Component({
   selector: 'app-portfolio-shell',
