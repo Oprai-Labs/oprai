@@ -1,6 +1,7 @@
 pub mod amount;
 pub mod builder;
 pub mod burn;
+pub mod cashback;
 pub mod dca;
 pub mod debridge;
 pub mod fees;

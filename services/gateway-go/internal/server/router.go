@@ -133,6 +133,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// Rewards (tier / points / referral) — wallet-gated, served by chat-service.
 	r.With(defaultTimeout, middleware.RequireWallet).Get("/me/rewards", chatProxy.GetRewards)
 	r.With(defaultTimeout, middleware.RequireWallet).Post("/referral/redeem", chatProxy.RedeemReferral)
+	r.With(defaultTimeout, middleware.RequireWallet).Post("/me/cashback/claim", chatProxy.ClaimCashback)
 
 	r.Route("/chat", func(r chi.Router) {
 		r.With(defaultTimeout).Post("/", chatProxy.SendChat)

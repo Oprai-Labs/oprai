@@ -406,8 +406,6 @@ async def get_rewards(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
     async with async_session_factory() as s:
         tier_row = (await s.execute(sa_text(
             "SELECT tier, volume_usd FROM admin_schema.v_user_tier WHERE wallet=:w"), {"w": w})).first()
-        pts_row = (await s.execute(sa_text(
-            "SELECT own_points, referral_points, total_points FROM admin_schema.v_user_points WHERE wallet=:w"), {"w": w})).first()
 
         code_row = (await s.execute(sa_text(
             "SELECT code FROM analytics_schema.referral_codes WHERE wallet=:w"), {"w": w})).first()
@@ -435,11 +433,6 @@ async def get_rewards(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
     return {
         "tier": int(tier_row[0]) if tier_row and tier_row[0] else 1,
         "volumeUsd": float(tier_row[1]) if tier_row and tier_row[1] is not None else 0.0,
-        "points": {
-            "own": int(pts_row[0]) if pts_row else 0,
-            "referral": int(pts_row[1]) if pts_row else 0,
-            "total": int(pts_row[2]) if pts_row else 0,
-        },
         "cashback": {
             "earnedUsd": float(cb_row[0]) if cb_row and cb_row[0] is not None else 0.0,
             "claimedUsd": float(cb_row[1]) if cb_row and cb_row[1] is not None else 0.0,
@@ -475,6 +468,61 @@ async def redeem_referral(body: RedeemBody, x_user_wallet: str = Header(..., ali
             {"re": referee, "rr": referrer, "c": code})).first() is not None
         await s.commit()
     return {"ok": True, "linked": created}
+
+
+@app.post("/me/cashback/claim")
+async def claim_cashback(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
+    """Withdraw claimable cashback to the caller's wallet (paid in SOL).
+
+    Minimum $5 (market standard). chat-service is authoritative for the amount
+    (from v_user_cashback) and reserves it with a 'pending' claim BEFORE paying,
+    so a retry can't double-spend; solana-service is the only service that can
+    sign the treasury payout, called internally here.
+    """
+    import os
+    w = x_user_wallet
+    min_claim = 5.0
+    async with async_session_factory() as s:
+        cb = (await s.execute(sa_text(
+            "SELECT cashback_claimable_usd FROM admin_schema.v_user_cashback WHERE wallet=:w"),
+            {"w": w})).first()
+        claimable = float(cb[0]) if cb and cb[0] is not None else 0.0
+        if claimable < min_claim:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Minimum claim is ${min_claim:.0f}. You have ${claimable:.2f} available.")
+        claim_id = (await s.execute(sa_text(
+            "INSERT INTO analytics_schema.cashback_claims (wallet, amount_usd, status) "
+            "VALUES (:w, :a, 'pending') RETURNING id"), {"w": w, "a": claimable})).scalar()
+        await s.commit()
+
+    solana = os.getenv("SOLANA_SERVICE_HTTP", "http://solana-service-rs:3030")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{solana}/actions/cashback-payout",
+                headers={"X-Internal-Api-Key": settings.OPRAI_INTERNAL_API_KEY, "X-User-Wallet": w},
+                json={"amountUsd": claimable})
+        if r.status_code != 200:
+            raise RuntimeError(f"payout returned {r.status_code}: {r.text[:200]}")
+        sig = r.json().get("signature")
+    except Exception as e:
+        logger.warning("cashback payout failed for %s: %r", w[:8], e)
+        async with async_session_factory() as s:
+            await s.execute(sa_text(
+                "UPDATE analytics_schema.cashback_claims SET status='failed' WHERE id=:i"),
+                {"i": claim_id})
+            await s.commit()
+        raise HTTPException(
+            status_code=502,
+            detail="Cashback payout could not be completed right now. Please try again shortly.")
+
+    async with async_session_factory() as s:
+        await s.execute(sa_text(
+            "UPDATE analytics_schema.cashback_claims SET status='paid', tx_signature=:sig WHERE id=:i"),
+            {"sig": sig, "i": claim_id})
+        await s.commit()
+    return {"ok": True, "claimedUsd": claimable, "signature": sig}
 
 
 # ---------------------------------------------------------------------------

@@ -144,6 +144,10 @@ pub const TIER_MIN_VOLUME_USD: [f64; 6] =
 /// Cashback — percent of the commission returned — for tiers 1..=6.
 pub const TIER_CASHBACK_PCT: [u16; 6] = [10, 15, 20, 25, 30, 40];
 
+/// Referral cashback — percent of a REFEREE's commission the referrer earns,
+/// by the referrer's tier — for tiers 1..=6. Mirrors the frontend ladder.
+pub const TIER_REFERRAL_PCT: [u16; 6] = [20, 25, 30, 35, 40, 50];
+
 /// The tier (1..=6) for a lifetime volume.
 pub fn tier_for_volume(volume_usd: f64) -> u8 {
     let mut tier = 1u8;
@@ -164,6 +168,17 @@ pub fn tier_cashback_pct(tier: u8) -> u16 {
 /// The cashback percent a wallet has earned through its lifetime volume.
 pub fn cashback_pct_for_volume(volume_usd: f64) -> u16 {
     tier_cashback_pct(tier_for_volume(volume_usd))
+}
+
+/// The referral cashback percent for a tier, clamped to the valid range.
+pub fn tier_referral_pct(tier: u8) -> u16 {
+    let idx = (tier.clamp(1, 6) - 1) as usize;
+    TIER_REFERRAL_PCT[idx]
+}
+
+/// The referral cashback percent a wallet earns, from its lifetime volume tier.
+pub fn referral_pct_for_volume(volume_usd: f64) -> u16 {
+    tier_referral_pct(tier_for_volume(volume_usd))
 }
 
 /// Apply a discount (percent off) to a base rate in bps. Retained as a generic

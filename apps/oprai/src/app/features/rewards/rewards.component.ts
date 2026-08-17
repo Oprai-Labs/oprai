@@ -9,11 +9,12 @@ import { TierBadgeComponent } from './tier-badge.component';
 interface Rewards {
   tier: number;
   volumeUsd: number;
-  points: { own: number; referral: number; total: number };
   cashback: { earnedUsd: number; claimedUsd: number; claimableUsd: number };
   referralCode: string | null;
   referralCount: number;
 }
+
+const MIN_CLAIM_USD = 5;
 
 interface TierDef {
   n: number;
@@ -83,11 +84,6 @@ const TIERS: TierDef[] = [
         <!-- STAT TILES -->
         <section class="tiles">
           <div class="tile">
-            <div class="tile-ico" style="--tc:#818cf8"><lucide-icon name="star" [size]="18" /></div>
-            <div class="tile-val">{{ d.points.total | number }}</div>
-            <div class="tile-lbl">Total points</div>
-          </div>
-          <div class="tile">
             <div class="tile-ico" style="--tc:#06b6d4"><lucide-icon name="trending-up" [size]="18" /></div>
             <div class="tile-val">{{ d.volumeUsd | currency:'USD':'symbol':'1.2-2' }}</div>
             <div class="tile-lbl">Trading volume</div>
@@ -98,9 +94,9 @@ const TIERS: TierDef[] = [
             <div class="tile-lbl">Friends invited</div>
           </div>
           <div class="tile">
-            <div class="tile-ico" style="--tc:#f59e0b"><lucide-icon name="gift" [size]="18" /></div>
-            <div class="tile-val">{{ d.points.referral | number }}</div>
-            <div class="tile-lbl">Referral points</div>
+            <div class="tile-ico" style="--tc:#f59e0b"><lucide-icon name="hand-coins" [size]="18" /></div>
+            <div class="tile-val">{{ d.cashback.earnedUsd | currency:'USD':'symbol':'1.2-2' }}</div>
+            <div class="tile-lbl">Cashback earned</div>
           </div>
         </section>
 
@@ -118,10 +114,13 @@ const TIERS: TierDef[] = [
               <div class="cb-amt"><span class="cb-amt-val">{{ d.cashback.claimableUsd | currency:'USD':'symbol':'1.2-2' }}</span><span class="cb-amt-lbl">Claimable</span></div>
               <div class="cb-amt"><span class="cb-amt-val muted">{{ d.cashback.earnedUsd | currency:'USD':'symbol':'1.2-2' }}</span><span class="cb-amt-lbl">Earned all-time</span></div>
             </div>
-            <button class="cb-claim" disabled title="Withdrawals open soon">
-              Claim <span class="cb-soon">soon</span>
+            <button class="cb-claim" (click)="claim()"
+                    [disabled]="claiming() || d.cashback.claimableUsd < 5"
+                    [title]="d.cashback.claimableUsd < 5 ? 'Minimum claim is $5' : 'Withdraw to your wallet (SOL)'">
+              {{ claiming() ? 'Claiming…' : 'Claim' }}
             </button>
           </div>
+          @if (claimMsg()) { <div class="cb-msg" [class.ok]="claimOk()">{{ claimMsg() }}</div> }
         </section>
 
         <div class="cols">
@@ -250,6 +249,8 @@ const TIERS: TierDef[] = [
     .cb-claim { display:inline-flex; align-items:center; gap:6px; background:linear-gradient(90deg,#22c55e,#06b6d4); color:#fff; border:0; border-radius:10px; padding:10px 18px; font-weight:700; font-size:.9rem; cursor:pointer; }
     .cb-claim:disabled { opacity:.55; cursor:not-allowed; }
     .cb-soon { font-size:.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; background:rgba(255,255,255,.25); padding:1px 6px; border-radius:6px; }
+    .cb-msg { width:100%; font-size:.82rem; margin-top:4px; color:#ef4444; }
+    .cb-msg.ok { color:#22c55e; }
     @media (max-width:640px){ .cb-right { width:100%; justify-content:space-between; } }
 
     /* COLUMNS */
@@ -327,6 +328,9 @@ export class RewardsComponent implements OnInit {
   redeemMsg = signal<string | null>(null);
   redeemOk = signal(false);
   redeeming = signal(false);
+  claiming = signal(false);
+  claimMsg = signal<string | null>(null);
+  claimOk = signal(false);
   copied = signal<'code' | 'link' | null>(null);
   code = '';
   canShare = typeof navigator !== 'undefined' && !!(navigator as any).share;
@@ -401,6 +405,26 @@ export class RewardsComponent implements OnInit {
   tierColor(t: number): string { return (TIERS.find((x) => x.n === t)?.color) ?? '#5b5fc7'; }
   referralPct(t: number): number { return (TIERS.find((x) => x.n === t)?.referralPct) ?? 30; }
   cashbackPct(t: number): number { return (TIERS.find((x) => x.n === t)?.cashbackPct) ?? 10; }
+
+  claim(): void {
+    const d = this.data();
+    if (!d || this.claiming() || d.cashback.claimableUsd < MIN_CLAIM_USD) return;
+    this.claiming.set(true);
+    this.claimMsg.set(null);
+    this.api.post<{ ok: boolean; claimedUsd: number; signature: string }>('/me/cashback/claim', {}).subscribe({
+      next: (r) => {
+        this.claimOk.set(true);
+        this.claimMsg.set(`Claimed $${r.claimedUsd.toFixed(2)} — paid to your wallet.`);
+        this.claiming.set(false);
+        this.load();
+      },
+      error: (e) => {
+        this.claimOk.set(false);
+        this.claimMsg.set(e?.error?.detail || e?.error?.message || 'Could not complete the claim. Try again shortly.');
+        this.claiming.set(false);
+      },
+    });
+  }
 
   tierProgress(d: Rewards): number {
     if (d.tier >= 6) return 100;

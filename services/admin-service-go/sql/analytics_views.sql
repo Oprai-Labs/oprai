@@ -165,16 +165,49 @@ SELECT
 FROM own o
 FULL OUTER JOIN refpts r ON r.wallet = o.wallet;
 
--- Cashback: lifetime earned vs claimed, and what is currently claimable. Fed by
--- the solana-service confirm path (fees::TIER_CASHBACK_PCT of each trade's fee).
+-- Cashback: total earned (own + referral) vs already claimed, and what's now
+-- claimable. Own cashback is accrued per-trade by solana-service
+-- (fees::TIER_CASHBACK_PCT of the fee, in lifetime_cashback_usd). Referral
+-- cashback is computed here: a referrer earns their tier's referral % of each
+-- referee's lifetime fees. Claims (pending or paid) reduce the balance.
 CREATE OR REPLACE VIEW admin_schema.v_user_cashback AS
+WITH own AS (
+    SELECT user_wallet AS wallet, COALESCE(lifetime_cashback_usd, 0) AS own_cb
+    FROM solana_schema.wallet_economics_rollup
+), referrer_tier AS (
+    SELECT r.user_wallet AS wallet,
+           (SELECT max(c.tier) FROM analytics_schema.tier_config c
+            WHERE r.lifetime_notional_usd >= c.min_volume_usd) AS tier
+    FROM solana_schema.wallet_economics_rollup r
+), refcb AS (
+    SELECT rf.referrer_wallet AS wallet,
+           sum(COALESCE(re.lifetime_fee_usd, 0) *
+               CASE COALESCE(rt.tier, 1)
+                   WHEN 1 THEN 0.20 WHEN 2 THEN 0.25 WHEN 3 THEN 0.30
+                   WHEN 4 THEN 0.35 WHEN 5 THEN 0.40 WHEN 6 THEN 0.50
+                   ELSE 0.20 END) AS referral_cb
+    FROM analytics_schema.referrals rf
+    JOIN solana_schema.wallet_economics_rollup re ON re.user_wallet = rf.referee_wallet
+    LEFT JOIN referrer_tier rt ON rt.wallet = rf.referrer_wallet
+    GROUP BY rf.referrer_wallet, rt.tier
+), claimed AS (
+    SELECT wallet, COALESCE(sum(amount_usd), 0) AS claimed
+    FROM analytics_schema.cashback_claims
+    WHERE status IN ('pending', 'paid')
+    GROUP BY wallet
+), earned AS (
+    SELECT COALESCE(o.wallet, rc.wallet) AS wallet,
+           COALESCE(o.own_cb, 0) + COALESCE(rc.referral_cb, 0) AS earned
+    FROM own o
+    FULL OUTER JOIN refcb rc ON rc.wallet = o.wallet
+)
 SELECT
-    user_wallet                                        AS wallet,
-    COALESCE(lifetime_cashback_usd, 0)                 AS cashback_earned_usd,
-    COALESCE(claimed_cashback_usd, 0)                  AS cashback_claimed_usd,
-    GREATEST(0, COALESCE(lifetime_cashback_usd, 0)
-                - COALESCE(claimed_cashback_usd, 0))   AS cashback_claimable_usd
-FROM solana_schema.wallet_economics_rollup;
+    e.wallet                                             AS wallet,
+    e.earned                                             AS cashback_earned_usd,
+    COALESCE(cl.claimed, 0)                              AS cashback_claimed_usd,
+    GREATEST(0, e.earned - COALESCE(cl.claimed, 0))      AS cashback_claimable_usd
+FROM earned e
+LEFT JOIN claimed cl ON cl.wallet = e.wallet;
 
 RESET ROLE;
 
