@@ -73,7 +73,19 @@ pub async fn record_pending(
 
 /// Finalize a confirmed transaction: flip `pending`→`confirmed` (idempotent) and,
 /// only if this call performed the transition, fold it into the wallet + daily rollups.
-pub async fn finalize_confirmed(pool: &DbPool, transaction_id: Uuid, tx_signature: Option<String>) {
+///
+/// The volume (`notional_usd`) is recomputed here from the *confirmed on-chain
+/// transaction* — never from anything the client reported — because it feeds the
+/// tier / points / fee-discount system, which must not be forgeable. See
+/// [`crate::services::onchain_value`]. If the chain can't be read the row keeps
+/// its `NULL` notional and rolls up as zero: undercount, never inflate.
+pub async fn finalize_confirmed(
+    pool: &DbPool,
+    http: &reqwest::Client,
+    transaction_id: Uuid,
+    tx_signature: Option<String>,
+    wallet: String,
+) {
     let mut conn = match pool.get().await {
         Ok(c) => c,
         Err(e) => {
@@ -89,7 +101,7 @@ pub async fn finalize_confirmed(pool: &DbPool, transaction_id: Uuid, tx_signatur
            WHERE transaction_id = $1::uuid AND outcome <> 'confirmed'"#,
     )
     .bind::<Text, _>(transaction_id.to_string())
-    .bind::<Nullable<Text>, _>(tx_signature)
+    .bind::<Nullable<Text>, _>(tx_signature.clone())
     .execute(&mut conn)
     .await;
 
@@ -99,6 +111,30 @@ pub async fn finalize_confirmed(pool: &DbPool, transaction_id: Uuid, tx_signatur
         Err(e) => {
             tracing::warn!(error = %e, tx = %transaction_id, "tx_economics: confirm update failed");
             return;
+        }
+    }
+
+    // Server-authoritative volume: read the value actually moved on chain and
+    // overwrite notional_usd (+ fee_usd, from the server-computed fee_bps column)
+    // before the rollups read it. Only for rows that carry a signature.
+    if let Some(sig) = tx_signature.as_deref() {
+        if let Some(notional) =
+            crate::services::onchain_value::confirmed_trade_notional_usd(http, sig, &wallet).await
+        {
+            if let Err(e) = diesel::sql_query(
+                r#"UPDATE solana_schema.tx_economics
+                   SET notional_usd = $2::numeric,
+                       fee_usd = ($2::numeric * fee_bps / 10000.0),
+                       usd_price_source = 'onchain'
+                   WHERE transaction_id = $1::uuid"#,
+            )
+            .bind::<Text, _>(transaction_id.to_string())
+            .bind::<Double, _>(notional)
+            .execute(&mut conn)
+            .await
+            {
+                tracing::warn!(error = %e, tx = %transaction_id, "tx_economics: onchain notional update failed");
+            }
         }
     }
 

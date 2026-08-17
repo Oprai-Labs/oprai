@@ -798,10 +798,12 @@ pub async fn create_transaction(
             ),
             _ => (0, None),
         };
-        let notional_usd = body.est_usd.filter(|v| *v > 0.0);
-        let fee_usd = notional_usd.map(|n| n * (fee_bps as f64) / 10_000.0);
-        let source = Some(if notional_usd.is_some() { "est_usd" } else { "none" }.to_string());
-
+        // Volume (notional_usd) is intentionally left NULL at create time. It is
+        // recomputed from the confirmed on-chain transaction in
+        // `finalize_confirmed`, never from the client's `est_usd` — the tier /
+        // points / fee-discount system depends on it and must not be forgeable.
+        // fee_bps is still stored now (server-computed) so the confirm step can
+        // derive fee_usd from the real on-chain notional.
         crate::db::economics::record_pending(
             &state.pool,
             inserted.id,
@@ -812,11 +814,11 @@ pub async fn create_transaction(
             output_mint,
             input_amount,
             output_amount,
-            notional_usd,
+            None, // notional_usd — set at confirm from chain
             fee_bps,
             fee_mint,
-            fee_usd,
-            source,
+            None, // fee_usd — derived from on-chain notional at confirm
+            Some("pending".to_string()),
         )
         .await;
     }
@@ -1045,7 +1047,16 @@ pub async fn patch_transaction_status(
     // attempted row for funnel/conversion.
     match body.status.as_str() {
         "confirmed" => {
-            crate::db::economics::finalize_confirmed(&state.pool, tx_id, body.tx_hash.clone()).await
+            // Spawned, not awaited: the confirm step reads the transaction back
+            // from the chain (RPC + price lookup) to compute server-authoritative
+            // volume, and that must not add seconds to the PATCH response.
+            let pool = state.pool.clone();
+            let http = state.http.clone();
+            let sig = body.tx_hash.clone();
+            let owner = wallet.clone();
+            tokio::spawn(async move {
+                crate::db::economics::finalize_confirmed(&pool, &http, tx_id, sig, owner).await;
+            });
         }
         "failed" => crate::db::economics::finalize_other(&state.pool, tx_id, "failed").await,
         "cancelled" => crate::db::economics::finalize_other(&state.pool, tx_id, "cancelled").await,
