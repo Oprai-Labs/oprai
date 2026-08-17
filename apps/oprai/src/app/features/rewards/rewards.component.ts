@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { ApiService } from '../../core/services/api.service';
+import { TierBadgeComponent } from './tier-badge.component';
 
 interface Rewards {
   tier: number;
@@ -36,7 +37,7 @@ const TIERS: TierDef[] = [
 @Component({
   selector: 'app-rewards',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, TierBadgeComponent],
   template: `
     <div class="rw">
       <header class="rw-head">
@@ -56,8 +57,8 @@ const TIERS: TierDef[] = [
 
         <!-- HERO -->
         <section class="hero">
-          <div class="hero-badge" [style.--tc]="tierColor(d.tier)">
-            <lucide-icon [name]="tierIcon(d.tier)" [size]="30" />
+          <div class="hero-badge">
+            <app-tier-badge [tier]="d.tier" [color]="tierColor(d.tier)" [size]="66" [glow]="true" />
           </div>
           <div class="hero-main">
             <div class="hero-tierline">
@@ -159,7 +160,7 @@ const TIERS: TierDef[] = [
             @for (t of tiers; track t.n) {
               <div class="ladder-row" [class.here]="d.tier === t.n">
                 <span class="lr-tier">
-                  <span class="lr-dot" [style.background]="t.color"></span>
+                  <app-tier-badge [tier]="t.n" [color]="t.color" [size]="22" />
                   {{ t.name }}
                   @if (d.tier === t.n) { <span class="lr-here">You</span> }
                 </span>
@@ -189,7 +190,7 @@ const TIERS: TierDef[] = [
     /* HERO */
     .hero { display:flex; align-items:center; gap:20px; background:var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:20px; padding:22px 24px; margin-bottom:16px; position:relative; overflow:hidden; }
     .hero::before { content:''; position:absolute; inset:0; background:radial-gradient(120% 140% at 0% 0%, rgba(91,95,199,.14), transparent 55%); pointer-events:none; }
-    .hero-badge { flex:none; width:66px; height:66px; border-radius:18px; display:grid; place-items:center; color:var(--tc); background:color-mix(in srgb, var(--tc) 16%, transparent); border:1px solid color-mix(in srgb, var(--tc) 40%, transparent); box-shadow:0 0 32px color-mix(in srgb, var(--tc) 22%, transparent); }
+    .hero-badge { flex:none; display:grid; place-items:center; line-height:0; }
     .hero-main { flex:1; min-width:0; }
     .hero-tierline { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
     .hero-tier { font-size:1.7rem; font-weight:800; letter-spacing:-.01em; }
@@ -256,8 +257,8 @@ const TIERS: TierDef[] = [
     .ladder-row.here { background:color-mix(in srgb, var(--op-brand,#5b5fc7) 12%, transparent); border-top-color:transparent; }
     .num { text-align:right; font-variant-numeric:tabular-nums; }
     .cb { color:var(--op-text-secondary); }
-    .lr-tier { display:flex; align-items:center; gap:8px; font-weight:600; }
-    .lr-dot { width:9px; height:9px; border-radius:50%; flex:none; }
+    .lr-tier { display:flex; align-items:center; gap:9px; font-weight:600; }
+    .lr-tier app-tier-badge { flex:none; line-height:0; }
     .lr-here { font-size:.64rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--op-brand,#5b5fc7); background:color-mix(in srgb, var(--op-brand,#5b5fc7) 20%, transparent); padding:1px 6px; border-radius:6px; }
     .ladder { display:flex; flex-direction:column; }
     .ladder-foot { display:flex; align-items:flex-start; gap:7px; margin-top:auto; padding-top:14px; border-top:1px solid var(--op-border, rgba(255,255,255,.08)); font-size:.78rem; color:var(--op-text-secondary); }
@@ -351,9 +352,6 @@ export class RewardsComponent implements OnInit {
   tierName(t: number): string { return (TIERS.find((x) => x.n === t)?.name) ?? `Tier ${t}`; }
   tierColor(t: number): string { return (TIERS.find((x) => x.n === t)?.color) ?? '#5b5fc7'; }
   referralPct(t: number): number { return (TIERS.find((x) => x.n === t)?.referralPct) ?? 30; }
-  tierIcon(t: number): string {
-    return t >= 6 ? 'crown' : t >= 4 ? 'gem' : t >= 2 ? 'award' : 'medal';
-  }
 
   tierProgress(d: Rewards): number {
     if (d.tier >= 6) return 100;
