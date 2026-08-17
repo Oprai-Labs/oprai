@@ -170,7 +170,10 @@ FULL OUTER JOIN refpts r ON r.wallet = o.wallet;
 -- (fees::TIER_CASHBACK_PCT of the fee, in lifetime_cashback_usd). Referral
 -- cashback is computed here: a referrer earns their tier's referral % of each
 -- referee's lifetime fees. Claims (pending or paid) reduce the balance.
-CREATE OR REPLACE VIEW admin_schema.v_user_cashback AS
+-- DROP+CREATE (not REPLACE): the column types changed from the earlier version
+-- of this view, and CREATE OR REPLACE cannot change a view column's type.
+DROP VIEW IF EXISTS admin_schema.v_user_cashback CASCADE;
+CREATE VIEW admin_schema.v_user_cashback AS
 WITH own AS (
     SELECT user_wallet AS wallet, COALESCE(lifetime_cashback_usd, 0) AS own_cb
     FROM solana_schema.wallet_economics_rollup
