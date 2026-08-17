@@ -25,13 +25,15 @@ use solana_sdk::pubkey::Pubkey;
 use crate::solana::tokens::get_token_info;
 
 /// Long-tail tokens — anything outside our curated registry, which in practice
-/// means pump.fun launches and fresh memecoins. Trading bots in this segment
-/// charge 0.5–1%; this is the low end of what the market already accepts.
-pub const MEMECOIN_BPS: u16 = 50;
+/// means pump.fun launches and fresh memecoins. 1%, matching Trojan / BONKbot;
+/// the reward for the user is CASHBACK on this fee (a tier % returned), not a
+/// lower rate.
+pub const MEMECOIN_BPS: u16 = 100;
 
-/// Established pairs. Deliberately well under Phantom's 0.85%: a user who
-/// compares us against swapping directly should not find a reason to leave.
-pub const STANDARD_BPS: u16 = 20;
+/// Established pairs (SOL, blue-chips). Kept well under the 1% memecoin rate so
+/// a user comparing us against swapping directly on a major pair has no reason
+/// to leave; cashback applies here too.
+pub const STANDARD_BPS: u16 = 30;
 
 /// Stablecoin to stablecoin. Free.
 ///
@@ -41,8 +43,8 @@ pub const STANDARD_BPS: u16 = 20;
 /// to route around us.
 pub const STABLE_PAIR_BPS: u16 = 0;
 
-/// pump.fun trades and launches.
-pub const PUMPFUN_BPS: u16 = 50;
+/// pump.fun trades and launches. 1%, in line with the memecoin swap rate.
+pub const PUMPFUN_BPS: u16 = 100;
 
 pub const WSOL_MINT: &str = "So11111111111111111111111111111111111111112";
 pub const USDC_MINT: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -121,26 +123,26 @@ fn is_standard(mint: &str) -> bool {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Tier fee discount
+// Tier cashback
 // ──────────────────────────────────────────────────────────────────────────────
 //
-// A wallet's lifetime traded volume sets its tier, and higher tiers pay a lower
-// commission — the loyalty model every Solana trading bot runs. The discount is
-// a percentage off the base rate, so it composes with the memecoin/standard/
-// stable tiers instead of replacing them: a Gold (10% off) memecoin trade pays
-// 45 bps, a Gold standard trade pays 18 bps, a stable pair still pays nothing.
+// A wallet's lifetime traded volume sets its tier. The fee itself is NOT
+// discounted by tier (that model was dropped) — instead the user pays the full
+// commission and earns a tier percentage of it back as CASHBACK, credited to a
+// claimable ledger after each trade confirms. This mirrors Trojan/Padre-style
+// loyalty ("10–45% of fees back") and keeps our headline rate at the market 1%.
 //
 // The thresholds and percentages mirror `analytics_schema.tier_config` and the
 // frontend tier ladder. They are duplicated here on purpose: solana-service owns
 // `solana_schema` and must not read `analytics_schema` (scoped-role isolation),
-// so the three copies are kept in sync by hand. Keep them identical.
+// so the copies are kept in sync by hand. Keep them identical.
 
 /// Cumulative-volume floor (USD) for tiers 1..=6.
 pub const TIER_MIN_VOLUME_USD: [f64; 6] =
     [0.0, 1_000.0, 10_000.0, 50_000.0, 250_000.0, 1_000_000.0];
 
-/// Percent off the base fee for tiers 1..=6.
-pub const TIER_FEE_DISCOUNT_PCT: [u16; 6] = [0, 5, 10, 15, 20, 25];
+/// Cashback — percent of the commission returned — for tiers 1..=6.
+pub const TIER_CASHBACK_PCT: [u16; 6] = [10, 15, 20, 25, 30, 40];
 
 /// The tier (1..=6) for a lifetime volume.
 pub fn tier_for_volume(volume_usd: f64) -> u8 {
@@ -153,19 +155,20 @@ pub fn tier_for_volume(volume_usd: f64) -> u8 {
     tier
 }
 
-/// The fee discount (percent) for a tier, clamped to the valid range.
-pub fn tier_fee_discount_pct(tier: u8) -> u16 {
+/// The cashback percent for a tier, clamped to the valid range.
+pub fn tier_cashback_pct(tier: u8) -> u16 {
     let idx = (tier.clamp(1, 6) - 1) as usize;
-    TIER_FEE_DISCOUNT_PCT[idx]
+    TIER_CASHBACK_PCT[idx]
 }
 
-/// The fee discount (percent) a wallet has earned through its lifetime volume.
-pub fn fee_discount_pct_for_volume(volume_usd: f64) -> u16 {
-    tier_fee_discount_pct(tier_for_volume(volume_usd))
+/// The cashback percent a wallet has earned through its lifetime volume.
+pub fn cashback_pct_for_volume(volume_usd: f64) -> u16 {
+    tier_cashback_pct(tier_for_volume(volume_usd))
 }
 
-/// Apply a discount (percent off) to a base rate in bps. Rounds down — always in
-/// the user's favour, and never below zero.
+/// Apply a discount (percent off) to a base rate in bps. Retained as a generic
+/// helper — the fee path calls it with 0 (no tier discount under the cashback
+/// model), so it is a pass-through today. Rounds down, never below zero.
 pub fn discounted_bps(base_bps: u16, discount_pct: u16) -> u16 {
     let d = discount_pct.min(100) as u32;
     ((base_bps as u32) * (100 - d) / 100) as u16
@@ -363,16 +366,17 @@ mod tests {
     }
 
     #[test]
-    fn discount_composes_with_the_base_rate() {
-        // Percent off the base, rounded down (in the user's favour).
-        assert_eq!(discounted_bps(MEMECOIN_BPS, 0), 50);
-        assert_eq!(discounted_bps(MEMECOIN_BPS, 10), 45); // Gold
-        assert_eq!(discounted_bps(MEMECOIN_BPS, 25), 37); // Legend (50*0.75=37.5 -> 37)
-        assert_eq!(discounted_bps(STANDARD_BPS, 10), 18); // 20*0.9
-        assert_eq!(discounted_bps(STABLE_PAIR_BPS, 25), 0); // free stays free
-                                                            // Discount tied to volume: a Legend wallet on a memecoin trade.
-        assert_eq!(fee_discount_pct_for_volume(2_000_000.0), 25);
-        assert_eq!(fee_discount_pct_for_volume(0.0), 0);
+    fn commission_rates_and_cashback() {
+        // Market-rate commission: 1% memecoin, 0.3% blue-chip. discounted_bps is
+        // a pass-through under the cashback model (called with 0).
+        assert_eq!(discounted_bps(MEMECOIN_BPS, 0), 100);
+        assert_eq!(discounted_bps(STANDARD_BPS, 0), 30);
+        assert_eq!(discounted_bps(STABLE_PAIR_BPS, 0), 0);
+        // Cashback percent scales with the volume tier (Bronze 10% -> Legend 40%).
+        assert_eq!(cashback_pct_for_volume(0.0), 10); // Bronze
+        assert_eq!(cashback_pct_for_volume(10_000.0), 20); // Gold
+        assert_eq!(cashback_pct_for_volume(2_000_000.0), 40); // Legend
+        assert_eq!(tier_cashback_pct(4), 25); // Platinum
     }
 
     #[test]

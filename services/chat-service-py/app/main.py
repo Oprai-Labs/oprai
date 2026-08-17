@@ -428,6 +428,10 @@ async def get_rewards(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
         ref_count = (await s.execute(sa_text(
             "SELECT count(*) FROM analytics_schema.referrals WHERE referrer_wallet=:w"), {"w": w})).scalar() or 0
 
+        cb_row = (await s.execute(sa_text(
+            "SELECT cashback_earned_usd, cashback_claimed_usd, cashback_claimable_usd "
+            "FROM admin_schema.v_user_cashback WHERE wallet=:w"), {"w": w})).first()
+
     return {
         "tier": int(tier_row[0]) if tier_row and tier_row[0] else 1,
         "volumeUsd": float(tier_row[1]) if tier_row and tier_row[1] is not None else 0.0,
@@ -435,6 +439,11 @@ async def get_rewards(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
             "own": int(pts_row[0]) if pts_row else 0,
             "referral": int(pts_row[1]) if pts_row else 0,
             "total": int(pts_row[2]) if pts_row else 0,
+        },
+        "cashback": {
+            "earnedUsd": float(cb_row[0]) if cb_row and cb_row[0] is not None else 0.0,
+            "claimedUsd": float(cb_row[1]) if cb_row and cb_row[1] is not None else 0.0,
+            "claimableUsd": float(cb_row[2]) if cb_row and cb_row[2] is not None else 0.0,
         },
         "referralCode": code,
         "referralCount": int(ref_count),

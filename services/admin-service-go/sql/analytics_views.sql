@@ -165,11 +165,23 @@ SELECT
 FROM own o
 FULL OUTER JOIN refpts r ON r.wallet = o.wallet;
 
+-- Cashback: lifetime earned vs claimed, and what is currently claimable. Fed by
+-- the solana-service confirm path (fees::TIER_CASHBACK_PCT of each trade's fee).
+CREATE OR REPLACE VIEW admin_schema.v_user_cashback AS
+SELECT
+    user_wallet                                        AS wallet,
+    COALESCE(lifetime_cashback_usd, 0)                 AS cashback_earned_usd,
+    COALESCE(claimed_cashback_usd, 0)                  AS cashback_claimed_usd,
+    GREATEST(0, COALESCE(lifetime_cashback_usd, 0)
+                - COALESCE(claimed_cashback_usd, 0))   AS cashback_claimable_usd
+FROM solana_schema.wallet_economics_rollup;
+
 RESET ROLE;
 
 -- chat-service (chat_app) serves the user-facing rewards endpoint; let it read
--- these two aggregate views only (they run as admin_app, so no raw cross-schema
+-- these aggregate views only (they run as admin_app, so no raw cross-schema
 -- access is granted to chat_app).
-GRANT USAGE ON SCHEMA admin_schema TO chat_app;  -- reference the two views below (SELECT is per-view, so only these are readable)
-GRANT SELECT ON admin_schema.v_user_tier  TO chat_app;
-GRANT SELECT ON admin_schema.v_user_points TO chat_app;
+GRANT USAGE ON SCHEMA admin_schema TO chat_app;  -- reference the views below (SELECT is per-view, so only these are readable)
+GRANT SELECT ON admin_schema.v_user_tier     TO chat_app;
+GRANT SELECT ON admin_schema.v_user_points   TO chat_app;
+GRANT SELECT ON admin_schema.v_user_cashback TO chat_app;
