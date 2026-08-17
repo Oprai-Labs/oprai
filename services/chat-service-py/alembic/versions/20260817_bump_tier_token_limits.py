@@ -16,14 +16,16 @@ down_revision = "20260815_add_tier_referral"
 branch_labels = None
 depends_on = None
 
-# tier -> (new_limit, old_limit)
+# tier -> (new_limit, old_limit). The ceiling stays deliberately modest: this is
+# a cost / abuse guardrail, not a sellable quota. Tier 1 holds at the old flat
+# 1.5M default (no regression); even Legend's 12M is ~2400 chat turns/day.
 _LIMITS = {
     1: (1_500_000, 500_000),
-    2: (3_000_000, 1_000_000),
-    3: (6_000_000, 2_000_000),
-    4: (12_000_000, 4_000_000),
-    5: (25_000_000, 8_000_000),
-    6: (60_000_000, 20_000_000),
+    2: (2_000_000, 1_000_000),
+    3: (3_000_000, 2_000_000),
+    4: (5_000_000, 4_000_000),
+    5: (8_000_000, 8_000_000),
+    6: (12_000_000, 20_000_000),
 }
 
 
