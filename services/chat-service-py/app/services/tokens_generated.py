@@ -28,14 +28,14 @@ VERIFIED_TOKENS: list[VerifiedToken] = [
         "symbol": "USDC",
         "name": "USD Coin",
         "decimals": 6,
-        "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png",
+        "logoURI": "/assets/coins/usdc.svg",
     },
     {
         "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
         "symbol": "USDT",
         "name": "Tether USD",
         "decimals": 6,
-        "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.svg",
+        "logoURI": "/assets/coins/usdt.svg",
     },
     {
         "address": "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
@@ -84,14 +84,14 @@ VERIFIED_TOKENS: list[VerifiedToken] = [
         "symbol": "ORCA",
         "name": "Orca",
         "decimals": 6,
-        "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE/logo.png",
+        "logoURI": "/assets/coins/orca.svg",
     },
     {
         "address": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
         "symbol": "mSOL",
         "name": "Marinade staked SOL",
         "decimals": 9,
-        "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So/logo.png",
+        "logoURI": "/assets/coins/msol.svg",
     },
     {
         "address": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
