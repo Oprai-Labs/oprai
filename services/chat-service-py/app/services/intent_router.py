@@ -22,6 +22,7 @@ Failure mode: any classifier error → returns `ambiguous` so the existing
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -355,11 +356,51 @@ class IntentRouter:
             self._client = AsyncOpenAI(api_key=settings.OPRAI_OPENAI_API_KEY)
         return self._client
 
+    def _record_usage(self, resp, wallet: str, session_id: str | None) -> None:
+        """Fire-and-forget the classifier's token usage into the LLM ledger.
+
+        Never raises and never blocks classification — a ledger miss must not
+        cost us the routing decision.
+        """
+        if not wallet:
+            return
+        try:
+            u = getattr(resp, "usage", None)
+            if u is None:
+                return
+            prompt = int(getattr(u, "prompt_tokens", 0) or 0)
+            completion = int(getattr(u, "completion_tokens", 0) or 0)
+            cached = 0
+            details = getattr(u, "prompt_tokens_details", None)
+            if details is not None:
+                cached = int(getattr(details, "cached_tokens", 0) or 0)
+            fresh = max(0, prompt - cached)  # OpenAI prompt_tokens includes cache reads
+            if fresh + completion <= 0:
+                return
+            from app.services.usage_ledger import record_llm_usage
+
+            asyncio.create_task(
+                record_llm_usage(
+                    wallet=wallet,
+                    session_id=session_id,
+                    model=self._model,
+                    request_kind="intent",
+                    prompt_tokens=fresh,
+                    completion_tokens=completion,
+                    cached_tokens=cached,
+                    is_estimated=False,
+                )
+            )
+        except Exception:  # pragma: no cover — telemetry must never break routing
+            logger.debug("intent classifier usage record failed", exc_info=True)
+
     async def classify(
         self,
         user_message: str,
         recent_context: str = "",
         timeout_s: float = 4.0,
+        wallet: str = "",
+        session_id: str | None = None,
     ) -> IntentResult:
         """
         Classify *user_message*. *recent_context* should be a short string
@@ -418,6 +459,14 @@ class IntentRouter:
                 # classic chat models where determinism matters for caching.
                 kwargs["temperature"] = 0.0
             resp = await client.chat.completions.create(**kwargs)
+
+            # Record this classifier call's token cost (fire-and-forget). Only
+            # the real API path reaches here — the cache short-circuit above is
+            # free and correctly records nothing. OpenAI's prompt_tokens INCLUDES
+            # cached, so normalise to fresh-billable + cached-read the same way
+            # the responder does.
+            self._record_usage(resp, wallet, session_id)
+
             raw = (resp.choices[0].message.content or "").strip()
             data = json.loads(raw)
 

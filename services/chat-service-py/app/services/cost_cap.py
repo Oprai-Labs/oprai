@@ -226,21 +226,32 @@ async def _add_int(cache_key: str, redis_key: str, delta: int) -> None:
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
-async def assert_under_cap(wallet: str) -> None:
+async def assert_under_cap(wallet: str, daily_token_cap: int | None = None) -> None:
     """Raise `LLMCapExceeded` if the wallet has hit any per-wallet cap.
 
     Checks (in order) daily messages → weekly messages → monthly messages →
     daily tokens → weekly tokens → monthly tokens. The first one to fail
     wins; cap == 0 means unlimited.
+
+    `daily_token_cap` is the caller-resolved tier allowance
+    (`tier_config.daily_token_limit`): a higher tier buys a higher daily token
+    ceiling. It replaces the flat default for the *daily tokens* check only, and
+    is ignored in dev-no-caps mode so local/eval runs stay unlimited. The caller
+    resolves it because it needs DB access (this module is Redis-only).
     """
     if not wallet:
         return
+
+    # Effective daily token ceiling: tier override wins, except in dev-no-caps.
+    eff_daily_token_cap = _daily_token_cap()
+    if daily_token_cap and daily_token_cap > 0 and not _is_dev_no_caps():
+        eff_daily_token_cap = daily_token_cap
 
     checks: list[tuple[str, str, str, int, str]] = [
         ("messages", "daily",   _msg_key(wallet),   _daily_message_cap(),   _next_daily_reset_iso()),
         ("messages", "weekly",  _wmsg_key(wallet),  _weekly_message_cap(),  _next_weekly_reset_iso()),
         ("messages", "monthly", _mmsg_key(wallet),  _monthly_message_cap(), _next_monthly_reset_iso()),
-        ("tokens",   "daily",   _token_key(wallet), _daily_token_cap(),     _next_daily_reset_iso()),
+        ("tokens",   "daily",   _token_key(wallet), eff_daily_token_cap,    _next_daily_reset_iso()),
         ("tokens",   "weekly",  _wtok_key(wallet),  _weekly_token_cap(),    _next_weekly_reset_iso()),
         ("tokens",   "monthly", _mtok_key(wallet),  _monthly_token_cap(),   _next_monthly_reset_iso()),
     ]
