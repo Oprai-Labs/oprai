@@ -25,9 +25,9 @@ interface HeaderMetric {
 // Self-hosted so the benchmark icons never depend on a third-party CDN — the old
 // raw.githubusercontent.com URLs 429'd (rate limit) / timed out and showed broken
 // placeholders. Served from /assets, covered by the CSP's 'self'.
-const SOL_LOGO_URI = 'assets/coins/sol.svg';
-const BTC_LOGO_URI = 'assets/coins/btc.svg';
-const ETH_LOGO_URI = 'assets/coins/eth.svg';
+const SOL_LOGO_URI = '/assets/coins/sol.svg';
+const BTC_LOGO_URI = '/assets/coins/btc.svg';
+const ETH_LOGO_URI = '/assets/coins/eth.svg';
 
 @Component({
   selector: 'app-portfolio-shell',

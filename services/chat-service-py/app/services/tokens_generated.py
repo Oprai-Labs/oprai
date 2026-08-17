@@ -21,7 +21,7 @@ VERIFIED_TOKENS: list[VerifiedToken] = [
         "symbol": "SOL",
         "name": "Solana",
         "decimals": 9,
-        "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png",
+        "logoURI": "/assets/coins/sol.svg",
     },
     {
         "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
