@@ -427,16 +427,19 @@ async def get_rewards(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
             "SELECT count(*) FROM analytics_schema.referrals WHERE referrer_wallet=:w"), {"w": w})).scalar() or 0
 
         cb_row = (await s.execute(sa_text(
-            "SELECT cashback_earned_usd, cashback_claimed_usd, cashback_claimable_usd "
+            "SELECT own_cashback_usd, referral_cashback_usd, cashback_earned_usd, "
+            "cashback_claimed_usd, cashback_claimable_usd "
             "FROM admin_schema.v_user_cashback WHERE wallet=:w"), {"w": w})).first()
 
     return {
         "tier": int(tier_row[0]) if tier_row and tier_row[0] else 1,
         "volumeUsd": float(tier_row[1]) if tier_row and tier_row[1] is not None else 0.0,
         "cashback": {
-            "earnedUsd": float(cb_row[0]) if cb_row and cb_row[0] is not None else 0.0,
-            "claimedUsd": float(cb_row[1]) if cb_row and cb_row[1] is not None else 0.0,
-            "claimableUsd": float(cb_row[2]) if cb_row and cb_row[2] is not None else 0.0,
+            "ownUsd": float(cb_row[0]) if cb_row and cb_row[0] is not None else 0.0,
+            "referralUsd": float(cb_row[1]) if cb_row and cb_row[1] is not None else 0.0,
+            "earnedUsd": float(cb_row[2]) if cb_row and cb_row[2] is not None else 0.0,
+            "claimedUsd": float(cb_row[3]) if cb_row and cb_row[3] is not None else 0.0,
+            "claimableUsd": float(cb_row[4]) if cb_row and cb_row[4] is not None else 0.0,
         },
         "referralCode": code,
         "referralCount": int(ref_count),
@@ -482,7 +485,12 @@ async def claim_cashback(x_user_wallet: str = Header(..., alias="X-User-Wallet")
     import os
     w = x_user_wallet
     min_claim = 5.0
+    # Reserve the claim under a per-wallet advisory lock so two concurrent claims
+    # can't both read the same balance and double-spend. The lock is held to the
+    # end of this transaction; the next claim for the same wallet blocks until the
+    # 'pending' row below is committed and thus already subtracted from claimable.
     async with async_session_factory() as s:
+        await s.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:w)::bigint)"), {"w": w})
         cb = (await s.execute(sa_text(
             "SELECT cashback_claimable_usd FROM admin_schema.v_user_cashback WHERE wallet=:w"),
             {"w": w})).first()
@@ -497,21 +505,30 @@ async def claim_cashback(x_user_wallet: str = Header(..., alias="X-User-Wallet")
         await s.commit()
 
     solana = os.getenv("SOLANA_SERVICE_HTTP", "http://solana-service-rs:3030")
+    # A 400 from solana means the payout was rejected BEFORE any transfer (treasury
+    # not configured, amount below floor) -> safe to release the reservation. Any
+    # other failure is ambiguous (the transfer may have broadcast) -> keep the row
+    # 'pending' so the amount stays reserved and gets a manual review, never a
+    # double payout.
+    released = False
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
                 f"{solana}/actions/cashback-payout",
                 headers={"X-Internal-Api-Key": settings.OPRAI_INTERNAL_API_KEY, "X-User-Wallet": w},
                 json={"amountUsd": claimable})
+        if r.status_code == 400:
+            released = True
+            raise RuntimeError(f"payout rejected: {r.text[:200]}")
         if r.status_code != 200:
             raise RuntimeError(f"payout returned {r.status_code}: {r.text[:200]}")
         sig = r.json().get("signature")
     except Exception as e:
-        logger.warning("cashback payout failed for %s: %r", w[:8], e)
+        logger.warning("cashback payout failed for %s (released=%s): %r", w[:8], released, e)
         async with async_session_factory() as s:
             await s.execute(sa_text(
-                "UPDATE analytics_schema.cashback_claims SET status='failed' WHERE id=:i"),
-                {"i": claim_id})
+                "UPDATE analytics_schema.cashback_claims SET status=:st WHERE id=:i"),
+                {"st": "failed" if released else "pending", "i": claim_id})
             await s.commit()
         raise HTTPException(
             status_code=502,

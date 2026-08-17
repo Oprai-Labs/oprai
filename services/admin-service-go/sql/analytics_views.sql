@@ -200,15 +200,18 @@ WITH own AS (
     GROUP BY wallet
 ), earned AS (
     SELECT COALESCE(o.wallet, rc.wallet) AS wallet,
-           COALESCE(o.own_cb, 0) + COALESCE(rc.referral_cb, 0) AS earned
+           COALESCE(o.own_cb, 0)      AS own_cb,
+           COALESCE(rc.referral_cb, 0) AS referral_cb
     FROM own o
     FULL OUTER JOIN refcb rc ON rc.wallet = o.wallet
 )
 SELECT
-    e.wallet                                             AS wallet,
-    e.earned                                             AS cashback_earned_usd,
-    COALESCE(cl.claimed, 0)                              AS cashback_claimed_usd,
-    GREATEST(0, e.earned - COALESCE(cl.claimed, 0))      AS cashback_claimable_usd
+    e.wallet                                                        AS wallet,
+    e.own_cb                                                        AS own_cashback_usd,
+    e.referral_cb                                                   AS referral_cashback_usd,
+    e.own_cb + e.referral_cb                                        AS cashback_earned_usd,
+    COALESCE(cl.claimed, 0)                                         AS cashback_claimed_usd,
+    GREATEST(0, e.own_cb + e.referral_cb - COALESCE(cl.claimed, 0)) AS cashback_claimable_usd
 FROM earned e
 LEFT JOIN claimed cl ON cl.wallet = e.wallet;
 

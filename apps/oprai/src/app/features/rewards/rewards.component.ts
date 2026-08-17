@@ -9,7 +9,7 @@ import { TierBadgeComponent } from './tier-badge.component';
 interface Rewards {
   tier: number;
   volumeUsd: number;
-  cashback: { earnedUsd: number; claimedUsd: number; claimableUsd: number };
+  cashback: { ownUsd: number; referralUsd: number; earnedUsd: number; claimedUsd: number; claimableUsd: number };
   referralCode: string | null;
   referralCount: number;
 }
@@ -100,25 +100,37 @@ const TIERS: TierDef[] = [
           </div>
         </section>
 
-        <!-- CASHBACK -->
+        <!-- REWARDS / CASHBACK -->
         <section class="cashback">
-          <div class="cb-left">
+          <div class="cb-head">
             <div class="cb-ico"><lucide-icon name="hand-coins" [size]="20" /></div>
             <div>
-              <div class="cb-title">Cashback <span class="cb-rate">{{ cashbackPct(d.tier) }}% back</span></div>
-              <div class="cb-sub">You earn {{ cashbackPct(d.tier) }}% of every commission you pay back, credited automatically.</div>
+              <div class="cb-title">Rewards</div>
+              <div class="cb-sub">Cashback on your own trades and your referrals' trades. Withdraw to your wallet in SOL — minimum $5.</div>
             </div>
           </div>
-          <div class="cb-right">
-            <div class="cb-amounts">
-              <div class="cb-amt"><span class="cb-amt-val">{{ d.cashback.claimableUsd | currency:'USD':'symbol':'1.2-2' }}</span><span class="cb-amt-lbl">Claimable</span></div>
-              <div class="cb-amt"><span class="cb-amt-val muted">{{ d.cashback.earnedUsd | currency:'USD':'symbol':'1.2-2' }}</span><span class="cb-amt-lbl">Earned all-time</span></div>
+          <div class="cb-body">
+            <div class="cb-buckets">
+              <div class="cb-bucket">
+                <span class="cb-b-lbl"><lucide-icon name="trending-up" [size]="14" /> Trading cashback <em>{{ cashbackPct(d.tier) }}%</em></span>
+                <span class="cb-b-val">{{ d.cashback.ownUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+              </div>
+              <div class="cb-bucket">
+                <span class="cb-b-lbl"><lucide-icon name="users" [size]="14" /> Referral cashback <em>{{ referralPct(d.tier) }}%</em></span>
+                <span class="cb-b-val">{{ d.cashback.referralUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+              </div>
             </div>
-            <button class="cb-claim" (click)="claim()"
-                    [disabled]="claiming() || d.cashback.claimableUsd < 5"
-                    [title]="d.cashback.claimableUsd < 5 ? 'Minimum claim is $5' : 'Withdraw to your wallet (SOL)'">
-              {{ claiming() ? 'Claiming…' : 'Claim' }}
-            </button>
+            <div class="cb-claimbox">
+              <div class="cb-claimable">
+                <span class="cb-amt-val">{{ d.cashback.claimableUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+                <span class="cb-amt-lbl">Claimable now</span>
+              </div>
+              <button class="cb-claim" (click)="claim()"
+                      [disabled]="claiming() || d.cashback.claimableUsd < 5"
+                      [title]="d.cashback.claimableUsd < 5 ? 'Minimum claim is $5' : 'Withdraw to your wallet (SOL)'">
+                {{ claiming() ? 'Claiming…' : 'Claim' }}
+              </button>
+            </div>
           </div>
           @if (claimMsg()) { <div class="cb-msg" [class.ok]="claimOk()">{{ claimMsg() }}</div> }
         </section>
@@ -231,25 +243,26 @@ const TIERS: TierDef[] = [
     .tile-val { font-size:1.5rem; font-weight:800; color:var(--op-text-primary); line-height:1.1; }
     .tile-lbl { font-size:.78rem; color:var(--op-text-secondary); margin-top:2px; }
 
-    /* CASHBACK */
-    .cashback { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
-      background:linear-gradient(135deg, rgba(34,197,94,.12), rgba(6,182,212,.08)); border:1px solid var(--op-border, rgba(255,255,255,.08));
+    /* REWARDS / CASHBACK */
+    .cashback { background:linear-gradient(135deg, rgba(34,197,94,.12), rgba(6,182,212,.08)); border:1px solid var(--op-border, rgba(255,255,255,.08));
       border-radius:18px; padding:18px 20px; margin-bottom:16px; }
-    .cb-left { display:flex; align-items:center; gap:14px; min-width:240px; }
+    .cb-head { display:flex; align-items:center; gap:14px; margin-bottom:16px; }
     .cb-ico { width:42px; height:42px; border-radius:12px; flex:none; display:grid; place-items:center; color:#22c55e; background:color-mix(in srgb, #22c55e 16%, transparent); }
-    .cb-title { font-size:1.02rem; font-weight:700; color:var(--op-text-primary); display:flex; align-items:center; gap:8px; }
-    .cb-rate { font-size:.72rem; font-weight:700; color:#22c55e; background:color-mix(in srgb, #22c55e 16%, transparent); padding:2px 8px; border-radius:999px; }
-    .cb-sub { font-size:.82rem; color:var(--op-text-secondary); margin-top:2px; max-width:420px; }
-    .cb-right { display:flex; align-items:center; gap:18px; }
-    .cb-amounts { display:flex; gap:20px; }
-    .cb-amt { display:flex; flex-direction:column; }
-    .cb-amt-val { font-size:1.3rem; font-weight:800; color:var(--op-text-primary); line-height:1.1; }
-    .cb-amt-val.muted { color:var(--op-text-secondary); font-weight:700; }
+    .cb-title { font-size:1.05rem; font-weight:700; color:var(--op-text-primary); }
+    .cb-sub { font-size:.82rem; color:var(--op-text-secondary); margin-top:2px; max-width:520px; }
+    .cb-body { display:flex; align-items:stretch; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+    .cb-buckets { display:flex; gap:12px; flex:1; min-width:260px; }
+    .cb-bucket { flex:1; background:var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+    .cb-b-lbl { display:flex; align-items:center; gap:6px; font-size:.76rem; color:var(--op-text-secondary); }
+    .cb-b-lbl em { font-style:normal; font-weight:700; color:#22c55e; }
+    .cb-b-val { font-size:1.25rem; font-weight:800; color:var(--op-text-primary); }
+    .cb-claimbox { display:flex; align-items:center; gap:16px; background:var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:12px; padding:12px 16px; }
+    .cb-claimable { display:flex; flex-direction:column; }
+    .cb-amt-val { font-size:1.5rem; font-weight:800; color:var(--op-text-primary); line-height:1.1; }
     .cb-amt-lbl { font-size:.72rem; color:var(--op-text-secondary); }
-    .cb-claim { display:inline-flex; align-items:center; gap:6px; background:linear-gradient(90deg,#22c55e,#06b6d4); color:#fff; border:0; border-radius:10px; padding:10px 18px; font-weight:700; font-size:.9rem; cursor:pointer; }
-    .cb-claim:disabled { opacity:.55; cursor:not-allowed; }
-    .cb-soon { font-size:.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; background:rgba(255,255,255,.25); padding:1px 6px; border-radius:6px; }
-    .cb-msg { width:100%; font-size:.82rem; margin-top:4px; color:#ef4444; }
+    .cb-claim { display:inline-flex; align-items:center; gap:6px; background:linear-gradient(90deg,#22c55e,#06b6d4); color:#fff; border:0; border-radius:10px; padding:11px 22px; font-weight:700; font-size:.92rem; cursor:pointer; }
+    .cb-claim:disabled { opacity:.5; cursor:not-allowed; }
+    .cb-msg { font-size:.82rem; margin-top:10px; color:#ef4444; }
     .cb-msg.ok { color:#22c55e; }
     @media (max-width:640px){ .cb-right { width:100%; justify-content:space-between; } }
 
