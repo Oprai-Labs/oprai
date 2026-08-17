@@ -1,0 +1,10 @@
+# https://www.rfc-editor.org/rfc/rfc9116
+#
+# OPRAI moves money on-chain. If you find something, we would rather hear it
+# from you than from a user.
+
+Contact: https://github.com/Oprai-Labs/oprai/security/advisories/new
+Contact: https://x.com/opaborai
+Expires: 2027-08-17T00:00:00.000Z
+Preferred-Languages: en, tr
+Canonical: https://app.oprai.xyz/.well-known/security.txt

@@ -7,9 +7,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="OPRAI transforms natural language into on-chain Solana actions. Swap, stake, transfer, and launch tokens through conversation."
+      content="OPRAI turns plain language into on-chain actions — swap, stake, lend, bridge, launch a token — and hands each one to your wallet to sign. Your keys never leave your wallet."
     />
     <meta name="theme-color" content="#f0f2f5" />
+
+    <!-- Open Graph / Twitter. Not vanity: automated reviewers — wallet
+         reputation scanners included — read a page before a human does, and
+         a domain with no description, no image and no canonical URL looks
+         like a template stood up an hour ago. This is what they read. -->
+    <link rel="canonical" href="https://app.oprai.xyz/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="OPRAI" />
+    <meta property="og:url" content="https://app.oprai.xyz/" />
+    <meta property="og:title" content="OPRAI — talk to your wallet" />
+    <meta
+      property="og:description"
+      content="Turn plain language into on-chain actions across Solana, Ethereum and beyond. Every transaction is built for you and signed by your own wallet."
+    />
+    <meta property="og:image" content="https://app.oprai.xyz/oprai-social-card.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@opaborai" />
+    <meta name="twitter:title" content="OPRAI — talk to your wallet" />
+    <meta
+      name="twitter:description"
+      content="Turn plain language into on-chain actions across Solana, Ethereum and beyond. Every transaction is built for you and signed by your own wallet."
+    />
+    <meta name="twitter:image" content="https://app.oprai.xyz/oprai-social-card.png" />
     <!-- SVG first: it carries a prefers-color-scheme rule, so the mark is dark
          ink on a light tab strip and white on a dark one. A raster favicon
          cannot do that — solid black simply disappears in dark mode. -->
@@ -25,8 +50,24 @@
   </head>
   <body>
     <app-root></app-root>
+    <!-- Without JavaScript this page used to say only "please enable
+         JavaScript" — a blank shell to every crawler and automated reviewer
+         that fetches it, and indistinguishable from a drainer template. What
+         the product is belongs here, in text, not only in a bundle. -->
     <noscript>
-      <p>Please enable JavaScript to use OPRAI.</p>
+      <h1>OPRAI — talk to your wallet</h1>
+      <p>
+        OPRAI turns plain language into on-chain actions — swap, stake, lend,
+        bridge, launch a token — across Solana, Ethereum, Base, Arbitrum and
+        more. Every transaction is built for you and signed by your own wallet;
+        your keys never leave it, and nothing is submitted that you have not
+        approved.
+      </p>
+      <p>
+        The app needs JavaScript to run. Learn more at
+        <a href="https://oprai.xyz">oprai.xyz</a>, or read the source at
+        <a href="https://github.com/Oprai-Labs/oprai">github.com/Oprai-Labs/oprai</a>.
+      </p>
     </noscript>
   </body>
 </html>

@@ -1,0 +1,16 @@
+# app.oprai.xyz — the OPRAI web app.
+#
+# Not here for SEO. Automated reviewers (wallet reputation scanners among
+# them) fetch this first, and a domain that answers every URL with the same
+# contentless SPA shell and has no robots.txt at all reads like a template
+# someone stood up an hour ago. It is worth the four lines.
+
+User-agent: *
+Allow: /
+
+# Shared conversations are meant to be opened by whoever holds the link, not
+# indexed. They are unlisted by design — a crawler enumerating them would
+# defeat the point of an unguessable token.
+Disallow: /share/
+
+Sitemap: https://oprai.xyz/sitemap.xml
