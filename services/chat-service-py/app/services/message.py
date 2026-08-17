@@ -1419,7 +1419,12 @@ async def stream_chat_response(
     # off the critical path vs. running summarize first then the other two.
     # Note: build_llm_context fetches summaries from DB; if summarization just
     # wrote a new one it will be visible (same DB session, flush happened above).
-    from app.services.intent_router import IntentRouter, filter_tools_by_intent
+    from app.services.intent_router import (
+        IntentRouter,
+        filter_tools_by_intent,
+        named_protocols,
+        protocols_from_emitted_types,
+    )
 
     async def _rag_prefetch() -> str | None:
         if not settings.KNOWLEDGE_RAG_ENABLED or not safe_content:
@@ -1447,6 +1452,43 @@ async def stream_chat_response(
         except Exception:
             logger.warning("maybe_create_summary failed — continuing without summary", exc_info=True)
 
+    async def _last_turn_emitted_types(_db, _sid) -> list[str]:
+        """Action / query types the previous assistant turn put on screen.
+
+        Best-effort: a failure here must never cost the user their turn, so it
+        returns nothing and the classifier's own answer stands.
+        """
+        try:
+            from sqlalchemy import text as _sql
+            rows = (await _db.execute(_sql(
+                f"""
+                SELECT metadata FROM {settings.DB_SCHEMA}.chat_messages
+                 WHERE session_id = :sid AND role = 'assistant'
+                 ORDER BY created_at DESC LIMIT 4
+                """
+            ), {"sid": str(_sid)})).scalars().all()
+            # Walk back, not just one turn. The turn immediately before this
+            # one is often a protocol-free read — a balance lookup answering
+            # "which of my tokens can I use" — and stopping there loses the
+            # Raydium flow that the turn before it established. Take the most
+            # recent turn that names a protocol at all.
+            for row in rows:
+                meta = row or {}
+                out: list[str] = []
+                for key in ("actions", "queries"):
+                    for item in (meta.get(key) or []):
+                        if isinstance(item, dict) and item.get("type"):
+                            out.append(str(item["type"]))
+                for c in (meta.get("clarifications") or []):
+                    for opt in ((c or {}).get("options") or []):
+                        if isinstance(opt, dict) and opt.get("action"):
+                            out.append(str(opt["action"]))
+                if protocols_from_emitted_types(out):
+                    return out
+            return []
+        except Exception:
+            return []
+
     recent_context = await _build_recent_context_from_db(db, session_id)
     _log_turn("classify_start")
     _, intent_result, prefetched_knowledge = await asyncio.gather(
@@ -1468,7 +1510,29 @@ async def stream_chat_response(
     if _explicit:
         _all_protocols = sorted(_explicit)
     else:
-        _all_protocols = sorted(set(intent_result.protocols))
+        _inferred = set(intent_result.protocols)
+        # Carry the protocol the conversation is already inside.
+        #
+        # The classifier sees the history and is told to keep it, and does not
+        # reliably: mid-way through choosing a Raydium CLMM pair, "sol msol
+        # açalım" — picking the SOL/mSOL pair it had just offered — came back
+        # as `marinade`. The tool list is built from this set, so Raydium's
+        # action was not merely deprioritised, it was never offered, and the
+        # only thing the model could answer with was a Marinade staking card.
+        #
+        # Only when the user named no protocol themselves: naming one is them
+        # changing the subject, and that is theirs to do. Union, never replace
+        # — carrying a stale protocol alongside a fresh one costs a slightly
+        # wider tool list; dropping the live one costs the action.
+        if not named_protocols(user_content):
+            _carried = protocols_from_emitted_types(
+                await _last_turn_emitted_types(db, session_id)
+            )
+            if _carried - _inferred:
+                _log_turn("protocol_carried_forward",
+                          inferred=sorted(_inferred), carried=sorted(_carried))
+            _inferred |= _carried
+        _all_protocols = sorted(_inferred)
     _log_turn("classified",
               intent=intent_result.intent,
               confidence=intent_result.confidence,

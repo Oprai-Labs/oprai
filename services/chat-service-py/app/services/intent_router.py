@@ -75,8 +75,8 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "orca":      ("orca", "whirlpool"),
     "jupiter":   ("jupiter", "juplend", "jup lend", "jup earn"),
     "kamino":    ("kamino", "klend", "k-lend", "kswap"),
-    "jito":      ("jito", "jitosol"),
-    "marinade":  ("marinade", "msol"),
+    "jito":      ("jito",),
+    "marinade":  ("marinade",),
     "pumpfun":   ("pumpfun", "pump.fun", "pumpswap", "mayhem"),
     "magic_eden":("magiceden", "magic eden", "mmm pool"),
     "tensor":    ("tensor", "tensorians"),
@@ -85,6 +85,23 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     # semantically by the classifier (see the cross-chain rule in the prompt).
     "relay":     ("relay.link", "relay bridge", "wormhole", "mayan"),
     "debridge":  ("debridge",),
+}
+
+
+# Token symbols that BELONG to a protocol without naming it. Deliberately not
+# in the table above, because the two are not the same claim: "marinade" is the
+# user choosing a venue, "mSOL" is the user naming an asset. Treating the
+# second as the first is how a Raydium pool-selection flow, answered with the
+# pair "SOL/mSOL", turned into a Marinade staking card — the token displaced
+# the protocol the user was already inside, the tool list narrowed to Marinade,
+# and the action they were halfway through stopped being offerable at all.
+#
+# These still route a cold start ("convert my SOL to mSOL" with no history),
+# but only when nothing else has established a protocol.
+_TOKEN_PROTOCOL_HINTS: dict[str, tuple[str, ...]] = {
+    "marinade": ("msol",),
+    "jito":     ("jitosol",),
+    "jupiter":  ("jupsol",),
 }
 
 
@@ -120,6 +137,14 @@ def _augment_protocols_from_keywords(
             continue
         if any(_kw_regex(kw).search(msg) for kw in keywords):
             augmented.add(proto)
+
+    # Token hints are the weak signal and only speak when nobody else has:
+    # naming an asset picks a venue only if no venue is on the table yet.
+    if not augmented:
+        for proto, symbols in _TOKEN_PROTOCOL_HINTS.items():
+            if any(_kw_regex(sym).search(msg) for sym in symbols):
+                augmented.add(proto)
+
     return tuple(sorted(augmented))
 
 
@@ -140,6 +165,33 @@ def named_protocols(msg: str) -> frozenset[str]:
         for proto, keywords in _PROTOCOL_KEYWORDS.items()
         if any(_kw_regex(kw).search(msg) for kw in keywords)
     )
+
+
+def protocols_from_emitted_types(types: "list[str] | tuple[str, ...]") -> frozenset[str]:
+    """Protocols implied by the action / query types a previous turn emitted.
+
+    Types are named `<protocol>_<what>` (`raydium_open_position`,
+    `meteora_dlmm_get_pairs`), so the prefix IS the protocol — no second
+    keyword table, and a type that does not start with a known id (`balance`,
+    `swap`) simply contributes nothing.
+
+    Used to carry an established protocol into the next turn. The classifier
+    sees the conversation and is supposed to keep it, and does not reliably:
+    told "SOL/mSOL" inside a Raydium flow it answered `marinade`, dropping
+    Raydium entirely — and since the tool list is built from what it returns,
+    `raydium_open_position` was never offered to the model at all.
+    """
+    if not types:
+        return frozenset()
+    known = set(_PROTOCOL_KEYWORDS)
+    found = set()
+    for t in types:
+        name = str(t or "")
+        for proto in known:
+            if name.startswith(proto + "_"):
+                found.add(proto)
+                break
+    return frozenset(found)
 
 
 @dataclass(frozen=True)
@@ -227,6 +279,19 @@ Detection rules:
   it back: "DLMM" / "DAMM" / "m3m3" / "stake2earn" → meteora; "Whirlpool" →
   orca; "CLMM" → raydium; "K-Lend" / "kvault" / "kswap" → kamino; "MMM" →
   magic_eden; "jupSOL" → jupiter; "mSOL" → marinade; "jitoSOL" → jito.
+  Those token mappings hold when the TOKEN is the subject ("convert my SOL to
+  mSOL"). They do not override an in-flight flow — see the next rule.
+- An in-flight flow keeps its protocol. When earlier turns established one —
+  the user asked for it, or you offered options belonging to it — the next
+  message continues that flow unless the user names a DIFFERENT protocol. A
+  message that only names tokens is ANSWERING the question you just asked, not
+  starting a new subject: "SOL/mSOL" inside a pool-selection flow picks the
+  pair, it does not request liquid staking. Keep the established protocol; add
+  another only when the user actually named one.
+  Dropping it is the expensive mistake, because the tool list narrows to
+  whatever you emit here — so the action the user was in the middle of stops
+  being offerable at all, and the model can only answer with a different
+  protocol's action. Emitting both costs nothing by comparison.
 - Cross-chain detection: this is a Solana-native app, so any mention of a
   non-Solana chain (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC,
   Avalanche, Linea, Scroll, zkSync, Celo, Fantom, Polygon zkEVM, Arbitrum
