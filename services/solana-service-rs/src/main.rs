@@ -188,6 +188,7 @@ async fn main() -> anyhow::Result<()> {
                     .service(routes::actions::post_quote)
                     .service(routes::actions::post_cross_chain_quote)
                     .service(routes::actions::post_build)
+                    .service(routes::actions::post_cashback_payout)
                     .service(routes::actions::post_perp_execute)
                     .service(routes::actions::post_vanity_mint)
                     .service(routes::actions::post_simulate)

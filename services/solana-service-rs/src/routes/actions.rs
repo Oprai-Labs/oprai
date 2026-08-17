@@ -726,6 +726,34 @@ fn default_protocol_for_action(action: &str) -> Option<String> {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CashbackPayoutBody {
+    #[serde(rename = "amountUsd")]
+    pub amount_usd: f64,
+}
+
+/// Pay cashback out to the caller's wallet from the treasury. INTERNAL ONLY —
+/// this route is not exposed through the gateway; chat-service calls it directly
+/// (X-Internal-Api-Key) after it has verified the claimable amount server-side.
+/// solana-service is the only service that can sign the treasury transfer.
+#[post("/cashback-payout")]
+pub async fn post_cashback_payout(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<CashbackPayoutBody>,
+) -> Result<HttpResponse, AppError> {
+    let wallet = wallet_from_req(&req)?;
+    if !(body.amount_usd >= crate::services::cashback::MIN_CLAIM_USD) {
+        return Err(AppError::InvalidParams(format!(
+            "Minimum claim is ${:.2}.",
+            crate::services::cashback::MIN_CLAIM_USD
+        )));
+    }
+    let signature =
+        crate::services::cashback::payout_sol(&state.http, &wallet, body.amount_usd).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "signature": signature })))
+}
+
 #[post("")]
 pub async fn create_transaction(
     req: HttpRequest,

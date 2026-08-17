@@ -271,6 +271,12 @@ func (p *ChatProxy) RedeemReferral(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// ClaimCashback proxies POST /me/cashback/claim to chat-service.
+func (p *ChatProxy) ClaimCashback(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/me/cashback/claim"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // StreamChat proxies GET /chat/stream
 func (p *ChatProxy) StreamChat(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/chat/stream"
