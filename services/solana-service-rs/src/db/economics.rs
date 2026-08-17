@@ -179,6 +179,34 @@ pub async fn finalize_confirmed(
     }
 }
 
+/// A wallet's lifetime confirmed volume in USD (0 if it has never traded).
+///
+/// This is server-owned data (`solana_schema`, written only by the on-chain
+/// confirm path), so it is safe to read directly and safe to trust — it is what
+/// the fee-discount tier is computed from. A DB miss returns 0, i.e. no
+/// discount, which is the correct fail-safe.
+pub async fn wallet_volume_usd(pool: &DbPool, wallet: &str) -> f64 {
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Double)]
+        v: f64,
+    }
+    let mut conn = match pool.get().await {
+        Ok(c) => c,
+        Err(_) => return 0.0,
+    };
+    diesel::sql_query(
+        r#"SELECT COALESCE(lifetime_notional_usd, 0)::double precision AS v
+           FROM solana_schema.wallet_economics_rollup
+           WHERE user_wallet = $1"#,
+    )
+    .bind::<Text, _>(wallet)
+    .get_result::<Row>(&mut conn)
+    .await
+    .map(|r| r.v)
+    .unwrap_or(0.0)
+}
+
 /// Finalize a failed/cancelled transaction — marks the ledger row (kept as
 /// "attempted" for funnel/conversion) without touching the confirmed rollups.
 pub async fn finalize_other(pool: &DbPool, transaction_id: Uuid, outcome: &str) {

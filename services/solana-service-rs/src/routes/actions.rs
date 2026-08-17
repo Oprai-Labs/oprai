@@ -105,6 +105,13 @@ pub async fn post_quote(
     )
     .await?;
 
+    // The caller's tier fee discount, from their on-chain lifetime volume. Set
+    // server-side so the quoted fee matches what the build will charge; a client
+    // cannot influence it (the field is `#[serde(skip)]`).
+    let fee_discount_pct = crate::services::fees::fee_discount_pct_for_volume(
+        crate::db::economics::wallet_volume_usd(&state.pool, &wallet).await,
+    );
+
     let params = swap::SwapParams {
         // Forward the caller's venue filter so a venue-scoped preview is
         // quoted through the same DEX the action will execute on.
@@ -117,6 +124,7 @@ pub async fn post_quote(
         swap_mode: body.swap_mode.clone(),
         priority_fee: None,
         restrict_intermediate_tokens: body.restrict_intermediate_tokens,
+        fee_discount_pct,
     };
 
     let quote = swap::get_swap_quote(&state.http, state.jupiter_api_key.as_deref(), &params).await
@@ -473,6 +481,12 @@ pub async fn post_build(
         .parse()
         .map_err(|_| AppError::InvalidParams("Invalid wallet address".into()))?;
 
+    // Tier fee discount from the wallet's on-chain lifetime volume — applied to
+    // the swap builder so the built (charged) fee matches the quoted one.
+    let fee_discount_pct = crate::services::fees::fee_discount_pct_for_volume(
+        crate::db::economics::wallet_volume_usd(&state.pool, &wallet).await,
+    );
+
     let result = builder::build_action(
         &state.http,
         &state.rpc,
@@ -483,6 +497,7 @@ pub async fn post_build(
         &user_pubkey,
         &body.action_type,
         params,
+        fee_discount_pct,
     )
     .await
     .map_err(|e| {
