@@ -531,6 +531,7 @@ pub async fn build_perp_liquidity_transaction(
         swap_mode: Some("ExactIn".to_string()),
         priority_fee: None,
         restrict_intermediate_tokens: None,
+        fee_discount_pct: 0,
     };
 
     let result =

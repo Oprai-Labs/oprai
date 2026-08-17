@@ -1303,7 +1303,7 @@ async fn ensure_jupiter_sol_fee_account(
 /// better than its floor, the difference stays with the seller.
 fn oprai_sell_fee_ix(seller: &Pubkey, min_sol_output: u64) -> Option<Instruction> {
     let wallet = crate::services::fees::fee_wallet()?;
-    let fee = crate::services::fees::pumpfun_fee_lamports(min_sol_output);
+    let fee = crate::services::fees::pumpfun_fee_lamports(min_sol_output, 0);
     if fee == 0 {
         return None;
     }
@@ -1376,7 +1376,7 @@ fn parse_requested_lamports(params: &PumpFunTradeParams) -> u64 {
 /// pre-commission behaviour exactly.
 fn oprai_fee_transfer_ix(payer: &Pubkey, requested_lamports: u64) -> Option<Instruction> {
     let wallet = crate::services::fees::fee_wallet()?;
-    let fee = crate::services::fees::pumpfun_fee_lamports(requested_lamports);
+    let fee = crate::services::fees::pumpfun_fee_lamports(requested_lamports, 0);
     if fee == 0 {
         return None;
     }
@@ -1912,7 +1912,7 @@ fn parse_buy_amounts_with_fee(
         // frontend's spend guard. Taking it from inside keeps the total the
         // user agreed to exactly what they see.
         let sol_lamports =
-            requested.saturating_sub(crate::services::fees::pumpfun_fee_lamports(requested));
+            requested.saturating_sub(crate::services::fees::pumpfun_fee_lamports(requested, 0));
         // Use real pool reserves (k-invariant): tokens_out = v_tok * sol_in / (v_sol + sol_in)
         let tokens = if v_sol > 0 && v_tok > 0 {
             ((v_tok as u128 * sol_lamports as u128) / (v_sol as u128 + sol_lamports as u128)) as u64

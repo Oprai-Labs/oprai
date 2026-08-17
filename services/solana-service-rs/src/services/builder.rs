@@ -3096,6 +3096,7 @@ pub async fn build_action(
     user_pubkey: &Pubkey,
     action_type: &str,
     params: serde_json::Value,
+    fee_discount_pct: u16,
 ) -> Result<BuildResponse, AppError> {
     let mut built = build_action_inner(
         http,
@@ -3107,6 +3108,7 @@ pub async fn build_action(
         user_pubkey,
         action_type,
         params,
+        fee_discount_pct,
     )
     .await?;
     built.transaction = built.transaction;
@@ -3127,6 +3129,7 @@ async fn build_action_inner(
     user_pubkey: &Pubkey,
     action_type: &str,
     params: serde_json::Value,
+    fee_discount_pct: u16,
 ) -> Result<BuildResponse, AppError> {
     // Magic Eden writes may arrive naming an NFT by collection and number; the
     // mint is resolved at the route, before validation, since validation is
@@ -3182,7 +3185,10 @@ async fn build_action_inner(
             })
         }
         "swap" => {
-            let p: swap::SwapParams = serde_json::from_value(params)?;
+            let mut p: swap::SwapParams = serde_json::from_value(params)?;
+            // Tier fee discount, resolved server-side at the route (the field is
+            // #[serde(skip)], so this is the only way it gets set).
+            p.fee_discount_pct = fee_discount_pct;
             let result =
                 swap::build_swap_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &p)
                     .await?;

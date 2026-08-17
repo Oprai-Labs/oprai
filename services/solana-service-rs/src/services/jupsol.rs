@@ -58,6 +58,7 @@ pub async fn build_jupsol_stake_transaction(
         swap_mode: None,
         priority_fee: None,
         restrict_intermediate_tokens: None,
+        fee_discount_pct: 0,
     };
 
     let result = build_swap_transaction(http, jupiter_api_key, user_pubkey, &swap_params).await?;
@@ -109,6 +110,7 @@ pub async fn build_jupsol_unstake_transaction(
         swap_mode: None,
         priority_fee: None,
         restrict_intermediate_tokens: None,
+        fee_discount_pct: 0,
     };
 
     let result = build_swap_transaction(http, jupiter_api_key, user_pubkey, &swap_params).await?;

@@ -100,6 +100,12 @@ pub struct SwapParams {
     /// Restrict intermediate tokens to a safe list (reduces routing complexity, lowers MEV risk).
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub restrict_intermediate_tokens: Option<bool>,
+    /// The caller's tier fee discount (percent off the base rate). SERVER-SET
+    /// only — `#[serde(skip)]` keeps it off the wire so a client cannot grant
+    /// itself a discount; the route handlers set it from the wallet's on-chain
+    /// volume. Defaults to 0 (no discount) everywhere it is not set.
+    #[serde(skip)]
+    pub fee_discount_pct: u16,
 }
 
 /// Swap quote returned by Jupiter (partial -- we preserve the full JSON too).
@@ -403,7 +409,10 @@ async fn get_swap_quote_with_fee(
     quote.oprai_fee_bps = Some(if declared_fee_bps > 0 {
         declared_fee_bps
     } else if sol_side_fee_lamports(params, &quote).is_some() {
-        fees::swap_fee_bps(&input_mint, &output_mint)
+        fees::discounted_bps(
+            fees::swap_fee_bps(&input_mint, &output_mint),
+            params.fee_discount_pct,
+        )
     } else {
         0
     });
@@ -431,7 +440,7 @@ async fn platform_fee_bps_for(params: &SwapParams, swap_mode: &str) -> u16 {
     {
         return 0;
     }
-    fees::swap_fee_bps(&input, &output)
+    fees::discounted_bps(fees::swap_fee_bps(&input, &output), params.fee_discount_pct)
 }
 
 async fn fee_account_for(params: &SwapParams, swap_mode: &str) -> Option<(String, String)> {
@@ -452,7 +461,8 @@ async fn fee_account_for(params: &SwapParams, swap_mode: &str) -> Option<(String
 fn sol_side_fee_lamports(params: &SwapParams, quote: &SwapQuote) -> Option<u64> {
     let input = resolve_token_address(&params.input_mint);
     let output = resolve_token_address(&params.output_mint);
-    let bps = fees::swap_fee_bps(&input, &output) as u64;
+    let bps =
+        fees::discounted_bps(fees::swap_fee_bps(&input, &output), params.fee_discount_pct) as u64;
     if bps == 0 {
         return None;
     }
@@ -503,7 +513,8 @@ fn sol_input_fee_split(params: &SwapParams, taking_sol_fee: bool) -> Option<(Swa
         return None;
     }
     let output = resolve_token_address(&params.output_mint);
-    let bps = fees::swap_fee_bps(&input, &output) as u64;
+    let bps =
+        fees::discounted_bps(fees::swap_fee_bps(&input, &output), params.fee_discount_pct) as u64;
     if bps == 0 {
         return None;
     }

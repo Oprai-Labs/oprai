@@ -120,6 +120,56 @@ fn is_standard(mint: &str) -> bool {
     is_stable(m) || STANDARD_MINTS.iter().any(|s| s.eq_ignore_ascii_case(m))
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Tier fee discount
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// A wallet's lifetime traded volume sets its tier, and higher tiers pay a lower
+// commission — the loyalty model every Solana trading bot runs. The discount is
+// a percentage off the base rate, so it composes with the memecoin/standard/
+// stable tiers instead of replacing them: a Gold (10% off) memecoin trade pays
+// 45 bps, a Gold standard trade pays 18 bps, a stable pair still pays nothing.
+//
+// The thresholds and percentages mirror `analytics_schema.tier_config` and the
+// frontend tier ladder. They are duplicated here on purpose: solana-service owns
+// `solana_schema` and must not read `analytics_schema` (scoped-role isolation),
+// so the three copies are kept in sync by hand. Keep them identical.
+
+/// Cumulative-volume floor (USD) for tiers 1..=6.
+pub const TIER_MIN_VOLUME_USD: [f64; 6] = [0.0, 1_000.0, 10_000.0, 50_000.0, 250_000.0, 1_000_000.0];
+
+/// Percent off the base fee for tiers 1..=6.
+pub const TIER_FEE_DISCOUNT_PCT: [u16; 6] = [0, 5, 10, 15, 20, 25];
+
+/// The tier (1..=6) for a lifetime volume.
+pub fn tier_for_volume(volume_usd: f64) -> u8 {
+    let mut tier = 1u8;
+    for (i, &min) in TIER_MIN_VOLUME_USD.iter().enumerate() {
+        if volume_usd >= min {
+            tier = (i + 1) as u8;
+        }
+    }
+    tier
+}
+
+/// The fee discount (percent) for a tier, clamped to the valid range.
+pub fn tier_fee_discount_pct(tier: u8) -> u16 {
+    let idx = (tier.clamp(1, 6) - 1) as usize;
+    TIER_FEE_DISCOUNT_PCT[idx]
+}
+
+/// The fee discount (percent) a wallet has earned through its lifetime volume.
+pub fn fee_discount_pct_for_volume(volume_usd: f64) -> u16 {
+    tier_fee_discount_pct(tier_for_volume(volume_usd))
+}
+
+/// Apply a discount (percent off) to a base rate in bps. Rounds down — always in
+/// the user's favour, and never below zero.
+pub fn discounted_bps(base_bps: u16, discount_pct: u16) -> u16 {
+    let d = discount_pct.min(100) as u32;
+    ((base_bps as u32) * (100 - d) / 100) as u16
+}
+
 /// The commission on a swap, in basis points.
 pub fn swap_fee_bps(input_mint: &str, output_mint: &str) -> u16 {
     if fee_wallet().is_none() {
@@ -277,11 +327,12 @@ pub fn ensure_fee_account_ix(payer: &Pubkey, mint: &Pubkey) -> Option<Instructio
 /// protocol's fee plumbing, because pump.fun has none for third parties — and
 /// SOL needs no token account, so this path can never be skipped for a missing
 /// ATA the way the Jupiter one can.
-pub fn pumpfun_fee_lamports(trade_lamports: u64) -> u64 {
+pub fn pumpfun_fee_lamports(trade_lamports: u64, discount_pct: u16) -> u64 {
     if fee_wallet().is_none() {
         return 0;
     }
-    trade_lamports.saturating_mul(PUMPFUN_BPS as u64) / 10_000
+    let bps = discounted_bps(PUMPFUN_BPS, discount_pct) as u64;
+    trade_lamports.saturating_mul(bps) / 10_000
 }
 
 #[cfg(test)]
@@ -293,8 +344,34 @@ mod tests {
         // The env var is unset in tests, which is the point: every rate must
         // fall to zero rather than quietly charging into the void.
         assert_eq!(swap_fee_bps(WSOL_MINT, USDC_MINT), 0);
-        assert_eq!(pumpfun_fee_lamports(1_000_000_000), 0);
+        assert_eq!(pumpfun_fee_lamports(1_000_000_000, 0), 0);
         assert!(fee_token_account(&Pubkey::new_unique()).is_none());
+    }
+
+    #[test]
+    fn tier_thresholds_map_to_the_right_tier() {
+        assert_eq!(tier_for_volume(0.0), 1);
+        assert_eq!(tier_for_volume(999.0), 1);
+        assert_eq!(tier_for_volume(1_000.0), 2);
+        assert_eq!(tier_for_volume(9_999.0), 2);
+        assert_eq!(tier_for_volume(10_000.0), 3);
+        assert_eq!(tier_for_volume(50_000.0), 4);
+        assert_eq!(tier_for_volume(250_000.0), 5);
+        assert_eq!(tier_for_volume(1_000_000.0), 6);
+        assert_eq!(tier_for_volume(50_000_000.0), 6);
+    }
+
+    #[test]
+    fn discount_composes_with_the_base_rate() {
+        // Percent off the base, rounded down (in the user's favour).
+        assert_eq!(discounted_bps(MEMECOIN_BPS, 0), 50);
+        assert_eq!(discounted_bps(MEMECOIN_BPS, 10), 45); // Gold
+        assert_eq!(discounted_bps(MEMECOIN_BPS, 25), 37); // Legend (50*0.75=37.5 -> 37)
+        assert_eq!(discounted_bps(STANDARD_BPS, 10), 18); // 20*0.9
+        assert_eq!(discounted_bps(STABLE_PAIR_BPS, 25), 0); // free stays free
+        // Discount tied to volume: a Legend wallet on a memecoin trade.
+        assert_eq!(fee_discount_pct_for_volume(2_000_000.0), 25);
+        assert_eq!(fee_discount_pct_for_volume(0.0), 0);
     }
 
     #[test]
