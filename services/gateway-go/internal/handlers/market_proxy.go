@@ -2062,10 +2062,15 @@ type rpcEndpoint struct {
 func (m *MarketProxy) rpcChain() []rpcEndpoint {
 	chain := make([]rpcEndpoint, 0, 3)
 	if m.heliusAPIKey != "" {
+		// Helius reads the key from the query string only. Carrying it as a
+		// Bearer token (which is what `authToken` does) earns a 401 on every
+		// call, silently demoting the whole chain to the public endpoint until
+		// that rate-limits too. heliusRPCURL is the one place that gets this
+		// right — see the note above it; this chain predated that fix and kept
+		// its own broken copy.
 		chain = append(chain, rpcEndpoint{
-			url:       "https://mainnet.helius-rpc.com",
-			authToken: m.heliusAPIKey,
-			label:     "helius",
+			url:   heliusRPCURL(m.heliusAPIKey),
+			label: "helius",
 		})
 	}
 	if extra := os.Getenv("OPRAI_RPC_FALLBACKS"); extra != "" {
