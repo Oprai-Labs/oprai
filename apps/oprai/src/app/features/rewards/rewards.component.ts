@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { ApiService } from '../../core/services/api.service';
+import { AnalyticsService } from '../../core/services/analytics.service';
 import { TierBadgeComponent } from './tier-badge.component';
 
 interface Rewards {
@@ -277,6 +278,7 @@ const TIERS: TierDef[] = [
 })
 export class RewardsComponent implements OnInit {
   private api = inject(ApiService);
+  private analytics = inject(AnalyticsService);
 
   tiers = TIERS;
   data = signal<Rewards | null>(null);
@@ -315,6 +317,7 @@ export class RewardsComponent implements OnInit {
     this.api.post<{ ok: boolean; linked: boolean }>('/referral/redeem', { code: c }).subscribe({
       next: (r) => {
         this.redeemOk.set(!!r.linked);
+        this.analytics.featureUsed('referral_redeem', { linked: !!r.linked });
         this.redeemMsg.set(r.linked ? 'Referral linked — welcome aboard!' : 'You already have a referrer.');
         this.code = '';
         this.redeeming.set(false);
@@ -341,10 +344,12 @@ export class RewardsComponent implements OnInit {
     if (!text) return;
     navigator.clipboard?.writeText(text);
     this.copied.set(which);
+    this.analytics.featureUsed('referral_copy', { which });
     setTimeout(() => this.copied.set(null), 1500);
   }
 
   share(d: Rewards): void {
+    this.analytics.featureUsed('referral_share');
     (navigator as any).share?.({
       title: 'OPRAI',
       text: 'Trade Solana with OPRAI, the DeFi AI assistant. Use my invite:',

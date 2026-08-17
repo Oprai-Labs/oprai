@@ -1,10 +1,11 @@
 import { Component, OnInit, OnDestroy, inject, effect, signal, untracked } from '@angular/core';
-import { Router, RouterOutlet } from '@angular/router';
-import { Subscription } from 'rxjs';
+import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
+import { Subscription, filter } from 'rxjs';
 import { ThemeService } from './core/services/theme.service';
 import { WalletService } from './core/services/wallet.service';
 import { AuthService } from './core/services/auth.service';
 import { AppVersionService } from './core/services/app-version.service';
+import { AnalyticsService } from './core/services/analytics.service';
 
 @Component({
   selector: 'app-root',
@@ -18,8 +19,11 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
   private readonly appVersion = inject(AppVersionService);
+  private readonly analytics = inject(AnalyticsService);
 
   private accountChangedSub?: Subscription;
+  private routerSub?: Subscription;
+  private _appOpenSent = false;
 
   // Set true after the initial cookie-restore + auto-connect finish, so the
   // auto-auth effect below doesn't fire a signature prompt before the silent
@@ -43,7 +47,15 @@ export class AppComponent implements OnInit, OnDestroy {
       const authed = this.authService.isAuthenticated();
       const authenticating = this.authService.authenticating();
 
-      if (authed) { this._lastAutoAuthKey = null; return; }
+      if (authed) {
+        this._lastAutoAuthKey = null;
+        // app_open — once, the first time we're authenticated this load.
+        if (!this._appOpenSent) {
+          this._appOpenSent = true;
+          untracked(() => this.analytics.appOpen());
+        }
+        return;
+      }
       if (!connected || !key) { this._lastAutoAuthKey = null; return; }
       if (!this._bootDone()) return;          // let the cookie restore go first
       if (authenticating) return;              // a sign request is already open
@@ -71,6 +83,11 @@ export class AppComponent implements OnInit, OnDestroy {
     // Silently pick up a newer build while the tab is in the background, so a
     // shipped fix stops looking unshipped. No banner — see the service.
     this.appVersion.start();
+
+    // Product-analytics page_view on every navigation (no-ops while signed out).
+    this.routerSub = this.router.events
+      .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
+      .subscribe((e) => this.analytics.pageView(e.urlAfterRedirects || e.url));
 
     // Restore session from HttpOnly cookie via GET /auth/session. Uses the
     // memoized whenAuthReady() so route guards awaiting the same restore share
@@ -131,5 +148,6 @@ export class AppComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.accountChangedSub?.unsubscribe();
+    this.routerSub?.unsubscribe();
   }
 }
