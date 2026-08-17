@@ -11,7 +11,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 
 from prometheus_client import Counter
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -1189,6 +1189,33 @@ def _build_recent_context(model_messages: list[dict]) -> str:
 
 # ── Main streaming function ───────────────────────────────────────────────────
 
+async def _resolve_tier_daily_token_cap(db: AsyncSession, wallet: str) -> int | None:
+    """The wallet's tier daily LLM-token allowance (`tier_config.daily_token_limit`).
+
+    Tier comes from on-chain volume (`admin_schema.v_user_tier`); a wallet that
+    has never traded defaults to tier 1. Returns ``None`` on any error so the
+    caller falls back to the flat default cap — a tier lookup miss must never
+    lock someone out.
+    """
+    if not wallet:
+        return None
+    try:
+        row = (
+            await db.execute(
+                text(
+                    "SELECT tc.daily_token_limit FROM analytics_schema.tier_config tc "
+                    "WHERE tc.tier = COALESCE("
+                    "(SELECT tier FROM admin_schema.v_user_tier WHERE wallet = :w), 1)"
+                ),
+                {"w": wallet},
+            )
+        ).first()
+        return int(row[0]) if row and row[0] else None
+    except Exception:
+        logger.debug("tier daily-token cap lookup failed; using default", exc_info=True)
+        return None
+
+
 async def stream_chat_response(
     db: AsyncSession,
     session_id: str,
@@ -1290,8 +1317,12 @@ async def stream_chat_response(
         return
 
     # ── 0b. Per-wallet daily / weekly / monthly LLM caps ────────────────────
+    # The daily token ceiling scales with the wallet's tier (higher lifetime
+    # volume → more AI per day); resolved here where DB access exists and passed
+    # into the Redis-only cap check. Falls back to the flat default on any miss.
+    _tier_daily_cap = await _resolve_tier_daily_token_cap(db, wallet)
     try:
-        await assert_under_cap(wallet)
+        await assert_under_cap(wallet, daily_token_cap=_tier_daily_cap)
     except LLMCapExceeded as cap_err:
         yield f"data: {json.dumps(cap_err.to_payload())}\n\n"
         yield "data: [DONE]\n\n"
@@ -1420,7 +1451,9 @@ async def stream_chat_response(
     _log_turn("classify_start")
     _, intent_result, prefetched_knowledge = await asyncio.gather(
         _safe_summarize(),
-        IntentRouter().classify(user_content, recent_context),
+        IntentRouter().classify(
+            user_content, recent_context, wallet=wallet, session_id=str(session_id)
+        ),
         _rag_prefetch(),
     )
 
