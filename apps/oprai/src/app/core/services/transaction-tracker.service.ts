@@ -16,6 +16,7 @@
 import { Injectable, inject } from '@angular/core';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
+import { AnalyticsService } from './analytics.service';
 import { SolanaErrorDecoderService } from './solana-error-decoder.service';
 import { awaitSignature, createSolanaConnection } from '@core/utils/solana-connection';
 
@@ -63,6 +64,7 @@ interface CreateTransactionResponse {
 @Injectable({ providedIn: 'root' })
 export class TransactionTrackerService {
   private readonly api = inject(ApiService);
+  private readonly analytics = inject(AnalyticsService);
   private readonly errorDecoder = inject(SolanaErrorDecoderService);
 
   /**
@@ -110,6 +112,9 @@ export class TransactionTrackerService {
   ): Promise<string> {
     // 1. Create DB record (in submitted state)
     const txId = await this.createDbRecord(signature, action, options);
+
+    // Funnel: the user actually broadcast an action (meta only, no amounts/PII).
+    this.analytics.action('submitted', { action, protocol: options.protocol });
 
     // 2. Update local state
     this.upsert(txId, {
@@ -306,6 +311,13 @@ export class TransactionTrackerService {
     } = {}
   ): Promise<void> {
     if (txId.startsWith('local-')) return; // No record in DB
+
+    // Funnel outcome (skip 'submitted' — track() already emitted it). Action
+    // name comes from local state, not the caller, so it stays meta-only.
+    if (status !== 'submitted') {
+      const act = this.transactions$.value.get(txId)?.action;
+      this.analytics.action(status, act ? { action: act } : undefined);
+    }
 
     try {
       await firstValueFrom(
