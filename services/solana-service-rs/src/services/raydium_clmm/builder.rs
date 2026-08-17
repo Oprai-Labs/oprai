@@ -211,9 +211,12 @@ pub async fn build_open_position(
         Some(_) => None,
         None => Some(Keypair::new()),
     };
-    let position_nft_mint = req
-        .position_nft_mint
-        .unwrap_or_else(|| position_nft_mint_kp.as_ref().expect("generated above").pubkey());
+    let position_nft_mint = req.position_nft_mint.unwrap_or_else(|| {
+        position_nft_mint_kp
+            .as_ref()
+            .expect("generated above")
+            .pubkey()
+    });
     let position_nft_account = get_associated_token_address(&req.user_pubkey, &position_nft_mint);
 
     // 7. User token ATAs for the pool's two mints.
@@ -427,7 +430,10 @@ pub async fn build_open_position(
                     // replace the WHOLE sentence with a generic apology —
                     // taking the one useful half, "try a different range",
                     // down with it. It is in the server log above.
-                    if matches!(err, solana_sdk::transaction::TransactionError::InstructionError(_, _)) {
+                    if matches!(
+                        err,
+                        solana_sdk::transaction::TransactionError::InstructionError(_, _)
+                    ) {
                         return Err(AppError::ProtocolError(
                             "This position can't be opened as set up — the pool rejected it. \
                              Try a different price range or a smaller amount."

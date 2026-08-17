@@ -142,7 +142,10 @@ async fn from_stakewiz(http: &reqwest::Client) -> Result<Vec<ValidatorInfo>, App
                 .total_apy
                 .or(v.apy_estimate)
                 .map(|a| (a * 100.0).round() / 100.0),
-            jito_apy_pct: v.jito_apy.filter(|j| *j > 0.0).map(|a| (a * 100.0).round() / 100.0),
+            jito_apy_pct: v
+                .jito_apy
+                .filter(|j| *j > 0.0)
+                .map(|a| (a * 100.0).round() / 100.0),
             epoch_credits_recent: 0,
             name: v.name.filter(|n| !n.trim().is_empty()),
             icon: v.image.filter(|i| i.starts_with("http")),

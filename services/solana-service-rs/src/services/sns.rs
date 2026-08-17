@@ -461,10 +461,7 @@ pub fn domain_account(label: &str) -> Result<Pubkey, AppError> {
     let parent = Pubkey::from_str(SOL_TLD_AUTHORITY)
         .map_err(|e| AppError::Internal(format!("sol tld: {e}")))?;
 
-    let (key, _) = Pubkey::find_program_address(
-        &[&hashed, &[0u8; 32], parent.as_ref()],
-        &program,
-    );
+    let (key, _) = Pubkey::find_program_address(&[&hashed, &[0u8; 32], parent.as_ref()], &program);
     Ok(key)
 }
 
@@ -483,9 +480,7 @@ pub async fn resolve_domain_onchain(
     let account = actix_web::web::block(move || rpc.client().get_account(&key))
         .await
         .map_err(|e| AppError::Internal(format!("thread pool error: {e}")))?
-        .map_err(|_| {
-            AppError::NotFound(format!("{label}.sol is not registered."))
-        })?;
+        .map_err(|_| AppError::NotFound(format!("{label}.sol is not registered.")))?;
 
     if account.data.len() < NAME_OWNER_OFFSET + 32 {
         return Err(AppError::NotFound(format!(

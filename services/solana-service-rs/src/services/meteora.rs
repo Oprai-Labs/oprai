@@ -3370,7 +3370,8 @@ async fn meteora_post(
 pub struct MeteoraDlmmGetPairsParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default, 
+    #[serde(
+        default,
         alias = "page_size",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
@@ -3410,7 +3411,8 @@ pub struct MeteoraDlmmGetActiveBinParams {
 pub struct MeteoraDlmmGetPoolGroupsParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default, 
+    #[serde(
+        default,
         alias = "page_size",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
@@ -3439,7 +3441,8 @@ pub struct MeteoraDlmmGetPoolGroupParams {
     pub lexical_order_mints: String,
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default, 
+    #[serde(
+        default,
         alias = "page_size",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
@@ -3485,7 +3488,8 @@ pub struct MeteoraDlmmGetPoolVolumeHistoryParams {
 pub struct MeteoraDammV2GetPoolsParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default, 
+    #[serde(
+        default,
         alias = "page_size",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
@@ -3505,7 +3509,8 @@ pub struct MeteoraDammV2GetPoolsParams {
 pub struct MeteoraDammV2GetPoolGroupsParams {
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default, 
+    #[serde(
+        default,
         alias = "page_size",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
@@ -3531,7 +3536,8 @@ pub struct MeteoraDammV2GetPoolGroupParams {
     pub lexical_order_mints: String,
     #[serde(default, deserialize_with = "crate::services::params::lenient_opt")]
     pub page: Option<u32>,
-    #[serde(default, 
+    #[serde(
+        default,
         alias = "page_size",
         deserialize_with = "crate::services::params::lenient_opt"
     )]

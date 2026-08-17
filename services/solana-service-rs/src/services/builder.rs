@@ -6,8 +6,8 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::services::{
     burn, dca, debridge, helius, jito, jupiter_lend, jupiter_perp, jupiter_query, jupsol, kamino,
-    limit_order, magic_eden, marinade, meteora, native_stake, orca,
-    pumpfun, raydium, relay, sns, solend, squid, streamflow, swap, tensor, token_safety, transfer,
+    limit_order, magic_eden, marinade, meteora, native_stake, orca, pumpfun, raydium, relay, sns,
+    solend, squid, streamflow, swap, tensor, token_safety, transfer,
 };
 use crate::solana::connection::SolanaRpc;
 
@@ -3111,7 +3111,6 @@ pub async fn build_action(
         fee_discount_pct,
     )
     .await?;
-    built.transaction = built.transaction;
     if let Some(tx) = built.transaction.take() {
         built.transaction = Some(crate::services::memo::attach(&tx).await);
     }

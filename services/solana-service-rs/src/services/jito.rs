@@ -192,17 +192,20 @@ pub struct StakerRewardsParams {
     pub stake_authority: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validator_vote_account: Option<String>,
-    #[serde(default, 
+    #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
     pub epoch: Option<u64>,
-    #[serde(default, 
+    #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
     pub page: Option<u64>,
-    #[serde(default, 
+    #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
@@ -237,17 +240,20 @@ pub struct StakerRewardsResponse {
 pub struct ValidatorRewardsParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vote_account: Option<String>,
-    #[serde(default, 
+    #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
     pub epoch: Option<u64>,
-    #[serde(default, 
+    #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
     pub page: Option<u64>,
-    #[serde(default, 
+    #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
@@ -359,17 +365,20 @@ pub struct StewardEventsParams {
     pub event_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vote_account: Option<String>,
-    #[serde(default, 
+    #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
     pub epoch: Option<u64>,
-    #[serde(default, 
+    #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
     pub limit: Option<u64>,
-    #[serde(default, 
+    #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::services::params::lenient_opt"
     )]
@@ -1613,7 +1622,10 @@ pub async fn build_jito_unstake_action(
     validate_jito_unstake_params(params)?;
 
     let jitosol_amount: f64 = params.amount.parse().map_err(|_| {
-        AppError::InvalidParams(format!("\"{}\" is not an amount of jitoSOL.", params.amount))
+        AppError::InvalidParams(format!(
+            "\"{}\" is not an amount of jitoSOL.",
+            params.amount
+        ))
     })?;
 
     let exchange_rate = get_exchange_rate(http, rpc).await?;
@@ -1628,9 +1640,7 @@ pub async fn build_jito_unstake_action(
     // preference, it is the only thing that exists.
     let sol_out = jitosol_amount * exchange_rate;
     let min_delegation_sol = 1.0;
-    let instant = params
-        .instant
-        .unwrap_or(sol_out < min_delegation_sol);
+    let instant = params.instant.unwrap_or(sol_out < min_delegation_sol);
 
     let client_stake_pubkey = params
         .stake_account_pubkey

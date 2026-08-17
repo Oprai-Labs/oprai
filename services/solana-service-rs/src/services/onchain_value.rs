@@ -37,7 +37,10 @@ fn is_stable_mint(mint: &str) -> bool {
             let s = t.symbol.to_uppercase();
             s.starts_with("USD")
                 || s.ends_with("USD")
-                || matches!(s.as_str(), "PYUSD" | "EURC" | "DAI" | "FRAX" | "USDE" | "USDS")
+                || matches!(
+                    s.as_str(),
+                    "PYUSD" | "EURC" | "DAI" | "FRAX" | "USDE" | "USDS"
+                )
         })
         .unwrap_or(false)
 }
@@ -60,12 +63,14 @@ fn wallet_token_deltas(meta: &UiTransactionStatusMeta, wallet: &str) -> Vec<(Str
     let mut by_mint: HashMap<String, f64> = HashMap::new();
     for b in pre {
         if matches!(&b.owner, OptionSerializer::Some(o) if o == wallet) {
-            *by_mint.entry(b.mint.clone()).or_insert(0.0) -= b.ui_token_amount.ui_amount.unwrap_or(0.0);
+            *by_mint.entry(b.mint.clone()).or_insert(0.0) -=
+                b.ui_token_amount.ui_amount.unwrap_or(0.0);
         }
     }
     for b in post {
         if matches!(&b.owner, OptionSerializer::Some(o) if o == wallet) {
-            *by_mint.entry(b.mint.clone()).or_insert(0.0) += b.ui_token_amount.ui_amount.unwrap_or(0.0);
+            *by_mint.entry(b.mint.clone()).or_insert(0.0) +=
+                b.ui_token_amount.ui_amount.unwrap_or(0.0);
         }
     }
 

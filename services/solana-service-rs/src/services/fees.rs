@@ -136,7 +136,8 @@ fn is_standard(mint: &str) -> bool {
 // so the three copies are kept in sync by hand. Keep them identical.
 
 /// Cumulative-volume floor (USD) for tiers 1..=6.
-pub const TIER_MIN_VOLUME_USD: [f64; 6] = [0.0, 1_000.0, 10_000.0, 50_000.0, 250_000.0, 1_000_000.0];
+pub const TIER_MIN_VOLUME_USD: [f64; 6] =
+    [0.0, 1_000.0, 10_000.0, 50_000.0, 250_000.0, 1_000_000.0];
 
 /// Percent off the base fee for tiers 1..=6.
 pub const TIER_FEE_DISCOUNT_PCT: [u16; 6] = [0, 5, 10, 15, 20, 25];
@@ -369,7 +370,7 @@ mod tests {
         assert_eq!(discounted_bps(MEMECOIN_BPS, 25), 37); // Legend (50*0.75=37.5 -> 37)
         assert_eq!(discounted_bps(STANDARD_BPS, 10), 18); // 20*0.9
         assert_eq!(discounted_bps(STABLE_PAIR_BPS, 25), 0); // free stays free
-        // Discount tied to volume: a Legend wallet on a memecoin trade.
+                                                            // Discount tied to volume: a Legend wallet on a memecoin trade.
         assert_eq!(fee_discount_pct_for_volume(2_000_000.0), 25);
         assert_eq!(fee_discount_pct_for_volume(0.0), 0);
     }

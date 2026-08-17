@@ -71,7 +71,6 @@ pub struct BurnBuildResult {
 // Validation
 // ──────────────────────────────────────────────────────────────────────────────
 
-
 /// Close and burn, built by hand so they work under either token program.
 ///
 /// `spl_token::instruction::*` validates that the program id you pass is the
@@ -228,16 +227,14 @@ pub fn build_burn_transaction(
     let mut instructions = Vec::new();
 
     if burn_amount > 0 {
-        instructions.push(
-            burn_checked_ix(
-                &token_program,
-                &ata,
-                &mint_pubkey,
-                owner,
-                burn_amount,
-                token_decimals,
-            ),
-        );
+        instructions.push(burn_checked_ix(
+            &token_program,
+            &ata,
+            &mint_pubkey,
+            owner,
+            burn_amount,
+            token_decimals,
+        ));
     }
 
     if will_close {

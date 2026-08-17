@@ -493,7 +493,10 @@ pub fn build_native_stake_split(
     // Both of these were `unwrap()`: a mistyped account or a non-numeric
     // amount took the whole request down with a panic instead of answering.
     let stake_pubkey = Pubkey::from_str(&params.stake_account).map_err(|_| {
-        AppError::InvalidParams(format!("{} is not a valid account address.", params.stake_account))
+        AppError::InvalidParams(format!(
+            "{} is not a valid account address.",
+            params.stake_account
+        ))
     })?;
     let split_sol: f64 = params.amount.trim().parse().map_err(|_| {
         AppError::InvalidParams(format!("\"{}\" is not an amount of SOL.", params.amount))
