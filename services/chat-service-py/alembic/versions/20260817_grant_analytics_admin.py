@@ -8,12 +8,13 @@ makes the grant automatic on a fresh DB instead of a manual psql step.
 
 Idempotent: GRANT / ALTER DEFAULT PRIVILEGES are safe to re-run.
 
-Revision ID: 20260817_grant_analytics_to_admin
+Revision ID: 20260817_grant_analytics_admin
 Revises: 20260817_bump_tier_token_limits
 """
 from alembic import op
 
-revision = "20260817_grant_analytics_to_admin"
+# NOTE: alembic_version.version_num is varchar(32); keep revision ids <= 32 chars.
+revision = "20260817_grant_analytics_admin"
 down_revision = "20260817_bump_tier_token_limits"
 branch_labels = None
 depends_on = None
