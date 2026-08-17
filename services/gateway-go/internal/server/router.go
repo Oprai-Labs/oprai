@@ -238,6 +238,9 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/build", solanaProxy.PostBuild)
 		r.Post("/perp-execute", solanaProxy.PostPerpExecute)
 		r.Post("/vanity-mint", solanaProxy.PostVanityMint)
+		// Costs the card reads before it offers a range. Every /actions path
+		// is listed explicitly here, so a new one is a 404 until it is added.
+		r.Post("/clmm-range-costs", solanaProxy.PostClmmRangeCosts)
 		r.Post("/submit", solanaProxy.PostSubmit)
 		r.Post("/simulate", solanaProxy.PostSimulate)
 		r.Get("/limit-orders", solanaProxy.GetLimitOrders)

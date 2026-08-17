@@ -83,6 +83,14 @@ func (p *SolanaProxy) PostVanityMint(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostClmmRangeCosts proxies POST /actions/clmm-range-costs — what each
+// candidate price range costs to open, and whether the caller's wallet can
+// pay it. Read-only: it opens nothing and signs nothing.
+func (p *SolanaProxy) PostClmmRangeCosts(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/clmm-range-costs"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // PostPerpExecute proxies a user-signed Jupiter Perps transaction to the Solana
 // service, which forwards it to Jupiter's execute endpoint (Jupiter adds the
 // keeper signatures and submits). Perp txs are multi-signer and cannot be sent
