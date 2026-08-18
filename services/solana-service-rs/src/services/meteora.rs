@@ -5101,6 +5101,184 @@ async fn damm_v2_pools_for_pair(
     Ok(found)
 }
 
+/// A deposit this size would own `share` of the pool. Above this, the
+/// depositor is a large enough part of the pool that ordinary trading moves
+/// the price against their own position — they end up trading with themselves.
+const DAMM_V2_MAX_POOL_SHARE: f64 = 0.05;
+
+#[derive(Debug, serde::Deserialize)]
+pub struct MeteoraDammV2BestPoolParams {
+    /// The pool already chosen — its pair is what gets searched. Optional
+    /// because a caller may know only the pair.
+    #[serde(default)]
+    pub pool: Option<String>,
+    #[serde(default, alias = "mintA")]
+    pub mint_a: Option<String>,
+    #[serde(default, alias = "mintB")]
+    pub mint_b: Option<String>,
+    /// What the user is about to put in, in USD. Viability is judged against
+    /// this rather than a fixed floor: $10 is fine in a $1k pool and reckless
+    /// in a $30 one.
+    #[serde(
+        default,
+        alias = "depositUsd",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
+    pub deposit_usd: Option<f64>,
+}
+
+fn damm_v2_pool_summary(pool: &serde_json::Value, deposit_usd: Option<f64>) -> serde_json::Value {
+    let num = |v: Option<&serde_json::Value>| -> f64 {
+        v.and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(0.0)
+    };
+    let tvl = num(pool.get("tvl"));
+    let vol24 = num(pool.get("volume").and_then(|v| v.get("24h")));
+    let fees24 = num(pool.get("fees").and_then(|v| v.get("24h")));
+    // Fees are what an LP is actually paid; annualise so it can be compared
+    // against anything else the user might do with the money.
+    let fee_apr = if tvl > 0.0 { fees24 * 365.0 / tvl * 100.0 } else { 0.0 };
+    let share = match deposit_usd {
+        Some(d) if tvl > 0.0 => d / tvl,
+        _ => 0.0,
+    };
+    serde_json::json!({
+        "address": pool.get("address").and_then(|a| a.as_str()).unwrap_or_default(),
+        "name": pool.get("name").and_then(|a| a.as_str()).unwrap_or_default(),
+        "tvl": tvl,
+        "volume24h": vol24,
+        "fees24h": fees24,
+        "feeApr": fee_apr,
+        "depositShare": share,
+        // Spelled out so the caller never has to re-derive the rule.
+        "tooShallow": deposit_usd.is_some() && share > DAMM_V2_MAX_POOL_SHARE,
+        "noTrading": vol24 <= 0.0,
+    })
+}
+
+/// Which DAMM v2 pool a deposit for this pair should actually go into.
+///
+/// The model names a pool by address and nothing checked that choice. It is
+/// not a hypothetical: a name search for "USDC-SOL" returns 238 pools whose
+/// deepest holds $10, while the real pool holds $1.2M under the opposite name
+/// ordering. Offering one of those is not a slightly worse yield — a depositor
+/// who owns most of a pool trades against themselves on every swap that
+/// touches it, and cannot leave without moving the price.
+///
+/// Ranking is deliberately plain, because measurement says ranking is rarely
+/// the question: across the 300 deepest DAMM v2 pools there are 299 distinct
+/// pairs, so a pair almost always has exactly one real venue. The job is to
+/// reject the dead ones, not to referee a close contest. Depth decides, and
+/// fee APR only breaks ties between pools of comparable size.
+pub async fn build_meteora_dammv2_best_pool(
+    http: &reqwest::Client,
+    params: &MeteoraDammV2BestPoolParams,
+) -> Result<BuildResponse, AppError> {
+    // Resolve the pair: either given outright, or read off the chosen pool.
+    let (mint_a, mint_b) = match (&params.mint_a, &params.mint_b) {
+        (Some(a), Some(b)) => (a.clone(), b.clone()),
+        _ => {
+            let pool = params.pool.as_ref().ok_or_else(|| {
+                AppError::InvalidParams("pool or mintA+mintB is required".into())
+            })?;
+            let resp = http
+                .get(format!("{DAMM_V2_API}/pools/{pool}"))
+                .header("Accept", "application/json")
+                .send()
+                .await
+                .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pool GET: {e}")))?;
+            let body = damm_v2_json(resp, "pool").await?;
+            let (x, y) = damm_v2_pool_mints(&body);
+            match (x, y) {
+                (Some(x), Some(y)) => (x.to_owned(), y.to_owned()),
+                _ => {
+                    return Err(AppError::ProtocolError(format!(
+                        "Meteora DAMM v2 best pool: {pool} has no readable token pair"
+                    )))
+                }
+            }
+        }
+    };
+
+    let mut pools = damm_v2_pools_for_pair(http, &mint_a, &mint_b, 20).await?;
+    // Deepest first; that ordering is the recommendation unless a comparable
+    // pool pays materially better.
+    pools.sort_by(|a, b| {
+        let t = |p: &serde_json::Value| p.get("tvl").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        t(b).partial_cmp(&t(a)).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let summaries: Vec<serde_json::Value> = pools
+        .iter()
+        .map(|p| damm_v2_pool_summary(p, params.deposit_usd))
+        .collect();
+
+    let f = |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0);
+    let viable: Vec<&serde_json::Value> = summaries
+        .iter()
+        .filter(|s| {
+            f(s, "tvl") > 0.0
+                && !s.get("tooShallow").and_then(|b| b.as_bool()).unwrap_or(false)
+        })
+        .collect();
+
+    // Among pools of comparable depth (within half the deepest), prefer the
+    // one that actually pays. Below that, depth wins — a thinner pool with a
+    // flattering APR is usually a pool nobody trades.
+    let recommended = viable.first().map(|deepest| {
+        let floor = f(deepest, "tvl") * 0.5;
+        viable
+            .iter()
+            .filter(|s| f(s, "tvl") >= floor)
+            .max_by(|a, b| {
+                f(a, "feeApr")
+                    .partial_cmp(&f(b, "feeApr"))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .copied()
+            .unwrap_or(*deepest)
+    });
+
+    let chosen_addr = params.pool.clone();
+    let chosen = chosen_addr.as_ref().and_then(|a| {
+        summaries
+            .iter()
+            .find(|s| s.get("address").and_then(|x| x.as_str()) == Some(a.as_str()))
+    });
+    let rec_addr = recommended
+        .and_then(|r| r.get("address").and_then(|a| a.as_str()))
+        .map(str::to_owned);
+    let chosen_is_ok = match (&chosen_addr, &rec_addr) {
+        (Some(c), Some(r)) => c == r,
+        _ => false,
+    };
+
+    Ok(BuildResponse {
+        preview: ActionPreview {
+            id: Uuid::new_v4().to_string(),
+            action_type: "meteora_dammv2_best_pool".into(),
+            description: format!("Best DAMM v2 pool for {mint_a}/{mint_b}"),
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: serde_json::json!({}),
+            warnings: vec![],
+            requires_approval: false,
+        },
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: Some(serde_json::json!({
+            "recommended": recommended,
+            "chosen": chosen,
+            "chosenIsRecommended": chosen_is_ok,
+            "candidates": summaries,
+            "maxPoolShare": DAMM_V2_MAX_POOL_SHARE,
+        })),
+    })
+}
+
 pub async fn build_meteora_dammv2_get_pool_groups(
     http: &reqwest::Client,
     params: &MeteoraDammV2GetPoolGroupsParams,

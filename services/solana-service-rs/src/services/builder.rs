@@ -4584,6 +4584,10 @@ async fn build_action_inner(
             let p: meteora::MeteoraDammV2GetPoolParams = serde_json::from_value(params)?;
             meteora::build_meteora_dammv2_get_pool(http, &p).await
         }
+        "meteora_dammv2_best_pool" => {
+            let p: meteora::MeteoraDammV2BestPoolParams = serde_json::from_value(params)?;
+            meteora::build_meteora_dammv2_best_pool(http, &p).await
+        }
         "meteora_dammv2_get_pool_ohlcv" => {
             let p: meteora::MeteoraDammV2GetPoolOhlcvParams = serde_json::from_value(params)?;
             meteora::build_meteora_dammv2_get_pool_ohlcv(http, &p).await
