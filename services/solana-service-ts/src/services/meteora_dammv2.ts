@@ -546,21 +546,55 @@ export async function buildDammV2AddLiquidity(
     clientHoldsPositionNft = clientNft !== null;
   }
 
+  const txB64 = await toV0Base64(connection, tx, user, localSigners);
+
+  // What opening this position costs beyond the deposit itself.
+  //
+  // Opening one creates the position account, its NFT mint and the NFT token
+  // account, and their rent comes out of the wallet: a measured open took
+  // 0.0099 SOL of rent against a 0.0012 SOL deposit. The card was quoting the
+  // preview helper's default of "~0.0003 SOL" — 33x under — so a wallet with
+  // enough for the deposit and the quoted fee could still fail on submit, and
+  // nothing told the user that most of it comes back on close.
+  //
+  // Measured by simulation rather than by adding up the accounts we expect to
+  // be created, for the same reason the close path does it: enumerating them
+  // is guesswork that has already been wrong here once.
+  const solDelta = await simulatedSolDelta(connection, txB64, user);
+  const NATIVE = "So11111111111111111111111111111111111111112";
+  const pairedAmount = toNum(deposit.outputAmount, isA ? t.decB : t.decA);
+  const sideA = isA ? amtA : pairedAmount;
+  const sideB = isA ? pairedAmount : amtB;
+  const depositedSol =
+    (t.mintA.toBase58() === NATIVE ? sideA : 0) +
+    (t.mintB.toBase58() === NATIVE ? sideB : 0);
+  // Rent is recoverable, the network fee is not; the card labels it.
+  const setupSol =
+    solDelta === null ? null : Math.max(0, -solDelta - depositedSol);
+
   return {
     preview: preview(
       "meteora_dammv2_add_liquidity",
       params.position
         ? `Add liquidity to DAMM v2 position ${params.position.slice(0, 8)}…`
         : `Open a DAMM v2 position in ${t.symA}/${t.symB}`,
-      { ...params, pairedAmount: toNum(deposit.outputAmount, isA ? t.decB : t.decA) },
+      { ...params, pairedAmount },
+      setupSol === null ? undefined : `~${setupSol.toFixed(4)} SOL`,
     ),
-    transaction: await toV0Base64(connection, tx, user, localSigners),
+    transaction: txB64,
     // The client's NFT slot is still empty and waiting for it.
     additionalSignersRequired: clientHoldsPositionNft ? 1 : 0,
     isCrossChain: false,
     data: {
-      pairedAmount: toNum(deposit.outputAmount, isA ? t.decB : t.decA),
+      pairedAmount,
       pairedSymbol: isA ? t.symB : t.symA,
+      // Broken out so the card can show it. Null when the simulation could not
+      // run — then the card says nothing rather than inventing a figure.
+      // Nearly all of this is account rent and comes back when the position is
+      // closed; the network fee inside it does not. Deliberately not split into
+      // a "refund" figure, because separating the two here would be a guess and
+      // the close path already reports the real recovery by simulating it.
+      setupSol,
     },
   };
 }
