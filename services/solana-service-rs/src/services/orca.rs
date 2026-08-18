@@ -1633,12 +1633,16 @@ pub async fn build_orca_remove_liquidity(
 ///   assembly). Supplying our own mint means reimplementing that against
 ///   `orca_whirlpools_client` and owning it — protocol assembly we currently
 ///   get maintained for free, in a path that moves money.
-/// - Returning the ephemeral secret keys to the browser would take ten lines,
-///   and is the one thing this service does not do. The keys hold nothing and
-///   are single-use, so nothing is stealable; the real cost is that a private
-///   key in a response body ends up in logs, error trackers and devtools
-///   history, and that "the server never emits a signing key" stops being an
-///   invariant you can check.
+/// - Returning the ephemeral secret keys to the browser would take ten lines.
+///   The keys hold nothing and are single-use, so nothing is stealable; the
+///   cost is that a private key in a response body ends up in logs, error
+///   trackers and devtools history. Note this is a preference here, not an
+///   absolute: `/actions/vanity-mint` does emit a secret, because a pump.fun
+///   mint controls nothing once `create` has run and the client would have
+///   generated the same throwaway itself. The difference is that there the
+///   secret IS the product being requested, while here it would be a side
+///   effect of assembling a transaction — so keep build responses free of
+///   keys, and treat any new exception as a decision rather than a default.
 ///
 /// What this costs, concretely: a transaction warning on ONE action, from a
 /// wallet that will show it only after the domain-reputation block is lifted —
