@@ -347,11 +347,15 @@ export async function getDammV2UserPositions(
  * What one pool pays per token, asked of the SDK.
  *
  * The deposit card needs a ratio to fill the second amount as the user types,
- * and for DAMM v2 neither of the cheap sources is safe to use. The reserve
- * ratio is only the price for a full-range pool, and a bounded pool's deposit
- * split depends on the band as well as the price — on SOL/USDC the reserves
- * read 6.11 while the pool trades at 76.93. Both approximations pair the
- * deposit wrong, so ask the SDK the same question the deposit itself will ask.
+ * and for DAMM v2 there is no local formula that gets it right. The split of a
+ * bounded pool follows where the price sits inside the band, not the price
+ * alone: SOL/USDC trades at 76.93 inside a 70–440 band, and the SDK quotes
+ * 6.10 USDC per SOL. Reading the price off the pool and calling it the ratio
+ * would overstate the second side by more than 12x.
+ *
+ * Which of the cheap approximations happens to land near the truth changes
+ * with the band, so do not pick one — ask the SDK the same question the
+ * deposit itself will ask.
  *
  * Reports the bounds too, so the card can tell a full-range pool from a
  * concentrated one and say when the price has left the band — the state where

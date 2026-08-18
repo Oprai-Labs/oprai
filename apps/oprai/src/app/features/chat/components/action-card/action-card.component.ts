@@ -6082,11 +6082,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * cannot do.
    *
    * The ratio is asked of the SDK, never derived here. A DAMM v2 pool can
-   * concentrate its liquidity, and then neither cheap source is the deposit
-   * split: the reserves read 6.11 on SOL/USDC while the pool trades at 76.93,
-   * and even the price is only half the answer because a bounded pool's split
-   * follows the band too. `meteora_dammv2_pool_quote` runs the same quote the
-   * deposit itself will run.
+   * concentrate its liquidity, and then the split follows where the price sits
+   * inside the band: SOL/USDC trades at 76.93 in a 70–440 band and the SDK
+   * quotes 6.10 USDC per SOL. Filling from the pool price would ask for more
+   * than 12x the second side. `meteora_dammv2_pool_quote` runs the same quote
+   * the deposit itself will run.
    */
   private async maybeEnrichMeteoraDammV2Pool(): Promise<void> {
     if (this.action?.type !== 'meteora_dammv2_add_liquidity') return;

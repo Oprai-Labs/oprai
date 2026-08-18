@@ -3956,12 +3956,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       tokenADecimals: String(p.token_x.decimals ?? 9),
       tokenBDecimals: String(p.token_y.decimals ?? 9),
       // Deliberately no ratio and no reserves. A DAMM v2 pool can concentrate
-      // its liquidity, and then neither number is the deposit split: this pool
-      // reads 6.11 from its reserves while trading at 76.93, and the split of a
-      // bounded pool follows the band as well as the price. The card asks the
-      // SDK instead (meteora_dammv2_pool_quote) — one call, and it is the same
-      // quote the deposit will run. Passing an approximation here would only
-      // suppress that call and pair the deposit wrong.
+      // its liquidity, and then the deposit split follows where the price sits
+      // inside the band — this pool trades at 76.93 in a 70–440 band and the
+      // SDK quotes 6.10. The card asks the SDK instead
+      // (meteora_dammv2_pool_quote): one call, and it is the same quote the
+      // deposit will run. Passing an approximation here would only suppress
+      // that call and pair the deposit wrong.
     };
     this.useAction.emit({
       type: 'meteora_dammv2_add_liquidity',
