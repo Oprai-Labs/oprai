@@ -343,6 +343,84 @@ export async function getDammV2UserPositions(
   };
 }
 
+/**
+ * What one pool pays per token, asked of the SDK.
+ *
+ * The deposit card needs a ratio to fill the second amount as the user types,
+ * and for DAMM v2 neither of the cheap sources is safe to use. The reserve
+ * ratio is only the price for a full-range pool, and a bounded pool's deposit
+ * split depends on the band as well as the price — on SOL/USDC the reserves
+ * read 6.11 while the pool trades at 76.93. Both approximations pair the
+ * deposit wrong, so ask the SDK the same question the deposit itself will ask.
+ *
+ * Reports the bounds too, so the card can tell a full-range pool from a
+ * concentrated one and say when the price has left the band — the state where
+ * a deposit goes in one-sided and earns nothing until price returns.
+ */
+export async function getDammV2PoolQuote(
+  params: Record<string, unknown>,
+): Promise<BuildResponse> {
+  const poolAddress = String(
+    params["pool"] ?? params["poolId"] ?? params["address"] ?? "",
+  ).trim();
+  if (!poolAddress) throw new Error("pool is required");
+
+  const connection = getConnection();
+  const amm = new CpAmm(connection);
+  const poolPk = new PublicKey(poolAddress);
+  const state = await amm.fetchPoolState(poolPk);
+  const t = await resolvePoolTokens(amm, connection, poolPk, state);
+
+  const price = (sqrt: BN) => Number(getPriceFromSqrtPrice(sqrt, t.decA, t.decB));
+  const poolPrice = price(state.sqrtPrice);
+  const minPrice = price(state.sqrtMinPrice);
+  const maxPrice = price(state.sqrtMaxPrice);
+
+  // Quote one whole token A and read what the pool wants alongside it.
+  let depositRatio = 0;
+  try {
+    const probe = amm.getDepositQuote({
+      inAmount: new BN(10 ** t.decA),
+      isTokenA: true,
+      ...poolQuoteBasis(state),
+    });
+    depositRatio = toNum(probe.outputAmount, t.decB);
+  } catch {
+    // Leave 0 — the card then asks for both amounts rather than guessing.
+  }
+
+  return {
+    preview: {
+      id: uuidv4(),
+      type: "meteora_dammv2_pool_quote",
+      description: `Meteora DAMM v2 pool ${poolAddress.slice(0, 8)}…`,
+      estimatedFee: "0",
+      params: {},
+      warnings: [],
+      requiresApproval: false,
+    },
+    additionalSignersRequired: 0,
+    isCrossChain: false,
+    data: {
+      poolAddress,
+      depositRatio,
+      poolPrice,
+      minPrice,
+      maxPrice,
+      concentrated:
+        Number.isFinite(minPrice) && Number.isFinite(maxPrice) &&
+        poolPrice > 0 && (minPrice > poolPrice / 1e6 || maxPrice < poolPrice * 1e6),
+      priceOutOfRange: poolPrice < minPrice || poolPrice > maxPrice,
+      tokenX: t.symA,
+      tokenY: t.symB,
+      tokenXMint: t.mintA.toBase58(),
+      tokenYMint: t.mintB.toBase58(),
+      tokenXDecimals: t.decA,
+      tokenYDecimals: t.decB,
+    },
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Writes
 // ─────────────────────────────────────────────────────────────────────────────

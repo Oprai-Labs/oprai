@@ -6081,16 +6081,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * follows" and nothing follows, which is the panel promising something it
    * cannot do.
    *
-   * The ratio comes from `current_price`, never from the reserves. DAMM v2
-   * pools can concentrate liquidity, so reserveY/reserveX is not the price —
-   * on SOL/USDC the reserves read 6.11 while the pool trades at 76.93, a 12x
-   * error that would pair the deposit completely wrong.
+   * The ratio is asked of the SDK, never derived here. A DAMM v2 pool can
+   * concentrate its liquidity, and then neither cheap source is the deposit
+   * split: the reserves read 6.11 on SOL/USDC while the pool trades at 76.93,
+   * and even the price is only half the answer because a bounded pool's split
+   * follows the band too. `meteora_dammv2_pool_quote` runs the same quote the
+   * deposit itself will run.
    */
   private async maybeEnrichMeteoraDammV2Pool(): Promise<void> {
     if (this.action?.type !== 'meteora_dammv2_add_liquidity') return;
     const p = this.editParams();
-    // The "Use this pool" path already embedded the ratio.
-    if (parseFloat(p['amountRatio'] ?? '') > 0) return;
+    if (parseFloat(p['depositRatio'] ?? '') > 0) return;
     const poolId = (p['pool'] ?? p['poolId'] ?? '').trim();
     if (!poolId) return;
     if (this._enrichedDammV2Pool === poolId) return; // tried once
@@ -6098,28 +6099,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     try {
       const resp = await firstValueFrom(
         this.apiService.post<any>('/actions/build', {
-          type: 'meteora_dammv2_get_pool',
-          params: { address: poolId },
-        }).pipe(timeout(15_000)),
+          type: 'meteora_dammv2_pool_quote',
+          params: { pool: poolId },
+        }).pipe(timeout(20_000)),
       );
-      const pool = resp?.data ?? null;
-      const price = Number(pool?.current_price ?? 0);
-      if (!(price > 0)) return;
-      const tx = pool.token_x ?? {};
-      const ty = pool.token_y ?? {};
+      const q = resp?.data ?? null;
+      const ratio = Number(q?.depositRatio ?? 0);
+      if (!(ratio > 0)) return;
 
       const patched = { ...this.editParams() };
-      if (!patched['pool']) patched['pool'] = pool.address ?? poolId;
-      if (!patched['poolId']) patched['poolId'] = pool.address ?? poolId;
-      if (!patched['tokenA']) patched['tokenA'] = tx.address ?? '';
-      if (!patched['tokenB']) patched['tokenB'] = ty.address ?? '';
-      if (!patched['tokenXMint']) patched['tokenXMint'] = tx.address ?? '';
-      if (!patched['tokenYMint']) patched['tokenYMint'] = ty.address ?? '';
-      if (!patched['tokenASymbol']) patched['tokenASymbol'] = tx.symbol ?? 'A';
-      if (!patched['tokenBSymbol']) patched['tokenBSymbol'] = ty.symbol ?? 'B';
-      if (!patched['tokenADecimals']) patched['tokenADecimals'] = String(Number(tx.decimals ?? 9));
-      if (!patched['tokenBDecimals']) patched['tokenBDecimals'] = String(Number(ty.decimals ?? 9));
-      patched['amountRatio'] = String(price);
+      if (!patched['pool']) patched['pool'] = q.poolAddress ?? poolId;
+      if (!patched['poolId']) patched['poolId'] = q.poolAddress ?? poolId;
+      if (!patched['tokenA']) patched['tokenA'] = q.tokenXMint ?? '';
+      if (!patched['tokenB']) patched['tokenB'] = q.tokenYMint ?? '';
+      if (!patched['tokenXMint']) patched['tokenXMint'] = q.tokenXMint ?? '';
+      if (!patched['tokenYMint']) patched['tokenYMint'] = q.tokenYMint ?? '';
+      if (!patched['tokenASymbol']) patched['tokenASymbol'] = q.tokenX ?? 'A';
+      if (!patched['tokenBSymbol']) patched['tokenBSymbol'] = q.tokenY ?? 'B';
+      if (!patched['tokenADecimals']) patched['tokenADecimals'] = String(Number(q.tokenXDecimals ?? 9));
+      if (!patched['tokenBDecimals']) patched['tokenBDecimals'] = String(Number(q.tokenYDecimals ?? 9));
+      patched['depositRatio'] = String(ratio);
       this.editParams.set(patched);
 
       // The balance loaders ran in ngOnInit, before the mints were known.

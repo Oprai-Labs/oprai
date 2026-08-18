@@ -298,6 +298,8 @@ export async function buildAction(
     // ── Meteora DAMM v2 (cp-amm) — its own program, its own SDK ──────────
     case "meteora_dammv2_get_user_positions":
       return dammV2.getDammV2UserPositions(p(params), userWallet);
+    case "meteora_dammv2_pool_quote":
+      return dammV2.getDammV2PoolQuote(p(params));
     case "meteora_dammv2_add_liquidity":
       return dammV2.buildDammV2AddLiquidity(p(params), userWallet);
     case "meteora_dammv2_remove_liquidity":

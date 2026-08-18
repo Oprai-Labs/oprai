@@ -287,6 +287,10 @@ fn is_ts_delegated_action(action_type: &str) -> bool {
             // quotes, deposit ratios and account derivation come from Meteora
             // rather than from our guesses about a program layout.
             | "meteora_dammv2_get_user_positions"
+            // Read-only: the SDK's own deposit quote for one pool. The data
+            // API cannot answer it — a bounded pool's split follows the band,
+            // not the reserves or the price.
+            | "meteora_dammv2_pool_quote"
             | "meteora_dammv2_add_liquidity"
             | "meteora_dammv2_remove_liquidity"
             | "meteora_dammv2_claim_fee"
