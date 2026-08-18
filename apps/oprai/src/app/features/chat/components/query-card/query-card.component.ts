@@ -3955,10 +3955,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       tokenBSymbol: p.token_y.symbol,
       tokenADecimals: String(p.token_x.decimals ?? 9),
       tokenBDecimals: String(p.token_y.decimals ?? 9),
-      // Reserves drive the AMM ratio engine. Already in human units —
-      // the engine prefers `amountRatio` when present, otherwise reserves.
-      reserveA: String(p.token_x_amount ?? 0),
-      reserveB: String(p.token_y_amount ?? 0),
+      // The pool's own price, and deliberately no reserves. A DAMM v2 pool can
+      // concentrate its liquidity, so reserveY/reserveX is not the price — this
+      // pool reads 6.11 from reserves while trading at 76.93. The engine's
+      // reserve branch also expects raw units and would scale these human ones
+      // by 10^(decA-decB) on top of that. Passing them buys nothing and leaves
+      // a 12x-wrong fallback armed for the day `current_price` is missing.
       amountRatio: String(p.current_price ?? 0),
     };
     this.useAction.emit({

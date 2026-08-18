@@ -1147,6 +1147,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Same, for a DLMM pool the model named by address only — the ratio engine's
    *  inputs (bin step, active bin, price) have to be fetched once per card. */
   private _enrichedDlmmPool: string | null = null;
+  private _enrichedDammV2Pool: string | null = null;
   /** "half of my mSOL" reaches the card as the literal amount `50%`. The
    *  fraction is lifted out of the field here and applied once the live
    *  balance and the pool ratio are known; see `resolvePercentAmounts`. */
@@ -5465,6 +5466,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeEnrichRaydiumPool();
     void this.maybeEnrichRaydiumWithdraw();
     void this.maybeEnrichMeteoraDlmmPool();
+    void this.maybeEnrichMeteoraDammV2Pool();
     void this.maybeEnrichMeteoraPosition();
     void this.maybeResolveSwapCounterToken();
     this.maybeSeedOrcaRange();
@@ -6069,6 +6071,67 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * getting the decimal direction wrong puts the range tens of thousands of
    * bins away from the pool.
    */
+  /**
+   * Fill in a DAMM v2 deposit that arrived carrying only a pool address.
+   *
+   * The pool list's "Use" button embeds the row's numbers, but the model can
+   * also open this card straight from a sentence ("sol usdc olarak ekleyelim"),
+   * and then all it can name is the address. Without a ratio the two amount
+   * fields are independent: the card says "type either amount — the other
+   * follows" and nothing follows, which is the panel promising something it
+   * cannot do.
+   *
+   * The ratio comes from `current_price`, never from the reserves. DAMM v2
+   * pools can concentrate liquidity, so reserveY/reserveX is not the price —
+   * on SOL/USDC the reserves read 6.11 while the pool trades at 76.93, a 12x
+   * error that would pair the deposit completely wrong.
+   */
+  private async maybeEnrichMeteoraDammV2Pool(): Promise<void> {
+    if (this.action?.type !== 'meteora_dammv2_add_liquidity') return;
+    const p = this.editParams();
+    // The "Use this pool" path already embedded the ratio.
+    if (parseFloat(p['amountRatio'] ?? '') > 0) return;
+    const poolId = (p['pool'] ?? p['poolId'] ?? '').trim();
+    if (!poolId) return;
+    if (this._enrichedDammV2Pool === poolId) return; // tried once
+    this._enrichedDammV2Pool = poolId;
+    try {
+      const resp = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', {
+          type: 'meteora_dammv2_get_pool',
+          params: { address: poolId },
+        }).pipe(timeout(15_000)),
+      );
+      const pool = resp?.data ?? null;
+      const price = Number(pool?.current_price ?? 0);
+      if (!(price > 0)) return;
+      const tx = pool.token_x ?? {};
+      const ty = pool.token_y ?? {};
+
+      const patched = { ...this.editParams() };
+      if (!patched['pool']) patched['pool'] = pool.address ?? poolId;
+      if (!patched['poolId']) patched['poolId'] = pool.address ?? poolId;
+      if (!patched['tokenA']) patched['tokenA'] = tx.address ?? '';
+      if (!patched['tokenB']) patched['tokenB'] = ty.address ?? '';
+      if (!patched['tokenXMint']) patched['tokenXMint'] = tx.address ?? '';
+      if (!patched['tokenYMint']) patched['tokenYMint'] = ty.address ?? '';
+      if (!patched['tokenASymbol']) patched['tokenASymbol'] = tx.symbol ?? 'A';
+      if (!patched['tokenBSymbol']) patched['tokenBSymbol'] = ty.symbol ?? 'B';
+      if (!patched['tokenADecimals']) patched['tokenADecimals'] = String(Number(tx.decimals ?? 9));
+      if (!patched['tokenBDecimals']) patched['tokenBDecimals'] = String(Number(ty.decimals ?? 9));
+      patched['amountRatio'] = String(price);
+      this.editParams.set(patched);
+
+      // The balance loaders ran in ngOnInit, before the mints were known.
+      this.inputBalance.set(null);
+      this.secondaryBalance.set(null);
+      if (this.inputBalanceMint()) this.loadInputBalance();
+      if (this.secondaryBalanceMint()) this.loadSecondaryBalance();
+    } catch (err) {
+      console.warn('[meteora-dammv2] pool enrichment failed', err);
+    }
+  }
+
   private async maybeEnrichMeteoraDlmmPool(): Promise<void> {
     const t = this.action?.type;
     if (t !== 'meteora_open_position' && t !== 'meteora_add_liquidity' && t !== 'meteora_add_to_position') return;
