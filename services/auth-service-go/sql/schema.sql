@@ -75,6 +75,43 @@ CREATE TRIGGER trg_users_soft_delete
     FOR EACH ROW
     EXECUTE FUNCTION auth_schema.handle_soft_delete();
 
+-- ── Linked identities (multichain foundation — Phase 0) ───────────────────────
+-- An account (auth_schema.users.id) can own many identities: its Solana wallet
+-- today; an EVM wallet, Telegram, or email tomorrow. `users` stays the account;
+-- this table is the extensible credential layer. Proof-of-control (a signature /
+-- verified hash) is required before an identity is inserted — enforced in the
+-- application, not the schema.
+CREATE TABLE IF NOT EXISTS auth_schema.linked_identities (
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id  UUID         NOT NULL REFERENCES auth_schema.users(id) ON DELETE CASCADE,
+    type        VARCHAR(32)  NOT NULL,   -- solana_wallet | evm_wallet | telegram | email
+    chain       VARCHAR(50),             -- null for telegram / email
+    identifier  VARCHAR(255) NOT NULL,   -- wallet address / telegram id / email (evm+email lowercased)
+    label       VARCHAR(255),
+    is_primary  BOOLEAN      NOT NULL DEFAULT false,
+    verified_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT valid_identity_type CHECK (type IN ('solana_wallet', 'evm_wallet', 'telegram', 'email')),
+    CONSTRAINT uq_identity UNIQUE (type, identifier)  -- an identity belongs to exactly one account
+);
+
+CREATE INDEX IF NOT EXISTS idx_linked_identities_account
+    ON auth_schema.linked_identities (account_id);
+
+-- At most one primary identity per account.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_primary_identity_per_account
+    ON auth_schema.linked_identities (account_id)
+    WHERE is_primary;
+
+-- Backfill: every existing user becomes a one-identity account — its Solana
+-- wallet, marked primary. Idempotent via the UNIQUE(type, identifier) conflict.
+INSERT INTO auth_schema.linked_identities
+    (account_id, type, chain, identifier, is_primary, verified_at, created_at)
+SELECT id, 'solana_wallet', COALESCE(chain, 'solana'), wallet_address, true, created_at, created_at
+FROM auth_schema.users
+WHERE is_deleted = false
+ON CONFLICT (type, identifier) DO NOTHING;
+
 -- ── Login logs (partitioned by month for scalability) ─────────────────────────
 CREATE TABLE IF NOT EXISTS auth_schema.login_logs (
     id             UUID        NOT NULL DEFAULT gen_random_uuid(),
