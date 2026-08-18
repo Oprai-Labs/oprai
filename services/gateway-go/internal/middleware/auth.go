@@ -24,6 +24,9 @@ type contextKey string
 const (
 	// WalletKey is the context key for the authenticated user's wallet address.
 	WalletKey contextKey = "wallet"
+	// AccountKey is the context key for the authenticated user's account id
+	// (auth_schema.users.id) — the multichain-era canonical identity.
+	AccountKey contextKey = "account"
 )
 
 // cookieName is the HttpOnly cookie set by the auth service on successful login.
@@ -55,6 +58,10 @@ func JWTAuth(jwtSecret, previousSecret string, blocklist *TokenBlocklist) func(h
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Strip any client-supplied identity header up front — it can only
+			// ever be re-set from our own validated token below.
+			r.Header.Del("X-User-Account")
+
 			// 1. Try Authorization: Bearer header first
 			var tokenString string
 			authHeader := r.Header.Get("Authorization")
@@ -140,6 +147,15 @@ func JWTAuth(jwtSecret, previousSecret string, blocklist *TokenBlocklist) func(h
 				r.Header.Set("X-User-Wallet", wallet)
 			}
 
+			// Extract the account id from the "a" claim (multichain foundation).
+			// Optional: tokens issued before this field simply carry no account
+			// (already stripped up top, so it stays absent for old tokens).
+			account, _ := claims["a"].(string)
+			if isValidUUID(account) {
+				r = r.WithContext(context.WithValue(r.Context(), AccountKey, account))
+				r.Header.Set("X-User-Account", account)
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -151,6 +167,34 @@ func GetWallet(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+// GetAccount extracts the authenticated account id from the request context.
+// May be empty for tokens issued before the account_id claim existed.
+func GetAccount(ctx context.Context) string {
+	if v, ok := ctx.Value(AccountKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// isValidUUID is a cheap shape check for the account-id claim (8-4-4-4-12 hex).
+func isValidUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+			continue
+		}
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // RequireWallet is middleware that enforces a valid authenticated wallet.

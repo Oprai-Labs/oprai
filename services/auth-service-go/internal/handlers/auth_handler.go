@@ -229,7 +229,7 @@ func (h *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 	}, h.cfg.TrustProxyHeaders)
 
 	// Issue JWT
-	result, err := h.jwtService.Issue(req.WalletAddress)
+	result, err := h.jwtService.Issue(req.WalletAddress, user.ID)
 	if err != nil {
 		slog.Error("Failed to issue JWT",
 			"wallet", req.WalletAddress,

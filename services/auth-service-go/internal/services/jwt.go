@@ -21,6 +21,10 @@ type JWTResult struct {
 // RegisteredClaims.ID carries the unique jti for token revocation.
 type JWTClaims struct {
 	Wallet string `json:"w"`
+	// AccountID is the canonical user id (auth_schema.users.id). Multichain
+	// foundation: services key on the account, not the wallet. Optional so
+	// tokens issued before this field continue to validate.
+	AccountID string `json:"a,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -36,13 +40,13 @@ type JWTClaims struct {
 //
 // Rotation procedure:
 //
-//	1. Set OPRAI_JWT_SECRET_OLD to the value of OPRAI_JWT_SECRET in the
-//	   service's env / secret store.
-//	2. Set OPRAI_JWT_SECRET to a freshly generated value.
-//	3. Restart the service. Tokens issued before step 2 still validate
-//	   against OPRAI_JWT_SECRET_OLD; new tokens use the new secret.
-//	4. After the longest token TTL has elapsed (3 days by default), unset
-//	   OPRAI_JWT_SECRET_OLD and restart again to retire the old secret.
+//  1. Set OPRAI_JWT_SECRET_OLD to the value of OPRAI_JWT_SECRET in the
+//     service's env / secret store.
+//  2. Set OPRAI_JWT_SECRET to a freshly generated value.
+//  3. Restart the service. Tokens issued before step 2 still validate
+//     against OPRAI_JWT_SECRET_OLD; new tokens use the new secret.
+//  4. After the longest token TTL has elapsed (3 days by default), unset
+//     OPRAI_JWT_SECRET_OLD and restart again to retire the old secret.
 type JWTService struct {
 	secret         []byte
 	previousSecret []byte
@@ -63,15 +67,16 @@ func NewJWTService(secret, previousSecret string, ttlSeconds int) *JWTService {
 	}
 }
 
-// Issue creates a new signed JWT for the given wallet address.
+// Issue creates a new signed JWT for the given wallet address and account id.
 // Each token receives a unique jti (JWT ID) so it can be individually revoked.
-func (s *JWTService) Issue(walletAddress string) (*JWTResult, error) {
+func (s *JWTService) Issue(walletAddress, accountID string) (*JWTResult, error) {
 	now := time.Now()
 	expiresAt := now.Add(s.ttl)
 	jti := uuid.New().String()
 
 	claims := JWTClaims{
-		Wallet: walletAddress,
+		Wallet:    walletAddress,
+		AccountID: accountID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        jti,
 			IssuedAt:  jwt.NewNumericDate(now),
