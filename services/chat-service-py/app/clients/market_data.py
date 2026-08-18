@@ -93,7 +93,10 @@ def _classify_status(exc: Exception | None, response: httpx.Response | None) -> 
 BIRDEYE_BASE  = "https://public-api.birdeye.so"
 BIRDEYE_KEY   = os.environ.get("BIRDEYE_API_KEY", "")
 HELIUS_RPC    = f"https://mainnet.helius-rpc.com/?api-key={os.environ.get('HELIUS_API_KEY', '')}"
-HELIUS_API    = "https://api.helius.xyz/v0"
+# No enhanced-transactions host here on purpose: Helius Cloudflare-blocks this
+# server's IP on api.helius.xyz (403 HTML, any key, any User-Agent), while the
+# RPC host above answers normally. Anything that needs decoded history builds
+# it from RPC — see helius_wallet_txs.
 HELIUS_KEY    = os.environ.get("HELIUS_API_KEY", "")
 SOLANA_RPC    = os.environ.get("SOLANA_RPC", "https://api.mainnet-beta.solana.com")
 GATEWAY_URL   = os.environ.get("GATEWAY_URL", "http://localhost:3001")
@@ -148,7 +151,7 @@ async def _get(url: str, params: dict = None, headers: dict = None) -> Any:
         EXTERNAL_API_REQUESTS.labels(provider=provider, status=_classify_status(err, response)).inc()
 
 
-async def _post(url: str, body: dict, headers: dict = None) -> Any:
+async def _post(url: str, body: dict | list, headers: dict = None) -> Any:
     provider = _provider_label(url)
     started = time.perf_counter()
     response: httpx.Response | None = None
@@ -1292,14 +1295,152 @@ async def helius_wallet_tokens(wallet: str) -> list:
     return out
 
 
+# Program id → the name a person would use for it, and what the transaction
+# was. Iterated in THIS order, so a router (Jupiter) wins over the AMMs it
+# routes through — a Jupiter swap touches Raydium's program too, and calling
+# it a Raydium trade would be wrong. Mirrors the table the portfolio page
+# uses; keep the two in step.
+_KNOWN_PROGRAMS: list[tuple[str, str, str]] = [
+    ("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4", "jupiter", "SWAP"),
+    ("JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB", "jupiter", "SWAP"),
+    ("JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", "jupiter", "SWAP"),
+    ("M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K", "magic eden", "NFT_SALE"),
+    ("TSWAPaqyCSx2KABk68Shruf4rp7CxcNi8hAsbdwmHbN", "tensor", "NFT_SALE"),
+    ("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", "pump.fun", "SWAP"),
+    ("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA", "pump.fun", "SWAP"),
+    ("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", "raydium", "SWAP"),
+    ("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK", "raydium", "SWAP"),
+    ("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C", "raydium", "SWAP"),
+    ("routeUGWgWzqBWFcrCfv8tritsqukccJPu3q5GPP3xS", "raydium", "SWAP"),
+    ("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc", "orca", "SWAP"),
+    ("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo", "meteora", "SWAP"),
+    ("Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB", "meteora", "SWAP"),
+    ("dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN", "meteora", "SWAP"),
+    ("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG", "meteora", "SWAP"),
+    ("obriQD1zbpyLz95G5n7nJe6a4DPjpFwa5XYPoNm113y", "lifinity", "SWAP"),
+    ("PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY", "phoenix", "SWAP"),
+    ("CRoSSzVxmtLn4VEkyVrQYcjC1JoYWaELxiD3wwQYzLNd", "streamflow", "TRANSFER"),
+    ("Stake11111111111111111111111111111111111111", "native stake", "STAKE"),
+    ("MarBmsSgKXdrN1egZf5sqe1TMai9K1rChYNDJgjq7aD", "marinade", "STAKE"),
+    ("SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy", "jito", "STAKE"),
+]
+
+
+def _movement_kind(tx: dict, wallet: str) -> str | None:
+    """What the wallet actually did, read from what moved.
+
+    The program alone cannot answer this: Meteora's and Raydium's AMM
+    programs serve both a trade and a liquidity deposit, so labelling by
+    program calls every deposit a SWAP. What separates them is the shape of
+    the movement — a trade sends one asset and receives another, a deposit
+    sends two and receives none.
+
+    Returns None when the shape says nothing, so the program label stands.
+    """
+    meta = tx.get("meta") or {}
+    deltas: dict[str, float] = {}
+    for field, sign in (("preTokenBalances", -1.0), ("postTokenBalances", 1.0)):
+        for row in meta.get(field) or []:
+            if row.get("owner") != wallet:
+                continue
+            mint = row.get("mint")
+            amt = ((row.get("uiTokenAmount") or {}).get("uiAmount")) or 0.0
+            if mint:
+                deltas[mint] = deltas.get(mint, 0.0) + sign * float(amt)
+
+    # A position NFT arriving is the receipt for opening a position, not an
+    # asset the user acquired — count it as the signal it is.
+    got_nft = any(abs(d - 1.0) < 1e-9 for d in deltas.values())
+    ins = [m for m, d in deltas.items() if d > 1e-12 and abs(d - 1.0) > 1e-9]
+    outs = [m for m, d in deltas.items() if d < -1e-12]
+
+    if got_nft and outs:
+        return "ADD_LIQUIDITY"
+    if len(outs) >= 2 and not ins:
+        return "ADD_LIQUIDITY"
+    if len(ins) >= 2 and not outs:
+        return "REMOVE_LIQUIDITY"
+    if ins and outs:
+        return "SWAP"
+    return None
+
+
+def _label_tx(tx: dict) -> tuple[str | None, str]:
+    """Name the protocol a transaction went through, and what it was.
+
+    Program ids have to be gathered from the loaded address table as well as
+    the static keys: a v0 transaction keeps most of its accounts in an ALT, so
+    reading only `message.accountKeys` misses the very program that identifies
+    the trade and every such transaction comes back "unknown".
+    """
+    msg = (tx.get("transaction") or {}).get("message") or {}
+    loaded = (tx.get("meta") or {}).get("loadedAddresses") or {}
+    keys = {
+        (k.get("pubkey") if isinstance(k, dict) else k)
+        for k in msg.get("accountKeys", [])
+    }
+    keys.update(loaded.get("writable") or [])
+    keys.update(loaded.get("readonly") or [])
+    keys.update(
+        ix.get("programId") for ix in (msg.get("instructions") or []) if ix.get("programId")
+    )
+    for program, source, kind in _KNOWN_PROGRAMS:
+        if program in keys:
+            return source, kind
+    return None, "TRANSFER"
+
+
 async def helius_wallet_txs(wallet: str, limit: int = 20) -> dict | list:
-    """Wallet transaction history — decoded type (SWAP, TRANSFER, STAKE), source protocol."""
+    """Wallet transaction history — decoded type (SWAP, TRANSFER, STAKE), source protocol.
+
+    Built from JSON-RPC, not the enhanced-transactions REST API: Helius
+    Cloudflare-blocks this server's IP on api.helius.xyz and answers every
+    call with a 403 HTML page, so this tool returned an error for every
+    wallet. The RPC host is not blocked.
+    """
     if not HELIUS_KEY:
         return {"error": "HELIUS_API_KEY not configured"}
-    return await _get(
-        f"{HELIUS_API}/addresses/{wallet}/transactions",
-        params={"limit": min(limit, 50), "api-key": HELIUS_KEY},
-    )
+    n = max(1, min(limit, 50))
+    sigs_resp = await _post(HELIUS_RPC, {
+        "jsonrpc": "2.0", "id": 1,
+        "method": "getSignaturesForAddress",
+        "params": [wallet, {"limit": n}],
+    })
+    entries = sigs_resp.get("result") or []
+    if not isinstance(entries, list) or not entries:
+        return []
+
+    batch = [
+        {
+            "jsonrpc": "2.0", "id": i,
+            "method": "getTransaction",
+            "params": [e["signature"], {"maxSupportedTransactionVersion": 0, "encoding": "jsonParsed"}],
+        }
+        for i, e in enumerate(entries) if e.get("signature")
+    ]
+    replies = await _post(HELIUS_RPC, batch)
+    by_id = {r.get("id"): r.get("result") for r in replies} if isinstance(replies, list) else {}
+
+    out: list[dict] = []
+    for i, e in enumerate(entries):
+        tx = by_id.get(i)
+        sig = e.get("signature")
+        if not sig:
+            continue
+        source, kind = _label_tx(tx) if tx else (None, "UNKNOWN")
+        # What moved beats what program it moved through — the same AMM
+        # program serves a trade and a deposit.
+        if tx and kind != "STAKE":
+            kind = _movement_kind(tx, wallet) or kind
+        out.append({
+            "signature": sig,
+            "timestamp": e.get("blockTime") or (tx or {}).get("blockTime"),
+            "type": kind,
+            "source": source,
+            "success": e.get("err") is None,
+            "fee": ((tx or {}).get("meta") or {}).get("fee"),
+        })
+    return out
 
 
 # ── Jupiter ───────────────────────────────────────────────────────────────────

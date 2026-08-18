@@ -47,7 +47,12 @@ _log = logging.getLogger(__name__)
 
 
 HELIUS_KEY = os.environ.get("HELIUS_API_KEY", "")
-HELIUS_API = "https://api.helius.xyz/v0"
+# The RPC node, not api.helius.xyz. Helius Cloudflare-blocks this server's IP
+# on the enhanced-transactions REST host — every call came back as a 403 HTML
+# page regardless of key or User-Agent, while the same key answers normally
+# from another address. The RPC host is unaffected, so history is rebuilt from
+# it instead. See _helius_get_txs.
+HELIUS_RPC = "https://mainnet.helius-rpc.com/?api-key=" + HELIUS_KEY
 BIRDEYE_KEY = os.environ.get("BIRDEYE_API_KEY", "")
 BIRDEYE_BASE = "https://public-api.birdeye.so"
 
@@ -93,20 +98,121 @@ class CostBasisDelta:
     is_buy: bool   # True → bought, False → sold
 
 
+def _rpc_batch(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Number a batch of JSON-RPC calls so replies can be matched back."""
+    return [{**c, "jsonrpc": "2.0", "id": i} for i, c in enumerate(calls)]
+
+
+def _tx_to_transfers(tx: dict[str, Any], wallet: str, signature: str) -> dict[str, Any]:
+    """Rebuild the two transfer lists this module reads, from balance deltas.
+
+    Only the wallet's own net movement matters here: every consumer compares
+    from/toUserAccount against `wallet` and ignores the counterparty, so a
+    balance delta answers the question directly. It is also the sturdier
+    reading — a swap routed through several hops nets out to what the wallet
+    actually gained and lost, with no intermediate legs to double count.
+    """
+    meta = tx.get("meta") or {}
+    keys = [
+        k.get("pubkey") if isinstance(k, dict) else k
+        for k in ((tx.get("transaction") or {}).get("message") or {}).get("accountKeys", [])
+    ]
+
+    native: list[dict[str, Any]] = []
+    if wallet in keys:
+        i = keys.index(wallet)
+        pre = (meta.get("preBalances") or [])
+        post = (meta.get("postBalances") or [])
+        if i < len(pre) and i < len(post):
+            delta = post[i] - pre[i]
+            if delta:
+                native.append({
+                    "amount": abs(delta),
+                    "toUserAccount": wallet if delta > 0 else None,
+                    "fromUserAccount": wallet if delta < 0 else None,
+                })
+
+    by_mint: dict[str, float] = {}
+    for field, sign in (("preTokenBalances", -1.0), ("postTokenBalances", 1.0)):
+        for row in meta.get(field) or []:
+            if row.get("owner") != wallet:
+                continue
+            mint = row.get("mint")
+            amt = ((row.get("uiTokenAmount") or {}).get("uiAmount")) or 0.0
+            if mint:
+                by_mint[mint] = by_mint.get(mint, 0.0) + sign * float(amt)
+
+    tokens = [
+        {
+            "mint": mint,
+            "tokenAmount": abs(delta),
+            "toUserAccount": wallet if delta > 0 else None,
+            "fromUserAccount": wallet if delta < 0 else None,
+        }
+        for mint, delta in by_mint.items()
+        if abs(delta) > 1e-12
+    ]
+
+    return {
+        "signature": signature,
+        "timestamp": tx.get("blockTime") or 0,
+        "transactionError": meta.get("err"),
+        "tokenTransfers": tokens,
+        "nativeTransfers": native,
+    }
+
+
 async def _helius_get_txs(wallet: str, before: str | None = None) -> list[dict[str, Any]]:
-    """Fetch one page of enhanced txs for `wallet`. Returns [] on failure."""
+    """One page of `wallet`'s history, newest first. Returns [] on failure.
+
+    Built from plain JSON-RPC rather than the enhanced-transactions REST API,
+    which Cloudflare-blocks this server's IP on (see HELIUS_RPC). Signatures
+    come from getSignaturesForAddress — same newest-first order and the same
+    `before` cursor the caller already pages with — then the transactions are
+    fetched in one batched request rather than one round trip each.
+    """
     if not HELIUS_KEY:
         return []
-    params: dict[str, Any] = {"limit": HELIUS_PAGE, "api-key": HELIUS_KEY}
-    if before:
-        params["before"] = before
-    url = f"{HELIUS_API}/addresses/{wallet}/transactions"
     try:
-        async with httpx.AsyncClient(timeout=15.0) as c:
-            resp = await c.get(url, params=params)
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            opts: dict[str, Any] = {"limit": HELIUS_PAGE}
+            if before:
+                opts["before"] = before
+            resp = await c.post(HELIUS_RPC, json={
+                "jsonrpc": "2.0", "id": 1,
+                "method": "getSignaturesForAddress",
+                "params": [wallet, opts],
+            })
             resp.raise_for_status()
-            data = resp.json()
-            return data if isinstance(data, list) else []
+            sigs = [s["signature"] for s in (resp.json().get("result") or []) if s.get("signature")]
+            if not sigs:
+                return []
+
+            out: list[dict[str, Any]] = []
+            # Chunked so one page never becomes a single oversized request.
+            for i in range(0, len(sigs), 25):
+                chunk = sigs[i:i + 25]
+                batch = _rpc_batch([
+                    {"method": "getTransaction", "params": [
+                        s, {"maxSupportedTransactionVersion": 0, "encoding": "jsonParsed"},
+                    ]}
+                    for s in chunk
+                ])
+                r = await c.post(HELIUS_RPC, json=batch)
+                r.raise_for_status()
+                replies = r.json()
+                if not isinstance(replies, list):
+                    continue
+                # A batch reply may arrive out of order; `id` is the position
+                # within this chunk, which is how each result finds its
+                # signature again. Dropping a null result keeps the page
+                # newest-first, so the caller's cursor stays valid.
+                for reply in sorted(replies, key=lambda x: x.get("id", 0)):
+                    tx = reply.get("result")
+                    idx = reply.get("id")
+                    if tx and isinstance(idx, int) and idx < len(chunk):
+                        out.append(_tx_to_transfers(tx, wallet, chunk[idx]))
+            return out
     except Exception as e:
         _log.warning("Helius txs fetch failed for %s: %s", wallet, e)
         return []
