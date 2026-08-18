@@ -915,6 +915,12 @@ func addDateFilters(conditions *[]string, args *[]interface{}, argIdx int, colum
 }
 
 // rowsToMaps converts pgx rows to a slice of maps.
+// formatUUID renders pgx's raw uuid bytes in the canonical 8-4-4-4-12 form.
+// Written out rather than pulling in a uuid package for one conversion.
+func formatUUID(b [16]byte) string {
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
 func rowsToMaps(rows pgx.Rows) ([]map[string]interface{}, error) {
 	defer rows.Close()
 
@@ -933,6 +939,17 @@ func rowsToMaps(rows pgx.Rows) ([]map[string]interface{}, error) {
 			// Convert time.Time to ISO 8601 strings for JSON compatibility
 			if t, ok := val.(time.Time); ok {
 				val = t.UTC().Format(time.RFC3339)
+			}
+			// pgx hands a uuid back as [16]byte, which JSON-marshals as an
+			// array of sixteen numbers rather than a string. The panel then
+			// builds a URL from it and requests `/admin/issues/` with no id,
+			// which 405s — that is how this was first found. Fixing it per
+			// query with `id::text` only covers the query someone remembered,
+			// and cannot cover the several selects here that use `SELECT *`.
+			// Convert once, on the way out, so it holds for every column of
+			// every query including ones added later.
+			if b, ok := val.([16]byte); ok {
+				val = formatUUID(b)
 			}
 			row[string(fd.Name)] = val
 		}
@@ -1554,10 +1571,11 @@ func (q *Queries) GetIssueReports(ctx context.Context, params IssueReportListPar
 
 	dataArgs := append(args, params.Limit, offset)
 	rows, err := q.pool.Query(ctx,
-		// `id::text` is load-bearing: rowsToMaps passes pgx values through
-		// untouched, and pgx decodes uuid as [16]byte — which JSON-marshals
-		// as an array of numbers, not a string. The panel would then PATCH
-		// `/admin/issues/` with an empty id and get a 405.
+		// `id::text` is now belt and braces — rowsToMaps converts uuid bytes
+		// to a string for every query. Kept because it is explicit, and
+		// because this is the query that first surfaced the problem: the id
+		// reached the panel as an array of numbers, so the PATCH went to
+		// `/admin/issues/` with no id and came back 405.
 		fmt.Sprintf(`SELECT id::text AS id, wallet, category, subject, description, context,
 		 status, admin_note, created_at, updated_at
 		 FROM chat_schema.issue_reports
