@@ -90,6 +90,13 @@ func (p *AuthProxy) GetMe(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// GetAccountMe proxies GET /account/me to the auth service — the account and its
+// linked identities (multichain profile).
+func (p *AuthProxy) GetAccountMe(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/account/me"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // GetUser proxies GET /users/{wallet} to the auth service.
 func (p *AuthProxy) GetUser(w http.ResponseWriter, r *http.Request) {
 	wallet := chi.URLParam(r, "wallet")

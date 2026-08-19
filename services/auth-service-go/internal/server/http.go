@@ -71,6 +71,7 @@ func NewHTTPServer(
 	// ── Handlers ──────────────────────────────────────────────────────
 	authHandler := handlers.NewAuthHandler(nonceService, jwtService, revocationService, queries, cfg, auditLogger)
 	userHandler := handlers.NewUserHandler(queries, auditLogger, cfg)
+	accountHandler := handlers.NewAccountHandler(queries)
 	spendingHandler := handlers.NewSpendingHandler(queries)
 
 	// ── Health check ──────────────────────────────────────────────────
@@ -116,6 +117,12 @@ func NewHTTPServer(
 		r.Post("/", userHandler.HandleCreateUser)
 		r.Get("/{wallet}", userHandler.HandleGetByWallet)
 		r.Patch("/{wallet}", userHandler.HandlePatchByWallet)
+	})
+
+	// Account view — the multichain identity surface (account + linked identities).
+	r.Route("/account", func(r chi.Router) {
+		r.Use(auth.Required)
+		r.Get("/me", accountHandler.HandleGetMe)
 	})
 
 	// ── Internal routes (gated by X-Internal-Api-Key) ─────────────────

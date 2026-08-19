@@ -66,6 +66,36 @@ func scanUser(row pgx.Row, user *User) error {
 	)
 }
 
+const identitySelectCols = `id, account_id, type, chain, identifier, label, is_primary, verified_at, created_at`
+
+// ListIdentitiesByAccount returns every identity linked to an account, primary
+// first. Empty (not an error) when the account has none.
+func (q *Queries) ListIdentitiesByAccount(ctx context.Context, accountID string) ([]LinkedIdentity, error) {
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM %s
+		WHERE account_id = $1
+		ORDER BY is_primary DESC, created_at ASC
+	`, identitySelectCols, q.table("linked_identities"))
+
+	rows, err := q.pool.Query(ctx, query, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("ListIdentitiesByAccount: %w", err)
+	}
+	defer rows.Close()
+
+	var out []LinkedIdentity
+	for rows.Next() {
+		var li LinkedIdentity
+		if err := rows.Scan(&li.ID, &li.AccountID, &li.Type, &li.Chain,
+			&li.Identifier, &li.Label, &li.IsPrimary, &li.VerifiedAt, &li.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan identity: %w", err)
+		}
+		out = append(out, li)
+	}
+	return out, rows.Err()
+}
+
 // GetUserByWallet retrieves an active (not soft-deleted) user by wallet address.
 // Returns nil if not found or deleted.
 func (q *Queries) GetUserByWallet(ctx context.Context, walletAddress string) (*User, error) {
@@ -84,7 +114,6 @@ func (q *Queries) GetUserByWallet(ctx context.Context, walletAddress string) (*U
 	}
 	return user, nil
 }
-
 
 // GetOrCreateUser retrieves an existing user or creates a new one.
 // This matches the Node.js findOrCreate behavior.

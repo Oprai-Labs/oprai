@@ -7,6 +7,38 @@ import (
 )
 
 // User maps to auth_schema.users.
+// LinkedIdentity is one credential belonging to an account (users.id): the
+// account's Solana wallet today; an EVM wallet, Telegram, or email tomorrow.
+type LinkedIdentity struct {
+	ID         string
+	AccountID  string
+	Type       string
+	Chain      pgtype.Text
+	Identifier string
+	Label      pgtype.Text
+	IsPrimary  bool
+	VerifiedAt time.Time
+	CreatedAt  time.Time
+}
+
+// ToJSON renders a linked identity for API responses.
+func (li *LinkedIdentity) ToJSON() map[string]any {
+	m := map[string]any{
+		"id":         li.ID,
+		"type":       li.Type,
+		"identifier": li.Identifier,
+		"isPrimary":  li.IsPrimary,
+		"verifiedAt": li.VerifiedAt.UTC().Format(time.RFC3339),
+	}
+	if li.Chain.Valid {
+		m["chain"] = li.Chain.String
+	}
+	if li.Label.Valid {
+		m["label"] = li.Label.String
+	}
+	return m
+}
+
 type User struct {
 	ID                     string
 	WalletAddress          string

@@ -114,6 +114,11 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/logout", authProxy.PostLogout) // clears HttpOnly cookie
 		r.Get("/me", authProxy.GetMe)
 	})
+	r.Route("/account", func(r chi.Router) {
+		r.Use(defaultTimeout)
+		r.With(middleware.RequireWallet).Get("/me", authProxy.GetAccountMe)
+	})
+
 	r.Route("/users", func(r chi.Router) {
 		r.Use(defaultTimeout)
 		r.Get("/me", authProxy.GetMe)
@@ -265,9 +270,9 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Use(defaultTimeout)
 		r.Use(middleware.RequireWallet) // wallet-scoped data — must be authenticated
 		r.Get("/", solanaProxy.ListTransactions)
-		r.Post("/", solanaProxy.CreateTransaction)                       // record a broadcast tx
+		r.Post("/", solanaProxy.CreateTransaction) // record a broadcast tx
 		r.Get("/{id}", solanaProxy.GetTransaction)
-		r.Patch("/{id}/status", solanaProxy.UpdateTransactionStatus)     // submitted->confirmed/failed
+		r.Patch("/{id}/status", solanaProxy.UpdateTransactionStatus) // submitted->confirmed/failed
 	})
 	r.Route("/balance", func(r chi.Router) {
 		r.Use(defaultTimeout)
