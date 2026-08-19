@@ -3242,6 +3242,8 @@ async fn build_action_inner(
         "launch_token" | "pumpfun_launch" => {
             let mut p: pumpfun::LaunchTokenParams = serde_json::from_value(params)?;
             p.fee_discount_pct = fee_discount_pct;
+            // Captured before `rpc` moves into the blocking closure.
+            let rpc_endpoint = rpc.endpoint().to_string();
             let rpc = rpc.clone();
             let pubkey = *user_pubkey;
             let result = actix_web::web::block(move || {
@@ -3249,6 +3251,27 @@ async fn build_action_inner(
             })
             .await
             .map_err(|e| AppError::Internal(format!("Blocking error: {e}")))??;
+
+            // What the launch actually takes, measured. The quote was a
+            // constant 0.02 SOL create fee plus the initial buy; a real launch
+            // (4BDNRc9z…) cost 0.008062 including the network fee, so the card
+            // overstated by two and a half times. That direction does not fail
+            // a submit, but it tells someone holding 0.015 SOL they cannot
+            // afford something they can — which is the same failure of
+            // guidance, pointed the other way.
+            //
+            // Measured here rather than in the builder because that one is
+            // blocking and cannot await a simulation.
+            let measured_fee = crate::services::tx_cost::cost_label(
+                crate::services::tx_cost::simulated_sol_delta_b64(
+                    &rpc_endpoint,
+                    &result.transaction_base64,
+                    user_pubkey,
+                )
+                .await,
+                0.0,
+                &result.preview.estimated_fee,
+            );
 
             // Transaction is already base64-encoded (may be versioned or legacy).
             // For launches with an initial buy, `data.initialBuy` tells the frontend to
@@ -3269,7 +3292,7 @@ async fn build_action_inner(
                     id: result.preview.id,
                     action_type: result.preview.action_type,
                     description: result.preview.description,
-                    estimated_fee: result.preview.estimated_fee,
+                    estimated_fee: measured_fee,
                     estimated_refund: None,
                     params: serde_json::to_value(result.preview.params)?,
                     warnings: result.preview.warnings,
