@@ -201,6 +201,33 @@ async function resolvePoolTokens(
 // Read: the wallet's positions
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+/**
+ * How long a position has been open, from the oldest signature on its account.
+ *
+ * The position reports what it holds and what it has earned but not when it
+ * started, and without that the fees are a number with no denominator. A
+ * position paying $2 is doing well after a day and badly after a year.
+ *
+ * Null when the history cannot be read — the review then omits the realised
+ * return rather than dividing by a guess.
+ */
+async function positionAgeDays(
+  connection: Connection,
+  position: PublicKey,
+): Promise<number | null> {
+  try {
+    const sigs = await connection.getSignaturesForAddress(position, { limit: 1000 });
+    if (!sigs.length) return null;
+    const oldest = sigs[sigs.length - 1];
+    if (!oldest.blockTime) return null;
+    const days = (Date.now() / 1000 - oldest.blockTime) / 86_400;
+    return days > 0 ? days : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Every DAMM v2 position the wallet holds, grouped by pool.
  *
@@ -245,6 +272,9 @@ export async function getDammV2UserPositions(
     const rents = await Promise.all(
       entries.map(e => rentOf([e.position, e.positionNftAccount])),
     );
+    const ages = await Promise.all(
+      entries.map(e => positionAgeDays(connection, e.position)),
+    );
 
     const positions = entries.map((e, i) => {
       const ps = e.positionState;
@@ -265,6 +295,34 @@ export async function getDammV2UserPositions(
         amountY: toNum(quote.outAmountB, t.decB),
         unclaimedFeeX: toNum(ps.feeAPending, t.decA),
         unclaimedFeeY: toNum(ps.feeBPending, t.decB),
+        ageDays: ages[i],
+        /**
+         * What this position has actually returned, annualised — fees against
+         * what it holds, over how long it has held it.
+         *
+         * A floor rather than the whole truth: fees already claimed are not
+         * counted, so a position whose fees have been collected reads lower
+         * than it earned. Stated as a floor rather than quietly presented as
+         * the return.
+         *
+         * This is the number that catches a headline rate that never
+         * materialised, and the only one that would.
+         */
+        realisedAprPct: (() => {
+          const age = ages[i];
+          if (age === null || age <= 0) return null;
+          // Both sides are different tokens, so they have to be put in one
+          // unit before they can be added. poolPrice is B per A; everything is
+          // valued in B. Summing the raw amounts would have compared a token
+          // count to a token count and called it a return.
+          if (!(poolPrice > 0)) return null;
+          const held =
+            toNum(quote.outAmountA, t.decA) * poolPrice + toNum(quote.outAmountB, t.decB);
+          const fees =
+            toNum(ps.feeAPending, t.decA) * poolPrice + toNum(ps.feeBPending, t.decB);
+          if (!(held > 0)) return null;
+          return (fees / held) * (365 / age) * 100;
+        })(),
         // A locked position can't be withdrawn or closed until it vests; the
         // card has to say so rather than offering buttons that will fail.
         rentSol: rents[i],
