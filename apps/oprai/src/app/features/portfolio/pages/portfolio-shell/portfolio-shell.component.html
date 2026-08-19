@@ -105,7 +105,9 @@
             </button>
             @for (c of EVM_CHAINS; track c.id) {
               <button class="chain-pill" [class.active]="activeChain() === c.id" (click)="setChain(c.id)">
-                <span class="chain-pill-dot" [style.background]="c.color"></span>{{ c.label }}
+                <span class="chain-pill-ico" [style.--cc]="c.color">
+                  <img [src]="c.icon" [alt]="c.label" width="16" height="16" (error)="hideChainIcon($event)" />
+                </span>{{ c.label }}
                 @if (primaryChain() === 'ethereum' && c.id === 'ethereum') { <span class="chain-primary">Primary</span> }
               </button>
             }

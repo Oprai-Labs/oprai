@@ -385,3 +385,10 @@
   }
 }
 .chain-pill-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+.chain-pill-ico {
+  width: 18px; height: 18px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; overflow: hidden;
+  background: color-mix(in srgb, var(--cc, #7e8298) 20%, transparent);
+  img { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
+}

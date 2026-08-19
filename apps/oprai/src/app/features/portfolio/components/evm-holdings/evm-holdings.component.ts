@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, Input, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { LucideAngularModule } from 'lucide-angular';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { AccountService } from '../../../../core/services/account.service';
@@ -29,7 +30,7 @@ function categoryFor(label: string): ProtocolCategory {
 @Component({
   selector: 'app-evm-holdings',
   standalone: true,
-  imports: [CommonModule, AllocationChartComponent, DefiPositionsComponent],
+  imports: [CommonModule, LucideAngularModule, AllocationChartComponent, DefiPositionsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (walletCount() > 0) {
@@ -60,7 +61,8 @@ function categoryFor(label: string): ProtocolCategory {
           @for (c of cards(); track c.name) {
             <div class="proto-card">
               <div class="proto-card-ico" [style.--cc]="c.color">
-                @if (c.logo) { <img [src]="c.logo" [alt]="c.name" (error)="hideImg($event)" /> }
+                @if (c.name === 'Wallet') { <lucide-icon name="wallet" [size]="16" /> }
+                @else if (c.logo) { <img [src]="c.logo" [alt]="c.name" (error)="hideImg($event)" /> }
                 @else { <span class="proto-card-dot" [style.background]="c.color"></span> }
               </div>
               <div class="proto-card-text">
@@ -71,6 +73,13 @@ function categoryFor(label: string): ProtocolCategory {
           }
         </div>
 
+        <!-- ── Tabs (Portfolio / Transactions) like the Solana view ── -->
+        <div class="evm-tabs">
+          <button class="evm-tab" [class.on]="evmTab() === 'portfolio'" (click)="evmTab.set('portfolio')">Portfolio</button>
+          <button class="evm-tab" [class.on]="evmTab() === 'transactions'" (click)="evmTab.set('transactions')">Transactions</button>
+        </div>
+
+        @if (evmTab() === 'portfolio') {
         <!-- ── Active positions & rewards — the exact Solana panel ── -->
         <app-defi-positions [protocolPositions]="protoPositions()" [loading]="false" />
 
@@ -97,8 +106,10 @@ function categoryFor(label: string): ProtocolCategory {
                 <div class="tok-r" [class.tok-spammy]="t.spam">
                   <span class="tok-name">
                     <span class="tok-logo" [style.--cc]="chainColor(t.chain)">
-                      @if (t.logo) { <img [src]="t.logo" [alt]="t.symbol" (error)="hideImg($event)" /> }
-                      @else { {{ (t.symbol || '?').slice(0,3) }} }
+                      <span class="tok-logo-txt">{{ (t.symbol || '?').slice(0,3) }}</span>
+                      @if (t.logo || dexLogo(t)) {
+                        <img class="tok-logo-img" [src]="t.logo || dexLogo(t)" [alt]="t.symbol" (error)="onTokenLogoErr($event, t)" />
+                      }
                       <span class="tok-chain-dot" [style.background]="chainColor(t.chain)" [title]="t.chain"></span>
                     </span>
                     <span class="tok-sym">{{ t.symbol || 'Unknown' }} <span class="tok-chain">{{ chainLabel(t.chain) }}</span>
@@ -113,12 +124,13 @@ function categoryFor(label: string): ProtocolCategory {
             </div>
           </section>
         }
+        }
 
-        <!-- ── Recent activity ── -->
-        @if (txs().length > 0) {
+        <!-- ── Transactions tab ── -->
+        @if (evmTab() === 'transactions') {
           <section class="tok">
-            <div class="tok-head"><div class="tok-title"><span class="tok-ico">≡</span> Recent Activity</div></div>
-            @for (t of txs(); track t.hash + t.chain) {
+            @if (visTxs().length === 0) { <div class="evm-empty">No recent transactions.</div> }
+            @for (t of visTxs(); track t.hash + t.chain) {
               <div class="evm-tx">
                 <div class="evm-tx-logo" [style.--cc]="chainColor(t.chain)">
                   @if (t.platformLogo) { <img [src]="t.platformLogo" [alt]="t.platform || ''" (error)="hideImg($event)" /> }
@@ -168,6 +180,10 @@ function categoryFor(label: string): ProtocolCategory {
     .tok-spam-toggle:hover { color:var(--op-text-primary); }
     .tok-spammy { opacity:.62; }
     .tok-spam-badge { font-size:.56rem; font-weight:700; text-transform:uppercase; color:#ef4444; background:color-mix(in srgb, #ef4444 15%, transparent); padding:1px 5px; border-radius:5px; }
+    .evm-tabs { display:flex; gap:24px; padding:6px 0 0; margin:16px 0 4px; border-bottom:1px solid var(--op-border, rgba(125,125,150,.15)); }
+    .evm-tab { background:none; border:0; padding:0 0 10px; font-size:.92rem; font-weight:600; color:var(--op-text-secondary); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
+    .evm-tab:hover { color:var(--op-text-primary); }
+    .evm-tab.on { color:var(--op-brand,#5b5fc7); border-bottom-color:var(--op-brand,#5b5fc7); }
     .proto-cards { display:flex; gap:12px; flex-wrap:wrap; margin:14px 0 4px; }
     .proto-card { display:flex; align-items:center; gap:10px; flex:1; min-width:150px; padding:12px 14px; border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:14px; background:var(--op-bg-surface-1); }
     .proto-card-ico { width:30px; height:30px; border-radius:9px; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 16%, transparent); overflow:hidden; }
@@ -190,8 +206,9 @@ function categoryFor(label: string): ProtocolCategory {
     .tok-num { text-align:right; font-variant-numeric:tabular-nums; font-size:.85rem; color:var(--op-text-primary); }
     .tok-dim { color:var(--op-text-secondary); } .tok-val { font-weight:600; }
     .tok-name { display:flex; align-items:center; gap:10px; min-width:0; }
-    .tok-logo { position:relative; width:32px; height:32px; border-radius:50%; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 18%, transparent); color:var(--op-text-primary); font-size:.58rem; font-weight:700; }
-    .tok-logo img { width:32px; height:32px; border-radius:50%; object-fit:cover; }
+    .tok-logo { position:relative; width:32px; height:32px; border-radius:50%; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 18%, transparent); color:var(--op-text-primary); font-size:.58rem; font-weight:700; overflow:visible; }
+    .tok-logo-txt { z-index:0; }
+    .tok-logo-img { position:absolute; inset:0; width:32px; height:32px; border-radius:50%; object-fit:cover; background:var(--op-bg-surface-1); z-index:1; }
     .tok-chain-dot { position:absolute; right:-2px; bottom:-2px; width:11px; height:11px; border-radius:50%; border:2px solid var(--op-bg-surface-1); }
     .tok-sym { font-weight:600; color:var(--op-text-primary); font-size:.9rem; display:flex; align-items:center; gap:7px; }
     .tok-chain { font-size:.62rem; text-transform:capitalize; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.1)); padding:1px 6px; border-radius:5px; }
@@ -222,6 +239,7 @@ export class EvmHoldingsComponent implements OnInit {
   txs = signal<EvmTx[]>([]);
   copied = signal(false);
   showSpam = signal(false);
+  evmTab = signal<'portfolio' | 'transactions'>('portfolio');
   chainFilter = signal<string>('all');
   // Driven by the portfolio's top chain switcher: 'all' or a specific chain.
   @Input() set chain(c: string | null | undefined) { this.chainFilter.set(c || 'all'); }
@@ -244,6 +262,7 @@ export class EvmHoldingsComponent implements OnInit {
   visTokens = computed(() =>
     this.tokens().filter((t) => this.chainMatch(t.chain) && (this.showSpam() || !t.spam)));
   visPositions = computed(() => this.positions().filter((p) => this.chainMatch(p.chain)));
+  visTxs = computed(() => this.txs().filter((t) => this.chainMatch(t.chain)));
 
   walletUsd = computed(() => this.visTokens().filter((t) => !t.spam).reduce((s, t) => s + (t.valueUsd || 0), 0));
   positionsUsd = computed(() => this.visPositions().reduce((s, p) => s + (p.balanceUsd || 0), 0));
@@ -354,4 +373,20 @@ export class EvmHoldingsComponent implements OnInit {
     if (c.includes('approve')) return '✓'; return '•';
   }
   hideImg(ev: Event): void { (ev.target as HTMLImageElement).style.display = 'none'; }
+
+  /** DexScreener token image — great memecoin/long-tail coverage where Trust
+   *  Wallet has nothing (cbBTC, memecoins, …). Accepts lowercase addresses. */
+  dexLogo(t: EvmToken): string {
+    if (t.native || !t.address || t.address === 'native') return '';
+    return `https://dd.dexscreener.com/ds-data/tokens/${t.chain}/${t.address.toLowerCase()}.png`;
+  }
+
+  /** Logo fallback cascade: Trust Wallet → DexScreener → text badge (the img is
+   *  hidden and the symbol underneath shows through). */
+  onTokenLogoErr(ev: Event, t: EvmToken): void {
+    const img = ev.target as HTMLImageElement;
+    const dex = this.dexLogo(t);
+    if (dex && img.src !== dex) { img.src = dex; return; }
+    img.style.display = 'none';
+  }
 }

@@ -59,18 +59,30 @@ var twChain = map[string]string{
 	"optimism": "optimism", "polygon": "polygon", "bsc": "smartchain",
 }
 
+const twBase = "https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/"
+
 // tokenLogo returns a Trust Wallet CDN logo URL for a token (checksummed
-// address) or its chain's native coin. The frontend falls back to a text badge
-// if the image 404s (long-tail tokens Trust Wallet doesn't have).
+// address) or its chain's NATIVE coin. Native ETH on an L2 (Base/Arbitrum/
+// Optimism) shows the real ETH logo, not the chain's brand mark. The frontend
+// falls back to DexScreener then a text badge if this 404s.
 func tokenLogo(chain, tokenAddr string, native bool) string {
+	if native {
+		switch chain {
+		case "ethereum", "base", "arbitrum", "optimism":
+			return twBase + "ethereum/info/logo.png" // native coin is ETH
+		case "polygon":
+			return twBase + "polygon/info/logo.png" // POL
+		case "bsc":
+			return twBase + "smartchain/info/logo.png" // BNB
+		default:
+			return ""
+		}
+	}
 	folder := twChain[chain]
 	if folder == "" {
 		return ""
 	}
-	base := "https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/" + folder
-	if native {
-		return base + "/info/logo.png"
-	}
+	base := twBase + folder
 	cs := toChecksumAddress(tokenAddr)
 	if cs == "" {
 		return ""

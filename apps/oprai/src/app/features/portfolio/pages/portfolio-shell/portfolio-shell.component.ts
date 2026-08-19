@@ -102,13 +102,17 @@ export class PortfolioShellComponent implements OnDestroy {
   readonly isEvmChain = computed(() => this.activeChain() !== 'solana');
   // The EVM chains shown as top tabs (Robinhood omitted — no provider yet).
   readonly EVM_CHAINS = [
-    { id: 'ethereum', label: 'Ethereum', color: '#627eea' },
-    { id: 'base', label: 'Base', color: '#0052ff' },
-    { id: 'bsc', label: 'BNB', color: '#f0b90b' },
-    { id: 'polygon', label: 'Polygon', color: '#8247e5' },
-    { id: 'arbitrum', label: 'Arbitrum', color: '#28a0f0' },
-    { id: 'optimism', label: 'Optimism', color: '#ff0420' },
+    { id: 'ethereum', label: 'Ethereum', color: '#627eea', icon: this.tw('ethereum') },
+    { id: 'base', label: 'Base', color: '#0052ff', icon: this.tw('base') },
+    { id: 'bsc', label: 'BNB', color: '#f0b90b', icon: this.tw('smartchain') },
+    { id: 'polygon', label: 'Polygon', color: '#8247e5', icon: this.tw('polygon') },
+    { id: 'arbitrum', label: 'Arbitrum', color: '#28a0f0', icon: this.tw('arbitrum') },
+    { id: 'optimism', label: 'Optimism', color: '#ff0420', icon: this.tw('optimism') },
   ];
+  private tw(folder: string): string {
+    return `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${folder}/info/logo.png`;
+  }
+  hideChainIcon(ev: Event): void { (ev.target as HTMLImageElement).style.display = 'none'; }
   private accountLoaded = false;
 
   private loadAccountWallets(): void {
