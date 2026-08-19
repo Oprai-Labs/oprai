@@ -1150,6 +1150,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private _enrichedDammV2Pool: string | null = null;
   private _verifiedDammV2Pool: string | null = null;
   private _verifiedRaydiumPool: string | null = null;
+  private _verifiedDlmmPool: string | null = null;
+
+  /** Same story as dammV2PoolSwap, for a DLMM pool the model named. */
+  readonly dlmmPoolSwap = signal<{
+    fromTvl: number;
+    fromApr: number;
+    toTvl: number;
+    toApr: number;
+  } | null>(null);
 
   /** Same story as dammV2PoolSwap, for a Raydium pool the model named. */
   readonly raydiumPoolSwap = signal<{
@@ -5489,7 +5498,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // a pool about to be replaced.
     void this.maybeVerifyRaydiumPool().then(() => this.maybeEnrichRaydiumPool());
     void this.maybeEnrichRaydiumWithdraw();
-    void this.maybeEnrichMeteoraDlmmPool();
+    void this.maybeVerifyMeteoraDlmmPool().then(() => this.maybeEnrichMeteoraDlmmPool());
     // Verify first: enrichment quotes whichever pool survives the check, so
     // running it the other way round would quote the pool we are about to
     // replace and then quote again.
@@ -6151,6 +6160,61 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * between two comparable pools buys nothing and costs a paragraph of
    * explanation they did not need.
    */
+  /**
+   * Check a DLMM pool the model named against the pair's main one.
+   *
+   * DLMM has no pair fallback at all — if the model names a pool, that pool is
+   * used, full stop. And the pair genuinely has choices: SOL/USDC runs 31
+   * DLMM pools, the top four holding $5.1M at 53%, $2.9M at 23%, $2.0M at 14%
+   * and $840k at 47%. None of those looks broken from the outside, which is
+   * the whole problem — the difference is invisible to the person depositing.
+   *
+   * Depth leads and yield breaks ties within half the deepest pool's size, so
+   * the $840k pool's tempting 47% does not pull a first-time depositor into a
+   * pool a sixth the size.
+   */
+  private async maybeVerifyMeteoraDlmmPool(): Promise<void> {
+    const t = this.action?.type ?? '';
+    if (t !== 'meteora_open_position' && t !== 'meteora_add_liquidity') return;
+    const p = this.editParams();
+    if (p['poolChosenBy'] === 'user') return;
+    const poolId = (p['pool'] ?? p['poolId'] ?? '').trim();
+    if (!poolId) return;
+    if (this._verifiedDlmmPool === poolId) return;
+    this._verifiedDlmmPool = poolId;
+    try {
+      const resp = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', {
+          type: 'meteora_dlmm_best_pool',
+          params: { pool: poolId },
+        }).pipe(timeout(20_000)),
+      );
+      const d = resp?.data ?? null;
+      if (!d || d.chosenIsRecommended) return;
+      const rec = d.recommended;
+      const chosen = d.chosen;
+      const better = String(rec?.address ?? '');
+      if (!better || better === poolId) return;
+
+      const fromTvl = Number(chosen?.tvl ?? 0);
+      const toTvl = Number(rec?.tvl ?? 0);
+      // Same restraint as Raydium: only move when the difference is worth a
+      // sentence of explanation.
+      const fromApr = Number(chosen?.feeApr ?? 0);
+      const toApr = Number(rec?.feeApr ?? 0);
+      const material = (fromTvl > 0 && toTvl >= fromTvl * 2) || toApr >= fromApr + 5;
+      if (!material) return;
+
+      this.dlmmPoolSwap.set({ fromTvl, fromApr, toTvl, toApr });
+      this.editParams.update(ep => ({ ...ep, pool: better, poolId: better }));
+      // Bin step, active bin and the seeded range all belong to the old pool.
+      this._enrichedDlmmPool = null;
+      await this.maybeEnrichMeteoraDlmmPool();
+    } catch (err) {
+      console.warn('[meteora-dlmm] pool verification failed', err);
+    }
+  }
+
   private async maybeVerifyRaydiumPool(): Promise<void> {
     const t = this.action?.type ?? '';
     if (t !== 'raydium_open_position' && t !== 'raydium_add_liquidity') return;

@@ -3497,6 +3497,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     void position; void positionId;
     const params: Record<string, string> = {
       ...rest,
+      // The pool is the one they already hold a position in — a deliberate
+      // choice, not a guess, so the action card must not re-pick it.
+      poolChosenBy: 'user',
       // A fresh position must not inherit the old one's bounds.
       minBinId: '',
       maxBinId: '',

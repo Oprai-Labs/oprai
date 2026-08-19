@@ -1622,6 +1622,16 @@
                 }
               </div>
             } @else if (isMeteoraDlmm()) {
+              @if (dlmmPoolSwap(); as swap) {
+                <div class="clmm-min-hint">
+                  <lucide-icon name="shield-check" [size]="13" />
+                  Moved to this pair's main pool. The one first picked holds
+                  {{ formatUsdCompact(swap.fromTvl) }} and earned fees worth about
+                  {{ swap.fromApr.toFixed(1) }}% a year over the last day; this one holds
+                  {{ formatUsdCompact(swap.toTvl) }} and earned about
+                  {{ swap.toApr.toFixed(1) }}% — same deposit, same risk.
+                </div>
+              }
               <div class="clmm-section">
                 <div class="clmm-section__title">Price Range</div>
                 <!-- Price is the input and the bin count follows, the way
