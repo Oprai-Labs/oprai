@@ -109,6 +109,12 @@ func (p *AuthProxy) PostAccountLinkVerify(w http.ResponseWriter, r *http.Request
 	p.proxy.ServeHTTP(w, r)
 }
 
+// DeleteAccountIdentity proxies DELETE /account/identity/{id} to the auth service.
+func (p *AuthProxy) DeleteAccountIdentity(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/account/identity/" + chi.URLParam(r, "id")
+	p.proxy.ServeHTTP(w, r)
+}
+
 // GetUser proxies GET /users/{wallet} to the auth service.
 func (p *AuthProxy) GetUser(w http.ResponseWriter, r *http.Request) {
 	wallet := chi.URLParam(r, "wallet")

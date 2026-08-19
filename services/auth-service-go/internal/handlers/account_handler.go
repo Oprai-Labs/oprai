@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/oprai/oprai/services/auth-service-go/internal/db"
 	"github.com/oprai/oprai/services/auth-service-go/internal/middleware"
 	"github.com/oprai/oprai/services/auth-service-go/internal/services"
@@ -146,4 +147,42 @@ func (h *AccountHandler) HandleLinkVerify(w http.ResponseWriter, r *http.Request
 	}
 	slog.Info("account: wallet linked", "account", accountID, "primary", primaryWallet, "linked", req.WalletAddress)
 	h.writeIdentities(w, r, accountID, map[string]any{"linked": true})
+}
+
+// HandleUnlink handles DELETE /account/identity/{id} — detach a linked identity.
+// The primary login identity is protected (a user can't orphan the wallet the
+// whole system keys on); change your primary first once that flow ships.
+func (h *AccountHandler) HandleUnlink(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := h.resolveAccount(w, r)
+	if accountID == "" {
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	li, err := h.queries.GetIdentityByID(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to load identity")
+		return
+	}
+	if li == nil || li.AccountID != accountID {
+		writeError(w, http.StatusNotFound, "Identity not found")
+		return
+	}
+	if li.IsPrimary {
+		writeError(w, http.StatusBadRequest, "You can't remove your primary identity")
+		return
+	}
+
+	n, err := h.queries.DeleteIdentityByID(r.Context(), id, accountID)
+	if err != nil {
+		slog.Error("account: unlink failed", "account", accountID, "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to remove identity")
+		return
+	}
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "Identity not found")
+		return
+	}
+	slog.Info("account: identity unlinked", "account", accountID, "type", li.Type)
+	h.writeIdentities(w, r, accountID, map[string]any{"unlinked": true})
 }

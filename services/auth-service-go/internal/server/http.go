@@ -125,6 +125,7 @@ func NewHTTPServer(
 		r.Get("/me", accountHandler.HandleGetMe)
 		r.Post("/link/nonce", accountHandler.HandleLinkNonce)
 		r.Post("/link/verify", accountHandler.HandleLinkVerify)
+		r.Delete("/identity/{id}", accountHandler.HandleUnlink)
 	})
 
 	// ── Internal routes (gated by X-Internal-Api-Key) ─────────────────

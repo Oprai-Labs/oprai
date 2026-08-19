@@ -119,6 +119,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.With(middleware.RequireWallet).Get("/me", authProxy.GetAccountMe)
 		r.With(middleware.RequireWallet).Post("/link/nonce", authProxy.PostAccountLinkNonce)
 		r.With(middleware.RequireWallet).Post("/link/verify", authProxy.PostAccountLinkVerify)
+		r.With(middleware.RequireWallet).Delete("/identity/{id}", authProxy.DeleteAccountIdentity)
 	})
 
 	r.Route("/users", func(r chi.Router) {

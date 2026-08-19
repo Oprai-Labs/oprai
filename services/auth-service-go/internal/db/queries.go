@@ -136,6 +136,33 @@ func (q *Queries) InsertIdentity(ctx context.Context, accountID, typ, chain, ide
 	return &li, nil
 }
 
+// GetIdentityByID looks up an identity by its id. Returns nil when not found.
+func (q *Queries) GetIdentityByID(ctx context.Context, id string) (*LinkedIdentity, error) {
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE id = $1`, identitySelectCols, q.table("linked_identities"))
+	var li LinkedIdentity
+	err := q.pool.QueryRow(ctx, query, id).Scan(&li.ID, &li.AccountID, &li.Type,
+		&li.Chain, &li.Identifier, &li.Label, &li.IsPrimary, &li.VerifiedAt, &li.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("GetIdentityByID: %w", err)
+	}
+	return &li, nil
+}
+
+// DeleteIdentityByID removes an identity, scoped to its account (ownership).
+// Returns the number of rows deleted (0 = not found / not owned).
+func (q *Queries) DeleteIdentityByID(ctx context.Context, id, accountID string) (int64, error) {
+	tag, err := q.pool.Exec(ctx,
+		fmt.Sprintf(`DELETE FROM %s WHERE id = $1 AND account_id = $2`, q.table("linked_identities")),
+		id, accountID)
+	if err != nil {
+		return 0, fmt.Errorf("DeleteIdentityByID: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // GetUserByWallet retrieves an active (not soft-deleted) user by wallet address.
 // Returns nil if not found or deleted.
 func (q *Queries) GetUserByWallet(ctx context.Context, walletAddress string) (*User, error) {
