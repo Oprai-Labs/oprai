@@ -4605,6 +4605,70 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    */
   private _rangeCostsForPool: string | null = null;
 
+  /**
+   * Cost of the band the user typed, as opposed to one of the preset chips.
+   *
+   * The preset costs are keyed by percentage, and a typed band usually
+   * matches none of them — an asymmetric one cannot even be expressed as a
+   * percentage. So the card fell silent exactly when it mattered most:
+   * someone who widens the range by hand is the person most likely to reach
+   * into a stretch of the curve nobody has used, which is where the tick
+   * arrays and the real cost are.
+   */
+  readonly clmmCustomRangeCost = signal<{
+    setupSol: number; affordable: boolean; newTickArrays: number;
+  } | null>(null);
+  private _customCostKey: string | null = null;
+  private _customCostTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Debounced, because this fires on every keystroke in the range inputs. */
+  private queueCustomRangeCost(): void {
+    if (this._customCostTimer) clearTimeout(this._customCostTimer);
+    this._customCostTimer = setTimeout(() => void this.loadCustomRangeCost(), 600);
+  }
+
+  private async loadCustomRangeCost(): Promise<void> {
+    if (!this.isRaydiumOpenPosition()) return;
+    const p = this.editParams();
+    const poolId = (p['poolId'] ?? '').trim();
+    const lo = parseFloat(p['minPrice'] ?? '');
+    const hi = parseFloat(p['maxPrice'] ?? '');
+    if (!poolId || !(lo > 0) || !(hi > lo)) {
+      this.clmmCustomRangeCost.set(null);
+      return;
+    }
+    // A band that matches a preset already has a cost; don't ask twice.
+    const pct = this.clmmActiveRangePct();
+    if (pct !== null && this.clmmRangeCosts().has(pct)) {
+      this.clmmCustomRangeCost.set(null);
+      return;
+    }
+    const key = `${poolId}:${lo}:${hi}`;
+    if (this._customCostKey === key) return;
+    this._customCostKey = key;
+    try {
+      type RangeCost = {
+        setupSol: number; affordable: boolean; newTickArrays: number; known: boolean;
+      };
+      const res = await firstValueFrom(
+        this.apiService
+          .post<{ ranges: RangeCost[] }>('/actions/clmm-range-costs', {
+            poolId, ranges: [{ minPrice: lo, maxPrice: hi }],
+          })
+          .pipe(timeout(12_000)),
+      );
+      const r = res?.ranges?.[0];
+      this.clmmCustomRangeCost.set(
+        r?.known
+          ? { setupSol: r.setupSol, affordable: r.affordable, newTickArrays: r.newTickArrays }
+          : null,
+      );
+    } catch {
+      // Say nothing rather than guess.
+      this.clmmCustomRangeCost.set(null);
+    }
+  }
+
   private async loadClmmRangeCosts(poolId: string, price: number): Promise<void> {
     if (!poolId || !(price > 0)) return;
     if (this._rangeCostsForPool === poolId) return;
@@ -4683,6 +4747,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * narrower one, and whether they can pay it.
    */
   clmmSetupCostLine(): { text: string; ok: boolean } | null {
+    // A hand-typed band has its own quote — see clmmCustomRangeCost. It is
+    // checked first because such a band matches no preset, and the person who
+    // widened the range by hand is the one most likely to have reached into a
+    // stretch of the curve that costs real money to open.
+    const custom = this.clmmCustomRangeCost();
+    if (custom) return this.clmmCostText(custom);
     if (!this.clmmCostsLoaded()) return null;
     const pct = this.clmmActiveRangePct();
     // Null when the user typed bounds instead of picking a preset — we have no
@@ -4690,6 +4760,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (pct === null || pct === undefined) return null;
     const cost = this.clmmRangeCosts().get(pct);
     if (!cost) return null;
+    return this.clmmCostText(cost);
+  }
+
+  /** One wording for both the preset and the typed-band quote. */
+  private clmmCostText(
+    cost: { setupSol: number; affordable: boolean; newTickArrays: number },
+  ): { text: string; ok: boolean } {
     const sol = cost.setupSol.toFixed(3);
     if (!cost.affordable) {
       return { ok: false, text: `This range costs ~${sol} SOL to open — more than this wallet holds. A narrower range costs less.` };
@@ -7886,7 +7963,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   getEditParam(key: string): string { return this.editParams()[key] ?? ''; }
-  setEditParam(key: string, value: string): void { this.editParams.update(p => ({ ...p, [key]: value })); }
+  setEditParam(key: string, value: string): void {
+    this.editParams.update(p => ({ ...p, [key]: value }));
+    // Typing a band by hand is exactly the case the preset quotes cannot
+    // cover, so re-price it. Debounced inside; a no-op for every other field.
+    if (key === 'minPrice' || key === 'maxPrice') {
+      this.clmmRangeTouched = true;
+      this.queueCustomRangeCost();
+    }
+  }
 
   // ── Limit order: sell/buy amounts drive the (derived) target price ─────────
   // A limit order is "sell N of X to receive M of Y". The user enters both
