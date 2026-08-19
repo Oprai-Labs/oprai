@@ -256,6 +256,9 @@ services:
       # Trust X-Forwarded-For / X-Real-IP from caddy+gateway so per-IP rate
       # limiting tracks real client IPs, not the shared proxy container IP.
       TRUST_PROXY_HEADERS: "true"
+      # Enables Telegram identity linking (Login-Widget HMAC verification).
+      # Unset -> Telegram linking returns "not configured". Secret lives in .env.
+      OPRAI_TELEGRAM_BOT_TOKEN: ${OPRAI_TELEGRAM_BOT_TOKEN:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3010/health || exit 1"]
       interval: 15s

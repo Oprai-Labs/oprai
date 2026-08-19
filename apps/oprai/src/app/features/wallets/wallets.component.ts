@@ -1,4 +1,7 @@
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import {
+  Component, ElementRef, NgZone, OnDestroy, OnInit,
+  ViewChild, computed, inject, signal,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { firstValueFrom } from 'rxjs';
@@ -12,6 +15,10 @@ const TYPE_META: Record<string, { label: string; color: string; short: string }>
   telegram: { label: 'Telegram', color: '#1f96cf', short: 'TG' },
   email: { label: 'Email', color: '#5b5fc7', short: '@' },
 };
+
+// The Telegram Login Widget calls a GLOBAL callback with the authorised user.
+const TELEGRAM_BOT = 'Oprai_Labs_Bot';
+const TELEGRAM_CB = 'onOpraiTelegramAuth';
 
 @Component({
   selector: 'app-wallets',
@@ -98,11 +105,13 @@ const TYPE_META: Record<string, { label: string; color: string; short: string }>
               <span>Link an Ethereum wallet</span>
               <lucide-icon name="plus" [size]="15" />
             </button>
-            <button class="wl-chain-btn wl-chain-soon" disabled title="Coming soon">
-              <span class="wl-chain-ico" style="--tc:#1f96cf">TG</span>
-              <span>Connect Telegram</span>
-              <span class="wl-soon">Soon</span>
-            </button>
+            @if (!hasTelegram()) {
+              <div class="wl-chain-btn wl-tg-row">
+                <span class="wl-chain-ico" style="--tc:#1f96cf">TG</span>
+                <span>Connect Telegram</span>
+                <div #tgWidget class="wl-tg-widget"></div>
+              </div>
+            }
           </div>
 
           @if (msg()) { <div class="wl-msg" [class.ok]="msgOk()">{{ msg() }}</div> }
@@ -141,6 +150,10 @@ const TYPE_META: Record<string, { label: string; color: string; short: string }>
     .wl-chain-btn:disabled { opacity:.6; cursor:not-allowed; }
     .wl-chain-ico { width:30px; height:30px; border-radius:8px; flex:none; display:grid; place-items:center; font-size:.6rem; font-weight:700; color:#fff; background:var(--tc); }
     .wl-soon { font-size:.62rem; font-weight:700; text-transform:uppercase; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.12)); padding:2px 7px; border-radius:6px; }
+    .wl-tg-row { cursor:default; }
+    .wl-tg-row:hover { border-color:var(--op-border, rgba(255,255,255,.1)); }
+    .wl-tg-widget { flex:none; display:flex; align-items:center; min-height:28px; }
+    .wl-tg-widget iframe { color-scheme:normal; }
     .wl-add { margin-top:16px; width:100%; display:inline-flex; align-items:center; justify-content:center; gap:8px; background:linear-gradient(90deg,#5b5fc7,#06b6d4); color:#fff; border:0; border-radius:10px; padding:11px; font-weight:600; font-size:.9rem; cursor:pointer; }
     .wl-add:disabled { opacity:.5; cursor:not-allowed; }
     .wl-inline { margin-top:0; width:auto; padding:9px 16px; }
@@ -167,6 +180,14 @@ const TYPE_META: Record<string, { label: string; color: string; short: string }>
 export class WalletsComponent implements OnInit, OnDestroy {
   private account = inject(AccountService);
   readonly wallet = inject(WalletService);
+  private zone = inject(NgZone);
+
+  // Fires when the widget container enters the view (after load resolves and the
+  // @if gates open) — the reliable moment to inject the Telegram script.
+  @ViewChild('tgWidget') set tgWidgetRef(ref: ElementRef<HTMLDivElement> | undefined) {
+    if (ref) { this.tgWidget = ref; this.mountTelegram(); }
+  }
+  private tgWidget?: ElementRef<HTMLDivElement>;
 
   identities = signal<LinkedIdentity[]>([]);
   loading = signal(true);
@@ -177,6 +198,9 @@ export class WalletsComponent implements OnInit, OnDestroy {
   copied = signal<string | null>(null);
   linkActive = signal(false);
   primaryAddress = signal<string>('');
+  hasTelegram = computed(() => this.identities().some((i) => i.type === 'telegram'));
+
+  private tgMounted = false;
 
   ngOnInit(): void { this.load(); }
 
@@ -184,6 +208,40 @@ export class WalletsComponent implements OnInit, OnDestroy {
     // Never leave linking mode armed if the user navigates away mid-flow —
     // otherwise a later wallet switch would silently keep the old session.
     this.wallet.setLinkingMode(false);
+    delete (window as unknown as Record<string, unknown>)[TELEGRAM_CB];
+  }
+
+  /** Inject the Telegram Login Widget script into its container once. Telegram
+   *  renders its own button (an oauth.telegram.org iframe); on success it calls
+   *  our global callback, which we bounce into the Angular zone. */
+  private mountTelegram(): void {
+    if (this.tgMounted || this.hasTelegram() || !this.tgWidget) return;
+    this.tgMounted = true;
+    (window as unknown as Record<string, unknown>)[TELEGRAM_CB] =
+      (user: Record<string, unknown>) => this.zone.run(() => this.onTelegramAuth(user));
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://telegram.org/js/telegram-widget.js?22';
+    s.setAttribute('data-telegram-login', TELEGRAM_BOT);
+    s.setAttribute('data-size', 'medium');
+    s.setAttribute('data-radius', '8');
+    s.setAttribute('data-onauth', `${TELEGRAM_CB}(user)`);
+    s.setAttribute('data-request-access', 'write');
+    this.tgWidget.nativeElement.appendChild(s);
+  }
+
+  private onTelegramAuth(user: Record<string, unknown>): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.msg.set(null);
+    this.account.linkTelegram(user).subscribe({
+      next: (a) => {
+        this.identities.set(a.identities || []);
+        this.busy.set(false);
+        this.flash(a.alreadyLinked ? 'That Telegram account is already linked.' : 'Telegram connected!', true);
+      },
+      error: () => { this.busy.set(false); this.flash('Could not connect Telegram.', false); },
+    });
   }
 
   load(): void {
