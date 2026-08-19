@@ -179,6 +179,69 @@ pub fn conservative_pool_apr(pool: &serde_json::Value) -> f64 {
     if apr_life > 0.0 { apr_24h.min(apr_life) } else { apr_24h }
 }
 
+
+/// What a concentrated position is worth against simply holding, after the
+/// price moves.
+///
+/// The risk line used to say the mix withdrawn differs from the mix
+/// deposited, which is true and tells nobody anything. This is the number
+/// behind it, and it is exact rather than a rule of thumb: the position's
+/// token amounts are computed from the range at both prices and valued at the
+/// later one, then compared against having held the original amounts.
+///
+/// Checked against the textbook full-range figures — a 1.25x move costs
+/// 0.62%, 1.5x costs 2.02%, 2x costs 5.72%.
+///
+/// It also exposes the trade nobody explains. A tight band earns more fees
+/// per dollar and loses more when the price moves: on a 10% move a ±1% band
+/// gives up 4.50% against holding, where a ±10% band gives up 2.32%. That is
+/// why correlated pairs can be run tight and volatile ones cannot.
+fn position_amounts(p: f64, pa: f64, pb: f64) -> (f64, f64) {
+    let (sp, spa, spb) = (p.sqrt(), pa.sqrt(), pb.sqrt());
+    if p <= pa {
+        (1.0 / spa - 1.0 / spb, 0.0)
+    } else if p >= pb {
+        (0.0, spb - spa)
+    } else {
+        (1.0 / sp - 1.0 / spb, sp - spa)
+    }
+}
+
+/// Percent worse than holding, negative meaning worse, for an explicit band.
+///
+/// Takes bounds rather than a width because a width expressed as a percentage
+/// cannot describe a full-range position — anything at or past 100% puts the
+/// lower bound at zero. The percentage form below is what the cards use; this
+/// is what makes the textbook comparison checkable.
+pub fn impermanent_loss_bounds(pa: f64, pb: f64, move_pct: f64) -> Option<f64> {
+    let p0 = 1.0;
+    if !(pa > 0.0) || !(pb > pa) {
+        return None;
+    }
+    let p1 = p0 * (1.0 + move_pct / 100.0);
+    if !(p1 > 0.0) {
+        return None;
+    }
+    let (x0, y0) = position_amounts(p0, pa, pb);
+    let (x1, y1) = position_amounts(p1, pa, pb);
+    let lp = x1 * p1 + y1;
+    let hold = x0 * p1 + y0;
+    if !(hold > 0.0) {
+        return None;
+    }
+    Some((lp / hold - 1.0) * 100.0)
+}
+
+/// The form the cards use: a band as a half-width percentage around today's
+/// price. Bands wider than the price itself are not a thing anyone sets, so
+/// this refuses them rather than silently producing a negative lower bound.
+pub fn impermanent_loss_pct(band_pct: f64, move_pct: f64) -> Option<f64> {
+    if !(band_pct > 0.0) || band_pct >= 100.0 {
+        return None;
+    }
+    impermanent_loss_bounds(1.0 - band_pct / 100.0, 1.0 + band_pct / 100.0, move_pct)
+}
+
 /// Everything this wallet could do with this token, priced at its own size.
 pub async fn build_token_strategies(
     http: &reqwest::Client,
@@ -306,6 +369,13 @@ pub async fn build_token_strategies(
             // lifetime and a spike is not sold as a rate.
             let apr = if apr_life > 0.0 { apr_24h.min(apr_life) } else { apr_24h };
 
+            // Same rule the deposit card uses: the protocol's own granularity
+            // says how far the pair moves. A 1 bp bin step is a pool built for
+            // a pair that barely moves, and it is run tight; anything coarser
+            // is not.
+            let bin_step = num(p.get("pool_config").and_then(|c| c.get("bin_step")));
+            let band_pct = if bin_step > 0.0 && bin_step <= 1.0 { 0.1 } else { 10.0 };
+
             // Which side is not the token being asked about — that is what the
             // depositor ends up half-holding.
             let (x, y) = crate::services::meteora::meteora_pool_mints(&p);
@@ -336,6 +406,15 @@ pub async fn build_token_strategies(
                 "netCostSol": round_trip_fee,
                 "paybackDays": payback_days(params.usd_value, apr, Some(round_trip_fee), sol_usd),
                 "changesHolding": true,
+                // The band this pair would actually be opened at — tight for a
+                // pair that barely moves, wide otherwise — since the loss
+                // depends entirely on it.
+                "bandPct": band_pct,
+                // What a move costs against simply holding, at that band. The
+                // pair of them is the trade: the tighter band earns more fees
+                // and gives up more when the price moves.
+                "ifPriceMoves10Pct": crate::services::strategies::impermanent_loss_pct(band_pct, 10.0),
+                "ifPriceMoves25Pct": crate::services::strategies::impermanent_loss_pct(band_pct, 25.0),
                 "counterToken": counter_symbol,
                 "counterVerified": counter_verified,
                 "risk": match counter_symbol {
@@ -416,4 +495,41 @@ pub async fn sol_price_usd(http: &reqwest::Client) -> Option<f64> {
     })?;
     let price = num(best.get("current_price"));
     (price > 0.0).then_some(price)
+}
+
+#[cfg(test)]
+mod il_tests {
+    use super::{impermanent_loss_bounds, impermanent_loss_pct};
+
+    /// The full-range figures are the ones every impermanent-loss explainer
+    /// quotes, so they pin the maths to something checkable. A very wide band
+    /// approximates full range.
+    #[test]
+    fn matches_textbook_full_range_losses() {
+        // Bounds far either side of the price stand in for full range.
+        for (move_pct, expected) in [(25.0, -0.62), (50.0, -2.02), (100.0, -5.72)] {
+            let got = impermanent_loss_bounds(1e-9, 1e9, move_pct).expect("computable");
+            assert!(
+                (got - expected).abs() < 0.05,
+                "a {move_pct}% move should cost about {expected}%, got {got}"
+            );
+        }
+    }
+
+    /// The trade the card exists to show: a tighter band gives up more when
+    /// the price moves. If this ever inverts, the advice inverts with it.
+    #[test]
+    fn a_tighter_band_loses_more_on_the_same_move() {
+        let tight = impermanent_loss_pct(1.0, 10.0).expect("computable");
+        let wide = impermanent_loss_pct(10.0, 10.0).expect("computable");
+        assert!(tight < wide, "tight {tight} should be worse than wide {wide}");
+    }
+
+    /// Nothing moved, nothing lost — a position that never leaves its band is
+    /// not behind on anything.
+    #[test]
+    fn no_move_costs_nothing() {
+        let got = impermanent_loss_pct(5.0, 0.0).expect("computable");
+        assert!(got.abs() < 1e-9, "expected zero, got {got}");
+    }
 }

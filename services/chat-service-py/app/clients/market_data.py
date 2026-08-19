@@ -2185,7 +2185,17 @@ async def wallet_strategies(wallet: str, minUsd: str = "5") -> dict:
             mint=h["mint"], amount=str(h["amount"]), usdValue=str(round(h["usdValue"], 2)),
         )
         opts = (res or {}).get("options") or []
-        out.append({**h, "options": opts[:5]})
+        # The per-token engine separates options that leave the holding alone
+        # from ones that convert half of it into another token, and flattening
+        # them here threw that away — a 1000% pool would sit next to a lending
+        # rate as though they were the same kind of choice.
+        keeps = [o for o in opts if not o.get("changesHolding")][:3]
+        converts = [o for o in opts if o.get("changesHolding")][:3]
+        out.append({
+            **h,
+            "keepsYourToken": keeps,
+            "convertsHalf": converts,
+        })
 
     return {
         "wallet": wallet,
