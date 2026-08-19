@@ -410,6 +410,9 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "my_stake_accounts":    _A({"staking", "portfolio"}),
     "top_validators":       _A({"staking", "analysis"}),
     "marinade_exchange_rate": _A({"staking", "marinade"}),
+    # "what should I do with my X" — reaches for portfolio, yield and lending
+    # questions alike, since the answer spans lending, LP and staking.
+    "token_strategies":      _A({"analysis", "portfolio", "staking", "lending"}),
     "marinade_list_tickets":  _A({"staking", "marinade", "portfolio"}),
     # Birdeye
     "birdeye_price":            _A({"always", "price"}),

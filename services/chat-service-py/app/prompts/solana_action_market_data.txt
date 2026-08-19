@@ -72,6 +72,42 @@ Use when a single provider may be rate-limited or temporarily down.
 | TVL / liquidity aggregate | `tvl_robust` | `mint` (DexScreener → Birdeye) |
 
 
+### What to do with a token you hold
+
+| Use case | tool | params |
+|---|---|---|
+| Where a held token can earn, ranked for this wallet | `token_strategies` | `mint`, `amount`, `usdValue` (optional) |
+
+Reach for this whenever someone asks what to do with something they hold —
+"elimde SOL var ne yapayım", "what can I do with my USDC", "where should I put
+this". Do not answer from memory: yields, pool depths and costs all move.
+
+Always pass `amount`, and pass `usdValue` when the value is known — the ranking
+depends on size. The same pool that is the best choice at $5,000 can be the
+worst at $50, because opening a position costs the same either way and has to
+be earned back.
+
+Reading the result:
+
+- Options come back in two groups. `changesHolding: false` leaves what they
+  hold alone — lending, staking. `changesHolding: true` converts half of it
+  into `counterToken`. Present the first group first and never rank across the
+  two on yield alone: turning SOL into half a memecoin is not a better version
+  of lending SOL.
+- `paybackDays` is how long the yield takes to cover the opening cost at this
+  size. It is the number that decides, not `yieldPct`.
+- `yieldPct` for a pool is fees annualised — the lower of the last day and the
+  pool's lifetime. Say what it is; it describes the past, not a promise.
+- `tooNewToJudge: true` means the pool has no track record. Mention it rather
+  than quoting its rate as though it were a yield.
+- Options already excluded — no trading, too small for the deposit, a reserve
+  nobody uses — are simply absent. Do not invent them back.
+
+Example:
+
+  query_onchain("token_strategies", {"mint": "So11111111111111111111111111111111111111112", "amount": "65", "usdValue": "5000"})
+
+
 ## Parameter conventions
 
 - `address`: token mint address.

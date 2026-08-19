@@ -2072,6 +2072,26 @@ async def marinade_exchange_rate() -> dict:
     return await _solana_action_data("marinade_exchange_rate", {})
 
 
+async def token_strategies(mint: str, amount: str, usdValue: str = "") -> dict:
+    """What a wallet could do with a token it already holds, ranked at its own size.
+
+    Not a yield table. Every option is netted against what it costs to open, so
+    the ranking is by days to break even rather than by headline rate — at $50 a
+    pool paying 53% takes fifty days to pay for itself while one paying 32%
+    takes eighteen, and the order flips again at $5,000.
+
+    Options that leave the holding alone are listed ahead of ones that convert
+    half of it into another token, and the latter say which token. Pools with no
+    trading, pools too small for the deposit, and reserves nobody uses are left
+    out entirely rather than ranked low.
+    """
+    params: dict = {"mint": mint, "amount": amount}
+    if usdValue:
+        params["usdValue"] = usdValue
+    return await _solana_action_data("token_strategies", params)
+
+
+
 async def marinade_list_tickets(wallet: str) -> dict:
     """Delayed-unstake tickets this wallet is owed SOL on, and when each matures."""
     return await _solana_action_data("marinade_list_tickets", {}, wallet=wallet)
@@ -2240,6 +2260,7 @@ _DISPATCH: dict[str, tuple] = {
     # Validator discovery
     "top_validators":         (top_validators,         [],              ["limit", "sortBy", "sort_by"]),
     "marinade_exchange_rate": (marinade_exchange_rate, [],              []),
+    "token_strategies":     (token_strategies,     ["mint", "amount"], ["usdValue"]),
     "marinade_list_tickets":  (marinade_list_tickets,  ["wallet"],      []),
     # Yield / APY comparison (liquid staking + lending)
     "yield":                  (_yield_comparison,      [],              ["token", "category"]),
@@ -2400,6 +2421,9 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "pumpfun_graduating", "pumpfun_koth", "pumpfun_search",
     "pumpfun_comments", "pumpfun_user", "pumpfun_bonding_curve",
     "pumpswap_pool_info",
+    # Strategy read: gathers live venues for one mint and ranks them by what
+    # they net at the caller's size. Same /actions/build route, tx=None.
+    "token_strategies",
 })
 
 
