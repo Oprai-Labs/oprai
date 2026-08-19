@@ -34,11 +34,19 @@ interface EvmWallet {
   url?: string;
 }
 
-// Popular EVM wallets to offer when NONE is installed — install prompts only.
+// The biggest EVM wallets — always shown under "More wallets" (minus any already
+// detected), so users see the full list, not only what's installed.
 const INSTALLABLE_EVM: { name: string; url: string }[] = [
   { name: 'MetaMask', url: 'https://metamask.io/download/' },
-  { name: 'Rabby', url: 'https://rabby.io/' },
+  { name: 'Rabby Wallet', url: 'https://rabby.io/' },
   { name: 'Coinbase Wallet', url: 'https://www.coinbase.com/wallet/downloads' },
+  { name: 'Trust Wallet', url: 'https://trustwallet.com/download' },
+  { name: 'Rainbow', url: 'https://rainbow.me/' },
+  { name: 'OKX Wallet', url: 'https://www.okx.com/web3' },
+  { name: 'Zerion', url: 'https://zerion.io/download' },
+  { name: 'Phantom', url: 'https://phantom.app/download' },
+  { name: 'Uniswap Wallet', url: 'https://wallet.uniswap.org/' },
+  { name: 'Brave Wallet', url: 'https://brave.com/wallet/' },
 ];
 
 
@@ -213,24 +221,27 @@ const INSTALLABLE_EVM: { name: string; url: string }[] = [
 
             <div class="wallet-modal-body">
               @if (detectedEvm().length > 0) {
-                <div class="wallet-section-label">Detected</div>
+                <div class="wallet-section-label">Installed</div>
                 <div class="wallet-list">
                   @for (w of detectedEvm(); track w.uuid) {
                     <button class="wallet-row" (click)="connectEvm(w)" [disabled]="busy()">
-                      @if (w.icon) {
-                        <img [src]="w.icon" [alt]="w.name" class="wallet-row-icon" width="32" height="32" />
-                      } @else {
-                        <span class="wallet-row-icon" style="display:grid;place-items:center"><app-brand-icon type="evm_wallet" [size]="22" /></span>
-                      }
+                      <span class="wallet-row-icon" style="display:grid;place-items:center">
+                        @if (w.icon && !iconFailed().has(w.uuid)) {
+                          <img [src]="w.icon" [alt]="w.name" width="32" height="32" style="border-radius:8px" (error)="onIconError(w.uuid)" />
+                        } @else {
+                          <app-brand-icon type="evm_wallet" [size]="22" />
+                        }
+                      </span>
                       <span class="wallet-row-name">{{ w.name }}</span>
                       <span class="wallet-row-badge"><span class="wallet-row-dot"></span>Installed</span>
                     </button>
                   }
                 </div>
-              } @else {
-                <div class="wallet-section-label">Popular wallets</div>
+              }
+              @if (installableEvm().length > 0) {
+                <div class="wallet-section-label">{{ detectedEvm().length > 0 ? 'More wallets' : 'Popular wallets' }}</div>
                 <div class="wallet-list">
-                  @for (w of INSTALLABLE_EVM; track w.name) {
+                  @for (w of installableEvm(); track w.name) {
                     <button class="wallet-row wallet-row--install" (click)="openInstallUrl(w.url)" [attr.title]="'Install ' + w.name">
                       <span class="wallet-row-icon" style="display:grid;place-items:center"><app-brand-icon type="evm_wallet" [size]="22" /></span>
                       <span class="wallet-row-name">{{ w.name }}</span>
@@ -277,9 +288,8 @@ const INSTALLABLE_EVM: { name: string; url: string }[] = [
     .wl-unlink:hover:not(:disabled) { color:#ef4444; border-color:#ef4444; }
     .wl-primary-lock { width:32px; height:32px; display:grid; place-items:center; color:#22c55e; }
 
-    /* Connect grid */
-    .wl-connect-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    @media (max-width:520px) { .wl-connect-grid { grid-template-columns:1fr; } }
+    /* Connect list — full-width rows so socials (Telegram widget) have room */
+    .wl-connect-grid { display:flex; flex-direction:column; gap:8px; }
     .wl-connect { display:flex; align-items:center; gap:12px; padding:12px; border:1px solid var(--op-border, rgba(255,255,255,.09)); border-radius:13px; background:transparent; color:var(--op-text-primary); cursor:pointer; text-align:left; transition:.14s; }
     button.wl-connect:hover:not(:disabled) { border-color:var(--op-brand,#5b5fc7); transform:translateY(-1px); }
     .wl-connect:disabled { opacity:.55; cursor:not-allowed; }
@@ -346,6 +356,18 @@ export class WalletsComponent implements OnInit, OnDestroy {
   hasEvm = computed(() => this.identities().some((i) => i.type === 'evm_wallet'));
   evmModalOpen = signal(false);
   detectedEvm = signal<EvmWallet[]>([]);
+  iconFailed = signal<Set<string>>(new Set());
+  // The full popular list minus anything already detected (case-insensitive).
+  installableEvm = computed(() => {
+    const have = new Set(this.detectedEvm().map((w) => w.name.toLowerCase().replace(/\s+wallet$/, '')));
+    return INSTALLABLE_EVM.filter((w) => !have.has(w.name.toLowerCase().replace(/\s+wallet$/, '')));
+  });
+
+  onIconError(uuid: string): void {
+    const s = new Set(this.iconFailed());
+    s.add(uuid);
+    this.iconFailed.set(s);
+  }
 
   private tgMounted = false;
 
