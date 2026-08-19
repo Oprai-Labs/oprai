@@ -42,8 +42,28 @@ export class BirdeyeService {
 
     if (toFetch.length === 0) return result;
 
-    for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
-      const batch = toFetch.slice(i, i + BATCH_SIZE);
+    // Jupiter first, DexScreener only for what it cannot price.
+    //
+    // The order used to be the other way round, and DexScreener's `priceUsd`
+    // is one pair's spot rather than a market price. It reported mSOL at
+    // $534,488 — from a JUP-quoted pool it ranked as the deepest — against a
+    // true $108. The wallet then showed mSOL at half a million dollars a
+    // token, and an LP position holding 0.0034 mSOL as $1,802.
+    //
+    // Jupiter prices what a trade would actually execute at, routed across
+    // venues, so a single broken pool cannot carry the number on its own.
+    // DexScreener still covers what Jupiter does not know, which is the case
+    // it was brought in for.
+    const jupFirst = await this.fetchJupiterLitePrices(toFetch);
+    for (const [mint, tp] of jupFirst) {
+      this.cache.set(mint, { data: tp, ts: now });
+      result.set(mint, tp);
+    }
+    const dexNeeded = toFetch.filter(m => !result.has(m));
+    if (dexNeeded.length === 0) return result;
+
+    for (let i = 0; i < dexNeeded.length; i += BATCH_SIZE) {
+      const batch = dexNeeded.slice(i, i + BATCH_SIZE);
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10000);
@@ -177,7 +197,10 @@ export class BirdeyeService {
     const stillMissing = mints.filter(m => !result.has(m));
     if (stillMissing.length > 0) {
       try {
-        const jupRes = await this.fetchJupiterLitePrices(stillMissing);
+        // Jupiter already ran first; anything still missing here is a mint
+        // neither source knows, and it stays unpriced rather than guessed.
+        const jupRes = new Map<string, BirdeyeTokenPrice>();
+        void stillMissing;
         for (const [mint, tp] of jupRes) {
           this.cache.set(mint, { data: tp, ts: now });
           result.set(mint, tp);
