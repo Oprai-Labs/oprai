@@ -333,7 +333,34 @@ const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {
 export class QueryCardComponent implements OnInit, OnDestroy {
   @Input({ required: true }) query!: ParsedQuery;
   @Input() sessionId: string | null = null;
-  @Input() messageId: string | null = null;
+
+  /**
+   * Set once the assistant message exists in the database.
+   *
+   * A card starts fetching the moment it renders, which is while the message
+   * is still streaming and has no id yet. Snapshots written in that window
+   * were dropped on the floor — persistSnapshot returns early without one —
+   * and the card then had nothing to restore on a shared page, which is where
+   * "This result isn't part of the shared snapshot" came from. Fast queries
+   * lost the race and slow ones happened to win it, so the same chat could
+   * share one card's result and not another's.
+   *
+   * Holding the id in a setter lets a snapshot taken too early be written as
+   * soon as there is somewhere to write it.
+   */
+  @Input()
+  set messageId(v: string | null) {
+    this._messageId = v;
+    if (v && this._snapshotPending) {
+      this._snapshotPending = false;
+      this.persistSnapshot();
+    }
+  }
+  get messageId(): string | null {
+    return this._messageId;
+  }
+  private _messageId: string | null = null;
+  private _snapshotPending = false;
   /** DB-persisted snapshot from a previous fetch; if present, skip re-fetching. */
   @Input() snapshot: QuerySnapshot | null = null;
   /**
@@ -1135,7 +1162,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   private persistSnapshot(): void {
-    if (!this.sessionId || !this.messageId) return;
+    if (!this.sessionId || !this.messageId) {
+      // Nothing to write to yet — remember, and the messageId setter will
+      // call back the moment there is.
+      this._snapshotPending = true;
+      return;
+    }
     const snap: QuerySnapshot = {
       type: this.query.type,
       data: this.currentSnapshotData(),
