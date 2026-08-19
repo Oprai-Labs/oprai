@@ -1268,6 +1268,19 @@
               </div>
             }
 
+            @if (raydiumPoolSwap(); as swap) {
+              <!-- Stated rather than done quietly: the person should be able
+                   to see which pool was avoided and what it would have paid. -->
+              <div class="clmm-min-hint">
+                <lucide-icon name="shield-check" [size]="13" />
+                Moved to this pair's main pool. The one first picked holds
+                {{ formatUsdCompact(swap.fromTvl) }} and pays about
+                {{ swap.fromApr.toFixed(1) }}% a year; this one holds
+                {{ formatUsdCompact(swap.toTvl) }} and pays about
+                {{ swap.toApr.toFixed(1) }}% — same deposit, same risk.
+              </div>
+            }
+
             <!-- Section: Set Price Range -->
             <div class="clmm-section">
               <div class="clmm-section__title">Set Price Range</div>

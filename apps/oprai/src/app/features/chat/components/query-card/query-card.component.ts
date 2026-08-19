@@ -3768,6 +3768,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const isCLMM = (p.type ?? '').toLowerCase() === 'concentrated';
     const params: Record<string, string> = {
       poolId: p.id,
+      // Picked from a ranked list the user could see — the action card
+      // re-checks a pool the model named on its own, and must leave this one
+      // alone.
+      poolChosenBy: 'user',
       tokenA: p.mintA.address,
       tokenB: p.mintB.address,
       tokenASymbol: p.mintA.symbol,

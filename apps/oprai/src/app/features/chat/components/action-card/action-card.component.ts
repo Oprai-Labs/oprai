@@ -1149,6 +1149,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private _enrichedDlmmPool: string | null = null;
   private _enrichedDammV2Pool: string | null = null;
   private _verifiedDammV2Pool: string | null = null;
+  private _verifiedRaydiumPool: string | null = null;
+
+  /** Same story as dammV2PoolSwap, for a Raydium pool the model named. */
+  readonly raydiumPoolSwap = signal<{
+    fromTvl: number;
+    fromApr: number;
+    toTvl: number;
+    toApr: number;
+  } | null>(null);
 
   /**
    * Set when the deposit was pointed at a pool nobody should deposit into and
@@ -5475,7 +5484,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.capturePercentAmounts();
     this.maybeLoadLstRate();
     if (this.isMeteoraDlmm()) this.seedMeteoraRange();
-    this.maybeEnrichRaydiumPool();
+    // Verify before enriching: enrichment reads price, presets and costs off
+    // whichever pool survives, so the other order would do all that work for
+    // a pool about to be replaced.
+    void this.maybeVerifyRaydiumPool().then(() => this.maybeEnrichRaydiumPool());
     void this.maybeEnrichRaydiumWithdraw();
     void this.maybeEnrichMeteoraDlmmPool();
     // Verify first: enrichment quotes whichever pool survives the check, so
@@ -6119,6 +6131,86 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * ranked rows they could see, and overriding a deliberate choice is a
    * different kind of wrong from letting a bad default through.
    */
+  /**
+   * Check a Raydium pool the model named, and move the deposit if the pair
+   * has a materially better one.
+   *
+   * The pair path already resolves the deepest pool, so this covers the other
+   * route in: the model naming a pool address itself, which nothing verified.
+   * SOL/USDC alone has three real CLMM pools — $6.06M paying 26.2%, $418k
+   * paying 0.3%, $358k paying 2.1%. All three look perfectly alive; landing
+   * in the second earns the depositor a fraction of what the first would,
+   * for the same money and the same risk.
+   *
+   * Depth is the criterion because on this protocol depth and yield agree:
+   * volume follows liquidity, so the deepest pool is also the one collecting
+   * the fees. A thin pool with a flattering APR is usually a pool nobody
+   * trades.
+   *
+   * Only a difference worth explaining triggers a move. Shuffling someone
+   * between two comparable pools buys nothing and costs a paragraph of
+   * explanation they did not need.
+   */
+  private async maybeVerifyRaydiumPool(): Promise<void> {
+    const t = this.action?.type ?? '';
+    if (t !== 'raydium_open_position' && t !== 'raydium_add_liquidity') return;
+    const p = this.editParams();
+    if (p['poolChosenBy'] === 'user') return;
+    const poolId = (p['poolId'] ?? '').trim();
+    if (!poolId) return; // the pair path already picks the deepest
+    if (this._verifiedRaydiumPool === poolId) return;
+    this._verifiedRaydiumPool = poolId;
+
+    const num = (v: unknown): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    try {
+      const info = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', {
+          type: 'raydium_get_pool_info',
+          params: { ids: poolId },
+        }).pipe(timeout(15_000)),
+      );
+      const rows = info?.preview?.params?.data;
+      const named = Array.isArray(rows) ? rows[0] : null;
+      const mintA = named?.mintA?.address;
+      const mintB = named?.mintB?.address;
+      if (!mintA || !mintB) return;
+
+      const poolType = t === 'raydium_add_liquidity' ? 'standard' : 'concentrated';
+      const search = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', {
+          type: 'raydium_search_pools',
+          params: { tokenA: mintA, tokenB: mintB, poolType, sortField: 'liquidity', page: 1, pageSize: 1 },
+        }).pipe(timeout(15_000)),
+      );
+      const found = search?.preview?.params?.data?.data;
+      const best = Array.isArray(found) ? found[0] : null;
+      if (!best?.id || best.id === poolId) return;
+
+      const namedTvl = num(named.tvl);
+      const bestTvl = num(best.tvl);
+      const namedApr = num(named.day?.apr);
+      const bestApr = num(best.day?.apr);
+      // Twice the depth, or five points more yield. Below that the pools are
+      // near enough that moving is noise.
+      const materiallyBetter =
+        (namedTvl > 0 && bestTvl >= namedTvl * 2) || bestApr >= namedApr + 5;
+      if (!materiallyBetter) return;
+
+      this.raydiumPoolSwap.set({
+        fromTvl: namedTvl, fromApr: namedApr, toTvl: bestTvl, toApr: bestApr,
+      });
+      this.editParams.update(ep => ({ ...ep, poolId: String(best.id) }));
+      // Price, range presets and costs all belong to the pool that changed.
+      this._enrichedRaydiumPool = null;
+      await this.maybeEnrichRaydiumPool();
+    } catch (err) {
+      console.warn('[raydium] pool verification failed', err);
+    }
+  }
+
   private async maybeVerifyMeteoraDammV2Pool(): Promise<void> {
     if (this.action?.type !== 'meteora_dammv2_add_liquidity') return;
     const p = this.editParams();
