@@ -110,7 +110,18 @@ export type MintProvenance =
 
 interface BuildResponse {
   transaction?: string | null; // base64-encoded serialized transaction (null for data-only actions)
-  preview?: { description?: string; params?: Record<string, unknown> };
+  preview?: {
+    description?: string;
+    params?: Record<string, unknown>;
+    /**
+     * What this action takes from the wallet, as the backend measured it by
+     * simulating the transaction it built — e.g. "~0.0101 SOL". Declared here
+     * because the affordability check reads it: the backend has always sent
+     * it, and the type omitting it is why the check could only see the
+     * network fee.
+     */
+    estimatedFee?: string;
+  };
   quoteId?: string;
   // Cross-chain swap fields (Relay protocol)
   isCrossChain?: boolean;
@@ -2002,7 +2013,26 @@ export class SolanaActionService {
     ]);
 
     // Determine the fee: use the exact fee from the RPC when available, otherwise a safe floor
-    const estimatedFee = (feeResponse as { value: number | null }).value ?? 200_000;
+    const networkFee = (feeResponse as { value: number | null }).value ?? 200_000;
+
+    // The network fee is the small half of what an action costs. Opening a
+    // position also pays rent on the accounts it creates — measured, 0.0101
+    // SOL on Orca and 0.0474 on a DLMM pool against a network fee of about
+    // 0.000005. Checking only the fee let a wallet through that could not
+    // afford the action, and the failure then surfaced from the simulator as
+    // "Not enough balance to complete this", with no figure and pointing at
+    // the deposit, which was never the problem.
+    //
+    // The backend now measures the real cost by simulating what it built, so
+    // check against that and name the number.
+    const quoted = buildResult.preview?.estimatedFee;
+    const quotedSol = typeof quoted === 'string'
+      ? parseFloat(quoted.replace(/[^\d.]/g, ''))
+      : Number(quoted);
+    const quotedLamports = Number.isFinite(quotedSol) && quotedSol > 0
+      ? Math.ceil(quotedSol * 1e9)
+      : 0;
+    const estimatedFee = Math.max(networkFee, quotedLamports);
 
     if (solBalance < estimatedFee) {
       const needSol = (estimatedFee / 1e9).toFixed(6);

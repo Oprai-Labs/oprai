@@ -337,10 +337,18 @@ export function sanitizeErrorMessage(msg: string, actionType?: string): string {
     const have = feeMatch[2];
     const haveNum = parseFloat(have);
     const shortage = (parseFloat(need) - haveNum).toFixed(6);
+    // The figure now includes rent on accounts the action creates, not just
+    // the network fee — on a position that is most of it, and most of it
+    // comes back. Calling all of it a "fee" would read as money burned and
+    // talk someone out of an action that costs them almost nothing to hold.
+    const opensPosition = /open_position|add_liquidity|_stake$/.test(actionType ?? '');
+    const what = opensPosition
+      ? 'to open this — most of that is a deposit on the accounts it creates, which comes back when you close'
+      : 'to cover the transaction fee';
     if (haveNum === 0) {
-      return `Your wallet has 0 SOL — Solana needs at least ${need} SOL to pay the transaction fee. Top up the connected wallet with a small amount of SOL (a few cents' worth is enough) and try again.`;
+      return `Your wallet has 0 SOL — this needs at least ${need} SOL ${what}. Top up the connected wallet and try again.`;
     }
-    return `Wallet has ${have} SOL but needs ${need} SOL to cover the transaction fee. Add about ${shortage} more SOL and retry.`;
+    return `Wallet has ${have} SOL but needs ${need} SOL ${what}. Add about ${shortage} more SOL and retry.`;
   }
 
   // Build a "concrete floor" suffix from the action catalog so error
