@@ -4710,7 +4710,38 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const p = this.editParams();
     if (p['minPrice'] || p['maxPrice']) return;   // caller supplied a band
     if (!(parseFloat(p['currentPrice'] ?? '') > 0)) return;
-    this.applyClmmRangePreset(10);
+    this.seedOrcaRangePointsFromFeeTier();
+    const rec = parseFloat(this.editParams()['recommendedRangePct'] ?? '');
+    this.applyClmmRangePreset(Number.isFinite(rec) && rec > 0 ? rec : 10, false);
+  }
+
+  /**
+   * Orca states nothing as plainly as Raydium's `defaultRange`, but its fee
+   * tier says the same thing: a pool is given a 0.01% tier because the pair it
+   * holds barely moves. Orca puts USDC/USDT and JitoSOL/SOL at 0.01% with tick
+   * spacing 1, and SOL/USDC at 0.04% with tick spacing 4 — and Raydium,
+   * independently, recommends ±0.1% for the first two and ±10% for the third.
+   * Two protocols classifying the same pairs the same way is a firmer footing
+   * than a volatility model of our own.
+   *
+   * So the fee tier picks the band, and the bands themselves are Raydium's
+   * published ones rather than numbers invented here. The old behaviour — a
+   * flat ±10% for every Orca pool — put a JitoSOL/SOL deposit in a band a
+   * hundred times wider than either protocol thinks it should be, where it
+   * earns next to nothing.
+   */
+  private seedOrcaRangePointsFromFeeTier(): void {
+    const p = this.editParams();
+    if (p['rangePoints']) return; // already stated by whoever built the card
+    const feeRate = Number(p['feeRate']);
+    if (!Number.isFinite(feeRate) || feeRate <= 0) return;
+    // feeRate is in hundredths of a basis point: 100 = 0.01%, 400 = 0.04%.
+    const correlated = feeRate <= 100;
+    this.editParams.update(ep => ({
+      ...ep,
+      rangePoints: correlated ? '0.1,0.3,0.5,0.8,1' : '1,5,10,20,50',
+      recommendedRangePct: correlated ? '0.1' : '10',
+    }));
   }
 
   applyClmmRangePreset(pct: number, fromUser = true): void {
@@ -6322,6 +6353,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
       const material =
         (tvl(named) > 0 && tvl(best) >= tvl(named) * 2) || apr(best) >= apr(named) + 5;
+
+      // The surviving pool's fee tier decides how wide the range should be,
+      // and a card built from a bare address has neither. Fill them in either
+      // way — this runs before the range is seeded.
+      const surviving = material ? best : named;
+      this.editParams.update(ep => ({
+        ...ep,
+        ...(ep['feeRate'] ? {} : { feeRate: String(surviving.feeRate ?? '') }),
+        ...(ep['tickSpacing'] ? {} : { tickSpacing: String(surviving.tickSpacing ?? '') }),
+        ...(ep['currentPrice'] ? {} : { currentPrice: String(surviving.price ?? '') }),
+      }));
       if (!material) return;
 
       this.orcaPoolSwap.set({
