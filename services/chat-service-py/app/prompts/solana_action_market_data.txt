@@ -83,7 +83,15 @@ Reach for this whenever someone asks what to do with something they hold —
 this". Do not answer from memory: yields, pool depths and costs all move.
 
 Always pass `amount`, and pass `usdValue` when the value is known — the ranking
-depends on size. The same pool that is the best choice at $5,000 can be the
+depends on size. Pass `horizonDays` whenever the person says how long the
+money is staying, and ask if the amount is small enough for it to decide the
+answer. A week and a year are different questions: over a week a 30% pool pays
+about half a percent, and getting in and out has to come out of that.
+
+With a horizon, `horizonReturnPct` is what is actually left at the end of it,
+after both ends, and the options are ranked by it instead of by payback. A
+negative one means the money would have done better left alone — say that
+plainly rather than presenting it as the least bad option. The same pool that is the best choice at $5,000 can be the
 worst at $50, because opening a position costs the same either way and has to
 be earned back.
 

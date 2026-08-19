@@ -79,6 +79,19 @@ pub struct TokenStrategiesParams {
         deserialize_with = "crate::services::params::lenient_opt"
     )]
     pub usd_value: Option<f64>,
+    /// How long the money is staying, in days.
+    ///
+    /// Changes the answer more than the yield does at small sizes. Below the
+    /// payback period every option is behind, and the ranking is meaningless
+    /// without it — eighteen days to break even is irrelevant to someone
+    /// withdrawing in a week. Optional: absent means rank by payback, which
+    /// is the best that can be said without knowing.
+    #[serde(
+        default,
+        alias = "horizonDays",
+        deserialize_with = "crate::services::params::lenient_opt"
+    )]
+    pub horizon_days: Option<f64>,
 }
 
 pub fn validate_token_strategies_params(p: &TokenStrategiesParams) -> Result<(), AppError> {
@@ -242,6 +255,31 @@ pub fn impermanent_loss_pct(band_pct: f64, move_pct: f64) -> Option<f64> {
     impermanent_loss_bounds(1.0 - band_pct / 100.0, 1.0 + band_pct / 100.0, move_pct)
 }
 
+
+/// What the position actually returns over the time it is held, after the
+/// cost of getting in and out, as a percentage of what was put in.
+///
+/// An annual rate describes a year nobody holds for. Over a week, a 30% pool
+/// pays 0.58% and the round trip has to come out of that — which is how an
+/// option with a headline anyone would take ends up behind doing nothing.
+/// Negative means the money would have been better left alone.
+fn horizon_return_pct(
+    usd_value: Option<f64>,
+    apr_pct: f64,
+    net_cost_sol: f64,
+    sol_usd: Option<f64>,
+    horizon_days: f64,
+) -> Option<f64> {
+    let value = usd_value?;
+    let sol_price = sol_usd?;
+    if !(value > 0.0) || !(horizon_days > 0.0) || !(sol_price > 0.0) {
+        return None;
+    }
+    let gross = value * (apr_pct / 100.0) * (horizon_days / 365.0);
+    let cost = net_cost_sol * sol_price;
+    Some((gross - cost) / value * 100.0)
+}
+
 /// Everything this wallet could do with this token, priced at its own size.
 pub async fn build_token_strategies(
     http: &reqwest::Client,
@@ -308,6 +346,10 @@ pub async fn build_token_strategies(
                 "refundableSol": lend_rent,
                 "netCostSol": round_trip_fee,
                 "paybackDays": payback_days(params.usd_value, apy, Some(round_trip_fee), sol_usd),
+                "horizonDays": params.horizon_days,
+                "horizonReturnPct": params.horizon_days.and_then(|d| horizon_return_pct(
+                    params.usd_value, apy, round_trip_fee, sol_usd, d
+                )),
                 // Borrowing against it is where a lending position can be
                 // liquidated; supplying alone cannot be.
                 "changesHolding": false,
@@ -405,6 +447,10 @@ pub async fn build_token_strategies(
                 "refundableSol": rent,
                 "netCostSol": round_trip_fee,
                 "paybackDays": payback_days(params.usd_value, apr, Some(round_trip_fee), sol_usd),
+                "horizonDays": params.horizon_days,
+                "horizonReturnPct": params.horizon_days.and_then(|d| horizon_return_pct(
+                    params.usd_value, apr, round_trip_fee, sol_usd, d
+                )),
                 "changesHolding": true,
                 // The band this pair would actually be opened at — tight for a
                 // pair that barely moves, wide otherwise — since the loss
@@ -432,12 +478,22 @@ pub async fn build_token_strategies(
     // part of it; within each, best payback first, and anything too new to
     // judge sinks below everything that has a record. An option whose payback
     // could not be computed sorts last rather than pretending to be free.
+    // With a horizon, rank by what is actually left at the end of it; without
+    // one, by how soon the position starts being worth having. The grouping
+    // and the too-new demotion come first either way.
+    let by_horizon = params.horizon_days.is_some();
     options.sort_by(|a, b| {
         let key = |v: &serde_json::Value| {
             (
                 v.get("changesHolding").and_then(|x| x.as_bool()).unwrap_or(false),
                 v.get("tooNewToJudge").and_then(|x| x.as_bool()).unwrap_or(false),
-                v.get("paybackDays").and_then(|x| x.as_f64()).unwrap_or(f64::MAX),
+                if by_horizon {
+                    // Negated so a bigger return sorts first alongside the
+                    // ascending payback below.
+                    -v.get("horizonReturnPct").and_then(|x| x.as_f64()).unwrap_or(f64::MIN)
+                } else {
+                    v.get("paybackDays").and_then(|x| x.as_f64()).unwrap_or(f64::MAX)
+                },
             )
         };
         let (ka, kb) = (key(a), key(b));
@@ -531,5 +587,41 @@ mod il_tests {
     fn no_move_costs_nothing() {
         let got = impermanent_loss_pct(5.0, 0.0).expect("computable");
         assert!(got.abs() < 1e-9, "expected zero, got {got}");
+    }
+}
+
+#[cfg(test)]
+mod horizon_tests {
+    use super::horizon_return_pct;
+
+    const SOL: Option<f64> = Some(77.0);
+    const FEE: f64 = 0.00001; // open + close
+
+    /// A week in a 30% pool pays about half a percent, and the round trip has
+    /// to come out of it. On a small position that is the whole story.
+    #[test]
+    fn a_short_stay_can_turn_a_good_rate_negative() {
+        // $20 for one day at 30% earns about 1.6 cents; the round trip is
+        // less, but only just.
+        let tiny = horizon_return_pct(Some(20.0), 30.0, FEE, SOL, 1.0).expect("computable");
+        let week = horizon_return_pct(Some(20.0), 30.0, FEE, SOL, 7.0).expect("computable");
+        assert!(week > tiny, "a longer stay must return more, got {week} vs {tiny}");
+    }
+
+    /// The case the horizon exists for: below payback, the answer is no.
+    #[test]
+    fn under_the_payback_period_the_position_is_behind() {
+        // $5 at 2% a year earns almost nothing; a day of it cannot cover the
+        // cost of getting in and out.
+        let got = horizon_return_pct(Some(5.0), 2.0, FEE, SOL, 1.0).expect("computable");
+        assert!(got < 0.0, "expected a loss over one day, got {got}");
+    }
+
+    /// Nothing is claimed when the inputs to claim it are missing.
+    #[test]
+    fn unknown_inputs_return_nothing() {
+        assert!(horizon_return_pct(None, 30.0, FEE, SOL, 7.0).is_none());
+        assert!(horizon_return_pct(Some(20.0), 30.0, FEE, None, 7.0).is_none());
+        assert!(horizon_return_pct(Some(20.0), 30.0, FEE, SOL, 0.0).is_none());
     }
 }

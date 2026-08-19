@@ -2072,7 +2072,7 @@ async def marinade_exchange_rate() -> dict:
     return await _solana_action_data("marinade_exchange_rate", {})
 
 
-async def token_strategies(mint: str, amount: str, usdValue: str = "") -> dict:
+async def token_strategies(mint: str, amount: str, usdValue: str = "", horizonDays: str = "") -> dict:
     """What a wallet could do with a token it already holds, ranked at its own size.
 
     Not a yield table. Every option is netted against what it costs to open, so
@@ -2088,6 +2088,8 @@ async def token_strategies(mint: str, amount: str, usdValue: str = "") -> dict:
     params: dict = {"mint": mint, "amount": amount}
     if usdValue:
         params["usdValue"] = usdValue
+    if horizonDays:
+        params["horizonDays"] = horizonDays
     return await _solana_action_data("token_strategies", params)
 
 
@@ -2377,7 +2379,7 @@ _DISPATCH: dict[str, tuple] = {
     # Validator discovery
     "top_validators":         (top_validators,         [],              ["limit", "sortBy", "sort_by"]),
     "marinade_exchange_rate": (marinade_exchange_rate, [],              []),
-    "token_strategies":     (token_strategies,     ["mint", "amount"], ["usdValue"]),
+    "token_strategies":     (token_strategies,     ["mint", "amount"], ["usdValue", "horizonDays"]),
     "strategy_flows":       (strategy_flows,       [],                 ["usdValue", "mint"]),
     "wallet_strategies":    (wallet_strategies,    ["wallet"],         ["minUsd"]),
     "marinade_list_tickets":  (marinade_list_tickets,  ["wallet"],      []),
