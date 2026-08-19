@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/oprai/oprai/services/auth-service-go/internal/db"
 	"github.com/oprai/oprai/services/auth-service-go/internal/middleware"
 	"github.com/oprai/oprai/services/auth-service-go/internal/services"
@@ -15,13 +17,15 @@ import (
 // AccountHandler serves the account view and identity-linking endpoints — the
 // backbone of the multichain profile: one account, many wallets / logins.
 type AccountHandler struct {
-	queries      *db.Queries
-	nonceService *services.NonceService
+	queries          *db.Queries
+	nonceService     *services.NonceService
+	telegramBotToken string
 }
 
-// NewAccountHandler creates a new AccountHandler.
-func NewAccountHandler(queries *db.Queries, nonceService *services.NonceService) *AccountHandler {
-	return &AccountHandler{queries: queries, nonceService: nonceService}
+// NewAccountHandler creates a new AccountHandler. telegramBotToken may be empty
+// (Telegram linking then reports "not configured").
+func NewAccountHandler(queries *db.Queries, nonceService *services.NonceService, telegramBotToken string) *AccountHandler {
+	return &AccountHandler{queries: queries, nonceService: nonceService, telegramBotToken: telegramBotToken}
 }
 
 // resolveAccount returns the caller's account id (users.id) from their
@@ -185,4 +189,157 @@ func (h *AccountHandler) HandleUnlink(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("account: identity unlinked", "account", accountID, "type", li.Type)
 	h.writeIdentities(w, r, accountID, map[string]any{"unlinked": true})
+}
+
+// HandleLinkEVMVerify handles POST /account/link/evm/verify — verify an EIP-191
+// personal_sign over the link challenge and attach the (proven) EVM wallet.
+func (h *AccountHandler) HandleLinkEVMVerify(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := h.resolveAccount(w, r)
+	if accountID == "" {
+		return
+	}
+
+	var req linkVerifyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	address := services.NormalizeEVMAddress(req.WalletAddress)
+	if address == "" || req.Signature == "" || req.NonceID == "" {
+		writeError(w, http.StatusBadRequest, "A valid EVM address, signature and nonceId are required")
+		return
+	}
+
+	nonce, err := h.nonceService.Consume(r.Context(), req.NonceID)
+	if err != nil || nonce == "" {
+		writeError(w, http.StatusBadRequest, "Challenge missing or expired")
+		return
+	}
+	message := []byte(fmt.Sprintf("OPRAI link wallet: %s", nonce))
+	if !services.VerifyEVMSignature(address, message, req.Signature) {
+		writeError(w, http.StatusUnauthorized, "Invalid signature")
+		return
+	}
+
+	existing, err := h.queries.GetIdentityByTypeIdentifier(r.Context(), "evm_wallet", address)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to check identity")
+		return
+	}
+	if existing != nil {
+		if existing.AccountID == accountID {
+			h.writeIdentities(w, r, accountID, map[string]any{"alreadyLinked": true})
+			return
+		}
+		writeError(w, http.StatusConflict, "This wallet is already linked to a different OPRAI account")
+		return
+	}
+
+	if _, err := h.queries.InsertIdentity(r.Context(), accountID, "evm_wallet", "ethereum", address, false); err != nil {
+		slog.Error("account: insert evm identity failed", "account", accountID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to link wallet")
+		return
+	}
+	slog.Info("account: evm wallet linked", "account", accountID, "linked", address)
+	h.writeIdentities(w, r, accountID, map[string]any{"linked": true})
+}
+
+// HandleLinkTelegram handles POST /account/link/telegram — verify a Telegram
+// Login Widget payload (HMAC over the bot token) and attach the Telegram id.
+func (h *AccountHandler) HandleLinkTelegram(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := h.resolveAccount(w, r)
+	if accountID == "" {
+		return
+	}
+	if h.telegramBotToken == "" {
+		writeError(w, http.StatusServiceUnavailable, "Telegram linking is not configured")
+		return
+	}
+
+	// Accept the widget fields as a flat string map (id, auth_date, hash, …).
+	var raw map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	data := make(map[string]string, len(raw))
+	for k, v := range raw {
+		data[k] = stringifyField(v)
+	}
+
+	tgID, err := services.VerifyTelegramAuth(h.telegramBotToken, data)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	existing, err := h.queries.GetIdentityByTypeIdentifier(r.Context(), "telegram", tgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to check identity")
+		return
+	}
+	if existing != nil {
+		if existing.AccountID == accountID {
+			h.writeIdentities(w, r, accountID, map[string]any{"alreadyLinked": true})
+			return
+		}
+		writeError(w, http.StatusConflict, "This Telegram account is already linked to a different OPRAI account")
+		return
+	}
+
+	if _, err := h.queries.InsertIdentity(r.Context(), accountID, "telegram", "", tgID, false); err != nil {
+		slog.Error("account: insert telegram identity failed", "account", accountID, "error", err)
+		writeError(w, http.StatusInternalServerError, "Failed to link Telegram")
+		return
+	}
+	slog.Info("account: telegram linked", "account", accountID, "telegram", tgID)
+	h.writeIdentities(w, r, accountID, map[string]any{"linked": true})
+}
+
+// HandleSetPrimary handles POST /account/identity/{id}/primary — promote a
+// Solana-wallet identity to primary (repoints the login/economics key).
+func (h *AccountHandler) HandleSetPrimary(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := h.resolveAccount(w, r)
+	if accountID == "" {
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	newWallet, err := h.queries.SetPrimaryIdentity(r.Context(), accountID, id)
+	if err != nil {
+		switch {
+		case errors.Is(err, db.ErrNonSolanaPrimary):
+			writeError(w, http.StatusBadRequest, "Only a Solana wallet can be your primary wallet")
+		case errors.Is(err, pgx.ErrNoRows):
+			writeError(w, http.StatusNotFound, "Identity not found")
+		default:
+			slog.Error("account: set primary failed", "account", accountID, "id", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "Failed to set primary wallet")
+		}
+		return
+	}
+	slog.Info("account: primary changed", "account", accountID, "wallet", newWallet)
+	h.writeIdentities(w, r, accountID, map[string]any{"primaryChanged": true, "primaryWallet": newWallet})
+}
+
+// stringifyField renders a JSON field as the exact string Telegram signed. The
+// widget sends numbers (id, auth_date) that JSON decodes as float64 — format
+// them without a decimal point so the HMAC check-string matches.
+func stringifyField(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		if t == float64(int64(t)) {
+			return fmt.Sprintf("%d", int64(t))
+		}
+		return fmt.Sprintf("%v", t)
+	case bool:
+		if t {
+			return "true"
+		}
+		return "false"
+	default:
+		return fmt.Sprintf("%v", t)
+	}
 }

@@ -46,8 +46,23 @@ export class AccountService {
     return this.api.post<{ nonce: string; nonceId: string }>('/account/link/nonce', {});
   }
 
-  /** Step 2: prove control of the wallet by signing the challenge. */
+  /** Step 2 (Solana): prove control of the wallet by signing the challenge. */
   linkVerify(walletAddress: string, signature: string, nonceId: string): Observable<AccountMe> {
     return this.api.post<AccountMe>('/account/link/verify', { walletAddress, signature, nonceId });
+  }
+
+  /** Step 2 (EVM): verify an EIP-191 personal_sign over the same challenge. */
+  linkEVMVerify(walletAddress: string, signature: string, nonceId: string): Observable<AccountMe> {
+    return this.api.post<AccountMe>('/account/link/evm/verify', { walletAddress, signature, nonceId });
+  }
+
+  /** Link a Telegram identity from a Login Widget payload (HMAC-verified server-side). */
+  linkTelegram(payload: Record<string, unknown>): Observable<AccountMe> {
+    return this.api.post<AccountMe>('/account/link/telegram', payload);
+  }
+
+  /** Promote a linked Solana wallet to primary (repoints the login/economics key). */
+  setPrimary(id: string): Observable<AccountMe> {
+    return this.api.post<AccountMe>(`/account/identity/${id}/primary`, {});
   }
 }

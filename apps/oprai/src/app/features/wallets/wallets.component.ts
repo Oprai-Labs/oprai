@@ -50,6 +50,11 @@ const TYPE_META: Record<string, { label: string; color: string; short: string }>
                   </button>
                 </div>
                 @if (!id.isPrimary) {
+                  @if (id.type === 'solana_wallet') {
+                    <button class="wl-star" (click)="makePrimary(id)" [disabled]="busy()" title="Make primary">
+                      <lucide-icon name="shield-check" [size]="16" />
+                    </button>
+                  }
                   <button class="wl-unlink" (click)="unlink(id)" [disabled]="busy()" title="Unlink">
                     <lucide-icon name="trash-2" [size]="16" />
                   </button>
@@ -87,6 +92,19 @@ const TYPE_META: Record<string, { label: string; color: string; short: string }>
               </div>
             </div>
           }
+          <div class="wl-other">
+            <button class="wl-chain-btn" (click)="linkEVM()" [disabled]="busy()">
+              <span class="wl-chain-ico" style="--tc:#627eea">EVM</span>
+              <span>Link an Ethereum wallet</span>
+              <lucide-icon name="plus" [size]="15" />
+            </button>
+            <button class="wl-chain-btn wl-chain-soon" disabled title="Coming soon">
+              <span class="wl-chain-ico" style="--tc:#1f96cf">TG</span>
+              <span>Connect Telegram</span>
+              <span class="wl-soon">Soon</span>
+            </button>
+          </div>
+
           @if (msg()) { <div class="wl-msg" [class.ok]="msgOk()">{{ msg() }}</div> }
         </section>
       }
@@ -112,7 +130,17 @@ const TYPE_META: Record<string, { label: string; color: string; short: string }>
     .wl-unlink { flex:none; width:34px; height:34px; border-radius:9px; display:grid; place-items:center; background:transparent; border:1px solid var(--op-border, rgba(255,255,255,.1)); color:var(--op-text-secondary); cursor:pointer; }
     .wl-unlink:hover { color:#ef4444; border-color:#ef4444; }
     .wl-unlink:disabled { opacity:.4; cursor:not-allowed; }
+    .wl-star { flex:none; width:34px; height:34px; border-radius:9px; display:grid; place-items:center; background:transparent; border:1px solid var(--op-border, rgba(255,255,255,.1)); color:var(--op-text-secondary); cursor:pointer; }
+    .wl-star:hover { color:#22c55e; border-color:#22c55e; }
+    .wl-star:disabled { opacity:.4; cursor:not-allowed; }
     .wl-primary-lock { flex:none; width:34px; height:34px; display:grid; place-items:center; color:#22c55e; }
+    .wl-other { margin-top:14px; display:flex; flex-direction:column; gap:8px; }
+    .wl-chain-btn { display:flex; align-items:center; gap:10px; width:100%; padding:10px 12px; border:1px solid var(--op-border, rgba(255,255,255,.1)); border-radius:11px; background:transparent; color:var(--op-text-primary); font-size:.88rem; cursor:pointer; }
+    .wl-chain-btn:hover:not(:disabled) { border-color:var(--op-brand,#5b5fc7); }
+    .wl-chain-btn > span:nth-child(2) { flex:1; text-align:left; }
+    .wl-chain-btn:disabled { opacity:.6; cursor:not-allowed; }
+    .wl-chain-ico { width:30px; height:30px; border-radius:8px; flex:none; display:grid; place-items:center; font-size:.6rem; font-weight:700; color:#fff; background:var(--tc); }
+    .wl-soon { font-size:.62rem; font-weight:700; text-transform:uppercase; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.12)); padding:2px 7px; border-radius:6px; }
     .wl-add { margin-top:16px; width:100%; display:inline-flex; align-items:center; justify-content:center; gap:8px; background:linear-gradient(90deg,#5b5fc7,#06b6d4); color:#fff; border:0; border-radius:10px; padding:11px; font-weight:600; font-size:.9rem; cursor:pointer; }
     .wl-add:disabled { opacity:.5; cursor:not-allowed; }
     .wl-inline { margin-top:0; width:auto; padding:9px 16px; }
@@ -233,8 +261,56 @@ export class WalletsComponent implements OnInit, OnDestroy {
     }
   }
 
+  makePrimary(id: LinkedIdentity): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.msg.set(null);
+    this.account.setPrimary(id.id).subscribe({
+      next: (a) => {
+        this.identities.set(a.identities || []);
+        this.busy.set(false);
+        this.flash('Primary wallet updated. Log in with it next time to land on this account.', true);
+      },
+      error: () => { this.busy.set(false); this.flash('Could not change your primary wallet.', false); },
+    });
+  }
+
+  /** Link an EVM wallet via the injected provider (MetaMask & friends). Uses
+   *  EIP-191 personal_sign — no wallet adapter, so the Solana session is
+   *  untouched and no linking-mode gymnastics are needed. */
+  async linkEVM(): Promise<void> {
+    if (this.busy()) return;
+    const eth = (window as unknown as { ethereum?: EthProvider }).ethereum;
+    if (!eth?.request) {
+      this.flash('No Ethereum wallet detected. Install MetaMask to link one.', false);
+      return;
+    }
+    this.busy.set(true);
+    this.msg.set(null);
+    try {
+      const accounts = (await eth.request({ method: 'eth_requestAccounts' })) as string[];
+      const address = accounts?.[0];
+      if (!address) throw new Error('no evm account');
+      const nz = await firstValueFrom(this.account.linkNonce());
+      const message = `OPRAI link wallet: ${nz.nonce}`;
+      const signature = (await eth.request({ method: 'personal_sign', params: [message, address] })) as string;
+      const res = await firstValueFrom(this.account.linkEVMVerify(address, signature, nz.nonceId));
+      this.identities.set(res.identities || []);
+      this.flash(res.alreadyLinked ? 'That Ethereum wallet is already on your account.' : 'Ethereum wallet linked!', true);
+    } catch (e) {
+      const rejected = (e as { code?: number })?.code === 4001;
+      this.flash(rejected ? 'Signature request was rejected.' : 'Could not link that Ethereum wallet.', false);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   private flash(m: string, ok: boolean): void {
     this.msgOk.set(ok);
     this.msg.set(m);
   }
+}
+
+interface EthProvider {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
 }

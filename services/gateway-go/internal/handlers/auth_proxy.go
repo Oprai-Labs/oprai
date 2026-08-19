@@ -115,6 +115,24 @@ func (p *AuthProxy) DeleteAccountIdentity(w http.ResponseWriter, r *http.Request
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostAccountLinkEVMVerify proxies POST /account/link/evm/verify to the auth service.
+func (p *AuthProxy) PostAccountLinkEVMVerify(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/account/link/evm/verify"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PostAccountLinkTelegram proxies POST /account/link/telegram to the auth service.
+func (p *AuthProxy) PostAccountLinkTelegram(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/account/link/telegram"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PostAccountSetPrimary proxies POST /account/identity/{id}/primary to the auth service.
+func (p *AuthProxy) PostAccountSetPrimary(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/account/identity/" + chi.URLParam(r, "id") + "/primary"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // GetUser proxies GET /users/{wallet} to the auth service.
 func (p *AuthProxy) GetUser(w http.ResponseWriter, r *http.Request) {
 	wallet := chi.URLParam(r, "wallet")

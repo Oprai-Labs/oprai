@@ -206,30 +206,46 @@ func (h *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure user exists (get or create)
-	user, err := h.queries.GetOrCreateUser(r.Context(), req.WalletAddress)
-	if err != nil {
-		slog.Error("Failed to get or create user",
-			"wallet", req.WalletAddress,
-			"error", err,
-		)
-		writeError(w, http.StatusInternalServerError, "Failed to process user")
-		return
+	// Resolve the ACCOUNT this wallet belongs to. Multichain: a wallet may be a
+	// SECONDARY identity linked to an existing account — in that case we must log
+	// the user into that account, not spin up a brand-new one. So we look the
+	// wallet up in linked_identities first; only if it is unknown do we fall back
+	// to the legacy get-or-create-by-wallet path (which also seeds a primary
+	// identity row for the fresh account).
+	accountID := ""
+	if identity, ierr := h.queries.GetIdentityByTypeIdentifier(r.Context(), "solana_wallet", req.WalletAddress); ierr == nil && identity != nil {
+		accountID = identity.AccountID
+	}
+	if accountID == "" {
+		user, err := h.queries.GetOrCreateUser(r.Context(), req.WalletAddress)
+		if err != nil {
+			slog.Error("Failed to get or create user",
+				"wallet", req.WalletAddress,
+				"error", err,
+			)
+			writeError(w, http.StatusInternalServerError, "Failed to process user")
+			return
+		}
+		accountID = user.ID
+		if eerr := h.queries.EnsurePrimaryIdentity(r.Context(), accountID, req.WalletAddress); eerr != nil {
+			slog.Warn("Failed to seed primary identity", "wallet", req.WalletAddress, "error", eerr)
+		}
 	}
 
 	// Log successful login (fire-and-forget, do not block response)
-	go h.logSuccessLogin(r, req.WalletAddress, user.ID)
+	go h.logSuccessLogin(r, req.WalletAddress, accountID)
 	h.auditLogger.LogRequest(r, db.AuditEvent{
 		EventType:     "login_success",
 		Severity:      "info",
 		EntityType:    "user",
-		EntityID:      user.ID,
-		UserID:        user.ID,
+		EntityID:      accountID,
+		UserID:        accountID,
 		WalletAddress: req.WalletAddress,
 	}, h.cfg.TrustProxyHeaders)
 
-	// Issue JWT
-	result, err := h.jwtService.Issue(req.WalletAddress, user.ID)
+	// Issue JWT — sub/wallet is the signing wallet (economics key), the `a` claim
+	// carries the account (rewards/aggregation key).
+	result, err := h.jwtService.Issue(req.WalletAddress, accountID)
 	if err != nil {
 		slog.Error("Failed to issue JWT",
 			"wallet", req.WalletAddress,

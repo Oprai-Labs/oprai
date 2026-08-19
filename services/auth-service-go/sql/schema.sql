@@ -112,6 +112,18 @@ FROM auth_schema.users
 WHERE is_deleted = false
 ON CONFLICT (type, identifier) DO NOTHING;
 
+-- admin_app owns the account-rollup views (admin_schema.v_account_*) which read
+-- this table to map wallets -> accounts. Those views run with the owner's
+-- privileges, so admin_app needs SELECT here. auth_app owns this table and can
+-- grant it. Guarded: in dev (single superuser, no scoped roles) admin_app does
+-- not exist, so the grant is skipped.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_app') THEN
+        GRANT SELECT ON auth_schema.linked_identities TO admin_app;
+    END IF;
+END $$;
+
 -- ── Login logs (partitioned by month for scalability) ─────────────────────────
 CREATE TABLE IF NOT EXISTS auth_schema.login_logs (
     id             UUID        NOT NULL DEFAULT gen_random_uuid(),

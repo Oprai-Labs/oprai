@@ -399,13 +399,44 @@ def _gen_referral_code() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
+async def _resolve_account_id(s, wallet: str, account_hdr: str | None) -> str | None:
+    """The account the caller belongs to. Prefer the gateway-injected header;
+    fall back to the wallet->account map so a stale client still aggregates."""
+    if account_hdr:
+        return account_hdr
+    row = (await s.execute(sa_text(
+        "SELECT account_id FROM admin_schema.v_wallet_account WHERE wallet=:w"), {"w": wallet})).first()
+    return str(row[0]) if row else None
+
+
 @app.get("/me/rewards")
-async def get_rewards(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
-    """The caller's tier, points and referral code (generated on first view)."""
+async def get_rewards(
+    x_user_wallet: str = Header(..., alias="X-User-Wallet"),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+):
+    """The caller's tier and cashback, aggregated across every wallet linked to
+    their account. The referral code stays per-wallet (generated on first view)."""
     w = x_user_wallet
     async with async_session_factory() as s:
-        tier_row = (await s.execute(sa_text(
-            "SELECT tier, volume_usd FROM admin_schema.v_user_tier WHERE wallet=:w"), {"w": w})).first()
+        account_id = await _resolve_account_id(s, w, x_user_account)
+
+        # Tier + cashback aggregate by account when we can resolve it; otherwise
+        # fall back to the per-wallet views (single-wallet users are identical).
+        if account_id:
+            tier_row = (await s.execute(sa_text(
+                "SELECT tier, volume_usd FROM admin_schema.v_account_tier WHERE account_id=:a"),
+                {"a": account_id})).first()
+            cb_row = (await s.execute(sa_text(
+                "SELECT own_cashback_usd, referral_cashback_usd, cashback_earned_usd, "
+                "cashback_claimed_usd, cashback_claimable_usd "
+                "FROM admin_schema.v_account_cashback WHERE account_id=:a"), {"a": account_id})).first()
+        else:
+            tier_row = (await s.execute(sa_text(
+                "SELECT tier, volume_usd FROM admin_schema.v_user_tier WHERE wallet=:w"), {"w": w})).first()
+            cb_row = (await s.execute(sa_text(
+                "SELECT own_cashback_usd, referral_cashback_usd, cashback_earned_usd, "
+                "cashback_claimed_usd, cashback_claimable_usd "
+                "FROM admin_schema.v_user_cashback WHERE wallet=:w"), {"w": w})).first()
 
         code_row = (await s.execute(sa_text(
             "SELECT code FROM analytics_schema.referral_codes WHERE wallet=:w"), {"w": w})).first()
@@ -425,11 +456,6 @@ async def get_rewards(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
             await s.commit()
         ref_count = (await s.execute(sa_text(
             "SELECT count(*) FROM analytics_schema.referrals WHERE referrer_wallet=:w"), {"w": w})).scalar() or 0
-
-        cb_row = (await s.execute(sa_text(
-            "SELECT own_cashback_usd, referral_cashback_usd, cashback_earned_usd, "
-            "cashback_claimed_usd, cashback_claimable_usd "
-            "FROM admin_schema.v_user_cashback WHERE wallet=:w"), {"w": w})).first()
 
     return {
         "tier": int(tier_row[0]) if tier_row and tier_row[0] else 1,
@@ -474,34 +500,48 @@ async def redeem_referral(body: RedeemBody, x_user_wallet: str = Header(..., ali
 
 
 @app.post("/me/cashback/claim")
-async def claim_cashback(x_user_wallet: str = Header(..., alias="X-User-Wallet")):
+async def claim_cashback(
+    x_user_wallet: str = Header(..., alias="X-User-Wallet"),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+):
     """Withdraw claimable cashback to the caller's wallet (paid in SOL).
 
     Minimum $5 (market standard). chat-service is authoritative for the amount
-    (from v_user_cashback) and reserves it with a 'pending' claim BEFORE paying,
-    so a retry can't double-spend; solana-service is the only service that can
-    sign the treasury payout, called internally here.
+    (aggregated across the ACCOUNT's wallets in v_account_cashback) and reserves
+    it with a 'pending' claim BEFORE paying, so a retry can't double-spend;
+    solana-service is the only service that can sign the treasury payout, called
+    internally here. The lock + claim + balance are all keyed by account, so a
+    user can never over-claim by racing two of their linked wallets.
     """
     import os
     w = x_user_wallet
     min_claim = 5.0
-    # Reserve the claim under a per-wallet advisory lock so two concurrent claims
-    # can't both read the same balance and double-spend. The lock is held to the
-    # end of this transaction; the next claim for the same wallet blocks until the
-    # 'pending' row below is committed and thus already subtracted from claimable.
+    # Reserve the claim under a per-ACCOUNT advisory lock so two concurrent claims
+    # (even from two linked wallets) can't both read the same balance and
+    # double-spend. The lock is held to the end of this transaction; the next
+    # claim for the same account blocks until the 'pending' row below is committed
+    # and thus already subtracted from claimable.
     async with async_session_factory() as s:
-        await s.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:w)::bigint)"), {"w": w})
-        cb = (await s.execute(sa_text(
-            "SELECT cashback_claimable_usd FROM admin_schema.v_user_cashback WHERE wallet=:w"),
-            {"w": w})).first()
+        account_id = await _resolve_account_id(s, w, x_user_account)
+        lock_key = account_id or w
+        await s.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"), {"k": lock_key})
+        if account_id:
+            cb = (await s.execute(sa_text(
+                "SELECT cashback_claimable_usd FROM admin_schema.v_account_cashback WHERE account_id=:a"),
+                {"a": account_id})).first()
+        else:
+            cb = (await s.execute(sa_text(
+                "SELECT cashback_claimable_usd FROM admin_schema.v_user_cashback WHERE wallet=:w"),
+                {"w": w})).first()
         claimable = float(cb[0]) if cb and cb[0] is not None else 0.0
         if claimable < min_claim:
             raise HTTPException(
                 status_code=400,
                 detail=f"Minimum claim is ${min_claim:.0f}. You have ${claimable:.2f} available.")
         claim_id = (await s.execute(sa_text(
-            "INSERT INTO analytics_schema.cashback_claims (wallet, amount_usd, status) "
-            "VALUES (:w, :a, 'pending') RETURNING id"), {"w": w, "a": claimable})).scalar()
+            "INSERT INTO analytics_schema.cashback_claims (wallet, account_id, amount_usd, status) "
+            "VALUES (:w, :acc, :a, 'pending') RETURNING id"),
+            {"w": w, "acc": account_id, "a": claimable})).scalar()
         await s.commit()
 
     solana = os.getenv("SOLANA_SERVICE_HTTP", "http://solana-service-rs:3030")

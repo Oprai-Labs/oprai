@@ -215,12 +215,91 @@ SELECT
 FROM earned e
 LEFT JOIN claimed cl ON cl.wallet = e.wallet;
 
+-- ── Multichain: account-level rollups ────────────────────────────────────
+-- One OPRAI account can link many Solana wallets. Rewards must roll up across
+-- ALL of them, so these views re-key the per-wallet economics by account_id via
+-- the linked_identities map. Pre-multichain wallets each map to their own
+-- account (backfill guarantees a primary identity row), so single-wallet users
+-- see identical numbers.
+
+-- Solana wallet -> owning account.
+CREATE OR REPLACE VIEW admin_schema.v_wallet_account AS
+SELECT identifier AS wallet, account_id
+FROM auth_schema.linked_identities
+WHERE type = 'solana_wallet';
+
+-- Account tier from AGGREGATE lifetime volume across the account's wallets.
+CREATE OR REPLACE VIEW admin_schema.v_account_tier AS
+WITH vol AS (
+    SELECT wa.account_id,
+           COALESCE(sum(r.lifetime_notional_usd), 0) AS volume_usd
+    FROM admin_schema.v_wallet_account wa
+    JOIN solana_schema.wallet_economics_rollup r ON r.user_wallet = wa.wallet
+    GROUP BY wa.account_id
+)
+SELECT
+    vol.account_id,
+    vol.volume_usd,
+    (SELECT max(c.tier) FROM analytics_schema.tier_config c
+     WHERE vol.volume_usd >= c.min_volume_usd) AS tier
+FROM vol;
+
+-- Account cashback: own (summed across wallets) + referral (referrer account
+-- earns its tier % of each referee's fees) vs claimed (by account), and the
+-- resulting claimable balance. Mirrors v_user_cashback but keyed by account.
+DROP VIEW IF EXISTS admin_schema.v_account_cashback CASCADE;
+CREATE VIEW admin_schema.v_account_cashback AS
+WITH own AS (
+    SELECT wa.account_id,
+           COALESCE(sum(r.lifetime_cashback_usd), 0) AS own_cb
+    FROM admin_schema.v_wallet_account wa
+    JOIN solana_schema.wallet_economics_rollup r ON r.user_wallet = wa.wallet
+    GROUP BY wa.account_id
+), acct_tier AS (
+    SELECT account_id, tier FROM admin_schema.v_account_tier
+), refcb AS (
+    SELECT rwa.account_id AS account_id,
+           sum(COALESCE(re.lifetime_fee_usd, 0) *
+               CASE COALESCE(at.tier, 1)
+                   WHEN 1 THEN 0.20 WHEN 2 THEN 0.24 WHEN 3 THEN 0.27
+                   WHEN 4 THEN 0.30 WHEN 5 THEN 0.33 WHEN 6 THEN 0.35
+                   ELSE 0.20 END) AS referral_cb
+    FROM analytics_schema.referrals rf
+    JOIN admin_schema.v_wallet_account rwa ON rwa.wallet = rf.referrer_wallet
+    JOIN solana_schema.wallet_economics_rollup re ON re.user_wallet = rf.referee_wallet
+    LEFT JOIN acct_tier at ON at.account_id = rwa.account_id
+    GROUP BY rwa.account_id, at.tier
+), claimed AS (
+    SELECT account_id, COALESCE(sum(amount_usd), 0) AS claimed
+    FROM analytics_schema.cashback_claims
+    WHERE status IN ('pending', 'paid') AND account_id IS NOT NULL
+    GROUP BY account_id
+), earned AS (
+    SELECT COALESCE(o.account_id, rc.account_id) AS account_id,
+           COALESCE(o.own_cb, 0)      AS own_cb,
+           COALESCE(rc.referral_cb, 0) AS referral_cb
+    FROM own o
+    FULL OUTER JOIN refcb rc ON rc.account_id = o.account_id
+)
+SELECT
+    e.account_id,
+    e.own_cb                                                        AS own_cashback_usd,
+    e.referral_cb                                                   AS referral_cashback_usd,
+    e.own_cb + e.referral_cb                                        AS cashback_earned_usd,
+    COALESCE(cl.claimed, 0)                                         AS cashback_claimed_usd,
+    GREATEST(0, e.own_cb + e.referral_cb - COALESCE(cl.claimed, 0)) AS cashback_claimable_usd
+FROM earned e
+LEFT JOIN claimed cl ON cl.account_id = e.account_id;
+
 RESET ROLE;
 
 -- chat-service (chat_app) serves the user-facing rewards endpoint; let it read
 -- these aggregate views only (they run as admin_app, so no raw cross-schema
 -- access is granted to chat_app).
 GRANT USAGE ON SCHEMA admin_schema TO chat_app;  -- reference the views below (SELECT is per-view, so only these are readable)
-GRANT SELECT ON admin_schema.v_user_tier     TO chat_app;
-GRANT SELECT ON admin_schema.v_user_points   TO chat_app;
-GRANT SELECT ON admin_schema.v_user_cashback TO chat_app;
+GRANT SELECT ON admin_schema.v_user_tier      TO chat_app;
+GRANT SELECT ON admin_schema.v_user_points    TO chat_app;
+GRANT SELECT ON admin_schema.v_user_cashback  TO chat_app;
+GRANT SELECT ON admin_schema.v_wallet_account TO chat_app;
+GRANT SELECT ON admin_schema.v_account_tier   TO chat_app;
+GRANT SELECT ON admin_schema.v_account_cashback TO chat_app;

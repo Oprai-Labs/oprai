@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -12,6 +13,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrNonSolanaPrimary is returned when a caller tries to make a non-Solana
+// identity (EVM wallet, Telegram) the account primary. Only a Solana wallet can
+// be primary because login and economics key on users.wallet_address.
+var errNonSolanaPrimary = errors.New("only a Solana wallet can be the primary identity")
+
+// ErrNonSolanaPrimary exposes errNonSolanaPrimary for handler-level checks.
+var ErrNonSolanaPrimary = errNonSolanaPrimary
 
 // schemaIdentifierRe matches valid PostgreSQL identifiers: starts with a letter
 // or underscore, followed by letters, digits, or underscores only.
@@ -161,6 +170,69 @@ func (q *Queries) DeleteIdentityByID(ctx context.Context, id, accountID string) 
 		return 0, fmt.Errorf("DeleteIdentityByID: %w", err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+// EnsurePrimaryIdentity guarantees a primary Solana-wallet identity row exists
+// for a freshly-created account, so a brand-new user shows up in /account/me.
+// Idempotent: does nothing if the (type, identifier) is already linked anywhere.
+func (q *Queries) EnsurePrimaryIdentity(ctx context.Context, accountID, wallet string) error {
+	query := fmt.Sprintf(`
+		INSERT INTO %s (account_id, type, chain, identifier, is_primary)
+		VALUES ($1, 'solana_wallet', 'solana', $2, true)
+		ON CONFLICT (type, identifier) DO NOTHING
+	`, q.table("linked_identities"))
+	if _, err := q.pool.Exec(ctx, query, accountID, wallet); err != nil {
+		return fmt.Errorf("EnsurePrimaryIdentity: %w", err)
+	}
+	return nil
+}
+
+// SetPrimaryIdentity promotes a Solana-wallet identity to primary for its
+// account, in one transaction: every other identity on the account is demoted,
+// the target is promoted, and users.wallet_address is repointed to the new
+// primary so the login/economics key stays consistent. Only Solana wallets may
+// be primary (the whole login flow keys on a Solana wallet_address). Returns the
+// new primary wallet address.
+func (q *Queries) SetPrimaryIdentity(ctx context.Context, accountID, id string) (string, error) {
+	tx, err := q.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("SetPrimaryIdentity begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	li := q.table("linked_identities")
+	var typ, identifier string
+	err = tx.QueryRow(ctx,
+		fmt.Sprintf(`SELECT type, identifier FROM %s WHERE id = $1 AND account_id = $2 FOR UPDATE`, li),
+		id, accountID).Scan(&typ, &identifier)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", pgx.ErrNoRows
+		}
+		return "", fmt.Errorf("SetPrimaryIdentity select: %w", err)
+	}
+	if typ != "solana_wallet" {
+		return "", errNonSolanaPrimary
+	}
+
+	if _, err = tx.Exec(ctx,
+		fmt.Sprintf(`UPDATE %s SET is_primary = false WHERE account_id = $1 AND is_primary = true`, li),
+		accountID); err != nil {
+		return "", fmt.Errorf("SetPrimaryIdentity demote: %w", err)
+	}
+	if _, err = tx.Exec(ctx,
+		fmt.Sprintf(`UPDATE %s SET is_primary = true WHERE id = $1`, li), id); err != nil {
+		return "", fmt.Errorf("SetPrimaryIdentity promote: %w", err)
+	}
+	if _, err = tx.Exec(ctx,
+		fmt.Sprintf(`UPDATE %s SET wallet_address = $1, updated_at = now() WHERE id = $2`, q.table("users")),
+		identifier, accountID); err != nil {
+		return "", fmt.Errorf("SetPrimaryIdentity repoint wallet: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("SetPrimaryIdentity commit: %w", err)
+	}
+	return identifier, nil
 }
 
 // GetUserByWallet retrieves an active (not soft-deleted) user by wallet address.

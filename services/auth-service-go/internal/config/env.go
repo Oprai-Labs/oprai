@@ -8,20 +8,25 @@ import (
 
 // Config holds all environment-driven configuration for the auth service.
 type Config struct {
-	Port           int
-	GRPCPort       int
-	JWTSecret      string
+	Port      int
+	GRPCPort  int
+	JWTSecret string
 	// JWTPreviousSecret is the previous signing key during a rolling rotation.
 	// New tokens are signed with JWTSecret; tokens carrying the old signature
 	// are accepted via JWTPreviousSecret until they expire naturally. Empty
 	// when no rotation is in flight. See `services.JWTService` doc.
 	JWTPreviousSecret string
-	InternalAPIKey string
-	DatabaseURL    string
-	RedisURL       string
-	DBSchema       string
-	Environment    string
-	CORSOrigin     string // Allowed CORS origin for the gateway (default: http://localhost:3001)
+	InternalAPIKey    string
+	DatabaseURL       string
+	RedisURL          string
+	DBSchema          string
+	Environment       string
+	CORSOrigin        string // Allowed CORS origin for the gateway (default: http://localhost:3001)
+
+	// TelegramBotToken enables Telegram Login Widget verification for linking a
+	// Telegram identity to an account. Empty = Telegram linking is disabled and
+	// the endpoint returns a clear "not configured" error.
+	TelegramBotToken string
 
 	// TrustProxyHeaders controls whether X-Forwarded-For / X-Real-IP headers
 	// are trusted for client IP extraction. Set to true only when the service
@@ -53,7 +58,8 @@ func Load() (*Config, error) {
 	redisURL := getEnv("REDIS_URL", "redis://localhost:6379")
 	dbSchema := getEnv("DB_SCHEMA", "auth_schema")
 	corsOrigin := getEnv("CORS_ORIGIN", "http://localhost:3001") // Gateway origin
-	environment := getEnv("NODE_ENV", "development")             // Keep NODE_ENV for compat with monorepo
+	telegramBotToken := getEnv("OPRAI_TELEGRAM_BOT_TOKEN", "")
+	environment := getEnv("NODE_ENV", "development") // Keep NODE_ENV for compat with monorepo
 	trustProxy := os.Getenv("TRUST_PROXY_HEADERS") == "true"
 
 	// Also check GO_ENV for Go-native convention
@@ -71,10 +77,11 @@ func Load() (*Config, error) {
 		RedisURL:          redisURL,
 		DBSchema:          dbSchema,
 		CORSOrigin:        corsOrigin,
+		TelegramBotToken:  telegramBotToken,
 		Environment:       environment,
 		TrustProxyHeaders: trustProxy,
 		SessionTTLSeconds: getEnvInt("SESSION_TTL_SECONDS", 60*60*24*3), // 3 days default
-		NonceTTLSeconds:   60 * 10,                                       // 10 minutes
+		NonceTTLSeconds:   60 * 10,                                      // 10 minutes
 	}
 
 	if err := cfg.validate(); err != nil {

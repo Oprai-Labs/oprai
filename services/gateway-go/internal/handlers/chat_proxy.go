@@ -47,6 +47,13 @@ func NewChatProxy(chatServiceURL string, internalAPIKey string) *ChatProxy {
 		if wallet := middleware.GetWallet(req.Context()); wallet != "" {
 			req.Header.Set("X-User-Wallet", wallet)
 		}
+		// Multichain: forward the resolved account id so chat-service can roll
+		// rewards up across every wallet linked to the account. Always cleared
+		// first so a client-supplied header can never spoof it.
+		req.Header.Del("X-User-Account")
+		if account := middleware.GetAccount(req.Context()); account != "" {
+			req.Header.Set("X-User-Account", account)
+		}
 		req.Header.Set("X-Internal-Api-Key", internalAPIKey)
 		if reqID := chimiddleware.GetReqID(req.Context()); reqID != "" {
 			req.Header.Set("X-Request-ID", reqID)

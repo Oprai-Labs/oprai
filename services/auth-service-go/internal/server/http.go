@@ -71,7 +71,7 @@ func NewHTTPServer(
 	// ── Handlers ──────────────────────────────────────────────────────
 	authHandler := handlers.NewAuthHandler(nonceService, jwtService, revocationService, queries, cfg, auditLogger)
 	userHandler := handlers.NewUserHandler(queries, auditLogger, cfg)
-	accountHandler := handlers.NewAccountHandler(queries, nonceService)
+	accountHandler := handlers.NewAccountHandler(queries, nonceService, cfg.TelegramBotToken)
 	spendingHandler := handlers.NewSpendingHandler(queries)
 
 	// ── Health check ──────────────────────────────────────────────────
@@ -125,6 +125,9 @@ func NewHTTPServer(
 		r.Get("/me", accountHandler.HandleGetMe)
 		r.Post("/link/nonce", accountHandler.HandleLinkNonce)
 		r.Post("/link/verify", accountHandler.HandleLinkVerify)
+		r.Post("/link/evm/verify", accountHandler.HandleLinkEVMVerify)
+		r.Post("/link/telegram", accountHandler.HandleLinkTelegram)
+		r.Post("/identity/{id}/primary", accountHandler.HandleSetPrimary)
 		r.Delete("/identity/{id}", accountHandler.HandleUnlink)
 	})
 
