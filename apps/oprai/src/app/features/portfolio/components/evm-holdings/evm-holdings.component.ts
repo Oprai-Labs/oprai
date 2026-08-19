@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { AccountService } from '../../../../core/services/account.service';
-import { EvmPortfolioService, EvmToken, EvmPosition } from '../../services/evm-portfolio.service';
+import { EvmPortfolioService, EvmToken, EvmPosition, EvmTx } from '../../services/evm-portfolio.service';
 
 const CHAIN_COLOR: Record<string, string> = {
   ethereum: '#627eea',
@@ -97,6 +97,33 @@ const CHAIN_COLOR: Record<string, string> = {
             }
           </div>
         }
+
+        @if (txs().length > 0) {
+          <div class="evm-defi">
+            <div class="evm-defi-head"><span>Recent Activity</span></div>
+            @for (t of txs(); track t.hash + t.chain) {
+              <div class="evm-tx">
+                <div class="evm-tx-logo" [style.--cc]="chainColor(t.chain)">
+                  @if (t.platformLogo) {
+                    <img [src]="t.platformLogo" [alt]="t.platform || ''" (error)="onLogoError($event)" />
+                  } @else {
+                    <span>{{ categoryIcon(t.category) }}</span>
+                  }
+                  <span class="evm-chain-dot" [style.background]="chainColor(t.chain)" [title]="t.chain"></span>
+                </div>
+                <div class="evm-tx-main">
+                  <div class="evm-tx-sum">{{ t.summary || t.category }}</div>
+                  <div class="evm-tx-meta">
+                    @if (t.platform) { <span class="evm-tx-plat">{{ t.platform }}</span> }
+                    <span class="evm-tx-cat">{{ t.category }}</span>
+                    <span class="evm-pos-chain">{{ t.chain }}</span>
+                  </div>
+                </div>
+                @if (!t.success) { <span class="evm-tx-failed" title="Reverted">failed</span> }
+              </div>
+            }
+          </div>
+        }
       </section>
     }
   `,
@@ -137,6 +164,16 @@ const CHAIN_COLOR: Record<string, string> = {
     .evm-pos-chain { font-size:.64rem; text-transform:capitalize; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.1)); padding:1px 6px; border-radius:5px; }
     .evm-pos-val { text-align:right; }
     .evm-pos-unclaimed { font-size:.7rem; color:#22c55e; font-variant-numeric:tabular-nums; }
+    .evm-tx { display:flex; align-items:center; gap:12px; padding:8px 6px; border-radius:10px; }
+    .evm-tx:hover { background:var(--op-bg-surface-2, rgba(125,125,150,.06)); }
+    .evm-tx-logo { position:relative; width:30px; height:30px; border-radius:50%; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 16%, transparent); color:var(--op-text-primary); font-size:.85rem; }
+    .evm-tx-logo img { width:30px; height:30px; border-radius:50%; object-fit:cover; }
+    .evm-tx-main { flex:1; min-width:0; }
+    .evm-tx-sum { font-size:.85rem; color:var(--op-text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .evm-tx-meta { display:flex; align-items:center; gap:6px; margin-top:2px; }
+    .evm-tx-plat { font-size:.64rem; font-weight:700; color:var(--op-brand,#5b5fc7); }
+    .evm-tx-cat { font-size:.64rem; text-transform:capitalize; color:var(--op-text-secondary); }
+    .evm-tx-failed { font-size:.64rem; font-weight:700; color:#ef4444; text-transform:uppercase; }
   `],
 })
 export class EvmHoldingsComponent implements OnInit {
@@ -149,6 +186,7 @@ export class EvmHoldingsComponent implements OnInit {
   tokens = signal<EvmToken[]>([]);
   positions = signal<EvmPosition[]>([]);
   positionsUsd = signal(0);
+  txs = signal<EvmTx[]>([]);
 
   ngOnInit(): void {
     this.account.getMe().subscribe({
@@ -169,6 +207,9 @@ export class EvmHoldingsComponent implements OnInit {
               positions: this.evm.getPositions(addr).pipe(
                 catchError(() => of({ address: addr, totalUsd: 0, positions: [] })),
               ),
+              transactions: this.evm.getTransactions(addr).pipe(
+                catchError(() => of({ address: addr, transactions: [] })),
+              ),
             }),
           ),
         )
@@ -178,15 +219,18 @@ export class EvmHoldingsComponent implements OnInit {
               tokens.sort((a, b) => b.valueUsd - a.valueUsd);
               const positions = results.flatMap((r) => r.positions.positions || []);
               positions.sort((a, b) => b.balanceUsd - a.balanceUsd);
+              const txs = results.flatMap((r) => r.transactions.transactions || []);
+              txs.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
               const tokensTotal = results.reduce((s, r) => s + (r.portfolio.totalUsd || 0), 0);
               const posTotal = results.reduce((s, r) => s + (r.positions.totalUsd || 0), 0);
-              return { tokens, positions, tokensTotal, posTotal };
+              return { tokens, positions, txs: txs.slice(0, 25), tokensTotal, posTotal };
             }),
           )
-          .subscribe(({ tokens, positions, tokensTotal, posTotal }) => {
+          .subscribe(({ tokens, positions, txs, tokensTotal, posTotal }) => {
             this.tokens.set(tokens);
             this.positions.set(positions);
             this.positionsUsd.set(posTotal);
+            this.txs.set(txs);
             this.totalUsd.set(tokensTotal + posTotal);
             this.loading.set(false);
           });
@@ -205,6 +249,16 @@ export class EvmHoldingsComponent implements OnInit {
       .filter((s): s is string => !!s);
     const uniq = Array.from(new Set(syms));
     return uniq.slice(0, 3).join(' + ') || '—';
+  }
+
+  categoryIcon(category: string): string {
+    const c = (category || '').toLowerCase();
+    if (c.includes('swap')) return '⇄';
+    if (c.includes('nft')) return '◈';
+    if (c.includes('send')) return '↑';
+    if (c.includes('receive') || c.includes('airdrop')) return '↓';
+    if (c.includes('approve')) return '✓';
+    return '•';
   }
 
   onLogoError(ev: Event): void {

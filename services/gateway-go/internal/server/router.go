@@ -327,6 +327,8 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Get("/evm/portfolio", marketProxy.GetEvmPortfolio)
 		// EVM DeFi positions (Moralis): GET /market/evm/positions?address=0x..
 		r.Get("/evm/positions", marketProxy.GetEvmPositions)
+		// EVM tx history + platform labels (Moralis): GET /market/evm/transactions?address=0x..
+		r.Get("/evm/transactions", marketProxy.GetEvmTransactions)
 		r.Get("/wallet/pnl-summary", marketProxy.GetWalletPnlSummary)
 		r.Get("/wallet/pnl-details", marketProxy.GetWalletPnlDetails)
 		r.Get("/jito/tip-floor", marketProxy.GetJitoTipFloor)
