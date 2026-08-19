@@ -4,232 +4,188 @@ import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { AccountService } from '../../../../core/services/account.service';
 import { EvmPortfolioService, EvmToken, EvmPosition, EvmTx } from '../../services/evm-portfolio.service';
+import { AllocationChartComponent, ChartSegment } from '../allocation-chart/allocation-chart.component';
+import { DefiPositionsComponent } from '../defi-positions/defi-positions.component';
+import type { ProtocolPosition, ProtocolCategory } from '../../models/portfolio.models';
 
 const CHAIN_COLOR: Record<string, string> = {
-  ethereum: '#627eea',
-  base: '#0052ff',
-  arbitrum: '#28a0f0',
-  optimism: '#ff0420',
-  polygon: '#8247e5',
+  ethereum: '#627eea', base: '#0052ff', arbitrum: '#28a0f0', optimism: '#ff0420', polygon: '#8247e5',
 };
-
-// Allocation palette (Wallet first, then protocols) — mirrors the Solana donut.
 const ALLOC_COLORS = ['#5b5fc7', '#06b6d4', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444'];
 
-interface AllocCat {
-  name: string;
-  usd: number;
-  color: string;
-  logo?: string;
-  pct: number;
+function categoryFor(label: string): ProtocolCategory {
+  const l = (label || '').toLowerCase();
+  if (l.includes('borrow')) return 'borrowing';
+  if (l.includes('suppl') || l.includes('lend') || l.includes('deposit')) return 'lending';
+  if (l.includes('stak')) return 'liquid-staking';
+  if (l.includes('liquid') || l.includes('lp') || l.includes('pool')) return 'liquidity-pool';
+  return 'rewards';
 }
 
 @Component({
   selector: 'app-evm-holdings',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AllocationChartComponent, DefiPositionsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (walletCount() > 0) {
       @if (loading()) {
         <div class="evm-skel"><div class="sk sk-lg"></div><div class="sk"></div><div class="sk"></div></div>
       } @else {
-        <!-- ── Overview: address · total · allocation donut ── -->
-        <section class="evm-overview">
-          <div class="evm-ov-left">
-            @if (address()) {
-              <button class="evm-addr" (click)="copyAddr()" title="Copy address">
-                <span class="evm-addr-ico"><svg width="16" height="16" viewBox="0 0 256 417" aria-hidden="true"><path fill="#627eea" d="M127.9 0l-2.7 9.5v275.7l2.7 2.7 127.9-75.6z"/><path fill="#8a92b2" d="M127.9 0L0 212.3l127.9 75.6V154.2z"/><path fill="#627eea" d="M127.9 312.2l-1.5 1.9v98.2l1.5 4.5L256 236.6z"/><path fill="#8a92b2" d="M127.9 416.9v-104.7L0 236.6z"/></svg></span>
-                {{ shortAddr(address()) }}
-                <span class="evm-copy">{{ copied() ? '✓' : '⧉' }}</span>
+        <!-- ── Hero: avatar · address · total · allocation donut (Solana layout) ── -->
+        <div class="hero">
+          <div class="hero-left">
+            <div class="hero-row">
+              <div class="hero-avatar">
+                <svg width="22" height="22" viewBox="0 0 256 417" aria-hidden="true"><path fill="#fff" d="M127.9 0l-2.7 9.5v275.7l2.7 2.7 127.9-75.6z"/><path fill="#cfd6f6" d="M127.9 0L0 212.3l127.9 75.6V154.2z"/><path fill="#fff" d="M127.9 312.2l-1.5 1.9v98.2l1.5 4.5L256 236.6z"/><path fill="#cfd6f6" d="M127.9 416.9v-104.7L0 236.6z"/></svg>
+              </div>
+              <button class="hero-address" (click)="copyAddr()" title="Copy address">
+                {{ shortAddr(address()) }} <span class="hero-copy">{{ copied() ? '✓' : '⧉' }}</span>
               </button>
-            }
-            <div class="evm-total">{{ totalUsd() | currency:'USD':'symbol':'1.2-2' }}</div>
-            <div class="evm-sub">Ethereum &amp; L2s · {{ tokens().length }} tokens · {{ positions().length }} positions</div>
+            </div>
+            <div class="hero-total">{{ totalUsd() | currency:'USD':'symbol':'1.2-2' }}</div>
+            <div class="hero-sub">Ethereum &amp; L2s · {{ tokens().length }} tokens · {{ positions().length }} positions</div>
           </div>
+          <div class="hero-right">
+            <app-allocation-chart [segments]="allocationSegments()" [totalValue]="totalUsd()" />
+          </div>
+        </div>
 
-          @if (categories().length > 0) {
-            <div class="evm-alloc">
-              <svg viewBox="0 0 120 120" class="evm-donut" aria-hidden="true">
-                @for (seg of donut(); track seg.name) {
-                  <circle cx="60" cy="60" r="54" fill="none" [attr.stroke]="seg.color" stroke-width="12"
-                          [attr.stroke-dasharray]="seg.dash" [attr.stroke-dashoffset]="seg.offset" transform="rotate(-90 60 60)" />
-                }
-                <text x="60" y="64" text-anchor="middle" class="evm-donut-mid">{{ totalUsd() | currency:'USD':'symbol':'1.0-0' }}</text>
-              </svg>
-              <div class="evm-legend">
-                @for (c of categories(); track c.name) {
-                  <div class="evm-leg">
-                    <span class="evm-leg-dot" [style.background]="c.color"></span>
-                    <span class="evm-leg-name">{{ c.name }}</span>
-                    <span class="evm-leg-pct">{{ c.pct | number:'1.0-1' }}%</span>
-                  </div>
-                }
+        <!-- ── Category cards (Wallet + protocols) ── -->
+        <div class="proto-cards">
+          @for (c of cards(); track c.name) {
+            <div class="proto-card">
+              <div class="proto-card-ico" [style.--cc]="c.color">
+                @if (c.logo) { <img [src]="c.logo" [alt]="c.name" (error)="hideImg($event)" /> }
+                @else { <span class="proto-card-dot" [style.background]="c.color"></span> }
+              </div>
+              <div class="proto-card-text">
+                <span class="proto-card-name">{{ c.name }}</span>
+                <span class="proto-card-usd">{{ c.usd | currency:'USD':'symbol':'1.2-2' }}</span>
               </div>
             </div>
           }
-        </section>
+        </div>
 
-        <!-- ── Category cards ── -->
-        @if (categories().length > 0) {
-          <div class="evm-cards">
-            @for (c of categories(); track c.name) {
-              <div class="evm-card">
-                <div class="evm-card-ico" [style.--cc]="c.color">
-                  @if (c.logo) { <img [src]="c.logo" [alt]="c.name" (error)="hideImg($event)" /> }
-                  @else { <span class="evm-card-dot" [style.background]="c.color"></span> }
-                </div>
-                <div class="evm-card-text">
-                  <span class="evm-card-name">{{ c.name }}</span>
-                  <span class="evm-card-usd">{{ c.usd | currency:'USD':'symbol':'1.2-2' }}</span>
-                </div>
-              </div>
-            }
-          </div>
-        }
+        <!-- ── Active positions & rewards — the exact Solana panel ── -->
+        <app-defi-positions [protocolPositions]="protoPositions()" [loading]="false" />
 
-        <!-- ── Active positions & rewards ── -->
-        @if (positions().length > 0) {
-          <section class="evm-block">
-            <div class="evm-block-head">
-              <div class="evm-block-title">
-                <span>Active positions</span>
-                <span class="evm-block-sub">{{ positions().length }} across {{ protocolCount() }} protocols</span>
-              </div>
-              <div class="evm-block-total">{{ positionsUsd() | currency:'USD':'symbol':'1.2-2' }}</div>
-            </div>
-            @for (p of positions(); track p.chain + p.protocol + p.label + $index) {
-              <div class="evm-pos">
-                <div class="evm-pos-logo" [style.--cc]="chainColor(p.chain)">
-                  @if (p.logo) { <img [src]="p.logo" [alt]="p.protocol" (error)="hideImg($event)" /> }
-                  @else { <span>{{ (p.protocol || '?').slice(0, 2) }}</span> }
-                  <span class="evm-chain-dot" [style.background]="chainColor(p.chain)" [title]="p.chain"></span>
-                </div>
-                <div class="evm-pos-main">
-                  <div class="evm-pos-proto">{{ p.protocol }} <span class="evm-pos-label">{{ p.label }}</span></div>
-                  <div class="evm-pos-toks">{{ tokenSummary(p) }} <span class="evm-pos-chain">{{ p.chain }}</span></div>
-                </div>
-                <div class="evm-pos-val">
-                  <div class="evm-usd">{{ p.balanceUsd | currency:'USD':'symbol':'1.2-2' }}</div>
-                  @if (p.unclaimedUsd > 0) { <div class="evm-pos-unclaimed">+{{ p.unclaimedUsd | currency:'USD':'symbol':'1.2-2' }} rewards</div> }
-                </div>
-              </div>
-            }
-          </section>
-        }
-
-        <!-- ── Tokens ── -->
+        <!-- ── Wallet tokens table (Solana columns) ── -->
         @if (tokens().length > 0) {
-          <section class="evm-block">
-            <div class="evm-block-head"><div class="evm-block-title"><span>Tokens</span></div>
-              <div class="evm-block-total">{{ walletUsd() | currency:'USD':'symbol':'1.2-2' }}</div></div>
-            @for (t of tokens(); track t.network + t.address) {
-              <div class="evm-row">
-                <div class="evm-logo" [style.--cc]="chainColor(t.chain)">
-                  @if (t.logo) { <img [src]="t.logo" [alt]="t.symbol" (error)="hideImg($event)" /> }
-                  @else { <span>{{ (t.symbol || '?').slice(0, 3) }}</span> }
-                  <span class="evm-chain-dot" [style.background]="chainColor(t.chain)" [title]="t.chain"></span>
-                </div>
-                <div class="evm-main">
-                  <div class="evm-sym">{{ t.symbol || 'Unknown' }} <span class="evm-chain">{{ t.chain }}</span></div>
-                  <div class="evm-amt">{{ t.uiAmount | number:'1.0-4' }} {{ t.symbol }}</div>
-                </div>
-                <div class="evm-val">
-                  <div class="evm-usd">{{ t.valueUsd | currency:'USD':'symbol':'1.2-2' }}</div>
-                  @if (t.priceUsd > 0) { <div class="evm-price">{{ t.priceUsd | currency:'USD':'symbol':'1.2-4' }}</div> }
-                </div>
+          <section class="tok">
+            <div class="tok-head">
+              <div class="tok-title"><span class="tok-ico">◧</span> Wallet</div>
+              <div class="tok-total">{{ walletUsd() | currency:'USD':'symbol':'1.2-2' }}</div>
+            </div>
+            <div class="tok-table">
+              <div class="tok-r tok-hr">
+                <span>Token</span><span class="tok-num">Price</span><span class="tok-num">Amount</span>
+                <span class="tok-num">%</span><span class="tok-num">USD Value</span>
               </div>
-            }
+              @for (t of tokens(); track t.network + t.address) {
+                <div class="tok-r">
+                  <span class="tok-name">
+                    <span class="tok-logo" [style.--cc]="chainColor(t.chain)">
+                      @if (t.logo) { <img [src]="t.logo" [alt]="t.symbol" (error)="hideImg($event)" /> }
+                      @else { {{ (t.symbol || '?').slice(0,3) }} }
+                      <span class="tok-chain-dot" [style.background]="chainColor(t.chain)" [title]="t.chain"></span>
+                    </span>
+                    <span class="tok-sym">{{ t.symbol || 'Unknown' }} <span class="tok-chain">{{ t.chain }}</span></span>
+                  </span>
+                  <span class="tok-num">{{ t.priceUsd > 0 ? (t.priceUsd | currency:'USD':'symbol':'1.2-4') : '—' }}</span>
+                  <span class="tok-num">{{ t.uiAmount | number:'1.0-4' }}</span>
+                  <span class="tok-num tok-dim">{{ pct(t.valueUsd) | number:'1.0-1' }}%</span>
+                  <span class="tok-num tok-val">{{ t.valueUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+                </div>
+              }
+            </div>
           </section>
         }
 
         <!-- ── Recent activity ── -->
         @if (txs().length > 0) {
-          <section class="evm-block">
-            <div class="evm-block-head"><div class="evm-block-title"><span>Recent Activity</span></div></div>
+          <section class="tok">
+            <div class="tok-head"><div class="tok-title"><span class="tok-ico">≡</span> Recent Activity</div></div>
             @for (t of txs(); track t.hash + t.chain) {
               <div class="evm-tx">
                 <div class="evm-tx-logo" [style.--cc]="chainColor(t.chain)">
                   @if (t.platformLogo) { <img [src]="t.platformLogo" [alt]="t.platform || ''" (error)="hideImg($event)" /> }
                   @else { <span>{{ categoryIcon(t.category) }}</span> }
-                  <span class="evm-chain-dot" [style.background]="chainColor(t.chain)" [title]="t.chain"></span>
+                  <span class="tok-chain-dot" [style.background]="chainColor(t.chain)"></span>
                 </div>
                 <div class="evm-tx-main">
                   <div class="evm-tx-sum">{{ t.summary || t.category }}</div>
                   <div class="evm-tx-meta">
                     @if (t.platform) { <span class="evm-tx-plat">{{ t.platform }}</span> }
-                    <span class="evm-tx-cat">{{ t.category }}</span>
-                    <span class="evm-pos-chain">{{ t.chain }}</span>
+                    <span class="evm-tx-cat">{{ t.category }}</span><span class="tok-chain">{{ t.chain }}</span>
                   </div>
                 </div>
-                @if (!t.success) { <span class="evm-tx-failed" title="Reverted">failed</span> }
+                @if (!t.success) { <span class="evm-tx-failed">failed</span> }
               </div>
             }
           </section>
         }
 
         @if (tokens().length === 0 && positions().length === 0) {
-          <div class="evm-empty">No balances or positions found on Ethereum, Base, Arbitrum, Optimism or Polygon.</div>
+          <div class="evm-empty">No balances or positions on Ethereum, Base, Arbitrum, Optimism or Polygon.</div>
         }
       }
     }
   `,
   styles: [`
     :host { display:block; }
-    .evm-skel { margin-top:16px; } .evm-skel .sk { height:44px; border-radius:12px; margin-bottom:8px; background:linear-gradient(90deg, rgba(125,125,150,.08), rgba(125,125,150,.16), rgba(125,125,150,.08)); background-size:200% 100%; animation:evsh 1.3s infinite; } .evm-skel .sk-lg { height:120px; }
+    .evm-skel { margin-top:20px; } .evm-skel .sk { height:44px; border-radius:12px; margin-bottom:8px; background:linear-gradient(90deg, rgba(125,125,150,.08), rgba(125,125,150,.16), rgba(125,125,150,.08)); background-size:200% 100%; animation:evsh 1.3s infinite; } .evm-skel .sk-lg { height:130px; }
     @keyframes evsh { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-    .evm-overview { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:24px 0 8px; flex-wrap:wrap; }
-    .evm-addr { display:inline-flex; align-items:center; gap:8px; background:none; border:0; padding:0; cursor:pointer; font-family:ui-monospace,monospace; font-size:.85rem; color:var(--op-text-secondary); margin-bottom:8px; }
-    .evm-addr:hover { color:var(--op-brand,#5b5fc7); }
-    .evm-addr-ico { display:inline-flex; }
-    .evm-copy { font-size:.9rem; }
-    .evm-total { font-size:2.2rem; font-weight:700; color:var(--op-text-primary); letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
-    .evm-sub { font-size:.82rem; color:var(--op-text-secondary); margin-top:4px; }
-    .evm-alloc { display:flex; align-items:center; gap:16px; }
-    .evm-donut { width:118px; height:118px; flex:none; }
-    .evm-donut-mid { font-size:15px; font-weight:700; fill:var(--op-text-primary); }
-    .evm-legend { display:flex; flex-direction:column; gap:5px; }
-    .evm-leg { display:flex; align-items:center; gap:8px; font-size:.8rem; }
-    .evm-leg-dot { width:9px; height:9px; border-radius:3px; flex:none; }
-    .evm-leg-name { color:var(--op-text-primary); min-width:64px; }
-    .evm-leg-pct { color:var(--op-text-secondary); font-variant-numeric:tabular-nums; }
+    .hero { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:28px 0 12px; flex-wrap:wrap; }
+    .hero-row { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+    .hero-avatar { width:40px; height:40px; border-radius:50%; flex:none; display:grid; place-items:center; background:linear-gradient(135deg,#627eea,#454a75); }
+    .hero-address { display:inline-flex; align-items:center; gap:8px; background:none; border:0; padding:0; cursor:pointer; font-family:ui-monospace,monospace; font-size:.9rem; color:var(--op-text-secondary); }
+    .hero-address:hover { color:var(--op-brand,#5b5fc7); }
+    .hero-total { font-size:2.6rem; font-weight:700; color:var(--op-text-primary); letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1; }
+    .hero-sub { font-size:.82rem; color:var(--op-text-secondary); margin-top:6px; }
+    .hero-right { flex:none; }
 
-    .evm-cards { display:flex; gap:12px; flex-wrap:wrap; margin:12px 0 4px; }
-    .evm-card { display:flex; align-items:center; gap:10px; flex:1; min-width:150px; padding:12px 14px; border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:14px; background:var(--op-bg-surface-1); }
-    .evm-card-ico { width:30px; height:30px; border-radius:9px; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 16%, transparent); overflow:hidden; }
-    .evm-card-ico img { width:30px; height:30px; border-radius:9px; object-fit:cover; }
-    .evm-card-dot { width:12px; height:12px; border-radius:4px; }
-    .evm-card-text { display:flex; flex-direction:column; min-width:0; }
-    .evm-card-name { font-size:.78rem; color:var(--op-text-secondary); }
-    .evm-card-usd { font-size:1rem; font-weight:700; color:var(--op-text-primary); font-variant-numeric:tabular-nums; }
+    .proto-cards { display:flex; gap:12px; flex-wrap:wrap; margin:14px 0 4px; }
+    .proto-card { display:flex; align-items:center; gap:10px; flex:1; min-width:150px; padding:12px 14px; border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:14px; background:var(--op-bg-surface-1); }
+    .proto-card-ico { width:30px; height:30px; border-radius:9px; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 16%, transparent); overflow:hidden; }
+    .proto-card-ico img { width:30px; height:30px; border-radius:9px; object-fit:cover; }
+    .proto-card-dot { width:12px; height:12px; border-radius:4px; }
+    .proto-card-text { display:flex; flex-direction:column; min-width:0; }
+    .proto-card-name { font-size:.78rem; color:var(--op-text-secondary); }
+    .proto-card-usd { font-size:1.05rem; font-weight:700; color:var(--op-text-primary); font-variant-numeric:tabular-nums; }
 
-    .evm-block { margin-top:16px; background:var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:16px; padding:14px 16px; }
-    .evm-block-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-    .evm-block-title { display:flex; align-items:center; gap:8px; font-weight:600; font-size:.95rem; color:var(--op-text-primary); }
-    .evm-block-sub { font-size:.75rem; color:var(--op-text-secondary); font-weight:400; }
-    .evm-block-total { font-weight:700; color:var(--op-text-primary); font-variant-numeric:tabular-nums; }
+    .tok { margin-top:16px; }
+    .tok-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+    .tok-title { display:flex; align-items:center; gap:8px; font-weight:700; font-size:1.05rem; color:var(--op-text-primary); }
+    .tok-ico { color:var(--op-text-secondary); }
+    .tok-total { font-weight:700; color:var(--op-text-primary); font-variant-numeric:tabular-nums; }
+    .tok-table { border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:14px; overflow:hidden; }
+    .tok-r { display:grid; grid-template-columns:2.2fr 1fr 1fr .7fr 1fr; align-items:center; gap:8px; padding:12px 16px; }
+    .tok-r:not(.tok-hr):hover { background:var(--op-bg-surface-2, rgba(125,125,150,.05)); }
+    .tok-r + .tok-r { border-top:1px solid var(--op-border, rgba(255,255,255,.05)); }
+    .tok-hr { font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.04)); }
+    .tok-num { text-align:right; font-variant-numeric:tabular-nums; font-size:.85rem; color:var(--op-text-primary); }
+    .tok-dim { color:var(--op-text-secondary); } .tok-val { font-weight:600; }
+    .tok-name { display:flex; align-items:center; gap:10px; min-width:0; }
+    .tok-logo { position:relative; width:32px; height:32px; border-radius:50%; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 18%, transparent); color:var(--op-text-primary); font-size:.58rem; font-weight:700; }
+    .tok-logo img { width:32px; height:32px; border-radius:50%; object-fit:cover; }
+    .tok-chain-dot { position:absolute; right:-2px; bottom:-2px; width:11px; height:11px; border-radius:50%; border:2px solid var(--op-bg-surface-1); }
+    .tok-sym { font-weight:600; color:var(--op-text-primary); font-size:.9rem; display:flex; align-items:center; gap:7px; }
+    .tok-chain { font-size:.62rem; text-transform:capitalize; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.1)); padding:1px 6px; border-radius:5px; }
 
-    .evm-row, .evm-pos, .evm-tx { display:flex; align-items:center; gap:12px; padding:9px 4px; border-radius:10px; }
-    .evm-row:hover, .evm-pos:hover, .evm-tx:hover { background:var(--op-bg-surface-2, rgba(125,125,150,.06)); }
-    .evm-logo, .evm-pos-logo, .evm-tx-logo { position:relative; width:34px; height:34px; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 18%, transparent); color:var(--op-text-primary); font-size:.6rem; font-weight:700; }
-    .evm-logo { border-radius:50%; } .evm-pos-logo { border-radius:9px; } .evm-tx-logo { border-radius:50%; font-size:.85rem; width:30px; height:30px; }
-    .evm-logo img, .evm-pos-logo img, .evm-tx-logo img { width:100%; height:100%; object-fit:cover; border-radius:inherit; }
-    .evm-chain-dot { position:absolute; right:-2px; bottom:-2px; width:12px; height:12px; border-radius:50%; border:2px solid var(--op-bg-surface-1); }
-    .evm-main, .evm-pos-main, .evm-tx-main { flex:1; min-width:0; }
-    .evm-sym, .evm-pos-proto { font-weight:600; color:var(--op-text-primary); font-size:.9rem; display:flex; align-items:center; gap:7px; }
-    .evm-chain, .evm-pos-chain { font-size:.64rem; text-transform:capitalize; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.1)); padding:1px 6px; border-radius:5px; }
-    .evm-pos-label { font-size:.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--op-brand,#5b5fc7); background:color-mix(in srgb, var(--op-brand,#5b5fc7) 15%, transparent); padding:1px 6px; border-radius:5px; }
-    .evm-amt, .evm-pos-toks, .evm-tx-meta { font-size:.78rem; color:var(--op-text-secondary); display:flex; align-items:center; gap:7px; }
-    .evm-val, .evm-pos-val { text-align:right; }
-    .evm-usd { font-weight:600; color:var(--op-text-primary); font-size:.9rem; font-variant-numeric:tabular-nums; }
-    .evm-price { font-size:.72rem; color:var(--op-text-secondary); font-variant-numeric:tabular-nums; }
-    .evm-pos-unclaimed { font-size:.7rem; color:#22c55e; font-variant-numeric:tabular-nums; }
+    .evm-tx { display:flex; align-items:center; gap:12px; padding:8px 4px; border-radius:10px; }
+    .evm-tx:hover { background:var(--op-bg-surface-2, rgba(125,125,150,.06)); }
+    .evm-tx-logo { position:relative; width:30px; height:30px; border-radius:50%; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 16%, transparent); color:var(--op-text-primary); font-size:.85rem; }
+    .evm-tx-logo img { width:30px; height:30px; border-radius:50%; object-fit:cover; }
+    .evm-tx-main { flex:1; min-width:0; }
     .evm-tx-sum { font-size:.85rem; color:var(--op-text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .evm-tx-meta { display:flex; align-items:center; gap:6px; margin-top:2px; }
     .evm-tx-plat { font-size:.64rem; font-weight:700; color:var(--op-brand,#5b5fc7); }
     .evm-tx-cat { font-size:.64rem; text-transform:capitalize; color:var(--op-text-secondary); }
     .evm-tx-failed { font-size:.64rem; font-weight:700; color:#ef4444; text-transform:uppercase; }
     .evm-empty { font-size:.85rem; color:var(--op-text-secondary); padding:16px 2px; }
+    @media (max-width:640px) { .tok-r { grid-template-columns:1.6fr 1fr 1fr; } .tok-r > :nth-child(4), .tok-r > :nth-child(5) { display:none; } }
   `],
 })
 export class EvmHoldingsComponent implements OnInit {
@@ -247,11 +203,9 @@ export class EvmHoldingsComponent implements OnInit {
   walletUsd = computed(() => this.tokens().reduce((s, t) => s + (t.valueUsd || 0), 0));
   positionsUsd = computed(() => this.positions().reduce((s, p) => s + (p.balanceUsd || 0), 0));
   totalUsd = computed(() => this.walletUsd() + this.positionsUsd());
-  protocolCount = computed(() => new Set(this.positions().map((p) => p.protocol)).size);
 
-  // Allocation by category: Wallet + each protocol (biggest first).
-  categories = computed<AllocCat[]>(() => {
-    const total = this.totalUsd() || 1;
+  /** Category cards + donut source: Wallet + each protocol, biggest first. */
+  cards = computed(() => {
     const cats: { name: string; usd: number; logo?: string }[] = [];
     const wallet = this.walletUsd();
     if (wallet > 0) cats.push({ name: 'Wallet', usd: wallet });
@@ -264,19 +218,43 @@ export class EvmHoldingsComponent implements OnInit {
     }
     for (const [name, v] of byProto) cats.push({ name, usd: v.usd, logo: v.logo });
     cats.sort((a, b) => b.usd - a.usd);
-    return cats.map((c, i) => ({ ...c, color: ALLOC_COLORS[i % ALLOC_COLORS.length], pct: (c.usd / total) * 100 }));
+    return cats.map((c, i) => ({ ...c, color: ALLOC_COLORS[i % ALLOC_COLORS.length] }));
   });
 
-  // Donut stroke segments (circumference of r=54).
-  donut = computed(() => {
-    const C = 2 * Math.PI * 54;
-    let acc = 0;
-    return this.categories().filter((c) => c.pct > 0).map((c) => {
-      const len = (c.pct / 100) * C;
-      const seg = { name: c.name, color: c.color, dash: `${len} ${C - len}`, offset: -acc };
-      acc += len;
-      return seg;
-    });
+  allocationSegments = computed<ChartSegment[]>(() =>
+    this.cards().filter((c) => c.usd > 0).map((c) => ({ label: c.name, value: c.usd, color: c.color })));
+
+  /** EVM positions mapped into the Solana ProtocolPosition shape so the exact
+   *  DefiPositionsComponent panel renders them. */
+  protoPositions = computed<ProtocolPosition[]>(() => {
+    const byProto = new Map<string, ProtocolPosition>();
+    for (const p of this.positions()) {
+      let pp = byProto.get(p.protocol);
+      if (!pp) {
+        pp = {
+          protocolId: p.protocolId || p.protocol.toLowerCase().replace(/\s+/g, '-'),
+          protocolName: p.protocol,
+          protocolLogoUri: p.logo || null,
+          category: categoryFor(p.label),
+          positions: [],
+          totalUsdValue: 0,
+          totalClaimableUsd: 0,
+          claimableCount: 0,
+        };
+        byProto.set(p.protocol, pp);
+      }
+      pp.positions.push({
+        label: `${p.label}${p.chain ? ' · ' + p.chain : ''}`,
+        tokens: (p.tokens || []).map((t) => ({ symbol: t.symbol, amount: t.amount, logoUri: t.logo || null })),
+        totalUsdValue: p.balanceUsd,
+        metadata: {},
+        claimableUsd: p.unclaimedUsd > 0 ? p.unclaimedUsd : null,
+        feesUsd: p.unclaimedUsd > 0 ? p.unclaimedUsd : null,
+      });
+      pp.totalUsdValue += p.balanceUsd || 0;
+      if (p.unclaimedUsd > 0) { pp.totalClaimableUsd = (pp.totalClaimableUsd || 0) + p.unclaimedUsd; pp.claimableCount = (pp.claimableCount || 0) + 1; }
+    }
+    return [...byProto.values()].sort((a, b) => b.totalUsdValue - a.totalUsdValue);
   });
 
   ngOnInit(): void {
@@ -314,25 +292,18 @@ export class EvmHoldingsComponent implements OnInit {
 
   chainColor(chain: string): string { return CHAIN_COLOR[chain] ?? '#7e8298'; }
   shortAddr(a: string | null): string { return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : ''; }
+  pct(usd: number): number { const t = this.totalUsd() || 1; return (usd / t) * 100; }
   copyAddr(): void {
-    const a = this.address();
-    if (!a) return;
+    const a = this.address(); if (!a) return;
     navigator.clipboard?.writeText(a);
     this.copied.set(true);
     setTimeout(() => this.copied.set(false), 1400);
   }
-  tokenSummary(p: EvmPosition): string {
-    const uniq = Array.from(new Set((p.tokens || []).map((t) => t.symbol).filter((s): s is string => !!s)));
-    return uniq.slice(0, 3).join(' + ') || '—';
-  }
   categoryIcon(category: string): string {
     const c = (category || '').toLowerCase();
-    if (c.includes('swap')) return '⇄';
-    if (c.includes('nft')) return '◈';
-    if (c.includes('send')) return '↑';
-    if (c.includes('receive') || c.includes('airdrop')) return '↓';
-    if (c.includes('approve')) return '✓';
-    return '•';
+    if (c.includes('swap')) return '⇄'; if (c.includes('nft')) return '◈';
+    if (c.includes('send')) return '↑'; if (c.includes('receive') || c.includes('airdrop')) return '↓';
+    if (c.includes('approve')) return '✓'; return '•';
   }
   hideImg(ev: Event): void { (ev.target as HTMLImageElement).style.display = 'none'; }
 }
