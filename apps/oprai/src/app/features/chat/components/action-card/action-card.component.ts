@@ -2176,7 +2176,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const step = this.meteoraStep();
     const active = this.meteoraActiveBin();
     if (step === null || active === null) return;
-    const TARGET_BAND = 0.05; // +/-5% around the active price
+    // The bin step is the pool's own statement about how far this pair moves,
+    // and it lines up with what the other venues say: DLMM gives USDC/USDT and
+    // JitoSOL/SOL a 1 bp step and SOL/USDC a 4 bp one, exactly the split
+    // Raydium and Orca make for the same pairs. A flat ±5% on a 1 bp pool is
+    // fifty times wider than the pair moves, and a position that wide earns
+    // next to nothing.
+    //
+    // Only the correlated case changes: ±5% stays the default everywhere else,
+    // since widening it further is a change nothing here measured.
+    const TARGET_BAND = step <= 0.0001 ? 0.001 : 0.05;
     const perSide = Math.max(
       1,
       Math.min(
