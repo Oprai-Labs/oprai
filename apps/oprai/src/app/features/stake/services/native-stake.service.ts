@@ -18,7 +18,8 @@ export interface Validator {
   voteAccount: string;
   name: string;
   commission: number;
-  estimatedApy: number;
+  /** Null when the network yield could not be read — show nothing, not a guess. */
+  estimatedApy: number | null;
   activatedStakeSol: number;
   lastVote: number;
 }
@@ -62,6 +63,50 @@ export class NativeStakeService {
     return this.solanaRpc.getStakeAccounts(pk);
   }
 
+  /**
+   * What staking on Solana actually pays right now, before a validator's cut.
+   *
+   * This was written in as 6.5%. The network pays what inflation hands to
+   * stakers, divided by how much of the supply is staked — measured the day
+   * this replaced the constant: 3.688% inflation over a 68.8% staked share is
+   * 5.36%, so 6.5% was a fifth too high, and it was multiplied by every
+   * validator's commission to produce the figure people chose by.
+   *
+   * The result cross-checks: Jito pays 5.05% and Marinade 5.55%, and native
+   * staking sitting between them is exactly right — the liquid tokens add MEV
+   * and then take a fee.
+   *
+   * Total stake comes from the validator list already fetched, so this costs
+   * two extra reads. If either fails, the caller gets null and shows no APY
+   * rather than a number nobody measured.
+   */
+  private async networkStakingApy(rpcUrl: string, validators: any[]): Promise<number | null> {
+    const call = async (method: string, params: unknown[]): Promise<any> => {
+      const res = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'include',
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      });
+      return (await res.json())?.result;
+    };
+    try {
+      const [inflation, supply] = await Promise.all([
+        call('getInflationRate', []),
+        call('getSupply', [{ excludeNonCirculatingAccountsList: true }]),
+      ]);
+      const rate = Number(inflation?.validator);
+      const totalSupply = Number(supply?.value?.total);
+      const staked = validators.reduce((sum, v) => sum + Number(v?.activatedStake ?? 0), 0);
+      if (!(rate > 0) || !(totalSupply > 0) || !(staked > 0)) return null;
+      const stakedShare = staked / totalSupply;
+      if (!(stakedShare > 0 && stakedShare <= 1)) return null;
+      return (rate / stakedShare) * 100;
+    } catch {
+      return null;
+    }
+  }
+
   async loadTopValidators(): Promise<Validator[]> {
     const rpcUrl = environment.solanaRpc;
     const controller = new AbortController();
@@ -87,7 +132,7 @@ export class NativeStakeService {
     }
 
     const current: any[] = json?.result?.current ?? [];
-    const BASE_APY = 6.5; // approximate Solana network APY %
+    const BASE_APY = await this.networkStakingApy(rpcUrl, current);
 
     return current
       .filter((v) => v.commission < 100 && (v.activatedStake ?? 0) > 0)
@@ -95,7 +140,9 @@ export class NativeStakeService {
       .slice(0, 100)
       .map((v) => {
         const commission: number = v.commission ?? 0;
-        const estimatedApy = parseFloat((BASE_APY * (1 - commission / 100)).toFixed(2));
+        const estimatedApy = BASE_APY === null
+          ? null
+          : parseFloat((BASE_APY * (1 - commission / 100)).toFixed(2));
         const activatedStakeSol = Math.round((v.activatedStake ?? 0) / LAMPORTS_PER_SOL);
         return {
           voteAccount: v.votePubkey as string,

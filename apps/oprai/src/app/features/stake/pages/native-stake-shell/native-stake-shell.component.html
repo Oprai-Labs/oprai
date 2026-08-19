@@ -275,7 +275,7 @@
                       <span class="validator-name">{{ v.name }}</span>
                       <span class="validator-pubkey">{{ shortPubkey(v.voteAccount) }}</span>
                     </div>
-                    <span class="validator-apy">~{{ v.estimatedApy }}%</span>
+                    @if (v.estimatedApy !== null) { <span class="validator-apy">~{{ v.estimatedApy }}%</span> }
                     <span class="validator-commission">{{ v.commission }}%</span>
                     <span class="validator-stake">{{ formatStakeSol(v.activatedStakeSol) }}</span>
                   </div>
