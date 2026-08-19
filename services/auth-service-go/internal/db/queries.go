@@ -96,6 +96,46 @@ func (q *Queries) ListIdentitiesByAccount(ctx context.Context, accountID string)
 	return out, rows.Err()
 }
 
+// GetIdentityByTypeIdentifier looks up a single identity by its (type, identifier)
+// — the pair that is globally unique. Returns nil when not linked to any account.
+func (q *Queries) GetIdentityByTypeIdentifier(ctx context.Context, typ, identifier string) (*LinkedIdentity, error) {
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE type = $1 AND identifier = $2`,
+		identitySelectCols, q.table("linked_identities"))
+	var li LinkedIdentity
+	err := q.pool.QueryRow(ctx, query, typ, identifier).Scan(&li.ID, &li.AccountID, &li.Type,
+		&li.Chain, &li.Identifier, &li.Label, &li.IsPrimary, &li.VerifiedAt, &li.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("GetIdentityByTypeIdentifier: %w", err)
+	}
+	return &li, nil
+}
+
+// InsertIdentity attaches a proven identity to an account. chain "" is stored as
+// NULL (telegram/email). Fails on the UNIQUE(type, identifier) constraint if the
+// identity is already linked — callers should check first for a clean 409.
+func (q *Queries) InsertIdentity(ctx context.Context, accountID, typ, chain, identifier string, isPrimary bool) (*LinkedIdentity, error) {
+	var chainArg any = chain
+	if chain == "" {
+		chainArg = nil
+	}
+	query := fmt.Sprintf(`
+		INSERT INTO %s (account_id, type, chain, identifier, is_primary)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING %s
+	`, q.table("linked_identities"), identitySelectCols)
+	var li LinkedIdentity
+	err := q.pool.QueryRow(ctx, query, accountID, typ, chainArg, identifier, isPrimary).Scan(
+		&li.ID, &li.AccountID, &li.Type, &li.Chain, &li.Identifier, &li.Label,
+		&li.IsPrimary, &li.VerifiedAt, &li.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("InsertIdentity: %w", err)
+	}
+	return &li, nil
+}
+
 // GetUserByWallet retrieves an active (not soft-deleted) user by wallet address.
 // Returns nil if not found or deleted.
 func (q *Queries) GetUserByWallet(ctx context.Context, walletAddress string) (*User, error) {

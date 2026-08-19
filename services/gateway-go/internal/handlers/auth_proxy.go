@@ -97,6 +97,18 @@ func (p *AuthProxy) GetAccountMe(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostAccountLinkNonce proxies POST /account/link/nonce to the auth service.
+func (p *AuthProxy) PostAccountLinkNonce(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/account/link/nonce"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PostAccountLinkVerify proxies POST /account/link/verify to the auth service.
+func (p *AuthProxy) PostAccountLinkVerify(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/account/link/verify"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // GetUser proxies GET /users/{wallet} to the auth service.
 func (p *AuthProxy) GetUser(w http.ResponseWriter, r *http.Request) {
 	wallet := chi.URLParam(r, "wallet")
