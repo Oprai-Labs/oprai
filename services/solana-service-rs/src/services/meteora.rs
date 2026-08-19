@@ -1881,6 +1881,27 @@ pub async fn build_meteora_open_position(
 
     let tx = build_vtx_b64(rpc_url, &user, &ixs).await?;
 
+    // What opening this actually costs, measured rather than assumed.
+    //
+    // The quote here was a flat "~0.005 SOL". A DLMM position account is 8120
+    // bytes, which the chain charges 0.0574 SOL to make rent-exempt — eleven
+    // times the quoted figure, and about a fifth of a small wallet. Bin arrays
+    // add more when the chosen band reaches into a stretch nobody has used.
+    // Neither is guessable by looking at the code, which is how the wrong
+    // constant survived; the simulation counts whatever the instruction
+    // actually creates.
+    let native = spl_token::native_mint::id();
+    let sol_deposited = if mint_x == native {
+        amount_x as f64 / 10f64.powi(x_dec as i32)
+    } else if mint_y == native {
+        amount_y as f64 / 10f64.powi(y_dec as i32)
+    } else {
+        0.0
+    };
+    let delta = crate::services::tx_cost::simulated_sol_delta_b64(rpc_url, &tx, &user).await;
+    let fee_label =
+        crate::services::tx_cost::cost_label(delta, sol_deposited, "~0.005 SOL");
+
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -1888,7 +1909,7 @@ pub async fn build_meteora_open_position(
             description: format!(
                 "Open Meteora DLMM position bins [{lower_bin_id}..{upper_bin_id}] ({width} bins)"
             ),
-            estimated_fee: "~0.005 SOL".into(),
+            estimated_fee: fee_label,
             estimated_refund: None,
             params: serde_json::json!({
                 "pool":        params.pool,

@@ -37,5 +37,6 @@ pub mod swap;
 pub mod tensor;
 pub mod token_safety;
 pub mod transfer;
+pub mod tx_cost;
 pub mod validators;
 pub mod vanity;

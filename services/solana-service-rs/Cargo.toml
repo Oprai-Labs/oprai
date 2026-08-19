@@ -26,6 +26,8 @@ solana-client = "2"
 solana-rpc-client = "2"
 solana-rpc-client-api = "2"
 solana-transaction-status = "2"
+# Only for UiAccountEncoding, needed to ask a simulation for account balances.
+solana-account-decoder = "2"
 spl-token = "6"
 spl-associated-token-account = "4"
 
