@@ -26,6 +26,7 @@ var moralisChains = []struct {
 	{"arbitrum", "arbitrum"},
 	{"optimism", "optimism"},
 	{"polygon", "polygon"},
+	{"bsc", "bsc"},
 }
 
 // moralisPosition mirrors one element of GET /wallets/{addr}/defi/positions.

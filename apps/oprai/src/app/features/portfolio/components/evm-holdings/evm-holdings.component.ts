@@ -9,7 +9,7 @@ import { DefiPositionsComponent } from '../defi-positions/defi-positions.compone
 import type { ProtocolPosition, ProtocolCategory } from '../../models/portfolio.models';
 
 const CHAIN_COLOR: Record<string, string> = {
-  ethereum: '#627eea', base: '#0052ff', arbitrum: '#28a0f0', optimism: '#ff0420', polygon: '#8247e5',
+  ethereum: '#627eea', base: '#0052ff', arbitrum: '#28a0f0', optimism: '#ff0420', polygon: '#8247e5', bsc: '#f0b90b',
 };
 const ALLOC_COLORS = ['#5b5fc7', '#06b6d4', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444'];
 

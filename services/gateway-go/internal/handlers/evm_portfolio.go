@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -10,7 +11,24 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/sha3"
 )
+
+func keccak256(data []byte) []byte {
+	h := sha3.NewLegacyKeccak256()
+	h.Write(data)
+	return h.Sum(nil)
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
 
 // EVM wallet portfolio via Alchemy's Data API (multichain balances + metadata +
 // USD prices in ONE call). Birdeye can price EVM tokens but cannot enumerate an
@@ -31,6 +49,54 @@ var evmNetworks = []evmNetwork{
 	{"arb-mainnet", "arbitrum", "ETH", "Ethereum"},
 	{"opt-mainnet", "optimism", "ETH", "Ethereum"},
 	{"matic-mainnet", "polygon", "POL", "Polygon"},
+	{"bnb-mainnet", "bsc", "BNB", "BNB"},
+}
+
+// twChain maps our chain name to the Trust Wallet assets folder, used to build
+// token logo URLs (Alchemy rarely returns logos). jsDelivr serves them reliably.
+var twChain = map[string]string{
+	"ethereum": "ethereum", "base": "base", "arbitrum": "arbitrum",
+	"optimism": "optimism", "polygon": "polygon", "bsc": "smartchain",
+}
+
+// tokenLogo returns a Trust Wallet CDN logo URL for a token (checksummed
+// address) or its chain's native coin. The frontend falls back to a text badge
+// if the image 404s (long-tail tokens Trust Wallet doesn't have).
+func tokenLogo(chain, tokenAddr string, native bool) string {
+	folder := twChain[chain]
+	if folder == "" {
+		return ""
+	}
+	base := "https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/" + folder
+	if native {
+		return base + "/info/logo.png"
+	}
+	cs := toChecksumAddress(tokenAddr)
+	if cs == "" {
+		return ""
+	}
+	return base + "/assets/" + cs + "/logo.png"
+}
+
+// toChecksumAddress applies EIP-55 mixed-case checksumming (Trust Wallet paths
+// use checksummed addresses).
+func toChecksumAddress(addr string) string {
+	a := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(addr), "0x"))
+	if len(a) != 40 || !isHex(a) {
+		return ""
+	}
+	hash := keccak256([]byte(a))
+	hexHash := hex.EncodeToString(hash)
+	out := make([]byte, 0, 42)
+	out = append(out, '0', 'x')
+	for i := 0; i < 40; i++ {
+		c := a[i]
+		if c >= 'a' && c <= 'f' && hexHash[i] >= '8' {
+			c -= 32 // uppercase
+		}
+		out = append(out, c)
+	}
+	return string(out)
 }
 
 func networkMeta(id string) evmNetwork {
@@ -180,6 +246,11 @@ func normalizeEVMPortfolio(address string, parsed *alchemyTokensResponse) map[st
 			if name == "" {
 				name = nm.nativeName
 			}
+		}
+
+		// Alchemy rarely returns a logo — fill from the Trust Wallet CDN.
+		if logo == "" {
+			logo = tokenLogo(nm.chain, t.TokenAddress, native)
 		}
 
 		uiAmount := hexBalanceToFloat(t.TokenBalance, decimals)
