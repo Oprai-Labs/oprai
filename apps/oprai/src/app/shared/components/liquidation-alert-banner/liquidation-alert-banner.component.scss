@@ -130,3 +130,14 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+
+/* Idle is not an alarm. A position that stopped earning needs to be noticed,
+   not reacted to, so it borrows the surface tone rather than the warning
+   amber — the red banner has to keep meaning something. */
+.alert-banner--idle {
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.04));
+  border-color: color-mix(in srgb, var(--op-text-secondary, #8a8aa0) 22%, transparent);
+
+  .alert-icon lucide-icon { color: var(--op-text-secondary, #8a8aa0); }
+}

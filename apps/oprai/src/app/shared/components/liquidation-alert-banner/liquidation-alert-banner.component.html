@@ -1,12 +1,15 @@
 @if (visible()) {
-  <div class="alert-banner" [class.alert-banner--danger]="bannerLevel() === 'danger'" [class.alert-banner--warning]="bannerLevel() === 'warning'">
+  <div class="alert-banner" [class.alert-banner--danger]="bannerLevel() === 'danger'" [class.alert-banner--warning]="bannerLevel() === 'warning'"
+       [class.alert-banner--idle]="bannerLevel() === 'idle'">
     <div class="alert-inner">
       <!-- Icon -->
       <div class="alert-icon">
         @if (bannerLevel() === 'danger') {
           <lucide-icon name="triangle-alert" [size]="16" />
-        } @else {
+        } @else if (bannerLevel() === 'warning') {
           <lucide-icon name="alert-circle" [size]="16" />
+        } @else {
+          <lucide-icon name="clock" [size]="16" />
         }
       </div>
 
@@ -27,6 +30,22 @@
               {{ formatProtocol(pos.protocol) }} position · HF {{ formatHf(pos.healthFactor) }}
               @if (extraCount() > 0) {
                 <span class="alert-extra"> +{{ extraCount() }} more</span>
+              }
+            </span>
+          }
+        }
+
+        @if (bannerLevel() === 'idle') {
+          @if (idlePositions()[0]; as idle) {
+            <!-- Deliberately not phrased as a risk. Nothing is in danger; the
+                 position has stopped collecting fees, and the only reason the
+                 user would ever find out is being told. -->
+            <span class="alert-title">Not earning</span>
+            <span class="alert-detail">
+              {{ formatProtocol(idle.protocol) }} · {{ idle.pairLabel }} — the price has left this
+              position's range, so it collects no fees until it comes back.
+              @if (idlePositions().length > 1) {
+                <span class="alert-extra"> +{{ idlePositions().length - 1 }} more</span>
               }
             </span>
           }

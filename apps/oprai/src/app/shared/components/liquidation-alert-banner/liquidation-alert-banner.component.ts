@@ -22,6 +22,7 @@ export class LiquidationAlertBannerComponent {
       worstRisk: 'safe' as const,
       dangerCount: 0,
       warningCount: 0,
+      idleCount: 0,
       lastPolledAt: null,
       polling: false,
     },
@@ -29,8 +30,20 @@ export class LiquidationAlertBannerComponent {
 
   readonly visible = computed(() => {
     const s = this.summary();
-    return s.dangerCount > 0 || s.warningCount > 0;
+    return s.dangerCount > 0 || s.warningCount > 0 || s.idleCount > 0;
   });
+
+  /**
+   * Liquidity positions that have drifted out of their range.
+   *
+   * Kept apart from the liquidation levels, and shown in the calm tone,
+   * because nothing here is at risk — the money has simply stopped working.
+   * Raising the red banner for an idle position would teach people that the
+   * red banner does not mean anything.
+   */
+  readonly idlePositions = computed<MonitoredPosition[]>(() =>
+    this.summary().positions.filter(p => p.kind === 'lp' && p.earning === false)
+  );
 
   readonly dangerPositions = computed<MonitoredPosition[]>(() =>
     this.summary().positions.filter(p => p.riskLevel === 'danger')
@@ -40,7 +53,12 @@ export class LiquidationAlertBannerComponent {
     this.summary().positions.filter(p => p.riskLevel === 'warning')
   );
 
-  readonly bannerLevel = computed(() => this.summary().dangerCount > 0 ? 'danger' : 'warning');
+  readonly bannerLevel = computed(() => {
+    const s = this.summary();
+    if (s.dangerCount > 0) return 'danger';
+    if (s.warningCount > 0) return 'warning';
+    return 'idle';
+  });
 
   readonly primaryPosition = computed<MonitoredPosition | null>(() => {
     const danger = this.dangerPositions();

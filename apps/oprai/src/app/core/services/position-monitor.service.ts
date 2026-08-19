@@ -20,6 +20,9 @@ import { Injectable, inject, OnDestroy } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { KaminoService } from './market/kamino.service';
 import { SolendService } from './market/solend.service';
+import { RaydiumService } from './market/raydium.service';
+import { OrcaService } from './market/orca.service';
+import { MeteoraService } from './market/meteora.service';
 import { WalletService } from './wallet.service';
 import { NotificationService } from './notification.service';
 
@@ -35,13 +38,30 @@ export function toRiskLevel(hf: number): RiskLevel {
 
 // ── Unified Position Types ────────────────────────────────────────────────────
 
-export type ProtocolId = 'kamino' | 'solend';
+export type ProtocolId = 'kamino' | 'solend' | 'raydium' | 'orca' | 'meteora';
 
 export interface MonitoredPosition {
   /** Unique key: `${protocol}:${address}` */
   key: string;
   protocol: ProtocolId;
   address: string;
+
+  /**
+   * What can go wrong with this position, which is not the same thing for
+   * every protocol.
+   *
+   * A borrow can be liquidated; a concentrated liquidity position cannot. It
+   * simply stops earning when the price leaves its band, and keeps sitting
+   * there until someone moves it. Both need watching, but sounding the
+   * liquidation alarm for a position that is merely idle teaches people to
+   * ignore the alarm.
+   */
+  kind: 'debt' | 'lp';
+
+  /** LP only: false once the price has left the band and fees have stopped. */
+  earning?: boolean;
+  /** LP only: the pair, for a message that names what stopped. */
+  pairLabel?: string;
 
   /** Health factor (1.0 = liquidation threshold). Perp: marginRatio / maintenanceRatio */
   healthFactor: number;
@@ -70,6 +90,14 @@ export interface PositionSummary {
   dangerCount: number;
   /** Number of positions at warning level */
   warningCount: number;
+  /**
+   * Liquidity positions sitting outside their range.
+   *
+   * Counted apart from the risk levels on purpose: nothing is at risk, money
+   * is simply not working. It deserves a quieter surface than a liquidation
+   * warning, and the two must not be added together.
+   */
+  idleCount: number;
   /** Last poll time */
   lastPolledAt: number | null;
   /** Whether a poll is currently running */
@@ -84,6 +112,9 @@ const POLL_INTERVAL_MS = 60_000; // 60 saniye
 export class PositionMonitorService implements OnDestroy {
   private readonly kamino = inject(KaminoService);
   private readonly solend = inject(SolendService);
+  private readonly raydium = inject(RaydiumService);
+  private readonly orca = inject(OrcaService);
+  private readonly meteora = inject(MeteoraService);
   private readonly wallet = inject(WalletService);
   private readonly notifications = inject(NotificationService);
 
@@ -92,6 +123,7 @@ export class PositionMonitorService implements OnDestroy {
     worstRisk: 'safe',
     dangerCount: 0,
     warningCount: 0,
+    idleCount: 0,
     lastPolledAt: null,
     polling: false,
   });
@@ -122,6 +154,7 @@ export class PositionMonitorService implements OnDestroy {
       worstRisk: 'safe',
       dangerCount: 0,
       warningCount: 0,
+      idleCount: 0,
       lastPolledAt: null,
       polling: false,
     });
@@ -154,13 +187,15 @@ export class PositionMonitorService implements OnDestroy {
       // the service layer (try/catch → []) so the monitor "worked" while the
       // 60s poll spammed the console. Re-enable when the read path is
       // implemented (on-chain account scan in solana-service-rs).
-      const [kaminoPositions] = await Promise.allSettled([
+      const [kaminoPositions, lpPositions] = await Promise.allSettled([
         this.fetchKamino(walletAddress),
         // this.fetchSolend(walletAddress),
+        this.fetchLiquidityPositions(walletAddress),
       ]);
 
       const positions: MonitoredPosition[] = [
         ...(kaminoPositions.status === 'fulfilled' ? kaminoPositions.value : []),
+        ...(lpPositions.status === 'fulfilled' ? lpPositions.value : []),
       ];
 
       // Detect risk level changes and send alerts
@@ -173,6 +208,7 @@ export class PositionMonitorService implements OnDestroy {
 
       const dangerCount = positions.filter(p => p.riskLevel === 'danger').length;
       const warningCount = positions.filter(p => p.riskLevel === 'warning').length;
+      const idleCount = positions.filter(p => p.kind === 'lp' && p.earning === false).length;
       const worstRisk: RiskLevel =
         dangerCount > 0 ? 'danger' : warningCount > 0 ? 'warning' : 'safe';
 
@@ -181,6 +217,7 @@ export class PositionMonitorService implements OnDestroy {
         worstRisk,
         dangerCount,
         warningCount,
+        idleCount,
         lastPolledAt: Date.now(),
         polling: false,
       });
@@ -190,6 +227,71 @@ export class PositionMonitorService implements OnDestroy {
   }
 
   // ── Protokol Fetch'leri ───────────────────────────────────────────────────
+
+  /**
+   * Concentrated liquidity positions, and whether they are still earning.
+   *
+   * A position outside its band is not in danger — it is idle, which is why
+   * these carry riskLevel 'safe' and are counted separately. The loss is
+   * invisible by design: the balance still shows, the position still exists,
+   * and the fees simply stop. Nobody finds out unless they are told.
+   *
+   * Each protocol already reports `inRange` on the user's positions, so this
+   * reads it rather than recomputing bands from ticks and bins.
+   */
+  private async fetchLiquidityPositions(wallet: string): Promise<MonitoredPosition[]> {
+    const [ray, orca, met] = await Promise.allSettled([
+      this.raydium.getClmmPositions(wallet),
+      this.orca.getPositions(wallet),
+      this.meteora.getPositions(wallet),
+    ]);
+    const out: MonitoredPosition[] = [];
+    const push = (
+      protocol: ProtocolId,
+      address: string,
+      inRange: boolean,
+      pairLabel: string,
+      meta: Record<string, unknown>,
+    ) => {
+      if (!address) return;
+      out.push({
+        key: `${protocol}:${address}`,
+        protocol,
+        address,
+        kind: 'lp',
+        earning: inRange,
+        pairLabel,
+        // Nothing here can be liquidated, so the risk levels the banner keys
+        // off stay clear for these.
+        healthFactor: Number.POSITIVE_INFINITY,
+        riskLevel: 'safe',
+        collateralUsd: 0,
+        debtUsd: 0,
+        updatedAt: Date.now(),
+        meta,
+      });
+    };
+
+    if (ray.status === 'fulfilled') {
+      for (const p of ray.value ?? []) {
+        push('raydium', p.nftMint, p.inRange, `${p.tokenA}/${p.tokenB}`, { poolId: p.poolId });
+      }
+    }
+    if (orca.status === 'fulfilled') {
+      for (const p of orca.value ?? []) {
+        // Orca's list type marks inRange optional; absent means unknown, and
+        // an unknown must not be reported as "stopped earning".
+        if (typeof p.inRange !== 'boolean') continue;
+        push('orca', p.address, p.inRange, 'Orca position', { whirlpool: p.whirlpool });
+      }
+    }
+    if (met.status === 'fulfilled') {
+      for (const p of met.value ?? []) {
+        push('meteora', p.address, p.inRange, 'Meteora position', { pool: p.pool });
+      }
+    }
+    return out;
+  }
 
   private async fetchKamino(wallet: string): Promise<MonitoredPosition[]> {
     const obligations = await this.kamino.getObligations(wallet);
@@ -201,6 +303,7 @@ export class PositionMonitorService implements OnDestroy {
           key: `kamino:${o.obligationAddress}`,
           protocol: 'kamino' as ProtocolId,
           address: o.obligationAddress,
+          kind: 'debt' as const,
           healthFactor: hf,
           riskLevel: toRiskLevel(hf),
           collateralUsd: parseFloat(o.depositedValue) || 0,
@@ -225,6 +328,7 @@ export class PositionMonitorService implements OnDestroy {
         const hf = o.healthFactor ?? 99;
         return {
           key: `solend:${o.address}`,
+          kind: 'debt' as const,
           protocol: 'solend' as ProtocolId,
           address: o.address,
           healthFactor: hf,
