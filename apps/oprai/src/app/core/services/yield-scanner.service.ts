@@ -131,7 +131,11 @@ export class YieldScannerService {
           mint: SOL_MINT,
           type: 'stake',
           supplyApy: apy,
-          tvlUsd: stats?.tvl ?? undefined,
+          // Marinade reports TVL in SOL, and this field is USD. Feeding one
+          // into the other read as $7.3M for a protocol holding closer to
+          // $560M. It stays unset until there is a SOL price to convert with
+          // — the Jito branch above sets nothing for the same reason.
+
           actionType: 'marinade_stake',
           actionParams: {},
           riskScore: 1,

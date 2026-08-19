@@ -10,10 +10,13 @@ import { ApiService } from '../api.service';
 
 /** Marinade stats response */
 export interface MarinadeStats {
-  msolPrice: string;
-  totalSolStaked: string;
+  /** Null when the price could not be read — never a stand-in. mSOL is not 1 SOL. */
+  msolPrice: string | null;
+  /** SOL staked with Marinade. Undefined when the read failed. */
+  totalSolStaked?: string;
   apy: number;
-  tvl: number;
+  /** TVL in SOL. Undefined when the read failed — never zero-as-unknown. */
+  tvl?: number;
 }
 
 /** Marinade validator info */
@@ -73,11 +76,24 @@ export class MarinadeService {
         this.http.get<any>(`${MARINADE_API}/msol/apy/1d`)
       );
       if (!apyResp) return null;
+      // /tlv carries the totals; /msol/apy/1d does not. Asked separately
+      // rather than filled with placeholders — the previous version reported
+      // totalSolStaked '0' and tvl 0 unconditionally, and the yield page
+      // showed Marinade holding nothing.
+      const tlv = await firstValueFrom(
+        this.http.get<any>(`${MARINADE_API}/tlv`)
+      ).catch(() => null);
+      const totalSol = Number(tlv?.total_sol);
+      // mSOL trades above SOL — 1.40 the day this was written. Falling back
+      // to 1 understated every holding by nearly a third, so an unreadable
+      // price is reported as unknown instead.
+      const price = Number(apyResp.end_price);
       return {
-        msolPrice: String(apyResp.end_price ?? 1),
-        totalSolStaked: '0',
+        msolPrice: Number.isFinite(price) && price > 0 ? String(price) : null,
+        ...(Number.isFinite(totalSol) && totalSol > 0
+          ? { totalSolStaked: String(totalSol), tvl: totalSol }
+          : {}),
         apy: parseFloat(apyResp.value ?? '0') * 100,  // convert to %
-        tvl: 0,
       };
     } catch (err) {
       console.error('Failed to fetch Marinade stats:', err);
