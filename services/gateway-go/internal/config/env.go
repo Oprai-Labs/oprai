@@ -7,16 +7,16 @@ import (
 
 // Config holds all gateway configuration values.
 type Config struct {
-	Port               int
-	JWTSecret          string
+	Port      int
+	JWTSecret string
 	// JWTPreviousSecret enables rolling rotation: set to the previous value of
 	// OPRAI_JWT_SECRET via OPRAI_JWT_SECRET_OLD so tokens issued before the
 	// rotation continue to validate until they expire. Empty when no rotation
 	// is in flight.
-	JWTPreviousSecret  string
-	InternalAPIKey     string
-	CORSOrigin         string
-	Environment        string
+	JWTPreviousSecret string
+	InternalAPIKey    string
+	CORSOrigin        string
+	Environment       string
 	// TrustProxyHeaders enables reading X-Forwarded-For / X-Real-IP for the real
 	// client IP. Only set this to true when the gateway sits behind a trusted
 	// reverse proxy (e.g. nginx, Cloudflare). In direct-internet or dev setups
@@ -39,6 +39,7 @@ type Config struct {
 	BirdeyeAPIKey string
 	JupiterAPIKey string
 	HeliusAPIKey  string
+	AlchemyAPIKey string // EVM wallet portfolio (balances + prices, multichain)
 
 	// Local file upload storage
 	UploadDir     string // Local directory to store uploaded files
@@ -53,13 +54,13 @@ type Config struct {
 // Load reads configuration from environment variables with sensible defaults.
 func Load() *Config {
 	return &Config{
-		Port:               getEnvInt("PORT", 3001),
-		JWTSecret:          getEnvStr("OPRAI_JWT_SECRET", "dev-insecure-secret-change"),
-		JWTPreviousSecret:  getEnvStr("OPRAI_JWT_SECRET_OLD", ""),
-		InternalAPIKey:     getEnvStr("OPRAI_INTERNAL_API_KEY", "dev-internal-key-change"),
-		CORSOrigin:         getEnvStr("CORS_ORIGIN", "http://localhost:3000"),
-		Environment:        getEnvStr("NODE_ENV", "development"),
-		TrustProxyHeaders:  getEnvBool("TRUST_PROXY_HEADERS", false),
+		Port:              getEnvInt("PORT", 3001),
+		JWTSecret:         getEnvStr("OPRAI_JWT_SECRET", "dev-insecure-secret-change"),
+		JWTPreviousSecret: getEnvStr("OPRAI_JWT_SECRET_OLD", ""),
+		InternalAPIKey:    getEnvStr("OPRAI_INTERNAL_API_KEY", "dev-internal-key-change"),
+		CORSOrigin:        getEnvStr("CORS_ORIGIN", "http://localhost:3000"),
+		Environment:       getEnvStr("NODE_ENV", "development"),
+		TrustProxyHeaders: getEnvBool("TRUST_PROXY_HEADERS", false),
 
 		AuthServiceGRPC:   getEnvStr("AUTH_SERVICE_GRPC", "localhost:50051"),
 		ChatServiceGRPC:   getEnvStr("CHAT_SERVICE_GRPC", "localhost:50052"),
@@ -74,6 +75,7 @@ func Load() *Config {
 		BirdeyeAPIKey: getEnvStr("BIRDEYE_API_KEY", ""),
 		JupiterAPIKey: getEnvStr("JUPITER_API_KEY", ""),
 		HeliusAPIKey:  getEnvStr("HELIUS_API_KEY", ""),
+		AlchemyAPIKey: getEnvStr("ALCHEMY_API_KEY", ""),
 
 		UploadDir:     getEnvStr("UPLOAD_DIR", "./uploads"),
 		PublicBaseURL: getEnvStr("PUBLIC_BASE_URL", "http://localhost:3001"),

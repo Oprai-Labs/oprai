@@ -90,6 +90,7 @@ type MarketProxy struct {
 	birdeyeAPIKey  string
 	jupiterAPIKey  string
 	heliusAPIKey   string
+	alchemyAPIKey  string
 	allowedOrigins []string
 	cache          *memCache
 	client         *http.Client
@@ -98,11 +99,12 @@ type MarketProxy struct {
 // NewMarketProxy creates a new MarketProxy with the given API keys.
 // ctx is the application root context; the cache cleanup goroutine stops when
 // ctx is cancelled.
-func NewMarketProxy(ctx context.Context, birdeyeAPIKey, jupiterAPIKey, heliusAPIKey, allowedOrigins string) *MarketProxy {
+func NewMarketProxy(ctx context.Context, birdeyeAPIKey, jupiterAPIKey, heliusAPIKey, alchemyAPIKey, allowedOrigins string) *MarketProxy {
 	return &MarketProxy{
 		birdeyeAPIKey:  birdeyeAPIKey,
 		jupiterAPIKey:  jupiterAPIKey,
 		heliusAPIKey:   heliusAPIKey,
+		alchemyAPIKey:  alchemyAPIKey,
 		allowedOrigins: splitCSVOrigins(allowedOrigins),
 		cache:          newMemCache(ctx),
 		client: &http.Client{

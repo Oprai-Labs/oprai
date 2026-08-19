@@ -8,6 +8,7 @@ import { PortfolioOverviewComponent } from '../../components/portfolio-overview/
 import { PortfolioTabsComponent } from '../../components/portfolio-tabs/portfolio-tabs.component';
 import { TokenListComponent } from '../../components/token-list/token-list.component';
 import { DefiPositionsComponent } from '../../components/defi-positions/defi-positions.component';
+import { EvmHoldingsComponent } from '../../components/evm-holdings/evm-holdings.component';
 import { NftGalleryComponent } from '../../components/nft-gallery/nft-gallery.component';
 import { RecentActivityComponent } from '../../components/recent-activity/recent-activity.component';
 import { ClaimableRewardsComponent } from '../../components/claimable-rewards/claimable-rewards.component';
@@ -40,6 +41,7 @@ const ETH_LOGO_URI = '/assets/coins/eth.svg';
     PortfolioTabsComponent,
     TokenListComponent,
     DefiPositionsComponent,
+    EvmHoldingsComponent,
     NftGalleryComponent,
     RecentActivityComponent,
     ClaimableRewardsComponent,

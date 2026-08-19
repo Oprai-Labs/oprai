@@ -118,6 +118,9 @@
               [solBalance]="summary()!.solBalance"
               (openAccountsManager)="openAccountsModal()"
             />
+            <!-- EVM holdings of any linked Ethereum/L2 wallet (self-contained;
+                 renders nothing when no EVM wallet is linked). -->
+            <app-evm-holdings />
             <app-defi-positions
               [positions]="defiPositions()"
               [protocolPositions]="protocolPositions()"

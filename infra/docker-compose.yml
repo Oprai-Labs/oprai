@@ -201,6 +201,9 @@ services:
       HELIUS_API_KEY: ${HELIUS_API_KEY:-}
       BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:-}
       JUPITER_API_KEY: ${JUPITER_API_KEY:-}
+      # EVM wallet portfolio (balances + prices, multichain). Unset -> the
+      # /market/evm/portfolio endpoint returns "not configured".
+      ALCHEMY_API_KEY: ${ALCHEMY_API_KEY:-}
       OPRAI_RPC_FALLBACKS: ${OPRAI_RPC_FALLBACKS:-}
       # Where uploaded token images and metadata JSON are written, and the
       # base URL they are served under. PUBLIC_BASE_URL becomes part of a
