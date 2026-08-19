@@ -276,6 +276,13 @@ export async function getDammV2UserPositions(
       entries.map(e => positionAgeDays(connection, e.position)),
     );
 
+    // Declared before the positions are mapped: the realised return values
+    // both sides of a position in one unit, and reading it later put it in
+    // the temporal dead zone — every call failed with "Cannot access
+    // 'poolPrice' before initialization".
+    const price = (sqrt: BN) => Number(getPriceFromSqrtPrice(sqrt, t.decA, t.decB));
+    const poolPrice = price(state.sqrtPrice);
+
     const positions = entries.map((e, i) => {
       const ps = e.positionState;
       // What the shares are worth right now, priced by the SDK against the
@@ -336,8 +343,6 @@ export async function getDammV2UserPositions(
     // state DLMM calls "out of range", with the same consequence (the deposit
     // becomes one-sided and earns nothing until price returns). Report the
     // bounds so the card can say which kind of pool this is.
-    const price = (sqrt: BN) => Number(getPriceFromSqrtPrice(sqrt, t.decA, t.decB));
-    const poolPrice = price(state.sqrtPrice);
     const minPrice = price(state.sqrtMinPrice);
     const maxPrice = price(state.sqrtMaxPrice);
 
