@@ -22,6 +22,26 @@ const TYPE_META: Record<string, { label: string; color: string; tint: string }> 
 const TELEGRAM_BOT = 'Oprai_Labs_Bot';
 const TELEGRAM_CB = 'onOpraiTelegramAuth';
 
+interface EthProvider {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+}
+interface EvmWallet {
+  uuid: string;
+  name: string;
+  icon: string;
+  provider: EthProvider;
+  detected: boolean;
+  url?: string;
+}
+
+// Popular EVM wallets to offer when NONE is installed — install prompts only.
+const INSTALLABLE_EVM: { name: string; url: string }[] = [
+  { name: 'MetaMask', url: 'https://metamask.io/download/' },
+  { name: 'Rabby', url: 'https://rabby.io/' },
+  { name: 'Coinbase Wallet', url: 'https://www.coinbase.com/wallet/downloads' },
+];
+
+
 @Component({
   selector: 'app-wallets',
   standalone: true,
@@ -119,7 +139,7 @@ const TELEGRAM_CB = 'onOpraiTelegramAuth';
             </button>
 
             <!-- Ethereum -->
-            <button class="wl-connect" (click)="linkEVM()" [disabled]="busy()">
+            <button class="wl-connect" (click)="openEvmModal()" [disabled]="busy()">
               <div class="wl-tile" [style.background]="TYPE_META['evm_wallet'].tint"><app-brand-icon type="evm_wallet" [size]="22" /></div>
               <div class="wl-connect-text">
                 <span class="wl-connect-title">Ethereum wallet</span>
@@ -162,6 +182,58 @@ const TELEGRAM_CB = 'onOpraiTelegramAuth';
 
           @if (msg()) { <div class="wl-msg" [class.ok]="msgOk()">{{ msg() }}</div> }
         </section>
+      }
+
+      <!-- EVM wallet picker — same design as the Solana Connect modal -->
+      @if (evmModalOpen()) {
+        <div class="wallet-modal-overlay" (click)="onEvmBackdrop($event)">
+          <div class="wallet-modal">
+            <div class="wallet-modal-header">
+              <div class="wallet-modal-header-text">
+                <span class="wallet-modal-title">Link an Ethereum wallet</span>
+                <span class="wallet-modal-subtitle">Choose a wallet to add to your OPRAI account.</span>
+              </div>
+              <button class="wallet-modal-close" (click)="closeEvmModal()" aria-label="Close">
+                <lucide-icon name="x" [size]="16" />
+              </button>
+            </div>
+
+            <div class="wallet-modal-body">
+              @if (detectedEvm().length > 0) {
+                <div class="wallet-section-label">Detected</div>
+                <div class="wallet-list">
+                  @for (w of detectedEvm(); track w.uuid) {
+                    <button class="wallet-row" (click)="connectEvm(w)" [disabled]="busy()">
+                      @if (w.icon) {
+                        <img [src]="w.icon" [alt]="w.name" class="wallet-row-icon" width="32" height="32" />
+                      } @else {
+                        <span class="wallet-row-icon" style="display:grid;place-items:center"><app-brand-icon type="evm_wallet" [size]="22" /></span>
+                      }
+                      <span class="wallet-row-name">{{ w.name }}</span>
+                      <span class="wallet-row-badge"><span class="wallet-row-dot"></span>Installed</span>
+                    </button>
+                  }
+                </div>
+              } @else {
+                <div class="wallet-section-label">Popular wallets</div>
+                <div class="wallet-list">
+                  @for (w of INSTALLABLE_EVM; track w.name) {
+                    <button class="wallet-row wallet-row--install" (click)="openInstallUrl(w.url)" [attr.title]="'Install ' + w.name">
+                      <span class="wallet-row-icon" style="display:grid;place-items:center"><app-brand-icon type="evm_wallet" [size]="22" /></span>
+                      <span class="wallet-row-name">{{ w.name }}</span>
+                      <span class="wallet-row-install">Install</span>
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+
+            <div class="wallet-modal-footer">
+              <span class="wallet-modal-footer-text">New to Ethereum wallets?</span>
+              <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" class="wallet-modal-footer-link">Get MetaMask</a>
+            </div>
+          </div>
+        </div>
       }
     </div>
   `,
@@ -257,6 +329,8 @@ export class WalletsComponent implements OnInit, OnDestroy {
   linkActive = signal(false);
   primaryAddress = signal<string>('');
   hasTelegram = computed(() => this.identities().some((i) => i.type === 'telegram'));
+  evmModalOpen = signal(false);
+  detectedEvm = signal<EvmWallet[]>([]);
 
   private tgMounted = false;
 
@@ -399,28 +473,79 @@ export class WalletsComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Link an EVM wallet via the injected provider (MetaMask & friends). Uses
-   *  EIP-191 personal_sign — no wallet adapter, so the Solana session is
-   *  untouched and no linking-mode gymnastics are needed. */
-  async linkEVM(): Promise<void> {
+  /** Open the EVM wallet picker — discover installed wallets via EIP-6963 (the
+   *  multi-wallet standard) so the user chooses, exactly like the Solana modal,
+   *  instead of an injected wallet auto-popping. */
+  openEvmModal(): void {
     if (this.busy()) return;
-    const eth = (window as unknown as { ethereum?: EthProvider }).ethereum;
-    if (!eth?.request) {
-      this.flash('No Ethereum wallet detected. Install MetaMask to link one.', false);
-      return;
-    }
+    this.msg.set(null);
+    this.detectedEvm.set([]);
+    this.evmModalOpen.set(true);
+
+    // EIP-6963: wallets announce (name + icon + provider) in response to our
+    // request. Some announce asynchronously, so we listen for a short window and
+    // update the list live as each wallet reports in.
+    const found = new Map<string, EvmWallet>();
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as
+        | { info?: { uuid: string; name: string; icon: string }; provider?: EthProvider }
+        | undefined;
+      if (detail?.info && detail.provider) {
+        found.set(detail.info.uuid, {
+          uuid: detail.info.uuid, name: detail.info.name, icon: detail.info.icon,
+          provider: detail.provider, detected: true,
+        });
+        this.zone.run(() => this.detectedEvm.set([...found.values()]));
+      }
+    };
+    window.addEventListener('eip6963:announceProvider', handler);
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+    setTimeout(() => {
+      window.removeEventListener('eip6963:announceProvider', handler);
+      // Legacy fallback: a pre-6963 wallet only exposes window.ethereum.
+      if (found.size === 0) {
+        const legacy = (window as unknown as { ethereum?: EthProvider }).ethereum;
+        if (legacy?.request) {
+          this.zone.run(() => this.detectedEvm.set([
+            { uuid: 'legacy', name: 'Browser wallet', icon: '', provider: legacy, detected: true },
+          ]));
+        }
+      }
+    }, 350);
+  }
+
+  readonly INSTALLABLE_EVM = INSTALLABLE_EVM;
+
+  closeEvmModal(): void {
+    this.evmModalOpen.set(false);
+  }
+
+  onEvmBackdrop(ev: MouseEvent): void {
+    if ((ev.target as HTMLElement).classList.contains('wallet-modal-overlay')) this.closeEvmModal();
+  }
+
+  openInstallUrl(url: string): void {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  /** Connect the chosen EVM wallet and link it via EIP-191 personal_sign — no
+   *  adapter, so the Solana session is untouched. */
+  async connectEvm(entry: EvmWallet): Promise<void> {
+    if (this.busy()) return;
     this.busy.set(true);
     this.msg.set(null);
     try {
-      const accounts = (await eth.request({ method: 'eth_requestAccounts' })) as string[];
+      const provider = entry.provider;
+      const accounts = (await provider.request({ method: 'eth_requestAccounts' })) as string[];
       const address = accounts?.[0];
       if (!address) throw new Error('no evm account');
       const nz = await firstValueFrom(this.account.linkNonce());
       const message = `OPRAI link wallet: ${nz.nonce}`;
-      const signature = (await eth.request({ method: 'personal_sign', params: [message, address] })) as string;
+      const signature = (await provider.request({ method: 'personal_sign', params: [message, address] })) as string;
       const res = await firstValueFrom(this.account.linkEVMVerify(address, signature, nz.nonceId));
       this.identities.set(res.identities || []);
-      this.flash(res.alreadyLinked ? 'That Ethereum wallet is already on your account.' : 'Ethereum wallet linked!', true);
+      this.evmModalOpen.set(false);
+      this.flash(res.alreadyLinked ? `That ${entry.name} wallet is already on your account.` : `${entry.name} linked!`, true);
     } catch (e) {
       const rejected = (e as { code?: number })?.code === 4001;
       this.flash(rejected ? 'Signature request was rejected.' : 'Could not link that Ethereum wallet.', false);
@@ -433,8 +558,4 @@ export class WalletsComponent implements OnInit, OnDestroy {
     this.msgOk.set(ok);
     this.msg.set(m);
   }
-}
-
-interface EthProvider {
-  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
 }
