@@ -1935,6 +1935,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const params: Record<string, string> = {
       whirlpool: row.address,
       poolId: row.address,
+      // Picked from a ranked list the user could see — the action card
+      // re-checks only pools the model named on its own.
+      poolChosenBy: 'user',
       pair: `${row.tokenA.symbol}/${row.tokenB.symbol}`,
       tokenA: row.tokenA.address,
       tokenB: row.tokenB.address,

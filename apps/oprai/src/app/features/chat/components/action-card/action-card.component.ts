@@ -1151,6 +1151,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private _verifiedDammV2Pool: string | null = null;
   private _verifiedRaydiumPool: string | null = null;
   private _verifiedDlmmPool: string | null = null;
+  private _verifiedOrcaPool: string | null = null;
+
+  /** Same story as dammV2PoolSwap, for an Orca whirlpool the model named. */
+  readonly orcaPoolSwap = signal<{
+    fromTvl: number;
+    fromApr: number;
+    toTvl: number;
+    toApr: number;
+  } | null>(null);
+
+  /**
+   * Raydium and Orca share the concentrated-range panel, so they share the
+   * notice too — only one of the two can be set on any given card.
+   */
+  readonly clmmPoolSwap = computed(() => this.raydiumPoolSwap() ?? this.orcaPoolSwap());
 
   /** Same story as dammV2PoolSwap, for a DLMM pool the model named. */
   readonly dlmmPoolSwap = signal<{
@@ -5505,7 +5520,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     void this.maybeVerifyMeteoraDammV2Pool().then(() => this.maybeEnrichMeteoraDammV2Pool());
     void this.maybeEnrichMeteoraPosition();
     void this.maybeResolveSwapCounterToken();
-    this.maybeSeedOrcaRange();
+    // Verify before seeding: the range is anchored to the pool's price, so
+    // seeding first would centre it on a pool about to be replaced.
+    void this.maybeVerifyOrcaPool().then(() => this.maybeSeedOrcaRange());
     this.maybeNormalizeExactOutToExactIn();
     this.maybeLoadCancelDcaTarget();
     this.maybeDefaultBorrowCollateral();
@@ -6173,6 +6190,80 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * the $840k pool's tempting 47% does not pull a first-time depositor into a
    * pool a sixth the size.
    */
+  /**
+   * Check an Orca whirlpool the model named against the pair's main one.
+   *
+   * SOL/USDC has four Orca pools and the top one holds $26.1M earning about
+   * 32% a year, against $186k at 2.9%, $177k at 0.9% and $116k at 3.9%. The
+   * three small ones are not broken — they are simply where the fees are not.
+   *
+   * Orca's search takes text, not mints, so the pair symbols only generate
+   * candidates and the mint addresses decide which ones count. That filter is
+   * load-bearing rather than defensive: searching "SOL/USDC" returns
+   * USDC/JitoSOL and mSOL/USDC alongside the real ones, and trusting the
+   * search would move a deposit to a different pair altogether.
+   */
+  private async maybeVerifyOrcaPool(): Promise<void> {
+    if (this.action?.type !== 'orca_open_position') return;
+    const p = this.editParams();
+    if (p['poolChosenBy'] === 'user') return;
+    const poolId = (p['whirlpool'] ?? p['pool'] ?? p['poolId'] ?? '').trim();
+    if (!poolId) return;
+    if (this._verifiedOrcaPool === poolId) return;
+    this._verifiedOrcaPool = poolId;
+
+    const rowsOf = (resp: any): any[] => {
+      const d = resp?.data?.data ?? resp?.preview?.params?.data?.data;
+      return Array.isArray(d) ? d : [];
+    };
+    const tvl = (r: any) => Number(r?.tvlUsdc ?? 0) || 0;
+    // yieldOverTvl is a daily ratio; annualise so it reads like a rate.
+    const apr = (r: any) => (Number(r?.yieldOverTvl ?? 0) || 0) * 365 * 100;
+
+    try {
+      const info = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', {
+          type: 'orca_get_pools',
+          params: { addresses: poolId, size: 1 },
+        }).pipe(timeout(15_000)),
+      );
+      const named = rowsOf(info)[0];
+      const mintA = named?.tokenA?.address;
+      const mintB = named?.tokenB?.address;
+      const symA = named?.tokenA?.symbol;
+      const symB = named?.tokenB?.symbol;
+      if (!mintA || !mintB || !symA || !symB) return;
+
+      const search = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', {
+          type: 'orca_search_pools',
+          params: { q: `${symA}/${symB}`, size: 20, sort_by: 'tvl', sort_direction: 'desc' },
+        }).pipe(timeout(15_000)),
+      );
+      const pair = new Set([mintA, mintB]);
+      const candidates = rowsOf(search).filter(r => {
+        const a = r?.tokenA?.address;
+        const b = r?.tokenB?.address;
+        return a && b && pair.has(a) && pair.has(b) && a !== b;
+      });
+      if (!candidates.length) return;
+      candidates.sort((x, y) => tvl(y) - tvl(x));
+      const best = candidates[0];
+      if (!best?.address || best.address === poolId) return;
+
+      const material =
+        (tvl(named) > 0 && tvl(best) >= tvl(named) * 2) || apr(best) >= apr(named) + 5;
+      if (!material) return;
+
+      this.orcaPoolSwap.set({
+        fromTvl: tvl(named), fromApr: apr(named), toTvl: tvl(best), toApr: apr(best),
+      });
+      this.editParams.update(ep => ({ ...ep, whirlpool: best.address, poolId: best.address }));
+    } catch (err) {
+      console.warn('[orca] pool verification failed', err);
+    }
+  }
+
   private async maybeVerifyMeteoraDlmmPool(): Promise<void> {
     const t = this.action?.type ?? '';
     if (t !== 'meteora_open_position' && t !== 'meteora_add_liquidity') return;
