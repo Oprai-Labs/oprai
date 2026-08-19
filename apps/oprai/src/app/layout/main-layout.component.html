@@ -584,6 +584,11 @@
       </div>
     </div>
     <div class="profile-menu-divider"></div>
+    <!-- Wallets — the multichain account: every linked wallet in one place -->
+    <button class="profile-menu-item" (click)="navigateFromMenu('/wallets')">
+      <lucide-icon name="wallet" [size]="18" />
+      <span>Wallets</span>
+    </button>
     <!-- Settings -->
     <button class="profile-menu-item" (click)="navigateFromMenu('/settings')">
       <lucide-icon name="settings" [size]="18" />

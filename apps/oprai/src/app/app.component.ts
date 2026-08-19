@@ -130,6 +130,14 @@ export class AppComponent implements OnInit, OnDestroy {
         return;
       }
 
+      // Deliberate link flow: the user switched to a second wallet ON PURPOSE
+      // to attach it to their account. Keep the primary session alive so we can
+      // collect the link signature; the Wallets flow clears linkingMode and
+      // guides them back to the primary wallet (which hits the guard above).
+      if (this.walletService.linkingMode() && this.authService.isAuthenticated()) {
+        return;
+      }
+
       this.authService.logout();
       // SECURITY: navigate away from any wallet-scoped page (specifically the
       // current chat session URL like `/c/<sessionId>`) to drop any in-memory

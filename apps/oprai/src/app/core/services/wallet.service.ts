@@ -313,6 +313,20 @@ export class WalletService {
   /** Emits the new public key when the user switches accounts in their wallet. */
   readonly accountChanged$ = new Subject<string | null>();
 
+  // ── Linking mode ───────────────────────────────────────────────────────
+  // When the user is deliberately linking a SECOND wallet to their account,
+  // they switch accounts in their extension on purpose. That switch fires
+  // accountChanged$, which normally logs the session out (a security control
+  // against silently inheriting the previous wallet's identity). During a
+  // user-initiated link we suppress that one teardown so the primary session
+  // survives while we collect a signature from the new wallet. This flag is
+  // set only by the Wallets link flow, and always cleared when it ends.
+  private readonly _linkingMode = signal(false);
+  readonly linkingMode = this._linkingMode.asReadonly();
+  setLinkingMode(on: boolean): void {
+    this._linkingMode.set(on);
+  }
+
   /** Cancel a pending connect (resets _connecting UI state only). */
   cancelConnection(): void {
     this._connecting.set(false);
