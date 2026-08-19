@@ -17,6 +17,10 @@ import { AuthService } from '@core/services/auth.service';
 import { TruncateAddressPipe } from '@shared/pipes/truncate-address.pipe';
 import { LucideAngularModule } from 'lucide-angular';
 
+interface EvmProvider {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+}
+
 @Component({
   selector: 'app-wallet-button',
   standalone: true,
@@ -65,12 +69,48 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
     this.removeModalFromBody();
   }
 
+  // EVM wallets discovered via EIP-6963 — lets the user sign in with Ethereum
+  // (SIWE) as an alternative to a Solana wallet. Populated when the modal opens.
+  readonly evmWallets = signal<Array<{ uuid: string; name: string; icon: string; provider: EvmProvider }>>([]);
+
   openModal(): void {
     this.error.set(null);
     // Re-scan the Standard registry as the modal opens so a wallet that
     // registered late is present, and freeze the result for the modal's life.
     this._walletSnapshot = this.walletService.getWallets(true);
     this.modalOpen.set(true);
+    this.discoverEvmWallets();
+  }
+
+  private discoverEvmWallets(): void {
+    this.evmWallets.set([]);
+    const found = new Map<string, { uuid: string; name: string; icon: string; provider: EvmProvider }>();
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent).detail as
+        | { info?: { uuid: string; name: string; icon: string }; provider?: EvmProvider }
+        | undefined;
+      if (d?.info && d.provider) {
+        found.set(d.info.uuid, { uuid: d.info.uuid, name: d.info.name, icon: d.info.icon, provider: d.provider });
+        this.evmWallets.set([...found.values()]);
+      }
+    };
+    window.addEventListener('eip6963:announceProvider', handler);
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+    setTimeout(() => window.removeEventListener('eip6963:announceProvider', handler), 400);
+  }
+
+  async connectEvm(w: { name: string; provider: EvmProvider }): Promise<void> {
+    this.error.set(null);
+    try {
+      const accounts = (await w.provider.request({ method: 'eth_requestAccounts' })) as string[];
+      const address = accounts?.[0];
+      if (!address) throw new Error('No account selected');
+      this.closeModal();
+      await this.authService.authenticateEvm(w.provider, address);
+    } catch (err: unknown) {
+      const rejected = (err as { code?: number })?.code === 4001;
+      this.error.set(rejected ? 'Signature request was rejected.' : this.friendlyError(err));
+    }
   }
 
   closeModal(): void {

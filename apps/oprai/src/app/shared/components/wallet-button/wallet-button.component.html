@@ -93,6 +93,19 @@
               }
             </div>
           }
+          <!-- Ethereum sign-in (SIWE) — one account across chains. -->
+          @if (evmWallets().length > 0) {
+            <div class="wallet-section-label">Or sign in with Ethereum</div>
+            <div class="wallet-list">
+              @for (w of evmWallets(); track w.uuid) {
+                <button class="wallet-row" (click)="connectEvm(w)">
+                  <img [src]="w.icon" [alt]="w.name" class="wallet-row-icon" width="32" height="32" />
+                  <span class="wallet-row-name">{{ w.name }}</span>
+                  <span class="wallet-row-badge"><span class="wallet-row-dot"></span>Ethereum</span>
+                </button>
+              }
+            </div>
+          }
         </div>
 
         <!-- Footer -->

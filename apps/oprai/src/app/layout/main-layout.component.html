@@ -203,7 +203,7 @@
                   <lucide-icon name="wallet" [size]="14" />
                 </div>
                 <div class="sidebar-user-info">
-                  <span class="sidebar-user-name truncate">{{ walletService.publicKey() | truncateAddress:6:4 }}</span>
+                  <span class="sidebar-user-name truncate">{{ displayWallet() | truncateAddress:6:4 }}</span>
                 </div>
                 <lucide-icon class="sidebar-user-chevron" name="ellipsis" [size]="16" />
               </button>
@@ -580,7 +580,7 @@
       </div>
       <div class="profile-menu-user-info">
         <span class="profile-menu-name">{{ walletService.walletName() }}</span>
-        <span class="profile-menu-address">{{ walletService.publicKey() | truncateAddress:6:4 }}</span>
+        <span class="profile-menu-address">{{ displayWallet() | truncateAddress:6:4 }}</span>
       </div>
     </div>
     <div class="profile-menu-divider"></div>
@@ -1108,7 +1108,7 @@
   @if (walletService.connected()) {
     <button class="tab-item tab-item--wallet" (click)="toggleWalletMenu($event)">
       <lucide-icon name="wallet" [size]="18" />
-      <span>{{ walletService.publicKey() | truncateAddress:4:4 }}</span>
+      <span>{{ displayWallet() | truncateAddress:4:4 }}</span>
     </button>
   } @else if (walletService.connecting() || authService.authenticating()) {
     <button class="tab-item tab-item--wallet" (click)="cancelWalletConnect()">

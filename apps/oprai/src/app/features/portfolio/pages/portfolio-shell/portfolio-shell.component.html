@@ -28,7 +28,7 @@
   </header>
 
   <main class="portfolio-content">
-    @if (!connected()) {
+    @if (!connected() && !authed()) {
       <div class="connect-prompt">
         <div class="empty-illustration">
           <div class="empty-illustration__bg-orb empty-illustration__bg-orb--1"></div>
@@ -51,6 +51,12 @@
         </div>
         <h2>Connect your wallet</h2>
         <p>Connect a Solana wallet to view your portfolio, token holdings, staking positions, and recent activity.</p>
+      </div>
+    } @else if (evmOnly()) {
+      <!-- Signed in with an EVM wallet (no Solana connected) — show the EVM
+           portfolio directly. -->
+      <div class="portfolio-sections content-fade-in">
+        <app-evm-holdings />
       </div>
     } @else if (!positionsSettled() && !error()) {
       <!-- Whole-page skeleton: held until the first full load (wallet + every

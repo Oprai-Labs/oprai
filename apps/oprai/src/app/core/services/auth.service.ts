@@ -163,6 +163,40 @@ export class AuthService {
   }
 
   /**
+   * Sign in with an EVM wallet (SIWE). Mirrors authenticate() but verifies an
+   * EIP-191 personal_sign over "OPRAI login: <nonce>" with chain:'ethereum'. The
+   * account is resolved/created EVM-primary server-side. The session lives in the
+   * HttpOnly cookie; we set the in-memory user to the EVM address.
+   */
+  async authenticateEvm(
+    provider: { request(a: { method: string; params?: unknown[] }): Promise<unknown> },
+    address: string,
+  ): Promise<AuthUser> {
+    const addr = address.toLowerCase();
+    this._authenticating.set(true);
+    try {
+      const nonceRes = await firstValueFrom(this.api.post<NonceResponse>('/auth/nonce', { wallet: addr }));
+      const message = `OPRAI login: ${nonceRes.nonce}`;
+      const signature = (await provider.request({ method: 'personal_sign', params: [message, address] })) as string;
+      const verifyRes = await firstValueFrom(
+        this.api.post<VerifyResponse>('/auth/verify', {
+          walletAddress: addr,
+          signature,
+          nonceId: nonceRes.nonceId,
+          chain: 'ethereum',
+        }),
+      );
+      if (verifyRes.token) this._token.set(verifyRes.token);
+      const user: AuthUser = { wallet: addr };
+      this._user.set(user);
+      this.sessionStorage.setWallet(addr);
+      return user;
+    } finally {
+      this._authenticating.set(false);
+    }
+  }
+
+  /**
    * Ask the wallet to sign, and give up if it never answers.
    *
    * A wallet popup that is dismissed, blocked, or simply never opened leaves

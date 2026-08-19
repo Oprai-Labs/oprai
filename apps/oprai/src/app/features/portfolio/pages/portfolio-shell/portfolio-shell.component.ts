@@ -2,6 +2,7 @@ import { Component, inject, effect, OnDestroy, signal, computed } from '@angular
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { WalletService } from '@core/services/wallet.service';
+import { AuthService } from '@core/services/auth.service';
 import { AccountService } from '@core/services/account.service';
 import { BrandIconComponent } from '../../../wallets/brand-icon.component';
 import { SkeletonTableComponent } from '@shared/components/skeletons/skeleton-table.component';
@@ -80,8 +81,14 @@ export class PortfolioShellComponent implements OnDestroy {
 
   private benchmarkInterval: ReturnType<typeof setInterval> | null = null;
   private readonly walletService = inject(WalletService);
+  private readonly authService = inject(AuthService);
   private readonly account = inject(AccountService);
   readonly portfolioService = inject(PortfolioService);
+
+  // Signed in with an EVM wallet and no Solana wallet connected — show the EVM
+  // portfolio directly (the account is EVM-primary).
+  readonly authed = this.authService.isAuthenticated;
+  readonly evmOnly = computed(() => this.authed() && !this.walletService.connected());
 
   // ── Multichain address switcher ─────────────────────────────────────────
   // The account's linked wallets (one per chain). The portfolio shows ONE at a
@@ -177,6 +184,12 @@ export class PortfolioShellComponent implements OnDestroy {
     } else {
       this.portfolioService.reset();
     }
+  });
+
+  // Also resolve linked wallets when signed in without a Solana wallet (EVM
+  // login) so the EVM portfolio renders on its own.
+  private readonly authEffect = effect(() => {
+    if (this.authed()) this.loadAccountWallets();
   });
 
   constructor() {

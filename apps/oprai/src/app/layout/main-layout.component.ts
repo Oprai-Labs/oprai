@@ -44,6 +44,12 @@ export class MainLayoutComponent implements OnDestroy {
   private readonly router = inject(Router);
   readonly authService = inject(AuthService);
   readonly walletService = inject(WalletService);
+
+  /** Address to display in the chrome: the connected Solana wallet, or — for an
+   *  EVM sign-in with no Solana wallet — the authenticated account address. */
+  readonly displayWallet = computed(
+    () => this.walletService.publicKey() ?? this.authService.user()?.wallet ?? null,
+  );
   readonly themeService = inject(ThemeService);
   readonly sessionStorage = inject(SessionStorageService);
   private readonly chatApi = inject(ChatApiService);
