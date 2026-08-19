@@ -5240,11 +5240,34 @@ pub async fn build_meteora_dammv2_best_pool(
     });
 
     let chosen_addr = params.pool.clone();
-    let chosen = chosen_addr.as_ref().and_then(|a| {
-        summaries
-            .iter()
-            .find(|s| s.get("address").and_then(|x| x.as_str()) == Some(a.as_str()))
-    });
+    let mut chosen = chosen_addr
+        .as_ref()
+        .and_then(|a| {
+            summaries
+                .iter()
+                .find(|s| s.get("address").and_then(|x| x.as_str()) == Some(a.as_str()))
+        })
+        .cloned();
+
+    // The pair search ranks by TVL, so the pools worth warning about are
+    // precisely the ones too small to appear in it. Fetch the chosen pool on
+    // its own when it is missing — without its numbers the card can say the
+    // choice was wrong but not why, and "trust me" is not the answer this
+    // product owes someone who does not know what a pool is.
+    if chosen.is_none() {
+        if let Some(addr) = chosen_addr.as_ref() {
+            if let Ok(resp) = http
+                .get(format!("{DAMM_V2_API}/pools/{addr}"))
+                .header("Accept", "application/json")
+                .send()
+                .await
+            {
+                if let Ok(body) = damm_v2_json(resp, "chosen pool").await {
+                    chosen = Some(damm_v2_pool_summary(&body, params.deposit_usd));
+                }
+            }
+        }
+    }
     let rec_addr = recommended
         .and_then(|r| r.get("address").and_then(|a| a.as_str()))
         .map(str::to_owned);
