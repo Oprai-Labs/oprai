@@ -2374,6 +2374,8 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         }
         // Read-only, no params to validate.
         "stake_yields" => Ok(()),
+        // Read-only. `mint` optional: absent means SOL.
+        "strategy_flows" => Ok(()),
         "token_strategies" => {
             let p: crate::services::strategies::TokenStrategiesParams = serde_json::from_value(params.clone())
                 .map_err(|e| {
@@ -4653,6 +4655,15 @@ async fn build_action_inner(
             meteora::build_meteora_dlmm_best_pool(http, &p).await
         }
         "stake_yields" => marinade::query_stake_yields(http).await,
+        "strategy_flows" => {
+            let mint = params
+                .get("mint")
+                .and_then(|m| m.as_str())
+                .unwrap_or("So11111111111111111111111111111111111111112")
+                .to_string();
+            let usd = params.get("usdValue").and_then(|v| v.as_f64());
+            crate::services::flows::build_strategy_flows(http, rpc, &mint, usd).await
+        }
         "token_strategies" => {
             let p: crate::services::strategies::TokenStrategiesParams = serde_json::from_value(params)?;
             crate::services::strategies::build_token_strategies(http, rpc, &p).await

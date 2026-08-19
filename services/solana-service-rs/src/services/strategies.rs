@@ -132,6 +132,45 @@ fn payback_days(usd_value: Option<f64>, apr_pct: f64, cost_sol: Option<f64>, sol
     Some(cost * sol_price / yearly * 365.0)
 }
 
+
+/// What one transaction leg costs in account rent, from the chain.
+///
+/// Shared with the multi-step flows, where the number is multiplied by the
+/// number of legs — a three-step plan pays it three times, and on a small
+/// balance that alone can decide against the plan.
+pub async fn leg_cost_sol(rpc: &SolanaRpc) -> Option<f64> {
+    rent_sol(rpc, &[TOKEN_ACCOUNT_BYTES]).await
+}
+
+/// A pool's fee yield, taken as the lower of the last day and its lifetime.
+///
+/// Same rule the single-step ranking uses: a quiet day must not be hidden by
+/// a busy history, and a spike must not be sold as a rate.
+pub fn conservative_pool_apr(pool: &serde_json::Value) -> f64 {
+    let tvl = num(pool.get("tvl"));
+    if !(tvl > 0.0) {
+        return 0.0;
+    }
+    let fees24 = num(pool.get("fees").and_then(|v| v.get("24h")));
+    let apr_24h = fees24 * 365.0 / tvl * 100.0;
+    let life_fees = num(pool.get("cumulative_metrics").and_then(|v| v.get("fees")));
+    let created_ms = num(pool.get("created_at"));
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let age_days = if created_ms > 0.0 && now_secs > 0.0 {
+        (now_secs - created_ms / 1000.0) / 86_400.0
+    } else {
+        0.0
+    };
+    if age_days <= 0.0 {
+        return apr_24h;
+    }
+    let apr_life = life_fees / age_days * 365.0 / tvl * 100.0;
+    if apr_life > 0.0 { apr_24h.min(apr_life) } else { apr_24h }
+}
+
 /// Everything this wallet could do with this token, priced at its own size.
 pub async fn build_token_strategies(
     http: &reqwest::Client,

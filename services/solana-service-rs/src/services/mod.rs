@@ -5,6 +5,7 @@ pub mod cashback;
 pub mod dca;
 pub mod debridge;
 pub mod fees;
+pub mod flows;
 pub mod helius;
 pub mod jito;
 pub mod jupiter_lend;
