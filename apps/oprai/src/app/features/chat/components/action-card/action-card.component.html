@@ -5132,6 +5132,16 @@
           </div>
         }
 
+        @if (actionRisk(); as risk) {
+          <!-- Directly above Confirm on purpose: this is the moment the
+               decision is made, and one sentence read there beats a
+               paragraph read nowhere. -->
+          <div class="proto-note">
+            <lucide-icon name="info" [size]="13" />
+            <span>{{ risk }}</span>
+          </div>
+        }
+
         <div class="proto-footer">
           <button class="proto-btn-confirm"
                   [class.proto-btn-confirm--disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"

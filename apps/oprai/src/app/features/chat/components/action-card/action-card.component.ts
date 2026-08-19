@@ -4736,6 +4736,42 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
+  /**
+   * The one thing about this action that can cost the user money, said before
+   * they sign it.
+   *
+   * Deliberately one sentence and deliberately one risk. A list of caveats is
+   * read as boilerplate and skipped, and the point is not to have disclosed
+   * something — it is that someone who has never done this before knows the
+   * thing that decides whether it works out.
+   *
+   * The existing "out of range" wording lives on positions that are already
+   * open, so the person opening their first one was told nothing: they set a
+   * band, deposited, and only learned what leaving it means afterwards.
+   *
+   * Nothing is said for actions whose risk is already on screen — a swap
+   * shows slippage, a transfer shows the recipient — because repeating those
+   * would train people to skip this line.
+   */
+  readonly actionRisk = computed<string | null>(() => {
+    const t = this.action?.type ?? '';
+    if (t === 'raydium_open_position' || t === 'orca_open_position'
+        || t === 'meteora_open_position' || t === 'meteora_add_liquidity') {
+      return 'Your deposit earns fees only while the price stays inside this range. '
+           + 'If it moves out, the position stops earning until the price comes back — '
+           + 'you can close it at any time.';
+    }
+    if (t === 'meteora_dammv2_add_liquidity') {
+      return 'Both sides go in at the pool\'s current ratio. If the price moves while '
+           + 'you are in, you take out a different mix than you put in — more of '
+           + 'whichever side fell.';
+    }
+    if (t === 'launch_token' || t === 'pumpfun_launch') {
+      return 'Anyone can buy the moment this lands, and a launch cannot be undone or edited.';
+    }
+    return null;
+  });
+
   /** Set once the user edits the range, so we stop choosing for them. */
   private clmmRangeTouched = false;
 
