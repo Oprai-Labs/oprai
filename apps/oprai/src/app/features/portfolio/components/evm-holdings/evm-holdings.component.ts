@@ -9,8 +9,12 @@ import { DefiPositionsComponent } from '../defi-positions/defi-positions.compone
 import type { ProtocolPosition, ProtocolCategory } from '../../models/portfolio.models';
 
 const CHAIN_COLOR: Record<string, string> = {
-  ethereum: '#627eea', base: '#0052ff', arbitrum: '#28a0f0', optimism: '#ff0420', polygon: '#8247e5', bsc: '#f0b90b',
+  ethereum: '#627eea', base: '#0052ff', arbitrum: '#28a0f0', optimism: '#ff0420', polygon: '#8247e5', bsc: '#f0b90b', robinhood: '#00c805',
 };
+const CHAIN_LABEL: Record<string, string> = {
+  ethereum: 'Ethereum', base: 'Base', arbitrum: 'Arbitrum', optimism: 'Optimism', polygon: 'Polygon', bsc: 'BNB', robinhood: 'Robinhood',
+};
+const CHAIN_ORDER = ['ethereum', 'base', 'bsc', 'polygon', 'arbitrum', 'optimism', 'robinhood'];
 const ALLOC_COLORS = ['#5b5fc7', '#06b6d4', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444'];
 
 function categoryFor(label: string): ProtocolCategory {
@@ -51,6 +55,18 @@ function categoryFor(label: string): ProtocolCategory {
           </div>
         </div>
 
+        <!-- ── Chain filter tabs ── -->
+        @if (availableChains().length > 1) {
+          <div class="chain-tabs">
+            <button class="chain-tab" [class.on]="chainFilter() === 'all'" (click)="setChainFilter('all')">All</button>
+            @for (c of availableChains(); track c) {
+              <button class="chain-tab" [class.on]="chainFilter() === c" (click)="setChainFilter(c)">
+                <span class="chain-tab-dot" [style.background]="chainColor(c)"></span>{{ chainLabel(c) }}
+              </button>
+            }
+          </div>
+        }
+
         <!-- ── Category cards (Wallet + protocols) ── -->
         <div class="proto-cards">
           @for (c of cards(); track c.name) {
@@ -71,26 +87,34 @@ function categoryFor(label: string): ProtocolCategory {
         <app-defi-positions [protocolPositions]="protoPositions()" [loading]="false" />
 
         <!-- ── Wallet tokens table (Solana columns) ── -->
-        @if (tokens().length > 0) {
+        @if (visTokens().length > 0 || spamCount() > 0) {
           <section class="tok">
             <div class="tok-head">
               <div class="tok-title"><span class="tok-ico">◧</span> Wallet</div>
-              <div class="tok-total">{{ walletUsd() | currency:'USD':'symbol':'1.2-2' }}</div>
+              <div class="tok-head-right">
+                @if (spamCount() > 0) {
+                  <button class="tok-spam-toggle" (click)="toggleSpam()">
+                    {{ showSpam() ? 'Hide spam' : 'Show spam (' + spamCount() + ')' }}
+                  </button>
+                }
+                <span class="tok-total">{{ walletUsd() | currency:'USD':'symbol':'1.2-2' }}</span>
+              </div>
             </div>
             <div class="tok-table">
               <div class="tok-r tok-hr">
                 <span>Token</span><span class="tok-num">Price</span><span class="tok-num">Amount</span>
                 <span class="tok-num">%</span><span class="tok-num">USD Value</span>
               </div>
-              @for (t of tokens(); track t.network + t.address) {
-                <div class="tok-r">
+              @for (t of visTokens(); track t.network + t.address) {
+                <div class="tok-r" [class.tok-spammy]="t.spam">
                   <span class="tok-name">
                     <span class="tok-logo" [style.--cc]="chainColor(t.chain)">
                       @if (t.logo) { <img [src]="t.logo" [alt]="t.symbol" (error)="hideImg($event)" /> }
                       @else { {{ (t.symbol || '?').slice(0,3) }} }
                       <span class="tok-chain-dot" [style.background]="chainColor(t.chain)" [title]="t.chain"></span>
                     </span>
-                    <span class="tok-sym">{{ t.symbol || 'Unknown' }} <span class="tok-chain">{{ t.chain }}</span></span>
+                    <span class="tok-sym">{{ t.symbol || 'Unknown' }} <span class="tok-chain">{{ chainLabel(t.chain) }}</span>
+                      @if (t.spam) { <span class="tok-spam-badge">spam</span> }</span>
                   </span>
                   <span class="tok-num">{{ t.priceUsd > 0 ? (t.priceUsd | currency:'USD':'symbol':'1.2-4') : '—' }}</span>
                   <span class="tok-num">{{ t.uiAmount | number:'1.0-4' }}</span>
@@ -146,6 +170,16 @@ function categoryFor(label: string): ProtocolCategory {
     .hero-sub { font-size:.82rem; color:var(--op-text-secondary); margin-top:6px; }
     .hero-right { flex:none; }
 
+    .chain-tabs { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 2px; }
+    .chain-tab { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border:1px solid var(--op-border, rgba(255,255,255,.1)); border-radius:999px; background:transparent; color:var(--op-text-secondary); font-size:.8rem; font-weight:500; cursor:pointer; transition:.12s; }
+    .chain-tab:hover { color:var(--op-text-primary); }
+    .chain-tab.on { border-color:var(--op-brand,#5b5fc7); background:color-mix(in srgb, var(--op-brand,#5b5fc7) 10%, transparent); color:var(--op-text-primary); }
+    .chain-tab-dot { width:8px; height:8px; border-radius:50%; }
+    .tok-head-right { display:flex; align-items:center; gap:12px; }
+    .tok-spam-toggle { background:none; border:0; color:var(--op-text-secondary); font-size:.76rem; cursor:pointer; text-decoration:underline; }
+    .tok-spam-toggle:hover { color:var(--op-text-primary); }
+    .tok-spammy { opacity:.62; }
+    .tok-spam-badge { font-size:.56rem; font-weight:700; text-transform:uppercase; color:#ef4444; background:color-mix(in srgb, #ef4444 15%, transparent); padding:1px 5px; border-radius:5px; }
     .proto-cards { display:flex; gap:12px; flex-wrap:wrap; margin:14px 0 4px; }
     .proto-card { display:flex; align-items:center; gap:10px; flex:1; min-width:150px; padding:12px 14px; border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:14px; background:var(--op-bg-surface-1); }
     .proto-card-ico { width:30px; height:30px; border-radius:9px; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 16%, transparent); overflow:hidden; }
@@ -199,9 +233,30 @@ export class EvmHoldingsComponent implements OnInit {
   positions = signal<EvmPosition[]>([]);
   txs = signal<EvmTx[]>([]);
   copied = signal(false);
+  showSpam = signal(false);
+  chainFilter = signal<string>('all');
 
-  walletUsd = computed(() => this.tokens().reduce((s, t) => s + (t.valueUsd || 0), 0));
-  positionsUsd = computed(() => this.positions().reduce((s, p) => s + (p.balanceUsd || 0), 0));
+  // Chains that actually have holdings/positions — drives the top filter tabs.
+  availableChains = computed(() => {
+    const set = new Set<string>();
+    for (const t of this.tokens()) if (!t.spam) set.add(t.chain);
+    for (const p of this.positions()) set.add(p.chain);
+    return [...set].sort((a, b) => CHAIN_ORDER.indexOf(a) - CHAIN_ORDER.indexOf(b));
+  });
+  spamCount = computed(() => this.tokens().filter((t) => t.spam && this.chainMatch(t.chain)).length);
+
+  private chainMatch(chain: string): boolean {
+    const f = this.chainFilter();
+    return f === 'all' || f === chain;
+  }
+
+  // Visible sets after chain + spam filtering — everything downstream keys on these.
+  visTokens = computed(() =>
+    this.tokens().filter((t) => this.chainMatch(t.chain) && (this.showSpam() || !t.spam)));
+  visPositions = computed(() => this.positions().filter((p) => this.chainMatch(p.chain)));
+
+  walletUsd = computed(() => this.visTokens().filter((t) => !t.spam).reduce((s, t) => s + (t.valueUsd || 0), 0));
+  positionsUsd = computed(() => this.visPositions().reduce((s, p) => s + (p.balanceUsd || 0), 0));
   totalUsd = computed(() => this.walletUsd() + this.positionsUsd());
 
   /** Category cards + donut source: Wallet + each protocol, biggest first. */
@@ -210,7 +265,7 @@ export class EvmHoldingsComponent implements OnInit {
     const wallet = this.walletUsd();
     if (wallet > 0) cats.push({ name: 'Wallet', usd: wallet });
     const byProto = new Map<string, { usd: number; logo?: string }>();
-    for (const p of this.positions()) {
+    for (const p of this.visPositions()) {
       const cur = byProto.get(p.protocol) || { usd: 0, logo: p.logo };
       cur.usd += p.balanceUsd || 0;
       if (!cur.logo && p.logo) cur.logo = p.logo;
@@ -228,7 +283,7 @@ export class EvmHoldingsComponent implements OnInit {
    *  DefiPositionsComponent panel renders them. */
   protoPositions = computed<ProtocolPosition[]>(() => {
     const byProto = new Map<string, ProtocolPosition>();
-    for (const p of this.positions()) {
+    for (const p of this.visPositions()) {
       let pp = byProto.get(p.protocol);
       if (!pp) {
         pp = {
@@ -291,6 +346,9 @@ export class EvmHoldingsComponent implements OnInit {
   }
 
   chainColor(chain: string): string { return CHAIN_COLOR[chain] ?? '#7e8298'; }
+  chainLabel(chain: string): string { return CHAIN_LABEL[chain] ?? chain; }
+  setChainFilter(c: string): void { this.chainFilter.set(c); }
+  toggleSpam(): void { this.showSpam.update((v) => !v); }
   shortAddr(a: string | null): string { return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : ''; }
   pct(usd: number): number { const t = this.totalUsd() || 1; return (usd / t) * 100; }
   copyAddr(): void {

@@ -14,6 +14,7 @@ export interface EvmToken {
   priceUsd: number;
   valueUsd: number;
   native: boolean;
+  spam?: boolean;
 }
 
 export interface EvmPortfolio {

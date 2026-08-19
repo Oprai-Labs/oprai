@@ -142,6 +142,30 @@ type evmToken struct {
 	PriceUsd float64 `json:"priceUsd"`
 	ValueUsd float64 `json:"valueUsd"`
 	Native   bool    `json:"native"`
+	Spam     bool    `json:"spam"`
+}
+
+// spamKeywords flag airdropped junk tokens whose name/symbol is a promo message
+// (a URL, "claim", "airdrop", etc.) — the classic wallet-spam pattern.
+var spamKeywords = []string{
+	"http", "www.", ".com", ".club", ".supply", ".gift", ".xyz", ".io/", ".vv",
+	".net", ".app", ".fi ", ".finance", "claim", "airdrop", "voucher", "reward",
+	"access on", "visit", "t.me", "rewards", "bonus", "giveaway", "->",
+}
+
+// looksSpam: promo text in the name/symbol, or a priced-at-zero dust token that
+// Alchemy couldn't value (native coins are never spam).
+func looksSpam(symbol, name string, native bool, priceUsd float64) bool {
+	if native {
+		return false
+	}
+	s := strings.ToLower(symbol + " " + name)
+	for _, kw := range spamKeywords {
+		if strings.Contains(s, kw) {
+			return true
+		}
+	}
+	return priceUsd <= 0
 }
 
 // GetEvmPortfolio handles GET /portfolio/evm?address=0x.. — the linked EVM
@@ -266,7 +290,10 @@ func normalizeEVMPortfolio(address string, parsed *alchemyTokensResponse) map[st
 			}
 		}
 		valueUsd := uiAmount * priceUsd
-		totalUsd += valueUsd
+		spam := looksSpam(symbol, name, native, priceUsd)
+		if !spam {
+			totalUsd += valueUsd // spam never counts toward the total
+		}
 
 		addr := t.TokenAddress
 		if native {
@@ -275,7 +302,7 @@ func normalizeEVMPortfolio(address string, parsed *alchemyTokensResponse) map[st
 		tokens = append(tokens, evmToken{
 			Chain: nm.chain, Network: t.Network, Address: addr,
 			Symbol: symbol, Name: name, Decimals: decimals, Logo: logo,
-			UIAmount: uiAmount, PriceUsd: priceUsd, ValueUsd: valueUsd, Native: native,
+			UIAmount: uiAmount, PriceUsd: priceUsd, ValueUsd: valueUsd, Native: native, Spam: spam,
 		})
 	}
 
