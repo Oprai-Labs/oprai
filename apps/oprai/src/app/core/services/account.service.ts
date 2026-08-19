@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
 
-export type IdentityType = 'solana_wallet' | 'evm_wallet' | 'telegram' | 'email';
+export type IdentityType = 'solana_wallet' | 'evm_wallet' | 'telegram' | 'twitter' | 'email';
 
 export interface LinkedIdentity {
   id: string;
