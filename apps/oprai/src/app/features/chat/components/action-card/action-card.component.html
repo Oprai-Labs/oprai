@@ -1274,9 +1274,9 @@
               <div class="clmm-min-hint">
                 <lucide-icon name="shield-check" [size]="13" />
                 Moved to this pair's main pool. The one first picked holds
-                {{ formatUsdCompact(swap.fromTvl) }} and pays about
-                {{ swap.fromApr.toFixed(1) }}% a year; this one holds
-                {{ formatUsdCompact(swap.toTvl) }} and pays about
+                {{ formatUsdCompact(swap.fromTvl) }} and earned fees worth about
+                {{ swap.fromApr.toFixed(1) }}% a year over the last day; this one holds
+                {{ formatUsdCompact(swap.toTvl) }} and earned about
                 {{ swap.toApr.toFixed(1) }}% — same deposit, same risk.
               </div>
             }
@@ -1616,8 +1616,8 @@
                     Moved to the main pool for this pair. The one first picked holds only
                     {{ formatUsdCompact(swap.fromTvl) }} of liquidity — your deposit would have
                     been most of it, and you would be trading against yourself. This one holds
-                    {{ formatUsdCompact(swap.toTvl) }} and pays about
-                    {{ swap.toApr.toFixed(1) }}% a year in fees.
+                    {{ formatUsdCompact(swap.toTvl) }} and, at the last day's trading, is
+                    earning fees worth about {{ swap.toApr.toFixed(1) }}% a year.
                   </div>
                 }
               </div>

@@ -4951,7 +4951,7 @@ pub async fn build_meteora_dammv2_get_pools(
         .send()
         .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 GET: {e}")))?;
-    let data = damm_v2_json(resp, "pools").await?;
+    let data = meteora_datapi_json(resp, "pools").await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -4979,7 +4979,7 @@ pub async fn build_meteora_dammv2_get_pools(
 /// says nothing about the 404 and sent us hunting a deserialization bug that
 /// did not exist. Check the status first, and pass through the API's own
 /// `message` when it sends one.
-async fn damm_v2_json(resp: reqwest::Response, what: &str) -> Result<serde_json::Value, AppError> {
+async fn meteora_datapi_json(resp: reqwest::Response, what: &str) -> Result<serde_json::Value, AppError> {
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -5003,20 +5003,20 @@ async fn damm_v2_json(resp: reqwest::Response, what: &str) -> Result<serde_json:
 }
 
 /// `page` is 1-based here; `page=0` is rejected as a range validation error.
-fn damm_v2_page(page: Option<u32>) -> u32 {
+fn meteora_datapi_page(page: Option<u32>) -> u32 {
     page.unwrap_or(1).max(1)
 }
 
-fn damm_v2_pool_mints(pool: &serde_json::Value) -> (Option<&str>, Option<&str>) {
+fn meteora_pool_mints(pool: &serde_json::Value) -> (Option<&str>, Option<&str>) {
     let side = |k: &str| pool.get(k).and_then(|t| t.get("address")).and_then(|a| a.as_str());
     (side("token_x"), side("token_y"))
 }
 
 /// How many pools mention `mint` at all — used only to decide which side of a
 /// pair is the cheaper one to search by.
-async fn damm_v2_mint_pool_count(http: &reqwest::Client, mint: &str) -> u64 {
+async fn meteora_mint_pool_count(http: &reqwest::Client, api: &str, mint: &str) -> u64 {
     let resp = http
-        .get(format!("{DAMM_V2_API}/pools"))
+        .get(format!("{api}/pools"))
         .query(&[("query", mint), ("page", "1"), ("page_size", "1")])
         .header("Accept", "application/json")
         .send()
@@ -5047,8 +5047,9 @@ async fn damm_v2_mint_pool_count(http: &reqwest::Client, mint: &str) -> u64 {
 /// opposite name ordering. Handing the user the first match would cost them
 /// most of their deposit to slippage, so we sort by TVL and never rely on the
 /// pair's name.
-async fn damm_v2_pools_for_pair(
+async fn meteora_pools_for_pair(
     http: &reqwest::Client,
+    api: &str,
     mint_a: &str,
     mint_b: &str,
     want: usize,
@@ -5056,8 +5057,8 @@ async fn damm_v2_pools_for_pair(
     // Search by whichever side appears in fewer pools: for a memecoin/SOL pair
     // that turns thousands of candidate rows into a handful.
     let (count_a, count_b) = tokio::join!(
-        damm_v2_mint_pool_count(http, mint_a),
-        damm_v2_mint_pool_count(http, mint_b)
+        meteora_mint_pool_count(http, api, mint_a),
+        meteora_mint_pool_count(http, api, mint_b)
     );
     let (needle, other) = if count_a <= count_b {
         (mint_a, mint_b)
@@ -5068,7 +5069,7 @@ async fn damm_v2_pools_for_pair(
     let mut found: Vec<serde_json::Value> = Vec::new();
     for page in 1..=3u32 {
         let resp = http
-            .get(format!("{DAMM_V2_API}/pools"))
+            .get(format!("{api}/pools"))
             .query(&[
                 ("query", needle),
                 ("page", &page.to_string()),
@@ -5079,7 +5080,7 @@ async fn damm_v2_pools_for_pair(
             .send()
             .await
             .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pair GET: {e}")))?;
-        let body = damm_v2_json(resp, "pair lookup").await?;
+        let body = meteora_datapi_json(resp, "pair lookup").await?;
         let rows = body
             .get("data")
             .and_then(|d| d.as_array())
@@ -5087,7 +5088,7 @@ async fn damm_v2_pools_for_pair(
             .unwrap_or_default();
         let exhausted = rows.is_empty();
         for pool in rows {
-            let (x, y) = damm_v2_pool_mints(&pool);
+            let (x, y) = meteora_pool_mints(&pool);
             let matches = matches!((x, y), (Some(x), Some(y))
                 if (x == needle && y == other) || (x == other && y == needle));
             if matches {
@@ -5127,7 +5128,7 @@ pub struct MeteoraDammV2BestPoolParams {
     pub deposit_usd: Option<f64>,
 }
 
-fn damm_v2_pool_summary(pool: &serde_json::Value, deposit_usd: Option<f64>) -> serde_json::Value {
+fn meteora_pool_summary(pool: &serde_json::Value, deposit_usd: Option<f64>) -> serde_json::Value {
     let num = |v: Option<&serde_json::Value>| -> f64 {
         v.and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
             .unwrap_or(0.0)
@@ -5174,6 +5175,28 @@ pub async fn build_meteora_dammv2_best_pool(
     http: &reqwest::Client,
     params: &MeteoraDammV2BestPoolParams,
 ) -> Result<BuildResponse, AppError> {
+    meteora_best_pool(http, DAMM_V2_API, "meteora_dammv2_best_pool", params).await
+}
+
+/// The DLMM twin. Same question, same answer, different venue — DLMM's data
+/// API returns the identical pool shape, so the whole body is shared.
+///
+/// It matters at least as much here: SOL/USDC has two real DLMM pools, $5.1M
+/// and $2.9M, so unlike DAMM v2 the pair genuinely has more than one plausible
+/// answer and the wrong one is not obviously wrong.
+pub async fn build_meteora_dlmm_best_pool(
+    http: &reqwest::Client,
+    params: &MeteoraDammV2BestPoolParams,
+) -> Result<BuildResponse, AppError> {
+    meteora_best_pool(http, DLMM_API, "meteora_dlmm_best_pool", params).await
+}
+
+async fn meteora_best_pool(
+    http: &reqwest::Client,
+    api: &str,
+    action_type: &str,
+    params: &MeteoraDammV2BestPoolParams,
+) -> Result<BuildResponse, AppError> {
     // Resolve the pair: either given outright, or read off the chosen pool.
     let (mint_a, mint_b) = match (&params.mint_a, &params.mint_b) {
         (Some(a), Some(b)) => (a.clone(), b.clone()),
@@ -5182,25 +5205,25 @@ pub async fn build_meteora_dammv2_best_pool(
                 AppError::InvalidParams("pool or mintA+mintB is required".into())
             })?;
             let resp = http
-                .get(format!("{DAMM_V2_API}/pools/{pool}"))
+                .get(format!("{api}/pools/{pool}"))
                 .header("Accept", "application/json")
                 .send()
                 .await
-                .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 pool GET: {e}")))?;
-            let body = damm_v2_json(resp, "pool").await?;
-            let (x, y) = damm_v2_pool_mints(&body);
+                .map_err(|e| AppError::ProtocolError(format!("Meteora pool GET: {e}")))?;
+            let body = meteora_datapi_json(resp, "pool").await?;
+            let (x, y) = meteora_pool_mints(&body);
             match (x, y) {
                 (Some(x), Some(y)) => (x.to_owned(), y.to_owned()),
                 _ => {
                     return Err(AppError::ProtocolError(format!(
-                        "Meteora DAMM v2 best pool: {pool} has no readable token pair"
+                        "Meteora best pool: {pool} has no readable token pair"
                     )))
                 }
             }
         }
     };
 
-    let mut pools = damm_v2_pools_for_pair(http, &mint_a, &mint_b, 20).await?;
+    let mut pools = meteora_pools_for_pair(http, api, &mint_a, &mint_b, 20).await?;
     // Deepest first; that ordering is the recommendation unless a comparable
     // pool pays materially better.
     pools.sort_by(|a, b| {
@@ -5210,7 +5233,7 @@ pub async fn build_meteora_dammv2_best_pool(
 
     let summaries: Vec<serde_json::Value> = pools
         .iter()
-        .map(|p| damm_v2_pool_summary(p, params.deposit_usd))
+        .map(|p| meteora_pool_summary(p, params.deposit_usd))
         .collect();
 
     let f = |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0);
@@ -5257,13 +5280,13 @@ pub async fn build_meteora_dammv2_best_pool(
     if chosen.is_none() {
         if let Some(addr) = chosen_addr.as_ref() {
             if let Ok(resp) = http
-                .get(format!("{DAMM_V2_API}/pools/{addr}"))
+                .get(format!("{api}/pools/{addr}"))
                 .header("Accept", "application/json")
                 .send()
                 .await
             {
-                if let Ok(body) = damm_v2_json(resp, "chosen pool").await {
-                    chosen = Some(damm_v2_pool_summary(&body, params.deposit_usd));
+                if let Ok(body) = meteora_datapi_json(resp, "chosen pool").await {
+                    chosen = Some(meteora_pool_summary(&body, params.deposit_usd));
                 }
             }
         }
@@ -5279,8 +5302,8 @@ pub async fn build_meteora_dammv2_best_pool(
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
-            action_type: "meteora_dammv2_best_pool".into(),
-            description: format!("Best DAMM v2 pool for {mint_a}/{mint_b}"),
+            action_type: action_type.to_string(),
+            description: format!("Best pool for {mint_a}/{mint_b}"),
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -5307,7 +5330,7 @@ pub async fn build_meteora_dammv2_get_pool_groups(
     params: &MeteoraDammV2GetPoolGroupsParams,
 ) -> Result<BuildResponse, AppError> {
     let mut qs: Vec<(&str, String)> = Vec::new();
-    qs.push(("page", damm_v2_page(params.page).to_string()));
+    qs.push(("page", meteora_datapi_page(params.page).to_string()));
     if let Some(n) = params.page_size {
         qs.push(("page_size", n.to_string()));
     }
@@ -5336,7 +5359,7 @@ pub async fn build_meteora_dammv2_get_pool_groups(
         .send()
         .await
         .map_err(|e| AppError::ProtocolError(format!("Meteora DAMM v2 groups GET: {e}")))?;
-    let data = damm_v2_json(resp, "groups").await?;
+    let data = meteora_datapi_json(resp, "groups").await?;
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -5377,10 +5400,10 @@ pub async fn build_meteora_dammv2_get_pool_group(
     };
 
     let want = params.page_size.unwrap_or(20).clamp(1, 100) as usize;
-    let pools = damm_v2_pools_for_pair(http, mint_a, mint_b, want).await?;
+    let pools = meteora_pools_for_pair(http, DAMM_V2_API, mint_a, mint_b, want).await?;
     let total = pools.len();
     let data = serde_json::json!({
-        "current_page": damm_v2_page(params.page),
+        "current_page": meteora_datapi_page(params.page),
         "page_size": want,
         "pages": 1,
         "total": total,

@@ -2372,6 +2372,18 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             }
             Ok(())
         }
+        "meteora_dlmm_best_pool" => {
+            let p: meteora::MeteoraDammV2BestPoolParams = serde_json::from_value(params.clone())
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dlmm_best_pool params: {e}"))
+                })?;
+            if p.pool.is_none() && (p.mint_a.is_none() || p.mint_b.is_none()) {
+                return Err(AppError::InvalidParams(
+                    "meteora_dlmm_best_pool needs pool, or both mintA and mintB".into(),
+                ));
+            }
+            Ok(())
+        }
         "meteora_dammv2_get_pool_ohlcv" => {
             let p: meteora::MeteoraDammV2GetPoolOhlcvParams =
                 serde_json::from_value(params.clone()).map_err(|e| {
@@ -4603,6 +4615,10 @@ async fn build_action_inner(
         "meteora_dammv2_best_pool" => {
             let p: meteora::MeteoraDammV2BestPoolParams = serde_json::from_value(params)?;
             meteora::build_meteora_dammv2_best_pool(http, &p).await
+        }
+        "meteora_dlmm_best_pool" => {
+            let p: meteora::MeteoraDammV2BestPoolParams = serde_json::from_value(params)?;
+            meteora::build_meteora_dlmm_best_pool(http, &p).await
         }
         "meteora_dammv2_get_pool_ohlcv" => {
             let p: meteora::MeteoraDammV2GetPoolOhlcvParams = serde_json::from_value(params)?;
