@@ -43,6 +43,14 @@ const MAX_VENUE_SHARE: f64 = 0.05;
 /// only age does.
 const MIN_POOL_AGE_DAYS: f64 = 30.0;
 
+/// Solana's base fee, per signature, in SOL.
+///
+/// A protocol constant rather than a market number — the same class of fact as
+/// an account layout. It is small, and it is also the only part of opening a
+/// position that never comes back, which is why it has to be counted rather
+/// than waved away.
+const BASE_FEE_SOL: f64 = 0.000005;
+
 /// Account sizes each venue makes the depositor pay rent on.
 ///
 /// The sizes are facts about the programs — fixed by their account layouts —
@@ -179,13 +187,28 @@ pub async fn build_token_strategies(
 ) -> Result<BuildResponse, AppError> {
     validate_token_strategies_params(params)?;
 
-    // Costs, from the chain. Lending opens no position; the venues that do
-    // pay rent on a position account and the token accounts around it.
-    let (lend_cost, dammv2_cost, dlmm_cost) = tokio::join!(
+    // Three different numbers, because they answer three different questions
+    // and treating them as one gets both answers wrong.
+    //
+    // What leaves the wallet to open the position is rent on the accounts it
+    // creates. That decides whether the wallet can afford to do this at all.
+    //
+    // Almost all of it comes back when the position closes — the accounts are
+    // closed and their rent is returned. So it is capital locked up, not money
+    // spent, and charging it against the yield made every payback figure look
+    // far worse than it is.
+    //
+    // What is actually spent is the network fee, twice: once to open and once
+    // to close. That is what the yield has to earn back. Counting the rent as
+    // spent, or the fee as free, are both wrong in the way that misleads.
+    let (lend_rent, dammv2_rent, dlmm_rent) = tokio::join!(
         rent_sol(rpc, &[TOKEN_ACCOUNT_BYTES]),
         rent_sol(rpc, &[DAMM_V2_POSITION_BYTES, MINT_BYTES, TOKEN_ACCOUNT_BYTES]),
         rent_sol(rpc, &[DLMM_POSITION_BYTES]),
     );
+    // Open and close. Priority fees are not modelled: they are chosen at send
+    // time and are not ours to predict.
+    let round_trip_fee = BASE_FEE_SOL * 2.0;
 
     // The SOL price is what makes a cost in SOL comparable to a yield in
     // percent. Taken from the same pool the rest of the app prices against.
@@ -216,8 +239,12 @@ pub async fn build_token_strategies(
                 "yieldBasis": "current supply rate",
                 "venueSizeUsd": supplied,
                 "depositShare": share,
-                "costSol": lend_cost,
-                "paybackDays": payback_days(params.usd_value, apy, lend_cost, sol_usd),
+                // Upfront is what the wallet must have; refundable comes back
+                // on withdrawal; net is what the yield has to earn back.
+                "upfrontSol": lend_rent,
+                "refundableSol": lend_rent,
+                "netCostSol": round_trip_fee,
+                "paybackDays": payback_days(params.usd_value, apy, Some(round_trip_fee), sol_usd),
                 // Borrowing against it is where a lending position can be
                 // liquidated; supplying alone cannot be.
                 "changesHolding": false,
@@ -242,9 +269,9 @@ pub async fn build_token_strategies(
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
 
-    for (venue, api, cost) in [
-        ("Meteora DAMM v2", crate::services::meteora::DAMM_V2_API, dammv2_cost),
-        ("Meteora DLMM", crate::services::meteora::DLMM_API, dlmm_cost),
+    for (venue, api, rent) in [
+        ("Meteora DAMM v2", crate::services::meteora::DAMM_V2_API, dammv2_rent),
+        ("Meteora DLMM", crate::services::meteora::DLMM_API, dlmm_rent),
     ] {
         let pools = crate::services::meteora::pools_containing(http, api, &params.mint, 100)
             .await
@@ -304,8 +331,10 @@ pub async fn build_token_strategies(
                 "tooNewToJudge": age_days < MIN_POOL_AGE_DAYS,
                 "venueSizeUsd": tvl,
                 "depositShare": share,
-                "costSol": cost,
-                "paybackDays": payback_days(params.usd_value, apr, cost, sol_usd),
+                "upfrontSol": rent,
+                "refundableSol": rent,
+                "netCostSol": round_trip_fee,
+                "paybackDays": payback_days(params.usd_value, apr, Some(round_trip_fee), sol_usd),
                 "changesHolding": true,
                 "counterToken": counter_symbol,
                 "counterVerified": counter_verified,

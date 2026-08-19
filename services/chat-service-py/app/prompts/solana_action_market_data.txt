@@ -94,8 +94,16 @@ Reading the result:
   into `counterToken`. Present the first group first and never rank across the
   two on yield alone: turning SOL into half a memecoin is not a better version
   of lending SOL.
-- `paybackDays` is how long the yield takes to cover the opening cost at this
-  size. It is the number that decides, not `yieldPct`.
+- Three cost figures, and they answer different questions. `upfrontSol` is
+  what has to leave the wallet to open — say it when someone is deciding
+  whether they can afford this. `refundableSol` comes back when the position
+  closes, so it is money locked up rather than spent. `netCostSol` is what is
+  actually gone, the network fee to open and to close, and it is the only one
+  the yield has to earn back.
+- `paybackDays` is how long the yield takes to cover `netCostSol` at this
+  size. It is the number that decides, not `yieldPct`. Do not describe the
+  refundable rent as a fee — it comes back, and calling it a cost talks people
+  out of positions that are almost free to hold.
 - `yieldPct` for a pool is fees annualised — the lower of the last day and the
   pool's lifetime. Say what it is; it describes the past, not a promise.
 - `tooNewToJudge: true` means the pool has no track record. Mention it rather
