@@ -119,6 +119,7 @@ const INSTALLABLE_EVM: { name: string; url: string; icon: string }[] = [
             <ol class="wl-steps">
               <li>Open your wallet extension and <b>switch to the account you want to add</b>.</li>
               <li>Come back and sign — this proves you own it. Your session stays on your primary wallet.</li>
+              <li><b>Permanent:</b> once linked, this wallet is bound to your account and can't be unlinked.</li>
             </ol>
             <div class="wl-connected-now">
               Currently selected: <span>{{ shortId(wallet.publicKey() || '—') }}</span>
@@ -224,11 +225,35 @@ const INSTALLABLE_EVM: { name: string; url: string; icon: string }[] = [
             </div>
 
             <div class="wallet-modal-body">
+              @if (linkConsent(); as cw) {
+                <!-- Consent: linking permanently binds the two wallets. -->
+                <div class="link-consent">
+                  <div class="link-consent-ico"><lucide-icon name="lock" [size]="22" /></div>
+                  <div class="link-consent-title">Link {{ cw.name }} to your account</div>
+                  <div class="link-consent-pair">
+                    <span class="lc-chip"><app-brand-icon type="solana_wallet" [size]="16" /> Solana</span>
+                    <lucide-icon name="arrow-right-left" [size]="14" />
+                    <span class="lc-chip"><app-brand-icon type="evm_wallet" [size]="16" /> {{ cw.name }}</span>
+                  </div>
+                  <p class="link-consent-text">
+                    You'll sign a message to prove you own this wallet. Once linked, these two
+                    wallets are <b>permanently bound to one OPRAI account</b> — this is a one-time
+                    action and <b>can't be undone</b>. Everything you hold, earn and trade rolls up
+                    across both.
+                  </p>
+                  <div class="link-consent-actions">
+                    <button class="wl-btn-ghost" (click)="cancelConsent()" [disabled]="busy()">Cancel</button>
+                    <button class="wl-cta wl-inline" (click)="connectEvm(cw)" [disabled]="busy()">
+                      <lucide-icon name="pen-tool" [size]="15" /> {{ busy() ? 'Linking…' : 'Sign to link' }}
+                    </button>
+                  </div>
+                </div>
+              } @else {
               @if (detectedEvm().length > 0) {
                 <div class="wallet-section-label">Installed</div>
                 <div class="wallet-list">
                   @for (w of detectedEvm(); track w.uuid) {
-                    <button class="wallet-row" (click)="connectEvm(w)" [disabled]="busy()">
+                    <button class="wallet-row" (click)="askConsent(w)" [disabled]="busy()">
                       <span class="wallet-row-icon" style="display:grid;place-items:center">
                         @if (w.icon && !iconFailed().has(w.uuid)) {
                           <img [src]="w.icon" [alt]="w.name" width="32" height="32" style="border-radius:8px" (error)="onIconError(w.uuid)" />
@@ -259,6 +284,7 @@ const INSTALLABLE_EVM: { name: string; url: string; icon: string }[] = [
                     </button>
                   }
                 </div>
+              }
               }
             </div>
 
@@ -314,6 +340,15 @@ const INSTALLABLE_EVM: { name: string; url: string; icon: string }[] = [
     .wl-soon { font-size:.6rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.14)); padding:2px 7px; border-radius:6px; flex:none; }
     .wl-tg-widget { flex:none; display:flex; align-items:center; min-height:28px; }
     .wl-tg-widget iframe { color-scheme:normal; }
+    /* Link consent */
+    .link-consent { padding:6px 4px 4px; text-align:center; }
+    .link-consent-ico { width:44px; height:44px; border-radius:12px; margin:0 auto 12px; display:grid; place-items:center; color:var(--op-brand,#5b5fc7); background:color-mix(in srgb, var(--op-brand,#5b5fc7) 14%, transparent); }
+    .link-consent-title { font-size:1rem; font-weight:700; color:var(--op-text-primary); margin-bottom:12px; }
+    .link-consent-pair { display:flex; align-items:center; justify-content:center; gap:10px; color:var(--op-text-secondary); margin-bottom:14px; }
+    .lc-chip { display:inline-flex; align-items:center; gap:6px; font-size:.82rem; font-weight:600; color:var(--op-text-primary); background:var(--op-bg-surface-2, rgba(125,125,150,.1)); padding:5px 10px; border-radius:9px; }
+    .link-consent-text { font-size:.85rem; line-height:1.55; color:var(--op-text-secondary); max-width:44ch; margin:0 auto 18px; }
+    .link-consent-text b { color:var(--op-text-primary); }
+    .link-consent-actions { display:flex; gap:10px; justify-content:center; }
 
     /* Link flow */
     .wl-flowcard { background:var(--op-bg-surface-2, rgba(125,125,150,.05)); }
@@ -359,7 +394,11 @@ export class WalletsComponent implements OnInit, OnDestroy {
   hasEvm = computed(() => this.identities().some((i) => i.type === 'evm_wallet'));
   evmModalOpen = signal(false);
   detectedEvm = signal<EvmWallet[]>([]);
+  linkConsent = signal<EvmWallet | null>(null);
   iconFailed = signal<Set<string>>(new Set());
+
+  askConsent(w: EvmWallet): void { this.linkConsent.set(w); }
+  cancelConsent(): void { this.linkConsent.set(null); }
   // The full popular list minus anything already detected (case-insensitive).
   installableEvm = computed(() => {
     const have = new Set(this.detectedEvm().map((w) => w.name.toLowerCase().replace(/\s+wallet$/, '')));
@@ -529,6 +568,7 @@ export class WalletsComponent implements OnInit, OnDestroy {
     if (this.busy()) return;
     this.msg.set(null);
     this.detectedEvm.set([]);
+    this.linkConsent.set(null);
     this.evmModalOpen.set(true);
 
     // EIP-6963: wallets announce (name + icon + provider) in response to our
@@ -567,6 +607,7 @@ export class WalletsComponent implements OnInit, OnDestroy {
 
   closeEvmModal(): void {
     this.evmModalOpen.set(false);
+    this.linkConsent.set(null);
   }
 
   onEvmBackdrop(ev: MouseEvent): void {
@@ -594,7 +635,8 @@ export class WalletsComponent implements OnInit, OnDestroy {
       const res = await firstValueFrom(this.account.linkEVMVerify(address, signature, nz.nonceId));
       this.identities.set(res.identities || []);
       this.evmModalOpen.set(false);
-      this.flash(res.alreadyLinked ? `That ${entry.name} wallet is already on your account.` : `${entry.name} linked!`, true);
+      this.linkConsent.set(null);
+      this.flash(res.alreadyLinked ? `That ${entry.name} wallet is already on your account.` : `${entry.name} permanently linked to your account.`, true);
     } catch (e) {
       const rejected = (e as { code?: number })?.code === 4001;
       this.flash(rejected ? 'Signature request was rejected.' : 'Could not link that Ethereum wallet.', false);
