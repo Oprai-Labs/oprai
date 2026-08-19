@@ -5028,7 +5028,7 @@ fn meteora_datapi_page(page: Option<u32>) -> u32 {
     page.unwrap_or(1).max(1)
 }
 
-fn meteora_pool_mints(pool: &serde_json::Value) -> (Option<&str>, Option<&str>) {
+pub fn meteora_pool_mints(pool: &serde_json::Value) -> (Option<&str>, Option<&str>) {
     let side = |k: &str| pool.get(k).and_then(|t| t.get("address")).and_then(|a| a.as_str());
     (side("token_x"), side("token_y"))
 }

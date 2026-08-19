@@ -36,6 +36,13 @@ use crate::solana::connection::SolanaRpc;
 /// A deposit larger than this share of a venue makes the depositor the market.
 const MAX_VENUE_SHARE: f64 = 0.05;
 
+/// A pool younger than this has no record to judge. Measured while building
+/// this: the pools topping a fee-APR ranking for SOL were 1.7 days old and
+/// quoting 3,300%, and their "lifetime" average was the same spike over the
+/// same day. No fee window separates noise from yield on a pool that new —
+/// only age does.
+const MIN_POOL_AGE_DAYS: f64 = 30.0;
+
 /// Account sizes each venue makes the depositor pay rent on.
 ///
 /// The sizes are facts about the programs — fixed by their account layouts —
@@ -174,6 +181,8 @@ pub async fn build_token_strategies(
                 "paybackDays": payback_days(params.usd_value, apy, lend_cost, sol_usd),
                 // Borrowing against it is where a lending position can be
                 // liquidated; supplying alone cannot be.
+                "changesHolding": false,
+                "tooNewToJudge": false,
                 "risk": "Supplying cannot be liquidated. Borrowing against it can — that is a separate decision.",
                 "maxLtv": r.get("maxLtv"),
             }));
@@ -181,49 +190,113 @@ pub async fn build_token_strategies(
     }
 
     // ── Liquidity pools ──────────────────────────────────────────────────
+    //
+    // Ranked separately from lending and staking, and labelled with what they
+    // do to the holding, because they are not the same kind of choice. Putting
+    // SOL into a MEMECOIN/SOL pool converts half of it into that memecoin: a
+    // 300% fee yield is erased by the memecoin falling 50%, which memecoins
+    // routinely do, and the fee figure knows nothing about that. Sorting the
+    // two together would put "become a memecoin holder" above "lend your SOL"
+    // on the strength of a number that does not describe the risk taken.
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+
     for (venue, api, cost) in [
         ("Meteora DAMM v2", crate::services::meteora::DAMM_V2_API, dammv2_cost),
         ("Meteora DLMM", crate::services::meteora::DLMM_API, dlmm_cost),
     ] {
-        let pools = crate::services::meteora::pools_containing(http, api, &params.mint, 40)
+        let pools = crate::services::meteora::pools_containing(http, api, &params.mint, 100)
             .await
             .unwrap_or_default();
         for p in pools {
             let tvl = num(p.get("tvl"));
             let vol24 = num(p.get("volume").and_then(|v| v.get("24h")));
             let fees24 = num(p.get("fees").and_then(|v| v.get("24h")));
+            let life_fees = num(p.get("cumulative_metrics").and_then(|v| v.get("fees")));
             // No trading, no fees — whatever the headline rate says.
             if !(tvl > 0.0) || !(vol24 > 0.0) {
                 continue;
             }
+            let created_ms = num(p.get("created_at"));
+            let age_days = if created_ms > 0.0 && now_secs > 0.0 {
+                (now_secs - created_ms / 1000.0) / 86_400.0
+            } else {
+                0.0
+            };
             let share = params.usd_value.map(|v| v / tvl).unwrap_or(0.0);
             if share > MAX_VENUE_SHARE {
                 continue;
             }
-            let apr = fees24 * 365.0 / tvl * 100.0;
+
+            let apr_24h = fees24 * 365.0 / tvl * 100.0;
+            let apr_life = if age_days > 0.0 {
+                life_fees / age_days * 365.0 / tvl * 100.0
+            } else {
+                0.0
+            };
+            // The lower of the two, so a quiet day is not hidden by a busy
+            // lifetime and a spike is not sold as a rate.
+            let apr = if apr_life > 0.0 { apr_24h.min(apr_life) } else { apr_24h };
+
+            // Which side is not the token being asked about — that is what the
+            // depositor ends up half-holding.
+            let (x, y) = crate::services::meteora::meteora_pool_mints(&p);
+            let counter_is_y = x == Some(params.mint.as_str());
+            let counter = if counter_is_y { p.get("token_y") } else { p.get("token_x") };
+            let counter_symbol = counter.and_then(|t| t.get("symbol")).and_then(|s| s.as_str());
+            let counter_verified = counter
+                .and_then(|t| t.get("is_verified"))
+                .and_then(|b| b.as_bool())
+                .unwrap_or(false);
+
             options.push(serde_json::json!({
                 "kind": "lp",
                 "venue": venue,
                 "detail": p.get("name"),
                 "pool": p.get("address"),
                 "yieldPct": apr,
-                // Said plainly, because this is not the same kind of number as
-                // a lending rate and must not be compared to one silently.
-                "yieldBasis": "last 24h of fees, annualised",
+                "yield24hPct": apr_24h,
+                "yieldLifetimePct": apr_life,
+                "yieldBasis": "fees, annualised — the lower of the last day and the pool's lifetime",
+                "poolAgeDays": age_days,
+                // Said outright rather than left to be inferred from a number.
+                "tooNewToJudge": age_days < MIN_POOL_AGE_DAYS,
                 "venueSizeUsd": tvl,
                 "depositShare": share,
                 "costSol": cost,
                 "paybackDays": payback_days(params.usd_value, apr, cost, sol_usd),
-                "risk": "Earns only while the price stays in the position's range, and the mix withdrawn differs from the mix deposited.",
+                "changesHolding": true,
+                "counterToken": counter_symbol,
+                "counterVerified": counter_verified,
+                "risk": match counter_symbol {
+                    Some(sym) => format!(
+                        "Half of this ends up as {sym}. Fees are earned only while the price stays in range, \
+                         and a fall in {sym} can outweigh anything the fees pay."
+                    ),
+                    None => "Half of this ends up as the pool's other token, and a fall in it can outweigh the fees.".to_string(),
+                },
             }));
         }
     }
 
-    // Best payback first; an option whose payback could not be computed sorts
-    // last rather than pretending to be free.
+    // Options that leave the holding alone come first, then those that convert
+    // part of it; within each, best payback first, and anything too new to
+    // judge sinks below everything that has a record. An option whose payback
+    // could not be computed sorts last rather than pretending to be free.
     options.sort_by(|a, b| {
-        let d = |v: &serde_json::Value| v.get("paybackDays").and_then(|x| x.as_f64()).unwrap_or(f64::MAX);
-        d(a).partial_cmp(&d(b)).unwrap_or(std::cmp::Ordering::Equal)
+        let key = |v: &serde_json::Value| {
+            (
+                v.get("changesHolding").and_then(|x| x.as_bool()).unwrap_or(false),
+                v.get("tooNewToJudge").and_then(|x| x.as_bool()).unwrap_or(false),
+                v.get("paybackDays").and_then(|x| x.as_f64()).unwrap_or(f64::MAX),
+            )
+        };
+        let (ka, kb) = (key(a), key(b));
+        ka.0.cmp(&kb.0)
+            .then(ka.1.cmp(&kb.1))
+            .then(ka.2.partial_cmp(&kb.2).unwrap_or(std::cmp::Ordering::Equal))
     });
 
     Ok(BuildResponse {
