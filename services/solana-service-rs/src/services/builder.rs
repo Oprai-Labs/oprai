@@ -2372,6 +2372,15 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
             }
             Ok(())
         }
+        // Read-only, no params to validate.
+        "stake_yields" => Ok(()),
+        "token_strategies" => {
+            let p: crate::services::strategies::TokenStrategiesParams = serde_json::from_value(params.clone())
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid token_strategies params: {e}"))
+                })?;
+            crate::services::strategies::validate_token_strategies_params(&p)
+        }
         "meteora_dlmm_best_pool" => {
             let p: meteora::MeteoraDammV2BestPoolParams = serde_json::from_value(params.clone())
                 .map_err(|e| {
@@ -4642,6 +4651,11 @@ async fn build_action_inner(
         "meteora_dlmm_best_pool" => {
             let p: meteora::MeteoraDammV2BestPoolParams = serde_json::from_value(params)?;
             meteora::build_meteora_dlmm_best_pool(http, &p).await
+        }
+        "stake_yields" => marinade::query_stake_yields(http).await,
+        "token_strategies" => {
+            let p: crate::services::strategies::TokenStrategiesParams = serde_json::from_value(params)?;
+            crate::services::strategies::build_token_strategies(http, rpc, &p).await
         }
         "meteora_dammv2_get_pool_ohlcv" => {
             let p: meteora::MeteoraDammV2GetPoolOhlcvParams = serde_json::from_value(params)?;

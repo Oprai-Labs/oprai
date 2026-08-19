@@ -66,11 +66,11 @@ const MEMO_PROGRAM_ID: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 /// derive the bin from `current_price` + `pool_config.bin_step` in the pool
 /// detail). The old `fetch_pair` / `fetch_pos` helpers used by tx construction
 /// still hit the deprecated paths; those flows need a follow-up rewrite.
-const DLMM_API: &str = "https://dlmm.datapi.meteora.ag";
+pub const DLMM_API: &str = "https://dlmm.datapi.meteora.ag";
 /// Alias kept for backwards compatibility with existing references; the stats
 /// endpoints live on the same host as everything else now.
 const DLMM_STATS_API: &str = "https://dlmm.datapi.meteora.ag";
-const DAMM_V2_API: &str = "https://damm-v2.datapi.meteora.ag";
+pub const DAMM_V2_API: &str = "https://damm-v2.datapi.meteora.ag";
 const DAMM_V1_API: &str = "https://amm.meteora.ag";
 const STAKE2EARN_API: &str = "https://stake2earn.meteora.ag";
 const VAULT_API: &str = "https://vault-api.meteora.ag";
@@ -5068,7 +5068,47 @@ async fn meteora_mint_pool_count(http: &reqwest::Client, api: &str, mint: &str) 
 /// opposite name ordering. Handing the user the first match would cost them
 /// most of their deposit to slippage, so we sort by TVL and never rely on the
 /// pair's name.
-async fn meteora_pools_for_pair(
+/// Every pool on `api` that holds `mint`, deepest first.
+///
+/// The pair helper below answers "where can these two trade"; this answers
+/// "where can this one earn", which is the question someone holding a token
+/// actually has.
+pub async fn pools_containing(
+    http: &reqwest::Client,
+    api: &str,
+    mint: &str,
+    want: usize,
+) -> Result<Vec<serde_json::Value>, AppError> {
+    let resp = http
+        .get(format!("{api}/pools"))
+        .query(&[
+            ("query", mint),
+            ("page", "1"),
+            ("page_size", &want.min(100).to_string()),
+            ("sort_by", "tvl:desc"),
+        ])
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora pools GET: {e}")))?;
+    let body = meteora_datapi_json(resp, "pools").await?;
+    let rows = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
+    // `query` is a loose text match, so confirm the mint really is one of the
+    // two sides before offering the pool as a place to put it.
+    Ok(rows
+        .into_iter()
+        .filter(|p| {
+            let (x, y) = meteora_pool_mints(p);
+            x == Some(mint) || y == Some(mint)
+        })
+        .collect())
+}
+
+pub async fn meteora_pools_for_pair(
     http: &reqwest::Client,
     api: &str,
     mint_a: &str,

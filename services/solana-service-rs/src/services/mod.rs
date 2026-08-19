@@ -32,6 +32,7 @@ pub mod sns;
 pub mod solend;
 pub mod spending_client;
 pub mod squid;
+pub mod strategies;
 pub mod streamflow;
 pub mod swap;
 pub mod tensor;

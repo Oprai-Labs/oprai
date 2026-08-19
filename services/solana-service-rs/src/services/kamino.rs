@@ -1770,6 +1770,24 @@ pub async fn build_kamino_markets(
 }
 
 /// Get reserve APY, utilization, and liquidity metrics for a K-Lend market.
+/// The reserves of one K-Lend market, as data rather than a card.
+///
+/// The action above wraps the same call in a BuildResponse; the strategy
+/// engine wants the rows themselves, so both go through this.
+pub async fn fetch_market_reserves(
+    http: &reqwest::Client,
+    market: Option<&str>,
+) -> Result<Vec<serde_json::Value>, AppError> {
+    let market = resolve_kamino_market(market);
+    let data = kamino_get_q(
+        http,
+        &format!("/kamino-market/{market}/reserves/metrics"),
+        &[],
+    )
+    .await?;
+    Ok(data.as_array().cloned().unwrap_or_default())
+}
+
 pub async fn build_kamino_market_reserves(
     http: &reqwest::Client,
     _wallet: &str,
