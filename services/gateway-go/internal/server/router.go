@@ -306,7 +306,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// Market data proxy — external APIs (Jupiter, DexScreener, Birdeye).
 	// RequireWallet prevents unauthenticated callers from exhausting paid API quotas
 	// (Birdeye, Helius, Jupiter keys are kept server-side).
-	marketProxy := handlers.NewMarketProxy(ctx, cfg.BirdeyeAPIKey, cfg.JupiterAPIKey, cfg.HeliusAPIKey, cfg.AlchemyAPIKey, cfg.CORSOrigin)
+	marketProxy := handlers.NewMarketProxy(ctx, cfg.BirdeyeAPIKey, cfg.JupiterAPIKey, cfg.HeliusAPIKey, cfg.AlchemyAPIKey, cfg.MoralisAPIKey, cfg.CORSOrigin)
 	// Token list is public data — no auth needed, served from Jupiter CDN with server-side caching.
 	r.With(defaultTimeout).Get("/market/tokens/strict", marketProxy.GetTokenList)
 	r.Route("/market", func(r chi.Router) {
@@ -325,6 +325,8 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Get("/holders/{mint}", marketProxy.GetHolders)
 		// EVM wallet holdings (Alchemy): GET /market/evm/portfolio?address=0x..
 		r.Get("/evm/portfolio", marketProxy.GetEvmPortfolio)
+		// EVM DeFi positions (Moralis): GET /market/evm/positions?address=0x..
+		r.Get("/evm/positions", marketProxy.GetEvmPositions)
 		r.Get("/wallet/pnl-summary", marketProxy.GetWalletPnlSummary)
 		r.Get("/wallet/pnl-details", marketProxy.GetWalletPnlDetails)
 		r.Get("/jito/tip-floor", marketProxy.GetJitoTipFloor)

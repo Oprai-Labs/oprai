@@ -22,6 +22,31 @@ export interface EvmPortfolio {
   tokens: EvmToken[];
 }
 
+export interface EvmPositionToken {
+  symbol: string;
+  type: string;
+  amount: number;
+  logo?: string;
+}
+
+export interface EvmPosition {
+  chain: string;
+  protocol: string;
+  protocolId: string;
+  protocolUrl?: string;
+  logo?: string;
+  label: string;
+  balanceUsd: number;
+  unclaimedUsd: number;
+  tokens: EvmPositionToken[];
+}
+
+export interface EvmPositions {
+  address: string;
+  totalUsd: number;
+  positions: EvmPosition[];
+}
+
 /**
  * EVM wallet holdings via the gateway (backed by Alchemy's multichain Data API).
  * One call per linked EVM wallet returns balances + USD across ETH, Base,
@@ -33,5 +58,10 @@ export class EvmPortfolioService {
 
   getPortfolio(address: string): Observable<EvmPortfolio> {
     return this.api.get<EvmPortfolio>(`/market/evm/portfolio?address=${encodeURIComponent(address)}`);
+  }
+
+  /** Protocol-labeled DeFi positions (Aave, Uniswap, Lido, …) across chains. */
+  getPositions(address: string): Observable<EvmPositions> {
+    return this.api.get<EvmPositions>(`/market/evm/positions?address=${encodeURIComponent(address)}`);
   }
 }

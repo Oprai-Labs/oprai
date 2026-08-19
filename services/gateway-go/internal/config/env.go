@@ -40,6 +40,7 @@ type Config struct {
 	JupiterAPIKey string
 	HeliusAPIKey  string
 	AlchemyAPIKey string // EVM wallet portfolio (balances + prices, multichain)
+	MoralisAPIKey string // EVM DeFi positions (protocol-labeled, multichain)
 
 	// Local file upload storage
 	UploadDir     string // Local directory to store uploaded files
@@ -76,6 +77,7 @@ func Load() *Config {
 		JupiterAPIKey: getEnvStr("JUPITER_API_KEY", ""),
 		HeliusAPIKey:  getEnvStr("HELIUS_API_KEY", ""),
 		AlchemyAPIKey: getEnvStr("ALCHEMY_API_KEY", ""),
+		MoralisAPIKey: getEnvStr("MORALIS_API_KEY", ""),
 
 		UploadDir:     getEnvStr("UPLOAD_DIR", "./uploads"),
 		PublicBaseURL: getEnvStr("PUBLIC_BASE_URL", "http://localhost:3001"),
