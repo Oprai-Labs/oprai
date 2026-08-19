@@ -108,6 +108,9 @@ type verifyRequest struct {
 	Signature     string `json:"signature"`
 	NonceID       string `json:"nonceId,omitempty"`
 	Nonce         string `json:"nonce,omitempty"`
+	// Chain selects the signature scheme: "solana" (default, ed25519 SIWS) or
+	// "ethereum"/"evm" (EIP-191 SIWE). Enables multichain onboarding.
+	Chain string `json:"chain,omitempty"`
 }
 
 // verifyResponse is the response from POST /auth/verify.
@@ -189,63 +192,72 @@ func (h *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 	message := fmt.Sprintf("OPRAI login: %s", nonce)
 	messageBytes := []byte(message)
 
-	// Verify the ed25519 signature
-	if !services.VerifySignature(req.WalletAddress, messageBytes, req.Signature) {
-		slog.Warn("Login verification failed: invalid signature",
-			"wallet", req.WalletAddress,
-			"ip", ip,
-		)
-		h.logFailedLogin(r, req.WalletAddress, "", "Invalid signature")
+	// Multichain: verify the signature with the scheme for the requested chain.
+	// Solana (default) uses ed25519 SIWS; Ethereum uses EIP-191 SIWE (personal_sign).
+	chainReq := strings.ToLower(strings.TrimSpace(req.Chain))
+	isEVM := chainReq == "ethereum" || chainReq == "evm" || chainReq == "eip155"
+	identityType, chainName := "solana_wallet", "solana"
+	walletAddr := req.WalletAddress
+	sigValid := false
+	if isEVM {
+		identityType, chainName = "evm_wallet", "ethereum"
+		walletAddr = services.NormalizeEVMAddress(req.WalletAddress)
+		if walletAddr == "" {
+			writeError(w, http.StatusBadRequest, "Invalid EVM address")
+			return
+		}
+		sigValid = services.VerifyEVMSignature(walletAddr, messageBytes, req.Signature)
+	} else {
+		sigValid = services.VerifySignature(req.WalletAddress, messageBytes, req.Signature)
+	}
+	if !sigValid {
+		slog.Warn("Login verification failed: invalid signature", "wallet", walletAddr, "chain", chainName, "ip", ip)
+		h.logFailedLogin(r, walletAddr, "", "Invalid signature")
 		h.auditLogger.LogRequest(r, db.AuditEvent{
 			EventType:     "invalid_signature",
 			Severity:      "warning",
-			WalletAddress: req.WalletAddress,
-			EventData:     map[string]any{"reason": "ed25519_signature_mismatch"},
+			WalletAddress: walletAddr,
+			EventData:     map[string]any{"reason": "signature_mismatch", "chain": chainName},
 		}, h.cfg.TrustProxyHeaders)
 		writeError(w, http.StatusUnauthorized, "Invalid signature")
 		return
 	}
 
-	// Resolve the ACCOUNT this wallet belongs to. Multichain: a wallet may be a
-	// SECONDARY identity linked to an existing account — in that case we must log
-	// the user into that account, not spin up a brand-new one. So we look the
-	// wallet up in linked_identities first; only if it is unknown do we fall back
-	// to the legacy get-or-create-by-wallet path (which also seeds a primary
-	// identity row for the fresh account).
+	// Resolve the ACCOUNT this wallet belongs to. A wallet may be a SECONDARY
+	// identity linked to an existing account — log the user into THAT account,
+	// don't spin up a new one. Only if the wallet is unknown do we create a fresh
+	// account (with this wallet as its primary identity, on its own chain).
 	accountID := ""
-	if identity, ierr := h.queries.GetIdentityByTypeIdentifier(r.Context(), "solana_wallet", req.WalletAddress); ierr == nil && identity != nil {
+	if identity, ierr := h.queries.GetIdentityByTypeIdentifier(r.Context(), identityType, walletAddr); ierr == nil && identity != nil {
 		accountID = identity.AccountID
 	}
 	if accountID == "" {
-		user, err := h.queries.GetOrCreateUser(r.Context(), req.WalletAddress)
+		user, err := h.queries.GetOrCreateUserChain(r.Context(), walletAddr, chainName)
 		if err != nil {
-			slog.Error("Failed to get or create user",
-				"wallet", req.WalletAddress,
-				"error", err,
-			)
+			slog.Error("Failed to get or create user", "wallet", walletAddr, "chain", chainName, "error", err)
 			writeError(w, http.StatusInternalServerError, "Failed to process user")
 			return
 		}
 		accountID = user.ID
-		if eerr := h.queries.EnsurePrimaryIdentity(r.Context(), accountID, req.WalletAddress); eerr != nil {
-			slog.Warn("Failed to seed primary identity", "wallet", req.WalletAddress, "error", eerr)
+		if eerr := h.queries.EnsurePrimaryIdentityTyped(r.Context(), accountID, identityType, chainName, walletAddr); eerr != nil {
+			slog.Warn("Failed to seed primary identity", "wallet", walletAddr, "error", eerr)
 		}
 	}
 
 	// Log successful login (fire-and-forget, do not block response)
-	go h.logSuccessLogin(r, req.WalletAddress, accountID)
+	go h.logSuccessLogin(r, walletAddr, accountID)
 	h.auditLogger.LogRequest(r, db.AuditEvent{
 		EventType:     "login_success",
 		Severity:      "info",
 		EntityType:    "user",
 		EntityID:      accountID,
 		UserID:        accountID,
-		WalletAddress: req.WalletAddress,
+		WalletAddress: walletAddr,
 	}, h.cfg.TrustProxyHeaders)
 
 	// Issue JWT — sub/wallet is the signing wallet (economics key), the `a` claim
 	// carries the account (rewards/aggregation key).
-	result, err := h.jwtService.Issue(req.WalletAddress, accountID)
+	result, err := h.jwtService.Issue(walletAddr, accountID)
 	if err != nil {
 		slog.Error("Failed to issue JWT",
 			"wallet", req.WalletAddress,

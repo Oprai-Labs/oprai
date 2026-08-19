@@ -144,6 +144,12 @@ func (h *AccountHandler) HandleLinkVerify(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// One Solana wallet per account.
+	if other, err := h.queries.HasOtherIdentityOfType(r.Context(), accountID, "solana_wallet", req.WalletAddress); err == nil && other {
+		writeError(w, http.StatusConflict, "You already have a Solana wallet linked. Unlink it first to add a different one.")
+		return
+	}
+
 	if _, err := h.queries.InsertIdentity(r.Context(), accountID, "solana_wallet", "solana", req.WalletAddress, false); err != nil {
 		slog.Error("account: insert identity failed", "account", accountID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to link wallet")
@@ -235,6 +241,12 @@ func (h *AccountHandler) HandleLinkEVMVerify(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// One EVM wallet per account.
+	if other, err := h.queries.HasOtherIdentityOfType(r.Context(), accountID, "evm_wallet", address); err == nil && other {
+		writeError(w, http.StatusConflict, "You already have an Ethereum wallet linked. Unlink it first to add a different one.")
+		return
+	}
+
 	if _, err := h.queries.InsertIdentity(r.Context(), accountID, "evm_wallet", "ethereum", address, false); err != nil {
 		slog.Error("account: insert evm identity failed", "account", accountID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to link wallet")
@@ -308,8 +320,8 @@ func (h *AccountHandler) HandleSetPrimary(w http.ResponseWriter, r *http.Request
 	newWallet, err := h.queries.SetPrimaryIdentity(r.Context(), accountID, id)
 	if err != nil {
 		switch {
-		case errors.Is(err, db.ErrNonSolanaPrimary):
-			writeError(w, http.StatusBadRequest, "Only a Solana wallet can be your primary wallet")
+		case errors.Is(err, db.ErrNonWalletPrimary):
+			writeError(w, http.StatusBadRequest, "Only a wallet can be your primary")
 		case errors.Is(err, pgx.ErrNoRows):
 			writeError(w, http.StatusNotFound, "Identity not found")
 		default:

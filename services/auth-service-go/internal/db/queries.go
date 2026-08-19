@@ -14,13 +14,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ErrNonSolanaPrimary is returned when a caller tries to make a non-Solana
-// identity (EVM wallet, Telegram) the account primary. Only a Solana wallet can
-// be primary because login and economics key on users.wallet_address.
-var errNonSolanaPrimary = errors.New("only a Solana wallet can be the primary identity")
+// errNonWalletPrimary is returned when a caller tries to make a non-wallet
+// identity (Telegram, Twitter, email) the account primary. Only a Solana or EVM
+// wallet can be primary — the account's canonical address keys on a wallet.
+var errNonWalletPrimary = errors.New("only a wallet can be the primary identity")
 
-// ErrNonSolanaPrimary exposes errNonSolanaPrimary for handler-level checks.
-var ErrNonSolanaPrimary = errNonSolanaPrimary
+// ErrNonWalletPrimary exposes errNonWalletPrimary for handler-level checks.
+var ErrNonWalletPrimary = errNonWalletPrimary
 
 // schemaIdentifierRe matches valid PostgreSQL identifiers: starts with a letter
 // or underscore, followed by letters, digits, or underscores only.
@@ -173,26 +173,47 @@ func (q *Queries) DeleteIdentityByID(ctx context.Context, id, accountID string) 
 }
 
 // EnsurePrimaryIdentity guarantees a primary Solana-wallet identity row exists
-// for a freshly-created account, so a brand-new user shows up in /account/me.
-// Idempotent: does nothing if the (type, identifier) is already linked anywhere.
+// for a freshly-created account (the common SIWS path).
 func (q *Queries) EnsurePrimaryIdentity(ctx context.Context, accountID, wallet string) error {
+	return q.EnsurePrimaryIdentityTyped(ctx, accountID, "solana_wallet", "solana", wallet)
+}
+
+// EnsurePrimaryIdentityTyped guarantees a primary identity row of the given type
+// exists for a freshly-created account, so a brand-new user (Solana OR EVM
+// onboarding) shows up in /account/me. Idempotent on the (type, identifier)
+// conflict.
+func (q *Queries) EnsurePrimaryIdentityTyped(ctx context.Context, accountID, typ, chain, identifier string) error {
 	query := fmt.Sprintf(`
 		INSERT INTO %s (account_id, type, chain, identifier, is_primary)
-		VALUES ($1, 'solana_wallet', 'solana', $2, true)
+		VALUES ($1, $2, $3, $4, true)
 		ON CONFLICT (type, identifier) DO NOTHING
 	`, q.table("linked_identities"))
-	if _, err := q.pool.Exec(ctx, query, accountID, wallet); err != nil {
-		return fmt.Errorf("EnsurePrimaryIdentity: %w", err)
+	if _, err := q.pool.Exec(ctx, query, accountID, typ, chain, identifier); err != nil {
+		return fmt.Errorf("EnsurePrimaryIdentityTyped: %w", err)
 	}
 	return nil
 }
 
-// SetPrimaryIdentity promotes a Solana-wallet identity to primary for its
-// account, in one transaction: every other identity on the account is demoted,
-// the target is promoted, and users.wallet_address is repointed to the new
-// primary so the login/economics key stays consistent. Only Solana wallets may
-// be primary (the whole login flow keys on a Solana wallet_address). Returns the
-// new primary wallet address.
+// HasOtherIdentityOfType reports whether the account already has an identity of
+// `typ` whose identifier differs from `identifier`. Enforces one-wallet-per-chain
+// (at most one Solana + one EVM wallet per account).
+func (q *Queries) HasOtherIdentityOfType(ctx context.Context, accountID, typ, identifier string) (bool, error) {
+	var exists bool
+	err := q.pool.QueryRow(ctx, fmt.Sprintf(
+		`SELECT EXISTS(SELECT 1 FROM %s WHERE account_id = $1 AND type = $2 AND identifier <> $3)`,
+		q.table("linked_identities")), accountID, typ, identifier).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("HasOtherIdentityOfType: %w", err)
+	}
+	return exists, nil
+}
+
+// SetPrimaryIdentity promotes a WALLET identity (Solana or EVM) to primary for
+// its account, in one transaction: every other identity is demoted, the target
+// is promoted, and users.wallet_address + users.chain are repointed to the new
+// primary so the account's canonical address follows it. Socials (telegram,
+// twitter, email) can't be primary — the account keys on a wallet address.
+// Returns the new primary wallet address.
 func (q *Queries) SetPrimaryIdentity(ctx context.Context, accountID, id string) (string, error) {
 	tx, err := q.pool.Begin(ctx)
 	if err != nil {
@@ -202,17 +223,24 @@ func (q *Queries) SetPrimaryIdentity(ctx context.Context, accountID, id string) 
 
 	li := q.table("linked_identities")
 	var typ, identifier string
+	var chain pgtype.Text
 	err = tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT type, identifier FROM %s WHERE id = $1 AND account_id = $2 FOR UPDATE`, li),
-		id, accountID).Scan(&typ, &identifier)
+		fmt.Sprintf(`SELECT type, identifier, chain FROM %s WHERE id = $1 AND account_id = $2 FOR UPDATE`, li),
+		id, accountID).Scan(&typ, &identifier, &chain)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return "", pgx.ErrNoRows
 		}
 		return "", fmt.Errorf("SetPrimaryIdentity select: %w", err)
 	}
-	if typ != "solana_wallet" {
-		return "", errNonSolanaPrimary
+	if typ != "solana_wallet" && typ != "evm_wallet" {
+		return "", errNonWalletPrimary
+	}
+	newChain := "solana"
+	if chain.Valid && chain.String != "" {
+		newChain = chain.String
+	} else if typ == "evm_wallet" {
+		newChain = "ethereum"
 	}
 
 	if _, err = tx.Exec(ctx,
@@ -225,8 +253,8 @@ func (q *Queries) SetPrimaryIdentity(ctx context.Context, accountID, id string) 
 		return "", fmt.Errorf("SetPrimaryIdentity promote: %w", err)
 	}
 	if _, err = tx.Exec(ctx,
-		fmt.Sprintf(`UPDATE %s SET wallet_address = $1, updated_at = now() WHERE id = $2`, q.table("users")),
-		identifier, accountID); err != nil {
+		fmt.Sprintf(`UPDATE %s SET wallet_address = $1, chain = $2, updated_at = now() WHERE id = $3`, q.table("users")),
+		identifier, newChain, accountID); err != nil {
 		return "", fmt.Errorf("SetPrimaryIdentity repoint wallet: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -254,9 +282,16 @@ func (q *Queries) GetUserByWallet(ctx context.Context, walletAddress string) (*U
 	return user, nil
 }
 
-// GetOrCreateUser retrieves an existing user or creates a new one.
-// This matches the Node.js findOrCreate behavior.
+// GetOrCreateUser retrieves an existing user or creates a new Solana one (the
+// common SIWS path).
 func (q *Queries) GetOrCreateUser(ctx context.Context, walletAddress string) (*User, error) {
+	return q.GetOrCreateUserChain(ctx, walletAddress, "solana")
+}
+
+// GetOrCreateUserChain retrieves an existing user by wallet address, or creates
+// a new account keyed on that address with the given chain ("solana" or
+// "ethereum"). Used by both SIWS and SIWE onboarding.
+func (q *Queries) GetOrCreateUserChain(ctx context.Context, walletAddress, chain string) (*User, error) {
 	// Try to find existing user first
 	user, err := q.GetUserByWallet(ctx, walletAddress)
 	if err != nil {
@@ -272,18 +307,18 @@ func (q *Queries) GetOrCreateUser(ctx context.Context, walletAddress string) (*U
 
 	query := fmt.Sprintf(`
 		INSERT INTO %s (id, wallet_address, chain, auto_suggestions_allowed, role, status, is_deleted, created_at, updated_at)
-		VALUES ($1, $2, 'solana', true, 'user', 'active', false, $3, $3)
+		VALUES ($1, $2, $3, true, 'user', 'active', false, $4, $4)
 		ON CONFLICT (wallet_address) DO NOTHING
 		RETURNING %s
 	`, q.table("users"), userSelectCols)
 
 	user = &User{}
-	if err = scanUser(q.pool.QueryRow(ctx, query, id, walletAddress, now), user); err != nil {
+	if err = scanUser(q.pool.QueryRow(ctx, query, id, walletAddress, chain, now), user); err != nil {
 		if err == pgx.ErrNoRows {
 			// ON CONFLICT DO NOTHING returned no row; fetch the existing one
 			return q.GetUserByWallet(ctx, walletAddress)
 		}
-		return nil, fmt.Errorf("GetOrCreateUser insert: %w", err)
+		return nil, fmt.Errorf("GetOrCreateUserChain insert: %w", err)
 	}
 	return user, nil
 }
