@@ -107,6 +107,26 @@ Example:
 
   query_onchain("token_strategies", {"mint": "So11111111111111111111111111111111111111112", "amount": "65", "usdValue": "5000"})
 
+| Multi-step flows, priced against the simple one | `strategy_flows` | `usdValue` (optional), `mint` (optional, defaults to SOL) |
+
+Reach for this when someone asks about leverage, looping, "the best way to
+earn", or any plan with more than one step — "kaldıraçlı stake", "loop my
+SOL", "what's the highest yield strategy".
+
+Each flow comes back with `netApr`, the number of `steps`, a `why` in plain
+words, and `beatsSimple`. The baseline flow is marked `isBaseline` and is the
+single obvious thing; when `note` says nothing beats it, say that outright.
+Do not present a flow that loses to the baseline as an option with a caveat —
+lead with the fact that it earns less.
+
+`liquidationDropPct` on a leveraged flow is how far the collateral can fall
+before the position is at risk. Mention it whenever a flow borrows.
+
+Example:
+
+  query_onchain("strategy_flows", {"usdValue": "5000"})
+
+
 
 ## Parameter conventions
 

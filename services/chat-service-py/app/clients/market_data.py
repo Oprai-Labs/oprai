@@ -2091,6 +2091,28 @@ async def token_strategies(mint: str, amount: str, usdValue: str = "") -> dict:
     return await _solana_action_data("token_strategies", params)
 
 
+async def strategy_flows(usdValue: str = "", mint: str = "") -> dict:
+    """Multi-step DeFi strategies, priced against the simple one-step answer.
+
+    Builds the flows people are told to run — stake then post as collateral
+    then borrow then stake again, stake then LP the liquid token — from live
+    rates, charges every leg its own cost, and reports whether any of them
+    actually beats doing the single obvious thing.
+
+    Measured on a normal day: leveraged staking returns 4.67% against 5.55%
+    for plain staking, because borrowing costs more than staking pays. The
+    answer moves with the rates, so it is recomputed every time rather than
+    remembered.
+    """
+    params: dict = {}
+    if usdValue:
+        params["usdValue"] = usdValue
+    if mint:
+        params["mint"] = mint
+    return await _solana_action_data("strategy_flows", params)
+
+
+
 
 async def marinade_list_tickets(wallet: str) -> dict:
     """Delayed-unstake tickets this wallet is owed SOL on, and when each matures."""
@@ -2261,6 +2283,7 @@ _DISPATCH: dict[str, tuple] = {
     "top_validators":         (top_validators,         [],              ["limit", "sortBy", "sort_by"]),
     "marinade_exchange_rate": (marinade_exchange_rate, [],              []),
     "token_strategies":     (token_strategies,     ["mint", "amount"], ["usdValue"]),
+    "strategy_flows":       (strategy_flows,       [],                 ["usdValue", "mint"]),
     "marinade_list_tickets":  (marinade_list_tickets,  ["wallet"],      []),
     # Yield / APY comparison (liquid staking + lending)
     "yield":                  (_yield_comparison,      [],              ["token", "category"]),
@@ -2424,6 +2447,7 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     # Strategy read: gathers live venues for one mint and ranks them by what
     # they net at the caller's size. Same /actions/build route, tx=None.
     "token_strategies",
+    "strategy_flows",
 })
 
 

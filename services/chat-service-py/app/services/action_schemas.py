@@ -438,6 +438,8 @@ class QueryType(str, Enum):
     MARINADE_EXCHANGE_RATE = "marinade_exchange_rate"
     # What a held token could earn, ranked by payback at the wallet's own size.
     TOKEN_STRATEGIES = "token_strategies"
+    # Multi-step flows, each priced against the one-step answer.
+    STRATEGY_FLOWS = "strategy_flows"
     MARINADE_LIST_TICKETS = "marinade_list_tickets"
     SCAN_EMPTY_ACCOUNTS = "scan_empty_accounts"  # finds zero-balance token accounts → user recovers rent with close_accounts
     MY_STAKE_ACCOUNTS = "my_stake_accounts"      # lists all native stake accounts for the wallet
