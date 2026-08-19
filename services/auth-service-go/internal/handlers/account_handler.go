@@ -182,6 +182,14 @@ func (h *AccountHandler) HandleUnlink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "You can't remove your primary identity")
 		return
 	}
+	// Wallets are permanently bound to the account — once a Solana and an EVM
+	// wallet are linked they can't be separated (prevents unlink/relink games
+	// that would let someone shuffle wallets between accounts to farm rewards).
+	// Socials (Telegram, Twitter) stay disconnectable.
+	if li.Type == "solana_wallet" || li.Type == "evm_wallet" {
+		writeError(w, http.StatusForbidden, "Linked wallets are permanent and can't be unlinked.")
+		return
+	}
 
 	n, err := h.queries.DeleteIdentityByID(r.Context(), id, accountID)
 	if err != nil {

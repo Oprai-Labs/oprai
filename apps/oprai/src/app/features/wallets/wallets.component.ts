@@ -1,6 +1,5 @@
 import {
-  Component, ElementRef, NgZone, OnDestroy, OnInit,
-  ViewChild, computed, inject, signal,
+  Component, NgZone, OnDestroy, OnInit, computed, inject, signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
@@ -18,9 +17,9 @@ const TYPE_META: Record<string, { label: string; color: string; tint: string }> 
   email: { label: 'Email', color: '#5b5fc7', tint: 'rgba(91,95,199,.12)' },
 };
 
-// The Telegram Login Widget calls a GLOBAL callback with the authorised user.
-const TELEGRAM_BOT = 'Oprai_Labs_Bot';
-const TELEGRAM_CB = 'onOpraiTelegramAuth';
+// Numeric bot id of @Oprai_Labs_Bot (from getMe) — used to open Telegram's
+// OAuth popup. The bot's login domain must be app.oprai.xyz (set in @BotFather).
+const TELEGRAM_BOT_ID = '8820421943';
 
 interface EthProvider {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -35,18 +34,21 @@ interface EvmWallet {
 }
 
 // The biggest EVM wallets — always shown under "More wallets" (minus any already
-// detected), so users see the full list, not only what's installed.
-const INSTALLABLE_EVM: { name: string; url: string }[] = [
-  { name: 'MetaMask', url: 'https://metamask.io/download/' },
-  { name: 'Rabby Wallet', url: 'https://rabby.io/' },
-  { name: 'Coinbase Wallet', url: 'https://www.coinbase.com/wallet/downloads' },
-  { name: 'Trust Wallet', url: 'https://trustwallet.com/download' },
-  { name: 'Rainbow', url: 'https://rainbow.me/' },
-  { name: 'OKX Wallet', url: 'https://www.okx.com/web3' },
-  { name: 'Zerion', url: 'https://zerion.io/download' },
-  { name: 'Phantom', url: 'https://phantom.app/download' },
-  { name: 'Uniswap Wallet', url: 'https://wallet.uniswap.org/' },
-  { name: 'Brave Wallet', url: 'https://brave.com/wallet/' },
+// detected), so users see the full list, not only what's installed. Icons come
+// from DuckDuckGo's favicon service (reliable, CSP allows https images) with a
+// fall back to the generic EVM mark if one fails to load.
+const ICO = (domain: string) => `https://icons.duckduckgo.com/ip3/${domain}.ico`;
+const INSTALLABLE_EVM: { name: string; url: string; icon: string }[] = [
+  { name: 'MetaMask', url: 'https://metamask.io/download/', icon: ICO('metamask.io') },
+  { name: 'Rabby Wallet', url: 'https://rabby.io/', icon: ICO('rabby.io') },
+  { name: 'Coinbase Wallet', url: 'https://www.coinbase.com/wallet/downloads', icon: ICO('coinbase.com') },
+  { name: 'Trust Wallet', url: 'https://trustwallet.com/download', icon: ICO('trustwallet.com') },
+  { name: 'Rainbow', url: 'https://rainbow.me/', icon: ICO('rainbow.me') },
+  { name: 'OKX Wallet', url: 'https://www.okx.com/web3', icon: ICO('okx.com') },
+  { name: 'Zerion', url: 'https://zerion.io/download', icon: ICO('zerion.io') },
+  { name: 'Phantom', url: 'https://phantom.app/download', icon: ICO('phantom.app') },
+  { name: 'Uniswap Wallet', url: 'https://wallet.uniswap.org/', icon: ICO('uniswap.org') },
+  { name: 'Brave Wallet', url: 'https://brave.com/wallet/', icon: ICO('brave.com') },
 ];
 
 
@@ -95,10 +97,12 @@ const INSTALLABLE_EVM: { name: string; url: string }[] = [
                       <button class="wl-iconbtn wl-star" (click)="makePrimary(id)" [disabled]="busy()" title="Make primary">
                         <lucide-icon name="shield-check" [size]="15" />
                       </button>
+                      <span class="wl-primary-lock" title="Wallets are permanently linked — can't be unlinked"><lucide-icon name="lock" [size]="15" /></span>
+                    } @else {
+                      <button class="wl-iconbtn wl-unlink" (click)="unlink(id)" [disabled]="busy()" title="Disconnect">
+                        <lucide-icon name="trash-2" [size]="15" />
+                      </button>
                     }
-                    <button class="wl-iconbtn wl-unlink" (click)="unlink(id)" [disabled]="busy()" title="Unlink">
-                      <lucide-icon name="trash-2" [size]="15" />
-                    </button>
                   } @else {
                     <span class="wl-primary-lock" title="Your primary login wallet"><lucide-icon name="badge-check" [size]="18" /></span>
                   }
@@ -180,14 +184,14 @@ const INSTALLABLE_EVM: { name: string; url: string }[] = [
                 <lucide-icon class="wl-connect-check" name="check" [size]="16" />
               </div>
             } @else {
-              <div class="wl-connect wl-connect-widget">
+              <button class="wl-connect" (click)="connectTelegram()" [disabled]="busy()">
                 <div class="wl-tile" [style.background]="TYPE_META['telegram'].tint"><app-brand-icon type="telegram" [size]="22" /></div>
                 <div class="wl-connect-text">
                   <span class="wl-connect-title">Telegram</span>
                   <span class="wl-connect-sub">Connect</span>
                 </div>
-                <div #tgWidget class="wl-tg-widget"></div>
-              </div>
+                <lucide-icon class="wl-connect-plus" name="plus" [size]="16" />
+              </button>
             }
 
             <!-- X / Twitter -->
@@ -243,7 +247,13 @@ const INSTALLABLE_EVM: { name: string; url: string }[] = [
                 <div class="wallet-list">
                   @for (w of installableEvm(); track w.name) {
                     <button class="wallet-row wallet-row--install" (click)="openInstallUrl(w.url)" [attr.title]="'Install ' + w.name">
-                      <span class="wallet-row-icon" style="display:grid;place-items:center"><app-brand-icon type="evm_wallet" [size]="22" /></span>
+                      <span class="wallet-row-icon" style="display:grid;place-items:center">
+                        @if (!iconFailed().has(w.name)) {
+                          <img [src]="w.icon" [alt]="w.name" width="30" height="30" style="border-radius:8px" (error)="onIconError(w.name)" />
+                        } @else {
+                          <app-brand-icon type="evm_wallet" [size]="22" />
+                        }
+                      </span>
                       <span class="wallet-row-name">{{ w.name }}</span>
                       <span class="wallet-row-install">Install</span>
                     </button>
@@ -333,13 +343,6 @@ export class WalletsComponent implements OnInit, OnDestroy {
   readonly wallet = inject(WalletService);
   private zone = inject(NgZone);
 
-  // Fires when the widget container enters the view (after load resolves and the
-  // @if gates open) — the reliable moment to inject the Telegram script.
-  @ViewChild('tgWidget') set tgWidgetRef(ref: ElementRef<HTMLDivElement> | undefined) {
-    if (ref) { this.tgWidget = ref; this.mountTelegram(); }
-  }
-  private tgWidget?: ElementRef<HTMLDivElement>;
-
   readonly TYPE_META = TYPE_META;
 
   identities = signal<LinkedIdentity[]>([]);
@@ -369,7 +372,7 @@ export class WalletsComponent implements OnInit, OnDestroy {
     this.iconFailed.set(s);
   }
 
-  private tgMounted = false;
+  private tgMessageHandler?: (e: MessageEvent) => void;
 
   ngOnInit(): void { this.load(); }
 
@@ -377,26 +380,35 @@ export class WalletsComponent implements OnInit, OnDestroy {
     // Never leave linking mode armed if the user navigates away mid-flow —
     // otherwise a later wallet switch would silently keep the old session.
     this.wallet.setLinkingMode(false);
-    delete (window as unknown as Record<string, unknown>)[TELEGRAM_CB];
+    if (this.tgMessageHandler) window.removeEventListener('message', this.tgMessageHandler);
   }
 
-  /** Inject the Telegram Login Widget script into its container once. Telegram
-   *  renders its own button (an oauth.telegram.org iframe); on success it calls
-   *  our global callback, which we bounce into the Angular zone. */
-  private mountTelegram(): void {
-    if (this.tgMounted || this.hasTelegram() || !this.tgWidget) return;
-    this.tgMounted = true;
-    (window as unknown as Record<string, unknown>)[TELEGRAM_CB] =
-      (user: Record<string, unknown>) => this.zone.run(() => this.onTelegramAuth(user));
-    const s = document.createElement('script');
-    s.async = true;
-    s.src = 'https://telegram.org/js/telegram-widget.js?22';
-    s.setAttribute('data-telegram-login', TELEGRAM_BOT);
-    s.setAttribute('data-size', 'medium');
-    s.setAttribute('data-radius', '8');
-    s.setAttribute('data-onauth', `${TELEGRAM_CB}(user)`);
-    s.setAttribute('data-request-access', 'write');
-    this.tgWidget.nativeElement.appendChild(s);
+  /** Open Telegram's OAuth popup (bot must have its domain set to app.oprai.xyz
+   *  in @BotFather). On success oauth.telegram.org postMessages the signed user
+   *  back to us; we forward it to the backend, which HMAC-verifies it. A popup
+   *  (vs the embedded widget) gives a real, clickable button with feedback. */
+  connectTelegram(): void {
+    if (this.busy()) return;
+    const origin = window.location.origin;
+    const url = `https://oauth.telegram.org/auth?bot_id=${TELEGRAM_BOT_ID}` +
+      `&origin=${encodeURIComponent(origin)}&request_access=write&return_to=${encodeURIComponent(origin)}`;
+    const wdt = 550, hgt = 500;
+    const left = Math.max(0, (window.screen.width - wdt) / 2);
+    const top = Math.max(0, (window.screen.height - hgt) / 2);
+    const popup = window.open(url, 'oprai_telegram_login', `width=${wdt},height=${hgt},left=${left},top=${top}`);
+    if (!popup) { this.flash('Please allow the popup to connect Telegram.', false); return; }
+
+    if (this.tgMessageHandler) window.removeEventListener('message', this.tgMessageHandler);
+    this.tgMessageHandler = (e: MessageEvent) => {
+      if (e.origin !== 'https://oauth.telegram.org') return;
+      let data: { event?: string; result?: Record<string, unknown> } | null = null;
+      try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+      if (data?.event === 'auth_result' && data.result) {
+        window.removeEventListener('message', this.tgMessageHandler!);
+        this.zone.run(() => this.onTelegramAuth(data!.result!));
+      }
+    };
+    window.addEventListener('message', this.tgMessageHandler);
   }
 
   private onTelegramAuth(user: Record<string, unknown>): void {
