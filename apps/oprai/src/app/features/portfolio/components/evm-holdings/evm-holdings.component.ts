@@ -4,7 +4,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { AccountService } from '../../../../core/services/account.service';
-import { EvmPortfolioService, EvmToken, EvmPosition, EvmTx } from '../../services/evm-portfolio.service';
+import { EvmPortfolioService, EvmToken, EvmPosition, EvmTx, EvmNft } from '../../services/evm-portfolio.service';
 import { AllocationChartComponent, ChartSegment } from '../allocation-chart/allocation-chart.component';
 import { DefiPositionsComponent } from '../defi-positions/defi-positions.component';
 import type { ProtocolPosition, ProtocolCategory } from '../../models/portfolio.models';
@@ -16,6 +16,11 @@ const CHAIN_LABEL: Record<string, string> = {
   ethereum: 'Ethereum', base: 'Base', arbitrum: 'Arbitrum', optimism: 'Optimism', polygon: 'Polygon', bsc: 'BNB', robinhood: 'Robinhood',
 };
 const CHAIN_ORDER = ['ethereum', 'base', 'bsc', 'polygon', 'arbitrum', 'optimism', 'robinhood'];
+const TW_FOLDER: Record<string, string> = {
+  ethereum: 'ethereum', base: 'base', arbitrum: 'arbitrum', optimism: 'optimism', polygon: 'polygon', bsc: 'smartchain',
+};
+const chainLogo = (chain: string) =>
+  `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${TW_FOLDER[chain] || 'ethereum'}/info/logo.png`;
 const ALLOC_COLORS = ['#5b5fc7', '#06b6d4', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444'];
 
 function categoryFor(label: string): ProtocolCategory {
@@ -41,8 +46,8 @@ function categoryFor(label: string): ProtocolCategory {
         <div class="hero">
           <div class="hero-left">
             <div class="hero-row">
-              <div class="hero-avatar">
-                <svg width="22" height="22" viewBox="0 0 256 417" aria-hidden="true"><path fill="#fff" d="M127.9 0l-2.7 9.5v275.7l2.7 2.7 127.9-75.6z"/><path fill="#cfd6f6" d="M127.9 0L0 212.3l127.9 75.6V154.2z"/><path fill="#fff" d="M127.9 312.2l-1.5 1.9v98.2l1.5 4.5L256 236.6z"/><path fill="#cfd6f6" d="M127.9 416.9v-104.7L0 236.6z"/></svg>
+              <div class="hero-avatar" [style.--cc]="chainColor(heroChain())">
+                <img [src]="heroIcon()" [alt]="heroChain()" (error)="hideImg($event)" />
               </div>
               <button class="hero-address" (click)="copyAddr()" title="Copy address">
                 {{ shortAddr(address()) }} <span class="hero-copy">{{ copied() ? '✓' : '⧉' }}</span>
@@ -76,8 +81,28 @@ function categoryFor(label: string): ProtocolCategory {
         <!-- ── Tabs (Portfolio / Transactions) like the Solana view ── -->
         <div class="evm-tabs">
           <button class="evm-tab" [class.on]="evmTab() === 'portfolio'" (click)="evmTab.set('portfolio')">Portfolio</button>
+          <button class="evm-tab" [class.on]="evmTab() === 'nfts'" (click)="evmTab.set('nfts')">NFTs</button>
           <button class="evm-tab" [class.on]="evmTab() === 'transactions'" (click)="evmTab.set('transactions')">Transactions</button>
         </div>
+
+        @if (evmTab() === 'nfts') {
+          @if (visNfts().length === 0) {
+            <div class="evm-empty">No NFTs found on the selected chain{{ chainFilter() === 'all' ? 's' : '' }}.</div>
+          } @else {
+            <div class="nft-grid">
+              @for (n of visNfts(); track n.chain + n.image + n.tokenId) {
+                <div class="nft-card">
+                  <div class="nft-img" [style.--cc]="chainColor(n.chain)">
+                    <img [src]="n.image" [alt]="n.name" loading="lazy" (error)="hideImg($event)" />
+                    <span class="nft-chain-dot" [style.background]="chainColor(n.chain)" [title]="n.chain"></span>
+                  </div>
+                  <div class="nft-name">{{ n.name }}</div>
+                  <div class="nft-coll">{{ n.collection }}</div>
+                </div>
+              }
+            </div>
+          }
+        }
 
         @if (evmTab() === 'portfolio') {
         <!-- ── Active positions & rewards — the exact Solana panel ── -->
@@ -163,10 +188,12 @@ function categoryFor(label: string): ProtocolCategory {
 
     .hero { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:28px 0 12px; flex-wrap:wrap; }
     .hero-row { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
-    .hero-avatar { width:40px; height:40px; border-radius:50%; flex:none; display:grid; place-items:center; background:linear-gradient(135deg,#627eea,#454a75); }
-    .hero-address { display:inline-flex; align-items:center; gap:8px; background:none; border:0; padding:0; cursor:pointer; font-family:ui-monospace,monospace; font-size:.9rem; color:var(--op-text-secondary); }
+    .hero-avatar { width:40px; height:40px; border-radius:50%; flex:none; display:grid; place-items:center; overflow:hidden; background:color-mix(in srgb, var(--cc,#627eea) 20%, transparent); }
+    .hero-avatar img { width:40px; height:40px; border-radius:50%; object-fit:cover; }
+    .hero-address { display:inline-flex; align-items:center; gap:8px; background:none; border:0; padding:0; cursor:pointer; font-family:var(--op-font-display); font-size:14px; font-weight:600; letter-spacing:-0.1px; color:var(--op-text-secondary); }
     .hero-address:hover { color:var(--op-brand,#5b5fc7); }
-    .hero-total { font-size:2.6rem; font-weight:700; color:var(--op-text-primary); letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1; }
+    .hero-total { font-size:42px; font-weight:800; color:var(--op-text-primary); font-family:var(--op-font-display); letter-spacing:-1.5px; font-variant-numeric:tabular-nums; line-height:1.1; }
+    @media (max-width:640px) { .hero-total { font-size:32px; } }
     .hero-sub { font-size:.82rem; color:var(--op-text-secondary); margin-top:6px; }
     .hero-right { flex:none; }
 
@@ -203,8 +230,8 @@ function categoryFor(label: string): ProtocolCategory {
     .tok-r:not(.tok-hr):hover { background:var(--op-bg-surface-2, rgba(125,125,150,.05)); }
     .tok-r + .tok-r { border-top:1px solid var(--op-border, rgba(255,255,255,.05)); }
     .tok-hr { font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.04)); }
-    .tok-num { text-align:right; font-variant-numeric:tabular-nums; font-size:.85rem; color:var(--op-text-primary); }
-    .tok-dim { color:var(--op-text-secondary); } .tok-val { font-weight:600; }
+    .tok-num { text-align:right; font-variant-numeric:tabular-nums; font-size:14px; font-family:var(--op-font-body); color:var(--op-text-primary); }
+    .tok-dim { color:var(--op-text-secondary); } .tok-val { font-weight:700; }
     .tok-name { display:flex; align-items:center; gap:10px; min-width:0; }
     .tok-logo { position:relative; width:32px; height:32px; border-radius:50%; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 18%, transparent); color:var(--op-text-primary); font-size:.58rem; font-weight:700; overflow:visible; }
     .tok-logo-txt { z-index:0; }
@@ -224,6 +251,13 @@ function categoryFor(label: string): ProtocolCategory {
     .evm-tx-cat { font-size:.64rem; text-transform:capitalize; color:var(--op-text-secondary); }
     .evm-tx-failed { font-size:.64rem; font-weight:700; color:#ef4444; text-transform:uppercase; }
     .evm-empty { font-size:.85rem; color:var(--op-text-secondary); padding:16px 2px; }
+    .nft-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; margin-top:14px; }
+    .nft-card { min-width:0; }
+    .nft-img { position:relative; aspect-ratio:1; border-radius:14px; overflow:hidden; background:color-mix(in srgb, var(--cc) 12%, var(--op-bg-surface-2, rgba(125,125,150,.08))); }
+    .nft-img img { width:100%; height:100%; object-fit:cover; display:block; }
+    .nft-chain-dot { position:absolute; right:8px; bottom:8px; width:14px; height:14px; border-radius:50%; border:2px solid var(--op-bg-surface-1); }
+    .nft-name { font-size:.85rem; font-weight:600; color:var(--op-text-primary); margin-top:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .nft-coll { font-size:.74rem; color:var(--op-text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     @media (max-width:640px) { .tok-r { grid-template-columns:1.6fr 1fr 1fr; } .tok-r > :nth-child(4), .tok-r > :nth-child(5) { display:none; } }
   `],
 })
@@ -237,9 +271,10 @@ export class EvmHoldingsComponent implements OnInit {
   tokens = signal<EvmToken[]>([]);
   positions = signal<EvmPosition[]>([]);
   txs = signal<EvmTx[]>([]);
+  nfts = signal<EvmNft[]>([]);
   copied = signal(false);
   showSpam = signal(false);
-  evmTab = signal<'portfolio' | 'transactions'>('portfolio');
+  evmTab = signal<'portfolio' | 'nfts' | 'transactions'>('portfolio');
   chainFilter = signal<string>('all');
   // Driven by the portfolio's top chain switcher: 'all' or a specific chain.
   @Input() set chain(c: string | null | undefined) { this.chainFilter.set(c || 'all'); }
@@ -263,6 +298,7 @@ export class EvmHoldingsComponent implements OnInit {
     this.tokens().filter((t) => this.chainMatch(t.chain) && (this.showSpam() || !t.spam)));
   visPositions = computed(() => this.positions().filter((p) => this.chainMatch(p.chain)));
   visTxs = computed(() => this.txs().filter((t) => this.chainMatch(t.chain)));
+  visNfts = computed(() => this.nfts().filter((n) => this.chainMatch(n.chain)));
 
   walletUsd = computed(() => this.visTokens().filter((t) => !t.spam).reduce((s, t) => s + (t.valueUsd || 0), 0));
   positionsUsd = computed(() => this.visPositions().reduce((s, p) => s + (p.balanceUsd || 0), 0));
@@ -335,6 +371,7 @@ export class EvmHoldingsComponent implements OnInit {
               portfolio: this.evm.getPortfolio(addr).pipe(catchError(() => of({ address: addr, totalUsd: 0, tokens: [] }))),
               positions: this.evm.getPositions(addr).pipe(catchError(() => of({ address: addr, totalUsd: 0, positions: [] }))),
               transactions: this.evm.getTransactions(addr).pipe(catchError(() => of({ address: addr, transactions: [] }))),
+              nfts: this.evm.getNfts(addr).pipe(catchError(() => of({ address: addr, nfts: [] }))),
             }),
           ),
         )
@@ -342,11 +379,13 @@ export class EvmHoldingsComponent implements OnInit {
             tokens: results.flatMap((r) => r.portfolio.tokens || []).sort((a, b) => b.valueUsd - a.valueUsd),
             positions: results.flatMap((r) => r.positions.positions || []).sort((a, b) => b.balanceUsd - a.balanceUsd),
             txs: results.flatMap((r) => r.transactions.transactions || []).sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, 25),
+            nfts: results.flatMap((r) => r.nfts.nfts || []),
           })))
-          .subscribe(({ tokens, positions, txs }) => {
+          .subscribe(({ tokens, positions, txs, nfts }) => {
             this.tokens.set(tokens);
             this.positions.set(positions);
             this.txs.set(txs);
+            this.nfts.set(nfts);
             this.loading.set(false);
           });
       },
@@ -354,6 +393,8 @@ export class EvmHoldingsComponent implements OnInit {
     });
   }
 
+  heroChain(): string { const c = this.chainFilter(); return c === 'all' ? 'ethereum' : c; }
+  heroIcon(): string { return chainLogo(this.heroChain()); }
   chainColor(chain: string): string { return CHAIN_COLOR[chain] ?? '#7e8298'; }
   chainLabel(chain: string): string { return CHAIN_LABEL[chain] ?? chain; }
   setChainFilter(c: string): void { this.chainFilter.set(c); }

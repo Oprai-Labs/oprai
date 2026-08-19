@@ -65,6 +65,19 @@ export interface EvmTransactions {
   transactions: EvmTx[];
 }
 
+export interface EvmNft {
+  chain: string;
+  name: string;
+  collection: string;
+  image: string;
+  tokenId: string;
+}
+
+export interface EvmNfts {
+  address: string;
+  nfts: EvmNft[];
+}
+
 /**
  * EVM wallet holdings via the gateway (backed by Alchemy's multichain Data API).
  * One call per linked EVM wallet returns balances + USD across ETH, Base,
@@ -86,5 +99,10 @@ export class EvmPortfolioService {
   /** Recent transactions, platform-labeled (which app each tx touched), across chains. */
   getTransactions(address: string): Observable<EvmTransactions> {
     return this.api.get<EvmTransactions>(`/market/evm/transactions?address=${encodeURIComponent(address)}`);
+  }
+
+  /** NFTs across chains (spam dropped). */
+  getNfts(address: string): Observable<EvmNfts> {
+    return this.api.get<EvmNfts>(`/market/evm/nfts?address=${encodeURIComponent(address)}`);
   }
 }
