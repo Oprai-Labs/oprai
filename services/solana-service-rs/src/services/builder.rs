@@ -2356,6 +2356,22 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
                 })?;
             meteora::validate_meteora_dammv2_get_pool_params(&p)
         }
+        // Read-only. Listed here as well as at the dispatcher below because
+        // `validate_action` runs first and rejects anything it does not
+        // recognise — the same omission that made `native_stake` unreachable
+        // for as long as it was missing from this list.
+        "meteora_dammv2_best_pool" => {
+            let p: meteora::MeteoraDammV2BestPoolParams = serde_json::from_value(params.clone())
+                .map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid meteora_dammv2_best_pool params: {e}"))
+                })?;
+            if p.pool.is_none() && (p.mint_a.is_none() || p.mint_b.is_none()) {
+                return Err(AppError::InvalidParams(
+                    "meteora_dammv2_best_pool needs pool, or both mintA and mintB".into(),
+                ));
+            }
+            Ok(())
+        }
         "meteora_dammv2_get_pool_ohlcv" => {
             let p: meteora::MeteoraDammV2GetPoolOhlcvParams =
                 serde_json::from_value(params.clone()).map_err(|e| {
@@ -6650,5 +6666,101 @@ fn serialize_stake_response(
 impl From<serde_json::Error> for AppError {
     fn from(e: serde_json::Error) -> Self {
         AppError::InvalidParams(format!("JSON error: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod dispatch_coverage_tests {
+    /// Every action the dispatcher can build must survive `validate_action`.
+    ///
+    /// The two are separate match statements over the same set of strings, and
+    /// validate runs first. An action in only one of them is not a warning or
+    /// a wrong answer — it is silently unreachable, and the caller is told
+    /// "Unsupported action type" for something implemented in full a few
+    /// thousand lines below. `native_stake` shipped that way, and
+    /// `meteora_dammv2_best_pool` repeated it the day this test was written.
+    ///
+    /// The check is behavioural, not textual: the source is read only to
+    /// enumerate candidate names, then each is put through the real
+    /// `validate_action`. Comparing the two match blocks as text looked
+    /// simpler and reported seven actions as dead that are reachable through
+    /// grouped arms — a test that cries wolf is worse than no test.
+    fn dispatch_arm_names(src: &str) -> Vec<String> {
+        let start = src
+            .find("async fn build_action_inner(")
+            .expect("dispatcher present in source");
+        let body = &src[start..];
+        let mut depth = 0usize;
+        let mut end = body.len();
+        for (i, c) in body.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Only the arms of the outer `match action_type`, identified by their
+        // indentation. Without that the scan also picks up string literals
+        // from the nested matches inside individual arms, and reports names
+        // like "add" and "kamino" as dead actions.
+        const ARM_INDENT: usize = 8;
+        let mut out = Vec::new();
+        for line in body[..end].lines() {
+            if line.len() - line.trim_start_matches(' ').len() != ARM_INDENT {
+                continue;
+            }
+            let t = line.trim();
+            if !(t.contains("=>") || t.starts_with('|')) {
+                continue;
+            }
+            let candidate = t.strip_prefix('|').unwrap_or(t).trim();
+            if let Some(name) = candidate.strip_prefix('"').and_then(|r| r.split('"').next()) {
+                if !name.is_empty() && !name.contains(' ') {
+                    out.push(name.to_string());
+                }
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    #[test]
+    fn every_dispatched_action_is_reachable() {
+        let src = include_str!("builder.rs");
+        let names = dispatch_arm_names(src);
+        assert!(
+            names.len() > 50,
+            "parsed only {} dispatch arms — the parser has drifted from the source \
+             and this test is no longer checking anything",
+            names.len()
+        );
+
+        // Empty params: most actions fail their own validation here, which is
+        // fine. The only verdict that matters is whether validate_action knows
+        // the action exists at all.
+        let unreachable: Vec<&String> = names
+            .iter()
+            .filter(|a| {
+                matches!(
+                    super::validate_action(a, &serde_json::json!({})),
+                    Err(crate::error::AppError::InvalidParams(ref m))
+                        if m.starts_with("Unsupported action type")
+                )
+            })
+            .collect();
+
+        assert!(
+            unreachable.is_empty(),
+            "these actions can be built but validate_action rejects them outright, \
+             so every call returns \"Unsupported action type\": {unreachable:?}"
+        );
     }
 }
