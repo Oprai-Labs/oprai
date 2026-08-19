@@ -79,14 +79,25 @@ pub fn validate_token_strategies_params(p: &TokenStrategiesParams) -> Result<(),
 }
 
 /// Rent for a set of account sizes, asked of the chain, in SOL.
+///
+/// Run on a blocking thread: this RPC client is the synchronous one, and
+/// calling it straight from an actix worker panics with "can call blocking
+/// only when running on the multi-threaded runtime" — which it duly did.
 async fn rent_sol(rpc: &SolanaRpc, sizes: &[usize]) -> Option<f64> {
-    let mut total = 0u64;
-    for &size in sizes {
+    let rpc = rpc.clone();
+    let sizes: Vec<usize> = sizes.to_vec();
+    tokio::task::spawn_blocking(move || {
         let client = rpc.client();
-        let lamports = client.get_minimum_balance_for_rent_exemption(size).ok()?;
-        total = total.checked_add(lamports)?;
-    }
-    Some(total as f64 / 1e9)
+        let mut total = 0u64;
+        for size in sizes {
+            let lamports = client.get_minimum_balance_for_rent_exemption(size).ok()?;
+            total = total.checked_add(lamports)?;
+        }
+        Some(total as f64 / 1e9)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 fn num(v: Option<&serde_json::Value>) -> f64 {
