@@ -1309,7 +1309,7 @@
 
               <!-- Preset chips -->
               <div class="clmm-presets">
-                @for (preset of CLMM_RANGE_PRESETS; track preset.label) {
+                @for (preset of CLMM_RANGE_PRESETS(); track preset.label) {
                   <!-- A range the wallet cannot fund is still shown, with what
                        it would cost. Hiding it would leave the user wondering
                        where the wider ranges went, and the number is the thing

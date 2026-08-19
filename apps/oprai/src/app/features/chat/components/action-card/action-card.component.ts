@@ -4528,14 +4528,48 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Preset buttons rendered under the min/max inputs. `Full` opens the
    *  widest practical range — Raydium itself caps at ±100x, but for a UI
    *  hint a 100x window is "effectively full" without breaking the math. */
-  readonly CLMM_RANGE_PRESETS: ReadonlyArray<{ label: string; pct: number }> = [
+  /**
+   * Fallback bands, used only when the pool does not state its own.
+   *
+   * They are wrong for half the pools that exist, which is why they are no
+   * longer the first choice: on a stablecoin or LST pair the narrowest option
+   * here is ±0.5%, and Raydium's own config asks for ±0.1%. Selecting the
+   * widest affordable out of this list — what the card used to do — put a
+   * USDC/USDT deposit in a ±20% band, two hundred times wider than the pool
+   * is built for, where it earns almost nothing.
+   */
+  private readonly CLMM_FALLBACK_PRESETS: ReadonlyArray<{ label: string; pct: number }> = [
     { label: '±0.5%', pct: 0.5 },
     { label: '±1%',   pct: 1   },
     { label: '±5%',   pct: 5   },
     { label: '±10%',  pct: 10  },
     { label: '±20%',  pct: 20  },
-    { label: 'Full',  pct: 9900 }, // ~ ±100x, treated as "full range" preset
   ];
+
+  /**
+   * The bands offered for this pool, taken from the pool itself when it says.
+   *
+   * Raydium ships `defaultRangePoint` per pool config, and it already encodes
+   * the distinction that matters: SOL/USDC and BONK/SOL offer 1/5/10/20/50%,
+   * while USDC/USDT and JitoSOL/SOL offer 0.1/0.3/0.5/0.8/1%. A correlated
+   * pair wants a band a hundred times tighter than a volatile one, and the
+   * protocol has already worked that out per fee tier — deriving it ourselves
+   * from price history would be guessing at an answer we are handed.
+   */
+  readonly CLMM_RANGE_PRESETS = computed<ReadonlyArray<{ label: string; pct: number }>>(() => {
+    const raw = (this.editParams()['rangePoints'] ?? '').trim();
+    const pts = raw
+      .split(',')
+      .map(s => parseFloat(s))
+      .filter(n => Number.isFinite(n) && n > 0);
+    const base = pts.length
+      ? pts.map(pct => ({ label: `±${pct >= 1 ? pct : pct.toFixed(1)}%`, pct }))
+      : [...this.CLMM_FALLBACK_PRESETS];
+    // ~±100x, treated as "full range" — always offered, never chosen for the
+    // user: it is the one band that cannot go stale, and the one that earns
+    // the least.
+    return [...base, { label: 'Full', pct: 9900 }];
+  });
 
   /**
    * What each preset would cost to open, keyed by pct. Empty until the
@@ -4566,7 +4600,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!poolId || !(price > 0)) return;
     if (this._rangeCostsForPool === poolId) return;
     this._rangeCostsForPool = poolId;
-    const presets = this.CLMM_RANGE_PRESETS.filter(p => p.pct < 9900);
+    const presets = this.CLMM_RANGE_PRESETS().filter(p => p.pct < 9900);
     const ranges = presets.map(p => ({
       minPrice: price * (1 - p.pct / 100),
       maxPrice: price * (1 + p.pct / 100),
@@ -4598,8 +4632,30 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       // bad default this replaces.
       if (this.clmmRangeTouched) return;
       const affordable = presets.filter(p => byPct.get(p.pct)?.affordable);
-      const best = affordable.length ? affordable[affordable.length - 1] : null;
-      if (best && best.pct !== this.clmmActiveRangePct()) {
+      if (!affordable.length) return;
+
+      // Aim at the band the pool was built for, not at the widest one the
+      // wallet happens to be able to pay for. Widest-affordable was the right
+      // fix for a wallet that could not open a position at all, but it is the
+      // wrong target: on a stablecoin pool it lands a deposit two hundred
+      // times wider than the pool's own recommendation, where it collects
+      // almost no fees and the money simply sits there.
+      const recommended = parseFloat(this.editParams()['recommendedRangePct'] ?? '');
+      let best: { label: string; pct: number };
+      if (Number.isFinite(recommended) && recommended > 0) {
+        // Closest to the recommendation; on a tie prefer the wider one, since
+        // a band that is slightly too wide goes stale later than one that is
+        // slightly too narrow.
+        best = affordable.reduce((a, b) => {
+          const da = Math.abs(a.pct - recommended);
+          const db = Math.abs(b.pct - recommended);
+          return db < da || (db === da && b.pct > a.pct) ? b : a;
+        });
+      } else {
+        // No recommendation from the pool: fall back to the old rule.
+        best = affordable[affordable.length - 1];
+      }
+      if (best.pct !== this.clmmActiveRangePct()) {
         this.applyClmmRangePreset(best.pct, false);
       }
     } catch {
@@ -6033,6 +6089,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (!patched['tokenBSymbol']) patched['tokenBSymbol'] = mintB.symbol ?? 'B';
       if (!patched['tokenADecimals']) patched['tokenADecimals'] = String(mintA.decimals ?? 9);
       if (!patched['tokenBDecimals']) patched['tokenBDecimals'] = String(mintB.decimals ?? 9);
+
+      // The pool's own view of how wide a position here should be. Raydium
+      // sets this per fee tier and it carries the whole correlated-versus-
+      // volatile distinction: 1/5/10/20/50% on SOL/USDC and BONK/SOL,
+      // 0.1/0.3/0.5/0.8/1% on USDC/USDT and JitoSOL/SOL. Ratios in the API,
+      // percentages here.
+      const cfg = (pool as { config?: { defaultRange?: number; defaultRangePoint?: number[] } }).config;
+      const pts = (cfg?.defaultRangePoint ?? [])
+        .map(n => Number(n) * 100)
+        .filter(n => Number.isFinite(n) && n > 0);
+      if (pts.length) patched['rangePoints'] = pts.join(',');
+      const rec = Number(cfg?.defaultRange) * 100;
+      if (Number.isFinite(rec) && rec > 0) patched['recommendedRangePct'] = String(rec);
       const price = typeof pool.price === 'number' ? pool.price : parseFloat(pool.price ?? '');
       if (!patched['currentPrice'] && Number.isFinite(price) && price > 0) {
         patched['currentPrice'] = String(price);
