@@ -83,7 +83,7 @@ const INSTALLABLE_EVM: { name: string; url: string }[] = [
                 </div>
                 <div class="wl-actions">
                   @if (!id.isPrimary) {
-                    @if (id.type === 'solana_wallet') {
+                    @if (id.type === 'solana_wallet' || id.type === 'evm_wallet') {
                       <button class="wl-iconbtn wl-star" (click)="makePrimary(id)" [disabled]="busy()" title="Make primary">
                         <lucide-icon name="shield-check" [size]="15" />
                       </button>
@@ -128,25 +128,38 @@ const INSTALLABLE_EVM: { name: string; url: string }[] = [
           <div class="wl-card-top"><span class="wl-lbl">Add to your account</span></div>
 
           <div class="wl-connect-grid">
-            <!-- Solana -->
-            <button class="wl-connect" (click)="startLink()" [disabled]="busy() || linkActive() || !wallet.connected()">
-              <div class="wl-tile" [style.background]="TYPE_META['solana_wallet'].tint"><app-brand-icon type="solana_wallet" [size]="22" /></div>
-              <div class="wl-connect-text">
-                <span class="wl-connect-title">Solana wallet</span>
-                <span class="wl-connect-sub">Link another</span>
-              </div>
-              <lucide-icon class="wl-connect-plus" name="plus" [size]="16" />
-            </button>
+            <!-- Solana — only when the account has no Solana wallet yet -->
+            @if (!hasSolana()) {
+              <button class="wl-connect" (click)="startLink()" [disabled]="busy() || linkActive() || !wallet.connected()">
+                <div class="wl-tile" [style.background]="TYPE_META['solana_wallet'].tint"><app-brand-icon type="solana_wallet" [size]="22" /></div>
+                <div class="wl-connect-text">
+                  <span class="wl-connect-title">Solana wallet</span>
+                  <span class="wl-connect-sub">Connect</span>
+                </div>
+                <lucide-icon class="wl-connect-plus" name="plus" [size]="16" />
+              </button>
+            }
 
-            <!-- Ethereum -->
-            <button class="wl-connect" (click)="openEvmModal()" [disabled]="busy()">
-              <div class="wl-tile" [style.background]="TYPE_META['evm_wallet'].tint"><app-brand-icon type="evm_wallet" [size]="22" /></div>
-              <div class="wl-connect-text">
-                <span class="wl-connect-title">Ethereum wallet</span>
-                <span class="wl-connect-sub">MetaMask &amp; more</span>
+            <!-- Ethereum — one per account -->
+            @if (!hasEvm()) {
+              <button class="wl-connect" (click)="openEvmModal()" [disabled]="busy()">
+                <div class="wl-tile" [style.background]="TYPE_META['evm_wallet'].tint"><app-brand-icon type="evm_wallet" [size]="22" /></div>
+                <div class="wl-connect-text">
+                  <span class="wl-connect-title">Ethereum wallet</span>
+                  <span class="wl-connect-sub">MetaMask &amp; more</span>
+                </div>
+                <lucide-icon class="wl-connect-plus" name="plus" [size]="16" />
+              </button>
+            } @else {
+              <div class="wl-connect wl-connect-done">
+                <div class="wl-tile" [style.background]="TYPE_META['evm_wallet'].tint"><app-brand-icon type="evm_wallet" [size]="22" /></div>
+                <div class="wl-connect-text">
+                  <span class="wl-connect-title">Ethereum wallet</span>
+                  <span class="wl-connect-sub">Connected</span>
+                </div>
+                <lucide-icon class="wl-connect-check" name="check" [size]="16" />
               </div>
-              <lucide-icon class="wl-connect-plus" name="plus" [size]="16" />
-            </button>
+            }
 
             <!-- Telegram -->
             @if (hasTelegram()) {
@@ -329,6 +342,8 @@ export class WalletsComponent implements OnInit, OnDestroy {
   linkActive = signal(false);
   primaryAddress = signal<string>('');
   hasTelegram = computed(() => this.identities().some((i) => i.type === 'telegram'));
+  hasSolana = computed(() => this.identities().some((i) => i.type === 'solana_wallet'));
+  hasEvm = computed(() => this.identities().some((i) => i.type === 'evm_wallet'));
   evmModalOpen = signal(false);
   detectedEvm = signal<EvmWallet[]>([]);
 
