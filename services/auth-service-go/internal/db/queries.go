@@ -223,10 +223,9 @@ func (q *Queries) SetPrimaryIdentity(ctx context.Context, accountID, id string) 
 
 	li := q.table("linked_identities")
 	var typ, identifier string
-	var chain pgtype.Text
 	err = tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT type, identifier, chain FROM %s WHERE id = $1 AND account_id = $2 FOR UPDATE`, li),
-		id, accountID).Scan(&typ, &identifier, &chain)
+		fmt.Sprintf(`SELECT type, identifier FROM %s WHERE id = $1 AND account_id = $2 FOR UPDATE`, li),
+		id, accountID).Scan(&typ, &identifier)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return "", pgx.ErrNoRows
@@ -236,13 +235,11 @@ func (q *Queries) SetPrimaryIdentity(ctx context.Context, accountID, id string) 
 	if typ != "solana_wallet" && typ != "evm_wallet" {
 		return "", errNonWalletPrimary
 	}
-	newChain := "solana"
-	if chain.Valid && chain.String != "" {
-		newChain = chain.String
-	} else if typ == "evm_wallet" {
-		newChain = "ethereum"
-	}
 
+	// Only flip the is_primary flag — the "primary" is a canonical/display
+	// marker. Deliberately DON'T repoint users.wallet_address: that column keys
+	// the account for every GetUserByWallet lookup (the wallet the user signs in
+	// with), so moving it would orphan the signed-in wallet's resolution.
 	if _, err = tx.Exec(ctx,
 		fmt.Sprintf(`UPDATE %s SET is_primary = false WHERE account_id = $1 AND is_primary = true`, li),
 		accountID); err != nil {
@@ -251,11 +248,6 @@ func (q *Queries) SetPrimaryIdentity(ctx context.Context, accountID, id string) 
 	if _, err = tx.Exec(ctx,
 		fmt.Sprintf(`UPDATE %s SET is_primary = true WHERE id = $1`, li), id); err != nil {
 		return "", fmt.Errorf("SetPrimaryIdentity promote: %w", err)
-	}
-	if _, err = tx.Exec(ctx,
-		fmt.Sprintf(`UPDATE %s SET wallet_address = $1, chain = $2, updated_at = now() WHERE id = $3`, q.table("users")),
-		identifier, newChain, accountID); err != nil {
-		return "", fmt.Errorf("SetPrimaryIdentity repoint wallet: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("SetPrimaryIdentity commit: %w", err)

@@ -36,6 +36,17 @@ func (h *AccountHandler) resolveAccount(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return "", ""
 	}
+	// Resolve the account via the SIGNED-IN wallet's identity, not
+	// users.wallet_address. The primary (which wallet_address tracks) can point
+	// at a DIFFERENT wallet than the one the caller signed in with — e.g. after
+	// a set-primary, or when signing in with a secondary wallet — and that must
+	// still resolve to the same account.
+	for _, typ := range []string{"solana_wallet", "evm_wallet"} {
+		if id, err := h.queries.GetIdentityByTypeIdentifier(r.Context(), typ, wallet); err == nil && id != nil {
+			return id.AccountID, wallet
+		}
+	}
+	// Legacy fallback (wallet predates linked_identities backfill).
 	user, err := h.queries.GetUserByWallet(r.Context(), wallet)
 	if err != nil {
 		slog.Error("account: get user by wallet failed", "error", err)
