@@ -303,3 +303,59 @@
     font-size: 11px;
   }
 }
+
+// Multichain address switcher — segmented control (one wallet per chain).
+.chain-switch {
+  display: flex;
+  gap: 8px;
+  margin: 20px 0 4px;
+  flex-wrap: wrap;
+}
+.chain-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border: 1px solid var(--op-border, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  background: transparent;
+  color: var(--op-text-primary);
+  cursor: pointer;
+  transition: all 0.14s;
+
+  &:hover {
+    border-color: var(--op-brand, #5b5fc7);
+  }
+  &.active {
+    border-color: var(--op-brand, #5b5fc7);
+    background: color-mix(in srgb, var(--op-brand, #5b5fc7) 10%, transparent);
+  }
+}
+.chain-opt-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.2;
+}
+.chain-opt-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chain-opt-addr {
+  font-size: 0.72rem;
+  color: var(--op-text-secondary);
+  font-family: ui-monospace, monospace;
+}
+.chain-primary {
+  font-size: 0.56rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #22c55e;
+  background: color-mix(in srgb, #22c55e 16%, transparent);
+  padding: 1px 6px;
+  border-radius: 5px;
+}

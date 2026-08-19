@@ -88,59 +88,79 @@
       </div>
     } @else if (summary()) {
       <div class="portfolio-sections content-fade-in">
-        <!-- Overview: Total value + 24h change + protocol cards + allocation chart -->
-        <app-portfolio-overview
-          [summary]="summary()!"
-          [defiPositions]="defiPositions()"
-          [protocolPositions]="protocolPositions()"
-          [portfolioChange]="portfolioChange()"
-          [positionsLoading]="!positionsSettled()"
-        />
-
-        <!-- Cross-protocol claimable rewards summary — hidden when nothing
-             is claimable so it doesn't clutter the dashboard. -->
-        <app-claimable-rewards [protocolPositions]="protocolPositions()" />
-
-        <!-- Tab Navigation -->
-        <app-portfolio-tabs
-          [activeTab]="activeTab()"
-          (tabChange)="onTabChange($event)"
-        />
-
-        <!-- Tab Content -->
-        @switch (activeTab()) {
-          @case ('portfolio') {
-            <!-- Tokens table first, then each DeFi protocol detail section
-                 stacked below — single Portfolio surface, no separate
-                 DeFi tab. -->
-            <app-token-list
-              [tokens]="summary()!.tokens"
-              [solBalance]="summary()!.solBalance"
-              (openAccountsManager)="openAccountsModal()"
-            />
-            <!-- EVM holdings of any linked Ethereum/L2 wallet (self-contained;
-                 renders nothing when no EVM wallet is linked). -->
-            <app-evm-holdings />
-            <app-defi-positions
-              [positions]="defiPositions()"
-              [protocolPositions]="protocolPositions()"
-              [loading]="protocolPositionsLoading()"
-            />
-          }
-          @case ('nfts') {
-            <app-nft-gallery
-              [nfts]="nfts()"
-              [collections]="nftCollections()"
-              [loadingState]="nftLoadingState()"
-            />
-          }
+        <!-- Multichain address switcher — one wallet per chain, shown only when
+             the account has an EVM wallet linked. Both views stay mounted so a
+             switch is instant (each preloaded in the background). -->
+        @if (hasEvm()) {
+          <div class="chain-switch">
+            <button class="chain-opt" [class.active]="activeChain() === 'solana'" (click)="setChain('solana')">
+              <app-brand-icon type="solana_wallet" [size]="18" />
+              <span class="chain-opt-text">
+                <span class="chain-opt-name">Solana @if (primaryChain() === 'solana') { <span class="chain-primary">Primary</span> }</span>
+                <span class="chain-opt-addr">{{ shortAddr(solanaAddr()) }}</span>
+              </span>
+            </button>
+            <button class="chain-opt" [class.active]="activeChain() === 'ethereum'" (click)="setChain('ethereum')">
+              <app-brand-icon type="evm_wallet" [size]="18" />
+              <span class="chain-opt-text">
+                <span class="chain-opt-name">Ethereum @if (primaryChain() === 'ethereum') { <span class="chain-primary">Primary</span> }</span>
+                <span class="chain-opt-addr">{{ shortAddr(evmAddr()) }}</span>
+              </span>
+            </button>
+          </div>
         }
 
-        <!-- History: always alive (hidden when not active) to keep signal subscriptions active -->
-        <app-recent-activity
-          [style.display]="activeTab() === 'history' ? '' : 'none'"
-          (loadMore)="loadMoreHistory()"
-        />
+        <!-- ── Solana view ──────────────────────────────────────── -->
+        <div [style.display]="activeChain() === 'solana' ? '' : 'none'">
+          <app-portfolio-overview
+            [summary]="summary()!"
+            [defiPositions]="defiPositions()"
+            [protocolPositions]="protocolPositions()"
+            [portfolioChange]="portfolioChange()"
+            [positionsLoading]="!positionsSettled()"
+          />
+
+          <app-claimable-rewards [protocolPositions]="protocolPositions()" />
+
+          <app-portfolio-tabs
+            [activeTab]="activeTab()"
+            (tabChange)="onTabChange($event)"
+          />
+
+          @switch (activeTab()) {
+            @case ('portfolio') {
+              <app-token-list
+                [tokens]="summary()!.tokens"
+                [solBalance]="summary()!.solBalance"
+                (openAccountsManager)="openAccountsModal()"
+              />
+              <app-defi-positions
+                [positions]="defiPositions()"
+                [protocolPositions]="protocolPositions()"
+                [loading]="protocolPositionsLoading()"
+              />
+            }
+            @case ('nfts') {
+              <app-nft-gallery
+                [nfts]="nfts()"
+                [collections]="nftCollections()"
+                [loadingState]="nftLoadingState()"
+              />
+            }
+          }
+
+          <app-recent-activity
+            [style.display]="activeTab() === 'history' ? '' : 'none'"
+            (loadMore)="loadMoreHistory()"
+          />
+        </div>
+
+        <!-- ── Ethereum view (always mounted → preloaded; shown when active) ── -->
+        @if (hasEvm()) {
+          <div [style.display]="activeChain() === 'ethereum' ? '' : 'none'">
+            <app-evm-holdings />
+          </div>
+        }
       </div>
     }
   </main>

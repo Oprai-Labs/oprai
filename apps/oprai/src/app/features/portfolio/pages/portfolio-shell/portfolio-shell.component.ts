@@ -1,7 +1,9 @@
-import { Component, inject, effect, OnDestroy, signal } from '@angular/core';
+import { Component, inject, effect, OnDestroy, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { WalletService } from '@core/services/wallet.service';
+import { AccountService } from '@core/services/account.service';
+import { BrandIconComponent } from '../../../wallets/brand-icon.component';
 import { SkeletonTableComponent } from '@shared/components/skeletons/skeleton-table.component';
 import { PortfolioService } from '../../services/portfolio.service';
 import { PortfolioOverviewComponent } from '../../components/portfolio-overview/portfolio-overview.component';
@@ -42,6 +44,7 @@ const ETH_LOGO_URI = '/assets/coins/eth.svg';
     TokenListComponent,
     DefiPositionsComponent,
     EvmHoldingsComponent,
+    BrandIconComponent,
     NftGalleryComponent,
     RecentActivityComponent,
     ClaimableRewardsComponent,
@@ -77,7 +80,45 @@ export class PortfolioShellComponent implements OnDestroy {
 
   private benchmarkInterval: ReturnType<typeof setInterval> | null = null;
   private readonly walletService = inject(WalletService);
+  private readonly account = inject(AccountService);
   readonly portfolioService = inject(PortfolioService);
+
+  // ── Multichain address switcher ─────────────────────────────────────────
+  // The account's linked wallets (one per chain). The portfolio shows ONE at a
+  // time; both preload so switching is instant. Default = the primary wallet.
+  readonly solanaAddr = signal<string | null>(null);
+  readonly evmAddr = signal<string | null>(null);
+  readonly primaryChain = signal<'solana' | 'ethereum'>('solana');
+  readonly activeChain = signal<'solana' | 'ethereum'>('solana');
+  readonly hasEvm = computed(() => !!this.evmAddr());
+  private accountLoaded = false;
+
+  private loadAccountWallets(): void {
+    if (this.accountLoaded) return;
+    this.accountLoaded = true;
+    this.account.getMe().subscribe({
+      next: (me) => {
+        const ids = me.identities || [];
+        this.solanaAddr.set(ids.find((i) => i.type === 'solana_wallet')?.identifier ?? null);
+        this.evmAddr.set(ids.find((i) => i.type === 'evm_wallet')?.identifier ?? null);
+        const primary = ids.find((i) => i.isPrimary);
+        const pc = primary?.type === 'evm_wallet' ? 'ethereum' : 'solana';
+        this.primaryChain.set(pc);
+        // Default the view to the primary chain (only if that wallet exists).
+        this.activeChain.set(pc === 'ethereum' && this.evmAddr() ? 'ethereum' : 'solana');
+      },
+      error: () => { this.accountLoaded = false; },
+    });
+  }
+
+  setChain(chain: 'solana' | 'ethereum'): void {
+    this.activeChain.set(chain);
+  }
+
+  shortAddr(a: string | null): string {
+    if (!a) return '';
+    return a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a;
+  }
 
   readonly connected = this.walletService.connected;
   readonly publicKey = this.walletService.publicKey;
@@ -130,6 +171,9 @@ export class PortfolioShellComponent implements OnDestroy {
     const key = this.publicKey();
     if (key) {
       this.portfolioService.loadPortfolio(key);
+      // Resolve the account's linked wallets so the address switcher can offer
+      // the EVM view (loads asynchronously — no signal write inside the effect).
+      this.loadAccountWallets();
     } else {
       this.portfolioService.reset();
     }
