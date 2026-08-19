@@ -414,6 +414,7 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     # questions alike, since the answer spans lending, LP and staking.
     "token_strategies":      _A({"analysis", "portfolio", "staking", "lending"}),
     "strategy_flows":        _A({"analysis", "staking", "lending"}),
+    "wallet_strategies":     _A({"analysis", "portfolio", "staking", "lending"}),
     "marinade_list_tickets":  _A({"staking", "marinade", "portfolio"}),
     # Birdeye
     "birdeye_price":            _A({"always", "price"}),

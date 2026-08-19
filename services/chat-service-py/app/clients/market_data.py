@@ -2112,6 +2112,91 @@ async def strategy_flows(usdValue: str = "", mint: str = "") -> dict:
     return await _solana_action_data("strategy_flows", params)
 
 
+# SOL a wallet must keep back. Every action costs a network fee and most lock
+# rent in accounts, so a wallet emptied into a position cannot open, close or
+# rescue anything afterwards. Measured against real opens: 0.0099 SOL for a
+# DAMM v2 position, 0.047 for a DLMM one. Half a tenth of a SOL covers a few
+# of those with room left.
+_SOL_RESERVE = 0.05
+_SOL_MINT = "So11111111111111111111111111111111111111112"
+
+
+async def wallet_strategies(wallet: str, minUsd: str = "5") -> dict:
+    """What this whole wallet could do, in one answer.
+
+    token_strategies answers for one mint, which makes someone holding four
+    things ask four questions and get four answers that know nothing about each
+    other. This reads the wallet, prices it, and asks about each holding worth
+    bothering with.
+
+    Two things it will not do. It keeps SOL back for fees rather than
+    recommending the wallet be emptied into a position it could then not close.
+    And it drops dust: a holding worth a dollar cannot carry the cost of any
+    position, so offering options for it is noise dressed as advice.
+    """
+    try:
+        floor = float(minUsd)
+    except (TypeError, ValueError):
+        floor = 5.0
+
+    tokens = await helius_wallet_tokens(wallet)
+    holdings: dict[str, float] = {}
+    if isinstance(tokens, list):
+        for acc in tokens:
+            info = ((acc or {}).get("account", {}).get("data", {}).get("parsed", {}) or {}).get("info", {})
+            mint = info.get("mint")
+            amt = ((info.get("tokenAmount") or {}).get("uiAmount")) or 0
+            if mint and amt:
+                holdings[mint] = holdings.get(mint, 0.0) + float(amt)
+
+    # Native SOL is not a token account and would otherwise be missed entirely.
+    sol_balance = 0.0
+    try:
+        res = await _post(HELIUS_RPC, {
+            "jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [wallet],
+        })
+        sol_balance = float(((res or {}).get("result") or {}).get("value") or 0) / 1e9
+    except Exception:
+        pass
+    deployable_sol = max(0.0, sol_balance - _SOL_RESERVE)
+    if deployable_sol > 0:
+        holdings[_SOL_MINT] = holdings.get(_SOL_MINT, 0.0) + deployable_sol
+
+    if not holdings:
+        return {"wallet": wallet, "holdings": [], "note": "No balances found."}
+
+    prices = await jup_price(",".join(list(holdings)[:100]))
+    priced = []
+    for mint, amount in holdings.items():
+        entry = (prices or {}).get(mint) or {}
+        px = entry.get("usdPrice")
+        if not isinstance(px, (int, float)) or px <= 0:
+            continue
+        usd = amount * float(px)
+        if usd < floor:
+            continue
+        priced.append({"mint": mint, "amount": amount, "usdValue": usd})
+    priced.sort(key=lambda h: -h["usdValue"])
+
+    # One question per holding worth asking about, biggest first.
+    out = []
+    for h in priced[:6]:
+        res = await token_strategies(
+            mint=h["mint"], amount=str(h["amount"]), usdValue=str(round(h["usdValue"], 2)),
+        )
+        opts = (res or {}).get("options") or []
+        out.append({**h, "options": opts[:5]})
+
+    return {
+        "wallet": wallet,
+        "solBalance": sol_balance,
+        "solHeldBack": min(_SOL_RESERVE, sol_balance),
+        "holdings": out,
+        "skippedBelowUsd": floor,
+    }
+
+
+
 
 
 async def marinade_list_tickets(wallet: str) -> dict:
@@ -2284,6 +2369,7 @@ _DISPATCH: dict[str, tuple] = {
     "marinade_exchange_rate": (marinade_exchange_rate, [],              []),
     "token_strategies":     (token_strategies,     ["mint", "amount"], ["usdValue"]),
     "strategy_flows":       (strategy_flows,       [],                 ["usdValue", "mint"]),
+    "wallet_strategies":    (wallet_strategies,    ["wallet"],         ["minUsd"]),
     "marinade_list_tickets":  (marinade_list_tickets,  ["wallet"],      []),
     # Yield / APY comparison (liquid staking + lending)
     "yield":                  (_yield_comparison,      [],              ["token", "category"]),

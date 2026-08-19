@@ -134,6 +134,24 @@ Example:
 
   query_onchain("strategy_flows", {"usdValue": "5000"})
 
+| Everything this wallet could do, in one answer | `wallet_strategies` | `wallet` (use `<auth_wallet>`), `minUsd` (optional) |
+
+Prefer this over `token_strategies` whenever the question is about the wallet
+rather than one named token — "ne yapmalıyım", "portföyümü nasıl
+değerlendiririm", "what should I do with my funds". Asking per token makes
+someone with four holdings ask four times.
+
+It keeps SOL back for fees and drops holdings too small to carry the cost of
+any position, and reports both — `solHeldBack` and `skippedBelowUsd`. Say so
+when it matters: a user wondering why their BONK is missing from the answer
+deserves to know it is worth less than the cost of doing anything with it,
+not to think the tool overlooked it.
+
+Example:
+
+  query_onchain("wallet_strategies", {"wallet": "<auth_wallet>"})
+
+
 
 
 ## Parameter conventions

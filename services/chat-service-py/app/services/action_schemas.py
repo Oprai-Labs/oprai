@@ -440,6 +440,8 @@ class QueryType(str, Enum):
     TOKEN_STRATEGIES = "token_strategies"
     # Multi-step flows, each priced against the one-step answer.
     STRATEGY_FLOWS = "strategy_flows"
+    # The whole wallet in one answer, fees kept back and dust skipped.
+    WALLET_STRATEGIES = "wallet_strategies"
     MARINADE_LIST_TICKETS = "marinade_list_tickets"
     SCAN_EMPTY_ACCOUNTS = "scan_empty_accounts"  # finds zero-balance token accounts → user recovers rent with close_accounts
     MY_STAKE_ACCOUNTS = "my_stake_accounts"      # lists all native stake accounts for the wallet
