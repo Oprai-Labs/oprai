@@ -359,3 +359,29 @@
   padding: 1px 6px;
   border-radius: 5px;
 }
+
+// Per-chain pills (Solana + each EVM chain) — replaces the old 2-way switch.
+.chain-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border: 1px solid var(--op-border, rgba(255, 255, 255, 0.1));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--op-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s;
+  white-space: nowrap;
+
+  &:hover { color: var(--op-text-primary); }
+  &.active {
+    border-color: var(--op-brand, #5b5fc7);
+    background: color-mix(in srgb, var(--op-brand, #5b5fc7) 10%, transparent);
+    color: var(--op-text-primary);
+    font-weight: 600;
+  }
+}
+.chain-pill-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }

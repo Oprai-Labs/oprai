@@ -99,20 +99,16 @@
              switch is instant (each preloaded in the background). -->
         @if (hasEvm()) {
           <div class="chain-switch">
-            <button class="chain-opt" [class.active]="activeChain() === 'solana'" (click)="setChain('solana')">
-              <app-brand-icon type="solana_wallet" [size]="18" />
-              <span class="chain-opt-text">
-                <span class="chain-opt-name">Solana @if (primaryChain() === 'solana') { <span class="chain-primary">Primary</span> }</span>
-                <span class="chain-opt-addr">{{ shortAddr(solanaAddr()) }}</span>
-              </span>
+            <button class="chain-pill" [class.active]="activeChain() === 'solana'" (click)="setChain('solana')">
+              <app-brand-icon type="solana_wallet" [size]="16" /> Solana
+              @if (primaryChain() === 'solana') { <span class="chain-primary">Primary</span> }
             </button>
-            <button class="chain-opt" [class.active]="activeChain() === 'ethereum'" (click)="setChain('ethereum')">
-              <app-brand-icon type="evm_wallet" [size]="18" />
-              <span class="chain-opt-text">
-                <span class="chain-opt-name">Ethereum @if (primaryChain() === 'ethereum') { <span class="chain-primary">Primary</span> }</span>
-                <span class="chain-opt-addr">{{ shortAddr(evmAddr()) }}</span>
-              </span>
-            </button>
+            @for (c of EVM_CHAINS; track c.id) {
+              <button class="chain-pill" [class.active]="activeChain() === c.id" (click)="setChain(c.id)">
+                <span class="chain-pill-dot" [style.background]="c.color"></span>{{ c.label }}
+                @if (primaryChain() === 'ethereum' && c.id === 'ethereum') { <span class="chain-primary">Primary</span> }
+              </button>
+            }
           </div>
         }
 
@@ -161,10 +157,10 @@
           />
         </div>
 
-        <!-- ── Ethereum view (always mounted → preloaded; shown when active) ── -->
+        <!-- ── EVM view (one instance; the selected chain filters it) ── -->
         @if (hasEvm()) {
-          <div [style.display]="activeChain() === 'ethereum' ? '' : 'none'">
-            <app-evm-holdings />
+          <div [style.display]="isEvmChain() ? '' : 'none'">
+            <app-evm-holdings [chain]="activeChain()" />
           </div>
         }
       </div>

@@ -96,8 +96,19 @@ export class PortfolioShellComponent implements OnDestroy {
   readonly solanaAddr = signal<string | null>(null);
   readonly evmAddr = signal<string | null>(null);
   readonly primaryChain = signal<'solana' | 'ethereum'>('solana');
-  readonly activeChain = signal<'solana' | 'ethereum'>('solana');
+  // 'solana' or a specific EVM chain (ethereum/base/bsc/polygon/arbitrum/optimism).
+  readonly activeChain = signal<string>('solana');
   readonly hasEvm = computed(() => !!this.evmAddr());
+  readonly isEvmChain = computed(() => this.activeChain() !== 'solana');
+  // The EVM chains shown as top tabs (Robinhood omitted — no provider yet).
+  readonly EVM_CHAINS = [
+    { id: 'ethereum', label: 'Ethereum', color: '#627eea' },
+    { id: 'base', label: 'Base', color: '#0052ff' },
+    { id: 'bsc', label: 'BNB', color: '#f0b90b' },
+    { id: 'polygon', label: 'Polygon', color: '#8247e5' },
+    { id: 'arbitrum', label: 'Arbitrum', color: '#28a0f0' },
+    { id: 'optimism', label: 'Optimism', color: '#ff0420' },
+  ];
   private accountLoaded = false;
 
   private loadAccountWallets(): void {
@@ -118,7 +129,7 @@ export class PortfolioShellComponent implements OnDestroy {
     });
   }
 
-  setChain(chain: 'solana' | 'ethereum'): void {
+  setChain(chain: string): void {
     this.activeChain.set(chain);
   }
 

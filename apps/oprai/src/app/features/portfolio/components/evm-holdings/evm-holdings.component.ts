@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
@@ -54,18 +54,6 @@ function categoryFor(label: string): ProtocolCategory {
             <app-allocation-chart [segments]="allocationSegments()" [totalValue]="totalUsd()" />
           </div>
         </div>
-
-        <!-- ── Chain filter tabs ── -->
-        @if (availableChains().length > 1) {
-          <div class="chain-tabs">
-            <button class="chain-tab" [class.on]="chainFilter() === 'all'" (click)="setChainFilter('all')">All</button>
-            @for (c of availableChains(); track c) {
-              <button class="chain-tab" [class.on]="chainFilter() === c" (click)="setChainFilter(c)">
-                <span class="chain-tab-dot" [style.background]="chainColor(c)"></span>{{ chainLabel(c) }}
-              </button>
-            }
-          </div>
-        }
 
         <!-- ── Category cards (Wallet + protocols) ── -->
         <div class="proto-cards">
@@ -235,6 +223,8 @@ export class EvmHoldingsComponent implements OnInit {
   copied = signal(false);
   showSpam = signal(false);
   chainFilter = signal<string>('all');
+  // Driven by the portfolio's top chain switcher: 'all' or a specific chain.
+  @Input() set chain(c: string | null | undefined) { this.chainFilter.set(c || 'all'); }
 
   // Chains that actually have holdings/positions — drives the top filter tabs.
   availableChains = computed(() => {
