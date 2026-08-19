@@ -1593,6 +1593,20 @@
                     there is no range to set. Both sides go in at the pool's current ratio.
                   }
                 </div>
+
+                @if (dammV2PoolSwap(); as swap) {
+                  <!-- Said out loud on purpose. Moving the deposit silently
+                       would be the right outcome reached the wrong way: the
+                       person should be able to see what was avoided. -->
+                  <div class="clmm-min-hint">
+                    <lucide-icon name="shield-check" [size]="13" />
+                    Moved to the main pool for this pair. The one first picked holds only
+                    {{ formatUsdCompact(swap.fromTvl) }} of liquidity — your deposit would have
+                    been most of it, and you would be trading against yourself. This one holds
+                    {{ formatUsdCompact(swap.toTvl) }} and pays about
+                    {{ swap.toApr.toFixed(1) }}% a year in fees.
+                  </div>
+                }
               </div>
             } @else if (isMeteoraDlmm()) {
               <div class="clmm-section">

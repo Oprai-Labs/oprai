@@ -1148,6 +1148,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  inputs (bin step, active bin, price) have to be fetched once per card. */
   private _enrichedDlmmPool: string | null = null;
   private _enrichedDammV2Pool: string | null = null;
+  private _verifiedDammV2Pool: string | null = null;
+
+  /**
+   * Set when the deposit was pointed at a pool nobody should deposit into and
+   * the card moved it. Holds both pools' numbers so the card can say what it
+   * did and why, in figures rather than in a verdict.
+   */
+  readonly dammV2PoolSwap = signal<{
+    fromTvl: number;
+    toTvl: number;
+    toApr: number;
+  } | null>(null);
   /** "half of my mSOL" reaches the card as the literal amount `50%`. The
    *  fraction is lifted out of the field here and applied once the live
    *  balance and the pool ratio are known; see `resolvePercentAmounts`. */
@@ -5466,7 +5478,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeEnrichRaydiumPool();
     void this.maybeEnrichRaydiumWithdraw();
     void this.maybeEnrichMeteoraDlmmPool();
-    void this.maybeEnrichMeteoraDammV2Pool();
+    // Verify first: enrichment quotes whichever pool survives the check, so
+    // running it the other way round would quote the pool we are about to
+    // replace and then quote again.
+    void this.maybeVerifyMeteoraDammV2Pool().then(() => this.maybeEnrichMeteoraDammV2Pool());
     void this.maybeEnrichMeteoraPosition();
     void this.maybeResolveSwapCounterToken();
     this.maybeSeedOrcaRange();
@@ -6088,6 +6103,64 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * than 12x the second side. `meteora_dammv2_pool_quote` runs the same quote
    * the deposit itself will run.
    */
+  /**
+   * Check the pool a deposit was pointed at, and move it if it is one nobody
+   * should deposit into.
+   *
+   * When the model opens this card from a sentence it names a pool by address
+   * and nothing verified that choice. A name search for a pair returns
+   * hundreds of pools whose deepest holds $10 next to a real one holding
+   * $1.2M, so the choice being right so far has been luck. Depositing into
+   * the wrong one is not a worse yield: owning most of a pool means trading
+   * against yourself on every swap and not being able to leave without moving
+   * the price.
+   *
+   * A pool the user picked from the list is left alone — they chose it from
+   * ranked rows they could see, and overriding a deliberate choice is a
+   * different kind of wrong from letting a bad default through.
+   */
+  private async maybeVerifyMeteoraDammV2Pool(): Promise<void> {
+    if (this.action?.type !== 'meteora_dammv2_add_liquidity') return;
+    const p = this.editParams();
+    if (p['poolChosenBy'] === 'user') return;
+    const poolId = (p['pool'] ?? p['poolId'] ?? '').trim();
+    if (!poolId) return;
+    if (this._verifiedDammV2Pool === poolId) return;
+    this._verifiedDammV2Pool = poolId;
+    try {
+      const resp = await firstValueFrom(
+        this.apiService.post<any>('/actions/build', {
+          type: 'meteora_dammv2_best_pool',
+          params: { pool: poolId },
+        }).pipe(timeout(20_000)),
+      );
+      const d = resp?.data ?? null;
+      if (!d || d.chosenIsRecommended) return;
+      const rec = d.recommended;
+      const chosen = d.chosen;
+      const better = String(rec?.address ?? '');
+      if (!better || better === poolId) return;
+
+      this.dammV2PoolSwap.set({
+        fromTvl: Number(chosen?.tvl ?? 0),
+        toTvl: Number(rec?.tvl ?? 0),
+        toApr: Number(rec?.feeApr ?? 0),
+      });
+      this.editParams.update(ep => ({ ...ep, pool: better, poolId: better }));
+      // The ratio belongs to the pool that was replaced. Clear the guard so
+      // the enrichment re-runs and quotes the pool now actually being used.
+      this._enrichedDammV2Pool = null;
+      this.editParams.update(ep => {
+        const next = { ...ep };
+        delete next['depositRatio'];
+        return next;
+      });
+      await this.maybeEnrichMeteoraDammV2Pool();
+    } catch (err) {
+      console.warn('[meteora-dammv2] pool verification failed', err);
+    }
+  }
+
   private async maybeEnrichMeteoraDammV2Pool(): Promise<void> {
     if (this.action?.type !== 'meteora_dammv2_add_liquidity') return;
     const p = this.editParams();

@@ -3947,6 +3947,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     const params: Record<string, string> = {
       pool: p.address,
       poolId: p.address,
+      // The user picked this row out of a ranked list they could see. The
+      // card re-checks a pool the model named on its own, and must not
+      // second-guess this one — overriding a choice someone made deliberately
+      // is a different kind of wrong from letting a bad default through.
+      poolChosenBy: 'user',
       tokenA: p.token_x.address,
       tokenB: p.token_y.address,
       tokenXMint: p.token_x.address,
