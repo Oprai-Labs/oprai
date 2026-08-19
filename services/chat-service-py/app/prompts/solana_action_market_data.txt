@@ -102,6 +102,12 @@ Reading the result:
   into `counterToken`. Present the first group first and never rank across the
   two on yield alone: turning SOL into half a memecoin is not a better version
   of lending SOL.
+- `entryCostPct` on an LP option is what getting in costs: half the holding
+  has to be swapped into the other token, and that swap's price impact plus
+  the commission on it dwarf the network fees. It is already inside
+  `netCostSol`, so payback and the horizon return account for it — but quote
+  it when the position is large, because it is the number that decides whether
+  a short stay is worth it at all.
 - Three cost figures, and they answer different questions. `upfrontSol` is
   what has to leave the wallet to open — say it when someone is deciding
   whether they can afford this. `refundableSol` comes back when the position

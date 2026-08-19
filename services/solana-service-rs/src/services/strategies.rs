@@ -280,6 +280,71 @@ fn horizon_return_pct(
     Some((gross - cost) / value * 100.0)
 }
 
+
+/// What it costs to get into a pool, beyond the network fee.
+///
+/// Entering an LP means holding both sides, so half the position has to be
+/// swapped into the other token first — and that swap is the dominant cost by
+/// a wide margin. Measured: $3.15 of price impact on a $2470 entry, plus our
+/// own commission on the swapped half, against $0.0008 of round-trip network
+/// fees. Measuring the trivial cost precisely while ignoring one four
+/// thousand times larger made every payback and horizon figure wrong in the
+/// same direction.
+///
+/// Returned as a percentage of the position, since that is how it compares to
+/// a yield. None when the quote cannot be fetched — the option then carries no
+/// entry cost rather than a guessed one, and says so.
+async fn entry_cost_pct(
+    http: &reqwest::Client,
+    from_mint: &str,
+    to_mint: &str,
+    usd_value: Option<f64>,
+    sol_usd: Option<f64>,
+) -> Option<f64> {
+    let value = usd_value?;
+    let sol_price = sol_usd?;
+    if !(value > 0.0) || !(sol_price > 0.0) {
+        return None;
+    }
+    // Half the position is swapped; the other half is already the right token.
+    let swap_usd = value / 2.0;
+    let lamports = ((swap_usd / sol_price) * 1e9).round() as u64;
+    if lamports == 0 {
+        return None;
+    }
+
+    let quote = http
+        .get("https://lite-api.jup.ag/swap/v1/quote")
+        .query(&[
+            ("inputMint", from_mint),
+            ("outputMint", to_mint),
+            ("amount", &lamports.to_string()),
+            ("slippageBps", "100"),
+        ])
+        .send()
+        .await
+        .ok()?;
+    if !quote.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = quote.json().await.ok()?;
+    // Jupiter reports impact as a fraction of the trade.
+    let impact_pct = body
+        .get("priceImpactPct")
+        .and_then(|v| v.as_str().and_then(|s| s.parse::<f64>().ok()).or_else(|| v.as_f64()))
+        .unwrap_or(0.0)
+        * 100.0;
+
+    // Our own commission on the swapped half, at the rate that pair actually
+    // pays — memecoin pairs are charged more than standard ones and stable
+    // pairs nothing, so quoting one number for all of them would be wrong.
+    let commission_pct =
+        crate::services::fees::swap_fee_bps(from_mint, to_mint) as f64 / 100.0;
+
+    // Both apply to half the position, so halve them against the whole.
+    Some((impact_pct + commission_pct) / 2.0)
+}
+
 /// Everything this wallet could do with this token, priced at its own size.
 pub async fn build_token_strategies(
     http: &reqwest::Client,
@@ -423,6 +488,22 @@ pub async fn build_token_strategies(
             let (x, y) = crate::services::meteora::meteora_pool_mints(&p);
             let counter_is_y = x == Some(params.mint.as_str());
             let counter = if counter_is_y { p.get("token_y") } else { p.get("token_x") };
+            let counter_mint = if counter_is_y { y } else { x };
+
+            // Getting in costs far more than the fees do: half the position
+            // has to be swapped into the other side, at that pair's price
+            // impact and commission.
+            let entry_pct = match counter_mint {
+                Some(m) => entry_cost_pct(http, &params.mint, m, params.usd_value, sol_usd).await,
+                None => None,
+            };
+            // Expressed in SOL so it can join the round trip on the same
+            // footing as everything else that has to be earned back.
+            let entry_sol = match (entry_pct, params.usd_value, sol_usd) {
+                (Some(pct), Some(v), Some(px)) if px > 0.0 => Some(v * pct / 100.0 / px),
+                _ => None,
+            };
+            let total_net_cost = round_trip_fee + entry_sol.unwrap_or(0.0);
             let counter_symbol = counter.and_then(|t| t.get("symbol")).and_then(|s| s.as_str());
             let counter_verified = counter
                 .and_then(|t| t.get("is_verified"))
@@ -445,11 +526,14 @@ pub async fn build_token_strategies(
                 "depositShare": share,
                 "upfrontSol": rent,
                 "refundableSol": rent,
-                "netCostSol": round_trip_fee,
-                "paybackDays": payback_days(params.usd_value, apr, Some(round_trip_fee), sol_usd),
+                // Entry swap included: it is the part that actually costs
+                // money, and leaving it out flattered every LP option.
+                "entryCostPct": entry_pct,
+                "netCostSol": total_net_cost,
+                "paybackDays": payback_days(params.usd_value, apr, Some(total_net_cost), sol_usd),
                 "horizonDays": params.horizon_days,
                 "horizonReturnPct": params.horizon_days.and_then(|d| horizon_return_pct(
-                    params.usd_value, apr, round_trip_fee, sol_usd, d
+                    params.usd_value, apr, total_net_cost, sol_usd, d
                 )),
                 "changesHolding": true,
                 // The band this pair would actually be opened at — tight for a
