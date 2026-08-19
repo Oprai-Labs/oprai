@@ -1566,6 +1566,28 @@ pub async fn build_orca_add_liquidity(
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
 
+    // What this actually takes out of the wallet.
+    //
+    // The quote was the SDK's `initialization_cost`, which counts tick-array
+    // creation and nothing else. Measured against a real build it reported
+    // "~0.0000 SOL" for an open that costs 0.0100 — the position NFT, its
+    // token account and the wrapped-SOL account are all rent the SDK figure
+    // never mentions. A card that says an action is free, for a wallet
+    // holding exactly the deposit, is a submit that fails.
+    let native = spl_token::native_mint::id();
+    let sol_deposited = if pool.token_mint_a == native {
+        token_max_a as f64 / 10f64.powi(decimals_a as i32)
+    } else if pool.token_mint_b == native {
+        token_max_b as f64 / 10f64.powi(decimals_b as i32)
+    } else {
+        0.0
+    };
+    let measured_fee = crate::services::tx_cost::cost_label(
+        crate::services::tx_cost::simulated_sol_delta_b64(&rpc_url, &tx_b64, &user_pk).await,
+        sol_deposited,
+        &format!("~{:.4} SOL (init + tx)", init_cost as f64 / 1e9),
+    );
+
     Ok(BuildResponse {
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
@@ -1575,7 +1597,7 @@ pub async fn build_orca_add_liquidity(
                 short_id(&params.whirlpool),
                 short_id(&position_mint_pk.to_string())
             ),
-            estimated_fee: format!("~{:.4} SOL (init + tx)", init_cost as f64 / 1e9),
+            estimated_fee: measured_fee.clone(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
             warnings: vec![
@@ -1748,6 +1770,25 @@ pub async fn build_orca_open_position(
         .collect();
 
     let tx_b64 = build_tx_b64(&ixs, &user_pk, &signers, &rpc).await?;
+
+    // What this actually takes out of the wallet.
+    //
+    // The quote was the SDK's `initialization_cost`, which counts tick-array
+    // creation and nothing else. Measured against a real build it reported
+    // "~0.0000 SOL" for an open that costs 0.0100 — the position NFT, its
+    // token account and the wrapped-SOL account are all rent the SDK figure
+    // never mentions. A card that says an action is free, for a wallet
+    // holding exactly the deposit, is a submit that fails.
+    let sol_deposited = if resolve_token_address(input_sym) == spl_token::native_mint::id().to_string() {
+        amount_base as f64 / 10f64.powi(in_decimals as i32)
+    } else {
+        0.0
+    };
+    let measured_fee = crate::services::tx_cost::cost_label(
+        crate::services::tx_cost::simulated_sol_delta_b64(&rpc_url, &tx_b64, &user_pk).await,
+        sol_deposited,
+        &format!("~{:.4} SOL (init + tx)", init_cost as f64 / 1e9),
+    );
     let in_sym = token_symbol(input_sym);
 
     Ok(BuildResponse {
@@ -1759,7 +1800,7 @@ pub async fn build_orca_open_position(
                 short_id(&pool_addr),
                 short_id(&position_mint_pk.to_string())
             ),
-            estimated_fee: format!("~{:.4} SOL (init + tx)", init_cost as f64 / 1e9),
+            estimated_fee: measured_fee.clone(),
             estimated_refund: None,
             params: serde_json::to_value(params)?,
             warnings: vec![
