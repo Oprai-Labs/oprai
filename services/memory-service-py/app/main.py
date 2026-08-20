@@ -551,20 +551,13 @@ DENYLIST = [
     # Secrets / credentials
     "private key", "mnemonic", "seed phrase", "signed transaction",
     "identity_number", "credit_card", "health_record",
-    # Prompt injection patterns — prevent users from planting delayed jailbreaks
-    # in their own memory store for replay attacks.
-    "ignore all previous instructions", "ignore previous instructions",
-    "disregard the system prompt", "disregard system prompt",
-    "forget all previous instructions", "forget your instructions",
-    "new system prompt:", "override the prompt", "override system prompt",
-    # Turkish
-    "önceki talimatları görmezden", "sistem promptu görmezden",
-    "talimatları unut", "sistem promptunu değiştir",
-    # Chinese
-    "忽略所有指令", "忽略之前指令",
-    # Russian
-    "игнорируй все предыдущие",
 ]
+# Note: this list used to also carry jailbreak phrases in four languages, to
+# stop a user planting a delayed injection in their own memory store. It came
+# out with the equivalent filter in chat-service: a phrase list catches the
+# wordings someone thought to write down and nothing else, so it bought
+# confidence rather than safety. What is left here is the part a substring
+# match can actually do — keeping secrets and PII out of the store.
 
 
 def _validate_payload_compliance(summary: str, memory_type: str) -> None:
