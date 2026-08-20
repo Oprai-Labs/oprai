@@ -402,8 +402,16 @@ pub async fn build_strategy_flows(
                     let worst = h.get("worstPerTurnPct").and_then(|v| v.as_f64());
                     let history = if share <= 0.0 {
                         match best {
+                            // -0.37% is not break-even, and calling it that
+                            // reads as "nearly worth it" for a flow that has
+                            // lost money every hour of the month. Only a
+                            // genuinely flat best hour gets the softer word.
+                            Some(b) if b >= -0.05 => format!(
+                                " Over the last {hours} hours it was never profitable — at its best moment it only broke even, so this is not a matter of waiting for a better week."
+                            ),
                             Some(b) => format!(
-                                " Over the last {hours} hours it was never profitable — at its best moment it broke even ({b:+.2}%), so this is not a matter of waiting for a better week."
+                                " Over the last {hours} hours it was never profitable — even at its best it still lost {:.2}% per turn, so this is not a matter of waiting for a better week.",
+                                -b
                             ),
                             None => format!(" Over the last {hours} hours it was never profitable."),
                         }
