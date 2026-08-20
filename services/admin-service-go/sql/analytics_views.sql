@@ -222,11 +222,27 @@ LEFT JOIN claimed cl ON cl.wallet = e.wallet;
 -- account (backfill guarantees a primary identity row), so single-wallet users
 -- see identical numbers.
 
--- Solana wallet -> owning account.
+-- Wallet -> owning account (Solana + EVM). EVM wallets have no economics rows
+-- until EVM trading lands; including them here means those rows map to their
+-- account automatically once they do.
 CREATE OR REPLACE VIEW admin_schema.v_wallet_account AS
 SELECT identifier AS wallet, account_id
 FROM auth_schema.linked_identities
-WHERE type = 'solana_wallet';
+WHERE type IN ('solana_wallet', 'evm_wallet');
+
+-- Per-chain OWN trading cashback (rewards you earned trading on each chain).
+-- Grouped by the chain the fee was booked on. Solana is populated today; EVM
+-- chains fill in as EVM swaps (Relay/Uniswap) record commission with their chain.
+CREATE OR REPLACE VIEW admin_schema.v_account_cashback_by_chain AS
+SELECT
+    wa.account_id,
+    COALESCE(r.chain, 'solana')                    AS chain,
+    COALESCE(sum(r.lifetime_cashback_usd), 0)      AS own_cashback_usd,
+    COALESCE(sum(r.lifetime_notional_usd), 0)      AS volume_usd,
+    COALESCE(sum(r.lifetime_fee_usd), 0)           AS fee_usd
+FROM admin_schema.v_wallet_account wa
+JOIN solana_schema.wallet_economics_rollup r ON r.user_wallet = wa.wallet
+GROUP BY wa.account_id, COALESCE(r.chain, 'solana');
 
 -- Account tier from AGGREGATE lifetime volume across the account's wallets.
 CREATE OR REPLACE VIEW admin_schema.v_account_tier AS
@@ -303,3 +319,4 @@ GRANT SELECT ON admin_schema.v_user_cashback  TO chat_app;
 GRANT SELECT ON admin_schema.v_wallet_account TO chat_app;
 GRANT SELECT ON admin_schema.v_account_tier   TO chat_app;
 GRANT SELECT ON admin_schema.v_account_cashback TO chat_app;
+GRANT SELECT ON admin_schema.v_account_cashback_by_chain TO chat_app;

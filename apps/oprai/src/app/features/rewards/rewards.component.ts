@@ -6,12 +6,27 @@ import { ApiService } from '../../core/services/api.service';
 import { AnalyticsService } from '../../core/services/analytics.service';
 import { TierBadgeComponent } from './tier-badge.component';
 
+interface ChainReward { chain: string; ownUsd: number; volumeUsd: number; }
 interface Rewards {
   tier: number;
   volumeUsd: number;
   cashback: { ownUsd: number; referralUsd: number; earnedUsd: number; claimedUsd: number; claimableUsd: number };
+  byChain?: ChainReward[];
   referralCode: string | null;
   referralCount: number;
+}
+
+const CHAIN_META: Record<string, { label: string; color: string; icon: string }> = {
+  solana: { label: 'Solana', color: '#9945FF', icon: '/assets/coins/sol.svg' },
+  ethereum: { label: 'Ethereum', color: '#627eea', icon: tw('ethereum') },
+  base: { label: 'Base', color: '#0052ff', icon: tw('base') },
+  bsc: { label: 'BNB Chain', color: '#f0b90b', icon: tw('smartchain') },
+  polygon: { label: 'Polygon', color: '#8247e5', icon: tw('polygon') },
+  arbitrum: { label: 'Arbitrum', color: '#28a0f0', icon: tw('arbitrum') },
+  optimism: { label: 'Optimism', color: '#ff0420', icon: tw('optimism') },
+};
+function tw(folder: string): string {
+  return `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${folder}/info/logo.png`;
 }
 
 const MIN_CLAIM_USD = 5;
@@ -135,6 +150,26 @@ const TIERS: TierDef[] = [
           @if (claimMsg()) { <div class="cb-msg" [class.ok]="claimOk()">{{ claimMsg() }}</div> }
         </section>
 
+        <!-- PER-CHAIN TRADING CASHBACK -->
+        @if (d.byChain && d.byChain.length) {
+          <section class="bychain">
+            <div class="bc-head">Trading cashback by chain</div>
+            <div class="bc-list">
+              @for (c of d.byChain; track c.chain) {
+                <div class="bc-row" [class.bc-zero]="c.ownUsd === 0">
+                  <span class="bc-ico" [style.--cc]="chainMeta(c.chain).color">
+                    <img [src]="chainMeta(c.chain).icon" [alt]="chainMeta(c.chain).label" (error)="hideImg($event)" />
+                  </span>
+                  <span class="bc-name">{{ chainMeta(c.chain).label }}</span>
+                  <span class="bc-vol">Vol {{ c.volumeUsd | currency:'USD':'symbol':'1.0-0' }}</span>
+                  <span class="bc-val">{{ c.ownUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+                </div>
+              }
+            </div>
+            <div class="bc-note">Each chain's rewards come from trading on that chain. EVM chains start earning once EVM swaps (Relay / Uniswap) go live.</div>
+          </section>
+        }
+
         <div class="cols">
           <!-- REFERRAL (star of the page) -->
           <section class="card referral">
@@ -214,6 +249,19 @@ const TIERS: TierDef[] = [
     </div>
   `,
   styles: [`
+    .bychain { background:var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:16px; padding:16px; margin-bottom:16px; }
+    .bc-head { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; font-weight:600; color:var(--op-text-secondary); margin-bottom:12px; }
+    .bc-list { display:flex; flex-direction:column; gap:4px; }
+    .bc-row { display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:12px; padding:9px 8px; border-radius:10px; }
+    .bc-row:hover { background:var(--op-bg-surface-2, rgba(125,125,150,.05)); }
+    .bc-row.bc-zero { opacity:.5; }
+    .bc-ico { width:30px; height:30px; border-radius:50%; flex:none; display:grid; place-items:center; overflow:hidden; background:color-mix(in srgb, var(--cc) 18%, transparent); }
+    .bc-ico img { width:30px; height:30px; border-radius:50%; object-fit:cover; }
+    .bc-name { font-weight:600; color:var(--op-text-primary); font-size:.9rem; }
+    .bc-vol { font-size:.74rem; color:var(--op-text-secondary); font-variant-numeric:tabular-nums; }
+    .bc-val { font-weight:700; color:var(--op-text-primary); font-variant-numeric:tabular-nums; min-width:70px; text-align:right; }
+    .bc-note { font-size:.76rem; color:var(--op-text-secondary); margin-top:12px; line-height:1.5; }
+
     /* .main-content is a flex column with overflow:hidden, so the page must scroll itself. */
     :host { display:block; flex:1 1 auto; min-height:0; overflow-y:auto; }
     .rw { max-width: 1040px; margin:0 auto; padding: 24px 20px 56px; }
@@ -418,6 +466,8 @@ export class RewardsComponent implements OnInit {
   tierColor(t: number): string { return (TIERS.find((x) => x.n === t)?.color) ?? '#5b5fc7'; }
   referralPct(t: number): number { return (TIERS.find((x) => x.n === t)?.referralPct) ?? 30; }
   cashbackPct(t: number): number { return (TIERS.find((x) => x.n === t)?.cashbackPct) ?? 10; }
+  chainMeta(c: string) { return CHAIN_META[c] ?? { label: c, color: '#7e8298', icon: '' }; }
+  hideImg(ev: Event): void { (ev.target as HTMLImageElement).style.display = 'none'; }
 
   claim(): void {
     const d = this.data();

@@ -438,6 +438,26 @@ async def get_rewards(
                 "cashback_claimed_usd, cashback_claimable_usd "
                 "FROM admin_schema.v_user_cashback WHERE wallet=:w"), {"w": w})).first()
 
+        # Per-chain OWN trading cashback (rewards earned trading on each chain).
+        # Solana is populated today; EVM chains fill in as EVM swaps (Relay/
+        # Uniswap) record commission with their chain. Always return every chain
+        # (0 where none) so the UI can show them separately.
+        chain_map: dict[str, dict] = {}
+        if account_id:
+            rows = (await s.execute(sa_text(
+                "SELECT chain, own_cashback_usd, volume_usd "
+                "FROM admin_schema.v_account_cashback_by_chain WHERE account_id=:a"),
+                {"a": account_id})).all()
+            for r in rows:
+                chain_map[r[0]] = {"ownUsd": float(r[1] or 0), "volumeUsd": float(r[2] or 0)}
+        _CHAINS = ["solana", "ethereum", "base", "bsc", "polygon", "arbitrum", "optimism"]
+        by_chain = [
+            {"chain": c,
+             "ownUsd": chain_map.get(c, {}).get("ownUsd", 0.0),
+             "volumeUsd": chain_map.get(c, {}).get("volumeUsd", 0.0)}
+            for c in _CHAINS
+        ]
+
         code_row = (await s.execute(sa_text(
             "SELECT code FROM analytics_schema.referral_codes WHERE wallet=:w"), {"w": w})).first()
         code = code_row[0] if code_row else None
@@ -467,6 +487,7 @@ async def get_rewards(
             "claimedUsd": float(cb_row[3]) if cb_row and cb_row[3] is not None else 0.0,
             "claimableUsd": float(cb_row[4]) if cb_row and cb_row[4] is not None else 0.0,
         },
+        "byChain": by_chain,
         "referralCode": code,
         "referralCount": int(ref_count),
     }
