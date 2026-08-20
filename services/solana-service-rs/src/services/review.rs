@@ -288,6 +288,35 @@ struct OpenPosition {
     unclaimed_fees_usd: Option<f64>,
 }
 
+/// Split a pool's balance across the positions inside it, by what each holds.
+///
+/// The money fields on a Meteora pool are POOL totals. Attributing them to
+/// each position — which is what reading them straight does — reports a pool
+/// holding two positions twice and doubles the wallet's apparent exposure.
+/// Splitting by weight keeps the parts summing to the whole.
+///
+/// A weight of zero, or no weights at all, yields None rather than an even
+/// split: an even split is a number nobody measured, and downstream an
+/// unpriced position produces no recommendation, which is the right outcome
+/// for one we cannot size.
+fn split_pool_value(balance: Option<f64>, weights: &[f64]) -> Vec<Option<f64>> {
+    let balance = match balance {
+        Some(b) if b > 0.0 => b,
+        _ => return vec![None; weights.len()],
+    };
+    if weights.len() <= 1 {
+        return weights.iter().map(|_| Some(balance)).collect();
+    }
+    let total: f64 = weights.iter().filter(|w| **w > 0.0).sum();
+    if !(total > 0.0) {
+        return vec![None; weights.len()];
+    }
+    weights
+        .iter()
+        .map(|w| (*w > 0.0).then(|| balance * w / total))
+        .collect()
+}
+
 /// Meteora DLMM positions, priced.
 ///
 /// The portfolio endpoint already carries everything the judgement needs —
@@ -349,6 +378,25 @@ async fn read_dlmm_positions(
             crate::services::strategies::entry_cost_pct(http, &mint_x, &mint_y, usd_value).await
         };
 
+        // Per-position detail, merged from the chain by the positions builder.
+        // Needed because the money figures on the pool are POOL totals: a pool
+        // holding two positions would otherwise report the full balance twice
+        // and double the wallet's apparent exposure.
+        let details = pool
+            .get("positions")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let pool_price = num(pool.get("poolPrice")).unwrap_or(0.0);
+        // Each position's share of the pool, by what it actually holds. X is
+        // priced in Y so the two sides can be added without another price
+        // lookup, and only the ratio is used — any consistent unit works.
+        let weight_of = |d: &serde_json::Value| -> f64 {
+            let ax = num(d.get("amountX")).unwrap_or(0.0);
+            let ay = num(d.get("amountY")).unwrap_or(0.0);
+            ax * pool_price + ay
+        };
+
         let idle: Vec<String> = pool
             .get("positionsOutOfRange")
             .and_then(|v| v.as_array())
@@ -372,15 +420,48 @@ async fn read_dlmm_positions(
         // the pool-level `outOfRange` flag only says whether *all* of them are,
         // so reading that instead would hide a single idle position among
         // several active ones.
-        for addr in listed {
-            let earning = !idle.contains(&addr);
+        let listed_count = listed.len();
+        // One share per listed position, summing to the pool balance. Computed
+        // once so the parts cannot drift apart from the whole.
+        let shares = split_pool_value(
+            usd_value,
+            &listed
+                .iter()
+                .map(|addr| {
+                    details
+                        .iter()
+                        .find(|d| d.get("address").and_then(|v| v.as_str()) == Some(addr.as_str()))
+                        .map(&weight_of)
+                        .unwrap_or(0.0)
+                })
+                .collect::<Vec<f64>>(),
+        );
+        for (index, addr) in listed.into_iter().enumerate() {
+            let detail = details
+                .iter()
+                .find(|d| d.get("address").and_then(|v| v.as_str()) == Some(addr.as_str()));
+            // The chain detail knows its own range; the pool-level list is the
+            // fallback when that read failed.
+            let earning = detail
+                .and_then(|d| d.get("inRange").and_then(|v| v.as_bool()))
+                .unwrap_or_else(|| !idle.contains(&addr));
+
+            let value = shares.get(index).copied().flatten();
+            let exit_cost_pct = if listed_count <= 1 {
+                exit_cost_pct
+            } else if mint_x.is_empty() || mint_y.is_empty() {
+                None
+            } else {
+                crate::services::strategies::entry_cost_pct(http, &mint_x, &mint_y, value).await
+            };
+
             out.push(OpenPosition {
                 venue: "Meteora DLMM",
                 address: addr,
                 pool: pool_addr.clone(),
                 pair: pair.clone(),
                 earning,
-                usd_value,
+                usd_value: value,
                 pool_apr,
                 exit_cost_pct,
                 // Both denominators, because here they disagree in sign: one
@@ -476,5 +557,48 @@ mod tests {
         // reader is left thinking the position is fine.
         let text = explain(&f, &r, "lending");
         assert!(text.contains("out of range"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    #[test]
+    fn the_parts_sum_to_the_whole() {
+        // The invariant that matters: a pool holding several positions must
+        // not report its balance more than once.
+        let parts = split_pool_value(Some(2876.0), &[3.0, 1.0]);
+        let sum: f64 = parts.iter().flatten().sum();
+        assert!((sum - 2876.0).abs() < 1e-6, "{parts:?}");
+        assert!((parts[0].unwrap() - 2157.0).abs() < 1e-6);
+        assert!((parts[1].unwrap() - 719.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_single_position_takes_the_whole_pool() {
+        let parts = split_pool_value(Some(1421.0), &[42.0]);
+        assert_eq!(parts, vec![Some(1421.0)]);
+    }
+
+    #[test]
+    fn unmeasurable_weights_yield_nothing_rather_than_an_even_split() {
+        // An even split would look reasonable and be invented. Downstream,
+        // None means no exit is recommended for a position we cannot size.
+        let parts = split_pool_value(Some(1000.0), &[0.0, 0.0]);
+        assert_eq!(parts, vec![None, None]);
+    }
+
+    #[test]
+    fn a_position_with_no_balance_is_not_given_a_share() {
+        let parts = split_pool_value(Some(900.0), &[2.0, 0.0, 1.0]);
+        assert_eq!(parts[1], None);
+        let sum: f64 = parts.iter().flatten().sum();
+        assert!((sum - 900.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_unknown_pool_balance_stays_unknown() {
+        assert_eq!(split_pool_value(None, &[1.0, 2.0]), vec![None, None]);
     }
 }
