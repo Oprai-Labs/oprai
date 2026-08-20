@@ -47,6 +47,10 @@ const MIN_STABLE_LIQUIDITY_USD: f64 = 1_000_000.0;
 /// offering a self-loop for them would be noise.
 const MIN_LOOPABLE_SUPPLY_APR: f64 = 0.1;
 
+/// Below this the best one-step option is not really an option, and saying
+/// "nothing beat it" would flatter it.
+const MEANINGFUL_BASELINE_APR: f64 = 0.5;
+
 fn num(v: Option<&serde_json::Value>) -> f64 {
     v.and_then(|x| {
         x.as_f64()
@@ -543,31 +547,29 @@ pub async fn build_strategy_flows(
                     && num(r.get("totalSupplyUsd")) >= MIN_STABLE_LIQUIDITY_USD
             })
             .collect();
-        let cheapest = stables.iter().copied().min_by(|a, b| {
-            num(a.get("borrowApy"))
-                .partial_cmp(&num(b.get("borrowApy")))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let best_park = stables.iter().copied().max_by(|a, b| {
-            num(a.get("supplyApy"))
-                .partial_cmp(&num(b.get("supplyApy")))
+        // Borrow and hold the SAME stable. The first version picked the
+        // cheapest asset to borrow and quoted the best supply rate on the
+        // book, which are different assets — you cannot earn PYUSD's rate on
+        // borrowed USDG without swapping into it, paying for the swap and
+        // taking on the mismatch between what you owe and what you hold. So
+        // the stable is chosen by the spread it actually costs to carry, and
+        // both legs name it. USDG looked cheapest to borrow and is in fact the
+        // worst on this measure.
+        let best_stable = stables.iter().copied().min_by(|a, b| {
+            let spread = |r: &serde_json::Value| num(r.get("borrowApy")) - num(r.get("supplyApy"));
+            spread(a)
+                .partial_cmp(&spread(b))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        if let (true, Some(borrow_res), Some(park_res)) = (max_ltv > 0.0, cheapest, best_park) {
-            let borrow_sym = borrow_res
+        if let (true, Some(stable)) = (max_ltv > 0.0, best_stable) {
+            let borrow_sym = stable
                 .get("liquidityToken")
                 .and_then(|v| v.as_str())
                 .unwrap_or("a stablecoin");
-            let park_sym = park_res
-                .get("liquidityToken")
-                .and_then(|v| v.as_str())
-                .unwrap_or("a stablecoin");
-            let borrow_apr = num(borrow_res.get("borrowApy")) * 100.0;
-            let park_apr = num(park_res.get("supplyApy")) * 100.0;
+            let borrow_apr = num(stable.get("borrowApy")) * 100.0;
+            let park_apr = num(stable.get("supplyApy")) * 100.0;
             let held_supply = num(coll.get("supplyApy")) * 100.0;
-            // Share of the position that can be drawn as cash and still leave
-            // room for the collateral to fall.
             let unlocked = max_ltv * LTV_SAFETY;
             let carry = unlocked * (park_apr - borrow_apr);
             let net = held_supply + carry;
@@ -591,7 +593,7 @@ pub async fn build_strategy_flows(
                 "legs": [
                     format!("Supply {held_symbol} to Kamino as collateral"),
                     format!("Borrow {borrow_sym} against it"),
-                    format!("Lend the {park_sym} back out"),
+                    format!("Lend the {borrow_sym} back out, or spend it"),
                 ],
                 "netApr": net,
                 // Named separately because the point of this flow is the cash,
@@ -700,6 +702,13 @@ pub async fn build_strategy_flows(
         // reader, and only one of them is true.
         Some(
             "This token is not accepted as collateral on Kamino, so nothing can be borrowed against it — the pool and swap options are where its yield is.",
+        )
+    } else if best_simple < MEANINGFUL_BASELINE_APR {
+        // "Nothing beats the one-step answer" quietly implies the one-step
+        // answer is worth having. Lending cbBTC pays 0.01%; a reader told only
+        // that nothing beat it would take the wrong meaning entirely.
+        Some(
+            "Nothing here earns much: this token barely pays to lend, and borrowing against it costs more than it returns. Its yield, if any, is in the pool and swap options.",
         )
     } else {
         Some("No multi-step flow beats the one-step answer at today's rates.")
