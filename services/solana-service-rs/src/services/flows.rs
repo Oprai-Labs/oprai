@@ -39,6 +39,14 @@ const LTV_SAFETY: f64 = 0.66;
 /// Kamino main market — the one every rate above is read from.
 const KAMINO_MAIN_MARKET: &str = "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF";
 
+/// Below this a stablecoin reserve is too thin to fund the borrow it advertises.
+const MIN_STABLE_LIQUIDITY_USD: f64 = 1_000_000.0;
+
+/// Below this a token is not really a lending asset. The liquid-staking
+/// receipts all sit at 0% supply; their real loop is the staking one, and
+/// offering a self-loop for them would be noise.
+const MIN_LOOPABLE_SUPPLY_APR: f64 = 0.1;
+
 fn num(v: Option<&serde_json::Value>) -> f64 {
     v.and_then(|x| {
         x.as_f64()
@@ -248,16 +256,6 @@ pub async fn build_strategy_flows(
     mint: &str,
     usd_value: Option<f64>,
 ) -> Result<BuildResponse, AppError> {
-    if mint != SOL_MINT {
-        // The flows below are all SOL-shaped. Saying so beats returning an
-        // empty list that reads as "there is nothing you can do".
-        return Ok(flows_response(
-            mint,
-            serde_json::json!([]),
-            Some("Multi-step flows are currently only modelled for SOL."),
-        ));
-    }
-
     // ── Live inputs ──────────────────────────────────────────────────────
     let (yields, reserves, sol_usd) = tokio::join!(
         crate::services::marinade::query_stake_yields(http),
@@ -265,7 +263,12 @@ pub async fn build_strategy_flows(
         crate::services::strategies::sol_price_usd(http),
     );
 
-    let stake_apys: Vec<Lst> = {
+    // Staking a token for a liquid-staking receipt only exists for SOL. Left
+    // empty for every other mint, which disables the two staking flows below
+    // without the general engine needing to know they are special.
+    let stake_apys: Vec<Lst> = if mint != SOL_MINT {
+        Vec::new()
+    } else {
         let mut v = Vec::new();
         if let Ok(resp) = yields {
             let rows = resp
@@ -299,6 +302,23 @@ pub async fn build_strategy_flows(
         v
     };
     let reserves = reserves.unwrap_or_default();
+    // The held token is found by mint, not by ticker — but a mint can map to
+    // several reserves and taking the first is wrong. USDC currently has four
+    // in the main market, three of them empty; the first advertises 0.00%
+    // supply against the live reserve's 4.49%. Picking by deposits picks the
+    // one people are actually using, and needs no address hardcoded.
+    let held: Option<&serde_json::Value> = reserves
+        .iter()
+        .filter(|r| r.get("liquidityTokenMint").and_then(|v| v.as_str()) == Some(mint))
+        .max_by(|a, b| {
+            num(a.get("totalSupplyUsd"))
+                .partial_cmp(&num(b.get("totalSupplyUsd")))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    let held_symbol = held
+        .and_then(|r| r.get("liquidityToken"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("this token");
     let reserve_for = |symbol: &str| -> Option<&serde_json::Value> {
         reserves.iter().find(|r| {
             r.get("liquidityToken")
@@ -322,11 +342,11 @@ pub async fn build_strategy_flows(
             best_simple_label = format!("Stake it for {}", lst.symbol);
         }
     }
-    if let Some(sol_res) = reserve_for("SOL") {
-        let supply = num(sol_res.get("supplyApy")) * 100.0;
+    if let Some(r) = held {
+        let supply = num(r.get("supplyApy")) * 100.0;
         if supply > best_simple {
             best_simple = supply;
-            best_simple_label = "Lend it on Kamino".to_string();
+            best_simple_label = format!("Lend {held_symbol} on Kamino");
         }
     }
     if best_simple > 0.0 {
@@ -501,6 +521,164 @@ pub async fn build_strategy_flows(
         }));
     }
 
+    // ── Flow: take cash against the holding, without selling it ──────────
+    //
+    // This is the one multi-step flow that applies to nearly every token, and
+    // it is not a yield play. At every rate on the book today, lending the
+    // borrowed stable back earns less than the loan costs — so presenting it
+    // as income would be a lie of exactly the kind this module exists to stop.
+    // What it actually buys is cash while keeping the position, and the honest
+    // way to present that is its price. It is only called a carry when the
+    // arithmetic says so, which it currently does not.
+    if let Some(coll) = held {
+        let max_ltv = num(coll.get("maxLtv"));
+        // A thin reserve can advertise a cheap borrow it cannot actually fund.
+        let stables: Vec<&serde_json::Value> = reserves
+            .iter()
+            .filter(|r| {
+                r.get("liquidityToken")
+                    .and_then(|v| v.as_str())
+                    .map(crate::services::fees::symbol_is_stable)
+                    .unwrap_or(false)
+                    && num(r.get("totalSupplyUsd")) >= MIN_STABLE_LIQUIDITY_USD
+            })
+            .collect();
+        let cheapest = stables.iter().copied().min_by(|a, b| {
+            num(a.get("borrowApy"))
+                .partial_cmp(&num(b.get("borrowApy")))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let best_park = stables.iter().copied().max_by(|a, b| {
+            num(a.get("supplyApy"))
+                .partial_cmp(&num(b.get("supplyApy")))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        if let (true, Some(borrow_res), Some(park_res)) = (max_ltv > 0.0, cheapest, best_park) {
+            let borrow_sym = borrow_res
+                .get("liquidityToken")
+                .and_then(|v| v.as_str())
+                .unwrap_or("a stablecoin");
+            let park_sym = park_res
+                .get("liquidityToken")
+                .and_then(|v| v.as_str())
+                .unwrap_or("a stablecoin");
+            let borrow_apr = num(borrow_res.get("borrowApy")) * 100.0;
+            let park_apr = num(park_res.get("supplyApy")) * 100.0;
+            let held_supply = num(coll.get("supplyApy")) * 100.0;
+            // Share of the position that can be drawn as cash and still leave
+            // room for the collateral to fall.
+            let unlocked = max_ltv * LTV_SAFETY;
+            let carry = unlocked * (park_apr - borrow_apr);
+            let net = held_supply + carry;
+
+            let why = if carry < 0.0 {
+                format!(
+                    "You keep all your {held_symbol} and can draw {:.0}% of its value as {borrow_sym}. Borrowing costs {borrow_apr:.2}% and lending it back pays {park_apr:.2}%, so the cash costs you {:.2}% a year against simply lending — that is the price of not selling, not a loss on the position.",
+                    unlocked * 100.0,
+                    -carry
+                )
+            } else {
+                format!(
+                    "You keep all your {held_symbol}, draw {:.0}% of its value as {borrow_sym} at {borrow_apr:.2}%, and lend it at {park_apr:.2}% — the spread adds {carry:.2}% a year on top.",
+                    unlocked * 100.0
+                )
+            };
+
+            flows.push(serde_json::json!({
+                "name": format!("Borrow {borrow_sym} against your {held_symbol}"),
+                "steps": 3,
+                "legs": [
+                    format!("Supply {held_symbol} to Kamino as collateral"),
+                    format!("Borrow {borrow_sym} against it"),
+                    format!("Lend the {park_sym} back out"),
+                ],
+                "netApr": net,
+                // Named separately because the point of this flow is the cash,
+                // not the yield — a reader comparing only netApr would miss it.
+                "keepsYourToken": true,
+                "unlockedSharePct": unlocked * 100.0,
+                "borrowApr": borrow_apr,
+                "parkApr": park_apr,
+                "carryApr": carry,
+                "costSol": leg_cost.map(|c| c * 3.0),
+                "isBaseline": false,
+                "beatsSimple": net > best_simple,
+                "liquidationDropPct": (1.0 - LTV_SAFETY) * 100.0,
+                "why": why,
+            }));
+        }
+    }
+
+    // ── Flow: loop the token against itself ──────────────────────────────
+    //
+    // Supply, borrow the same asset, supply again. It is the most-asked-about
+    // strategy on any lending market and it is a loss by construction: the
+    // borrow rate sits above the supply rate because that spread is how the
+    // lender gets paid. Modelling it anyway is the whole point — someone
+    // asking "should I loop my USDC" deserves the number rather than silence.
+    if let Some(coll) = held {
+        let supply = num(coll.get("supplyApy")) * 100.0;
+        let borrow = num(coll.get("borrowApy")) * 100.0;
+        let max_ltv = num(coll.get("maxLtv"));
+        // Below this the token is not really a lending asset — the LSTs sit at
+        // 0% supply, and their real loop is the staking one modelled above.
+        if max_ltv > 0.0 && supply > MIN_LOOPABLE_SUPPLY_APR {
+            let per_turn = supply - borrow;
+            let leverage = 1.0 / (1.0 - max_ltv * LTV_SAFETY);
+            let net = supply + per_turn * (leverage - 1.0);
+
+            // Both legs are the same reserve here, so the join is trivially
+            // aligned — but it still goes through the same path, because the
+            // history is what tells the reader this is structural and not a
+            // bad week.
+            let spread_history = match coll.get("reserve").and_then(|v| v.as_str()) {
+                Some(res) => loop_spread_history(http, res, res, KAMINO_MAIN_MARKET, 0.0, 30).await,
+                None => None,
+            };
+            let why = {
+                let today = if per_turn < 0.0 {
+                    format!(
+                        "Borrowing {held_symbol} costs {borrow:.2}% while supplying it pays {supply:.2}%, so every turn of the loop gives up {:.2}% — leverage multiplies the gap, not the yield.",
+                        -per_turn
+                    )
+                } else {
+                    format!("Each turn adds {per_turn:.2}%, levered {leverage:.1}x.")
+                };
+                match spread_history.as_ref() {
+                    Some(h)
+                        if h.get("profitableSharePct").and_then(|v| v.as_f64()) == Some(0.0) =>
+                    {
+                        format!(
+                            "{today} It has not been profitable in any of the last {} hours, because a lending market is built so that it cannot be.",
+                            h.get("hours").and_then(|v| v.as_u64()).unwrap_or(0)
+                        )
+                    }
+                    _ => today,
+                }
+            };
+
+            flows.push(serde_json::json!({
+                "name": format!("Loop {held_symbol} on Kamino"),
+                "steps": 3,
+                "legs": [
+                    format!("Supply {held_symbol} to Kamino"),
+                    format!("Borrow {held_symbol} against it"),
+                    "Supply the borrowed amount again",
+                ],
+                "netApr": net,
+                "perTurnApr": per_turn,
+                "leverage": leverage,
+                "costSol": leg_cost.map(|c| c * 3.0),
+                "isBaseline": false,
+                "beatsSimple": net > best_simple,
+                "liquidationDropPct": (1.0 - LTV_SAFETY) * 100.0,
+                "spreadHistory": spread_history,
+                "why": why,
+            }));
+        }
+    }
+
     flows.sort_by(|a, b| {
         let n =
             |v: &serde_json::Value| v.get("netApr").and_then(|x| x.as_f64()).unwrap_or(f64::MIN);
@@ -516,6 +694,13 @@ pub async fn build_strategy_flows(
                 .unwrap_or(false)
     }) {
         None
+    } else if held.is_none() {
+        // Not an empty list. "Nothing came back" and "this token cannot be
+        // used as collateral anywhere we can price" look identical to a
+        // reader, and only one of them is true.
+        Some(
+            "This token is not accepted as collateral on Kamino, so nothing can be borrowed against it — the pool and swap options are where its yield is.",
+        )
     } else {
         Some("No multi-step flow beats the one-step answer at today's rates.")
     };
@@ -613,5 +798,150 @@ mod live_history_tests {
             out["medianPerTurnPct"].as_f64().unwrap(),
             out["profitableSharePct"].as_f64().unwrap(),
         );
+    }
+}
+
+/// The generalisation, checked against the live book for four shapes of token.
+///
+/// The engine used to answer "only modelled for SOL" for every mint but one.
+/// What matters now is not that it returns something — it is that what it
+/// returns is *true* for tokens that behave nothing like SOL: a stablecoin
+/// with a real supply rate, a wrapped BTC that pays essentially nothing, a
+/// liquid-staking receipt whose supply rate is zero by design, and SOL itself.
+#[cfg(test)]
+mod general_flow_tests {
+    use super::*;
+
+    const USDC: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    const CBBTC: &str = "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij";
+    const JITOSOL: &str = "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn";
+
+    /// Reproduces the engine's reserve-driven decisions without needing an RPC.
+    async fn reserve_of(http: &reqwest::Client, mint: &str) -> Option<serde_json::Value> {
+        let reserves = crate::services::kamino::fetch_market_reserves(http, None)
+            .await
+            .ok()?;
+        // Same selection the engine makes — a test that resolves the reserve
+        // differently is testing something the product does not do.
+        reserves
+            .into_iter()
+            .filter(|r| r.get("liquidityTokenMint").and_then(|v| v.as_str()) == Some(mint))
+            .max_by(|a, b| {
+                num(a.get("totalSupplyUsd"))
+                    .partial_cmp(&num(b.get("totalSupplyUsd")))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+
+    #[tokio::test]
+    #[ignore = "hits the live Kamino API"]
+    async fn every_shape_of_token_has_a_reserve_the_engine_can_price() {
+        let http = reqwest::Client::new();
+        for (name, mint) in [
+            ("SOL", SOL_MINT),
+            ("USDC", USDC),
+            ("cbBTC", CBBTC),
+            ("jitoSOL", JITOSOL),
+        ] {
+            let r = reserve_of(&http, mint).await.unwrap_or_else(|| {
+                panic!("{name} has no Kamino reserve — the engine would be silent for it")
+            });
+            let supply = num(r.get("supplyApy")) * 100.0;
+            let borrow = num(r.get("borrowApy")) * 100.0;
+            let ltv = num(r.get("maxLtv"));
+            eprintln!("{name:8} supply {supply:5.2}%  borrow {borrow:5.2}%  maxLtv {ltv:.2}");
+            assert!(
+                ltv > 0.0,
+                "{name} cannot be used as collateral, so no flow applies"
+            );
+
+            // The self-loop must never be sold as profitable: a lending market
+            // is built so that borrowing costs more than supplying pays.
+            assert!(
+                supply <= borrow,
+                "{name} supply {supply} exceeds borrow {borrow} — either the book is broken or we are reading the wrong fields"
+            );
+        }
+    }
+
+    /// A mint with several reserves must resolve to the one holding the money.
+    ///
+    /// USDC has four reserves in the main market and three are empty. The
+    /// first of them reports 0.00% supply, so `find` — which is what this used
+    /// to do — told a USDC holder that lending pays nothing and that no loop
+    /// exists, while the reserve people actually use pays 4.49%. Confidently
+    /// wrong is worse than silent, and this is the shape that produces it.
+    #[tokio::test]
+    #[ignore = "hits the live Kamino API"]
+    async fn a_mint_with_several_reserves_resolves_to_the_deepest() {
+        let http = reqwest::Client::new();
+        let reserves = crate::services::kamino::fetch_market_reserves(&http, None)
+            .await
+            .expect("reserves");
+        let matching: Vec<_> = reserves
+            .iter()
+            .filter(|r| r.get("liquidityTokenMint").and_then(|v| v.as_str()) == Some(USDC))
+            .collect();
+        assert!(
+            matching.len() > 1,
+            "USDC no longer has duplicate reserves — re-check whether this guard is still needed"
+        );
+        let deepest = matching
+            .iter()
+            .max_by(|a, b| {
+                num(a.get("totalSupplyUsd"))
+                    .partial_cmp(&num(b.get("totalSupplyUsd")))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap();
+        eprintln!(
+            "ilk eslesen: %{:.2} (${:.1}M)   en derin: %{:.2} (${:.1}M)",
+            num(matching[0].get("supplyApy")) * 100.0,
+            num(matching[0].get("totalSupplyUsd")) / 1e6,
+            num(deepest.get("supplyApy")) * 100.0,
+            num(deepest.get("totalSupplyUsd")) / 1e6,
+        );
+        assert!(
+            num(deepest.get("totalSupplyUsd")) > 1e6,
+            "the deepest USDC reserve should hold real deposits"
+        );
+        assert!(
+            num(deepest.get("supplyApy")) > 0.0,
+            "the reserve people actually use pays something"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "hits the live Kamino API"]
+    async fn a_borrowable_stable_exists_and_is_liquid_enough() {
+        let http = reqwest::Client::new();
+        let reserves = crate::services::kamino::fetch_market_reserves(&http, None)
+            .await
+            .expect("reserves");
+        let stables: Vec<_> = reserves
+            .iter()
+            .filter(|r| {
+                r.get("liquidityToken")
+                    .and_then(|v| v.as_str())
+                    .map(crate::services::fees::symbol_is_stable)
+                    .unwrap_or(false)
+                    && num(r.get("totalSupplyUsd")) >= MIN_STABLE_LIQUIDITY_USD
+            })
+            .collect();
+        assert!(
+            !stables.is_empty(),
+            "no stable reserve passes the liquidity floor, so the borrow-against flow would never appear"
+        );
+        for r in &stables {
+            eprintln!(
+                "  {:6} borrow {:5.2}%  supply {:5.2}%  ${:.1}M",
+                r.get("liquidityToken")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?"),
+                num(r.get("borrowApy")) * 100.0,
+                num(r.get("supplyApy")) * 100.0,
+                num(r.get("totalSupplyUsd")) / 1e6,
+            );
+        }
     }
 }

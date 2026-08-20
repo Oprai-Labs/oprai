@@ -4661,7 +4661,12 @@ async fn build_action_inner(
                 .and_then(|m| m.as_str())
                 .unwrap_or("So11111111111111111111111111111111111111112")
                 .to_string();
-            let usd = params.get("usdValue").and_then(|v| v.as_f64());
+            // The model sends "5000" as often as 5000; reading only the
+            // number silently dropped the position size and every flow came
+            // back unsized.
+            let usd = params
+                .get("usdValue")
+                .and_then(|v| v.as_f64().or_else(|| v.as_str()?.trim().parse().ok()));
             crate::services::flows::build_strategy_flows(http, rpc, &mint, usd).await
         }
         "token_strategies" => {

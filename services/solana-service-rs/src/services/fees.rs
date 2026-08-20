@@ -89,13 +89,20 @@ fn is_stable(mint_or_symbol: &str) -> bool {
     // The registry is the source of truth for symbols; a hardcoded set of
     // stablecoin names goes stale the moment a new one lists.
     get_token_info(resolved)
-        .map(|t| {
-            let s = t.symbol.to_uppercase();
-            s.starts_with("USD")
-                || s.ends_with("USD")
-                || matches!(s.as_str(), "PYUSD" | "EURC" | "DAI" | "FRAX" | "USDE")
-        })
+        .map(|t| symbol_is_stable(&t.symbol))
         .unwrap_or(false)
+}
+
+/// Whether a ticker names a stablecoin.
+///
+/// Split out because callers that already hold a symbol — Kamino reserves
+/// carry one — should not have to round-trip through the mint registry to ask.
+/// One definition of the rule, two ways in.
+pub fn symbol_is_stable(symbol: &str) -> bool {
+    let s = symbol.trim().to_uppercase();
+    s.starts_with("USD")
+        || s.ends_with("USD")
+        || matches!(s.as_str(), "PYUSD" | "EURC" | "DAI" | "FRAX" | "USDE")
 }
 
 /// Blue-chip mints that earn the STANDARD (non-memecoin) rate. Curated on

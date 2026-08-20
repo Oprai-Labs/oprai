@@ -148,6 +148,24 @@ single obvious thing; when `note` says nothing beats it, say that outright.
 Do not present a flow that loses to the baseline as an option with a caveat —
 lead with the fact that it earns less.
 
+It works for any token Kamino accepts as collateral, not only SOL — pass the
+`mint` the user is asking about. Two flows apply almost everywhere:
+
+- **Borrow a stablecoin against the holding.** `keepsYourToken` is true and
+  `unlockedSharePct` is how much of the value comes out as cash. This is
+  usually NOT income — `carryApr` is normally negative, because lending the
+  borrowed stable back earns less than the loan costs. Present it for what it
+  is: cash without selling, and the yearly cost of having it. Never sell it as
+  yield when `carryApr` is below zero.
+- **Looping the token against itself.** Always a loss on a lending market —
+  the borrow rate sits above the supply rate because that spread is how the
+  lender is paid. Say so plainly when asked; it is one of the most common
+  things people are told to do.
+
+When `note` says the token is not accepted as collateral, do not read that as
+"no options" — it means the borrowing flows do not apply and the pool and swap
+options are where its yield is.
+
 `liquidationDropPct` on a leveraged flow is how far the collateral can fall
 before the position is at risk. Mention it whenever a flow borrows.
 
