@@ -1432,6 +1432,21 @@ async fn build_vtx_b64_inner(
 // DLMM API Fetch Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// A pool's raw record, for callers that want the fee/TVL fields rather than
+/// the typed pair info — the conservative APR is computed from those directly.
+pub async fn meteora_pool_raw(
+    http: &reqwest::Client,
+    api: &str,
+    pool: &str,
+) -> Result<serde_json::Value, AppError> {
+    let resp = http
+        .get(format!("{api}/pools/{pool}"))
+        .send()
+        .await
+        .map_err(|e| AppError::ProtocolError(format!("Meteora pool fetch: {e}")))?;
+    meteora_datapi_json(resp, "pool").await
+}
+
 /// Fetch pool pair info. Returns Err if the pool is not found.
 async fn fetch_pair(http: &reqwest::Client, pool: &str) -> Result<DlmmPairInfo, AppError> {
     // New API: pool detail moved from /pair/{x} to /pools/{x}.

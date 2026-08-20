@@ -253,6 +253,58 @@ mod spread_tests {
     }
 }
 
+/// The best one-step return available today, and what to call it.
+///
+/// Shared with the position review, which has to answer "compared to what?"
+/// with the same number the entry side uses — two different baselines would
+/// let a position look worth keeping on one screen and worth closing on
+/// another.
+pub async fn best_simple_option(http: &reqwest::Client) -> Option<(f64, String)> {
+    let (yields, reserves) = tokio::join!(
+        crate::services::marinade::query_stake_yields(http),
+        crate::services::kamino::fetch_market_reserves(http, None),
+    );
+    let mut best = 0.0f64;
+    let mut label = String::new();
+
+    if let Ok(resp) = yields {
+        let rows = resp
+            .data
+            .as_ref()
+            .and_then(|d| d.get("yields"))
+            .and_then(|y| y.as_array())
+            .cloned()
+            .unwrap_or_default();
+        for r in rows {
+            let apy = r.get("apy").and_then(|x| x.as_f64()).unwrap_or(0.0);
+            if apy > best {
+                best = apy;
+                label = "staking SOL".to_string();
+            }
+        }
+    }
+    if let Ok(reserves) = reserves {
+        // The deepest SOL reserve, for the same reason the flows engine picks
+        // by deposits: a mint can have several and the empty ones lie.
+        let sol = reserves
+            .iter()
+            .filter(|r| r.get("liquidityTokenMint").and_then(|v| v.as_str()) == Some(SOL_MINT))
+            .max_by(|a, b| {
+                num(a.get("totalSupplyUsd"))
+                    .partial_cmp(&num(b.get("totalSupplyUsd")))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        if let Some(r) = sol {
+            let supply = num(r.get("supplyApy")) * 100.0;
+            if supply > best {
+                best = supply;
+                label = "lending SOL on Kamino".to_string();
+            }
+        }
+    }
+    (best > 0.0).then_some((best, label))
+}
+
 /// Every flow worth testing for a wallet holding `mint`, priced today.
 pub async fn build_strategy_flows(
     http: &reqwest::Client,

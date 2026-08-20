@@ -137,6 +137,7 @@ Example:
   query_onchain("token_strategies", {"mint": "So11111111111111111111111111111111111111112", "amount": "65", "usdValue": "5000"})
 
 | Multi-step flows, priced against the simple one | `strategy_flows` | `usdValue` (optional), `mint` (optional, defaults to SOL) |
+| Is an open position still worth keeping | `position_review` | `wallet` (use `<auth_wallet>`) |
 
 Reach for this when someone asks about leverage, looping, "the best way to
 earn", or any plan with more than one step — "kaldıraçlı stake", "loop my
@@ -186,6 +187,28 @@ not present the range as more exact than that.
 Example:
 
   query_onchain("strategy_flows", {"usdValue": "5000"})
+
+Use `position_review` whenever someone asks about positions they already
+hold — "pozisyonlarım nasıl", "should I close this", "is this still worth it".
+Everything else here is about getting in; this is the only thing that looks at
+a position afterwards.
+
+`earning: false` means the position is outside its range and earning **nothing
+at all** — not merely less. Lead with that; it is the single most valuable
+thing on the screen and neither the wallet nor the protocol will mention it.
+
+The `verdict` is already the answer and it is deliberately conservative:
+
+- `consider_exit` — the gap pays back the cost of closing inside 90 days.
+- `not_worth_the_switch` — something pays more, but closing costs more than it
+  would recover. Say so plainly. Do NOT present this as an opportunity with a
+  caveat; the honest answer is to leave it alone.
+- `unpriced` — the cost of closing could not be measured, so no move is
+  advised. Never recommend one anyway.
+- `keep` — nothing better is available.
+
+`covers` lists which venues were actually checked. Never let an answer imply
+the whole wallet is fine when only some venues were read.
 
 | Everything this wallet could do, in one answer | `wallet_strategies` | `wallet` (use `<auth_wallet>`), `minUsd` (optional) |
 

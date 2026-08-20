@@ -2093,6 +2093,25 @@ async def token_strategies(mint: str, amount: str, usdValue: str = "", horizonDa
     return await _solana_action_data("token_strategies", params)
 
 
+async def position_review(wallet: str = "") -> dict:
+    """Whether each open liquidity position is still worth keeping.
+
+    Everything else helps people get into positions; this is the only thing
+    that looks at one afterwards. The failure it catches is the quiet one — a
+    concentrated position drifts out of its range and earns nothing while the
+    same money would have earned the lending rate doing nothing at all.
+
+    It refuses to recommend churn: leaving costs what arriving cost, so a
+    position that is merely mediocre is left alone. An exit is only suggested
+    when the gap it closes recovers the cost of closing it within 90 days, and
+    never at all when that cost could not be priced.
+    """
+    params: dict = {}
+    if wallet:
+        params["wallet"] = wallet
+    return await _solana_action_data("position_review", params)
+
+
 async def strategy_flows(usdValue: str = "", mint: str = "") -> dict:
     """Multi-step DeFi strategies, priced against the simple one-step answer.
 
@@ -2381,6 +2400,7 @@ _DISPATCH: dict[str, tuple] = {
     "marinade_exchange_rate": (marinade_exchange_rate, [],              []),
     "token_strategies":     (token_strategies,     ["mint", "amount"], ["usdValue", "horizonDays"]),
     "strategy_flows":       (strategy_flows,       [],                 ["usdValue", "mint"]),
+    "position_review":      (position_review,      [],                 ["wallet"]),
     "wallet_strategies":    (wallet_strategies,    ["wallet"],         ["minUsd"]),
     "marinade_list_tickets":  (marinade_list_tickets,  ["wallet"],      []),
     # Yield / APY comparison (liquid staking + lending)
@@ -2546,6 +2566,7 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     # they net at the caller's size. Same /actions/build route, tx=None.
     "token_strategies",
     "strategy_flows",
+    "position_review",
 })
 
 

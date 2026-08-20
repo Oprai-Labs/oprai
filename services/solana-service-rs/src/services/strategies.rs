@@ -310,7 +310,10 @@ fn horizon_return_pct(
 /// Kept together on purpose: every caller that needs to turn a dollar amount
 /// into base units needs both, and fetching them separately is how they end up
 /// belonging to different tokens.
-async fn mint_price_and_decimals(http: &reqwest::Client, mint: &str) -> Option<(f64, u8)> {
+pub(crate) async fn mint_price_and_decimals(
+    http: &reqwest::Client,
+    mint: &str,
+) -> Option<(f64, u8)> {
     let body: serde_json::Value = http
         .get(format!("https://lite-api.jup.ag/price/v3?ids={mint}"))
         .send()
@@ -325,7 +328,7 @@ async fn mint_price_and_decimals(http: &reqwest::Client, mint: &str) -> Option<(
     Some((price, decimals))
 }
 
-async fn entry_cost_pct(
+pub(crate) async fn entry_cost_pct(
     http: &reqwest::Client,
     from_mint: &str,
     to_mint: &str,

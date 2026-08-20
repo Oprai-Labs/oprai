@@ -16,7 +16,10 @@
 //! advice, which is the point: advice that ignores its own cost is how people
 //! get churned.
 
+use uuid::Uuid;
+
 use crate::error::AppError;
+use crate::services::builder::{ActionPreview, BuildResponse};
 
 /// How long a switch is allowed to take to pay for itself.
 ///
@@ -162,9 +165,231 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
     }
 }
 
-/// Placeholder so the module compiles ahead of the venue readers.
-pub async fn build_position_review(_wallet: &str) -> Result<(), AppError> {
-    Ok(())
+/// Every open position the wallet holds, judged against doing something else.
+pub async fn build_position_review(
+    http: &reqwest::Client,
+    wallet: &str,
+) -> Result<BuildResponse, AppError> {
+    // What the same money would earn in one step today. Most LP positions are
+    // paired against SOL, so "you could have just staked it" is the honest
+    // comparison rather than a hand-picked rival pool.
+    let (alt, dlmm) = tokio::join!(
+        crate::services::flows::best_simple_option(http),
+        read_dlmm_positions(http, wallet),
+    );
+    let (alt_apr, alt_label) = alt.unwrap_or((0.0, "lending".to_string()));
+
+    let mut reviewed: Vec<serde_json::Value> = Vec::new();
+    let mut idle = 0usize;
+    for pos in dlmm.unwrap_or_default() {
+        if !pos.earning {
+            idle += 1;
+        }
+        let facts = PositionFacts {
+            // Out of range is not "earning less" — it is earning nothing, and
+            // that is the case this whole feature exists to surface.
+            forward_apr: if pos.earning { pos.pool_apr } else { 0.0 },
+            alternative_apr: alt_apr,
+            exit_cost_pct: pos.exit_cost_pct,
+            earning: pos.earning,
+        };
+        let review = review_position(&facts);
+        reviewed.push(serde_json::json!({
+            "venue": pos.venue,
+            "position": pos.address,
+            "pool": pos.pool,
+            "pair": pos.pair,
+            "earning": pos.earning,
+            "usdValue": pos.usd_value,
+            "poolAprPct": pos.pool_apr,
+            "forwardAprPct": facts.forward_apr,
+            "alternativeAprPct": alt_apr,
+            "alternative": alt_label,
+            "exitCostPct": pos.exit_cost_pct,
+            "gapPct": review.gap_pct,
+            "paybackDays": review.payback_days,
+            "verdict": review.verdict.as_str(),
+            "why": explain(&facts, &review, &alt_label),
+        }));
+    }
+
+    // Worth acting on first: the ones earning nothing, then the widest gap.
+    reviewed.sort_by(|a, b| {
+        let key = |v: &serde_json::Value| {
+            (
+                v.get("earning").and_then(|x| x.as_bool()).unwrap_or(true),
+                -v.get("gapPct").and_then(|x| x.as_f64()).unwrap_or(0.0),
+            )
+        };
+        let (ka, kb) = (key(a), key(b));
+        ka.0.cmp(&kb.0)
+            .then(ka.1.partial_cmp(&kb.1).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    let count = reviewed.len();
+    let note = if count == 0 {
+        Some("No open liquidity positions found for this wallet.".to_string())
+    } else if idle > 0 {
+        Some(format!(
+            "{idle} of {count} positions are outside their range and earning nothing right now."
+        ))
+    } else {
+        None
+    };
+
+    let data = serde_json::json!({
+        "wallet": wallet,
+        "positions": reviewed,
+        "idleCount": idle,
+        "alternativeAprPct": alt_apr,
+        "alternative": alt_label,
+        // Said plainly so an answer never implies a wallet-wide all-clear it
+        // has not actually checked.
+        "covers": ["Meteora DLMM"],
+        "note": note,
+    });
+
+    Ok(BuildResponse {
+        preview: ActionPreview {
+            id: Uuid::new_v4().to_string(),
+            action_type: "position_review".into(),
+            description: format!("{count} open positions, judged against doing something else"),
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: data.clone(),
+            warnings: vec![],
+            requires_approval: false,
+        },
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: Some(data),
+    })
+}
+
+/// One position, flattened to what the judgement needs.
+struct OpenPosition {
+    venue: &'static str,
+    address: String,
+    pool: String,
+    pair: String,
+    earning: bool,
+    usd_value: Option<f64>,
+    pool_apr: f64,
+    exit_cost_pct: Option<f64>,
+}
+
+/// Meteora DLMM positions, priced.
+///
+/// Best-effort throughout: one pool failing to price must not hide the others,
+/// because a review that silently drops a position reads as "that one is fine".
+async fn read_dlmm_positions(
+    http: &reqwest::Client,
+    wallet: &str,
+) -> Result<Vec<OpenPosition>, AppError> {
+    let params = crate::services::meteora::MeteoraDlmmGetUserPositionsParams {
+        wallet: Some(wallet.to_string()),
+    };
+    let resp =
+        crate::services::meteora::build_meteora_dlmm_get_user_positions(http, wallet, &params)
+            .await?;
+    let data = resp.data.unwrap_or(serde_json::Value::Null);
+    let pools = data
+        .get("pools")
+        .and_then(|p| p.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut out = Vec::new();
+    for pool in pools {
+        let pool_addr = pool
+            .get("poolAddress")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let (mint_x, mint_y) = crate::services::meteora::meteora_pool_mints(&pool);
+        let pair = pool
+            .get("poolName")
+            .or_else(|| pool.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("liquidity position")
+            .to_string();
+
+        // What the pool pays now, on the same conservative basis the entry
+        // options use — the lower of the last day and the pool's lifetime.
+        let pool_apr = match crate::services::meteora::meteora_pool_raw(
+            http,
+            crate::services::meteora::DLMM_API,
+            &pool_addr,
+        )
+        .await
+        {
+            Ok(raw) => crate::services::strategies::conservative_pool_apr(&raw),
+            Err(_) => 0.0,
+        };
+
+        let positions = pool
+            .get("positions")
+            .and_then(|p| p.as_array())
+            .cloned()
+            .unwrap_or_default();
+        for p in positions {
+            let usd_value = position_usd(http, &p, mint_x, mint_y).await;
+            // Leaving costs what arriving cost: half the position swaps back.
+            let exit_cost_pct = match (mint_x, mint_y) {
+                (Some(x), Some(y)) => {
+                    crate::services::strategies::entry_cost_pct(http, x, y, usd_value).await
+                }
+                _ => None,
+            };
+            out.push(OpenPosition {
+                venue: "Meteora DLMM",
+                address: p
+                    .get("address")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                pool: pool_addr.clone(),
+                pair: pair.clone(),
+                earning: p.get("inRange").and_then(|v| v.as_bool()).unwrap_or(false),
+                usd_value,
+                pool_apr,
+                exit_cost_pct,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// What a position is worth, from its two token balances and live prices.
+async fn position_usd(
+    http: &reqwest::Client,
+    p: &serde_json::Value,
+    mint_x: Option<&str>,
+    mint_y: Option<&str>,
+) -> Option<f64> {
+    let amount_x = p.get("amountX").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let amount_y = p.get("amountY").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let (px, py) = tokio::join!(
+        async {
+            match mint_x {
+                Some(m) => crate::services::strategies::mint_price_and_decimals(http, m).await,
+                None => None,
+            }
+        },
+        async {
+            match mint_y {
+                Some(m) => crate::services::strategies::mint_price_and_decimals(http, m).await,
+                None => None,
+            }
+        },
+    );
+    // Amounts are already in UI units, so only the price is applied — folding
+    // decimals in again here would inflate the value by 10^n.
+    let value = amount_x * px?.0 + amount_y * py?.0;
+    (value > 0.0).then_some(value)
 }
 
 #[cfg(test)]

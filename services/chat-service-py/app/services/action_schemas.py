@@ -440,6 +440,7 @@ class QueryType(str, Enum):
     TOKEN_STRATEGIES = "token_strategies"
     # Multi-step flows, each priced against the one-step answer.
     STRATEGY_FLOWS = "strategy_flows"
+    POSITION_REVIEW = "position_review"
     # The whole wallet in one answer, fees kept back and dust skipped.
     WALLET_STRATEGIES = "wallet_strategies"
     MARINADE_LIST_TICKETS = "marinade_list_tickets"
