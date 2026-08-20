@@ -1,19 +1,22 @@
 """
-Meteora — Gap Fill LLM Testleri
+Meteora — gap-fill LLM tests
 
-Mevcut test coverage'ında 15'in altında kalan endpoint'ler için ek senaryolar:
-  - DLMM get_user_positions (+10 test → toplam 18)
-  - DLMM get_active_bin    (+5  test → toplam 18)
-  - DLMM get_pair          (+5  test → toplam 19)
-  - DAMMv1 alpha_vault_cfgs(+5  test → toplam 19)
-  - DAMMv1 pool_configs     (+5  test → toplam 19)
+Extra scenarios for the endpoints that sat below 15 cases of coverage:
+  - DLMM get_user_positions (+10 tests -> 18 total)
+  - DLMM get_active_bin     (+5  tests -> 18 total)
+  - DLMM get_pair           (+5  tests -> 19 total)
+  - DAMMv1 alpha_vault_cfgs (+5  tests -> 19 total)
+  - DAMMv1 pool_configs     (+5  tests -> 19 total)
 
-Her test sınıfı farklı bir kullanıcı senaryosunu kapsar:
-  - LLM'in doğru endpoint'i tetikleyip tetiklemediği
-  - Parametrelerin doğru çıkarılıp çıkarılmadığı
-  - Yanıt kalitesi: sayısal veri, ham JSON yok, halüsinasyon yok
-  - Türkçe + İngilizce karma sorgular
-  - Edge case'ler: eksik parametre, birden fazla wallet, karmaşık doğal dil
+Each test class covers a different user scenario:
+  - does the LLM trigger the right endpoint
+  - are the parameters extracted correctly
+  - answer quality: real numbers, no raw JSON, no hallucination
+  - mixed Turkish and English questions
+  - edge cases: missing parameter, several wallets, tangled natural language
+
+The Turkish questions are deliberate: they are the regression net for
+Turkish-language intent handling.
 """
 
 from __future__ import annotations
@@ -62,7 +65,7 @@ def chat_client():
         if r.status_code not in (200, 204):
             pytest.skip(f"chat-service did not respond: HTTP {r.status_code}")
     except Exception as exc:
-        pytest.skip(f"chat-service ulaşılamıyor: {exc}")
+        pytest.skip(f"chat-service unreachable: {exc}")
     with httpx.Client(base_url=CHAT_URL, timeout=120.0) as c:
         yield c
 
@@ -197,7 +200,7 @@ def no_hallucination(r: StreamResult, msg: str = ""):
 def explains_error(r: StreamResult, msg: str = ""):
     kws = ["hata", "geçersiz", "bulunamadı", "error", "invalid", "not found", "sorry", "üzgün"]
     assert any(k in r.tl() for k in kws) or r.asked_clarification(), (
-        f"Hata için açıklama yok.\n{r.text[:400]}\n{msg}"
+        f"No explanation for the error.\n{r.text[:400]}\n{msg}"
     )
 
 
@@ -206,7 +209,7 @@ def explains_error(r: StreamResult, msg: str = ""):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestDLMMUserPositionsExtra:
-    """DLMM get_user_positions: 10 ek senaryo — farklı cüzdanlar, PnL analizi, out-of-range"""
+    """DLMM get_user_positions: 10 more scenarios — several wallets, PnL, out-of-range."""
 
     def test_out_of_range_positions_query(self, chat_client):
         r = _chat(chat_client, "DLMM'deki kaç pozisyonum aralık dışına çıktı?")
@@ -279,7 +282,7 @@ class TestDLMMUserPositionsExtra:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestDLMMActiveBinExtra:
-    """DLMM get_active_bin: 5 ek senaryo — LP stratejisi, bin range, karşılaştırma"""
+    """DLMM get_active_bin: 5 more scenarios — LP strategy, bin range, comparison."""
 
     def test_active_bin_before_add_liquidity(self, chat_client):
         r = _chat(chat_client, (
@@ -326,7 +329,7 @@ class TestDLMMActiveBinExtra:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestDLMMGetPairExtra:
-    """DLMM get_pair: 5 ek senaryo — farklı tokenlara göre, LP analizi"""
+    """DLMM get_pair: 5 more scenarios — across tokens, LP analysis."""
 
     def test_pair_jup_usdc(self, chat_client):
         r = _chat(chat_client, f"Get details for JUP-USDC DLMM pool: {DLMM_JUP_USDC}")
@@ -372,7 +375,7 @@ class TestDLMMGetPairExtra:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestDV1AlphaVaultConfigsExtra:
-    """DAMMv1 alpha_vault_configs: 5 ek senaryo — farklı kullanıcı niyetleri"""
+    """DAMMv1 alpha_vault_configs: 5 more scenarios — different user intents."""
 
     def test_configs_how_many_available(self, chat_client):
         r = _chat(chat_client, "Meteora'da kaç tane farklı alpha vault konfigürasyonu var?")
@@ -416,7 +419,7 @@ class TestDV1AlphaVaultConfigsExtra:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestDV1PoolConfigsExtra:
-    """DAMMv1 pool_configs: 5 ek senaryo — yeni havuz kurulumu, fee tier seçimi"""
+    """DAMMv1 pool_configs: 5 more scenarios — creating a pool, choosing a fee tier."""
 
     def test_pool_configs_stable_curve(self, chat_client):
         r = _chat(chat_client, "DAMM v1'de stable curve seçeneği var mı? Pool configs listele.")

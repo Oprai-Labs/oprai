@@ -1,10 +1,13 @@
 """
 Marinade LLM End-to-End Test Suite
 ────────────────────────────────────
-Tüm 15 Marinade tool'unu tüm parametre kombinasyonları ve uç case'lerle
-LLM üzerinden test eder. Hem tool seçimi hem HTML yanıt kalitesi ölçülür.
+Exercises all 15 Marinade tools through the LLM, across every parameter
+combination and edge case — measuring both tool choice and HTML answer quality.
 
-Çalıştır:
+Some questions are deliberately in Turkish: they are the regression net for
+Turkish-language intent handling.
+
+Run:
   cd services/defi-query-service
   python3 tests/e2e_llm_marinade.py
   python3 tests/e2e_llm_marinade.py --tool marinade_validators
@@ -22,7 +25,7 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# ─── Yardımcı fonksiyonlar ───────────────────────────────────────────────────
+# ─── Helper functions ────────────────────────────────────────────────────────
 
 def html_has(html: str, *keywords: str) -> dict[str, bool]:
     plain = re.sub(r"<[^>]+>", "", html).lower()
@@ -94,7 +97,7 @@ class TestResult:
 ALL_CASES: list[TestCase] = [
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_STATS — mSOL fiyatı, TVL, staking özeti
+    # MARINADE_STATS — mSOL price, TVL, staking overview
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -104,7 +107,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_stats"],
         check_html=["msol", "sol", "price"],
         check_fields=["msol", "sol", "usd"],
-        description="mSOL fiyatı SOL ve USD",
+        description="mSOL price in SOL and USD",
     ),
     TestCase(
         id="stats_02_tvl",
@@ -122,11 +125,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_stats"],
         check_html=["marinade", "msol", "sol", "tvl"],
         check_fields=["msol", "tvl", "staked"],
-        description="Marinade protokol özeti",
+        description="Marinade protocol overview",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_VALIDATORS — validator listesi, filtreleme, sıralama
+    # MARINADE_VALIDATORS — validator listing, filtering, sorting
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -154,7 +157,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_validators"],
         check_html=["validator", "marinade"],
         check_fields=["validator"],
-        description="İsimli validator filtresi",
+        description="Filtering validators by name",
     ),
     TestCase(
         id="val_04_with_stake",
@@ -172,11 +175,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_validators"],
         check_html=["validator", "stake", "marinade"],
         check_fields=["stake", "rank"],
-        description="Stake'e göre sıralı validator listesi",
+        description="Validators ranked by stake",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_VALIDATOR_SCORES — skor bileşenleri
+    # MARINADE_VALIDATOR_SCORES — score components
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -195,11 +198,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_validator_scores"],
         check_html=["validator", "marinade", "stake"],
         check_fields=["score", "eligible"],
-        description="Eligible stake mSOL miktarları",
+        description="Eligible-stake mSOL amounts",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_SCORE_BREAKDOWN — detaylı skor bileşenleri
+    # MARINADE_SCORE_BREAKDOWN — detailed score components
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -209,7 +212,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_score_breakdown"],
         check_html=["score", "marinade", "validator"],
         check_fields=["score", "commission"],
-        description="Tüm validatorlar için skor bileşenleri",
+        description="Score components for every validator",
     ),
     TestCase(
         id="breakdown_02_specific_validator",
@@ -225,7 +228,7 @@ ALL_CASES: list[TestCase] = [
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_VALIDATOR_UPTIMES — uptime geçmişi (identity gerekli)
+    # MARINADE_VALIDATOR_UPTIMES — uptime history (needs an identity)
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -238,11 +241,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_validator_uptimes", "marinade_validators"],
         check_html=["validator", "uptime", "marinade"],
         check_fields=["uptime", "epoch"],
-        description="Validator uptime geçmişi (multi-step)",
+        description="Validator uptime history (multi-step)",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_VALIDATOR_COMMISSIONS — komisyon geçmişi (identity gerekli)
+    # MARINADE_VALIDATOR_COMMISSIONS — commission history (needs an identity)
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -255,11 +258,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_validator_commissions", "marinade_validators"],
         check_html=["validator", "commission", "marinade"],
         check_fields=["commission", "epoch"],
-        description="Validator komisyon geçmişi (multi-step)",
+        description="Validator commission history (multi-step)",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_VALIDATOR_VERSIONS — yazılım versiyon geçmişi (identity)
+    # MARINADE_VALIDATOR_VERSIONS — software version history (identity)
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -272,11 +275,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_validator_versions", "marinade_validators"],
         check_html=["validator", "version", "marinade"],
         check_fields=["version", "epoch"],
-        description="Validator versiyon geçmişi (multi-step)",
+        description="Validator version history (multi-step)",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_CLUSTER_STATS — küme sağlığı, datacenter yoğunluğu
+    # MARINADE_CLUSTER_STATS — cluster health, datacenter concentration
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -286,7 +289,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_cluster_stats"],
         check_html=["cluster", "marinade", "datacenter"],
         check_fields=["epoch", "datacenter"],
-        description="Küme sağlığı ve datacenter yoğunluğu",
+        description="Cluster health and datacenter concentration",
     ),
     TestCase(
         id="cluster_02_decentralization",
@@ -295,11 +298,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_cluster_stats"],
         check_html=["marinade", "cluster", "block"],
         check_fields=["epoch", "block"],
-        description="Blok üretimi ve merkeziyetsizlik analizi",
+        description="Block production and decentralisation analysis",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_EPOCH_REWARDS — epoch başına ödüller (MEV, inflation)
+    # MARINADE_EPOCH_REWARDS — rewards per epoch (MEV, inflation)
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -309,7 +312,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_epoch_rewards"],
         check_html=["reward", "marinade", "mev", "epoch"],
         check_fields=["reward", "epoch", "mev"],
-        description="Epoch başına staking ödülleri",
+        description="Staking rewards per epoch",
     ),
     TestCase(
         id="rewards_02_mev_share",
@@ -318,11 +321,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_epoch_rewards"],
         check_html=["mev", "reward", "epoch"],
         check_fields=["mev", "reward"],
-        description="MEV vs inflation ödül oranı",
+        description="MEV versus inflation reward ratio",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_STAKING_REPORT — sonraki epoch delegasyon planı
+    # MARINADE_STAKING_REPORT — next epoch's delegation plan
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -332,7 +335,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_staking_report"],
         check_html=["marinade", "stake", "validator"],
         check_fields=["stake", "validator"],
-        description="Sonraki epoch en çok stake kazanan validatorlar",
+        description="Validators gaining the most stake next epoch",
     ),
     TestCase(
         id="stake_report_02_losers",
@@ -345,7 +348,7 @@ ALL_CASES: list[TestCase] = [
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_SCORING_REPORTS — geçmiş scoring raporları
+    # MARINADE_SCORING_REPORTS — past scoring reports
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -355,11 +358,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_scoring_reports"],
         check_html=["marinade", "report", "scoring"],
         check_fields=["report", "epoch"],
-        description="Marinade scoring raporları listesi",
+        description="Listing the Marinade scoring reports",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_COMMISSION_CHANGES — komisyon değişiklik kayıtları
+    # MARINADE_COMMISSION_CHANGES — commission-change records
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -369,7 +372,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_commission_changes"],
         check_html=["commission", "validator", "marinade"],
         check_fields=["commission", "validator", "epoch"],
-        description="Tüm komisyon değişiklik kayıtları",
+        description="Every commission-change record",
     ),
     TestCase(
         id="commission_changes_02_increases",
@@ -378,11 +381,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_commission_changes"],
         check_html=["commission", "marinade", "validator"],
         check_fields=["commission"],
-        description="Komisyon artışı tespiti",
+        description="Detecting a commission increase",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_CONFIG — sistem konfigürasyonu
+    # MARINADE_CONFIG — system configuration
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -392,7 +395,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_config"],
         check_html=["marinade", "config"],
         check_fields=["config"],
-        description="Marinade sistem konfigürasyonu",
+        description="Marinade system configuration",
     ),
     TestCase(
         id="config_02_scoring_params",
@@ -405,7 +408,7 @@ ALL_CASES: list[TestCase] = [
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_MSOL_APY — dönem bazlı mSOL APY (7d / 30d / 1y / 2y)
+    # MARINADE_MSOL_APY — mSOL APY by period (7d / 30d / 1y / 2y)
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -415,7 +418,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_msol_apy"],
         check_html=["apy", "msol", "%"],
         check_fields=["apy", "year"],
-        description="mSOL APY 1 yıllık",
+        description="mSOL APY over 1 year",
     ),
     TestCase(
         id="msol_apy_02_30d",
@@ -424,7 +427,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_msol_apy"],
         check_html=["apy", "msol", "%"],
         check_fields=["apy", "30"],
-        description="mSOL APY 30 günlük",
+        description="mSOL APY over 30 days",
     ),
     TestCase(
         id="msol_apy_03_7d",
@@ -433,7 +436,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_msol_apy"],
         check_html=["apy", "msol", "%"],
         check_fields=["apy", "7"],
-        description="mSOL APY 7 günlük",
+        description="mSOL APY over 7 days",
     ),
     TestCase(
         id="msol_apy_04_2y",
@@ -442,7 +445,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_msol_apy"],
         check_html=["apy", "msol", "%"],
         check_fields=["apy", "2"],
-        description="mSOL APY 2 yıllık + price growth",
+        description="mSOL APY over 2 years, plus price growth",
     ),
     TestCase(
         id="msol_apy_05_compare_periods",
@@ -451,7 +454,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_msol_apy"],
         check_html=["apy", "msol", "%"],
         check_fields=["apy"],
-        description="Tüm dönemler karşılaştırması (4 tool call)",
+        description="Every period compared (4 tool calls)",
     ),
     TestCase(
         id="msol_apy_06_vs_jitosol",
@@ -460,7 +463,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_msol_apy", "jito_stake_pool_stats"],
         check_html=["apy", "msol", "jito", "%"],
         check_fields=["apy"],
-        description="mSOL APY vs jitoSOL APY karşılaştırması",
+        description="mSOL APY versus jitoSOL APY",
     ),
     TestCase(
         id="msol_apy_07_price_growth",
@@ -469,7 +472,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_msol_apy"],
         check_html=["msol", "sol", "price"],
         check_fields=["price", "sol"],
-        description="mSOL/SOL fiyat büyümesi 1 yıl",
+        description="mSOL/SOL price growth over 1 year",
     ),
     TestCase(
         id="msol_apy_08_turkish",
@@ -478,11 +481,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_msol_apy"],
         check_html=["apy", "msol"],
         check_fields=["apy"],
-        description="Türkçe sorgu — dil kuralı testi",
+        description="Turkish question — language-rule check",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # MARINADE_NATIVE_APY — native staking APY geçmişi
+    # MARINADE_NATIVE_APY — native staking APY history
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -492,7 +495,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_native_apy"],
         check_html=["apy", "marinade", "%"],
         check_fields=["apy", "epoch"],
-        description="Güncel native staking APY",
+        description="Current native staking APY",
     ),
     TestCase(
         id="native_apy_02_trend",
@@ -510,7 +513,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_native_apy", "marinade_msol_apy"],
         check_html=["apy", "marinade", "%"],
         check_fields=["apy"],
-        description="Native APY vs mSOL APY karşılaştırması",
+        description="Native APY versus mSOL APY",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
@@ -524,7 +527,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_jito_commissions"],
         check_html=["validator", "commission", "jito"],
         check_fields=["commission", "validator"],
-        description="En düşük Jito MEV komisyonu",
+        description="Lowest Jito MEV commission",
     ),
     TestCase(
         id="jito_comm_02_best_for_delegators",
@@ -533,11 +536,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_jito_commissions"],
         check_html=["commission", "jito", "validator"],
         check_fields=["commission", "mev"],
-        description="Delegatörler için en iyi MEV komisyon yapısı",
+        description="Best MEV commission structure for delegators",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # EDGE CASES — çapraz protokol, karşılaştırma, hata yönetimi
+    # EDGE CASES — cross-protocol, comparison, error handling
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -547,7 +550,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_stats", "marinade_native_apy", "jito_stake_pool_stats"],
         check_html=["msol", "jitosol", "apy", "tvl"],
         check_fields=["apy", "tvl"],
-        description="mSOL vs jitoSOL karşılaştırma",
+        description="mSOL versus jitoSOL",
     ),
     TestCase(
         id="edge_02_best_marinade_validator",
@@ -559,7 +562,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_validators", "marinade_validator_scores"],
         check_html=["validator", "marinade", "commission", "score"],
         check_fields=["validator", "commission", "score"],
-        description="En iyi validator seçimi — çok kriterli (multi-step)",
+        description="Picking the best validator — multi-criteria (multi-step)",
     ),
     TestCase(
         id="edge_03_full_marinade_overview",
@@ -571,7 +574,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_stats", "marinade_native_apy", "marinade_validators"],
         check_html=["marinade", "msol", "tvl", "apy", "validator"],
         check_fields=["msol", "apy", "tvl"],
-        description="Tam Marinade dashboard — çok tool",
+        description="A full Marinade dashboard — many tools",
     ),
     TestCase(
         id="edge_04_delegation_strategy",
@@ -608,7 +611,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_cluster_stats", "marinade_validator_scores"],
         check_html=["cluster", "validator", "marinade", "datacenter"],
         check_fields=["epoch", "datacenter"],
-        description="Küme merkeziyetsizliği — cluster + score",
+        description="Cluster decentralisation — cluster plus score",
     ),
     TestCase(
         id="edge_07_staking_comparison",
@@ -620,7 +623,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["marinade_native_apy", "marinade_stats", "jito_stake_pool_stats"],
         check_html=["apy", "marinade", "sol", "staking", "%"],
         check_fields=["apy"],
-        description="Native vs liquid staking karşılaştırması",
+        description="Native versus liquid staking",
     ),
 ]
 
@@ -697,7 +700,7 @@ def print_result(r: TestResult, fast: bool = False):
 
         if r.case.must_warn:
             has_warn = r.structure()["has_warning_box"]
-            print(f"   Hata yön : {'✅ VAR' if has_warn else '❌ EKSİK'}")
+            print(f"   Err hand : {'✅ present' if has_warn else '❌ missing'}")
 
     plain_preview = re.sub(r"\s+", " ", r.plain[:220]).strip()
     print(f"   Response : {plain_preview}")
@@ -774,9 +777,9 @@ async def run_all(filter_val: Optional[str] = None, fast: bool = False):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tool", help="Sadece belirli bir tool (ör: marinade_validators)")
-    parser.add_argument("--id",   help="Belirli bir test ID'si (ör: val_01_top10)")
-    parser.add_argument("--fast", action="store_true", help="Kısa çıktı modu")
+    parser.add_argument("--tool", help="Test only this tool (e.g. marinade_validators)")
+    parser.add_argument("--id",   help="Run a single test ID (e.g. val_01_top10)")
+    parser.add_argument("--fast", action="store_true", help="Short output")
     args = parser.parse_args()
 
     asyncio.run(run_all(args.id or args.tool, args.fast))

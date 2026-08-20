@@ -1,13 +1,16 @@
 """
-Kapsamlı kullanıcı case kalite testi.
-LLM routing, analiz kalitesi, hata yönetimi, çok dilli destek.
+Broad user-scenario quality suite.
+Covers LLM routing, analysis quality, error handling and multilingual support.
+
+Section 7's questions are in Turkish on purpose: they are the regression net for
+Turkish-language intent handling.
 """
 import asyncio
 import httpx
 import time
 
 BASE = "http://localhost:3150"
-DELAY = 18      # rate limit koruması
+DELAY = 18      # rate-limit guard
 TIMEOUT = 90
 
 # ─── renk ───────────────────────────────────────────────────────────────────
@@ -61,7 +64,7 @@ def word_count(plain):
     return len(plain.split())
 
 def no_error(plain):
-    """LLM response'da ham hata kodu/stack olmamalı."""
+    """The LLM response must not leak a raw error code or stack trace."""
     bad = ["internal server error", "traceback", "exception:", "attributeerror", "typeerror"]
     low = plain.lower()
     found = [b for b in bad if b in low]
@@ -103,14 +106,14 @@ async def run(tc, question, want_tools=None, want_words=None, min_words=0, no_to
 # ═══════════════════════════════════════════════════════════════════════════
 async def main():
     print(f"\n{BOLD}{'═'*65}")
-    print("  Kullanıcı Senaryoları — Routing & Kalite Testi")
+    print("  User scenarios — routing and quality")
     print(f"{'═'*65}{E}\n")
 
     h = await httpx.AsyncClient().get(f"{BASE}/health")
     print(f"  Servis: {h.json()}")
 
     # ────────────────────────────────────────────────────────────────────────
-    print(f"\n{B}{BOLD}━━━ 1: Temel DeFi Soruları (Solend) ━━━{E}")
+    print(f"\n{B}{BOLD}━━━ 1: Basic DeFi questions (Solend) ━━━{E}")
 
     await run("S01", "Solend'de SOL yatırırsam ne kadar faiz kazanırım?",
               want_tools=["solend_reserves"], want_words=["sol", "apy", "%"], min_words=40)
@@ -129,7 +132,7 @@ async def main():
     await asyncio.sleep(DELAY)
 
     # ────────────────────────────────────────────────────────────────────────
-    print(f"\n{B}{BOLD}━━━ 2: Cüzdan / Kullanıcı Sorgular ━━━{E}")
+    print(f"\n{B}{BOLD}━━━ 2: Wallet and user queries ━━━{E}")
 
     WALLET = "CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S"
 
@@ -150,7 +153,7 @@ async def main():
     await asyncio.sleep(DELAY)
 
     # ────────────────────────────────────────────────────────────────────────
-    print(f"\n{B}{BOLD}━━━ 3: Karşılaştırmalı Analiz ━━━{E}")
+    print(f"\n{B}{BOLD}━━━ 3: Comparative analysis ━━━{E}")
 
     await asyncio.sleep(DELAY)
 
@@ -191,13 +194,13 @@ async def main():
     await asyncio.sleep(DELAY)
 
     # ────────────────────────────────────────────────────────────────────────
-    print(f"\n{B}{BOLD}━━━ 6: Hata / Edge Case Yönetimi ━━━{E}")
+    print(f"\n{B}{BOLD}━━━ 6: Error and edge-case handling ━━━{E}")
 
     await run("E01", "Solend'de 0x1234abcd mint adresinin fiyatı nedir?",
               want_tools=["solend_prices", "jup_prices", "birdeye_price"], min_words=10)
     await asyncio.sleep(DELAY)
 
-    # LLM bilgisiyle yanıtlamalı, tool çağırmamalı
+    # The LLM should answer from its own knowledge, calling no tool
     await run("E02", "DeFi lending nedir, nasıl çalışır?",
               no_tool=True, min_words=50)
     await asyncio.sleep(DELAY)
@@ -207,7 +210,7 @@ async def main():
     await asyncio.sleep(DELAY)
 
     # ────────────────────────────────────────────────────────────────────────
-    print(f"\n{B}{BOLD}━━━ 7: Türkçe Kullanıcı ━━━{E}")
+    print(f"\n{B}{BOLD}━━━ 7: Turkish-speaking user ━━━{E}")
 
     await run("T01", "Solend'de en iyi faiz oranları hangi varlıklarda?",
               want_tools=["solend_reserves"], want_words=["apy", "%"], min_words=30)
@@ -239,11 +242,11 @@ async def main():
     pct = int(results["pass"] / total * 100) if total else 0
 
     print(f"\n{BOLD}{'═'*65}")
-    print(f"  SONUÇ: {G}{results['pass']} PASS{E}  {R}{results['fail']} FAIL{E}  {Y}{results['skip']} SKIP{E}  — {BOLD}{pct}%{E}")
+    print(f"  RESULT: {G}{results['pass']} PASS{E}  {R}{results['fail']} FAIL{E}  {Y}{results['skip']} SKIP{E}  — {BOLD}{pct}%{E}")
     print(f"{'═'*65}{E}")
 
     if failures:
-        print(f"\n{R}{BOLD}  Başarısız testler:{E}")
+        print(f"\n{R}{BOLD}  Failed tests:{E}")
         for f in failures:
             print(f"  {R}• {f}{E}")
 

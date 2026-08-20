@@ -228,7 +228,7 @@ class TestLaunchToken:
     def test_minimal_launch_asks_clarification(self, chat_client):
         r = _chat(chat_client, "I want to launch a token on pump.fun")
         assert r.asked_clarification() or r.has_text(80), (
-            "Eksik parametre için LLM clarification istememeli veya detay sormalı"
+            "For a missing parameter the LLM should clarify or ask for detail"
         )
         mentions(r, ["name", "symbol", "token", "isim", "sembol"], min_hits=1)
 
@@ -370,7 +370,7 @@ class TestPumpFunBuy:
         r = _chat(chat_client, "Buy a pump.fun token for 0.1 SOL")
         if "pumpfun_buy" not in r.types():
             assert r.asked_clarification() or r.has_text(60), (
-                "Mint eksikken LLM clarification istememeli veya açıklama yapmalı"
+                "With the mint missing the LLM should clarify or explain"
             )
 
     def test_buy_response_no_raw_json(self, chat_client):
@@ -617,7 +617,7 @@ class TestPumpFunTrending:
     def test_trending_vs_new_routing(self, chat_client):
         r = _chat(chat_client, "Show me the hottest pump.fun tokens right now (by market cap)")
         triggered(r, "pumpfun_trending")
-        not_triggered(r, "pumpfun_new", "Trending sorgusu new'i tetiklememeli")
+        not_triggered(r, "pumpfun_new", "A trending query must not trigger new")
 
     def test_trending_response_actionable(self, chat_client):
         r = _chat(chat_client, (
@@ -658,7 +658,7 @@ class TestPumpFunNew:
     def test_new_tokens_vs_trending_routing(self, chat_client):
         r = _chat(chat_client, "What tokens just launched on pump.fun? Show me the freshest ones.")
         triggered(r, "pumpfun_new")
-        not_triggered(r, "pumpfun_trending", "Yeni token sorgusu trending'i tetiklememeli")
+        not_triggered(r, "pumpfun_trending", "A new-token query must not trigger trending")
 
     def test_new_tokens_sniper_use_case(self, chat_client):
         r = _chat(chat_client, "I want to snipe new pump.fun launches. Show me the latest ones.")
@@ -1218,7 +1218,7 @@ class TestPumpFunInterpretation:
     def test_launch_full_clarification_flow(self, chat_client):
         r = _chat(chat_client, "Help me launch a meme token on pump.fun")
         assert r.asked_clarification() or r.has_text(80), (
-            "Eksik detaylar için clarification veya yardım metni bekleniyor"
+            "A clarification or help text is expected for the missing details"
         )
         mentions(r, ["name", "symbol", "isim", "sembol", "token"], min_hits=1)
 

@@ -1,25 +1,29 @@
 """
-Temel Solana Aksiyonları — Kapsamlı LLM Kalite Testi
+Core Solana actions — comprehensive LLM quality suite
 
-9 core aksiyon için farklı case'ler:
-  1. transfer       — SOL / SPL, "all", eksik adres, Türkçe
-  2. swap           — token takası, slippage, "all", Türkçe
-  3. stake          — Marinade / JupSOL / Jito / native ayrımı
-  4. unstake        — mSOL / jupSOL / jitoSOL ayrımı
-  5. burn           — kısmi, hepsi, close_mint
-  6. scan_empty_accounts — boş hesap taraması
-  7. close_accounts — boş hesap kapatma
-  8. claim          — protocol-specific yönlendirme
-  9. vote           — governance yönlendirme
+Cases for the 9 core actions:
+  1. transfer       — SOL / SPL, "all", missing address, Turkish
+  2. swap           — token swap, slippage, "all", Turkish
+  3. stake          — telling Marinade / JupSOL / Jito / native apart
+  4. unstake        — telling mSOL / jupSOL / jitoSOL apart
+  5. burn           — partial, all, close_mint
+  6. scan_empty_accounts — scanning for empty accounts
+  7. close_accounts — closing empty accounts
+  8. claim          — protocol-specific routing
+  9. vote           — governance routing
 
-Test kriterleri:
-  - Doğru action tipi tetiklenme
-  - Parametre çıkarma kalitesi
-  - Clarification isteme (eksik zorunlu param)
-  - Türkçe + İngilizce doğru routing
-  - Hatalı yönlendirme yapılmaması
+What is checked:
+  - the right action type fires
+  - parameter-extraction quality
+  - clarification is requested when a required param is missing
+  - Turkish and English both route correctly
+  - nothing is misrouted
 
-Toplam: ~80 test
+The Turkish cases are the regression net for Turkish-language intent handling:
+"satın al" (buy) and "sat" (sell) share a prefix, so this is exactly the kind of
+thing that has to be tested in the language it breaks in.
+
+Total: ~80 tests
 """
 
 from __future__ import annotations
@@ -164,7 +168,7 @@ def param_contains(r: StreamResult, action: str, key: str, substring: str):
     params = r.params_for(action)
     actual = str(params.get(key, ""))
     assert substring.lower() in actual.lower(), (
-        f"{action}.{key}: '{substring}' bulunamadı. Gerçek='{actual}'\nParams: {params}"
+        f"{action}.{key}: '{substring}' not found. Actual='{actual}'\nParams: {params}"
     )
 
 
@@ -223,11 +227,11 @@ class TestTransfer:
 
     def test_missing_recipient_asks_clarification(self, chat_client):
         r = _chat(chat_client, "Send 0.5 SOL to someone")
-        asked_for_clarification(r, "Adres istenmedi")
+        asked_for_clarification(r, "The address was never requested")
 
     def test_missing_recipient_no_address(self, chat_client):
         r = _chat(chat_client, "Transfer 10 USDC")
-        asked_for_clarification(r, "Alıcı adresi istenmedi")
+        asked_for_clarification(r, "The recipient address was never requested")
 
     def test_mint_address_token(self, chat_client):
         r = _chat(chat_client, f"Send 1000 {BONK_MINT} tokens to {WALLET_B}")
@@ -277,7 +281,7 @@ class TestSwap:
         triggered(r, "swap")
         params = r.params_for("swap")
         assert str(params.get("slippageBps", "")) == "100", (
-            f"slippageBps 100 olmalı: {params}"
+            f"slippageBps should be 100: {params}"
         )
 
     def test_all_balance_swap(self, chat_client):
@@ -310,7 +314,7 @@ class TestSwap:
 
     def test_does_not_trigger_raydium_by_default(self, chat_client):
         r = _chat(chat_client, "Swap 1 SOL for USDC")
-        not_triggered(r, "raydium_swap", "Generic swap Raydium'a gitmemeli")
+        not_triggered(r, "raydium_swap", "A generic swap must not route to Raydium")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -451,8 +455,8 @@ class TestBurn:
 
     def test_burn_cannot_burn_sol(self, chat_client):
         r = _chat(chat_client, "Burn 1 SOL")
-        not_triggered(r, "burn", "Native SOL yakılamaz, burn tetiklenmemeli")
-        assert r.has_text(30), "LLM açıklama yapmalı"
+        not_triggered(r, "burn", "Native SOL cannot be burned; burn must not fire")
+        assert r.has_text(30), "The LLM should explain"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -505,7 +509,7 @@ class TestCloseAccounts:
         # mints may be a comma-separated string or a list (serialized)
         mints_raw = str(params.get("mints", ""))
         assert "BONK" in mints_raw.upper() or "WIF" in mints_raw.upper(), (
-            f"Mint listesi yanlış: {mints_raw}"
+            f"The mint list is wrong: {mints_raw}"
         )
 
     def test_close_single(self, chat_client):
@@ -638,7 +642,7 @@ class TestVote:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# EDGE CASES — Hatalı yönlendirme olmaması
+# EDGE CASES — nothing may be misrouted
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestEdgeCases:
@@ -660,30 +664,30 @@ class TestEdgeCases:
 
     def test_burn_not_triggered_for_sell(self, chat_client):
         r = _chat(chat_client, "Sell my BONK tokens")
-        not_triggered(r, "burn", "Satış = swap, burn değil")
+        not_triggered(r, "burn", "Selling is a swap, not a burn")
 
     def test_close_not_triggered_for_cancel(self, chat_client):
         r = _chat(chat_client, "Cancel my limit order")
-        not_triggered(r, "close_accounts", "Order iptal = limit_order_cancel, close_accounts değil")
+        not_triggered(r, "close_accounts", "Cancelling an order is limit_order_cancel, not close_accounts")
 
     def test_scan_not_triggered_for_portfolio(self, chat_client):
         r = _chat(chat_client, "Show me my token balances")
-        not_triggered(r, "scan_empty_accounts", "Bakiye sorgusu scan tetiklememeli")
+        not_triggered(r, "scan_empty_accounts", "A balance query must not trigger the scan")
 
     def test_no_action_for_pure_question(self, chat_client):
         r = _chat(chat_client, "What is Marinade Finance?")
         assert not r.actions, f"Bilgi sorusu aksiyon tetiklememeli: {r.types()}"
-        assert r.has_text(50), "LLM açıklama yapmalı"
+        assert r.has_text(50), "The LLM should explain"
 
     def test_turkish_english_mixed(self, chat_client):
         r = _chat(chat_client, f"1 SOL swap to USDC yap ve sonra {WALLET_B}'ye gönder")
-        assert len(r.types()) >= 1, "En az 1 aksiyon tetiklenmeli"
+        assert len(r.types()) >= 1, "At least one action should have fired"
 
     def test_transfer_not_swap(self, chat_client):
         r = _chat(chat_client, f"Transfer 5 SOL to {WALLET_B}")
         triggered(r, "transfer")
-        not_triggered(r, "swap", "Transfer = swap değil")
+        not_triggered(r, "swap", "A transfer is not a swap")
 
     def test_stake_not_confused_with_transfer(self, chat_client):
         r = _chat(chat_client, "Stake 1 SOL on Marinade")
-        not_triggered(r, "transfer", "Stake transfer değil")
+        not_triggered(r, "transfer", "Staking is not a transfer")

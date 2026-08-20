@@ -1,16 +1,16 @@
 """
-Magic Eden — Kapsamlı LLM Kalite Testi
+Magic Eden — comprehensive LLM quality suite
 
-40 endpoint için her biri 5-8 farklı senaryo:
+5-8 scenarios for each of the 40 endpoints:
 
 WALLET / TOKEN QUERIES
   1.  me_wallet_escrow_balance      — ME escrow bakiyesi
   2.  me_wallet_offers_received     — Gelen teklifler
-  3.  me_wallet_offers_made         — Yapılan teklifler
+  3.  me_wallet_offers_made         — offers made
   4.  me_owner_activities           — Owner aktiviteleri (tarih filtreli)
-  5.  me_wallet_activities          — Cüzdan aktiviteleri
+  5.  me_wallet_activities          — wallet activity
   6.  me_wallet                     — ME profili
-  7.  me_wallet_tokens              — Cüzdandaki NFT'ler
+  7.  me_wallet_tokens              — NFTs held by the wallet
   8.  me_token                      — NFT metadata
   9.  me_token_listings             — NFT listingleri
   10. me_token_offers_received      — NFT'ye gelen teklifler
@@ -19,41 +19,44 @@ WALLET / TOKEN QUERIES
 COLLECTION QUERIES
   12. me_collection_activities      — Koleksiyon aktiviteleri
   13. me_collection_stats           — Koleksiyon istatistikleri
-  14. me_collection_attributes      — Koleksiyon özellikleri
+  14. me_collection_attributes      — collection attributes
   15. me_collections                — Koleksiyon listesi
   16. me_collection_listings        — Koleksiyon listingleri
   17. me_collections_batch_listings — Toplu koleksiyon listingleri
   18. me_collection_holder_stats    — Holder istatistikleri
   19. me_collection_leaderboard     — Holder liderboard
-  20. me_launchpad_collections      — Launchpad koleksiyonları
+  20. me_launchpad_collections      — launchpad collections
 
 BUY / SELL INSTRUCTIONS
-  21. me_buy_instruction            — NFT satın al (teklif)
-  22. me_buy_now                    — Anında satın al
-  23. me_buy_now_transfer_nft       — Satın al + transfer
+  21. me_buy_instruction            — buy an NFT (make an offer)
+  22. me_buy_now                    — buy now
+  23. me_buy_now_transfer_nft       — buy and transfer
   24. me_buy_cancel                 — Teklif iptal
-  25. me_buy_change_price           — Teklif fiyatı güncelle
+  25. me_buy_change_price           — change an offer price
   26. me_sell                       — NFT listele
-  27. me_sell_change_price          — Listeleme fiyatı güncelle
+  27. me_sell_change_price          — change a listing price
   28. me_sell_now                   — Teklifi kabul et
-  29. me_sell_cancel                — Listeyi kaldır
-  30. me_deposit                    — Escrow'a yatır
-  31. me_withdraw                   — Escrow'dan çek
+  29. me_sell_cancel                — delist
+  30. me_deposit                    — deposit into escrow
+  31. me_withdraw                   — withdraw from escrow
 
 MMM POOL QUERIES
   32. me_mmm_pools                  — MMM pool listesi
-  33. me_mmm_token_pools            — NFT için en iyi MMM pool
+  33. me_mmm_token_pools            — best MMM pool for an NFT
 
 MMM POOL INSTRUCTIONS
-  34. me_mmm_create_pool            — MMM pool oluştur
-  35. me_mmm_update_pool            — MMM pool güncelle
-  36. me_mmm_sol_deposit_buy        — Pool'a SOL yatır
-  37. me_mmm_sol_withdraw_buy       — Pool'dan SOL çek
+  34. me_mmm_create_pool            — create an MMM pool
+  35. me_mmm_update_pool            — update an MMM pool
+  36. me_mmm_sol_deposit_buy        — deposit SOL into a pool
+  37. me_mmm_sol_withdraw_buy       — withdraw SOL from a pool
   38. me_mmm_sol_close_pool         — Pool'u kapat
-  39. me_mmm_sol_fulfill_buy        — Satıcı: pool buy order'ını doldur
-  40. me_mmm_sol_fulfill_sell       — Alıcı: pool sell order'ını doldur
+  39. me_mmm_sol_fulfill_buy        — seller: fill the pool's buy order
+  40. me_mmm_sol_fulfill_sell       — buyer: fill the pool's sell order
 
-Toplam: ~260 test
+The Turkish questions are deliberate: they are the regression net for
+Turkish-language intent handling.
+
+Total: ~260 tests
 """
 
 from __future__ import annotations
@@ -72,12 +75,12 @@ CHAT_URL     = os.getenv("CHAT_SERVICE_URL", "http://localhost:3020")
 INTERNAL_KEY = os.getenv("OPRAI_INTERNAL_API_KEY", "")
 TEST_WALLET  = "HwMBvLQKr1uqHNZ9v6bRX5GsKBLfNbpTDFTRDMkqmHa"
 
-# Gerçek cüzdan adresleri
+# Real wallet addresses
 WALLET_A = "HwMBvLQKr1uqHNZ9v6bRX5GsKBLfNbpTDFTRDMkqmHa"
 WALLET_B = "AC1r4GYj1TZ62ASZS4VT6GnNtMzoD78wYNWfxJ3Uzbxy"
 WALLET_C = "4wejSnr97csngztZ5SU7A6iZRXJD7B3Y1R1koCQ5NjmD"
 
-# Gerçek NFT mint adresleri
+# Real NFT mints
 MINT_A = "HqRZKSAWHig98928x6jezNxUUmwY8VrHn1WF6NzeVU27"
 MINT_B = "6XkPLDtV2w17UUsyzah39PTBjZ9xTY8HokqRdWcmDhBa"
 MINT_C = "6eGfgGuxA1pBtTX4k2oubpa6m1Z3eaJUBxgtZFB7sjZA"
@@ -231,7 +234,7 @@ def no_hallucination(r: StreamResult, msg: str = ""):
 def asks_for_missing(r: StreamResult, param_hint: str, msg: str = ""):
     kws = [param_hint, "provide", "required", "missing", "please", "lütfen", "gerekli"]
     assert any(k in r.tl() for k in kws) or r.asked_clarification(), (
-        f"Eksik param için soru yok.\n{r.text[:400]}\n{msg}"
+        f"No question asked about the missing parameter.\n{r.text[:400]}\n{msg}"
     )
 
 
@@ -339,7 +342,7 @@ class TestMeWalletOffersMade:
         triggered(r, "me_wallet_offers_made")
         p = r.params_for("me_wallet_offers_made")
         limit = int(p.get("limit", 100) or 100)
-        assert limit <= 100, f"Limit mantıklı olmalı. Params: {p}"
+        assert limit <= 100, f"The limit should be sensible. Params: {p}"
 
     def test_offers_made_vs_received_routing(self, chat_client):
         r = _chat(chat_client, f"What bids has {WALLET_C} placed on Magic Eden? (offers they made)")

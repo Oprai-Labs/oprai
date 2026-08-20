@@ -43,7 +43,7 @@ EMBED_PRICE_PER_M  = 0.13   # text-embedding-3-large
 GPT4O_IN_PER_M     = 2.50   # gpt-4o input
 GPT4O_OUT_PER_M    = 10.00  # gpt-4o output
 
-# ── Test queries — 20 sorgu, çeşitli zorluk seviyeleri ────────────────────────
+# ── Test queries — 20 questions across difficulty levels ─────────────────────
 QUERIES = [
     # Solana Core
     ("EASY",   "What is liquid staking on Solana?"),

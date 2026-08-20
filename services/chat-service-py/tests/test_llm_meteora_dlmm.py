@@ -1015,7 +1015,7 @@ class TestLLMActionRouting:
     def test_done_sentinel(self, chat_client):
         msg = "Meteora DLMM havuzları hakkında kısa bilgi ver"
         r = _chat(chat_client, msg)
-        assert r.done, "SSE stream [DONE] sentineli ile bitmedi"
+        assert r.done, "The SSE stream did not end with the [DONE] sentinel"
 
     def test_hic_error_event_yok(self, chat_client):
         msg = "Meteora DLMM havuz listesini göster"

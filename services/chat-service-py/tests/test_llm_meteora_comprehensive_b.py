@@ -692,7 +692,7 @@ class TestDV1GetFeeConfig_Advanced:
         r = _chat(chat_client, "DAMM v1 fee config nasıl?")
         # The LLM should either ask, or give a general answer
         assert r.asked_clarification() or r.has_text_content(), (
-            "Adres eksikken LLM tepki vermedi"
+            "With the address missing the LLM did not respond"
         )
 
     def test_fee_config_response_includes_percentages(self, chat_client):
@@ -1326,7 +1326,7 @@ class TestVaultGetVirtualPrice_Advanced:
             pass
         else:
             assert r.asked_clarification() or r.has_text_content(), (
-                "Eksik strategy için LLM tepki vermedi"
+                "The LLM did not respond to the missing strategy"
             )
 
     def test_virtual_price_explains_concept(self, chat_client):

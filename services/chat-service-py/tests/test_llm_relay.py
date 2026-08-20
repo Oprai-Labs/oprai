@@ -388,7 +388,7 @@ class TestRelayBridge:
         r = _chat(chat_client, "Bridge 1 SOL using Relay")
         if "relay_bridge" not in r.types() and "bridge" not in r.types():
             assert r.asked_clarification() or r.has_text(30), \
-                "Eksik destinasyon için clarification veya soru bekleniyor"
+                "A clarification or question is expected for the missing destination"
 
     def test_exact_output_mode(self, chat_client):
         r = _chat(chat_client, "I want to receive exactly 100 USDC on Base, bridge from Ethereum via Relay")
@@ -490,12 +490,12 @@ class TestRelayGetChains:
         triggered(r, "relay_get_chains")
         tl = r.text.lower()
         assert "solana" in tl or r.types() != [], \
-            "Solana desteği bilgisi yanıtta olmalı"
+            "The answer should mention that Solana is supported"
 
     def test_not_relay_bridge(self, chat_client):
         r = _chat(chat_client, "Show me all Relay supported chains")
         triggered(r, "relay_get_chains")
-        not_triggered(r, "relay_bridge", "Zincir listesi relay_bridge tetiklememeli")
+        not_triggered(r, "relay_bridge", "Listing chains must not trigger relay_bridge")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -544,7 +544,7 @@ class TestRelayGetChainsLiquidity:
         r = _chat(chat_client, "Check Relay solver liquidity")
         if "relay_get_chains_liquidity" not in r.types():
             assert r.asked_clarification() or r.has_text(50), \
-                "Eksik chainId için clarification bekleniyor"
+                "A clarification is expected for the missing chainId"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -670,7 +670,7 @@ class TestRelayIntentStatus:
             f"Check live status of single Relay bridge intent — requestId: {SAMPLE_REQUEST_ID}")
         triggered(r, "relay_intent_status")
         not_triggered(r, "relay_get_requests",
-            "Spesifik intent durumu relay_get_requests tetiklememeli")
+            "A specific intent status must not trigger relay_get_requests")
 
     def test_missing_request_id_asks(self, chat_client):
         r = _chat(chat_client, "Check my Relay bridge status")
@@ -989,7 +989,7 @@ class TestRelayClaimAppFees:
             "Claim (not just check) my Relay USDC fees on Ethereum to my wallet")
         triggered(r, "relay_claim_app_fees")
         not_triggered(r, "relay_get_app_fee_balances",
-            "Claim talebi sadece bakiye sorgusu tetiklememeli")
+            "A claim request must not resolve to a balance query alone")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1029,7 +1029,7 @@ class TestRelayFastFill:
         r = _chat(chat_client, "Fast fill a Relay request")
         if "relay_fast_fill" not in r.types():
             assert r.asked_clarification() or r.has_text(30), \
-                "requestId eksik, clarification bekleniyor"
+                "requestId is missing; a clarification is expected"
 
     def test_no_raw_json(self, chat_client):
         r = _chat(chat_client, f"Queue Relay request {SAMPLE_REQUEST_ID} for fast fill")
@@ -1076,11 +1076,11 @@ class TestRelayGetSwapSources:
     def test_not_relay_bridge(self, chat_client):
         r = _chat(chat_client, "Which DEX sources can Relay use on Ethereum?")
         triggered(r, "relay_get_swap_sources")
-        not_triggered(r, "relay_bridge", "Swap kaynakları listesi bridge tetiklememeli")
+        not_triggered(r, "relay_bridge", "Listing swap sources must not trigger a bridge")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 16. RELAY_EXECUTE — gasless EVM işlemi (operatör)
+# 16. RELAY_EXECUTE — gasless EVM transaction (operator)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayExecute:
@@ -1119,7 +1119,7 @@ class TestRelayExecute:
         r = _chat(chat_client, "Execute a gasless Relay transaction")
         if "relay_execute" not in r.types():
             assert r.asked_clarification() or r.has_text(50), \
-                "Eksik data/executionOptions için clarification bekleniyor"
+                "A clarification is expected for the missing data/executionOptions"
 
     def test_no_raw_json(self, chat_client):
         r = _chat(chat_client, (
@@ -1130,7 +1130,7 @@ class TestRelayExecute:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 17. PROVIDER ROUTING — doğru provider seçimi
+# 17. PROVIDER ROUTING — picking the right provider
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayProviderRouting:
@@ -1139,8 +1139,8 @@ class TestRelayProviderRouting:
     def test_default_bridge_uses_relay(self, chat_client):
         r = _chat(chat_client, "Bridge 1 ETH from Ethereum to Arbitrum")
         # LLM may use generic "bridge" or "relay_bridge" — both are valid for Relay
-        triggered_any(r, "relay_bridge", "bridge", msg="Default bridge Relay kullanmalı")
-        not_triggered(r, "squid_bridge", "Default bridge Squid tetiklememeli")
+        triggered_any(r, "relay_bridge", "bridge", msg="The default bridge should be Relay")
+        not_triggered(r, "squid_bridge", "The default bridge must not be Squid")
 
     def test_explicit_relay_uses_relay(self, chat_client):
         r = _chat(chat_client, "Bridge 100 USDC from Solana to Base using Relay protocol")
@@ -1161,14 +1161,14 @@ class TestRelayProviderRouting:
 
     def test_same_chain_no_relay_bridge(self, chat_client):
         r = _chat(chat_client, "Swap SOL to USDC on Solana")
-        not_triggered(r, "relay_bridge", "Aynı zincir swap relay_bridge tetiklememeli")
+        not_triggered(r, "relay_bridge", "A same-chain swap must not trigger relay_bridge")
 
     def test_check_status_uses_intent_status(self, chat_client):
         r = _chat(chat_client,
             f"Check the live Relay intent status for request ID {SAMPLE_REQUEST_ID}")
         triggered(r, "relay_intent_status")
         not_triggered(r, "relay_get_requests",
-            "Tek intent durumu relay_get_requests tetiklememeli")
+            "A single intent status must not trigger relay_get_requests")
 
     def test_history_uses_get_requests(self, chat_client):
         r = _chat(chat_client,
@@ -1182,7 +1182,7 @@ class TestRelayProviderRouting:
             "Bridge 100 USDC from Ethereum to Arbitrum using squid_bridge with a postHook for auto-staking")
         triggered(r, "squid_bridge")
         not_triggered(r, "relay_bridge",
-            "Post-hook ile bridge Squid kullanmalı")
+            "A bridge with a post-hook should use Squid")
 
     def test_express_mode_uses_squid(self, chat_client):
         r = _chat(chat_client,
@@ -1193,7 +1193,7 @@ class TestRelayProviderRouting:
         r = _chat(chat_client, "What are my Relay app fee earnings?")
         triggered(r, "relay_get_app_fee_balances")
         not_triggered(r, "relay_bridge",
-            "Ücret sorgusu relay_bridge tetiklememeli")
+            "A fee query must not trigger relay_bridge")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

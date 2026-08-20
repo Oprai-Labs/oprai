@@ -492,7 +492,7 @@ class TestDLMMGetActiveBin:
     def test_missing_address_asks_clarification(self, chat_client):
         r = _chat(chat_client, "What is the active bin for my favorite DLMM pool?")
         assert r.asked_clarification() or "DLMM_GET_ACTIVE_BIN" in r.all_triggered_types() or r.has_text_content(), (
-            "LLM eksik adres için tepki vermedi"
+            "The LLM did not respond to the missing address"
         )
 
 

@@ -1,15 +1,18 @@
 """
-Marinade LLM Extended Test Suite — Farklı soru tarzları + HTML kalite analizi
+Marinade LLM extended suite — many phrasings, plus HTML quality analysis
 ─────────────────────────────────────────────────────────────────────────────
-Informal, yatırım danışmanlığı, karşılaştırma, Türkçe, sayı bazlı,
-belirsiz, multi-step edge case'leri — gerçek HTML çıktı kalitesi ölçülür.
+Informal, advice-seeking, comparative, Turkish, numeric, vague and multi-step
+edge cases — scored against the real rendered HTML.
 
-Çalıştır:
+The Turkish questions are deliberate: they are the regression net for
+Turkish-language intent handling.
+
+Run:
   cd services/defi-query-service
   python3 tests/e2e_llm_marinade_extended.py
   python3 tests/e2e_llm_marinade_extended.py --id informal_01
   python3 tests/e2e_llm_marinade_extended.py --group informal
-  python3 tests/e2e_llm_marinade_extended.py --print-html   # tam HTML göster
+  python3 tests/e2e_llm_marinade_extended.py --print-html   # print the full HTML
 """
 
 import asyncio
@@ -24,7 +27,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-# ─── HTML kalite ölçüm araçları ──────────────────────────────────────────────
+# ─── HTML quality scoring ────────────────────────────────────────────────────
 
 def strip_tags(html: str) -> str:
     return re.sub(r"<[^>]+>", " ", html)
@@ -40,7 +43,7 @@ def check_has_number(html: str) -> bool:
     return bool(re.search(r"\b\d+[\d,.]*\b", strip_tags(html)))
 
 def html_quality_score(html: str) -> dict:
-    """0-100 arası kalite skoru + detaylar."""
+    """A 0-100 quality score, plus the breakdown."""
     score = 0
     details = {}
 
@@ -119,7 +122,7 @@ class TestResult:
 ALL_CASES: list[TestCase] = [
 
     # ═══════════════════════════════════════════════════════════════════
-    # INFORMAL — Sıradan kullanıcı sorguları
+    # INFORMAL — how ordinary users ask
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -171,7 +174,7 @@ ALL_CASES: list[TestCase] = [
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # INVESTMENT — Yatırım odaklı sorular
+    # INVESTMENT — advice-seeking questions
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -278,7 +281,7 @@ ALL_CASES: list[TestCase] = [
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # COMPARATIVE — Karşılaştırmalı analizler
+    # COMPARATIVE — comparison questions
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -326,7 +329,7 @@ ALL_CASES: list[TestCase] = [
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # TÜRKÇE — Türkçe soru tarzları
+    # TURKISH — Turkish phrasings
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -523,14 +526,14 @@ def print_result(r: TestResult, print_html: bool = False, verbose: bool = True):
     print(f"   Group    : {r.case.group}")
     print(f"   Query    : {r.case.query[:95]}{'...' if len(r.case.query)>95 else ''}")
     print(f"   Tools    : {r.tools_called}")
-    print(f"   Süre     : {r.duration:.1f}s  |  HTML: {len(r.html):,} chars  |  Kalite: {q}/100")
+    print(f"   Time     : {r.duration:.1f}s  |  HTML: {len(r.html):,} chars  |  Quality: {q}/100")
 
     if r.error:
         print(f"   HATA     : {r.error[:200]}")
         return
 
     if verbose:
-        # HTML kalite detayları
+        # HTML quality breakdown
         qd = r.quality
         icons = []
         if qd.get("has_wrapper"):      icons.append("🏗wrapper")
@@ -540,7 +543,7 @@ def print_result(r: TestResult, print_html: bool = False, verbose: bool = True):
         if qd.get("has_stat_cards"):   icons.append("🃏cards")
         if qd.get("has_percentage"):   icons.append("📈%")
         if qd.get("not_raw_json"):     icons.append("✍human")
-        print(f"   Yapı     : {' | '.join(icons) or 'ZAYIF'}")
+        print(f"   Structure: {' | '.join(icons) or 'WEAK'}")
 
         # Kelime kontrolleri
         if r.case.check_html:
@@ -564,13 +567,13 @@ def print_result(r: TestResult, print_html: bool = False, verbose: bool = True):
         if checks:
             print(f"   Zorunlu  : {' | '.join(checks)}")
 
-    # Metin önizleme (HTML stripped)
+    # Text preview (HTML stripped)
     plain_preview = re.sub(r"\s+", " ", r.plain[:300]).strip()
-    print(f"   Yanıt    : {plain_preview}...")
+    print(f"   Response : {plain_preview}...")
 
     if print_html:
         print(f"\n{'▼'*72}")
-        print("   TAM HTML ÇIKTISI:")
+        print("   FULL HTML OUTPUT:")
         print(f"{'▼'*72}")
         print(r.html)
         print(f"{'▲'*72}")
@@ -591,7 +594,7 @@ async def run_all(
         cases = [c for c in cases if c.group == filter_group]
 
     print(f"\n{'═'*72}")
-    print(f"Marinade LLM Extended Test Suite — Farklı Soru Tarzları")
+    print(f"Marinade LLM extended suite — many phrasings")
     print(f"{'═'*72}")
     print(f"Toplam test: {len(cases)}")
     if filter_id:     print(f"  ID filtresi: {filter_id}")
@@ -607,7 +610,7 @@ async def run_all(
         if i < len(cases):
             await asyncio.sleep(2)
 
-    # Özet
+    # Summary
     total  = len(results)
     passed = sum(1 for r in results if r.passed)
     errors = sum(1 for r in results if r.error)
@@ -636,14 +639,14 @@ async def run_all(
     print(f"  ⏱ Avg time  : {avg_d:.1f}s")
     print(f"  📄 Ort HTML   : {avg_l:,.0f} chars")
     if pct_checks:
-        print(f"  📈 % gösterim : {pct_pass}/{len(pct_checks)} ({pct_pass/len(pct_checks)*100:.0f}%)")
+        print(f"  📈 shows a %  : {pct_pass}/{len(pct_checks)} ({pct_pass/len(pct_checks)*100:.0f}%)")
     if table_checks:
         print(f"  📊 Tablo      : {table_pass}/{len(table_checks)} ({table_pass/len(table_checks)*100:.0f}%)")
     if insight_checks:
         print(f"  💡 Insight    : {insight_pass}/{len(insight_checks)} ({insight_pass/len(insight_checks)*100:.0f}%)")
 
     print(f"\n{'─'*72}")
-    print("BAŞARISIZ:")
+    print("FAILED:")
     failed = [r for r in results if not r.passed]
     if not failed:
         print("  All passed! 🎉")
@@ -653,7 +656,7 @@ async def run_all(
             print(f"  ✗ {r.case.id}: {reason[:130]}")
 
     print(f"\n{'─'*72}")
-    print("GRUP BAZLI ÖZET:")
+    print("SUMMARY BY GROUP:")
     from collections import defaultdict
     by_group: dict[str, list[TestResult]] = defaultdict(list)
     for r in results:
@@ -664,7 +667,7 @@ async def run_all(
         print(f"  {grp:15s}: {ok}/{len(gres)} ✅  | kalite {avg_gq:.0f}/100")
 
     print(f"\n{'─'*72}")
-    print("KALİTE SIRALAMASI (en iyi → en kötü):")
+    print("QUALITY RANKING (best -> worst):")
     sorted_r = sorted(results, key=lambda r: r.quality_score, reverse=True)
     for r in sorted_r[:10]:
         status = "✅" if r.passed else "❌"
@@ -677,8 +680,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--id",         help="Belirli test ID'si")
     parser.add_argument("--group",      help="Grup filtresi: informal, investment, analytical, comparative, turkish, edge")
-    parser.add_argument("--print-html", action="store_true", help="Tam HTML çıktısını göster")
-    parser.add_argument("--quiet",      action="store_true", help="Kısa çıktı modu")
+    parser.add_argument("--print-html", action="store_true", help="Print the full HTML output")
+    parser.add_argument("--quiet",      action="store_true", help="Short output")
     args = parser.parse_args()
 
     asyncio.run(run_all(

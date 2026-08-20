@@ -1,10 +1,13 @@
 """
-Kapsamlı entegrasyon testi — tüm protokoller, routing, kalite, hata yönetimi.
+Full integration suite — every protocol, plus routing, quality and error handling.
+
+Some questions are deliberately in Turkish (section 14 especially): they are the
+regression net for Turkish-language intent handling.
 """
 import asyncio, httpx, time, sys
 
 BASE    = "http://localhost:3150"
-DELAY   = 16   # saniye — rate limit koruması
+DELAY   = 16   # seconds — rate-limit guard
 TIMEOUT = 90
 
 G="\033[92m"; R="\033[91m"; Y="\033[93m"; B="\033[94m"
@@ -97,7 +100,7 @@ WALLET = "CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S"
 
 async def main():
     print(f"\n{BOLD}{'═'*66}")
-    print("  TAM ENTEGRASYON TEST SÜİTİ")
+    print("  FULL INTEGRATION SUITE")
     print(f"{'═'*66}{E}")
     h = await httpx.AsyncClient().get(f"{BASE}/health")
     print(f"  {h.json()}\n")
@@ -196,8 +199,8 @@ async def main():
 
     await asyncio.sleep(DELAY)
 
-    # ── 5. KARŞILAŞTIRMAli ANALİZ ────────────────────────────────────────
-    print(f"\n{B}{BOLD}━━━ 5. Karşılaştırmalı Analiz ━━━{E}")
+    # ── 5. COMPARATIVE ANALYSIS ──────────────────────────────────────────
+    print(f"\n{B}{BOLD}━━━ 5. Comparative analysis ━━━{E}")
 
     await asyncio.sleep(DELAY)
 
@@ -314,11 +317,11 @@ async def main():
               want=["orca_protocol_stats"], min_w=15)
     await asyncio.sleep(DELAY)
 
-    # ── 13. HATA / GUARD YÖNETİMİ ────────────────────────────────────────
+    # ── 13. ERROR AND GUARD HANDLING ─────────────────────────────────────
     print(f"\n{B}{BOLD}━━━ 13. Hata & Guard ━━━{E}")
 
     await run("ERR-01", "XXXXINVALID cüzdanının Solend pozisyonları",
-              min_w=10)  # tool çağırabilir ya da reddedebilir, ikisi de OK
+              min_w=10)  # it may call a tool or refuse; both are fine
     await asyncio.sleep(DELAY)
 
     await run("ERR-02", "0x1234abcd adresinin token fiyatı",
@@ -337,8 +340,8 @@ async def main():
               want=["jup_prices","birdeye_price"], keywords=["sol"], min_w=10)
     await asyncio.sleep(DELAY)
 
-    # ── 14. TÜRKÇE & ÇOK DİLLİ ───────────────────────────────────────────
-    print(f"\n{B}{BOLD}━━━ 14. Türkçe Kullanıcı ━━━{E}")
+    # ── 14. TURKISH AND MULTILINGUAL ─────────────────────────────────────
+    print(f"\n{B}{BOLD}━━━ 14. Turkish-speaking user ━━━{E}")
 
     await run("TUR-01", "Solend'e USDC yatırmak mantıklı mı, APY ve ödülleri neler?",
               want=["solend_reserves","solend_reward_stats"], min_w=40)
@@ -355,7 +358,7 @@ async def main():
               want=["marinade_msol_apy","marinade_stats"], min_w=40)
     await asyncio.sleep(DELAY)
 
-    # ── 15. DERİN ANALİZ ─────────────────────────────────────────────────
+    # ── 15. DEEP ANALYSIS ────────────────────────────────────────────────
     print(f"\n{B}{BOLD}━━━ 15. Derin Analiz ━━━{E}")
 
     await run("ANA-01",
@@ -372,18 +375,18 @@ async def main():
               min_w=40)
     await asyncio.sleep(DELAY)
 
-    # ─── ÖZET ─────────────────────────────────────────────────────────────
+    # ─── SUMMARY ──────────────────────────────────────────────────────────
     total = stats["pass"] + stats["fail"]
     pct   = int(stats["pass"] / total * 100) if total else 0
     color = G if pct >= 90 else (Y if pct >= 75 else R)
 
     print(f"\n{BOLD}{'═'*66}")
-    print(f"  SONUÇ  {color}{stats['pass']} PASS{E}  {R}{stats['fail']} FAIL{E}  "
+    print(f"  RESULT {color}{stats['pass']} PASS{E}  {R}{stats['fail']} FAIL{E}  "
           f"{Y}{stats['skip']} SKIP{E}  —  {BOLD}{color}{pct}%{E}")
     print(f"{'═'*66}{E}")
 
     if fails:
-        print(f"\n{R}{BOLD}  Başarısız:{E}")
+        print(f"\n{R}{BOLD}  Failed:{E}")
         for f in fails:
             print(f"  {R}• {f}{E}")
     print()

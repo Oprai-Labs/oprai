@@ -38,7 +38,7 @@ TEST_CASES = [
     TestCase(
         id="TC-01",
         category="Basic / Known Token",
-        description="SOL fiyatı isim ile (birdeye_price seçmeli)",
+        description="SOL price by name (should pick birdeye_price)",
         question="Birdeye'a göre SOL'un anlık fiyatı nedir?",
         expected_tool="birdeye_price",
         expected_params={"address": "So11111111111111111111111111111111111111112"},
@@ -48,14 +48,14 @@ TEST_CASES = [
     TestCase(
         id="TC-02",
         category="Address Input",
-        description="USDC mint adresi doğrudan verilmiş",
+        description="USDC mint address given directly",
         question="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v adresinin Birdeye fiyatı nedir?",
         expected_tool="birdeye_price",
         expected_params={"address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},
     ),
 
-    # --- CASE 3: price + liquidity (Türkçe) ---
-    # check_liquidity param fiyat kalite filtresi; gerçek liquidity için birdeye_token_market_data çağrılmalı
+    # --- CASE 3: price + liquidity (Turkish) ---
+    # check_liquidity is a price-quality filter; real liquidity needs birdeye_token_market_data
     TestCase(
         id="TC-03",
         category="check_liquidity + Liquidity Data",
@@ -66,11 +66,11 @@ TEST_CASES = [
         check_liquidity_expected=True,
     ),
 
-    # --- CASE 4: Is liquidity low? (İngilizce) ---
+    # --- CASE 4: Is liquidity low? (English) ---
     TestCase(
         id="TC-04",
         category="check_liquidity + Liquidity Data",
-        description="'Is liquidity low?' → birdeye_token_market_data liquidity field'ı dönmeli",
+        description="'Is liquidity low?' -> birdeye_token_market_data should return the liquidity field",
         question="Is the liquidity of JUP token low? Check its Birdeye price with liquidity data.",
         expected_tool="birdeye_token_market_data",
         expected_params={"address": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"},
@@ -81,7 +81,7 @@ TEST_CASES = [
     TestCase(
         id="TC-05",
         category="Long-tail / Meme Token",
-        description="FARTCOIN — uzun kuyruklu meme token fiyatı",
+        description="FARTCOIN — a long-tail meme token price",
         question="FARTCOIN fiyatı Birdeye üzerinden ne?",
         expected_tool="birdeye_price",
         expected_params={"address": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"},
@@ -91,7 +91,7 @@ TEST_CASES = [
     TestCase(
         id="TC-06",
         category="Tool Selection",
-        description='"Exact/kesin fiyat" vurgusu → birdeye_price seçmeli, jup_prices değil',
+        description='An "exact price" emphasis -> birdeye_price, not jup_prices',
         question="RAY token'ının kesin anlık USD fiyatını öğrenmek istiyorum, Birdeye kullan.",
         expected_tool="birdeye_price",
         expected_params={"address": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"},
@@ -101,7 +101,7 @@ TEST_CASES = [
     TestCase(
         id="TC-07",
         category="Meme / Political Token",
-        description="TRUMP token fiyatı",
+        description="TRUMP token price",
         question="What's the current Birdeye price for the TRUMP token on Solana?",
         expected_tool="birdeye_price",
         expected_params={"address": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN"},
@@ -121,17 +121,17 @@ TEST_CASES = [
     TestCase(
         id="TC-09",
         category="Error Handling",
-        description="Geçersiz adres → hata yorumu bekleniyor",
+        description="Invalid address -> the error should be interpreted",
         question="Bu adresin Birdeye fiyatı nedir: INVALIDADDRESS12345xyz",
         expected_tool="birdeye_price",
-        should_fail=True,  # API hata dönebilir ama LLM bunu yorumlamalı
+        should_fail=True,  # the API may error, but the LLM must interpret that
     ),
 
     # --- CASE 10: PYTH — slippage/derinlik sorusu ---
     TestCase(
         id="TC-10",
         category="check_liquidity + Liquidity Data",
-        description="Slippage sorusu → birdeye_token_market_data liquidity field dönmeli",
+        description="A slippage question -> birdeye_token_market_data should return the liquidity field",
         question="PYTH tokeninde büyük bir işlem yapsam slippage olur mu? Likidite durumunu Birdeye ile kontrol et.",
         expected_tool="birdeye_token_market_data",
         expected_params={"address": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3"},
@@ -142,32 +142,32 @@ TEST_CASES = [
     TestCase(
         id="TC-11",
         category="LST / Staking Token",
-        description="JitoSOL LST token Birdeye fiyatı",
+        description="JitoSOL LST price from Birdeye",
         question="JitoSOL'un Birdeye üzerindeki güncel USD fiyatı nedir?",
         expected_tool="birdeye_price",
         expected_params={"address": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn"},
     ),
 
-    # --- CASE 12: 24h değişim analizi ---
-    # LLM doğru olarak birdeye_price_stats veya birdeye_price seçebilir —
-    # her ikisi de priceChange24h içeriyor, price_stats daha detaylı.
+    # --- CASE 12: 24h change analysis ---
+    # The LLM may correctly pick birdeye_price_stats or birdeye_price —
+    # both carry priceChange24h; price_stats is the more detailed one.
     TestCase(
         id="TC-12",
         category="Price Interpretation",
-        description="24h fiyat değişimi — birdeye_price VEYA birdeye_price_stats kabul edilir",
+        description="24h price change — either birdeye_price or birdeye_price_stats is accepted",
         question="POPCAT tokeninin son 24 saatte ne kadar değiştiğini Birdeye fiyat verisiyle analiz et.",
-        expected_tool="birdeye_price_stats",  # LLM'in daha iyi tercih ettiği araç
+        expected_tool="birdeye_price_stats",  # the tool the LLM tends to prefer
         expected_params={"address": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"},
     ),
 
-    # --- CASE 13: Karşılaştırma sorusu — birdeye_price veya birdeye_multi_price kabul ---
-    # İki tokenı karşılaştırırken LLM birdeye_multi_price seçmek daha verimlidir.
+    # --- CASE 13: comparison question — birdeye_price or birdeye_multi_price ---
+    # When comparing two tokens, birdeye_multi_price is the more efficient choice.
     TestCase(
         id="TC-13",
         category="Tool Selection",
-        description="İki token karşılaştırması — birdeye_price veya birdeye_multi_price kabul edilir",
+        description="Two tokens compared — either birdeye_price or birdeye_multi_price is accepted",
         question="SOL mu daha pahalı yoksa JitoSOL mu? Birdeye'dan SOL fiyatını al.",
-        expected_tool="birdeye_price",  # ikisi de geçerli, biri yeterli
+        expected_tool="birdeye_price",  # both are valid; one is enough
         expected_params={"address": "So11111111111111111111111111111111111111112"},
     ),
 
@@ -182,11 +182,11 @@ TEST_CASES = [
         check_liquidity_expected=False,
     ),
 
-    # --- CASE 15: BOME pump.fun kökenli token ---
+    # --- CASE 15: BOME, a pump.fun-born token ---
     TestCase(
         id="TC-15",
         category="Meme / Pump Token",
-        description="BOME — pump.fun kökenli token Birdeye fiyatı",
+        description="BOME — a pump.fun-born token's Birdeye price",
         question="Book of Meme (BOME) token'ının Birdeye anlık fiyatı nedir?",
         expected_tool="birdeye_price",
         expected_params={"address": "ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82"},
@@ -243,7 +243,7 @@ async def run_test(case: TestCase, client: httpx.AsyncClient) -> dict:
             # Liquidity queries: birdeye_token_market_data required; birdeye_token_markets also ok
             acceptable_tools |= {"birdeye_token_markets", "birdeye_price"}
         if case.id == "TC-12":
-            # 24h change — birdeye_price, birdeye_price_stats, birdeye_price_volume hepsi geçerli
+            # 24h change — birdeye_price, birdeye_price_stats and birdeye_price_volume are all valid
             acceptable_tools |= {"birdeye_price", "birdeye_price_volume"}
         if any(t in tools_called for t in acceptable_tools):
             result["tool_correct"] = True
