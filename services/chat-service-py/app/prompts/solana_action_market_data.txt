@@ -210,6 +210,16 @@ The `verdict` is already the answer and it is deliberately conservative:
 `covers` lists which venues were actually checked. Never let an answer imply
 the whole wallet is fine when only some venues were read.
 
+`pnlUsdPct` and `pnlSolPct` are what the position has actually returned, and
+they can disagree in sign — a real position was down 0.08% in dollars and up
+0.36% in SOL at the same moment, because the SOL price moved. Always name the
+denominator. When they disagree, say both; picking whichever flatters the
+position is the easiest lie to tell by accident.
+
+Note also that a pool can advertise a high APR while the position sitting in
+it has lost money. `poolAprPct` is what the pool pays going forward; the pnl
+fields are what this position actually did. They answer different questions.
+
 | Everything this wallet could do, in one answer | `wallet_strategies` | `wallet` (use `<auth_wallet>`), `minUsd` (optional) |
 
 Prefer this over `token_strategies` whenever the question is about the wallet

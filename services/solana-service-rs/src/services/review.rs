@@ -206,6 +206,10 @@ pub async fn build_position_review(
             "alternativeAprPct": alt_apr,
             "alternative": alt_label,
             "exitCostPct": pos.exit_cost_pct,
+            // What it has actually done, in both denominators.
+            "pnlUsdPct": pos.pnl_usd_pct,
+            "pnlSolPct": pos.pnl_sol_pct,
+            "unclaimedFeesUsd": pos.unclaimed_fees_usd,
             "gapPct": review.gap_pct,
             "paybackDays": review.payback_days,
             "verdict": review.verdict.as_str(),
@@ -279,12 +283,19 @@ struct OpenPosition {
     usd_value: Option<f64>,
     pool_apr: f64,
     exit_cost_pct: Option<f64>,
+    pnl_usd_pct: Option<f64>,
+    pnl_sol_pct: Option<f64>,
+    unclaimed_fees_usd: Option<f64>,
 }
 
 /// Meteora DLMM positions, priced.
 ///
-/// Best-effort throughout: one pool failing to price must not hide the others,
-/// because a review that silently drops a position reads as "that one is fine".
+/// The portfolio endpoint already carries everything the judgement needs —
+/// USD balance, both token symbols and mints, and which position addresses are
+/// out of range — so nothing is derived that can be read. An earlier version
+/// fetched prices per mint and multiplied them by per-position balances read
+/// from the chain; it produced `null` for every value, because the fields it
+/// was guessing at are not the fields the API returns.
 async fn read_dlmm_positions(
     http: &reqwest::Client,
     wallet: &str,
@@ -302,20 +313,21 @@ async fn read_dlmm_positions(
         .cloned()
         .unwrap_or_default();
 
+    let num = |v: Option<&serde_json::Value>| -> Option<f64> {
+        v.and_then(|x| {
+            x.as_f64()
+                .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+        })
+    };
+    let text = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").to_string();
+
     let mut out = Vec::new();
     for pool in pools {
-        let pool_addr = pool
-            .get("poolAddress")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-        let (mint_x, mint_y) = crate::services::meteora::meteora_pool_mints(&pool);
-        let pair = pool
-            .get("poolName")
-            .or_else(|| pool.get("name"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("liquidity position")
-            .to_string();
+        let pool_addr = text(pool.get("poolAddress"));
+        let mint_x = text(pool.get("tokenXMint"));
+        let mint_y = text(pool.get("tokenYMint"));
+        let pair = format!("{}/{}", text(pool.get("tokenX")), text(pool.get("tokenY")));
+        let usd_value = num(pool.get("balances")).filter(|v| *v > 0.0);
 
         // What the pool pays now, on the same conservative basis the entry
         // options use — the lower of the last day and the pool's lifetime.
@@ -330,66 +342,58 @@ async fn read_dlmm_positions(
             Err(_) => 0.0,
         };
 
-        let positions = pool
-            .get("positions")
-            .and_then(|p| p.as_array())
-            .cloned()
+        // Leaving costs what arriving cost: half the position swaps back.
+        let exit_cost_pct = if mint_x.is_empty() || mint_y.is_empty() {
+            None
+        } else {
+            crate::services::strategies::entry_cost_pct(http, &mint_x, &mint_y, usd_value).await
+        };
+
+        let idle: Vec<String> = pool
+            .get("positionsOutOfRange")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        for p in positions {
-            let usd_value = position_usd(http, &p, mint_x, mint_y).await;
-            // Leaving costs what arriving cost: half the position swaps back.
-            let exit_cost_pct = match (mint_x, mint_y) {
-                (Some(x), Some(y)) => {
-                    crate::services::strategies::entry_cost_pct(http, x, y, usd_value).await
-                }
-                _ => None,
-            };
+        let listed: Vec<String> = pool
+            .get("listPositions")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // A position that is out of range is named in `positionsOutOfRange`;
+        // the pool-level `outOfRange` flag only says whether *all* of them are,
+        // so reading that instead would hide a single idle position among
+        // several active ones.
+        for addr in listed {
+            let earning = !idle.contains(&addr);
             out.push(OpenPosition {
                 venue: "Meteora DLMM",
-                address: p
-                    .get("address")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
+                address: addr,
                 pool: pool_addr.clone(),
                 pair: pair.clone(),
-                earning: p.get("inRange").and_then(|v| v.as_bool()).unwrap_or(false),
+                earning,
                 usd_value,
                 pool_apr,
                 exit_cost_pct,
+                // Both denominators, because here they disagree in sign: one
+                // position was down 0.08% in dollars and up 0.36% in SOL at
+                // the same moment. Quoting whichever flatters the position is
+                // the easiest lie to tell by accident.
+                pnl_usd_pct: num(pool.get("pnlPctChange")),
+                pnl_sol_pct: num(pool.get("pnlSolPctChange")),
+                unclaimed_fees_usd: num(pool.get("unclaimedFees")),
             });
         }
     }
     Ok(out)
-}
-
-/// What a position is worth, from its two token balances and live prices.
-async fn position_usd(
-    http: &reqwest::Client,
-    p: &serde_json::Value,
-    mint_x: Option<&str>,
-    mint_y: Option<&str>,
-) -> Option<f64> {
-    let amount_x = p.get("amountX").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let amount_y = p.get("amountY").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let (px, py) = tokio::join!(
-        async {
-            match mint_x {
-                Some(m) => crate::services::strategies::mint_price_and_decimals(http, m).await,
-                None => None,
-            }
-        },
-        async {
-            match mint_y {
-                Some(m) => crate::services::strategies::mint_price_and_decimals(http, m).await,
-                None => None,
-            }
-        },
-    );
-    // Amounts are already in UI units, so only the price is applied — folding
-    // decimals in again here would inflate the value by 10^n.
-    let value = amount_x * px?.0 + amount_y * py?.0;
-    (value > 0.0).then_some(value)
 }
 
 #[cfg(test)]
