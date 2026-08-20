@@ -330,23 +330,18 @@ _BORROW_PROTOCOL_MAP: dict[str, str] = {
 }
 
 
-_TRANSFER_RE_EN = re.compile(
-    r"(?:send|transfer)\s+"
+# Transfer shape, language-neutral: a quantity, a ticker, and a Solana address
+# or .sol domain, with whatever the user's language puts between them. There is
+# deliberately no verb in this pattern — requiring "send|transfer" is what made
+# it English-only, and adding "gönder|yolla|envía|…" is the same bug wearing a
+# longer list. The three things being extracted are recognisable without
+# knowing the language; the address in particular is unmistakable.
+_TRANSFER_RE = re.compile(
     r"(?P<amount>\d+(?:\.\d+)?|all)\s+"
-    r"(?P<token>[A-Za-z][\w.-]{1,20})\s+"
-    r"(?:to|→|->)\s+"
-    r"(?P<recipient>[1-9A-HJ-NP-Za-km-z]{32,44}|[a-z0-9_-]{1,63}\.sol)",
-    re.IGNORECASE,
-)
-# Turkish word order: "[amount] [token] [gönder] [recipient] [adresine]".
-# Captures with or without the verb / postposition surrounding.
-_TRANSFER_RE_TR = re.compile(
-    r"(?P<amount>\d+(?:\.\d+)?|all)\s+"
-    r"(?P<token>[A-Za-z][\w.-]{1,20})"
-    r"(?:[^a-zA-Z0-9]{1,20}(?:g[oö]nder\w*|transfer\w*|yolla\w*))?"
-    r"\s+(?P<recipient>[1-9A-HJ-NP-Za-km-z]{32,44}|[a-z0-9_-]{1,63}\.sol)"
-    r"(?:\s+adresine|\s+e\b|\s+(?:adresine|cüzdanına))?",
-    re.IGNORECASE,
+    r"(?P<token>[A-Za-z][\w.-]{1,20})\b"
+    r".{0,40}?\s"
+    r"(?P<recipient>[1-9A-HJ-NP-Za-km-z]{32,44}|[a-z0-9_-]{1,63}\.sol)\b",
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -440,8 +435,8 @@ def infer_action_params(user_message: str) -> dict:
                 },
             }
 
-    # Transfer — English first, Turkish word-order second.
-    m = _TRANSFER_RE_EN.search(msg_clean) or _TRANSFER_RE_TR.search(msg_clean)
+    # Transfer — language-neutral: quantity, ticker, address.
+    m = _TRANSFER_RE.search(msg_clean)
     if m:
         amount = m.group("amount")
         token_mint = _resolve_symbol_to_mint(m.group("token"))
@@ -548,9 +543,9 @@ def _infer_action_facts(msg: str) -> list[str]:
                 f"  swapMode:    \"ExactIn\""
             )
 
-    # Transfer shapes: English "send 0.5 USDC to <addr>" first, then Turkish
-    # "0.5 USDC göndereyim <addr> adresine" word order.
-    m = _TRANSFER_RE_EN.search(msg_clean) or _TRANSFER_RE_TR.search(msg_clean)
+    # Transfer shape: a quantity, a ticker and an address, whatever sits
+    # between them.
+    m = _TRANSFER_RE.search(msg_clean)
     if m and not out:
         amount = m.group("amount")
         token_mint = _resolve_symbol_to_mint(m.group("token"))
