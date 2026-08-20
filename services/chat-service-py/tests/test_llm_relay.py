@@ -1,33 +1,36 @@
 """
-Relay.link — Kapsamlı LLM Kalite Testi
+Relay.link — comprehensive LLM quality suite
 
-Tüm Relay aksiyonları için 5-10 senaryo:
-  1.  relay_bridge                    — cross-chain köprüleme
-  2.  relay_get_quote                 — köprü fiyat teklifi
-  3.  relay_get_chains                — desteklenen zincirler
-  4.  relay_get_chains_liquidity      — zincir başına solver likiditesi
-  5.  relay_get_currencies            — köprülenebilir token listesi
-  6.  relay_get_token_price           — Relay üzerinden token fiyatı
-  7.  relay_intent_status             — köprü isteği durumu
-  8.  relay_get_requests              — köprü geçmişi
-  9.  relay_index_transaction         — TX indeksleme (genel)
-  10. relay_single_transaction        — TX indeksleme (request-scoped)
-  11. relay_deposit_address_reindex   — deposit adresi yeniden indeksleme
-  12. relay_get_app_fee_balances      — uygulama ücreti bakiyeleri
-  13. relay_claim_app_fees            — uygulama ücreti talep etme
-  14. relay_fast_fill                 — hızlı doldurma (operatör)
-  15. relay_get_swap_sources          — swap kaynaklarını listeleme
-  16. relay_execute                   — gasless EVM işlemi (operatör)
-  17. Provider routing                — doğru provider seçimi
+5-10 scenarios for every Relay action:
+  1.  relay_bridge                    — cross-chain bridging
+  2.  relay_get_quote                 — a bridge price quote
+  3.  relay_get_chains                — supported chains
+  4.  relay_get_chains_liquidity      — solver liquidity per chain
+  5.  relay_get_currencies            — bridgeable tokens
+  6.  relay_get_token_price           — a token price via Relay
+  7.  relay_intent_status             — status of a bridge request
+  8.  relay_get_requests              — bridge history
+  9.  relay_index_transaction         — TX indexing (general)
+  10. relay_single_transaction        — TX indexing (request-scoped)
+  11. relay_deposit_address_reindex   — re-indexing a deposit address
+  12. relay_get_app_fee_balances      — app-fee balances
+  13. relay_claim_app_fees            — claiming app fees
+  14. relay_fast_fill                 — fast fill (operator)
+  15. relay_get_swap_sources          — listing swap sources
+  16. relay_execute                   — gasless EVM transaction (operator)
+  17. Provider routing                — picking the right provider
 
-Test kategorileri (her action için):
-  - Doğru action/query tetiklenmesi
-  - Parametre çıkarma kalitesi
-  - Ham JSON dökme yok
-  - Halüsinasyon yok
-  - Türkçe + İngilizce karma sorgular
-  - Yanlış provider tetiklenmemesi
-  - Eksik parametre → clarification
+What each action is checked for:
+  - the right action/query is triggered
+  - parameter-extraction quality
+  - no raw JSON dumps
+  - no hallucination
+  - mixed Turkish and English questions
+  - the wrong provider never fires
+  - a missing parameter produces a clarification
+
+The Turkish questions are deliberate: they are the regression net for
+Turkish-language intent handling.
 
 Toplam: ~140 test
 """
@@ -72,7 +75,7 @@ CHAT_URL     = os.getenv("CHAT_SERVICE_URL", "http://localhost:3020")
 INTERNAL_KEY = os.getenv("OPRAI_INTERNAL_API_KEY", "")
 TEST_WALLET  = "HwMBvLQKr1uqHNZ9v6bRX5GsKBLfNbpTDFTRDMkqmHa"
 
-# Örnek request ID'ler (gerçek format)
+# Sample request IDs (real format)
 SAMPLE_REQUEST_ID   = "0x1234abcd5678ef90"
 SAMPLE_TX_HASH_EVM  = "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
 SAMPLE_TX_HASH_SOL  = "5HueCGU8rMFej5YVzHkjgQ3MFkWM9XzVE4gZkLRZ3EKTh"
@@ -195,7 +198,7 @@ def triggered(r: StreamResult, t: str, msg: str = ""):
 def triggered_any(r: StreamResult, *types: str, msg: str = ""):
     """Pass if ANY of the given types is triggered (for LLM synonym handling)."""
     assert any(t in r.types() for t in types), (
-        f"Hiçbiri tetiklenmedi: {list(types)}\nTetiklenenler: {r.types()}\nLLM: {r.text[:400]}\n{msg}"
+        f"None of these triggered: {list(types)}\nTriggered: {r.types()}\nLLM: {r.text[:400]}\n{msg}"
     )
 
 
@@ -264,11 +267,11 @@ def explains_error(r: StreamResult, msg: str = ""):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 1. RELAY_BRIDGE — cross-chain köprüleme
+# 1. RELAY_BRIDGE — cross-chain bridging
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayBridge:
-    """relay_bridge: 10 senaryo — parametre çıkarma, zincir/token routing, clarification"""
+    """relay_bridge: 10 scenarios — parameter extraction, chain/token routing, clarification."""
 
     def test_sol_to_eth_basic(self, chat_client):
         r = _chat(chat_client, "Bridge 1 SOL from Solana to Ethereum using Relay")
@@ -291,7 +294,7 @@ class TestRelayBridge:
 
     def test_amount_and_token_extracted(self, chat_client):
         r = _chat(chat_client, "Use Relay bridge to send 0.5 ETH from Ethereum to Base")
-        # relay_bridge veya generic bridge her ikisi de geçerli
+        # Either relay_bridge or the generic bridge is acceptable
         assert "relay_bridge" in r.types() or "bridge" in r.types(), (
             f"relay_bridge veya bridge tetiklenemedi. Tetiklenenler: {r.types()}\nLLM: {r.text[:300]}"
         )
@@ -379,7 +382,7 @@ class TestRelayBridge:
         r = _chat(chat_client,
             "Swap 1 SOL for USDC on Solana only — same chain, no bridging, use Jupiter or Relay DEX aggregator")
         not_triggered(r, "relay_bridge",
-            "Aynı zincir içi swap relay_bridge tetiklememeli")
+            "A same-chain swap must not trigger relay_bridge")
 
     def test_missing_destination_asks_clarification(self, chat_client):
         r = _chat(chat_client, "Bridge 1 SOL using Relay")
@@ -414,7 +417,7 @@ class TestRelayBridge:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. RELAY_GET_QUOTE — köprü fiyat teklifi
+# 2. RELAY_GET_QUOTE — a bridge price quote
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayGetQuote:
@@ -435,7 +438,7 @@ class TestRelayGetQuote:
     def test_quote_not_execute(self, chat_client):
         r = _chat(chat_client, "How much would it cost to bridge 2 ETH from Ethereum to Base via Relay? Just give me a quote.")
         triggered(r, "relay_get_quote")
-        not_triggered(r, "relay_bridge", "Sadece quote isteniyor, işlem tetiklenmemeli")
+        not_triggered(r, "relay_bridge", "Only a quote was asked for; no transaction should fire")
 
     def test_turkish_quote(self, chat_client):
         r = _chat(chat_client, "Relay ile Solana'dan Base'e 50 USDC köprülemek ne kadar tutar?")
@@ -545,7 +548,7 @@ class TestRelayGetChainsLiquidity:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 5. RELAY_GET_CURRENCIES — köprülenebilir tokenlar
+# 5. RELAY_GET_CURRENCIES — bridgeable tokens
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayGetCurrencies:
@@ -555,7 +558,7 @@ class TestRelayGetCurrencies:
         r = _chat(chat_client, "Search for USDC tokens on Relay bridge")
         triggered(r, "relay_get_currencies")
         p = r.params_for("relay_get_currencies")
-        assert "usdc" in str(p).lower(), f"USDC terimi params'da olmalı. Params: {p}"
+        assert "usdc" in str(p).lower(), f"The term USDC should appear in params. Params: {p}"
 
     def test_list_all_currencies(self, chat_client):
         r = _chat(chat_client, "What tokens can I bridge via Relay?")
@@ -590,7 +593,7 @@ class TestRelayGetCurrencies:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 6. RELAY_GET_TOKEN_PRICE — token fiyatı
+# 6. RELAY_GET_TOKEN_PRICE — token price
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayGetTokenPrice:
@@ -634,7 +637,7 @@ class TestRelayGetTokenPrice:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 7. RELAY_INTENT_STATUS — köprü isteği durumu
+# 7. RELAY_INTENT_STATUS — status of a bridge request
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayIntentStatus:
@@ -682,7 +685,7 @@ class TestRelayIntentStatus:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 8. RELAY_GET_REQUESTS — köprü geçmişi
+# 8. RELAY_GET_REQUESTS — bridge history
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayGetRequests:
@@ -804,7 +807,7 @@ class TestRelaySingleTransaction:
         if p:  # Only assert params when populated (LLM sometimes omits params for complex prompts)
             all_params_str = str(p).lower()
             assert SAMPLE_TX_HASH_EVM.lower() in all_params_str or SAMPLE_REQUEST_ID.lower() in all_params_str, \
-                f"Params hash veya requestId içermeli. Params: {p}"
+                f"Params should contain a hash or a requestId. Params: {p}"
 
     def test_wrap_tx_indexing(self, chat_client):
         r = _chat(chat_client,
@@ -824,11 +827,11 @@ class TestRelaySingleTransaction:
     def test_turkish(self, chat_client):
         r = _chat(chat_client,
             f"Relay istek {SAMPLE_REQUEST_ID} için {SAMPLE_TX_HASH_EVM} işlemini Ethereum'da indeksle")
-        # relay_single_transaction tercih edilir; relay_index_transaction da geçerli
+        # relay_single_transaction is preferred; relay_index_transaction is acceptable
         triggered_any(r, "relay_single_transaction", "relay_index_transaction")
 
     def test_differs_from_index_transaction(self, chat_client):
-        # requestId zorunlu olduğunda relay_single_transaction tercih edilmeli
+        # When requestId is required, relay_single_transaction should win
         r = _chat(chat_client,
             f"Index TX {SAMPLE_TX_HASH_EVM} on chain 1 specifically for Relay request {SAMPLE_REQUEST_ID}")
         triggered_any(r, "relay_single_transaction", "relay_index_transaction")
@@ -888,7 +891,7 @@ class TestRelayDepositAddressReindex:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 12. RELAY_GET_APP_FEE_BALANCES — uygulama ücreti bakiyeleri
+# 12. RELAY_GET_APP_FEE_BALANCES — app-fee balances
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayGetAppFeeBalances:
@@ -926,7 +929,7 @@ class TestRelayGetAppFeeBalances:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 13. RELAY_CLAIM_APP_FEES — uygulama ücreti talep etme
+# 13. RELAY_CLAIM_APP_FEES — claiming app fees
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayClaimAppFees:
@@ -990,7 +993,7 @@ class TestRelayClaimAppFees:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 14. RELAY_FAST_FILL — hızlı doldurma
+# 14. RELAY_FAST_FILL — fast fill
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayFastFill:
@@ -1035,7 +1038,7 @@ class TestRelayFastFill:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 15. RELAY_GET_SWAP_SOURCES — swap kaynakları
+# 15. RELAY_GET_SWAP_SOURCES — swap sources
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRelayGetSwapSources:

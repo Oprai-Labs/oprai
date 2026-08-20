@@ -1,16 +1,19 @@
 """
-Meteora — Kapsamlı LLM Kalite Testi (Part A: DLMM + DAMM v2)
+Meteora — comprehensive LLM quality suite (Part A: DLMM + DAMM v2)
 
-Her endpoint için 5-10 farklı senaryo:
-  - Farklı token kombinasyonları
-  - Birden fazla parametre birlikte kullanımı
-  - Doğal dil → parametre çıkarma kalitesi
-  - Yanıt yorumlama derinliği (ham JSON yok, sayısal veri, actionable insight)
-  - Türkçe + İngilizce karma sorgular
-  - Belirsiz ve kesin sorgular
-  - Sayfalama, filtreleme, sıralama kombinasyonları
+5-10 scenarios per endpoint:
+  - different token combinations
+  - several parameters used together
+  - natural language -> parameter-extraction quality
+  - depth of interpretation (no raw JSON, real numbers, actionable insight)
+  - mixed Turkish and English questions
+  - both vague and precise questions
+  - paging, filtering and sorting combined
 
-Test sınıfları (Part A):
+The Turkish questions are deliberate: they are the regression net for
+Turkish-language intent handling.
+
+Test classes (Part A):
   TestDLMMGetPairs            — 9 test
   TestDLMMGetPair             — 8 test
   TestDLMMGetUserPositions    — 8 test
@@ -47,7 +50,7 @@ CHAT_URL     = os.getenv("CHAT_SERVICE_URL", "http://localhost:3020")
 INTERNAL_KEY = os.getenv("OPRAI_INTERNAL_API_KEY", "")
 TEST_WALLET  = "HwMBvLQKr1uqHNZ9v6bRX5GsKBLfNbpTDFTRDMkqmHa"
 
-# Gerçek DLMM havuz adresleri
+# Real DLMM pool addresses
 DLMM_SOL_USDC  = "5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6"
 DLMM_SOL_USDT  = "ARwi1S4DaiTG5DX7S4M4ZkL2tiPGmYXLCxaXtpVXMiAm"
 DLMM_BONK_SOL  = "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EkdEcsL5"
@@ -231,7 +234,7 @@ def assert_no_hallucination(r: StreamResult, msg: str = ""):
     ]
     lower = r.text_lower()
     for p in phrases:
-        assert p not in lower, f"LLM halusinasyon yaptı: '{p}'\nMetin: {r.text[:400]}\n{msg}"
+        assert p not in lower, f"The LLM hallucinated: '{p}'\nText: {r.text[:400]}\n{msg}"
 
 
 def assert_explains_error(r: StreamResult, msg: str = ""):
@@ -247,7 +250,7 @@ def assert_page_params_present(r: StreamResult, action: str, msg: str = ""):
     has_page = "page" in p or "offset" in p
     has_size = "size" in p or "limit" in p or "pageSize" in p
     assert has_page or has_size, (
-        f"[{action}] sayfalama parametresi gönderilmedi. Params: {p}\n{msg}"
+        f"[{action}] no paging parameter was sent. Params: {p}\n{msg}"
     )
 
 
@@ -256,7 +259,7 @@ def assert_time_range_present(r: StreamResult, action: str, msg: str = ""):
     keys = set(p.keys())
     time_keys = {"startTime", "endTime", "from", "to", "start", "end", "startTimestamp", "endTimestamp"}
     found = keys & time_keys
-    assert found, f"[{action}] zaman aralığı parametresi yok. Params: {p}\n{msg}"
+    assert found, f"[{action}] no time-range parameter. Params: {p}\n{msg}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -264,7 +267,7 @@ def assert_time_range_present(r: StreamResult, action: str, msg: str = ""):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestDLMMGetPairs:
-    """DLMM get_pairs: 9 farklı senaryo"""
+    """DLMM get_pairs: 9 scenarios."""
 
     def test_basic_list_all_pairs(self, chat_client):
         r = _chat(chat_client, "Show me all DLMM liquidity pairs on Meteora")
@@ -278,7 +281,7 @@ class TestDLMMGetPairs:
         p = r.params_for("DLMM_GET_PAIRS")
         search_val = str(p.get("q", "") or p.get("search", "") or p.get("searchTerms", "")).lower()
         assert "sol" in search_val or "sol" in str(p).lower(), (
-            f"'SOL' filtresi parametreye yansımadı. Params: {p}"
+            f"The 'SOL' filter did not reach the parameters. Params: {p}"
         )
 
     def test_filter_by_mint_address(self, chat_client):
@@ -294,7 +297,7 @@ class TestDLMMGetPairs:
         page_val = int(p.get("page", p.get("offset", 0)))
         size_val = int(p.get("pageSize", p.get("limit", p.get("size", 0))))
         assert page_val >= 2 or size_val == 20, (
-            f"Sayfalama parametreleri yanlış. page={page_val}, size={size_val}\nParams: {p}"
+            f"Paging parameters are wrong. page={page_val}, size={size_val}\nParams: {p}"
         )
 
     def test_high_tvl_filter_semantic(self, chat_client):
@@ -313,14 +316,14 @@ class TestDLMMGetPairs:
         r = _chat(chat_client, "DLMM SOL-USDC havuzlarının APR ve TVL bilgisini getir")
         assert_triggered(r, "DLMM_GET_PAIRS")
         assert_no_raw_json(r)
-        assert_has_number(r, "APR/TVL sayısı gösterilmeli")
+        assert_has_number(r, "The APR/TVL figure should be shown")
 
     def test_jup_sol_pair(self, chat_client):
         r = _chat(chat_client, f"Find DLMM pools for JUP token, mint: {JUP_MINT}")
         assert_triggered(r, "DLMM_GET_PAIRS")
         p = r.params_for("DLMM_GET_PAIRS")
         assert JUP_MINT in str(p) or "jup" in str(p).lower(), (
-            f"JUP adresi veya sembolü yok. Params: {p}"
+            f"No JUP address or symbol. Params: {p}"
         )
 
     def test_combined_search_and_sort(self, chat_client):
@@ -367,7 +370,7 @@ class TestDLMMGetPair:
         if "DLMM_GET_PAIR" in r.all_triggered_types():
             assert_param(r, "DLMM_GET_PAIR", "poolAddress")
         else:
-            assert_explains_error(r, "Geçersiz adres için açıklama bekleniyor")
+            assert_explains_error(r, "An explanation is expected for the invalid address")
 
     def test_wif_sol_pool_detail(self, chat_client):
         r = _chat(chat_client, f"What is the liquidity distribution for DLMM pool {DLMM_WIF_SOL}?")
@@ -378,7 +381,7 @@ class TestDLMMGetPair:
         r = _chat(chat_client, f"Analyze this DLMM pool for me: {DLMM_SOL_USDT}")
         assert_triggered(r, "DLMM_GET_PAIR")
         assert_no_raw_json(r)
-        assert_has_number(r, "Analizde sayısal veri bekleniyor")
+        assert_has_number(r, "The analysis should contain numbers")
 
     def test_address_in_text_extracted(self, chat_client):
         r = _chat(chat_client, (
@@ -424,7 +427,7 @@ class TestDLMMGetUserPositions:
         r = _chat(chat_client, "Meteora DLMM'deki tüm likidite pozisyonlarımı özetle")
         assert_triggered(r, "DLMM_GET_USER_POSITIONS")
         assert_no_raw_json(r)
-        assert r.has_text_content(), "Pozisyon özeti bekleniyor"
+        assert r.has_text_content(), "A position summary is expected"
 
     def test_unclaimed_fees_query(self, chat_client):
         r = _chat(chat_client, "How much unclaimed fees do I have in my DLMM positions?")
@@ -460,7 +463,7 @@ class TestDLMMGetActiveBin:
         assert_triggered(r, "DLMM_GET_ACTIVE_BIN")
         assert_param(r, "DLMM_GET_ACTIVE_BIN", "poolAddress", contains=DLMM_SOL_USDT)
         assert_no_raw_json(r)
-        assert_has_number(r, "Aktif bin fiyatı gösterilmeli")
+        assert_has_number(r, "The active-bin price should be shown")
 
     def test_response_mentions_bin_id(self, chat_client):
         r = _chat(chat_client, f"Get active bin ID for {DLMM_BONK_SOL}")
@@ -614,7 +617,7 @@ class TestDLMMGetPoolOHLCV:
         p = r.params_for("DLMM_GET_POOL_OHLCV")
         resolution = str(p.get("resolution", p.get("timeframe", p.get("interval", "")))).lower()
         assert "hour" in resolution or "1h" in resolution or "3600" in resolution or resolution == "", (
-            f"1 saatlik resolüsyon yanlış: {resolution}"
+            f"The 1-hour resolution is wrong: {resolution}"
         )
 
     def test_ohlcv_last_7_days(self, chat_client):
@@ -649,7 +652,7 @@ class TestDLMMGetPoolOHLCV:
         p = r.params_for("DLMM_GET_POOL_OHLCV")
         resolution = str(p.get("resolution", p.get("timeframe", ""))).lower()
         assert "5m" in resolution or "300" in resolution or "min" in resolution or resolution == "", (
-            f"5 dakika resolüsyonu yanlış: {resolution}"
+            f"The 5-minute resolution is wrong: {resolution}"
         )
 
     def test_ohlcv_volume_included(self, chat_client):
@@ -797,7 +800,7 @@ class TestDAMMv2GetPools:
         r = _chat(chat_client, f"Find DAMM v2 pools with token {BONK_MINT}")
         assert_triggered(r, "DAMMV2_GET_POOLS")
         p = r.params_for("DAMMV2_GET_POOLS")
-        assert BONK_MINT in str(p), f"BONK mint gönderilmedi. Params: {p}"
+        assert BONK_MINT in str(p), f"The BONK mint was not sent. Params: {p}"
 
     def test_pagination_v2_pools(self, chat_client):
         r = _chat(chat_client, "Get DAMM v2 pools, page 2, 25 per page")

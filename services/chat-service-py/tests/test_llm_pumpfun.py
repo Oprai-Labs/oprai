@@ -1,34 +1,37 @@
 """
-Pump.fun — Kapsamlı LLM Kalite Testi
+Pump.fun — comprehensive LLM quality suite
 
-15 endpoint / action için her biri 6-10 farklı senaryo:
-  1.  launch_token          — token yaratma (clarification, parametre çıkarma)
-  2.  pumpfun_buy           — bonding curve'den alım
-  3.  pumpfun_sell          — bonding curve'den satış
-  4.  pumpfun_token_info    — tek token detayı
-  5.  pumpfun_bonding_curve — bonding curve doluluk/fiyat
-  6.  pumpfun_trending      — market cap'e göre sıralı liste
-  7.  pumpfun_new           — en yeni tokenlar
-  8.  pumpfun_graduating    — mezuniyet aşamasındaki tokenlar
+6-10 scenarios for each of the 15 endpoints/actions:
+  1.  launch_token          — creating a token (clarification, parameter extraction)
+  2.  pumpfun_buy           — buying on the bonding curve
+  3.  pumpfun_sell          — selling on the bonding curve
+  4.  pumpfun_token_info    — a single token's detail
+  5.  pumpfun_bonding_curve — bonding-curve progress and price
+  6.  pumpfun_trending      — ranked by market cap
+  7.  pumpfun_new           — newest tokens
+  8.  pumpfun_graduating    — tokens close to graduating
   9.  pumpfun_koth          — King of the Hill
-  10. pumpfun_search        — isim/sembol araması
-  11. pumpfun_comments      — token yorumları
-  12. pumpfun_user          — kullanıcı profili
-  13. pumpswap_buy          — PumpSwap AMM (graduated token) alım
-  14. pumpswap_sell         — PumpSwap AMM (graduated token) satış
-  15. pumpswap_pool_info    — PumpSwap havuz bilgisi
+  10. pumpfun_search        — search by name or symbol
+  11. pumpfun_comments      — token comments
+  12. pumpfun_user          — user profile
+  13. pumpswap_buy          — PumpSwap AMM buy (graduated token)
+  14. pumpswap_sell         — PumpSwap AMM sell (graduated token)
+  15. pumpswap_pool_info    — PumpSwap pool information
 
-Test kategorileri (her endpoint için):
-  - Doğru endpoint tetiklenme
-  - Parametre çıkarma kalitesi (mint adresi, amount, query)
-  - Ham JSON dökme yok
-  - Halüsinasyon yok
-  - Sayısal veri içerme
-  - Türkçe + İngilizce karma sorgular
-  - Hata/eksik parametre senaryoları
-  - Bonding curve vs PumpSwap doğru routing
+What each endpoint is checked for:
+  - the right endpoint is triggered
+  - parameter-extraction quality (mint address, amount, query)
+  - no raw JSON dumps
+  - no hallucination
+  - real numbers in the answer
+  - mixed Turkish and English questions
+  - error and missing-parameter paths
+  - bonding curve versus PumpSwap routed correctly
 
-Toplam: ~130 test
+The Turkish questions are deliberate: they are the regression net for
+Turkish-language intent handling.
+
+Total: ~130 tests
 """
 
 from __future__ import annotations
@@ -47,7 +50,7 @@ CHAT_URL     = os.getenv("CHAT_SERVICE_URL", "http://localhost:3020")
 INTERNAL_KEY = os.getenv("OPRAI_INTERNAL_API_KEY", "")
 TEST_WALLET  = "HwMBvLQKr1uqHNZ9v6bRX5GsKBLfNbpTDFTRDMkqmHa"
 
-# Gerçek pump.fun token mint adresleri (mainnet örnekleri)
+# Real pump.fun token mints (mainnet examples)
 BONK_MINT     = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
 WIF_MINT      = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
 POPCAT_MINT   = "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
@@ -55,10 +58,10 @@ FARTCOIN_MINT = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"
 MOODENG_MINT  = "ED5nyyWEzpPPiWimP8vYm7sD7TD3LAt3Q3gRTWHzc8yy"
 TRUMP_MINT    = "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN"
 
-# Gerçek graduated (PumpSwap AMM) mint adresleri
-RAYDIUM_MINT  = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"  # örnek graduated
+# Real graduated (PumpSwap AMM) mints
+RAYDIUM_MINT  = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"  # example graduated token
 
-# Test cüzdanları
+# Test wallets
 WALLET_A = "HwMBvLQKr1uqHNZ9v6bRX5GsKBLfNbpTDFTRDMkqmHa"
 WALLET_B = "7nYabs9dUhvxYwdTnrWVBL129NNrvYxvBBVsbkr2dwQW"
 
@@ -216,11 +219,11 @@ def explains_error(r: StreamResult, msg: str = ""):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 1. LAUNCH_TOKEN — Pump.fun token oluşturma
+# 1. LAUNCH_TOKEN — creating a pump.fun token
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestLaunchToken:
-    """launch_token: 10 senaryo — parametre çıkarma, clarification, mayhem, social"""
+    """launch_token: 10 scenarios — parameter extraction, clarification, mayhem, socials."""
 
     def test_minimal_launch_asks_clarification(self, chat_client):
         r = _chat(chat_client, "I want to launch a token on pump.fun")
@@ -237,18 +240,18 @@ class TestLaunchToken:
         ))
         triggered(r, "launch_token")
         p = r.params_for("launch_token")
-        assert "mooncat" in str(p.get("name", "")).lower(), f"name eksik/yanlış. Params: {p}"
-        assert "mcat" in str(p.get("symbol", "")).lower(), f"symbol eksik/yanlış. Params: {p}"
+        assert "mooncat" in str(p.get("name", "")).lower(), f"name missing or wrong. Params: {p}"
+        assert "mcat" in str(p.get("symbol", "")).lower(), f"symbol missing or wrong. Params: {p}"
         assert p.get("initialBuyAmount") is not None or "0.5" in str(p), (
-            f"initialBuyAmount gönderilmedi. Params: {p}"
+            f"initialBuyAmount was not sent. Params: {p}"
         )
 
     def test_symbol_extracted_uppercase(self, chat_client):
         r = _chat(chat_client, "Pump.fun'da 'PepeRocket' adında PRKT sembolü ile token çıkar")
         triggered(r, "launch_token")
         p = r.params_for("launch_token")
-        assert "peperocket" in str(p.get("name", "")).lower(), f"name yanlış. Params: {p}"
-        assert "prkt" in str(p.get("symbol", "")).upper(), f"symbol yanlış. Params: {p}"
+        assert "peperocket" in str(p.get("name", "")).lower(), f"name is wrong. Params: {p}"
+        assert "prkt" in str(p.get("symbol", "")).upper(), f"symbol is wrong. Params: {p}"
 
     def test_initial_buy_amount_parsed(self, chat_client):
         r = _chat(chat_client, "Launch WolfToken WOLF on pump.fun with 1 SOL initial buy")
@@ -277,7 +280,7 @@ class TestLaunchToken:
         triggered(r, "launch_token")
         p = r.params_for("launch_token")
         assert p.get("twitter") or p.get("telegram") or p.get("website"), (
-            f"Sosyal linkler gönderilmedi. Params: {p}"
+            f"The social links were not sent. Params: {p}"
         )
 
     def test_description_turkish(self, chat_client):
@@ -288,7 +291,7 @@ class TestLaunchToken:
         triggered(r, "launch_token")
         p = r.params_for("launch_token")
         assert "aytk" in str(p.get("symbol", "")).upper() or "ayı" in str(p.get("name", "")).lower(), (
-            f"Türkçe parametre çıkarılamadı. Params: {p}"
+            f"Failed to extract the parameters from Turkish. Params: {p}"
         )
 
     def test_high_slippage_for_launch(self, chat_client):
@@ -300,7 +303,7 @@ class TestLaunchToken:
         p = r.params_for("launch_token")
         slippage = float(p.get("slippage", 0) or 0)
         assert slippage >= 15 or "2" in str(p.get("initialBuyAmount", "")), (
-            f"Slippage/initialBuy parametresi yanlış. Params: {p}"
+            f"The slippage/initialBuy parameter is wrong. Params: {p}"
         )
 
     def test_launch_response_mentions_fee(self, chat_client):
@@ -321,7 +324,7 @@ class TestLaunchToken:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. PUMPFUN_BUY — Bonding curve'den alım
+# 2. PUMPFUN_BUY — buying on the bonding curve
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpFunBuy:
@@ -350,12 +353,12 @@ class TestPumpFunBuy:
         triggered(r, "pumpfun_buy")
         p = r.params_for("pumpfun_buy")
         pf = float(p.get("priorityFee", 0) or 0)
-        assert pf >= 0.0005, f"priorityFee eksik/düşük. Params: {p}"
+        assert pf >= 0.0005, f"priorityFee missing or too low. Params: {p}"
 
     def test_buy_not_pumpswap(self, chat_client):
         r = _chat(chat_client, f"Buy {POPCAT_MINT} on pump.fun bonding curve, 0.1 SOL")
         triggered(r, "pumpfun_buy")
-        not_triggered(r, "pumpswap_buy", "Bonding curve için pumpswap_buy tetiklenmemeli")
+        not_triggered(r, "pumpswap_buy", "pumpswap_buy must not fire for a bonding-curve token")
 
     def test_buy_amount_extracted_correctly(self, chat_client):
         r = _chat(chat_client, f"Pump.fun'dan şu tokeni 0.05 SOL için satın al: {TRUMP_MINT}")
@@ -384,7 +387,7 @@ class TestPumpFunBuy:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. PUMPFUN_SELL — Bonding curve'den satış
+# 3. PUMPFUN_SELL — selling on the bonding curve
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpFunSell:
@@ -421,7 +424,7 @@ class TestPumpFunSell:
     def test_sell_not_pumpswap(self, chat_client):
         r = _chat(chat_client, f"Pump.fun'dan {BONK_MINT} sat, 1000000 token")
         triggered(r, "pumpfun_sell")
-        not_triggered(r, "pumpswap_sell", "Bonding curve için pumpswap_sell tetiklenmemeli")
+        not_triggered(r, "pumpswap_sell", "pumpswap_sell must not fire for a bonding-curve token")
 
     def test_sell_turkish_query(self, chat_client):
         r = _chat(chat_client, f"Pump.fun'daki {TRUMP_MINT} tokenlerimi sat, 2000000 token")
@@ -442,7 +445,7 @@ class TestPumpFunSell:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 4. PUMPFUN_TOKEN_INFO — Tek token detayı
+# 4. PUMPFUN_TOKEN_INFO — a single token's detail
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpFunTokenInfo:
@@ -568,7 +571,7 @@ class TestPumpFunBondingCurve:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 6. PUMPFUN_TRENDING — Market cap'e göre sıralı liste
+# 6. PUMPFUN_TRENDING — ranked by market cap
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpFunTrending:
@@ -645,7 +648,7 @@ class TestPumpFunNew:
         triggered(r, "pumpfun_new")
         p = r.params_for("pumpfun_new")
         limit = int(p.get("limit", 20))
-        assert limit >= 10, f"Limit düşük: {limit}. Params: {p}"
+        assert limit >= 10, f"Limit too low: {limit}. Params: {p}"
 
     def test_new_tokens_turkish(self, chat_client):
         r = _chat(chat_client, "Pump.fun'a en son eklenen tokenleri göster")
@@ -685,7 +688,7 @@ class TestPumpFunNew:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 8. PUMPFUN_GRADUATING — Mezuniyet aşamasındaki tokenlar
+# 8. PUMPFUN_GRADUATING — tokens close to graduating
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpFunGraduating:
@@ -713,12 +716,12 @@ class TestPumpFunGraduating:
         triggered(r, "pumpfun_graduating")
         p = r.params_for("pumpfun_graduating")
         limit = int(p.get("limit", 10) or 10)
-        assert limit <= 20, f"Limit mantıklı olmalı. Params: {p}"
+        assert limit <= 20, f"The limit should be sensible. Params: {p}"
 
     def test_graduating_vs_graduated_routing(self, chat_client):
         r = _chat(chat_client, "Show tokens that are graduating SOON (not yet graduated)")
         triggered(r, "pumpfun_graduating")
-        not_triggered(r, "pumpswap_pool_info", "Graduating sorgusu pumpswap'ı tetiklememeli")
+        not_triggered(r, "pumpswap_pool_info", "A graduating query must not trigger pumpswap")
 
     def test_graduating_investment_use_case(self, chat_client):
         r = _chat(chat_client, (
@@ -776,7 +779,7 @@ class TestPumpFunKoth:
         triggered(r, "pumpfun_koth")
         p = r.params_for("pumpfun_koth")
         assert len([v for v in p.values() if v is not None and v != ""]) <= 1, (
-            f"KOTH parametresiz çağrılmalı. Params: {p}"
+            f"KOTH must be called with no params. Params: {p}"
         )
 
     def test_koth_response_market_cap(self, chat_client):
@@ -794,7 +797,7 @@ class TestPumpFunKoth:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 10. PUMPFUN_SEARCH — İsim/sembol araması
+# 10. PUMPFUN_SEARCH — search by name or symbol
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpFunSearch:
@@ -847,7 +850,7 @@ class TestPumpFunSearch:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 11. PUMPFUN_COMMENTS — Token yorumları
+# 11. PUMPFUN_COMMENTS — token comments
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpFunComments:
@@ -895,7 +898,7 @@ class TestPumpFunComments:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 12. PUMPFUN_USER — Kullanıcı profili
+# 12. PUMPFUN_USER — user profile
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpFunUser:
@@ -905,7 +908,7 @@ class TestPumpFunUser:
         r = _chat(chat_client, "Show my pump.fun profile")
         triggered(r, "pumpfun_user")
         p = r.params_for("pumpfun_user")
-        # wallet default (kendi wallet'ı) veya TEST_WALLET gönderilmeli
+        # Either the default wallet (the caller's own) or TEST_WALLET must be sent
         assert p.get("wallet") is None or len(str(p.get("wallet", ""))) > 10, (
             f"Wallet parametresi: {p}"
         )
@@ -952,7 +955,7 @@ class TestPumpFunUser:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 13. PUMPSWAP_BUY — Graduated token PumpSwap AMM alım
+# 13. PUMPSWAP_BUY — buying a graduated token on the PumpSwap AMM
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpSwapBuy:
@@ -967,7 +970,7 @@ class TestPumpSwapBuy:
     def test_pumpswap_buy_not_bonding_curve(self, chat_client):
         r = _chat(chat_client, f"Buy {RAYDIUM_MINT} on PumpSwap AMM, 1 SOL, it's already graduated")
         triggered(r, "pumpswap_buy")
-        not_triggered(r, "pumpfun_buy", "Graduated token için pumpfun_buy tetiklenmemeli")
+        not_triggered(r, "pumpfun_buy", "pumpfun_buy must not fire for a graduated token")
 
     def test_pumpswap_buy_with_slippage(self, chat_client):
         r = _chat(chat_client, f"Buy {RAYDIUM_MINT} on pumpswap, 0.3 SOL, 10% slippage")
@@ -986,7 +989,7 @@ class TestPumpSwapBuy:
         triggered(r, "pumpswap_buy")
         p = r.params_for("pumpswap_buy")
         pf = float(p.get("priorityFee", 0) or 0)
-        assert pf >= 0.001, f"priorityFee yüksek bekleniyor. Params: {p}"
+        assert pf >= 0.001, f"A higher priorityFee was expected. Params: {p}"
 
     def test_pumpswap_vs_pumpfun_routing(self, chat_client):
         r = _chat(chat_client, f"The token {RAYDIUM_MINT} graduated and is now on PumpSwap. Buy 0.3 SOL.")
@@ -1007,7 +1010,7 @@ class TestPumpSwapBuy:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 14. PUMPSWAP_SELL — Graduated token PumpSwap AMM satış
+# 14. PUMPSWAP_SELL — selling a graduated token on the PumpSwap AMM
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpSwapSell:
@@ -1021,7 +1024,7 @@ class TestPumpSwapSell:
     def test_pumpswap_sell_not_bonding_curve(self, chat_client):
         r = _chat(chat_client, f"Sell {RAYDIUM_MINT} on PumpSwap AMM (graduated token), 2000000 tokens")
         triggered(r, "pumpswap_sell")
-        not_triggered(r, "pumpfun_sell", "Graduated için pumpfun_sell tetiklenmemeli")
+        not_triggered(r, "pumpfun_sell", "pumpfun_sell must not fire for a graduated token")
 
     def test_pumpswap_sell_with_slippage(self, chat_client):
         r = _chat(chat_client, f"Sell {RAYDIUM_MINT} on pumpswap, 1000000 tokens, 15% slippage")
@@ -1087,7 +1090,7 @@ class TestPumpSwapPoolInfo:
     def test_pool_info_vs_bonding_curve_routing(self, chat_client):
         r = _chat(chat_client, f"Get AMM pool info for graduated token {RAYDIUM_MINT}")
         triggered(r, "pumpswap_pool_info")
-        not_triggered(r, "pumpfun_bonding_curve", "Graduated için bonding curve tetiklenmemeli")
+        not_triggered(r, "pumpfun_bonding_curve", "The bonding curve must not fire for a graduated token")
 
     def test_pool_info_response_no_raw_json(self, chat_client):
         r = _chat(chat_client, f"PumpSwap pool for {RAYDIUM_MINT}")
@@ -1165,11 +1168,11 @@ class TestPumpFunRouting:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# RESPONSE QUALITY: LLM Yorum Derinliği
+# RESPONSE QUALITY: depth of the LLM's interpretation
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPumpFunInterpretation:
-    """LLM yanıt kalitesi — ham JSON yok, anlamlı analiz, sayısal veri: 8 test"""
+    """Answer quality — no raw JSON, real analysis, real numbers: 8 tests."""
 
     def test_trending_response_actionable(self, chat_client):
         r = _chat(chat_client, "What are the top 5 pump.fun tokens right now? I want to trade one.")

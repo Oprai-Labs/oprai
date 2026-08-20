@@ -1,15 +1,18 @@
 """
-Meteora — Kapsamlı LLM Kalite Testi (Part B: DAMM v1 + S2E + Dynamic Vault)
+Meteora — comprehensive LLM quality suite (Part B: DAMM v1 + S2E + Dynamic Vault)
 
-Her endpoint için 5-10 farklı senaryo:
-  - Yeni token kombinasyonları (önceki testlerden farklı)
-  - Birden fazla parametre birlikte
-  - Yanıt yorumlama derinliği
-  - Hata senaryoları ve edge case'ler
-  - Türkçe + İngilizce karma
-  - Belirsizlik, clarification gerektiren durumlar
+5-10 scenarios per endpoint:
+  - fresh token combinations (different from the earlier suites)
+  - several parameters used together
+  - depth of interpretation
+  - error paths and edge cases
+  - mixed Turkish and English
+  - ambiguity, and cases that need clarification
 
-Test sınıfları (Part B):
+The Turkish questions are deliberate: they are the regression net for
+Turkish-language intent handling.
+
+Test classes (Part B):
   TestDV1GetPools_Advanced       — 8 test
   TestDV1SearchPools_Advanced    — 8 test
   TestDV1GetFarms_Advanced       — 6 test
@@ -49,7 +52,7 @@ CHAT_URL     = os.getenv("CHAT_SERVICE_URL", "http://localhost:3020")
 INTERNAL_KEY = os.getenv("OPRAI_INTERNAL_API_KEY", "")
 TEST_WALLET  = "HwMBvLQKr1uqHNZ9v6bRX5GsKBLfNbpTDFTRDMkqmHa"
 
-# DAMM v1 havuzları
+# DAMM v1 pools
 DV1_USDC_USDT  = "2QdhepnKRTLjjSqPL1PtKNwqrUkoLee5Gqs8bvZhRdAv"
 DV1_MSOL_SOL   = "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP"
 DV1_JTO_USDC   = "6UmmUiYoBjSrhakAobJw8BYkjzKyVdwPko8mmspnaeFV"
@@ -78,7 +81,7 @@ SOL_STRATEGY_JITO      = "4fmahDpFQdQEr9DnfJzjHXYVUxWPGWkFcQmNxWfDUTMQ"
 
 FAKE_ADDR = "FakeAddr111111111111111111111111111111111111"
 
-# Yaklaşık timestamp hesaplamaları
+# Approximate timestamp arithmetic
 NOW_TS      = int(time.time())
 LAST_7_DAYS = NOW_TS - (7 * 86400)
 LAST_30_DAYS = NOW_TS - (30 * 86400)
@@ -261,7 +264,7 @@ def assert_timestamp_is_reasonable(p: dict, key: str, msg: str = ""):
     min_ts = 1577836800  # 2020-01-01
     max_ts = 2051222400  # 2035-01-01
     assert min_ts < ts < max_ts, (
-        f"'{key}'={ts} makul Unix timestamp aralığında değil (2020-2035)\n{msg}"
+        f"'{key}'={ts} is outside the sane Unix-timestamp range (2020-2035)\n{msg}"
     )
 
 
@@ -269,7 +272,7 @@ def assert_no_wrong_filter_param(r: StreamResult, action: str, wrong_keys: list[
     p = r.params_for(action)
     for k in wrong_keys:
         assert k not in p or p[k] is None, (
-            f"[{action}] '{k}' gönderilmemeli (geçersiz param): {p[k]!r}\n{msg}"
+            f"[{action}] '{k}' should not be sent (invalid param): {p[k]!r}\n{msg}"
         )
 
 
@@ -286,7 +289,7 @@ class TestDV1GetPools_Advanced:
         p = r.params_for("DAMMV1_GET_POOLS")
         pool_type = str(p.get("poolType", "")).lower()
         assert "multitoken" in pool_type or pool_type == "", (
-            f"poolType 'multitoken' olmalı: {pool_type}"
+            f"poolType should be 'multitoken': {pool_type}"
         )
 
     def test_lst_pool_type(self, chat_client):
@@ -295,7 +298,7 @@ class TestDV1GetPools_Advanced:
         p = r.params_for("DAMMV1_GET_POOLS")
         pool_type = str(p.get("poolType", "")).lower()
         assert "lst" in pool_type or pool_type == "", (
-            f"poolType 'lst' olmalı: {pool_type}"
+            f"poolType should be 'lst': {pool_type}"
         )
 
     def test_hide_low_tvl_filter(self, chat_client):
@@ -432,7 +435,7 @@ class TestDV1GetFarms_Advanced:
         assert_triggered(r, "DAMMV1_GET_FARMS")
         p = r.params_for("DAMMV1_GET_FARMS")
         assert len([v for v in p.values() if v is not None]) == 0, (
-            f"get_farms parametresiz çağrılmalı. Params: {p}"
+            f"get_farms must be called with no params. Params: {p}"
         )
 
     def test_farms_response_mentions_rewards(self, chat_client):
@@ -479,7 +482,7 @@ class TestDV1GetPoolsMetrics_Advanced:
         assert_triggered(r, "DAMMV1_GET_POOLS_METRICS")
         p = r.params_for("DAMMV1_GET_POOLS_METRICS")
         assert len([v for v in p.values() if v is not None]) == 0, (
-            f"get_pools_metrics param almamalı. Params: {p}"
+            f"get_pools_metrics must take no params. Params: {p}"
         )
 
     def test_metrics_tvl_question(self, chat_client):
@@ -535,18 +538,18 @@ class TestDV1GetAlphaVaults_Advanced:
         r = _chat(chat_client, f"Show alpha vaults where base token is SOL (mint: {SOL_MINT})")
         assert_triggered(r, "DAMMV1_GET_ALPHA_VAULTS")
         p = r.params_for("DAMMV1_GET_ALPHA_VAULTS")
-        assert SOL_MINT in str(p), f"SOL mint adresi gönderilmedi. Params: {p}"
+        assert SOL_MINT in str(p), f"The SOL mint address was not sent. Params: {p}"
 
     def test_filter_by_base_mint_usdc(self, chat_client):
         r = _chat(chat_client, f"Alpha vaults with USDC as base token: {USDC_MINT}")
         assert_triggered(r, "DAMMV1_GET_ALPHA_VAULTS")
         p = r.params_for("DAMMV1_GET_ALPHA_VAULTS")
-        assert USDC_MINT in str(p), f"USDC mint adresi gönderilmedi. Params: {p}"
+        assert USDC_MINT in str(p), f"The USDC mint address was not sent. Params: {p}"
 
     def test_what_is_alpha_vault_response(self, chat_client):
         r = _chat(chat_client, "What are Meteora alpha vaults and how do they work?")
         # LLM might explain and then trigger, or just explain
-        assert r.has_text_content(), "Alpha vault hakkında açıklama bekleniyor"
+        assert r.has_text_content(), "An explanation about the alpha vault is expected"
         assert_no_raw_json(r)
 
     def test_alpha_vault_tvl_query(self, chat_client):
@@ -590,7 +593,7 @@ class TestDV1GetAlphaVaultConfigs_Advanced:
         assert_triggered(r, "DAMMV1_GET_ALPHA_VAULT_CONFIGS")
         p = r.params_for("DAMMV1_GET_ALPHA_VAULT_CONFIGS")
         assert len([v for v in p.values() if v is not None]) == 0, (
-            f"Alpha vault configs parametresiz olmalı. Params: {p}"
+            f"Alpha-vault configs must take no params. Params: {p}"
         )
 
     def test_configs_for_creating_vault(self, chat_client):
@@ -634,7 +637,7 @@ class TestDV1GetPoolConfigs_Advanced:
         assert_triggered(r, "DAMMV1_GET_POOL_CONFIGS")
         p = r.params_for("DAMMV1_GET_POOL_CONFIGS")
         assert len([v for v in p.values() if v is not None]) == 0, (
-            f"get_pool_configs parametresiz olmalı. Params: {p}"
+            f"get_pool_configs must take no params. Params: {p}"
         )
 
     def test_fee_tiers_available(self, chat_client):
@@ -687,7 +690,7 @@ class TestDV1GetFeeConfig_Advanced:
 
     def test_fee_config_no_address_handled(self, chat_client):
         r = _chat(chat_client, "DAMM v1 fee config nasıl?")
-        # LLM ya soru sormalı ya da genel bir cevap vermeli
+        # The LLM should either ask, or give a general answer
         assert r.asked_clarification() or r.has_text_content(), (
             "Adres eksikken LLM tepki vermedi"
         )
@@ -759,7 +762,7 @@ class TestS2EGetAnalytics_Advanced:
         assert_triggered(r, "S2E_GET_ANALYTICS")
         p = r.params_for("S2E_GET_ANALYTICS")
         assert len([v for v in p.values() if v is not None]) == 0, (
-            f"get_analytics parametresiz olmalı. Params: {p}"
+            f"get_analytics must take no params. Params: {p}"
         )
 
     def test_s2e_analytics_response_quality(self, chat_client):
@@ -787,7 +790,7 @@ class TestS2EGetAllVaults_Advanced:
         assert_triggered(r, "S2E_GET_ALL_VAULTS")
         p = r.params_for("S2E_GET_ALL_VAULTS")
         assert len([v for v in p.values() if v is not None]) == 0, (
-            f"get_all_vaults parametresiz olmalı. Params: {p}"
+            f"get_all_vaults must take no params. Params: {p}"
         )
 
     def test_all_vaults_token_listing(self, chat_client):
@@ -845,7 +848,7 @@ class TestS2EFilterVaults_Advanced:
         p = r.params_for("S2E_FILTER_VAULTS")
         addr_str = str(p.get("poolAddress", ""))
         assert S2E_BONK_VAULT in addr_str or S2E_WIF_VAULT in addr_str, (
-            f"Adresler gönderilmedi. Params: {p}"
+            f"The addresses were not sent. Params: {p}"
         )
 
     def test_filter_no_wrong_params(self, chat_client):
@@ -869,20 +872,20 @@ class TestS2EFilterVaults_Advanced:
             S2E_WIF_VAULT in addr_str,
             S2E_JTO_VAULT in addr_str,
         ])
-        assert found >= 1, f"En az 1 adres gönderilmeli. Params: {p}"
+        assert found >= 1, f"At least one address must be sent. Params: {p}"
 
     def test_filter_not_using_searchterm(self, chat_client):
         r = _chat(chat_client, f"Filter S2E vaults matching pool {S2E_JTO_VAULT}")
         assert_triggered(r, "S2E_FILTER_VAULTS")
         p = r.params_for("S2E_FILTER_VAULTS")
-        assert "searchTerm" not in p, f"searchTerm kullanılmamalı. Params: {p}"
-        assert "search_term" not in p, f"search_term kullanılmamalı. Params: {p}"
+        assert "searchTerm" not in p, f"searchTerm must not be used. Params: {p}"
+        assert "search_term" not in p, f"search_term must not be used. Params: {p}"
 
     def test_filter_no_sort_key(self, chat_client):
         r = _chat(chat_client, f"Vault filter: pool address {S2E_BONK_VAULT}")
         assert_triggered(r, "S2E_FILTER_VAULTS")
         p = r.params_for("S2E_FILTER_VAULTS")
-        assert "sortKey" not in p, f"sortKey kullanılmamalı. Params: {p}"
+        assert "sortKey" not in p, f"sortKey must not be used. Params: {p}"
 
     def test_filter_response_no_raw_json(self, chat_client):
         r = _chat(chat_client, f"S2E vault'larını filtrele, pool: {S2E_WIF_VAULT}")
@@ -1202,7 +1205,7 @@ class TestVaultGetApyHistory_Advanced:
         assert_timestamp_is_reasonable(p, "endTimestamp")
         if "startTimestamp" in p and "endTimestamp" in p:
             assert int(p["startTimestamp"]) < int(p["endTimestamp"]), (
-                f"start < end olmalı. start={p['startTimestamp']}, end={p['endTimestamp']}"
+                f"start must be < end. start={p['startTimestamp']}, end={p['endTimestamp']}"
             )
 
     def test_apy_history_last_30_days(self, chat_client):
@@ -1210,10 +1213,10 @@ class TestVaultGetApyHistory_Advanced:
         assert_triggered(r, "VAULT_GET_APY_HISTORY")
         p = r.params_for("VAULT_GET_APY_HISTORY")
         if "startTimestamp" in p:
-            # 30 gün = ~2592000 saniye, başlangıç son 30 günden önce olmalı
+            # 30 days is ~2592000 seconds; the start must precede that window
             diff = NOW_TS - int(p["startTimestamp"])
             assert diff >= 25 * 86400, (
-                f"30 günlük pencere için startTimestamp çok yakın. diff={diff}s"
+                f"startTimestamp is too recent for a 30-day window. diff={diff}s"
             )
 
     def test_apy_history_timestamps_in_seconds(self, chat_client):
@@ -1224,7 +1227,7 @@ class TestVaultGetApyHistory_Advanced:
             if key in p:
                 ts = int(p[key])
                 assert ts < 10**11, (
-                    f"'{key}'={ts} milisaniye cinsinden görünüyor (çok büyük), saniye olmalı"
+                    f"'{key}'={ts} looks like milliseconds (too large); it must be seconds"
                 )
 
     def test_apy_history_sol_vault_trend(self, chat_client):
@@ -1244,7 +1247,7 @@ class TestVaultGetApyHistory_Advanced:
         if "startTimestamp" in p:
             diff = NOW_TS - int(p["startTimestamp"])
             assert diff >= 80 * 86400, (
-                f"90 günlük pencere için startTimestamp çok yakın. diff={diff}s"
+                f"startTimestamp is too recent for a 90-day window. diff={diff}s"
             )
 
     def test_apy_history_specific_date_range(self, chat_client):
@@ -1256,10 +1259,10 @@ class TestVaultGetApyHistory_Advanced:
         if "startTimestamp" in p and "endTimestamp" in p:
             start = int(p["startTimestamp"])
             end = int(p["endTimestamp"])
-            assert start < end, f"start < end olmalı: {start} < {end}"
+            assert start < end, f"start must be < end: {start} < {end}"
             # Jan 2025 ~ 1735689600
             assert 1735000000 < start < 1738000000, (
-                f"startTimestamp Jan 2025 olmalı: {start}"
+                f"startTimestamp should be Jan 2025: {start}"
             )
 
     def test_apy_history_response_interpretation(self, chat_client):
@@ -1316,7 +1319,7 @@ class TestVaultGetVirtualPrice_Advanced:
 
     def test_virtual_price_both_params_required(self, chat_client):
         r = _chat(chat_client, f"Şu vault stratejisinin sanal fiyatını al: {SOL_MINT}")
-        # Strateji adresi olmadan LLM ya soru sormalı ya da uyarmalı
+        # Without a strategy address the LLM should ask, or warn
         if "VAULT_GET_VIRTUAL_PRICE" in r.all_triggered_types():
             p = r.params_for("VAULT_GET_VIRTUAL_PRICE")
             # Strateji varsa iyi
@@ -1331,7 +1334,7 @@ class TestVaultGetVirtualPrice_Advanced:
             f"What is virtual price and how do I check it for the USDC vault? "
             f"USDC mint: {USDC_MINT}"
         ))
-        assert r.has_text_content(), "Virtual price hakkında açıklama bekleniyor"
+        assert r.has_text_content(), "An explanation about the virtual price is expected"
         assert_no_raw_json(r)
 
     def test_virtual_price_response_includes_value(self, chat_client):

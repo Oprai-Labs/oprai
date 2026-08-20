@@ -1,9 +1,13 @@
 """
 Kamino Finance LLM End-to-End Test Suite
 ─────────────────────────────────────────
-Tüm Kamino GET tool'larını tüm parametre kombinasyonları ve uç case'lerle LLM üzerinden test eder.
+Exercises every Kamino GET tool through the LLM, across every parameter
+combination and edge case.
 
-Çalıştır:
+The `query` fields are deliberately written in Turkish: this suite doubles as
+the regression net for Turkish-language intent handling.
+
+Run:
   cd services/defi-query-service
   OPRAI_OPENAI_API_KEY=sk-... python3 tests/e2e_llm_kamino.py
   OPRAI_OPENAI_API_KEY=sk-... python3 tests/e2e_llm_kamino.py --tool kamino_market_reserves
@@ -21,10 +25,10 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# ─── Bilinen cüzdan adresleri (test için) ────────────────────────────────────
+# ─── Known wallet addresses (test fixtures) ──────────────────────────────────
 
-EMPTY_WALLET = "GJGkJEFPDdFwPsnCyJqoYJGZTHyv9NM6qwqJvLSHFCH"   # Boş / küçük cüzdan
-FAKE_WALLET  = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"    # Geçersiz adres
+EMPTY_WALLET = "GJGkJEFPDdFwPsnCyJqoYJGZTHyv9NM6qwqJvLSHFCH"   # Empty or nearly-empty wallet
+FAKE_WALLET  = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"    # Invalid address
 
 # LST mint adresleri
 JITOSOL  = "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn"
@@ -33,7 +37,7 @@ BSOL     = "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1"
 SOL      = "So11111111111111111111111111111111111111112"
 USDC     = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
-# ─── Analiz yardımcıları ─────────────────────────────────────────────────────
+# ─── Analysis helpers ────────────────────────────────────────────────────────
 
 def html_has(html: str, *keywords: str) -> dict[str, bool]:
     plain = re.sub(r"<[^>]+>", "", html).lower()
@@ -115,7 +119,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves"],
         check_html=["apy", "kamino", "%"],
         check_fields=["supplyApy", "liquidityToken"],
-        description="En yüksek supply APY sıralaması",
+        description="Ranked by highest supply APY",
     ),
     TestCase(
         id="res_02_best_borrow_rate",
@@ -124,7 +128,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves"],
         check_html=["borrow", "apy", "%"],
         check_fields=["borrowApy"],
-        description="En düşük borrow APY sıralaması",
+        description="Ranked by lowest borrow APY",
     ),
     TestCase(
         id="res_03_sol_reserve",
@@ -142,7 +146,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves"],
         check_html=["usdc", "%", "kamino"],
         check_fields=["supplyApy"],
-        description="USDC lending getiri hesabı",
+        description="Computing the USDC lending return",
     ),
     TestCase(
         id="res_05_high_utilization",
@@ -151,7 +155,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves"],
         check_html=["kullanım", "oran", "kamino"],
         check_fields=["totalBorrow", "totalSupply"],
-        description="Utilization oranı analizi",
+        description="Utilisation-ratio analysis",
     ),
     TestCase(
         id="res_06_tvl_ranking",
@@ -160,7 +164,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves"],
         check_html=["tvl", "kamino", "$"],
         check_fields=["totalSupplyUsd"],
-        description="TVL bazlı reserve sıralaması",
+        description="Reserves ranked by TVL",
     ),
     TestCase(
         id="res_07_max_ltv_analysis",
@@ -179,7 +183,7 @@ ALL_CASES: list[TestCase] = [
         check_html=["borrow", "risk", "%"],
         check_fields=["borrowApy"],
         must_warn=True,
-        description="Yüksek borrow APY riski uyarısı",
+        description="Warning about a high borrow APY",
     ),
     TestCase(
         id="res_09_stablecoin_comparison",
@@ -188,7 +192,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves"],
         check_html=["usdc", "usdt", "stablecoin"],
         check_fields=["supplyApy", "borrowApy"],
-        description="Stablecoin lending karşılaştırması",
+        description="Stablecoin lending compared",
     ),
     TestCase(
         id="res_10_lst_borrow_vs_native",
@@ -197,7 +201,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves"],
         check_html=["jitosol", "msol", "ltv"],
         check_fields=["maxLtv", "liquidityToken"],
-        description="LST teminat LTV karşılaştırması",
+        description="LST collateral LTVs compared",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
@@ -211,7 +215,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_staking_yields"],
         check_html=["lst", "apy", "%"],
         check_fields=["apy", "tokenMint"],
-        description="Tüm LST staking yield listesi",
+        description="Every LST staking yield",
     ),
     TestCase(
         id="yield_02_highest_apy",
@@ -220,7 +224,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_staking_yields"],
         check_html=["apy", "%"],
         check_fields=["apy"],
-        description="En yüksek LST APY sorgusu",
+        description="Highest LST APY",
     ),
     TestCase(
         id="yield_03_jitosol_vs_msol",
@@ -229,7 +233,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_staking_yields"],
         check_html=["jitosol", "msol", "apy"],
         check_fields=["apy"],
-        description="JitoSOL vs mSOL APY karşılaştırması",
+        description="JitoSOL versus mSOL APY",
     ),
     TestCase(
         id="yield_04_mean_yield",
@@ -247,7 +251,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_staking_yields"],
         check_html=["lst", "staking", "apy"],
         check_fields=["apy"],
-        description="LST vs doğrudan stake kıyası",
+        description="LST versus staking directly",
     ),
     TestCase(
         id="yield_06_bsol_apy",
@@ -270,7 +274,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_leverage_stats"],
         check_html=["kaldıraç", "oran", "kamino"],
         check_fields=["avgLeverage"],
-        description="Ortalama leverage oranı",
+        description="Average leverage ratio",
     ),
     TestCase(
         id="lev_02_total_tvl",
@@ -288,7 +292,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_leverage_stats"],
         check_html=["kaldıraç", "çift"],
         check_fields=["avgLeverage"],
-        description="En yüksek leverage reserve çifti",
+        description="Reserve pair with the highest leverage",
     ),
     TestCase(
         id="lev_04_risk_assessment",
@@ -298,7 +302,7 @@ ALL_CASES: list[TestCase] = [
         check_html=["risk", "borç", "kamino"],
         check_fields=["totalBorrowedUsd", "totalDepositedUsd"],
         must_warn=True,
-        description="Leverage risk değerlendirmesi",
+        description="Leverage risk assessment",
     ),
     TestCase(
         id="lev_05_obligation_count",
@@ -307,7 +311,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_leverage_stats"],
         check_html=["pozisyon", "sayı", "kamino"],
         check_fields=["totalObligations"],
-        description="Aktif leverage pozisyon sayısı",
+        description="Number of open leverage positions",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
@@ -321,7 +325,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_strategies"],
         check_html=["apy", "kamino", "%"],
         check_fields=["apy"],
-        description="En yüksek APY'li LP stratejileri",
+        description="LP strategies with the highest APY",
     ),
     TestCase(
         id="strat_02_sol_usdc",
@@ -330,7 +334,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_strategies"],
         check_html=["sol", "usdc", "kamino"],
         check_fields=["tokenA", "tokenB"],
-        description="SOL/USDC LP vault araması",
+        description="Searching for a SOL/USDC LP vault",
     ),
     TestCase(
         id="strat_03_highest_tvl",
@@ -339,7 +343,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_strategies"],
         check_html=["tvl", "$", "kamino"],
         check_fields=["totalValueLocked"],
-        description="En yüksek TVL vault stratejisi",
+        description="Vault strategy with the highest TVL",
     ),
     TestCase(
         id="strat_04_30d_apy",
@@ -348,7 +352,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_strategies"],
         check_html=["30", "apy", "%"],
         check_fields=["apy"],
-        description="30 günlük APY performansı",
+        description="30-day APY performance",
     ),
     TestCase(
         id="strat_05_fee_analysis",
@@ -371,7 +375,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_oracle_prices"],
         check_html=["sol", "$", "oracle"],
         check_fields=["price"],
-        description="SOL oracle fiyatı",
+        description="SOL oracle price",
     ),
     TestCase(
         id="oracle_02_usdc_peg",
@@ -380,7 +384,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_oracle_prices"],
         check_html=["usdc", "usdt", "$1"],
         check_fields=["price"],
-        description="Stablecoin peg kontrolü (oracle)",
+        description="Stablecoin peg check (oracle)",
     ),
     TestCase(
         id="oracle_03_lst_prices",
@@ -389,7 +393,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_oracle_prices"],
         check_html=["jitosol", "msol", "$"],
         check_fields=["price"],
-        description="LST oracle fiyatları",
+        description="LST oracle prices",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
@@ -403,7 +407,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_markets"],
         check_html=["market", "kamino"],
         check_fields=["name", "isPrimary"],
-        description="Tüm Kamino market listesi",
+        description="Every Kamino market",
     ),
     TestCase(
         id="mkt_02_primary_market",
@@ -421,7 +425,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_markets"],
         check_html=["market", "kamino"],
         check_fields=["name"],
-        description="Alternatif market keşfi",
+        description="Discovering alternative markets",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
@@ -444,11 +448,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_earn_vaults"],
         check_html=["fee", "kamino", "vault"],
         check_fields=["performanceFeeBps", "managementFeeBps"],
-        description="Vault fee yapısı analizi",
+        description="Vault fee-structure analysis",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # KAMINO_USER_POSITIONS & KAMINO_USER_OBLIGATIONS — wallet sorguları
+    # KAMINO_USER_POSITIONS & KAMINO_USER_OBLIGATIONS — wallet queries
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -458,7 +462,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_user_positions"],
         check_html=["kamino", "vault"],
         check_fields=["vaultAddress"],
-        description="Boş cüzdan — earn pozisyonu yok",
+        description="Empty wallet — no earn positions",
     ),
     TestCase(
         id="user_02_no_loans",
@@ -467,7 +471,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_user_obligations"],
         check_html=["kamino", "borç"],
         check_fields=["healthFactor"],
-        description="Boş cüzdan — borç pozisyonu yok",
+        description="Empty wallet — no borrow positions",
     ),
     TestCase(
         id="user_03_invalid_wallet",
@@ -475,7 +479,7 @@ ALL_CASES: list[TestCase] = [
         query=f"Bu cüzdanın Kamino pozisyonlarını getir: {FAKE_WALLET}",
         expected_tools=["kamino_user_positions", "kamino_user_obligations"],
         check_html=["kamino"],
-        description="Geçersiz cüzdan adresi",
+        description="Invalid wallet address",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
@@ -489,7 +493,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_epoch_info"],
         check_html=["epoch", "solana"],
         check_fields=["epoch", "startBlockTime"],
-        description="Güncel epoch bilgisi",
+        description="Current epoch information",
     ),
     TestCase(
         id="epoch_02_staking_context",
@@ -498,11 +502,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_epoch_info"],
         check_html=["epoch", "staking"],
         check_fields=["epoch"],
-        description="Epoch bitiş zamanı / staking context",
+        description="Epoch end time / staking context",
     ),
 
     # ═══════════════════════════════════════════════════════════════════
-    # EDGE CASE'LER — multi-tool zincirleme ve karmaşık sorgular
+    # EDGE CASES — multi-tool chains and compound questions
     # ═══════════════════════════════════════════════════════════════════
 
     TestCase(
@@ -535,7 +539,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves"],
         check_html=["kamino", "jupiter", "usdc"],
         check_fields=["supplyApy"],
-        description="Kamino vs Jupiter Lend lending karşılaştırması",
+        description="Kamino versus Jupiter Lend for lending",
     ),
     TestCase(
         id="edge_04_leverage_risk_full",
@@ -557,7 +561,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves", "kamino_markets", "kamino_strategies"],
         check_html=["kamino", "tvl", "apy"],
         check_fields=["totalSupplyUsd"],
-        description="Kamino protokol genel durum özeti",
+        description="Overall Kamino protocol summary",
     ),
     TestCase(
         id="edge_06_borrow_to_buy_sol",
@@ -569,7 +573,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_market_reserves", "kamino_staking_yields"],
         check_html=["borrow", "sol", "apy"],
         check_fields=["borrowApy"],
-        description="USDC teminat → SOL borç stratejisi",
+        description="USDC collateral -> SOL borrow strategy",
     ),
     TestCase(
         id="edge_07_lst_yield_vs_lending",
@@ -578,7 +582,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["kamino_staking_yields", "kamino_market_reserves"],
         check_html=["jitosol", "staking", "lending"],
         check_fields=["apy", "supplyApy"],
-        description="LST staking vs lending APY kıyası",
+        description="LST staking versus lending APY",
     ),
     TestCase(
         id="edge_08_complete_wallet_audit",
@@ -586,7 +590,7 @@ ALL_CASES: list[TestCase] = [
         query=f"Bu cüzdanın tüm Kamino aktivitesini kontrol et: {EMPTY_WALLET} — earn pozisyonları, borçlar ve sağlık faktörü",
         expected_tools=["kamino_user_obligations", "kamino_user_positions"],
         check_html=["kamino", "cüzdan"],
-        description="Tam cüzdan Kamino audit",
+        description="Full wallet Kamino audit",
     ),
 ]
 
@@ -663,9 +667,9 @@ def print_result(r: TestResult, fast: bool = False):
 
         if r.case.must_warn:
             has_warn = r.structure()["has_warning_box"]
-            print(f"   Risk uyar: {'✅ VAR' if has_warn else '❌ EKSİK'}")
+            print(f"   Risk warn: {'✅ present' if has_warn else '❌ missing'}")
 
-    # İlk 200 karakter plain text
+    # First 200 characters of plain text
     plain_preview = re.sub(r"\s+", " ", r.plain[:200]).strip()
     print(f"   Response : {plain_preview}")
 
@@ -691,11 +695,11 @@ async def run_all(filter_val: Optional[str] = None, fast: bool = False):
         r = await run_single(case, _query)
         results.append(r)
         print_result(r, fast)
-        # Rate limit önlemi — ardışık çağrılar arasında kısa bekleme
+        # Rate-limit guard — brief pause between consecutive calls
         if i < len(cases):
             await asyncio.sleep(2)
 
-    # ─── Özet raporu ──────────────────────────────────────────────────
+    # ─── Summary report ───────────────────────────────────────────────
     total   = len(results)
     passed  = sum(1 for r in results if r.passed)
     tool_ok = sum(1 for r in results if r.tool_ok)
@@ -743,7 +747,7 @@ async def run_all(filter_val: Optional[str] = None, fast: bool = False):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tool", help="Sadece belirli bir tool (ör: kamino_market_reserves)")
+    parser.add_argument("--tool", help="Test only this tool (e.g. kamino_market_reserves)")
     parser.add_argument("--id",   help="Belirli bir test ID'si")
     parser.add_argument("--fast", action="store_true", help="Short output")
     args = parser.parse_args()
