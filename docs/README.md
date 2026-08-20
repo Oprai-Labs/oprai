@@ -34,10 +34,6 @@ docs/
 ├── frontend/                     # Frontend documentation
 │   └── angular-app.md            # Angular 19 App
 │
-├── agents/                       # Agent framework documentation
-│   ├── opraios.md                # OpraiOS AI Agent Platform
-│   └── plugin-reference.md       # Protocol plugins reference
-│
 └── proto/                        # Protobuf definitions
     ├── README.md                 # Proto index
     ├── common-types.md
@@ -64,7 +60,6 @@ docs/
 | Memory | Python | 3040 / 50054 | Vector search, conversation summarization |
 | Admin | Go | 3050 / 50055 | Admin panel, cross-schema queries |
 | Frontend | TypeScript | 3000 | Angular 19, wallet adapter |
-| OpraiOS | Python | standalone | AI agent framework |
 
 ## Architecture Diagram
 

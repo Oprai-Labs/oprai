@@ -130,6 +130,15 @@ SERVER.md
 # documents, not product documentation.
 docs/analytics-and-metrics-plan.md
 docs/mayhem-reverse-engineering.md
+# Internal status/parity reports — point-in-time working notes, and they went
+# stale (link rot to files that no longer exist).
+docs/OPRAI_Gap_Report.md
+docs/ELIZA_FEATURES.md
+docs/ELIZA_FEATURES_COMPLETE.md
+docs/FEATURE_COMPARISON.md
+# Documentation for opraios/, which is itself excluded from this repo — a clone
+# cannot follow these instructions because the code they describe is not here.
+docs/agents/
 
 # Wrangler
 .wrangler/
