@@ -365,59 +365,6 @@ def _fetch_blue_chips_anchor_only() -> list[CategoryToken]:
 # Multilingual word fragments — matched against the user message lowercase.
 # Not a full NLP — just enough to disambiguate stable vs LST vs blue-chip
 # when the classifier flagged `is_category_request=true` without naming the
-# subcategory.
-_CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "stable": ("stable", "stablecoin", "stabilcoin", "sabit", "estable",
-               "stabile", "estável", "stalna"),
-    "lst": ("lst", "liquid stak", "liquid-stak", "likit stak",
-            "staked sol", "staking token", "lsd"),
-    "blue_chip": ("blue chip", "blue-chip", "bluechip", "majör", "major",
-                  "mavi çip", "principal"),
-    # Memecoin keywords. Multilingual variants kept since these are user-
-    # input matchers (not prompts). Must come BEFORE "stable"/"lst" in
-    # detect_category iteration so "show me memes" doesn't false-positive
-    # match anything else.
-    "memecoin": ("memecoin", "memecoins", "meme coin", "meme coins",
-                 "meme token", "memetoken", "memes", "memeler", "mem coin"),
-}
-
-
-# Words that make a message a request for MARKETS rather than for a class of
-# tokens. "Which stablecoins exist" is a static list we answer from our own
-# data; "list the stablecoin POOLS" is live protocol data with a TVL, a fee
-# and a Use button, and Orca's API can now filter pools by category directly.
-# Treating the second as the first is how "stablecoin havuzlarını listele"
-# came back as prose describing the previous turn's RWA pools.
-#
-# Deliberately only unambiguous venue nouns. "yield" and "apy" are not here —
-# "which stables pay yield" is still a question about tokens.
-_VENUE_WORDS: tuple[str, ...] = (
-    "pool", "havuz", "liquidity", "likidite", "whirlpool", "dlmm", "clmm",
-    "amm", "farm", "vault", "kasa", "pair", "çift", "cift", "lp ", " lp",
-    "piscina", "pote",
-)
-
-
-def asks_for_venues(user_message: str) -> bool:
-    """True when the message asks for POOLS/markets, not for a token class."""
-    msg = (user_message or "").lower()
-    return any(w in msg for w in _VENUE_WORDS)
-
-
-def detect_category(user_message: str) -> str | None:
-    """Pick the category the user asked about. Returns None if unclear, or if
-    the message is really asking for pools in that category — those keep their
-    tools and get a card."""
-    msg = (user_message or "").lower()
-    if asks_for_venues(msg):
-        return None
-    # Memecoin first — its keywords are more specific than "stable"/"lst"
-    # so it shouldn't get pre-empted.
-    for cat in ("memecoin", "stable", "lst", "blue_chip"):
-        if any(kw in msg for kw in _CATEGORY_KEYWORDS[cat]):
-            return cat
-    return None
-
 
 def format_category_context_block(category: str, tokens: list[CategoryToken]) -> str:
     """

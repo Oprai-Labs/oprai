@@ -1335,13 +1335,13 @@ async def stream_chat_response(
     async def _rag_prefetch() -> str | None:
         if not settings.KNOWLEDGE_RAG_ENABLED or not safe_content:
             return None
-        # Cheap chitchat short-circuit — avoids a Qdrant round-trip + the
-        # 20K-token KB block when the user is just saying hi/thanks. Same
-        # heuristic as `_is_chitchat` in summary.py (intent isn't ready
-        # yet here, so we use the length + keyword fast-path only).
-        from app.services.summary import _is_chitchat as _chitchat_chk
-        if _chitchat_chk(safe_content, None):
-            return None
+        # No chitchat short-circuit here: this coroutine is gathered with the
+        # intent classifier, so its verdict is not available yet, and waiting
+        # for it would serialise two calls that currently overlap. The block
+        # is discarded after the gather when the classifier says chitchat —
+        # which costs one local Qdrant query and zero wall-clock, since it
+        # was running in parallel anyway. What it does NOT cost is the 20K
+        # tokens, because those are only spent if the block is injected.
         try:
             from app.rag import get_rag_service
             return await get_rag_service().get_context_for_query(
@@ -1404,6 +1404,13 @@ async def stream_chat_response(
         ),
         _rag_prefetch(),
     )
+
+    # A greeting does not need the knowledge base. The fetch already happened
+    # (in parallel with the classifier, so it cost no wall-clock); dropping it
+    # here is what saves the ~20K tokens of context.
+    if intent_result.is_chitchat and prefetched_knowledge:
+        _log.info("chitchat turn — dropping prefetched KB block")
+        prefetched_knowledge = None
 
     # Protocol scoping rule:
     #   • If the user explicitly @-tagged one or more protocols in the
@@ -1572,11 +1579,13 @@ async def stream_chat_response(
     # the authoritative token set server-side and inject it as a system
     # message. The LLM then has zero ambiguity about which symbols to list
     # and which mints to swap into, removing the "lazy 2-of-10" failure mode.
-    # Detection: classifier flag (`is_category_request`) is one signal,
-    # `detect_category()` Python keyword matcher is the other. EITHER one
-    # being positive triggers context injection — the LLM classifier sometimes
-    # returns false on short Turkish / Spanish phrasings the keyword matcher
-    # catches reliably. Both are cheap; belt-and-braces is the right default.
+    # Detection is the classifier's alone: it returns `is_category_request`
+    # and, with it, `token_category`. This used to be belt-and-braces with a
+    # Python keyword table, because the classifier missed short non-English
+    # phrasings — but that table only ever knew the words someone had thought
+    # to write down, in the handful of languages someone had thought to cover.
+    # The classifier reads the message in the language it was written; the fix
+    # for a miss is the classifier prompt, not another word list.
     #
     # But a class of TOKENS and a class of POOLS are different questions.
     # "Which stablecoins exist" is a static list; "list the stablecoin pools"
@@ -1585,23 +1594,21 @@ async def stream_chat_response(
     # tools were dropped, and the model answered by re-describing the previous
     # turn's RWA pools in prose. Correct the flag here, before either the
     # context block or the tool filter reads it.
-    try:
-        from app.services.token_categories import asks_for_venues
-        if intent_result.is_category_request and asks_for_venues(user_content or ""):
-            import dataclasses as _dc
-            intent_result = _dc.replace(intent_result, is_category_request=False)
-            _log.info("intent_router: category-request names pools → keeping tools")
-    except Exception:
-        _log.warning("venue-request check failed", exc_info=True)
+    if intent_result.is_category_request and intent_result.wants_venues:
+        import dataclasses as _dc
+        intent_result = _dc.replace(intent_result, is_category_request=False)
+        _log.info("intent_router: category-request names pools → keeping tools")
 
     category_context: str | None = None
     try:
         from app.services.token_categories import (
-            detect_category,
             get_category_tokens,
             format_category_context_block,
         )
-        cat = detect_category(user_content or "")
+        # The class comes from the classifier, which reads the message in
+        # whatever language it arrived in. A venue request is not a class
+        # request — those keep their tools and get a card instead.
+        cat = None if intent_result.wants_venues else intent_result.token_category
         # Only build a category block when we KNOW the category. Defaulting
         # to "stable" when the keyword matcher missed produced misleading
         # blocks ("you asked about stablecoins" injected for a memecoin
@@ -1684,6 +1691,7 @@ async def stream_chat_response(
         intent=intent_result.intent,
         prefetched_knowledge=prefetched_knowledge,
         category_context=category_context,
+        is_chitchat=intent_result.is_chitchat,
     )
 
     # ── Language enforcement (per-turn, high-priority, language-agnostic)
@@ -3142,7 +3150,12 @@ async def stream_chat_response(
                 and not validated_clarifications):
             try:
                 from app.services.pre_compute import render_fallback_prose
-                _override = await render_fallback_prose(user_content or "", _bal_dict)
+                _override = await render_fallback_prose(
+                    user_content or "", _bal_dict,
+                    token_category=(
+                        None if intent_result.wants_venues else intent_result.token_category
+                    ),
+                )
                 if _override:
                     _log.info(
                         "hedge_override applied user=%.80s wallet=%s",

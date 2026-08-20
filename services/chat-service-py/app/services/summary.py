@@ -655,61 +655,6 @@ async def maybe_create_summary(
     logger.info("Created summary for session %s block %d", session_id, block_index)
 
 
-def _is_chitchat(user_content: str | None, intent: str | None) -> bool:
-    """Detect trivial conversational turns that don't need the heavy context.
-
-    Greetings, acks, thanks, single-word replies — these were being charged
-    the full system-prompt overhead (RAG knowledge block ~20K + token
-    registry ~5K + memory snippets ~1K = ~26K wasted tokens per turn).
-    Short messages classified by greeting whitelist OR by length + lack
-    of DeFi/action keywords are skipped through a fast-path that omits
-    those expensive blocks.
-    """
-    text = (user_content or "").strip().lower()
-    if not text or len(text) > 60:
-        return False
-    # If intent is action or query at all, never treat as chitchat.
-    if intent in ("action", "query"):
-        return False
-    # Whitelist of trivial greetings / acks. If the WHOLE message is one of
-    # these (with optional punctuation), it's chitchat regardless of what
-    # substring overlaps with question words.
-    _GREETING_WHITELIST = {
-        "selam", "merhaba", "merhabalar", "günaydın", "iyi geceler",
-        "iyi günler", "iyi akşamlar", "nasılsın", "naber", "ne haber",
-        "hi", "hello", "hey", "hiya", "yo", "sup",
-        "thanks", "thank you", "thx", "tx", "ty",
-        "teşekkürler", "teşekkür ederim", "sağol", "sağolun",
-        "ok", "okay", "tamam", "anladım", "got it",
-        "bye", "görüşürüz", "hoşçakal", "goodbye",
-    }
-    stripped = "".join(c for c in text if c.isalpha() or c == " ").strip()
-    if stripped in _GREETING_WHITELIST:
-        return True
-    # Anything with a likely-DeFi token name, a number, or a known action /
-    # data verb keeps the full context.
-    _SIGNAL_PATTERNS = (
-        # action verbs (multilingual)
-        "swap", "buy", "sell", "stake", "lend", "borrow", "send", "transfer",
-        "mint", "burn", "claim", "withdraw", "deposit", "long", "short", "close",
-        # asset / data triggers
-        "sol", "usdc", "usdt", "jupiter", "raydium", "orca", "kamino",
-        "marinade", "jito", "meteora", "jup", "fiyat", "price", "pool",
-        "havuz", "tvl", "apy", "apr", "balance", "bakiye", "portföy",
-        "portfolio", "pnl", "kar", "zarar",
-        ".sol",
-        # question / data markers
-        "?", "ne kadar", "nedir", "what is", "how does", "how do",
-        "kaç ", "hangi",
-    )
-    if any(p in text for p in _SIGNAL_PATTERNS):
-        return False
-    # Numbers usually mean "amount" → action / query; keep full context.
-    if any(c.isdigit() for c in text):
-        return False
-    return True
-
-
 async def build_llm_context(
     db: AsyncSession,
     session_id: str,
@@ -720,6 +665,7 @@ async def build_llm_context(
     intent: str | None = None,
     prefetched_knowledge: str | None = None,
     category_context: str | None = None,
+    is_chitchat: bool = False,
 ) -> list[dict[str, str]]:
     """Build the full messages array for an LLM call.
 
@@ -736,7 +682,10 @@ async def build_llm_context(
     from app.prompts.loader import get_prompt_loader
     from app.services.memory_client import search_memories
 
-    is_chitchat = _is_chitchat(sanitised_last_user_content, intent)
+    # `is_chitchat` comes from the intent classifier, which reads the message
+    # in whatever language it was written. This used to be a greeting
+    # whitelist plus a keyword list — accurate only for the words and
+    # languages someone had thought to enumerate.
     # Loader picks the smallest viable prompt: chitchat → base only;
     # no-protocol + advice → base only; no-protocol + query → base + queries
     # + market_data; explicit protocol → protocol files. Previously

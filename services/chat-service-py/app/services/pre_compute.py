@@ -685,19 +685,24 @@ def render_balance_prose(
     return "Balances:\n\n" + "\n".join(rows)
 
 
-async def render_category_prose(user_message: str) -> str | None:
+async def render_category_prose(
+    user_message: str, token_category: str | None = None
+) -> str | None:
     """If the user asked a category-listing question (stables/LST/memecoin/
     blue-chip), render the canonical list directly.
+
+    The category comes from the intent classifier, which reads the message in
+    whatever language it was written. Without one there is nothing to render —
+    guessing from keywords is what this used to do, and it only ever knew the
+    words someone had thought to list.
     """
+    if not token_category:
+        return None
     try:
-        from app.services.token_categories import (
-            detect_category, get_category_tokens,
-        )
+        from app.services.token_categories import get_category_tokens
     except Exception:
         return None
-    cat = detect_category(user_message)
-    if not cat:
-        return None
+    cat = token_category
     tokens = await get_category_tokens(cat)
     if not tokens:
         return None
@@ -789,6 +794,7 @@ async def render_compare_prose(user_message: str) -> str | None:
 async def render_fallback_prose(
     user_message: str,
     wallet_balances: dict[str, float] | None = None,
+    token_category: str | None = None,
 ) -> str | None:
     """Try each renderer in priority order. Return the first hit.
 
@@ -814,7 +820,6 @@ async def render_fallback_prose(
         render_compare_prose,
         render_sns_prose,
         render_price_prose,
-        render_category_prose,
     ):
         try:
             r = await fn(user_message)
@@ -822,6 +827,12 @@ async def render_fallback_prose(
                 return r
         except Exception:
             logger.debug("renderer %s failed", fn.__name__, exc_info=True)
+    try:
+        r = await render_category_prose(user_message, token_category)
+        if r:
+            return r
+    except Exception:
+        logger.debug("renderer render_category_prose failed", exc_info=True)
     return None
 
 

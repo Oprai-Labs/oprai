@@ -79,8 +79,9 @@ Use when a single provider may be rate-limited or temporarily down.
 | Where a held token can earn, ranked for this wallet | `token_strategies` | `mint`, `amount`, `usdValue` (optional) |
 
 Reach for this whenever someone asks what to do with something they hold —
-"elimde SOL var ne yapayım", "what can I do with my USDC", "where should I put
-this". Do not answer from memory: yields, pool depths and costs all move.
+"what can I do with my USDC", "where should I put this". The question arrives in
+whatever language the user speaks; match on what is being asked, not on the
+words. Do not answer from memory: yields, pool depths and costs all move.
 
 Always pass `amount`, and pass `usdValue` when the value is known — the ranking
 depends on size. Pass `horizonDays` whenever the person says how long the
@@ -140,8 +141,8 @@ Example:
 | Is an open position still worth keeping | `position_review` | `wallet` (use `<auth_wallet>`) |
 
 Reach for this when someone asks about leverage, looping, "the best way to
-earn", or any plan with more than one step — "kaldıraçlı stake", "loop my
-SOL", "what's the highest yield strategy".
+earn", or any plan with more than one step — "loop my SOL", "what's the highest
+yield strategy".
 
 Each flow comes back with `netApr`, the number of `steps`, a `why` in plain
 words, and `beatsSimple`. The baseline flow is marked `isBaseline` and is the
@@ -189,7 +190,7 @@ Example:
   query_onchain("strategy_flows", {"usdValue": "5000"})
 
 Use `position_review` whenever someone asks about positions they already
-hold — "pozisyonlarım nasıl", "should I close this", "is this still worth it".
+hold — "how are my positions", "should I close this", "is this still worth it".
 Everything else here is about getting in; this is the only thing that looks at
 a position afterwards.
 

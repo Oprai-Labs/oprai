@@ -206,6 +206,21 @@ class IntentResult:
     # queries — those return rows that contradict the category (a "what
     # stables exist on Raydium" answer that includes MEW/WSOL pools).
     is_category_request: bool = False
+    # Which class of tokens, when is_category_request is true. One of
+    # "stable" / "lst" / "blue_chip" / "memecoin", else None. Replaces the
+    # multilingual keyword table that used to sit in token_categories.
+    token_category: str | None = None
+    # True when the user asked for POOLS / markets / farms / vaults of a class
+    # rather than for the class itself. A class of TOKENS is a static list we
+    # answer from our own data; a class of POOLS is live protocol data with a
+    # TVL, a fee and a Use button, and the pool tools filter by category
+    # themselves — so this one must keep its tools.
+    wants_venues: bool = False
+    # True for trivial conversational turns — greeting, thanks, an ack, a
+    # one-word reply. Drives prompt sizing: these skip the knowledge block,
+    # the token registry and the memory snippets, which together cost ~26K
+    # tokens the model would never read.
+    is_chitchat: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -295,8 +310,8 @@ Detection rules:
 - Cross-chain detection: this is a Solana-native app, so any mention of a
   non-Solana chain (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC,
   Avalanche, Linea, Scroll, zkSync, Celo, Fantom, Polygon zkEVM, Arbitrum
-  Nova) OR a bridge/cross-chain verb in any language ("bridge",
-  "cross-chain", "köprüle", "köprü", "puente") implies cross-chain →
+  Nova) OR a bridge/cross-chain verb, in whatever language the user wrote it,
+  implies cross-chain →
   emit "relay" in protocols. Relay.link is the default cross-chain
   provider; only emit "debridge" when the user names it
   explicitly. Wormhole and Mayan have no canonical id — when the user
@@ -329,7 +344,7 @@ Category-request detection (boolean field `is_category_request`):
   named pair.
 - FALSE when the user asks for POOLS, pairs, markets, farms or vaults of a
   class rather than for the class itself: "stablecoin pools", "list the RWA
-  pools", "meme pools on Orca", "stablecoin havuzlarını listele". A class of
+  pools", "meme pools on Orca". A class of
   TOKENS is a static list; a class of POOLS is live market data with TVL and
   fees, and the pool tools filter by category themselves. The discriminator
   is whether the user named a venue (pool / pair / market / farm / vault) in
@@ -343,8 +358,27 @@ The downstream router uses this flag to drop pool-list / token-list
 tools so a "what stables exist on Raydium" question never mounts a pool
 mini-app with non-stable rows in it.
 
+`token_category` — WHICH class, when is_category_request is true. Exactly one
+of "stable", "lst", "blue_chip", "memecoin", or null when the message names no
+class or names one outside that set. Judge the meaning, not the wording: the
+user writes in their own language, and a class can be named by a synonym, a
+loan-word or a local spelling. Null is the right answer whenever you are
+unsure — a wrong class makes the assistant answer a question nobody asked.
+
+`wants_venues` — TRUE when the user asked for the POOLS, pairs, markets, farms
+or vaults of a class rather than for the class itself. "Which stablecoins
+exist" is FALSE; "list the stablecoin pools" is TRUE. Same rule about language:
+match on the venue being requested, not on a particular noun.
+
+`is_chitchat` — TRUE only for a turn that carries no request at all: a
+greeting, thanks, an acknowledgement, a one-word reply, a "how are you". The
+moment the message names an asset, an amount, a protocol or asks anything
+answerable from data, it is FALSE. Being wrong here is asymmetric: a FALSE on
+a greeting wastes tokens, a TRUE on a real question strips the context the
+answer needed — so when in doubt, answer FALSE.
+
 Respond with ONLY a single-line JSON object, no other text:
-{"intent":"<one of the four>", "confidence": <0.0-1.0>, "protocols": ["..."], "is_category_request": <true|false>}\
+{"intent":"<one of the four>", "confidence": <0.0-1.0>, "protocols": ["..."], "is_category_request": <true|false>, "token_category": <"stable"|"lst"|"blue_chip"|"memecoin"|null>, "wants_venues": <true|false>, "is_chitchat": <true|false>}\
 """
 
 
@@ -564,7 +598,19 @@ class IntentRouter:
 
             is_category = bool(data.get("is_category_request", False))
 
-            result = IntentResult(intent, confidence, protocols, "model", is_category)
+            _raw_cat = data.get("token_category")
+            token_category = (
+                _raw_cat if _raw_cat in ("stable", "lst", "blue_chip", "memecoin") else None
+            )
+            wants_venues = bool(data.get("wants_venues", False))
+            # An action or query turn is never chitchat, whatever the
+            # classifier said — those need the full context by definition.
+            is_chitchat = bool(data.get("is_chitchat", False)) and intent not in ("action", "query")
+
+            result = IntentResult(
+                intent, confidence, protocols, "model", is_category,
+                token_category, wants_venues, is_chitchat,
+            )
             _cache_set(key, result)
             logger.info(
                 "intent_router: msg=%r → intent=%s conf=%.2f protocols=%s",
