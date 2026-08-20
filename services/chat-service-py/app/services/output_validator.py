@@ -204,6 +204,17 @@ Look for:
   single-sided deposit. Do NOT block "user said USDS-USDC, action uses
   USDC" or "user said SOL-JUP, action uses SOL". Both sides are legitimate
   for liquidity actions on the named pair.
+- **Trade direction reversal** — the money-critical one. When the user's verb
+  unambiguously says SELL and the action is a buy (`*_buy`), or says BUY and
+  the action is a sell (`*_sell`), that is a BLOCK. Read the verb in whatever
+  language it was written; do not translate it into English first and do not
+  rely on how the words look. In several languages the word for one direction
+  contains the word for the other as a prefix or substring, so a verb that
+  looks like SELL can be the ordinary way of saying BUY. Judge the whole
+  phrase in context, never a substring of it.
+  Only block a ONE-SIDED conflict. A message carrying both directions ("sell
+  my BONK and buy WIF") is normal, and so is a message carrying neither — in
+  both cases the direction is not in conflict, so pass it.
 - Unsafe parameter values (transferring to "11111111111111111111111111111111"
   is the system program, never a user wallet).
 
@@ -246,56 +257,6 @@ When ok=true return {"ok": true} only — no extra fields."""
 
 # ── Deterministic buy/sell direction guard ───────────────────────────────
 # Money-critical: a buy-typed action emitted for a clear "sell" request (or
-# vice versa) must never reach the user's wallet, regardless of how good the
-# responder model is. This runs BEFORE the LLM validator and is fully
-# deterministic. Scoped to the pump.fun / PumpSwap trade actions, whose
-# direction is unambiguous (unlike swaps, where direction is token-based and
-# left to the LLM validator).
-_BUY_DIRECTION_ACTIONS: frozenset[str] = frozenset({"pumpfun_buy", "pumpswap_buy"})
-_SELL_DIRECTION_ACTIONS: frozenset[str] = frozenset({"pumpfun_sell", "pumpswap_sell"})
-
-# Turkish "satın al…" means BUY but contains the substring "sat" (sell). We
-# strip every "satın…" form before sell-matching so it can't false-trigger.
-_SATIN_STRIP_RE = re.compile(r"sat[ıi]n\w*", re.IGNORECASE | re.UNICODE)
-_BUY_INTENT_RE = re.compile(
-    r"(?:\bbuy\b|\blong\b|\bape\b|\bcomprar\b|\bkauf\w*|"
-    r"sat[ıi]n\s*al\w*|\bal[ıi]m\w*|\balmak\b|\balay[ıi]m\b|\balabilir\w*|\bal\b)",
-    re.IGNORECASE | re.UNICODE,
-)
-_SELL_INTENT_RE = re.compile(
-    r"(?:\bsell\b|\bdump\b|\bvender\b|\bverkauf\w*|elden\s*ç[ıi]kar\w*|"
-    r"\bboşalt\w*|\bsat\w*)",
-    re.IGNORECASE | re.UNICODE,
-)
-
-
-def _deterministic_direction_conflict(user_message: str, args: dict) -> str | None:
-    """Return a block reason when the action's trade direction contradicts an
-    unambiguous buy/sell intent in the user's message, else None.
-
-    Conservative by design: blocks ONLY on a clear one-sided conflict (user
-    says sell-only but action buys, or user says buy-only but action sells).
-    If the message carries both signals (e.g. "sell X, buy Y") or neither,
-    it defers to the LLM validator — never a false block.
-    """
-    if not isinstance(args, dict) or not user_message:
-        return None
-    action_type = str(args.get("action_type", "") or "")
-    is_buy = action_type in _BUY_DIRECTION_ACTIONS
-    is_sell = action_type in _SELL_DIRECTION_ACTIONS
-    if not (is_buy or is_sell):
-        return None
-
-    text = user_message.lower()
-    buy_hit = bool(_BUY_INTENT_RE.search(text))
-    # Remove "satın…" spans so the BUY word "satın (al)" can't match SELL.
-    sell_hit = bool(_SELL_INTENT_RE.search(_SATIN_STRIP_RE.sub(" ", text)))
-
-    if is_buy and sell_hit and not buy_hit:
-        return f"user asked to SELL but action is a BUY ({action_type})"
-    if is_sell and buy_hit and not sell_hit:
-        return f"user asked to BUY but action is a SELL ({action_type})"
-    return None
 
 
 class ValidatorVerdict:
@@ -322,19 +283,6 @@ async def validate_tool_call(
     "ok=True" verdict — fail-open. The validator is a backstop, not a hard
     gate; the schema + address checks already ran upstream.
     """
-    # Deterministic buy/sell direction guard — runs first, no LLM, no key
-    # needed, provider-agnostic. Catches the money-critical case where a
-    # buy-typed trade is emitted for a clear sell request (or vice versa).
-    try:
-        _args_for_dir = json.loads(tool_args) if isinstance(tool_args, str) else tool_args
-        if isinstance(_args_for_dir, dict):
-            _dir_reason = _deterministic_direction_conflict(user_message, _args_for_dir)
-            if _dir_reason:
-                logger.warning("direction_guard blocked tool call: %s", _dir_reason)
-                return ValidatorVerdict(False, reason=_dir_reason, severity="block")
-    except Exception:
-        logger.debug("direction guard skipped on error", exc_info=True)
-
     api_key = (settings.OPRAI_OPENAI_API_KEY or "").strip()
     if not api_key:
         return ValidatorVerdict(True)

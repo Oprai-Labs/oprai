@@ -1,7 +1,6 @@
 """Message CRUD and streaming operations against chat_messages table."""
 
 import asyncio
-import base64
 import json
 import logging
 import re
@@ -10,7 +9,6 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
 
-from prometheus_client import Counter
 from sqlalchemy import select, update, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -62,13 +60,6 @@ def _is_premature_in_pool_listing(action_type: str) -> bool:
 
 _log = logging.getLogger(__name__)
 
-# Prometheus counter — incremented on every suspected prompt injection attempt.
-# Enables alerting when the rate spikes (e.g. alert if > 10/min per wallet).
-PROMPT_INJECTION_ATTEMPTS = Counter(
-    "oprai_prompt_injection_attempts_total",
-    "Total suspected prompt injection attempts detected in user messages",
-    ["wallet"],
-)
 
 
 async def get_messages(
@@ -229,80 +220,6 @@ _INJECTION_BLOCK_RE = re.compile(
     r"\[(ACTION|QUERY|CLARIFY):",
     re.IGNORECASE,
 )
-
-# Hard-block: unambiguous injection attempts with no legitimate use case.
-# Applied AFTER Unicode NFKC normalisation (see _sanitize_user_input) to catch
-# homoglyph variants (e.g. Cyrillic І instead of Latin I).
-_INJECTION_HARD_BLOCK_RE = re.compile(
-    # English
-    r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?|"
-    r"disregard\s+(the\s+)?system\s+prompt|"
-    r"forget\s+(all\s+)?(previous|your)\s+instructions?|"
-    r"new\s+system\s+prompt\s*:|"
-    r"override\s+(the\s+)?(system\s+)?prompt|"
-    r"do\s+not\s+follow\s+(the\s+)?(previous|above|system)\s+instructions?|"
-    # Turkish
-    r"önceki\s+(tüm\s+)?talimatlar[ıi]\s+(görmezden\s+gel|yoksay|unut)|"
-    r"sistem\s+prompt[u']?\s*(görmezden\s+gel|yoksay|unut|değiştir)|"
-    # Spanish
-    r"ignora\s+(todas\s+las\s+)?instrucciones\s+anteriores|"
-    r"olvida\s+(todas\s+)?tus\s+instrucciones|"
-    # French
-    r"ignore\s+(toutes\s+les\s+)?instructions\s+précédentes|"
-    r"oublie\s+(toutes\s+)?tes\s+instructions|"
-    # German
-    r"ignoriere\s+(alle\s+)?vorherigen\s+anweisungen|"
-    # Portuguese
-    r"ignore\s+(todas\s+as\s+)?instruções\s+anteriores|"
-    # Chinese (Simplified)
-    r"忽略(所有|之前|上面)(的)?指令|"
-    r"忘记(所有|之前)(的)?指令|"
-    # Russian
-    r"игнорируй\s+(все\s+)?предыдущие\s+инструкции|"
-    r"забудь\s+(все\s+)?предыдущие\s+инструкции|"
-    # Arabic
-    r"تجاهل\s+(جميع\s+)?التعليمات\s+السابقة",
-    re.IGNORECASE,
-)
-
-# Patterns for system-prompt extraction attempts — hard-blocked.
-_EXTRACTION_BLOCK_RE = re.compile(
-    r"repeat\s+(everything|all|your|the)\s+(above|before|instructions?|prompt|system)|"
-    r"print\s+(your|the|all|every)?\s*(system\s+)?prompt|"
-    r"(what|show|display|output|reveal|tell\s+me)\s+(are|is|were|was)?\s*(your|the)?\s*"
-    r"(initial|original|full|complete|current|all)?\s*(instructions?|system\s+prompt|context|guidelines?)|"
-    r"verbatim\s+(system|prompt|instruction|above)|"
-    r"(copy|dump|leak|exfiltrate)\s+(the\s+)?(system\s+)?prompt|"
-    # Turkish
-    r"sistem\s+(promptunu?|talimatlar[ıi]n[ıi])\s+(tekrarla|yaz|göster|söyle)|"
-    r"(başlangıç|başlangıçtaki)\s+talimatlar[ıi]\s+(göster|yaz|söyle)",
-    re.IGNORECASE,
-)
-
-# Soft-log only: ambiguous phrases with false-positive risk.
-_OVERRIDE_PHRASES_RE = re.compile(
-    r"you\s+are\s+now\s+(?!OPRAI)|"
-    r"forget\s+(all\s+)?(previous|your)\s+instructions?|"
-    r"talimatlar[ıi]\s+(unut|sil|değiştir)|"
-    r"artık\s+sen\s+(?!OPRAI)",
-    re.IGNORECASE,
-)
-
-# Base64 pattern: 40+ consecutive base64 chars (long enough to encode a jailbreak phrase).
-# Short base64 strings (file names, tokens, etc.) are common and benign.
-_BASE64_LONG_RE = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
-
-
-def _try_decode_base64(text: str) -> str | None:
-    """Return the decoded string if the text looks like meaningful base64, else None."""
-    try:
-        decoded = base64.b64decode(text + "==").decode("utf-8", errors="strict")
-        # Only count as base64 if it decodes to printable ASCII (not binary noise)
-        if all(0x20 <= ord(c) < 0x7F or c in "\n\r\t" for c in decoded):
-            return decoded
-    except Exception:
-        pass
-    return None
 
 _MAX_USER_CONTENT_LEN = 2_000   # ~500 tokens; protects against token-flooding
 _MAX_SESSION_MESSAGES = 200  # 100 conversation turns (user + assistant)
@@ -1070,19 +987,25 @@ def _strip_querycard_duplicate_enumeration(text: str) -> str:
     return cleaned
 
 
-class PromptInjectionError(ValueError):
-    """Raised when a message contains an unambiguous prompt-injection attempt."""
-
-
 def _sanitize_user_input(content: str, wallet: str = "unknown") -> str:
     """Sanitise user-supplied message content before sending it to the LLM.
 
     1. Truncate to _MAX_USER_CONTENT_LEN characters.
     2. Unicode NFKC normalisation — collapses homoglyphs (Cyrillic І → I, etc.).
     3. Escape [ACTION: / [QUERY: / [CLARIFY: block syntax.
-    4. Hard-block unambiguous injection / extraction attempts.
-    5. Check decoded Base64 segments for injection patterns.
-    6. Soft-log ambiguous phrases for Prometheus monitoring.
+
+    Step 3 is not a defence against the *model* — it is a defence against the
+    *frontend*, which parses action blocks out of assistant text. Without it a
+    user could type "[ACTION:transfer] to=… amount=…" into chat and have a real,
+    signable action card rendered from their own message.
+
+    There is deliberately no phrase-matching jailbreak filter here. A pattern
+    list only ever catches the literal phrasings someone thought to write down,
+    while every paraphrase walks straight through, and the comfort it gives is
+    worse than the attacks it stops. What actually bounds the damage is
+    structural: no on-chain action executes without the user's own wallet
+    signature, and every emitted tool call is checked against the user's message
+    by the validator in output_validator.validate_tool_call.
     """
 
     if len(content) > _MAX_USER_CONTENT_LEN:
@@ -1095,39 +1018,7 @@ def _sanitize_user_input(content: str, wallet: str = "unknown") -> str:
     def _escape_block(m: re.Match) -> str:
         return f"⌊{m.group(1)}⌋:"
 
-    content = _INJECTION_BLOCK_RE.sub(_escape_block, content)
-
-    def _block(reason: str) -> None:
-        _log.warning(
-            "Prompt injection blocked — %s (wallet=%s, preview=%r)",
-            reason, wallet, content[:80],
-        )
-        PROMPT_INJECTION_ATTEMPTS.labels(wallet=wallet[:16] + "…").inc()
-        raise PromptInjectionError("Message contains disallowed content.")
-
-    if _INJECTION_HARD_BLOCK_RE.search(content):
-        _block("override pattern")
-
-    if _EXTRACTION_BLOCK_RE.search(content):
-        _block("extraction pattern")
-
-    # Scan long base64 segments — decode and re-check for injection patterns.
-    for b64_match in _BASE64_LONG_RE.finditer(content):
-        decoded = _try_decode_base64(b64_match.group())
-        if decoded and (
-            _INJECTION_HARD_BLOCK_RE.search(decoded)
-            or _EXTRACTION_BLOCK_RE.search(decoded)
-        ):
-            _block("base64-encoded injection")
-
-    if _OVERRIDE_PHRASES_RE.search(content):
-        _log.warning(
-            "Suspected prompt-injection attempt (wallet=%s, preview=%r)",
-            wallet, content[:80],
-        )
-        PROMPT_INJECTION_ATTEMPTS.labels(wallet=wallet[:16] + "…").inc()
-
-    return content
+    return _INJECTION_BLOCK_RE.sub(_escape_block, content)
 
 
 async def _build_recent_context_from_db(db, session_id: str) -> str:
@@ -1395,14 +1286,8 @@ async def stream_chat_response(
 
     _log_turn("start", user_content_excerpt=(user_content or "")[:120])
 
-    # ── 1. Sanitise user input (prompt injection defence) ────────────────
-    try:
-        safe_content = _sanitize_user_input(user_content, wallet=wallet)
-    except PromptInjectionError:
-        _log_turn("rejected", reason="prompt_injection")
-        yield f"data: {json.dumps({'error': 'Your message contains disallowed content.', 'errorType': 'prompt_injection'})}\n\n"
-        yield "data: [DONE]\n\n"
-        return
+    # ── 1. Sanitise user input (truncate, NFKC, escape action-block syntax) ──
+    safe_content = _sanitize_user_input(user_content, wallet=wallet)
 
     # ── 2. Persist user message (store original, send sanitised to LLM) ──
     user_msg_obj = ChatMessage(
