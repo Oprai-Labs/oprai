@@ -164,7 +164,6 @@ make health         # Check service health
 
 | Module | Tests |
 |--------|-------|
-| OpraiOS (Python) | 313+ tests |
 | Angular Frontend | 19+ tests (intent-parser) |
 | Go Services | Service-specific tests |
 | Python Services | pytest |
