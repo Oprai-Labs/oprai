@@ -99,6 +99,13 @@ target/
 
 # Go
 bin/
+# Compiled service binaries (built by `make build-go`, never committed —
+# they bake in the builder's absolute $HOME path and go stale instantly)
+services/*-go/gateway
+services/*-go/auth-service
+services/*-go/admin-service
+services/*-go/chat-service
+services/*-go/memory-service
 
 # Proto generated (local)
 **/proto/gen/
@@ -119,6 +126,10 @@ FIXES.md
 PRODUCTION.md
 SERVER.md
 *.local.md
+# Business/strategy planning + protocol reverse-engineering notes — working
+# documents, not product documentation.
+docs/analytics-and-metrics-plan.md
+docs/mayhem-reverse-engineering.md
 
 # Wrangler
 .wrangler/
@@ -151,3 +162,6 @@ wg-*.conf
 SECRETS.local.md
 *.secrets.md
 CREDENTIALS.local.*
+
+# Unreferenced source art (raw generator exports kept locally, not shipped)
+packages/media/ChatGPT Image*

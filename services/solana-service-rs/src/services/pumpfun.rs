@@ -1341,7 +1341,7 @@ fn is_oprai_fee_transfer(ix: &Instruction) -> bool {
 ///
 /// A token launched in pump.fun's Mayhem mode does not trade through the
 /// bonding curve — it goes through the Mayhem program, whose instruction
-/// arguments are still undecoded (see docs/mayhem-reverse-engineering.md).
+/// arguments are still undecoded.
 /// Building a bonding-curve trade for one produces a transaction that the
 /// program rejects on chain with NotAuthorized, after the user has signed it
 /// and paid the fee. Detecting it costs one account read and turns a confusing

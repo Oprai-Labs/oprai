@@ -37,7 +37,9 @@ Admin panel backend with cross-schema database access for platform management.
 
 - **Schema**: `admin_schema`
 - **Tables**: `admin_users`, `admin_audit_log`
-- **Default admin**: `admin` / `admin123` (change in production)
+- **Initial admin**: created by `scripts/db/seed_admin.sh` from `ADMIN_INITIAL_USER` /
+  `ADMIN_INITIAL_PASSWORD` (16-char minimum, enforced). There is no built-in
+  default password — the service refuses to boot in production if a weak one is found.
 
 ## Run
 

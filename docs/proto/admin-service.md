@@ -67,9 +67,10 @@ Username/password-based authentication for admin users.
 | `expires_at` | `Timestamp` | Token expiration |
 | `admin` | `AdminUser` | Admin info |
 
-**Default Admin:**
-- Username: `admin`
-- Password: `admin123`
+**Initial Admin:**
+- Seeded once by `scripts/db/seed_admin.sh`
+- Username from `ADMIN_INITIAL_USER` (default `admin`)
+- Password from `ADMIN_INITIAL_PASSWORD` — no default, 16-char minimum enforced
 
 ---
 

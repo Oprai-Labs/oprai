@@ -549,10 +549,11 @@ CREATE INDEX idx_audit_created ON admin_schema.admin_audit_log(created_at);
 ## Default Admin
 
 ```sql
--- Migration: First admin user
+-- First admin user — inserted by scripts/db/seed_admin.sh, never by a migration.
+-- The bcrypt hash (cost 12) is generated from $ADMIN_INITIAL_PASSWORD at seed time.
 INSERT INTO admin_schema.admin_users (username, password_hash, role)
-VALUES ('admin', '$2a$12$...', 'superadmin');
--- Password: admin123
+VALUES (:admin_user, :admin_hash, 'superadmin')
+ON CONFLICT (username) DO NOTHING;
 ```
 
 **Note:** This password must be changed in production!
@@ -635,7 +636,7 @@ go build -o bin/admin-service ./cmd/admin-service
 # Login
 curl -X POST http://localhost:3050/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "admin123"}'
+  -d '{"username": "admin", "password": "$ADMIN_INITIAL_PASSWORD"}'
 
 # Dashboard stats
 curl http://localhost:3050/admin/stats \
