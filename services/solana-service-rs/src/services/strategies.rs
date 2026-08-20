@@ -847,9 +847,7 @@ mod entry_cost_tests {
         let cost = entry_cost_pct(&http, USDC, SOL, Some(5000.0))
             .await
             .expect("entry cost for a $5000 USDC position");
-        eprintln!(
-            "USDC → SOL entry: {cost:.4}% (impact + fee, as a share of the whole position)"
-        );
+        eprintln!("USDC → SOL entry: {cost:.4}% (impact + fee, as a share of the whole position)");
         assert!(cost >= 0.0, "a cost cannot be negative");
         // USDC/SOL is one of the deepest pairs on Solana; anything above this
         // means the quote was sized wrongly again.
