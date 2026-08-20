@@ -1,23 +1,26 @@
 """
-Meteora Stake2Earn (m3m3) — Kapsamlı LLM Kalite Testi
+Meteora Stake2Earn (m3m3) — comprehensive LLM quality suite
 
-Kapsanan 4 read endpoint:
-  - meteora_s2e_get_analytics   (parametre yok)
-  - meteora_s2e_get_all_vaults  (parametre yok)
-  - meteora_s2e_filter_vaults   (poolAddress — isteğe bağlı, virgülle ayrılmış)
-  - meteora_s2e_get_vault        (vaultAddress — zorunlu)
+The four read endpoints covered:
+  - meteora_s2e_get_analytics   (no parameters)
+  - meteora_s2e_get_all_vaults  (no parameters)
+  - meteora_s2e_filter_vaults   (poolAddress — optional, comma-separated)
+  - meteora_s2e_get_vault       (vaultAddress — required)
 
-Test sınıfları:
-  TestS2EGetAnalytics         — 14 test (global stats, TVL, fees, yorum kalitesi)
-  TestS2EGetAllVaults         — 12 test (vault listesi, parametresiz, yorum)
-  TestS2EFilterVaults         — 16 test (poolAddress doğru param, çoklu adres, hata)
-  TestS2EGetVault             — 14 test (zorunlu adres, geçersiz adres, yorum derinliği)
-  TestS2ERouting              — 16 test (analytics vs vaults, S2E vs DLMM/DAMM, belirsiz)
-  TestS2EErrorHandling        — 12 test (eksik adres, geçersiz pubkey, >100 adres)
-  TestS2EUserGuidance         — 12 test (Stake2Earn nedir, nasıl stake, vault bulma)
-  TestS2EInterpretationDepth  — 12 test (analiz, karşılaştırma, kullanıcı yararı)
+The user-facing prompts are deliberately written in Turkish: this suite doubles
+as the regression net for Turkish-language intent handling.
 
-Toplam: ~108 test
+Test classes:
+  TestS2EGetAnalytics         — 14 tests (global stats, TVL, fees, interpretation)
+  TestS2EGetAllVaults         — 12 tests (vault listing, no-arg, interpretation)
+  TestS2EFilterVaults         — 16 tests (poolAddress as the right param, multi-address, errors)
+  TestS2EGetVault             — 14 tests (required address, invalid address, depth)
+  TestS2ERouting              — 16 tests (analytics vs vaults, S2E vs DLMM/DAMM, ambiguous)
+  TestS2EErrorHandling        — 12 tests (missing address, invalid pubkey, >100 addresses)
+  TestS2EUserGuidance         — 12 tests (what Stake2Earn is, how to stake, finding a vault)
+  TestS2EInterpretationDepth  — 12 tests (analysis, comparison, user benefit)
+
+Total: ~108 tests
 """
 
 from __future__ import annotations
@@ -216,18 +219,18 @@ def assert_no_hallucination(result: StreamResult, msg: str = ""):
     lower = result.text_lower()
     for p in phrases:
         assert p not in lower, (
-            f"LLM veri çekmeden 'erişimim yok' dedi (hallucination).\n"
+            f"LLM said 'I have no access' without fetching data (hallucination).\n"
             f"Metin: {result.text[:400]}\n{msg}"
         )
 
 
 def assert_no_wrong_filter_param(result: StreamResult, msg: str = ""):
-    """filter_vaults'ta searchTerm/sortKey/orderBy/limit gönderilmemeli"""
+    """filter_vaults must not receive searchTerm/sortKey/orderBy/limit."""
     p = result.params_for("meteora_s2e_filter_vaults")
     wrong = [k for k in p if k in ("searchTerm", "search_term", "sortKey", "sort_key",
                                     "orderBy", "order_by", "limit", "offset")]
     assert not wrong, (
-        f"filter_vaults artık bu parametreleri desteklemiyor ama gönderildi: {wrong}\n"
+        f"filter_vaults no longer supports these parameters, but got: {wrong}\n"
         f"Params: {p}\n{msg}"
     )
 
@@ -274,7 +277,7 @@ class TestS2EGetAnalytics:
         assert_mentions(r, ["fee", "ücret", "dağıt", "total", "distributed"], msg)
 
     def test_parametresiz_cagri(self, chat_client):
-        """Analytics endpoint param almaz — LLM ekstra param göndermemeli"""
+        """The analytics endpoint takes no params — the LLM must not send extras."""
         msg = "Meteora m3m3 Stake2Earn genel istatistikleri"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_s2e_get_analytics", msg)
@@ -421,7 +424,7 @@ class TestS2EGetAllVaults:
         assert_action_triggered(r, "meteora_s2e_get_all_vaults", msg)
         triggered = r.all_triggered_types()
         assert not any("dammv1" in t for t in triggered), (
-            f"DAMM v1 eylemi yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"The DAMM v1 action was triggered by mistake: {triggered}\n{msg}"
         )
 
     def test_vault_liste_ozet(self, chat_client):
@@ -458,10 +461,10 @@ class TestS2EFilterVaults:
         assert_action_triggered(r, "meteora_s2e_filter_vaults", msg)
         p = r.params_for("meteora_s2e_filter_vaults")
         assert "poolAddress" in p, f"poolAddress eksik. Params: {p}\n{msg}"
-        # Her iki adres de virgülle ayrılmış string'de bulunmalı
+        # Both addresses must appear in the comma-separated string
         val = str(p["poolAddress"])
         assert DV1_SOL_USDC in val or DV1_BONK_SOL in val, (
-            f"Adresler poolAddress içinde yok: {val}\n{msg}"
+            f"The addresses are missing from poolAddress: {val}\n{msg}"
         )
         assert_no_wrong_filter_param(r, msg)
 
@@ -472,7 +475,7 @@ class TestS2EFilterVaults:
         assert_param_present(r, "meteora_s2e_filter_vaults", "poolAddress", DV1_SOL_USDC, msg)
 
     def test_searchterm_gonderilmemeli(self, chat_client):
-        """Eski searchTerm parametresi artık geçersiz — LLM gönderirse test başarısız"""
+        """The old searchTerm parameter is gone — sending it is a failure."""
         msg = "Meteora Stake2Earn vault'larını BONK'a göre filtrele"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
@@ -480,20 +483,20 @@ class TestS2EFilterVaults:
             assert_no_wrong_filter_param(r, msg)
 
     def test_token_ismiyle_filtre_yoktur(self, chat_client):
-        """filter_vaults sadece pool adresi kabul eder, token ismi değil"""
+        """filter_vaults accepts a pool address only, never a token name."""
         msg = "Meteora Stake2Earn'de BONK vault'larını bul"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
-        # LLM ya get_all_vaults tetikleyip listeden seçmeli ya da clarify isteyip
-        # adres sorgulamalı — filter_vaults tetiklerse searchTerm göndermemeli
+        # The LLM should either call get_all_vaults and pick from the list, or ask
+        # for the address — and if it calls filter_vaults it must not send searchTerm
         if "meteora_s2e_filter_vaults" in triggered:
             assert_no_wrong_filter_param(r, msg)
         else:
-            # get_all_vaults tetiklenmiş olabilir — bu da kabul edilebilir
+            # get_all_vaults may have been triggered instead — that is acceptable
             assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_filter_parametresiz_cagri(self, chat_client):
-        """poolAddress vermeden çağrı da geçerli — tüm vault'ları döner"""
+        """Calling without poolAddress is valid too — it returns every vault."""
         msg = "Meteora Stake2Earn vault'larını filtrele (tümü)"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
@@ -530,7 +533,7 @@ class TestS2EFilterVaults:
     def test_fake_pool_address_error(self, chat_client):
         msg = f"Meteora Stake2Earn'de {FAKE_ADDR} pool adresli vault'u filtrele"
         r = _chat(chat_client, msg)
-        # LLM çağırır ama API boş/hata döner — LLM bunu açıklamalı
+        # The LLM calls it but the API returns empty or an error — it must explain that
         triggered = r.all_triggered_types()
         if "meteora_s2e_filter_vaults" in triggered:
             assert_explains_error(r, msg)
@@ -545,7 +548,7 @@ class TestS2EFilterVaults:
         p = r.params_for("meteora_s2e_filter_vaults")
         val = str(p.get("poolAddress", ""))
         assert "," in val or addr1 in val, (
-            f"Çoklu adres virgülle gönderilmedi. poolAddress={val!r}\n{msg}"
+            f"Multiple addresses were not comma-separated. poolAddress={val!r}\n{msg}"
         )
 
     def test_filter_anlam_yorumu_dolu(self, chat_client):
@@ -565,7 +568,7 @@ class TestS2EFilterVaults:
         )
 
     def test_sortkeyless_filtre(self, chat_client):
-        """Artık sort_key parametresi yok — LLM eskiden bunu gönderiyordu"""
+        """There is no sort_key parameter any more — the LLM used to send one."""
         msg = f"Meteora Stake2Earn vault filtresi: pool={DV1_SOL_USDC}, TVL'ye göre sırala"
         r = _chat(chat_client, msg)
         if "meteora_s2e_filter_vaults" in r.all_triggered_types():
@@ -598,17 +601,17 @@ class TestS2EGetVault:
         assert_param_present(r, "meteora_s2e_get_vault", "vaultAddress", S2E_BONK_VAULT, msg)
 
     def test_vault_adres_zorunlu(self, chat_client):
-        """vaultAddress olmadan get_vault çağrılamaz — LLM sormalı"""
+        """get_vault cannot be called without vaultAddress — the LLM must ask."""
         msg = "Meteora Stake2Earn vault detaylarını göster"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
         if "meteora_s2e_get_vault" in triggered:
             p = r.params_for("meteora_s2e_get_vault")
             assert "vaultAddress" in p and p["vaultAddress"], (
-                f"vaultAddress zorunlu ama boş/eksik. Params: {p}\n{msg}"
+                f"vaultAddress is required but empty or missing. Params: {p}\n{msg}"
             )
         else:
-            # LLM adres soruyor olmalı
+            # The LLM should be asking for the address
             assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_vault_yorum_no_raw_json(self, chat_client):
@@ -625,12 +628,12 @@ class TestS2EGetVault:
         assert_no_hallucination(r, msg)
 
     def test_vault_adresi_tam_aktarilmali(self, chat_client):
-        """LLM vault adresini tam olarak params'a kopyalamalı — kesmemeli"""
+        """The LLM must copy the vault address into params in full, never truncated."""
         msg = f"Meteora m3m3 vault bilgisi: {S2E_SOL_VAULT}"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_s2e_get_vault", msg)
         assert_param_present(r, "meteora_s2e_get_vault", "vaultAddress", S2E_SOL_VAULT, msg)
-        # Adres tam mı?
+        # Is the address complete?
         p = r.params_for("meteora_s2e_get_vault")
         assert p.get("vaultAddress") == S2E_SOL_VAULT, (
             f"Adres kesik/bozuk: {p.get('vaultAddress')!r} ≠ {S2E_SOL_VAULT}\n{msg}"
@@ -646,7 +649,7 @@ class TestS2EGetVault:
     def test_garbage_vault_address(self, chat_client):
         msg = f"Meteora Stake2Earn vault '{GARBAGE_ADDR}' bilgisi"
         r = _chat(chat_client, msg)
-        # LLM geçersiz adres tespit edip clarify isteyebilir ya da hata açıklayabilir
+        # The LLM may spot the invalid address and clarify, or explain the error
         assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
@@ -762,16 +765,16 @@ class TestS2ERouting:
         )
 
     def test_filter_vault_adres_gerektirir(self, chat_client):
-        """Token ismiyle filter_vaults çağrılamaz — adres gerekir"""
+        """filter_vaults cannot be called with a token name — it needs an address."""
         msg = "Meteora Stake2Earn'de USDC vault'larını filtrele"
         r = _chat(chat_client, msg)
         if "meteora_s2e_filter_vaults" in r.all_triggered_types():
             assert_no_wrong_filter_param(r, msg)
             p = r.params_for("meteora_s2e_filter_vaults")
-            # searchTerm ya da USDC içeriyorsa yanlış
+            # Wrong if it contains searchTerm or USDC
             pa = str(p.get("poolAddress", ""))
             assert "USDC" not in pa or len(pa) >= 32, (
-                f"Token ismi poolAddress olarak gönderildi: {pa}\n{msg}"
+                f"A token name was sent as poolAddress: {pa}\n{msg}"
             )
 
     def test_analytics_tvl_vs_vault_staked(self, chat_client):
@@ -799,7 +802,7 @@ class TestS2ERouting:
         assert_not_triggered(r, "meteora_s2e_filter_vaults", msg)
 
     def test_filter_vs_get_one_routing(self, chat_client):
-        """Pool adresi verilmişse filter_vaults; vault adresi verilmişse get_vault"""
+        """A pool address means filter_vaults; a vault address means get_vault."""
         msg = f"Bu pool adresinin Stake2Earn vault'unu göster: {DV1_SOL_USDC}"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_s2e_filter_vaults", msg)
@@ -810,7 +813,7 @@ class TestS2ERouting:
         assert_action_triggered(r, "meteora_s2e_get_analytics", msg)
         p = r.params_for("meteora_s2e_get_analytics")
         assert "vaultAddress" not in p, (
-            f"analytics'e vaultAddress gönderilmemeli: {p}\n{msg}"
+            f"analytics must not receive a vaultAddress: {p}\n{msg}"
         )
 
     def test_dammv2_sorusu_s2e_tetiklememeli(self, chat_client):
@@ -846,19 +849,19 @@ class TestS2EErrorHandling:
         r = _chat(chat_client, msg)
         assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
-        # Adres sormalı ya da get_all_vaults tetiklemeli
+        # Should ask for the address, or call get_all_vaults
         triggered = r.all_triggered_types()
         if "meteora_s2e_get_vault" in triggered:
             p = r.params_for("meteora_s2e_get_vault")
             assert "vaultAddress" in p and p["vaultAddress"], (
-                f"vaultAddress boş/eksik: {p}\n{msg}"
+                f"vaultAddress empty or missing: {p}\n{msg}"
             )
 
     def test_filter_100_den_fazla_adres(self, chat_client):
         addrs = ",".join([f"Addr{str(i).zfill(40)}" for i in range(101)])
         msg = f"Meteora Stake2Earn'de şu 101 pool adresini filtrele: {addrs[:200]}..."
         r = _chat(chat_client, msg)
-        # LLM ya uyarı vermeli ya da makul bir alt küme göndermeli
+        # The LLM should either warn, or send a sensible subset
         assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_analytics_extra_param_yok(self, chat_client):
@@ -942,7 +945,7 @@ class TestS2EUserGuidance:
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg, min_chars=80)
         assert_no_raw_json(r, msg)
-        # LLM get_all_vaults önerebilir ya da hemen çalıştırabilir
+        # The LLM may suggest get_all_vaults, or just run it
         assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_cooldown_aciklamasi(self, chat_client):

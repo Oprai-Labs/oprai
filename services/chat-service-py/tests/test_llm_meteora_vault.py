@@ -1,26 +1,29 @@
 """
-Meteora Dynamic Vault — Kapsamlı LLM Kalite Testi
+Meteora Dynamic Vault — comprehensive LLM quality suite
 
-Kapsanan 6 read endpoint:
-  - meteora_vault_get_info          (parametre yok — tüm vault'lar)
-  - meteora_vault_get_addresses     (parametre yok — adres tablosu)
-  - meteora_vault_get_state         (tokenMint — zorunlu pubkey)
-  - meteora_vault_get_apy           (tokenMint — zorunlu pubkey)
-  - meteora_vault_get_apy_history   (tokenMint + startTimestamp + endTimestamp — hepsi zorunlu)
-  - meteora_vault_get_virtual_price (tokenMint + strategy — her ikisi zorunlu pubkey)
+The six read endpoints covered:
+  - meteora_vault_get_info          (no parameters — every vault)
+  - meteora_vault_get_addresses     (no parameters — the address table)
+  - meteora_vault_get_state         (tokenMint — required pubkey)
+  - meteora_vault_get_apy           (tokenMint — required pubkey)
+  - meteora_vault_get_apy_history   (tokenMint + startTimestamp + endTimestamp — all required)
+  - meteora_vault_get_virtual_price (tokenMint + strategy — both required pubkeys)
 
-Test sınıfları:
-  TestVaultGetInfo          — 12 test (parametresiz, strateji yorumu, yönlendirme)
-  TestVaultGetAddresses     — 10 test (parametresiz, adres çıktısı yorumu)
-  TestVaultGetState         — 14 test (tokenMint çıkarma, pubkey doğrulama, yorum)
-  TestVaultGetApy           — 14 test (APY yorumu, closest/average/long ayrımı, token çıkarma)
-  TestVaultGetApyHistory    — 18 test (timestamp hesaplama, "son N gün", start<end, format)
-  TestVaultGetVirtualPrice  — 14 test (iki zorunlu param, strateji rehberi, pubkey doğrulama)
-  TestVaultRouting          — 16 test (info vs state vs apy, vault vs S2E, yanlış yönlendirme)
-  TestVaultErrorHandling    — 12 test (geçersiz pubkey, eksik param, start>=end)
-  TestVaultUserGuidance     — 10 test (Dynamic Vault nedir, nasıl kullanılır, strateji açıklaması)
+The user-facing prompts are deliberately written in Turkish: this suite doubles
+as the regression net for Turkish-language intent handling.
 
-Toplam: ~120 test
+Test classes:
+  TestVaultGetInfo          — 12 tests (no-arg, strategy interpretation, routing)
+  TestVaultGetAddresses     — 10 tests (no-arg, reading the address output)
+  TestVaultGetState         — 14 tests (tokenMint extraction, pubkey validation, interpretation)
+  TestVaultGetApy           — 14 tests (APY interpretation, closest/average/long, token extraction)
+  TestVaultGetApyHistory    — 18 tests (timestamp maths, "last N days", start<end, format)
+  TestVaultGetVirtualPrice  — 14 tests (two required params, strategy guidance, pubkey validation)
+  TestVaultRouting          — 16 tests (info vs state vs apy, vault vs S2E, misrouting)
+  TestVaultErrorHandling    — 12 tests (invalid pubkey, missing param, start>=end)
+  TestVaultUserGuidance     — 10 tests (what a Dynamic Vault is, how to use it, strategy)
+
+Total: ~120 tests
 """
 
 from __future__ import annotations
@@ -46,10 +49,10 @@ USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 SOL_MINT  = "So11111111111111111111111111111111111111112"
 BONK_MINT = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
 
-# Bilinen vault strateji adresi (USDC vault, Kamino stratejisi — örnek)
+# A known vault strategy address (USDC vault, Kamino strategy — example)
 USDC_STRATEGY = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
 
-# Geçersiz adresler
+# Invalid addresses
 FAKE_ADDR    = "FakeAddr111111111111111111111111111111111111"
 GARBAGE_ADDR = "not-a-solana-address"
 
@@ -181,7 +184,7 @@ def assert_param_present(
             assert key in p, f"[{action}] '{key}' eksik.\nParams: {p}\n{msg}"
             if contains:
                 assert contains.lower() in str(p[key]).lower(), (
-                    f"[{action}] '{key}'={p[key]!r} içinde '{contains}' yok.\n{msg}"
+                    f"[{action}] '{key}'={p[key]!r} does not contain '{contains}'.\n{msg}"
                 )
             return
     pytest.fail(
@@ -230,7 +233,7 @@ def assert_no_hallucination(result: StreamResult, msg: str = ""):
     lower = result.text_lower()
     for p in phrases:
         assert p not in lower, (
-            f"LLM veri çekmeden 'erişimim yok' dedi.\nMetin: {result.text[:400]}\n{msg}"
+            f"LLM said 'I have no access' without fetching data.\nText: {result.text[:400]}\n{msg}"
         )
 
 
@@ -239,13 +242,13 @@ def assert_timestamp_is_numeric(result: StreamResult, action: str, key: str, msg
     if key in p:
         try:
             val = int(p[key])
-            assert val > 0, f"[{action}] {key}={val} pozitif olmalı.\n{msg}"
-            # Unix timestamp saniye cinsinden — makul aralık (2020-2030)
+            assert val > 0, f"[{action}] {key}={val} must be positive.\n{msg}"
+            # Unix timestamps are in seconds — sane range (2020-2030)
             assert 1577836800 <= val <= 1893456000, (
-                f"[{action}] {key}={val} geçerli Unix timestamp aralığında değil.\n{msg}"
+                f"[{action}] {key}={val} is outside the valid Unix-timestamp range.\n{msg}"
             )
         except (ValueError, TypeError):
-            pytest.fail(f"[{action}] {key}={p[key]!r} sayısal değil.\n{msg}")
+            pytest.fail(f"[{action}] {key}={p[key]!r} is not numeric.\n{msg}")
 
 
 def assert_start_before_end(result: StreamResult, action: str, msg: str = ""):
@@ -258,7 +261,7 @@ def assert_start_before_end(result: StreamResult, action: str, msg: str = ""):
                 f"[{action}] startTimestamp ({start}) >= endTimestamp ({end}).\n{msg}"
             )
         except (ValueError, TypeError):
-            pytest.fail(f"[{action}] timestamp değerleri sayısal değil: {p}\n{msg}")
+            pytest.fail(f"[{action}] the timestamp values are not numeric: {p}\n{msg}")
 
 
 def result_has_response(r: StreamResult) -> bool:
@@ -291,7 +294,7 @@ class TestVaultGetInfo:
         assert_action_triggered(r, "meteora_vault_get_info", msg)
         p = r.params_for("meteora_vault_get_info")
         assert p == {} or all(v is None for v in p.values()), (
-            f"get_info param almaz ama gönderildi: {p}\n{msg}"
+            f"get_info takes no params but got: {p}\n{msg}"
         )
 
     def test_strateji_listesi_istegi(self, chat_client):
@@ -534,7 +537,7 @@ class TestVaultGetState:
         assert_action_triggered(r, "meteora_vault_get_state", msg)
         p = r.params_for("meteora_vault_get_state")
         assert "tokenMint" in p and p["tokenMint"], (
-            f"tokenMint gönderilmedi: {p}\n{msg}"
+            f"tokenMint was not sent: {p}\n{msg}"
         )
 
 
@@ -586,7 +589,7 @@ class TestVaultGetApy:
     def test_apy_vs_history_routing(self, chat_client):
         msg = "Meteora USDC vault güncel APY'si nedir?"
         r = _chat(chat_client, msg)
-        # "güncel" → get_apy, tarih aralığı yok → get_apy_history olmamalı
+        # "current" -> get_apy; no date range, so get_apy_history is wrong
         assert_action_triggered(r, "meteora_vault_get_apy", msg)
         assert_not_triggered(r, "meteora_vault_get_apy_history", msg)
 
@@ -636,7 +639,7 @@ class TestVaultGetApy:
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_vault_get_apy", msg)
         p = r.params_for("meteora_vault_get_apy")
-        assert "tokenMint" in p and p["tokenMint"], f"tokenMint boş: {p}\n{msg}"
+        assert "tokenMint" in p and p["tokenMint"], f"tokenMint is empty: {p}\n{msg}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -671,10 +674,10 @@ class TestVaultGetApyHistory:
         assert_action_triggered(r, "meteora_vault_get_apy_history", msg)
         p = r.params_for("meteora_vault_get_apy_history")
         assert int(p.get("startTimestamp", 0)) == WEEK_AGO_TS, (
-            f"startTimestamp yanlış: {p}\n{msg}"
+            f"startTimestamp is wrong: {p}\n{msg}"
         )
         assert int(p.get("endTimestamp", 0)) == NOW_TS, (
-            f"endTimestamp yanlış: {p}\n{msg}"
+            f"endTimestamp is wrong: {p}\n{msg}"
         )
 
     def test_tarih_araligi_start_before_end(self, chat_client):
@@ -698,7 +701,7 @@ class TestVaultGetApyHistory:
         assert_start_before_end(r, "meteora_vault_get_apy_history", msg)
 
     def test_timestamp_saniye_cinsinden(self, chat_client):
-        """Timestamp milisaniye değil saniye cinsinden olmalı"""
+        """Timestamps must be in seconds, not milliseconds."""
         msg = "Meteora SOL vault APY history son 7 gün"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_vault_get_apy_history", msg)
@@ -706,9 +709,9 @@ class TestVaultGetApyHistory:
         for key in ("startTimestamp", "endTimestamp"):
             if key in p:
                 val = int(p[key])
-                # Milisaniye olsaydı 13 haneli olurdu (>1e12), saniye 10 haneli
+                # Milliseconds would be 13 digits (>1e12); seconds are 10
                 assert val < 10**12, (
-                    f"[apy_history] {key}={val} milisaniye gibi görünüyor, saniye bekleniyor.\n{msg}"
+                    f"[apy_history] {key}={val} looks like milliseconds; seconds expected.\n{msg}"
                 )
 
     def test_no_raw_json(self, chat_client):
@@ -721,7 +724,7 @@ class TestVaultGetApyHistory:
     def test_history_not_apy_current(self, chat_client):
         msg = "Meteora USDC vault geçen ay boyunca APY nasıl değişti?"
         r = _chat(chat_client, msg)
-        # Tarih aralığı belirtildi → history bekleniyor
+        # A date range was given -> history is expected
         assert_action_triggered(r, "meteora_vault_get_apy_history", msg)
 
     def test_token_mint_eksik_clarification(self, chat_client):
@@ -735,14 +738,14 @@ class TestVaultGetApyHistory:
             )
 
     def test_start_gte_end_hata(self, chat_client):
-        """start >= end geçersiz — LLM bu hatayı açıklamalı ya da mantıklı değer göndermeli"""
+        """start >= end is invalid — the LLM must explain it or send sane values."""
         bad_start = NOW_TS + 3600
         bad_end   = NOW_TS
         msg = (f"Meteora USDC vault APY history: "
                f"startTimestamp={bad_start} endTimestamp={bad_end}")
         r = _chat(chat_client, msg)
         if "meteora_vault_get_apy_history" in r.all_triggered_types():
-            # LLM hata açıklamalı ya da düzeltmeli
+            # The LLM should explain the error, or correct it
             assert_explains_error(r, msg) or assert_start_before_end(r, "meteora_vault_get_apy_history", msg)
         else:
             assert_text_not_empty(r, msg)
@@ -785,7 +788,7 @@ class TestVaultGetApyHistory:
         msg = "Meteora USDC vault APY geçmişi göster"
         r = _chat(chat_client, msg)
         assert result_has_response(r), f"LLM returned no response.\n{msg}"
-        # Tarih belirtilmedi — LLM clarify isteyebilir ya da makul varsayılan kullanır
+        # No date given — the LLM may clarify, or use a sensible default
         if "meteora_vault_get_apy_history" in r.all_triggered_types():
             assert_start_before_end(r, "meteora_vault_get_apy_history", msg)
 
@@ -811,7 +814,7 @@ class TestVaultGetVirtualPrice:
         assert_param_present(r, "meteora_vault_get_virtual_price", "strategy", USDC_STRATEGY, msg)
 
     def test_strategy_eksik_clarification(self, chat_client):
-        """Strategy adresi olmadan virtual price çağrılamaz"""
+        """virtual_price cannot be called without a strategy address."""
         msg = "Meteora USDC vault virtual price'ını göster"
         r = _chat(chat_client, msg)
         assert result_has_response(r), f"LLM returned no response.\n{msg}"
@@ -819,7 +822,7 @@ class TestVaultGetVirtualPrice:
         if "meteora_vault_get_virtual_price" in r.all_triggered_types():
             p = r.params_for("meteora_vault_get_virtual_price")
             assert "strategy" in p and p["strategy"], (
-                f"strategy zorunlu ama boş: {p}\n{msg}"
+                f"strategy is required but empty: {p}\n{msg}"
             )
 
     def test_token_mint_eksik_clarification(self, chat_client):
@@ -873,13 +876,13 @@ class TestVaultGetVirtualPrice:
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg, min_chars=60)
         assert_no_raw_json(r, msg)
-        # LLM vault_info veya vault_addresses önermelidir
+        # The LLM should suggest vault_info or vault_addresses
         triggered = r.all_triggered_types()
         if triggered:
             assert any(t in triggered for t in [
                 "meteora_vault_get_info", "meteora_vault_get_addresses"
             ]) or r.asked_clarification(), (
-                f"Strateji bilinmiyorken LLM yönlendirmedi: {triggered}\n{msg}"
+                f"With an unknown strategy the LLM offered no routing: {triggered}\n{msg}"
             )
 
     def test_virtual_price_not_apy(self, chat_client):
@@ -904,14 +907,14 @@ class TestVaultGetVirtualPrice:
         assert_action_triggered(r, "meteora_vault_get_virtual_price", msg)
         p = r.params_for("meteora_vault_get_virtual_price")
         assert p.get("tokenMint") == USDC_MINT, (
-            f"tokenMint yanlış/kesik: {p.get('tokenMint')!r}\n{msg}"
+            f"tokenMint wrong or truncated: {p.get('tokenMint')!r}\n{msg}"
         )
         assert p.get("strategy") == USDC_STRATEGY, (
-            f"strategy yanlış/kesik: {p.get('strategy')!r}\n{msg}"
+            f"strategy wrong or truncated: {p.get('strategy')!r}\n{msg}"
         )
 
     def test_virtual_price_timestamps_icermemeli(self, chat_client):
-        """virtual_price timestamp parametresi almaz — APY history ile karıştırılmamalı"""
+        """virtual_price takes no timestamp — it must not be confused with APY history."""
         msg = (f"Meteora USDC vault virtual price son 7 günlük geçmişi: "
                f"strategy={USDC_STRATEGY}")
         r = _chat(chat_client, msg)
@@ -920,7 +923,7 @@ class TestVaultGetVirtualPrice:
             p = r.params_for("meteora_vault_get_virtual_price")
             bad = [k for k in p if "timestamp" in k.lower() or "time" in k.lower()]
             assert not bad, (
-                f"virtual_price timestamp parametresi almaz ama gönderildi: {bad}\n{msg}"
+                f"virtual_price takes no timestamp param but got: {bad}\n{msg}"
             )
 
 
@@ -1036,7 +1039,7 @@ class TestVaultRouting:
     def test_virtual_price_strateji_info_once(self, chat_client):
         msg = "Meteora USDC vault'un virtual price'ını görmek istiyorum"
         r = _chat(chat_client, msg)
-        # Strateji bilinmiyor — LLM vault_info önermeli ya da clarify isteyebilir
+        # The strategy is unknown — the LLM should suggest vault_info or clarify
         assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
 
@@ -1065,7 +1068,7 @@ class TestVaultErrorHandling:
         msg = (f"Meteora USDC vault APY history: "
                f"startTimestamp={ts} endTimestamp={ts}")
         r = _chat(chat_client, msg)
-        # start == end geçersiz — LLM uyarmalı veya düzeltmeli
+        # start == end is invalid — the LLM should warn or correct it
         if "meteora_vault_get_apy_history" in r.all_triggered_types():
             p = r.params_for("meteora_vault_get_apy_history")
             start = int(p.get("startTimestamp", 0))

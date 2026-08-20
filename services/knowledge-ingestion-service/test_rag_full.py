@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
 OPRAI RAG Full Quality Test — 150 queries
-- Gerçek LLM cevabı üretir (gpt-4o-mini)
-- Otomatik kalite analizi
-- Haiku + embed + LLM tam maliyet hesabı
+- generates a real LLM answer (gpt-4o-mini)
+- scores answer quality automatically
+- reports the full Haiku + embedding + LLM cost
+
+The questions and the eval system prompt are in Turkish on purpose: the quality
+checks below look for Turkish phrases in the answer, so the two move together.
 """
 from __future__ import annotations
 import asyncio, json, os, re, sys, time, uuid
@@ -31,7 +34,7 @@ QDRANT_URL   = ENV.get("QDRANT_URL", "http://localhost:6333")
 COLLECTION   = "oprai_blockchain_knowledge"
 EMBED_MODEL  = "text-embedding-3-large"
 EMBED_DIM    = 3072
-ANSWER_MODEL = "gpt-4o-mini"   # ucuz, hızlı, kalite testi için yeterli
+ANSWER_MODEL = "gpt-4o-mini"   # cheap, fast, good enough to grade quality
 TOP_K        = 50
 TOP_N        = 5
 TOKEN_BUDGET = 1500
@@ -364,7 +367,7 @@ async def main():
 
         cat_stats.setdefault(cat, []).append(score)
 
-        # Her sorgu için kısa çıktı
+        # One short line per query
         src_str = ", ".join(sources[:3]) + ("…" if len(sources) > 3 else "")
         print(f"[{i:3d}] {grade}  s={score}/10  top={top_score:.3f}  {wlen:3d}w  {'📎' if cited else '  '} [{cat}]")
         print(f"       Q: {q[:75]}")
@@ -374,9 +377,9 @@ async def main():
 
     await qdrant.close()
 
-    # ── Detaylı örnekler ──────────────────────────────────────────────────────
+    # ── Worked examples ───────────────────────────────────────────────────────
     print("\n" + "=" * 76)
-    print("ÖRNEK CEVAPLAR — her kategoriden 1 iyi 1 kötü")
+    print("SAMPLE ANSWERS — one good and one bad per category")
     print("=" * 76)
     shown_cats = set()
     for r in sorted(results, key=lambda x: -x["score"]):
@@ -388,14 +391,14 @@ async def main():
 
     poor = [r for r in results if "NO_DATA" in r["grade"] or "POOR" in r["grade"]]
     if poor:
-        print(f"\n❌ BAŞARISIZ SORGULAR ({len(poor)} adet):")
+        print(f"\n❌ FAILED QUERIES ({len(poor)}):")
         for r in poor[:10]:
             print(f"  [{r['cat']}] {r['q'][:70]}")
             print(f"   → {r['ans'][:150]}")
 
     # ── Summary stats ─────────────────────────────────────────────────────────
     print("\n" + "=" * 76)
-    print("ÖZET — KALİTE DAĞILIMI")
+    print("SUMMARY — QUALITY DISTRIBUTION")
     print("=" * 76)
 
     grade_counts: dict[str, int] = {}
@@ -414,21 +417,21 @@ async def main():
     no_data_n = sum(1 for r in results if r["miss"])
     avg_ms    = sum(r["ms"] for r in results) // total
 
-    print(f"\n  Ortalama kalite skoru : {avg_score:.1f}/10")
-    print(f"  Ortalama retrieval    : {avg_top:.3f}")
-    print(f"  Kaynak gösterme oranı : %{cited_pct:.0f}")
-    print(f"  'Bilgim yok' yanıtı  : {no_data_n}/150")
-    print(f"  Ortalama latency      : {avg_ms}ms")
+    print(f"\n  Mean quality score    : {avg_score:.1f}/10")
+    print(f"  Mean retrieval        : {avg_top:.3f}")
+    print(f"  Citation rate         : {cited_pct:.0f}%")
+    print(f"  'No knowledge' answers: {no_data_n}/150")
+    print(f"  Mean latency          : {avg_ms}ms")
 
-    print(f"\n  KATEGORİ BAZINDA:")
+    print(f"\n  BY CATEGORY:")
     for cat, scores in sorted(cat_stats.items()):
         avg = sum(scores) / len(scores)
         bar = "█" * int(avg)
         print(f"  {cat:15s} avg={avg:.1f}  {bar}")
 
-    # ── Maliyet analizi ───────────────────────────────────────────────────────
+    # ── Cost analysis ─────────────────────────────────────────────────────────
     print("\n" + "=" * 76)
-    print("TOKEN & MALİYET ANALİZİ — TAM HESAP")
+    print("TOKEN & COST ANALYSIS — FULL BREAKDOWN")
     print("=" * 76)
 
     # 1. Crawl one-time costs
@@ -438,12 +441,12 @@ async def main():
     haiku_cost        = haiku_in_tok / 1e6 * HAIKU_IN_PRICE + haiku_out_tok / 1e6 * HAIKU_OUT_PRICE
     crawl_total       = crawl_embed_cost + haiku_cost
 
-    print("\n  📦 ONE-TIME İNGESTION MALİYETİ (68 kaynak, ~32 dk)")
+    print("\n  📦 ONE-TIME INGESTION COST (68 sources, ~32 min)")
     print(f"  Embedding  : {CRAWL_EMBED_TOKENS:>10,} tok  →  ${crawl_embed_cost:.2f}")
     print(f"  Haiku in   : {haiku_in_tok:>10,} tok  →  ${haiku_in_tok/1e6*HAIKU_IN_PRICE:.2f}")
     print(f"  Haiku out  : {haiku_out_tok:>10,} tok  →  ${haiku_out_tok/1e6*HAIKU_OUT_PRICE:.2f}")
     print(f"  {'─'*45}")
-    print(f"  TOPLAM     :                    ${crawl_total:.2f}  ({'Haiku: %{:.0f}'.format(haiku_cost/crawl_total*100)})")
+    print(f"  TOTAL      :                    ${crawl_total:.2f}  ({'Haiku: {:.0f}%'.format(haiku_cost/crawl_total*100)})")
 
     # 2. Per-query test costs
     test_embed_cost = tok["embed"] / 1e6 * EMBED_PRICE
@@ -451,20 +454,20 @@ async def main():
     test_llm_out    = tok["llm_out"] / 1e6 * MINI_OUT_PRICE
     test_total      = test_embed_cost + test_llm_in + test_llm_out
 
-    print(f"\n  🧪 BU TEST (150 sorgu, {ANSWER_MODEL})")
+    print(f"\n  🧪 THIS RUN (150 queries, {ANSWER_MODEL})")
     print(f"  Embed      : {tok['embed']:>10,} tok  →  ${test_embed_cost:.4f}")
     print(f"  LLM input  : {tok['llm_in']:>10,} tok  →  ${test_llm_in:.4f}")
     print(f"  LLM output : {tok['llm_out']:>10,} tok  →  ${test_llm_out:.4f}")
     print(f"  {'─'*45}")
-    print(f"  TOPLAM     :                    ${test_total:.4f}")
-    print(f"  Sorgu başı :                    ${test_total/150:.5f}")
+    print(f"  TOTAL      :                    ${test_total:.4f}")
+    print(f"  Per query  :                    ${test_total/150:.5f}")
 
     # 3. Production per-turn costs
     avg_embed_per_q = tok["embed"] / 150
     avg_ctx_tok     = tok["llm_in"] / 150 - 400   # base system prompt ~400 tok
 
     for model_name, in_p, out_p in [
-        ("gpt-4o-mini (şu an)", MINI_IN_PRICE, MINI_OUT_PRICE),
+        ("gpt-4o-mini (current)", MINI_IN_PRICE, MINI_OUT_PRICE),
         ("gpt-4o (prod)", GPT4O_IN_PRICE, GPT4O_OUT_PRICE),
     ]:
         base_sys  = 1800   # OPRAI system prompt
@@ -475,31 +478,31 @@ async def main():
                      llm_out / 1e6 * out_p)
 
         print(f"\n  🚀 PRODUCTION — {model_name}")
-        print(f"  Embed/sorgu    : {avg_embed_per_q:.0f} tok")
+        print(f"  Embed/query    : {avg_embed_per_q:.0f} tok")
         print(f"  RAG context    : ~{avg_ctx_tok:.0f} tok")
         print(f"  LLM input/turn : ~{llm_in:.0f} tok")
         print(f"  LLM output     : ~{llm_out} tok")
-        print(f"  Maliyet/turn   : ${cost_turn:.4f}")
+        print(f"  Cost/turn      : ${cost_turn:.4f}")
         print(f"  {'─'*40}")
         for dau in [100, 500, 1000, 5000, 10000]:
             monthly = dau * 30 * cost_turn
-            print(f"  {dau:6d} advice turn/gün  →  ${monthly:.2f}/ay")
+            print(f"  {dau:6d} advice turns/day  →  ${monthly:.2f}/mo")
 
-    # 4. Haiku vs alternatif analizi
-    print(f"\n  ⚡ HAİKU COST ANALİZİ (ingestion'da)")
-    print(f"  7363 sayfa × 1100 input tok = {haiku_in_tok/1e6:.1f}M tok × $0.80 = ${haiku_in_tok/1e6*HAIKU_IN_PRICE:.2f}")
-    print(f"  7363 sayfa × 85 output tok  = {haiku_out_tok/1e6:.2f}M tok × $4.00 = ${haiku_out_tok/1e6*HAIKU_OUT_PRICE:.2f}")
-    print(f"  Haiku toplam: ${haiku_cost:.2f}  (ingestion'ın %{haiku_cost/crawl_total*100:.0f}'i)")
+    # 4. Haiku versus the alternatives
+    print(f"\n  ⚡ HAIKU COST ANALYSIS (during ingestion)")
+    print(f"  7363 pages × 1100 input tok = {haiku_in_tok/1e6:.1f}M tok × $0.80 = ${haiku_in_tok/1e6*HAIKU_IN_PRICE:.2f}")
+    print(f"  7363 pages × 85 output tok  = {haiku_out_tok/1e6:.2f}M tok × $4.00 = ${haiku_out_tok/1e6*HAIKU_OUT_PRICE:.2f}")
+    print(f"  Haiku total: ${haiku_cost:.2f}  ({haiku_cost/crawl_total*100:.0f}% of ingestion)")
     print(f"")
-    print(f"  ALTERNATİF — Sadece URL pattern ile filtrele (Haiku yok):")
+    print(f"  ALTERNATIVE — filter on URL patterns alone (no Haiku):")
     print(f"    Saved: ${haiku_cost:.2f} one-time")
-    print(f"    Lost:  %36 kötü sayfa (API ref, changelog) koleksiyona girer")
-    print(f"    Tradeoff: ${haiku_cost:.2f} once vs. sürekli düşük retrieval kalitesi")
+    print(f"    Lost:  36% junk pages (API refs, changelogs) enter the collection")
+    print(f"    Tradeoff: ${haiku_cost:.2f} once vs. permanently worse retrieval")
     print(f"")
-    print(f"  ALTERNATİF — gpt-4o-mini ile classify:")
+    print(f"  ALTERNATIVE — classify with gpt-4o-mini:")
     mini_haiku_in  = haiku_in_tok / 1e6 * MINI_IN_PRICE
     mini_haiku_out = haiku_out_tok / 1e6 * MINI_OUT_PRICE
-    print(f"    gpt-4o-mini cost: ${mini_haiku_in + mini_haiku_out:.2f}  (Haiku'nun {(mini_haiku_in+mini_haiku_out)/haiku_cost:.1f}x'i)")
-    print(f"    → Haiku daha ucuz ve hızlı, doğru seçim ✅")
+    print(f"    gpt-4o-mini cost: ${mini_haiku_in + mini_haiku_out:.2f}  ({(mini_haiku_in+mini_haiku_out)/haiku_cost:.1f}x Haiku)")
+    print(f"    → Haiku is cheaper and faster; the right call ✅")
 
 asyncio.run(main())
